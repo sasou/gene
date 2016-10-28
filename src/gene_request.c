@@ -45,7 +45,6 @@ ZEND_END_ARG_INFO()
 zval * request_query(int type, char * name, int len TSRMLS_DC)
 {
 	zval *carrier;
-
 	zend_bool jit_initialization = PG(auto_globals_jit);
 	if (jit_initialization) {
 		zend_is_auto_global_str(ZEND_STRL("_ENV"));

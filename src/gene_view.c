@@ -44,10 +44,10 @@ int gene_view_display(char *file TSRMLS_DC)
 {
 	char *path;
 	int path_len;
-	if (GENE_G(app_root) && GENE_G(app_ext)) {
+	if (GENE_G(app_root)) {
 		path_len = spprintf(&path, 0, "%s/%s/%s%s", GENE_G(app_root), GENE_G(app_view), file, GENE_G(app_ext));
 	} else {
-		path_len = spprintf(&path, 0, "%s/%s/%s%s", GENE_G(app_root), GENE_VIEW_VIEW, file, GENE_VIEW_EXT);
+		path_len = spprintf(&path, 0, "app/%s/%s%s", GENE_VIEW_VIEW, file, GENE_VIEW_EXT);
 	}
 	gene_load_import(path TSRMLS_CC);
 	efree(path);
