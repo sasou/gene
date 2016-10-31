@@ -208,7 +208,7 @@ zend_function_entry gene_reg_methods[] = {
 GENE_MINIT_FUNCTION(reg)
 {
     zend_class_entry gene_reg;
-    GENE_INIT_CLASS_ENTRY(gene_reg, "gene_reg",  "gene\\reg", gene_reg_methods);
+    GENE_INIT_CLASS_ENTRY(gene_reg, "Gene_Reg",  "Gene\\Reg", gene_reg_methods);
     gene_reg_ce = zend_register_internal_class_ex(&gene_reg, NULL);
     gene_reg_ce->ce_flags |= ZEND_ACC_FINAL;
 

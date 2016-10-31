@@ -422,7 +422,7 @@ zend_function_entry gene_application_methods[] = {
 GENE_MINIT_FUNCTION(application)
 {
     zend_class_entry gene_application;
-    GENE_INIT_CLASS_ENTRY(gene_application, "gene_application",  "gene\\application", gene_application_methods);
+    GENE_INIT_CLASS_ENTRY(gene_application, "Gene_Application",  "Gene\\Application", gene_application_methods);
     gene_application_ce = zend_register_internal_class(&gene_application TSRMLS_CC);
 
 	return SUCCESS;

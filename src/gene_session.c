@@ -205,7 +205,7 @@ zend_function_entry gene_session_methods[] = {
 GENE_MINIT_FUNCTION(session)
 {
     zend_class_entry gene_session;
-    GENE_INIT_CLASS_ENTRY(gene_session, "gene_session",  "gene\\session", gene_session_methods);
+    GENE_INIT_CLASS_ENTRY(gene_session, "Gene_Session",  "Gene\\Session", gene_session_methods);
     gene_session_ce = zend_register_internal_class(&gene_session TSRMLS_CC);
 
 	//debug
