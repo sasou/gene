@@ -276,7 +276,7 @@ zend_function_entry gene_controller_methods[] = {
 GENE_MINIT_FUNCTION(controller)
 {
     zend_class_entry gene_controller;
-    GENE_INIT_CLASS_ENTRY(gene_controller, "gene_controller",  "gene\\controller", gene_controller_methods);
+    GENE_INIT_CLASS_ENTRY(gene_controller, "Gene_Controller",  "Gene\\Controller", gene_controller_methods);
     gene_controller_ce = zend_register_internal_class(&gene_controller TSRMLS_CC);
 
 	//debug

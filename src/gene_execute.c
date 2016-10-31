@@ -139,7 +139,7 @@ zend_function_entry gene_execute_methods[] = {
 GENE_MINIT_FUNCTION(execute)
 {
     zend_class_entry gene_execute;
-    GENE_INIT_CLASS_ENTRY(gene_execute, "gene_execute",  "gene\\execute", gene_execute_methods);
+    GENE_INIT_CLASS_ENTRY(gene_execute, "Gene_Execute",  "Gene\\Execute", gene_execute_methods);
     gene_execute_ce = zend_register_internal_class(&gene_execute TSRMLS_CC);
 
 	//debug

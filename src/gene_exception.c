@@ -274,7 +274,7 @@ zend_function_entry gene_exception_methods[] = {
 GENE_MINIT_FUNCTION(exception)
 {
     zend_class_entry gene_exception;
-    GENE_INIT_CLASS_ENTRY(gene_exception, "gene_exception",  "gene\\exception", gene_exception_methods);
+    GENE_INIT_CLASS_ENTRY(gene_exception, "Gene_Exception",  "Gene\\Exception", gene_exception_methods);
     gene_exception_ce = zend_register_internal_class_ex(&gene_exception, gene_get_exception_base(0));
 
 	//prop

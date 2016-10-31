@@ -288,7 +288,7 @@ zend_function_entry gene_load_methods[] = {
 GENE_MINIT_FUNCTION(load)
 {
     zend_class_entry gene_load;
-    GENE_INIT_CLASS_ENTRY(gene_load, "gene_load",  "gene\\load", gene_load_methods);
+    GENE_INIT_CLASS_ENTRY(gene_load, "Gene_Load",  "Gene\\Load", gene_load_methods);
     gene_load_ce = zend_register_internal_class(&gene_load TSRMLS_CC);
 
 	//static

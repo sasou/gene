@@ -18,8 +18,8 @@
 #define GENE_LOAD_H
 #define GENE_LOAD_PROPERTY_INSTANCE "_instance"
 #define GENE_SPL_AUTOLOAD_REGISTER_NAME "spl_autoload_register"
-#define GENE_AUTOLOAD_FUNC_NAME 		"gene_load::autoload"
-#define GENE_AUTOLOAD_FUNC_NAME_NS 		"gene\\load::autoload"
+#define GENE_AUTOLOAD_FUNC_NAME 		"Gene_Load::autoload"
+#define GENE_AUTOLOAD_FUNC_NAME_NS 		"Gene\\Load::autoload"
 
 #if ((PHP_MAJOR_VERSION == 5) && (PHP_MINOR_VERSION > 2)) || (PHP_MAJOR_VERSION > 5)
 #define GENE_STORE_EG_ENVIRON() \
