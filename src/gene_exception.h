@@ -21,7 +21,8 @@
 #define GENE_ERROR_FUNC_NAME_NS 	"Gene\\Exception::doError"
 #define GENE_EXCEPTION_FUNC_NAME_NS "Gene\\Exception::doException"
 #define GENE_EXCEPTION_EX "_ex"
-#define HTML_ERROR_CONTENT "echo ' [Uncaught ',get_class($e),']:',$e->getMessage(),'File:***',substr($e->getFile(),-(ceil(strlen($e->getFile())*0.6))),' ',$e->getLine();"
+#define HTML_ERROR_CONTENT "$e = Gene_Exception::getEx();echo ' [Uncaught ',get_class($e),']:',$e->getMessage(),' File:***',substr($e->getFile(),-(ceil(strlen($e->getFile())*0.6))),' ',$e->getLine();die;"
+#define HTML_ERROR_CONTENT_NS "$e = \\Gene\\Exception::getEx();echo ' [Uncaught ',get_class($e),']:',$e->getMessage(),' File:***',substr($e->getFile(),-(ceil(strlen($e->getFile())*0.6))),' ',$e->getLine();die;"
 
 
 extern zend_class_entry *gene_exception_ce;

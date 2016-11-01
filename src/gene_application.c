@@ -115,13 +115,11 @@ void gene_ini_router()
 void gene_router_set_uri(zval **leaf TSRMLS_DC)
 {
 	zval *key;
-	if ((key = zend_hash_str_find((*leaf)->value.arr, "key", 4)) != NULL){
+	if ((key = zend_hash_str_find((*leaf)->value.arr, "key", 3)) != NULL){
 		if (Z_STRLEN_P(key)) {
 			if (GENE_G(router_path)){
-			    if (GENE_G(router_path)) {
-			    	efree(GENE_G(router_path));
-			    	GENE_G(router_path) = NULL;
-			    }
+			    efree(GENE_G(router_path));
+			    GENE_G(router_path) = NULL;
 			}
 			GENE_G(router_path) =  estrndup(Z_STRVAL_P(key), Z_STRLEN_P(key));
 		}
