@@ -45,6 +45,12 @@ int gene_view_display(char *file TSRMLS_DC)
 	char *path;
 	int path_len;
 	if (GENE_G(app_root)) {
+		if (!GENE_G(app_view)) {
+			GENE_G(app_view) = estrndup(GENE_VIEW_VIEW, strlen(GENE_VIEW_VIEW));
+		}
+		if (!GENE_G(app_ext)) {
+			GENE_G(app_ext) = estrndup(GENE_VIEW_EXT, strlen(GENE_VIEW_EXT));
+		}
 		path_len = spprintf(&path, 0, "%s/%s/%s%s", GENE_G(app_root), GENE_G(app_view), file, GENE_G(app_ext));
 	} else {
 		path_len = spprintf(&path, 0, "app/%s/%s%s", GENE_VIEW_VIEW, file, GENE_VIEW_EXT);
@@ -66,10 +72,10 @@ int gene_view_display_ext(char *file ,zend_bool isCompile TSRMLS_DC)
 	compile_path_len = spprintf(&compile_path, 0, "%s/Cache/Views/%s.php", GENE_G(app_root), file);
 	if (isCompile || GENE_G(view_compile)) {
 		if (!GENE_G(app_view)) {
-			GENE_G(app_view) = estrndup(GENE_VIEW_VIEW, 5);
+			GENE_G(app_view) = estrndup(GENE_VIEW_VIEW, strlen(GENE_VIEW_VIEW));
 		}
 		if (!GENE_G(app_ext)) {
-			GENE_G(app_ext) = estrndup(GENE_VIEW_EXT, 4);
+			GENE_G(app_ext) = estrndup(GENE_VIEW_EXT, strlen(GENE_VIEW_EXT));
 		}
 		path_len = spprintf(&path, 0, "%s/%s/%s%s", GENE_G(app_root), GENE_G(app_view), file, GENE_G(app_ext));
 		stream = php_stream_open_wrapper(path, "rb", REPORT_ERRORS, NULL);

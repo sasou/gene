@@ -107,13 +107,7 @@ void gene_trigger_error(int type TSRMLS_DC, char *format, ...) {
 	va_end(args);
 
 	if (GENE_G(gene_error)) {
-#if PHP_MAJOR_VERSION == 5 && PHP_MINOR_VERSION < 3
-		if (!EG(exception)) {
-			gene_throw_exception(type, message TSRMLS_CC);
-		}
-#else
 		gene_throw_exception(type, message TSRMLS_CC);
-#endif
 	} else {
 		php_error_docref(NULL TSRMLS_CC, E_RECOVERABLE_ERROR, "%s", message);
 	}
@@ -150,19 +144,6 @@ void gene_throw_exception(long code, char *message TSRMLS_DC) {
 	zend_class_entry *base_exception = gene_exception_ce;
 
 	zend_throw_exception(base_exception, message, code TSRMLS_CC);
-}
-/* }}} */
-
-/*
- * {{{ gene_exception
- */
-PHP_METHOD(gene_exception, __construct)
-{
-	long debug = 0;
-    if (zend_parse_parameters(ZEND_NUM_ARGS() TSRMLS_CC,"|l", &debug) == FAILURE)
-    {
-        RETURN_NULL();
-    }
 }
 /* }}} */
 
@@ -210,6 +191,15 @@ PHP_METHOD(gene_exception, doError)
 }
 /* }}} */
 
+void set_gene_exception(zend_object *exception) {
+    zval *ex;
+	zval  zv;
+	ZVAL_OBJ(&zv, exception);
+	ex = &zv;
+	Z_SET_REFCOUNT(zv, 1);
+	zend_update_static_property(gene_exception_ce, GENE_EXCEPTION_EX, strlen(GENE_EXCEPTION_EX), ex);
+}
+
 /*
  * {{{ gene_exception::doException
  */
@@ -221,13 +211,16 @@ PHP_METHOD(gene_exception, doException)
     {
         RETURN_NULL();
     }
-    Z_TRY_ADDREF_P(e);
-    zend_update_static_property(gene_exception_ce, GENE_EXCEPTION_EX, strlen(GENE_EXCEPTION_EX), e);
+	set_gene_exception(Z_OBJ_P(e));
     if (GENE_G(gene_exception) == 1) {
-		gene_view_display("error");
+		gene_view_display_ext("error" , 0 TSRMLS_CC);
     } else {
     	if (GENE_G(show_exception) == 1) {
-        	spprintf(&run, 0, "%s", HTML_ERROR_CONTENT);
+    		if (GENE_G(use_namespace)) {
+    			spprintf(&run, 0, "%s", HTML_ERROR_CONTENT_NS);
+    		} else {
+    			spprintf(&run, 0, "%s", HTML_ERROR_CONTENT);
+    		}
         	zend_try {
         		zend_eval_stringl(run, strlen(run), NULL, "gene_error" TSRMLS_CC);
         	} zend_catch {
@@ -262,7 +255,10 @@ zend_function_entry gene_exception_methods[] = {
 		PHP_ME(gene_exception, doError, NULL, ZEND_ACC_PUBLIC|ZEND_ACC_STATIC)
 		PHP_ME(gene_exception, doException, NULL, ZEND_ACC_PUBLIC|ZEND_ACC_STATIC)
 		PHP_ME(gene_exception, getEx, NULL, ZEND_ACC_PUBLIC|ZEND_ACC_STATIC)
+#if ((PHP_MAJOR_VERSION == 5) && (PHP_MINOR_VERSION < 3)) || (PHP_MAJOR_VERSION < 5)
 		PHP_ME(gene_exception, __construct, NULL, ZEND_ACC_PUBLIC|ZEND_ACC_CTOR)
+		PHP_ME(gene_exception, getPrevious, NULL, ZEND_ACC_PUBLIC)
+#endif
 		{NULL, NULL, NULL}
 };
 /* }}} */
@@ -276,6 +272,9 @@ GENE_MINIT_FUNCTION(exception)
     zend_class_entry gene_exception;
     GENE_INIT_CLASS_ENTRY(gene_exception, "Gene_Exception",  "Gene\\Exception", gene_exception_methods);
     gene_exception_ce = zend_register_internal_class_ex(&gene_exception, gene_get_exception_base(0));
+	zend_declare_property_null(gene_exception_ce, ZEND_STRL("message"), 	ZEND_ACC_PROTECTED);
+	zend_declare_property_long(gene_exception_ce, ZEND_STRL("code"), 0,	ZEND_ACC_PROTECTED);
+	zend_declare_property_null(gene_exception_ce, ZEND_STRL("previous"),  ZEND_ACC_PROTECTED);
 
 	//prop
     zend_declare_property_null(gene_exception_ce, GENE_EXCEPTION_EX, strlen(GENE_EXCEPTION_EX),  ZEND_ACC_PROTECTED|ZEND_ACC_STATIC);
