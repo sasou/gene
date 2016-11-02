@@ -215,22 +215,20 @@ PHP_METHOD(gene_exception, doException)
     if (GENE_G(gene_exception) == 1) {
 		gene_view_display_ext("error" , 0 TSRMLS_CC);
     } else {
-    	if (GENE_G(show_exception) == 1) {
-    		if (GENE_G(use_namespace)) {
-    			spprintf(&run, 0, "%s", HTML_ERROR_CONTENT_NS);
-    		} else {
-    			spprintf(&run, 0, "%s", HTML_ERROR_CONTENT);
-    		}
-        	zend_try {
-        		zend_eval_stringl(run, strlen(run), NULL, "gene_error" TSRMLS_CC);
-        	} zend_catch {
-        		efree(run);
-        		run = NULL;
-        		zend_bailout();
-        	} zend_end_try();
-        	efree(run);
-        	run = NULL;
-    	}
+		if (GENE_G(use_namespace)) {
+			spprintf(&run, 0, "%s", HTML_ERROR_CONTENT_NS);
+		} else {
+			spprintf(&run, 0, "%s", HTML_ERROR_CONTENT);
+		}
+		zend_try {
+			zend_eval_stringl(run, strlen(run), NULL, "gene_error" TSRMLS_CC);
+		} zend_catch {
+			efree(run);
+			run = NULL;
+			zend_bailout();
+		} zend_end_try();
+		efree(run);
+		run = NULL;
     }
 }
 /* }}} */

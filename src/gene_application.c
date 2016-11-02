@@ -229,6 +229,15 @@ PHP_METHOD(gene_application, getRouterUri)
 /* }}} */
 
 /*
+ * {{{ public gene_application::getEnvironment()
+ */
+PHP_METHOD(gene_application, getEnvironment)
+{
+	RETURN_BOOL(GENE_G(run_environment));
+}
+/* }}} */
+
+/*
  * {{{ public gene_application::config()
  */
 PHP_METHOD(gene_application, config)
@@ -407,6 +416,7 @@ zend_function_entry gene_application_methods[] = {
 		PHP_ME(gene_application, getMethod, NULL, ZEND_ACC_PUBLIC|ZEND_ACC_STATIC)
 		PHP_ME(gene_application, getPath, NULL, ZEND_ACC_PUBLIC|ZEND_ACC_STATIC)
 		PHP_ME(gene_application, getRouterUri, NULL, ZEND_ACC_PUBLIC|ZEND_ACC_STATIC)
+		PHP_ME(gene_application, getEnvironment, NULL, ZEND_ACC_PUBLIC|ZEND_ACC_STATIC)
 		PHP_ME(gene_application, config, NULL, ZEND_ACC_PUBLIC|ZEND_ACC_STATIC)
 		PHP_ME(gene_application, __construct, NULL, ZEND_ACC_PUBLIC|ZEND_ACC_CTOR)
 		{NULL, NULL, NULL}
