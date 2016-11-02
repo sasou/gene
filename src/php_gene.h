@@ -20,7 +20,7 @@
 extern zend_module_entry gene_module_entry;
 #define phpext_gene_ptr &gene_module_entry
 
-#define PHP_GENE_VERSION "1.21"
+#define PHP_GENE_VERSION "1.22"
 
 #ifdef PHP_WIN32
 #	define PHP_GENE_API __declspec(dllexport)
@@ -74,10 +74,10 @@ ZEND_BEGIN_MODULE_GLOBALS(gene)
 	char 		*app_key;
 	char 		*auto_load_fun;
 	char 		*child_views;
-	zend_bool   use_namespace;
     zend_bool   gene_error;
     zend_bool   gene_exception;
-    zend_bool   show_exception;
+    zend_bool   run_environment;
+	zend_bool   use_namespace;
     zend_bool   view_compile;
 	HashTable	*cache;
 	HashTable	*cache_easy;
