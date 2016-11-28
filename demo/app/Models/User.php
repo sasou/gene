@@ -1,5 +1,8 @@
 <?php
-class Models_User{
+
+namespace Models;
+
+class User{
 	function test(){
 		echo ' app test ';
 	}

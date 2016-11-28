@@ -251,7 +251,7 @@ void gene_cache_zval_local(zval *dst, zval *source) /* {{{ */ {
 	switch (Z_TYPE_P(source)) {
 		case IS_CONSTANT:
 		case IS_STRING:
-			ZVAL_INTERNED_STR(dst, zend_string_init(Z_STRVAL_P(source), Z_STRLEN_P(source), 1));
+			ZVAL_INTERNED_STR(dst, zend_string_init(Z_STRVAL_P(source), Z_STRLEN_P(source), 0));
 			break;
 		case IS_ARRAY:
 			{

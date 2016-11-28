@@ -25,7 +25,7 @@ $router->clear()
 	->get("/index",function(){
 		echo 'index';
 	},"@clearAll")
-	->error(401,function(){echo " 401 "; })
+	->error(404,function(){echo " 404 "; })
 	->error("exception",function($e){
 		var_dump($e);
 		gene_router::display("error");

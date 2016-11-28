@@ -51,14 +51,15 @@ ZEND_END_ARG_INFO()
 zval * get_path_router(zval *val, char *paths TSRMLS_DC)
 {
 	zval *ret = NULL,*tmp = NULL,*leaf = NULL,var;
-	char *seg = NULL,*ptr = NULL;
+	char *seg = NULL,*ptr = NULL,*path = NULL;
 	zend_string *key = NULL;
 	zend_long idx;
 	if (strlen(paths)==0) {
 		leaf = zend_symtable_str_find(Z_ARRVAL_P(val), "leaf", 4);
 		return leaf;
 	} else {
-		seg = php_strtok_r(paths, "/", &ptr);
+		spprintf(&path, 0, "%s", paths);
+		seg = php_strtok_r(path, "/", &ptr);
 		if (ptr && strlen(seg)>0) {
 			ret = zend_symtable_str_find(Z_ARRVAL_P(val), seg, strlen(seg));
 			if (ret){
@@ -127,6 +128,8 @@ zval * get_path_router(zval *val, char *paths TSRMLS_DC)
 			}
 		}
 	}
+	efree(path);
+	path = NULL;
 	return leaf;
 }
 /* }}} */
@@ -504,7 +507,7 @@ void get_router_content_run(char *methodin,char *pathin,zval *safe TSRMLS_DC)
 			get_router_info(&lead,&cacheHook TSRMLS_CC);
 			lead = NULL;
 		} else {
-			if (!get_router_error_run_by_router(cacheHook,"401" TSRMLS_CC)) {
+			if (!get_router_error_run_by_router(cacheHook,"404" TSRMLS_CC)) {
 				if (GENE_G(path)) {
 					php_error_docref(NULL TSRMLS_CC, E_WARNING, "Gene Unknown Url:%s",  GENE_G(path));
 				} else {

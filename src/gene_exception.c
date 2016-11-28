@@ -197,7 +197,7 @@ void set_gene_exception(zend_object *exception) {
 	ZVAL_OBJ(&zv, exception);
 	ex = &zv;
 	Z_SET_REFCOUNT(zv, 1);
-	zend_update_static_property(gene_exception_ce, GENE_EXCEPTION_EX, strlen(GENE_EXCEPTION_EX), ex);
+	zend_update_static_property(gene_exception_ce, ZEND_STRL(GENE_EXCEPTION_EX), ex);
 }
 
 /*
@@ -239,7 +239,7 @@ PHP_METHOD(gene_exception, doException)
  */
 PHP_METHOD(gene_exception, getEx)
 {
-	zval *ex = zend_read_static_property(gene_exception_ce, GENE_EXCEPTION_EX, strlen(GENE_EXCEPTION_EX), 1);
+	zval *ex = zend_read_static_property(gene_exception_ce, ZEND_STRL(GENE_EXCEPTION_EX), 1);
 	RETURN_ZVAL(ex, 1, 0);
 }
 /* }}} */
@@ -275,7 +275,7 @@ GENE_MINIT_FUNCTION(exception)
 	zend_declare_property_null(gene_exception_ce, ZEND_STRL("previous"),  ZEND_ACC_PROTECTED);
 
 	//prop
-    zend_declare_property_null(gene_exception_ce, GENE_EXCEPTION_EX, strlen(GENE_EXCEPTION_EX),  ZEND_ACC_PROTECTED|ZEND_ACC_STATIC);
+    zend_declare_property_null(gene_exception_ce, ZEND_STRL(GENE_EXCEPTION_EX),  ZEND_ACC_PROTECTED|ZEND_ACC_STATIC);
     //
 	return SUCCESS;
 }
