@@ -238,12 +238,17 @@ PHP_FUNCTION(gene_urlParams){
 	RETURN_NULL();
 }
 
+PHP_FUNCTION(gene_version) {
+	RETURN_STRING(PHP_GENE_VERSION);
+}
+
 /* {{{ gene_functions[]
  *
  * Every user visible function must have an entry in gene_functions[].
  */
 zend_function_entry gene_functions[] = {
 	PHP_FE(gene_urlParams,NULL)
+	PHP_FE(gene_version,NULL)
 	PHP_FE_END
 };
 /* }}} */

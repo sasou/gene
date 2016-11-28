@@ -271,7 +271,7 @@ char * replace_string (char * string, char source, const char * destination )
 	size = 0;
 	while (sk != NULL)
 	{
-		if((size == 0) && (isFirst == 1)) {
+		if(isFirst == 1) {
 			if (size<num) {
 				strcat(newstr,destination);
 			}
