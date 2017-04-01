@@ -71,19 +71,19 @@ PHP_METHOD(gene_execute, __construct)
  */
 PHP_METHOD(gene_execute, GetOpcodes)
 {
-	char *php_script;
-	int php_script_len, i;
+	zend_string *php_script;
+	int i;
 	zval zv, opcodes_array,*debug;
 	zend_op_array *op_array;
 	debug = NULL;
-	if (zend_parse_parameters(ZEND_NUM_ARGS() TSRMLS_CC, "s", &php_script, &php_script_len) == FAILURE) {
+	if (zend_parse_parameters(ZEND_NUM_ARGS() TSRMLS_CC, "S", &php_script) == FAILURE) {
 		return;
 	}
 	debug = zend_read_property(gene_execute_ce, getThis(), GENE_EXECUTE_DEBUG, strlen(GENE_EXECUTE_DEBUG), 0, NULL);
 	if(debug->value.lval){
-		php_printf(php_script);
+		php_printf(ZSTR_VAL(php_script));
 	}
-	ZVAL_STRINGL(&zv, php_script, php_script_len);
+	ZVAL_STRINGL(&zv, ZSTR_VAL(php_script), ZSTR_LEN(php_script));
 	array_init(&opcodes_array);
 
 	op_array = zend_compile_string(&zv, "");
@@ -106,13 +106,12 @@ PHP_METHOD(gene_execute, GetOpcodes)
  */
 PHP_METHOD(gene_execute, StringRun)
 {
-	char *php_script;
-	int php_script_len;
-	if (zend_parse_parameters(ZEND_NUM_ARGS() TSRMLS_CC, "s", &php_script, &php_script_len) == FAILURE) {
+	zend_string *php_script;
+	if (zend_parse_parameters(ZEND_NUM_ARGS() TSRMLS_CC, "S", &php_script) == FAILURE) {
 		return;
 	}
 	zend_try {
-		zend_eval_stringl(php_script, php_script_len, NULL, "" TSRMLS_CC);
+		zend_eval_stringl(ZSTR_VAL(php_script), ZSTR_LEN(php_script), NULL, "" TSRMLS_CC);
 	} zend_catch {
 		zend_bailout();
 	}zend_end_try();

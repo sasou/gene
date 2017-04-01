@@ -32,7 +32,7 @@ zend_class_entry * gene_response_ce;
 
 /** {{{ int gene_response_set_redirect(zval *response, char *url, long code TSRMLS_DC)
 */
-int gene_response_set_redirect(char *url, long code TSRMLS_DC) {
+int gene_response_set_redirect(char *url, zend_long code TSRMLS_DC) {
 	sapi_header_line ctr = {0};
 
 	ctr.line_len = spprintf(&(ctr.line), 0, "%s %s", "Location:", url);
@@ -63,19 +63,14 @@ PHP_METHOD(gene_response, __construct)
 /** {{{ proto public gene_response::redirect(string $url)
 */
 PHP_METHOD(gene_response, redirect) {
-  char  *url;
-  int  url_len;
-  long  code = 302;
+  zend_string  *url;
+  zend_long  code = 302;
 
-  if (zend_parse_parameters(ZEND_NUM_ARGS() TSRMLS_CC, "s|l", &url, &url_len, &code) == FAILURE) {
-    return;
+  if (zend_parse_parameters(ZEND_NUM_ARGS() TSRMLS_CC, "S|l", &url, &code) == FAILURE) {
+	return;
   }
 
-  if (!url_len) {
-    RETURN_FALSE;
-  }
-
-  RETURN_BOOL(gene_response_set_redirect(url, code TSRMLS_CC));
+  gene_response_set_redirect(ZSTR_VAL(url), code TSRMLS_CC);
 }
 /* }}} */
 
@@ -83,18 +78,16 @@ PHP_METHOD(gene_response, redirect) {
 /** {{{ proto public gene_response::alert(string $text, string $url = NULL)
 */
 PHP_METHOD(gene_response, alert) {
-  char  *text,*url;
-  int  text_len=0,url_len=0;
+  zend_string  *text,*url;
 
-  if (zend_parse_parameters(ZEND_NUM_ARGS() TSRMLS_CC, "s|s", &text, &text_len, &url, &url_len) == FAILURE) {
+  if (zend_parse_parameters(ZEND_NUM_ARGS() TSRMLS_CC, "S|S", &text, &url) == FAILURE) {
 	  return;
   }
-  php_printf("\n<script type=\"text/javascript\">\nalert(\"%s\");\n" , text);
-  if (url_len) {
-	  php_printf("window.location.href=\"%s\";\n" , url);
+  php_printf("\n<script type=\"text/javascript\">\nalert(\"%s\");\n" , ZSTR_VAL(text));
+  if (url && ZSTR_LEN(url)) {
+	  php_printf("window.location.href=\"%s\";\n" , ZSTR_VAL(url));
   }
-  php_printf("</script>\n" , text);
-  RETURN_TRUE;
+  php_printf("</script>\n");
 }
 /* }}} */
 
@@ -119,8 +112,6 @@ GENE_MINIT_FUNCTION(response)
     GENE_INIT_CLASS_ENTRY(gene_response, "Gene_Response",  "Gene\\Response", gene_response_methods);
     gene_response_ce = zend_register_internal_class(&gene_response TSRMLS_CC);
 
-	//debug
-    //zend_declare_property_null(gene_application_ce, GENE_EXECUTE_DEBUG, strlen(GENE_EXECUTE_DEBUG), ZEND_ACC_PUBLIC TSRMLS_CC);
     //
 	return SUCCESS;
 }

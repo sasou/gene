@@ -20,6 +20,7 @@
 
 #include "php.h"
 #include "php_ini.h"
+#include "php_globals.h"
 #include "main/SAPI.h"
 #include "Zend/zend_API.h"
 #include "zend_exceptions.h"
@@ -36,21 +37,16 @@ zend_class_entry * gene_request_ce;
 ZEND_BEGIN_ARG_INFO_EX(geme_request_void_arginfo, 0, 0, 0)
 ZEND_END_ARG_INFO()
 
-ZEND_BEGIN_ARG_INFO_EX(geme_request_get_param_arginfo, 0, 0, 1)
+ZEND_BEGIN_ARG_INFO_EX(geme_request_get_param_arginfo, 0, 0, 2)
 	ZEND_ARG_INFO(0, name)
-	ZEND_ARG_INFO(0, default)
+	ZEND_ARG_INFO(0, value)
 ZEND_END_ARG_INFO()
 /* }}} */
 
 zval * request_query(int type, char * name, int len TSRMLS_DC)
 {
-	zval *carrier;
+	zval *carrier = NULL, *ret;
 	zend_bool jit_initialization = PG(auto_globals_jit);
-	if (jit_initialization) {
-		zend_is_auto_global_str(ZEND_STRL("_ENV"));
-		zend_is_auto_global_str(ZEND_STRL("_SERVER"));
-		zend_is_auto_global_str(ZEND_STRL("_REQUEST"));
-	}
 
 	switch (type) {
 		case TRACK_VARS_POST:
@@ -61,21 +57,27 @@ zval * request_query(int type, char * name, int len TSRMLS_DC)
 			break;
 		case TRACK_VARS_ENV:
 			if (jit_initialization) {
-				zend_is_auto_global_str(ZEND_STRL("_ENV"));
+				zend_string *env_str = zend_string_init("_ENV", sizeof("_ENV") - 1, 0);
+				zend_is_auto_global(env_str);
+				zend_string_release(env_str);
 			}
 			carrier = &PG(http_globals)[type];
 			break;
 		case TRACK_VARS_SERVER:
 			if (jit_initialization) {
-				zend_is_auto_global_str(ZEND_STRL("_SERVER"));
+				zend_string *server_str = zend_string_init("_SERVER", sizeof("_SERVER") - 1, 0);
+				zend_is_auto_global(server_str);
+				zend_string_release(server_str);
 			}
 			carrier = &PG(http_globals)[type];
 			break;
 		case TRACK_VARS_REQUEST:
 			if (jit_initialization) {
-				zend_is_auto_global_str(ZEND_STRL("_REQUEST"));
+				zend_string *request_str = zend_string_init("_REQUEST", sizeof("_REQUEST") - 1, 0);
+				zend_is_auto_global(request_str);
+				zend_string_release(request_str);
 			}
-			carrier = zend_symtable_str_find(&EG(symbol_table), ZEND_STRL("_REQUEST"));
+			carrier = zend_hash_str_find(&EG(symbol_table), ZEND_STRL("_REQUEST"));
 			break;
 		default:
 			break;
@@ -87,8 +89,10 @@ zval * request_query(int type, char * name, int len TSRMLS_DC)
 	if (len <=0 ) {
 		return carrier;
 	}
-
-	return zend_symtable_str_find(Z_ARRVAL_P(carrier), name, len);
+	if ((ret = zend_hash_str_find(Z_ARRVAL_P(carrier), (char *)name, len)) == NULL) {
+		return NULL;
+	}
+	return ret;
 }
 
 /*
@@ -206,12 +210,11 @@ PHP_METHOD(gene_request, getMethod)
 PHP_METHOD(gene_request, urlParams)
 {
 	zval *cache = NULL;
-	int keyString_len;
-	char *keyString = NULL;
-	if (zend_parse_parameters(ZEND_NUM_ARGS() TSRMLS_CC, "|s", &keyString, &keyString_len) == FAILURE) {
+	zend_string *keyString = NULL;
+	if (zend_parse_parameters(ZEND_NUM_ARGS() TSRMLS_CC, "|S", &keyString) == FAILURE) {
 		return;
 	}
-    cache = gene_cache_get_by_config(PHP_GENE_URL_PARAMS, strlen(PHP_GENE_URL_PARAMS), keyString TSRMLS_CC);
+    cache = gene_cache_get_by_config(PHP_GENE_URL_PARAMS, strlen(PHP_GENE_URL_PARAMS), ZSTR_VAL(keyString) TSRMLS_CC);
     if (cache) {
     	ZVAL_COPY_VALUE(return_value, cache);
     	return;
@@ -254,10 +257,8 @@ GENE_MINIT_FUNCTION(request)
 {
     zend_class_entry gene_request;
     GENE_INIT_CLASS_ENTRY(gene_request, "Gene_Request",  "Gene\\Request", gene_request_methods);
-    gene_request_ce = zend_register_internal_class_ex(&gene_request, NULL);
+    gene_request_ce = zend_register_internal_class(&gene_request TSRMLS_CC);
 
-	//debug
-    //zend_declare_property_null(gene_application_ce, GENE_EXECUTE_DEBUG, strlen(GENE_EXECUTE_DEBUG), ZEND_ACC_PUBLIC TSRMLS_CC);
     //
 	return SUCCESS;
 }

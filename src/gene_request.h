@@ -17,6 +17,10 @@
 #ifndef GENE_REQUEST_H
 #define GENE_REQUEST_H
 
+extern zend_class_entry *gene_request_ce;
+zval * request_query(int type, char * name, int len TSRMLS_DC);
+
+
 #define GENE_REQUEST_IS_METHOD(ce, x) \
 PHP_METHOD(ce, is##x) {\
 	zend_string *me;\
@@ -34,16 +38,15 @@ PHP_METHOD(ce, is##x) {\
 
 #define GENE_REQUEST_METHOD(ce, x, type) \
 PHP_METHOD(ce, x) { \
-	char *name = NULL; \
-	int len = 0; \
-    zval *ret = NULL; \
+	zend_string *name; \
+    zval *ret; \
 	zval *def = NULL; \
 	if (ZEND_NUM_ARGS() == 0) { \
 		ret = request_query(type, NULL, 0 TSRMLS_CC); \
-	} else if (zend_parse_parameters(ZEND_NUM_ARGS() TSRMLS_CC, "s|z", &name, &len, &def) == FAILURE) { \
+	} else if (zend_parse_parameters(ZEND_NUM_ARGS() TSRMLS_CC, "S|z", &name, &def) == FAILURE) { \
 		return; \
 	} else { \
-		ret = request_query(type, name, len TSRMLS_CC); \
+		ret = request_query(type, ZSTR_VAL(name), ZSTR_LEN(name) TSRMLS_CC); \
 		if (ret == NULL) { \
 			if (def != NULL) { \
 				RETURN_ZVAL(def, 1, 0); \
@@ -56,10 +59,6 @@ PHP_METHOD(ce, x) { \
 		RETURN_NULL(); \
 	} \
 }
-
-
-extern zend_class_entry *gene_request_ce;
-zval * request_query(int type, char * name, int len TSRMLS_DC);
 
 GENE_MINIT_FUNCTION(request);
 

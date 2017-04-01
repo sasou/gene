@@ -240,14 +240,13 @@ PHP_METHOD(gene_view, __construct)
 /** {{{ public gene_view::display(string $file)
 */
 PHP_METHOD(gene_view, display) {
-  char  *file;
-  int  file_len;
+  zend_string  *file;
 
-  if (zend_parse_parameters(ZEND_NUM_ARGS() TSRMLS_CC, "s|l", &file, &file_len) == FAILURE) {
+  if (zend_parse_parameters(ZEND_NUM_ARGS() TSRMLS_CC, "S|l", &file) == FAILURE) {
     return;
   }
-  if (file_len) {
-	  gene_view_display(file TSRMLS_CC);
+  if (ZSTR_LEN(file)) {
+	  gene_view_display(ZSTR_VAL(file) TSRMLS_CC);
   }
 }
 /* }}} */
@@ -255,14 +254,13 @@ PHP_METHOD(gene_view, display) {
 /** {{{ public gene_view::display(string $file)
 */
 PHP_METHOD(gene_view, template) {
-  char  *file;
-  int  file_len;
+  zend_string  *file;
   zend_bool isCompile;
 
-  if (zend_parse_parameters(ZEND_NUM_ARGS() TSRMLS_CC, "s|b", &file, &file_len, &isCompile) == FAILURE) {
+  if (zend_parse_parameters(ZEND_NUM_ARGS() TSRMLS_CC, "S|b", &file, &isCompile) == FAILURE) {
     return;
   }
-  gene_view_display_ext(file,isCompile TSRMLS_CC);
+  gene_view_display_ext(ZSTR_VAL(file), isCompile TSRMLS_CC);
 }
 /* }}} */
 

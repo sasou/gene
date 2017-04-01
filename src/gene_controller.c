@@ -163,12 +163,11 @@ PHP_METHOD(gene_controller, getMethod)
 PHP_METHOD(gene_controller, urlParams)
 {
 	zval *cache = NULL;
-	int keyString_len;
-	char *keyString = NULL;
-	if (zend_parse_parameters(ZEND_NUM_ARGS() TSRMLS_CC, "|s", &keyString, &keyString_len) == FAILURE) {
+	zend_string *keyString = NULL;
+	if (zend_parse_parameters(ZEND_NUM_ARGS() TSRMLS_CC, "|S", &keyString) == FAILURE) {
 		return;
 	}
-    cache = gene_cache_get_by_config(PHP_GENE_URL_PARAMS, strlen(PHP_GENE_URL_PARAMS), keyString TSRMLS_CC);
+    cache = gene_cache_get_by_config(PHP_GENE_URL_PARAMS, strlen(PHP_GENE_URL_PARAMS), ZSTR_VAL(keyString) TSRMLS_CC);
     if (cache) {
     	ZVAL_COPY_VALUE(return_value, cache);
     	return;
@@ -180,19 +179,14 @@ PHP_METHOD(gene_controller, urlParams)
 /** {{{ public gene_response::redirect(string $url)
 */
 PHP_METHOD(gene_controller, redirect) {
-  char  *url;
-  int  url_len;
+  zend_string  *url;
   long  code = 302;
 
-  if (zend_parse_parameters(ZEND_NUM_ARGS() TSRMLS_CC, "s|l", &url, &url_len) == FAILURE) {
+  if (zend_parse_parameters(ZEND_NUM_ARGS() TSRMLS_CC, "S|l", &url) == FAILURE) {
     return;
   }
 
-  if (!url_len) {
-	  RETURN_FALSE;
-  }
-
-  RETURN_BOOL(gene_response_set_redirect(url, code TSRMLS_CC));
+  RETURN_BOOL(gene_response_set_redirect(ZSTR_VAL(url), code TSRMLS_CC));
 }
 /* }}} */
 
@@ -200,14 +194,13 @@ PHP_METHOD(gene_controller, redirect) {
 /** {{{ public gene_controller::display(string $file)
 */
 PHP_METHOD(gene_controller, display) {
-  char  *file;
-  int  file_len;
+  zend_string  *file;
 
-  if (zend_parse_parameters(ZEND_NUM_ARGS() TSRMLS_CC, "s", &file, &file_len) == FAILURE) {
+  if (zend_parse_parameters(ZEND_NUM_ARGS() TSRMLS_CC, "S", &file) == FAILURE) {
     return;
   }
-  if (file_len) {
-	  gene_view_display(file TSRMLS_CC);
+  if (ZSTR_LEN(file)) {
+	  gene_view_display(ZSTR_VAL(file) TSRMLS_CC);
   }
 }
 /* }}} */
@@ -216,18 +209,17 @@ PHP_METHOD(gene_controller, display) {
 /** {{{ public gene_controller::display(string $file)
 */
 PHP_METHOD(gene_controller, displayExt) {
-  char  *file,*parent_file = NULL;
-  int  file_len = 0,parent_file_len = 0;
+  zend_string  *file,*parent_file = NULL;
   zend_bool isCompile=0;
 
-  if (zend_parse_parameters(ZEND_NUM_ARGS() TSRMLS_CC, "s|sb", &file, &file_len, &parent_file, &parent_file_len, &isCompile) == FAILURE) {
+  if (zend_parse_parameters(ZEND_NUM_ARGS() TSRMLS_CC, "S|Sb", &file, &parent_file, &isCompile) == FAILURE) {
 	  return;
   }
-  if (parent_file_len) {
-	  GENE_G(child_views) = estrndup(file, file_len);
-	  gene_view_display_ext(parent_file, isCompile TSRMLS_CC);
+  if (parent_file && ZSTR_LEN(parent_file) > 0) {
+	  GENE_G(child_views) = estrndup(ZSTR_VAL(file), ZSTR_LEN(file));
+	  gene_view_display_ext(ZSTR_VAL(parent_file), isCompile TSRMLS_CC);
   } else {
-	  gene_view_display_ext(file , isCompile TSRMLS_CC);
+	  gene_view_display_ext(ZSTR_VAL(file) , isCompile TSRMLS_CC);
   }
 }
 /* }}} */
@@ -279,8 +271,6 @@ GENE_MINIT_FUNCTION(controller)
     GENE_INIT_CLASS_ENTRY(gene_controller, "Gene_Controller",  "Gene\\Controller", gene_controller_methods);
     gene_controller_ce = zend_register_internal_class(&gene_controller TSRMLS_CC);
 
-	//debug
-    //zend_declare_property_null(gene_application_ce, GENE_EXECUTE_DEBUG, strlen(GENE_EXECUTE_DEBUG), ZEND_ACC_PUBLIC TSRMLS_CC);
     //
 	return SUCCESS;
 }

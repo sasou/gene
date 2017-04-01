@@ -218,21 +218,22 @@ PHP_METHOD(gene_load, __construct)
  */
 PHP_METHOD(gene_load, autoload)
 {
-	int fileNmae_len = 0,filePath_len = 0;
-	char *fileNmae = NULL,*filePath = NULL;
-	if (zend_parse_parameters(ZEND_NUM_ARGS() TSRMLS_CC, "s", &fileNmae, &fileNmae_len) == FAILURE) {
+	int filePath_len = 0;
+	zend_string *fileNmae = NULL;
+	char *filePath = NULL;
+	if (zend_parse_parameters(ZEND_NUM_ARGS() TSRMLS_CC, "S", &fileNmae) == FAILURE) {
 		return;
 	}
 	if (GENE_G(use_namespace)) {
-		replaceAll(fileNmae,'\\','/');
+		replaceAll(ZSTR_VAL(fileNmae),'\\','/');
 	} else {
-		replaceAll(fileNmae,'_','/');
+		replaceAll(ZSTR_VAL(fileNmae),'_','/');
 	}
 
 	if (GENE_G(directory)) {
-		filePath_len = spprintf(&filePath, 0, "%s%s.php", GENE_G(app_root), fileNmae);
+		filePath_len = spprintf(&filePath, 0, "%s%s.php", GENE_G(app_root), ZSTR_VAL(fileNmae));
 	} else {
-		filePath_len = spprintf(&filePath, 0, "%s.php", fileNmae);
+		filePath_len = spprintf(&filePath, 0, "%s.php", ZSTR_VAL(fileNmae));
 	}
 	gene_load_import(filePath TSRMLS_CC);
     efree(filePath);
@@ -246,13 +247,12 @@ PHP_METHOD(gene_load, autoload)
 PHP_METHOD(gene_load, import)
 {
 	zval *self = getThis();
-	char *php_script;
-	int php_script_len = 0;
-	if (zend_parse_parameters(ZEND_NUM_ARGS() TSRMLS_CC, "|s", &php_script, &php_script_len) == FAILURE) {
+	zend_string *php_script;
+	if (zend_parse_parameters(ZEND_NUM_ARGS() TSRMLS_CC, "|S", &php_script) == FAILURE) {
 		return;
 	}
-	if (php_script_len) {
-		gene_load_import(php_script TSRMLS_CC);
+	if (php_script && ZSTR_LEN(php_script)) {
+		gene_load_import(ZSTR_VAL(php_script) TSRMLS_CC);
 	}
 	RETURN_ZVAL(self, 1, 0);
 }

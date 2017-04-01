@@ -32,6 +32,7 @@
 
 zend_class_entry * gene_exception_ce;
 
+
 /** {{{ int gene_exception_error_register(zval *callback,zval *error_type TSRMLS_DC)
 */
 int gene_exception_error_register(zval *callback,zval *error_type TSRMLS_DC) {
@@ -141,7 +142,7 @@ zend_class_entry * gene_get_exception_base(int root) {
 /** {{{ void gene_throw_exception(long code, char *message TSRMLS_DC)
 */
 void gene_throw_exception(long code, char *message TSRMLS_DC) {
-	zend_class_entry *base_exception = gene_exception_ce;
+	zend_class_entry *base_exception = gene_get_exception_base(0);
 
 	zend_throw_exception(base_exception, message, code TSRMLS_CC);
 }
@@ -177,70 +178,17 @@ PHP_METHOD(gene_exception, setExceptionHandler) {
  */
 PHP_METHOD(gene_exception, doError)
 {
-	char *msg,*file;
+	zend_string *msg,*file;
 	zval *params = NULL;
-	long code = 0,line=0,msg_len,file_len;
-    if (zend_parse_parameters(ZEND_NUM_ARGS() TSRMLS_CC,"ls|slz", &code,&msg,&msg_len,&file,&file_len,&line,&params) == FAILURE)
+	long code = 0,line=0;
+    if (zend_parse_parameters(ZEND_NUM_ARGS() TSRMLS_CC,"lS|Slz", &code, &msg, &file, &line, &params) == FAILURE)
     {
         RETURN_NULL();
     }
     if (GENE_G(gene_error) == 1) {
-    	gene_trigger_error(code, "%s",msg);
+    	gene_trigger_error(code, "%s", ZSTR_VAL(msg));
     }
     RETURN_TRUE;
-}
-/* }}} */
-
-void set_gene_exception(zend_object *exception) {
-    zval *ex;
-	zval  zv;
-	ZVAL_OBJ(&zv, exception);
-	ex = &zv;
-	Z_SET_REFCOUNT(zv, 1);
-	zend_update_static_property(gene_exception_ce, ZEND_STRL(GENE_EXCEPTION_EX), ex);
-}
-
-/*
- * {{{ gene_exception::doException
- */
-PHP_METHOD(gene_exception, doException)
-{
-	zval *e = NULL,*safe = NULL;
-	char *run = NULL;
-    if (zend_parse_parameters(ZEND_NUM_ARGS() TSRMLS_CC,"z", &e) == FAILURE)
-    {
-        RETURN_NULL();
-    }
-	set_gene_exception(Z_OBJ_P(e));
-    if (GENE_G(gene_exception) == 1) {
-		gene_view_display_ext("error" , 0 TSRMLS_CC);
-    } else {
-		if (GENE_G(use_namespace)) {
-			spprintf(&run, 0, "%s", HTML_ERROR_CONTENT_NS);
-		} else {
-			spprintf(&run, 0, "%s", HTML_ERROR_CONTENT);
-		}
-		zend_try {
-			zend_eval_stringl(run, strlen(run), NULL, "gene_error" TSRMLS_CC);
-		} zend_catch {
-			efree(run);
-			run = NULL;
-			zend_bailout();
-		} zend_end_try();
-		efree(run);
-		run = NULL;
-    }
-}
-/* }}} */
-
-
-/*
- * {{{ gene_exception::doException
- */
-PHP_METHOD(gene_exception, getEx)
-{
-	zval *ex = zend_read_static_property(gene_exception_ce, ZEND_STRL(GENE_EXCEPTION_EX), 1);
-	RETURN_ZVAL(ex, 1, 0);
 }
 /* }}} */
 
@@ -251,8 +199,6 @@ zend_function_entry gene_exception_methods[] = {
 		PHP_ME(gene_exception, setErrorHandler, NULL, ZEND_ACC_PUBLIC|ZEND_ACC_STATIC)
 		PHP_ME(gene_exception, setExceptionHandler, NULL, ZEND_ACC_PUBLIC|ZEND_ACC_STATIC)
 		PHP_ME(gene_exception, doError, NULL, ZEND_ACC_PUBLIC|ZEND_ACC_STATIC)
-		PHP_ME(gene_exception, doException, NULL, ZEND_ACC_PUBLIC|ZEND_ACC_STATIC)
-		PHP_ME(gene_exception, getEx, NULL, ZEND_ACC_PUBLIC|ZEND_ACC_STATIC)
 #if ((PHP_MAJOR_VERSION == 5) && (PHP_MINOR_VERSION < 3)) || (PHP_MAJOR_VERSION < 5)
 		PHP_ME(gene_exception, __construct, NULL, ZEND_ACC_PUBLIC|ZEND_ACC_CTOR)
 		PHP_ME(gene_exception, getPrevious, NULL, ZEND_ACC_PUBLIC)
@@ -270,12 +216,11 @@ GENE_MINIT_FUNCTION(exception)
     zend_class_entry gene_exception;
     GENE_INIT_CLASS_ENTRY(gene_exception, "Gene_Exception",  "Gene\\Exception", gene_exception_methods);
     gene_exception_ce = zend_register_internal_class_ex(&gene_exception, gene_get_exception_base(0));
+
 	zend_declare_property_null(gene_exception_ce, ZEND_STRL("message"), 	ZEND_ACC_PROTECTED);
 	zend_declare_property_long(gene_exception_ce, ZEND_STRL("code"), 0,	ZEND_ACC_PROTECTED);
 	zend_declare_property_null(gene_exception_ce, ZEND_STRL("previous"),  ZEND_ACC_PROTECTED);
 
-	//prop
-    zend_declare_property_null(gene_exception_ce, ZEND_STRL(GENE_EXCEPTION_EX),  ZEND_ACC_PROTECTED|ZEND_ACC_STATIC);
     //
 	return SUCCESS;
 }
