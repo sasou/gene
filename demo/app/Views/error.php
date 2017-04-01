@@ -1,5 +1,4 @@
 <?php
-	$e = gene\exception::getEx();
     $file = $e->getFile();
     $line = $e->getLine();
     if ( file_exists( $file ) )
