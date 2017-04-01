@@ -405,7 +405,7 @@ zval * gene_cache_get_by_config(char *keyString, int keyString_len,char *path TS
 
 /** {{{ filenode * file_cache_get_easy(char *keyString, int keyString_len TSRMLS_DC)
  */
-filenode * file_cache_get_easy(char *keyString, int keyString_len TSRMLS_DC)
+filenode * file_cache_get_easy(char *keyString, size_t keyString_len TSRMLS_DC)
 {
 	return zend_hash_str_find_ptr(GENE_G(cache_easy), keyString, keyString_len);
 }
@@ -563,17 +563,18 @@ PHP_METHOD(gene_cache, __construct)
  */
 PHP_METHOD(gene_cache, set)
 {
-	char *keyString,*router_e;
-	int keyString_len,validity = 0,router_e_len;
+	zend_string *keyString;
+	char *router_e;
+	int validity = 0,router_e_len;
 	zval *zvalue,*safe;
-	if (zend_parse_parameters(ZEND_NUM_ARGS() TSRMLS_CC, "sz|l", &keyString, &keyString_len, &zvalue, &validity) == FAILURE) {
+	if (zend_parse_parameters(ZEND_NUM_ARGS() TSRMLS_CC, "Sz|l", &keyString, &zvalue, &validity) == FAILURE) {
 		return;
 	}
 	safe = zend_read_property(gene_cache_ce, getThis(), GENE_CACHE_SAFE, strlen(GENE_CACHE_SAFE), 1 , NULL);
 	if (Z_STRLEN_P(safe)) {
-		router_e_len = spprintf(&router_e, 0, "%s:%s", Z_STRVAL_P(safe), keyString);
+		router_e_len = spprintf(&router_e, 0, "%s:%s", Z_STRVAL_P(safe), ZSTR_VAL(keyString));
 	} else {
-		router_e_len = spprintf(&router_e, 0, ":%s", keyString);
+		router_e_len = spprintf(&router_e, 0, ":%s", ZSTR_VAL(keyString));
 	}
 	if (zvalue) {
 		gene_cache_set(router_e, router_e_len, zvalue, validity TSRMLS_CC);
@@ -589,17 +590,18 @@ PHP_METHOD(gene_cache, set)
  */
 PHP_METHOD(gene_cache, get)
 {
-	char *keyString,*router_e;
-	int keyString_len,router_e_len;
+	zend_string *keyString;
+	char *router_e;
+	int router_e_len;
 	zval *zvalue,*safe;
-	if (zend_parse_parameters(ZEND_NUM_ARGS() TSRMLS_CC, "s", &keyString, &keyString_len) == FAILURE) {
+	if (zend_parse_parameters(ZEND_NUM_ARGS() TSRMLS_CC, "S", &keyString) == FAILURE) {
 		return;
 	}
 	safe = zend_read_property(gene_cache_ce, getThis(), GENE_CACHE_SAFE, strlen(GENE_CACHE_SAFE), 1 , NULL);
 	if (Z_STRLEN_P(safe)) {
-		router_e_len = spprintf(&router_e, 0, "%s:%s", Z_STRVAL_P(safe), keyString);
+		router_e_len = spprintf(&router_e, 0, "%s:%s", Z_STRVAL_P(safe), ZSTR_VAL(keyString));
 	} else {
-		router_e_len = spprintf(&router_e, 0, ":%s", keyString);
+		router_e_len = spprintf(&router_e, 0, ":%s", ZSTR_VAL(keyString));
 	}
 	zvalue = gene_cache_get(router_e, router_e_len TSRMLS_CC);
 	efree(router_e);
@@ -616,17 +618,18 @@ PHP_METHOD(gene_cache, get)
  */
 PHP_METHOD(gene_cache, getTime)
 {
-	char *keyString,*router_e;
-	int keyString_len,router_e_len,ret;
+	zend_string *keyString;
+	char *router_e;
+	int router_e_len,ret;
 	zval *safe;
-	if (zend_parse_parameters(ZEND_NUM_ARGS() TSRMLS_CC, "s", &keyString, &keyString_len) == FAILURE) {
+	if (zend_parse_parameters(ZEND_NUM_ARGS() TSRMLS_CC, "S", &keyString) == FAILURE) {
 		return;
 	}
 	safe = zend_read_property(gene_cache_ce, getThis(), GENE_CACHE_SAFE, strlen(GENE_CACHE_SAFE), 1 , NULL);
 	if (Z_STRLEN_P(safe)) {
-		router_e_len = spprintf(&router_e, 0, "%s:%s", Z_STRVAL_P(safe), keyString);
+		router_e_len = spprintf(&router_e, 0, "%s:%s", Z_STRVAL_P(safe), ZSTR_VAL(keyString));
 	} else {
-		router_e_len = spprintf(&router_e, 0, ":%s", keyString);
+		router_e_len = spprintf(&router_e, 0, ":%s", ZSTR_VAL(keyString));
 	}
 	ret = gene_cache_getTime(router_e, router_e_len TSRMLS_CC);
 	efree(router_e);
@@ -641,17 +644,18 @@ PHP_METHOD(gene_cache, getTime)
  */
 PHP_METHOD(gene_cache, exists)
 {
-	char *keyString,*router_e;
-	int keyString_len,router_e_len,ret;
+	zend_string *keyString;
+	char *router_e;
+	int router_e_len,ret;
 	zval *safe;
-	if (zend_parse_parameters(ZEND_NUM_ARGS() TSRMLS_CC, "s", &keyString, &keyString_len) == FAILURE) {
+	if (zend_parse_parameters(ZEND_NUM_ARGS() TSRMLS_CC, "S", &keyString) == FAILURE) {
 		return;
 	}
 	safe = zend_read_property(gene_cache_ce, getThis(), GENE_CACHE_SAFE, strlen(GENE_CACHE_SAFE), 1 , NULL);
 	if (Z_STRLEN_P(safe)) {
-		router_e_len = spprintf(&router_e, 0, "%s:%s", Z_STRVAL_P(safe), keyString);
+		router_e_len = spprintf(&router_e, 0, "%s:%s", Z_STRVAL_P(safe), ZSTR_VAL(keyString));
 	} else {
-		router_e_len = spprintf(&router_e, 0, ":%s", keyString);
+		router_e_len = spprintf(&router_e, 0, ":%s", ZSTR_VAL(keyString));
 	}
 	ret = gene_cache_exists(router_e, router_e_len TSRMLS_CC);
 	efree(router_e);
@@ -664,17 +668,18 @@ PHP_METHOD(gene_cache, exists)
  */
 PHP_METHOD(gene_cache, del)
 {
-	char *keyString,*router_e;
-	int keyString_len,router_e_len,ret;
+	zend_string *keyString;
+	char *router_e;
+	int router_e_len,ret;
 	zval *safe;
-	if (zend_parse_parameters(ZEND_NUM_ARGS() TSRMLS_CC, "s", &keyString, &keyString_len) == FAILURE) {
+	if (zend_parse_parameters(ZEND_NUM_ARGS() TSRMLS_CC, "S", &keyString) == FAILURE) {
 		return;
 	}
 	safe = zend_read_property(gene_cache_ce, getThis(), GENE_CACHE_SAFE, strlen(GENE_CACHE_SAFE), 1 , NULL);
 	if (Z_STRLEN_P(safe)) {
-		router_e_len = spprintf(&router_e, 0, "%s:%s", Z_STRVAL_P(safe), keyString);
+		router_e_len = spprintf(&router_e, 0, "%s:%s", Z_STRVAL_P(safe), ZSTR_VAL(keyString));
 	} else {
-		router_e_len = spprintf(&router_e, 0, ":%s", keyString);
+		router_e_len = spprintf(&router_e, 0, ":%s", ZSTR_VAL(keyString));
 	}
 	ret = gene_cache_del(router_e, router_e_len TSRMLS_CC);
 	efree(router_e);

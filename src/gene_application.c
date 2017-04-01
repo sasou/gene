@@ -143,7 +143,7 @@ PHP_METHOD(gene_application, __construct)
     	GENE_G(app_key) = estrndup(Z_STRVAL_P(safe), Z_STRLEN_P(safe));
     }
 
-    if (GENE_G(directory)) {
+    if (GENE_G(directory) != NULL) {
     	spprintf(&GENE_G(app_root), 0, "%s/app/", GENE_G(directory));
     }
 
@@ -157,15 +157,16 @@ PHP_METHOD(gene_application, __construct)
 PHP_METHOD(gene_application, load)
 {
 	zval *self = getThis();
-	char *file,*path,*cache_key;
-	int file_len = 0,path_len = 0,validity = 10,cache_key_len;
-	if (zend_parse_parameters(ZEND_NUM_ARGS() TSRMLS_CC, "|ssl", &file, &file_len, &path, &path_len, &validity) == FAILURE) {
+	zend_string *file = NULL,*path = NULL;
+	char *cache_key;
+	int validity = 10,cache_key_len;
+	if (zend_parse_parameters(ZEND_NUM_ARGS() TSRMLS_CC, "|SSl", &file, &path, &validity) == FAILURE) {
 		return;
 	}
-	if (path_len > 0) {
-		cache_key_len = spprintf(&cache_key, 0, "%s/%s", path, file);
+	if (path && ZSTR_LEN(path) > 0) {
+		cache_key_len = spprintf(&cache_key, 0, "%s/%s", ZSTR_VAL(path), ZSTR_VAL(file));
 	} else {
-		cache_key_len = spprintf(&cache_key, 0, "%sConfig/%s", GENE_G(app_root), file);
+		cache_key_len = spprintf(&cache_key, 0, "%sConfig/%s", GENE_G(app_root), ZSTR_VAL(file));
 	}
 	load_file(cache_key, cache_key_len, cache_key, validity TSRMLS_CC);
 	efree(cache_key);
@@ -179,12 +180,11 @@ PHP_METHOD(gene_application, load)
 PHP_METHOD(gene_application, urlParams)
 {
 	zval *cache = NULL;
-	int keyString_len;
-	char *keyString = NULL;
-	if (zend_parse_parameters(ZEND_NUM_ARGS() TSRMLS_CC, "|s", &keyString, &keyString_len) == FAILURE) {
+	zend_string *keyString = NULL;
+	if (zend_parse_parameters(ZEND_NUM_ARGS() TSRMLS_CC, "|S", &keyString) == FAILURE) {
 		return;
 	}
-    cache = gene_cache_get_by_config(PHP_GENE_URL_PARAMS, strlen(PHP_GENE_URL_PARAMS), keyString TSRMLS_CC);
+    cache = gene_cache_get_by_config(PHP_GENE_URL_PARAMS, strlen(PHP_GENE_URL_PARAMS), ZSTR_VAL(keyString) TSRMLS_CC);
     if (cache) {
     	RETURN_ZVAL(cache, 1, 1);
     }
@@ -243,9 +243,10 @@ PHP_METHOD(gene_application, getEnvironment)
 PHP_METHOD(gene_application, config)
 {
 	zval *cache = NULL;
-	int router_e_len,keyString_len;
-	char *router_e,*keyString;
-	if (zend_parse_parameters(ZEND_NUM_ARGS() TSRMLS_CC, "s", &keyString, &keyString_len) == FAILURE) {
+	int router_e_len;
+	char *router_e;
+	zend_string *keyString;
+	if (zend_parse_parameters(ZEND_NUM_ARGS() TSRMLS_CC, "S", &keyString) == FAILURE) {
 		return;
 	}
 
@@ -254,7 +255,7 @@ PHP_METHOD(gene_application, config)
 	} else {
 		router_e_len = spprintf(&router_e, 0, "%s%s", GENE_G(directory), GENE_CONFIG_CACHE);
 	}
-    cache = gene_cache_get_by_config(router_e, router_e_len, keyString TSRMLS_CC);
+    cache = gene_cache_get_by_config(router_e, router_e_len, ZSTR_VAL(keyString) TSRMLS_CC);
     efree(router_e);
     if (cache) {
     	gene_cache_zval_local(return_value, cache);
@@ -269,17 +270,16 @@ PHP_METHOD(gene_application, config)
  */
 PHP_METHOD(gene_application, autoload)
 {
-	int fileName_len = 0,directory_len = 0;
-	char *fileName = NULL,*app_root = NULL;
+	zend_string *fileName = NULL,*app_root = NULL;
 	zval *self = getThis();
-	if (zend_parse_parameters(ZEND_NUM_ARGS() TSRMLS_CC, "|ss", &app_root, &directory_len, &fileName, &fileName_len) == FAILURE) {
+	if (zend_parse_parameters(ZEND_NUM_ARGS() TSRMLS_CC, "|SS", &app_root, &fileName) == FAILURE) {
 		return;
 	}
-	if (directory_len >0 ) {
-	    GENE_G(app_root) = estrndup(app_root, directory_len);
+	if (app_root && ZSTR_LEN(app_root) >0 ) {
+	    GENE_G(app_root) = estrndup(ZSTR_VAL(app_root), ZSTR_LEN(app_root));
 	}
-	if (fileName_len >0 ) {
-		GENE_G(auto_load_fun) =  estrndup(fileName, fileName_len);;
+	if (fileName && ZSTR_LEN(fileName) >0 ) {
+		GENE_G(auto_load_fun) =  estrndup(ZSTR_VAL(fileName), ZSTR_LEN(fileName));
 	}
     RETURN_ZVAL(self, 1, 0);
 }
@@ -355,18 +355,17 @@ PHP_METHOD(gene_application, setMode)
 PHP_METHOD(gene_application, setView)
 {
 	zval *self=getThis();
-	char *view,*tpl;
-	long view_len = 0,tpl_len=0;
-	if (zend_parse_parameters(ZEND_NUM_ARGS() TSRMLS_CC, "|ss", &view, &view_len, &tpl, &tpl_len) == FAILURE) {
+	zend_string *view = NULL,*tpl = NULL;
+	if (zend_parse_parameters(ZEND_NUM_ARGS() TSRMLS_CC, "|SS", &view, &tpl) == FAILURE) {
 		return;
 	}
-	if (view_len > 0) {
-		GENE_G(app_view) = estrndup(view, view_len);
+	if (view && ZSTR_LEN(view)) {
+		GENE_G(app_view) = estrndup(ZSTR_VAL(view), ZSTR_LEN(view));
 	} else {
 		GENE_G(app_view) = estrndup(GENE_VIEW_VIEW, strlen(GENE_VIEW_VIEW));
 	}
-	if (tpl_len > 0) {
-		GENE_G(app_ext) = estrndup(tpl, tpl_len);
+	if (tpl && ZSTR_LEN(tpl)) {
+		GENE_G(app_ext) = estrndup(ZSTR_VAL(tpl), ZSTR_LEN(tpl));
 	} else {
 		GENE_G(app_ext) = estrndup(GENE_VIEW_EXT, strlen(GENE_VIEW_EXT));
 	}
@@ -379,10 +378,10 @@ PHP_METHOD(gene_application, setView)
  */
 PHP_METHOD(gene_application, run)
 {
-	char *methodin = NULL,*pathin = NULL;
-	int methodlen = 0,pathlen = 0;
+	zend_string *methodin = NULL,*pathin = NULL;
 	zval *self = getThis(),safe;
-    if (zend_parse_parameters(ZEND_NUM_ARGS() TSRMLS_CC,"|ss", &methodin, &methodlen,&pathin, &pathlen) == FAILURE)
+	char *min = NULL,*pin= NULL;
+    if (zend_parse_parameters(ZEND_NUM_ARGS() TSRMLS_CC,"|SS", &methodin, &pathin) == FAILURE)
     {
         RETURN_NULL();
     }
@@ -394,10 +393,14 @@ PHP_METHOD(gene_application, run)
     } else {
     	ZVAL_STRING(&safe,GENE_G(directory));
     }
-
-	get_router_content_run(methodin,pathin,&safe TSRMLS_CC);
+	if (methodin && ZSTR_LEN(methodin)) {
+		min = ZSTR_VAL(methodin);
+	}
+	if (pathin && ZSTR_LEN(pathin)) {
+		pin = ZSTR_VAL(pathin);
+	}
+	get_router_content_run(min, pin, &safe TSRMLS_CC);
 	zval_ptr_dtor(&safe);
-	RETURN_ZVAL(self, 1, 0);
 }
 /* }}} */
 

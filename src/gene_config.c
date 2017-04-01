@@ -92,8 +92,9 @@ PHP_METHOD(gene_config, get)
 {
 	zval *self = getThis(),*safe,*cache = NULL;
 	int router_e_len,keyString_len;
-	char *router_e,*keyString,*path;
-	if (zend_parse_parameters(ZEND_NUM_ARGS() TSRMLS_CC, "s", &keyString, &keyString_len) == FAILURE) {
+	char *router_e,*path;
+	zend_string *keyString;
+	if (zend_parse_parameters(ZEND_NUM_ARGS() TSRMLS_CC, "S", &keyString) == FAILURE) {
 		return;
 	}
 	safe = zend_read_property(gene_config_ce, self, GENE_CONFIG_SAFE, strlen(GENE_CONFIG_SAFE), 1 , NULL);
@@ -102,7 +103,7 @@ PHP_METHOD(gene_config, get)
 	} else {
 		router_e_len = spprintf(&router_e, 0, "%s", GENE_CONFIG_CACHE);
 	}
-	spprintf(&path, 0, "%s", keyString);
+	spprintf(&path, 0, "%s", ZSTR_VAL(keyString));
 	replaceAll(path,'.','/');
     cache = gene_cache_get_by_config(router_e, router_e_len, path TSRMLS_CC);
     efree(router_e);

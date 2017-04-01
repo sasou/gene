@@ -49,7 +49,7 @@ long gene_cache_getTime(char *keyString, int keyString_len TSRMLS_DC);
 int gene_cache_exists(char *keyString, int keyString_len TSRMLS_DC);
 int gene_cache_del(char *keyString, int keyString_len TSRMLS_DC);
 void file_cache_set_val(char *val, int keyString_len, long times, int validity TSRMLS_DC);
-filenode * file_cache_get_easy(char *keyString, int keyString_len TSRMLS_DC);
+filenode * file_cache_get_easy(char *keyString, size_t keyString_len TSRMLS_DC);
 static zval * gene_cache_set_val(zval *val, char *keyString, int keyString_len, zval *zvalue TSRMLS_DC);
 void gene_cache_hash_copy_local(HashTable *target, HashTable *source);
 void gene_cache_zval_local(zval *dst, zval *source);
