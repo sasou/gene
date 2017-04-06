@@ -226,10 +226,14 @@ PHP_MINFO_FUNCTION(gene)
 PHP_FUNCTION(gene_urlParams){
 	zval *cache = NULL;
 	zend_string *keyString = NULL;
+	char *key = NULL;
 	if (zend_parse_parameters(ZEND_NUM_ARGS() TSRMLS_CC, "|S", &keyString) == FAILURE) {
 		return;
 	}
-    cache = gene_cache_get_by_config(PHP_GENE_URL_PARAMS, strlen(PHP_GENE_URL_PARAMS), ZSTR_VAL(keyString) TSRMLS_CC);
+	if (keyString && ZSTR_LEN(keyString)) {
+		key = ZSTR_VAL(keyString);
+	}
+    cache = gene_cache_get_by_config(PHP_GENE_URL_PARAMS, strlen(PHP_GENE_URL_PARAMS),key TSRMLS_CC);
     if (cache) {
     	ZVAL_COPY_VALUE(return_value, cache);
     	return;
