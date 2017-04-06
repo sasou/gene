@@ -386,7 +386,7 @@ PHP_METHOD(gene_application, run)
         RETURN_NULL();
     }
 
-	gene_loader_register_function(NULL TSRMLS_CC);
+	gene_loader_register_function(TSRMLS_CC);
 
     if (GENE_G(app_key)) {
     	ZVAL_STRING(&safe,GENE_G(app_key));
