@@ -91,7 +91,7 @@ PHP_METHOD(gene_config, set)
 PHP_METHOD(gene_config, get)
 {
 	zval *self = getThis(),*safe,*cache = NULL;
-	int router_e_len,keyString_len;
+	int router_e_len;
 	char *router_e,*path;
 	zend_string *keyString;
 	if (zend_parse_parameters(ZEND_NUM_ARGS() TSRMLS_CC, "S", &keyString) == FAILURE) {

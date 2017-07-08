@@ -7,8 +7,4 @@ class Index extends \gene\Controller{
 		$arr = array("third");
 		$this->displayExt("index/run","common");
 	}
-	
-	public static function error(gene_exception $e){
-		\gene\router::display("error"); 
-	}
 }
