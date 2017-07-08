@@ -4,6 +4,7 @@
     版本：1.2.3
     
 php5的版本 ：https://github.com/sasou/php-gene
+
 windows版本：https://github.com/sasou/php-gene-for-windows
 
 简单、高性能的php c扩展框架！
@@ -78,30 +79,8 @@ windows版本：https://github.com/sasou/php-gene-for-windows
 	$config->set("dsfsdfsd.port",'test');
 	$config->get("dsfsdfsd.port");
 	
-cache类提供进程级缓存功能：
 
-	<?php
-	$config = new gene_cache();
-	$config->set($cacheName,$value);
-	$config->get($cacheName);
-	$config->exists($cacheName);
-	$config->del($cacheName);
-	
-load类定义了自动加载：
-
-	<?php
-	$config = new gene_load();
-	$config->autoload($path,$loadFN);
-	$config->import($fileName);
-	
-reg类定义了类的单例集中管理：
-
-	<?php
-	$config = new gene_reg();
-	$config->get($className);
-	$config->set($className,$class);
-	$config->has($className);
-	$config->del($className);
+其他类：controller、view、request、response、session、reg、load、exception等，详见文档；
 	
 安装：
 	
@@ -130,6 +109,7 @@ DEMO：
 案例一：
         湖北省教育用户认证中心(全省几百万学生、教育用户的登录入口)
         http://open.e21.cn/
+        
 案例二：
         尚动电子商务平台
         https://www.shangsports.com/
