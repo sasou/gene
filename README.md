@@ -21,7 +21,7 @@ windows版本：https://github.com/sasou/php-gene-for-windows
 路由强大灵活，支持回调、rest、http请求方式（get,post,put,patch,delete,trace,connect,options,head）等：
 
 	<?php
-	$router = new gene_router();
+	$router = new \Gene\Router();
 	$router->clear()
 		//定义get
 		->get("/",function(){
@@ -72,7 +72,7 @@ windows版本：https://github.com/sasou/php-gene-for-windows
 配置类支持bool、int、long、string、array、常量等数据类型：
 
 	<?php
-	$config = new gene_config();
+	$config = new \Gene\Config();
 	$config->clear();
 	$config>set("dsfsdfsd",array('_url'=>array('sd'=>'sdfsdf222','sds'=>'sdfsf678'),'port'=>3307));
 	支持快捷存与取（.分隔）：
@@ -80,7 +80,7 @@ windows版本：https://github.com/sasou/php-gene-for-windows
 	$config->get("dsfsdfsd.port");
 	
 
-其他类：controller、view、request、response、session、reg、load、exception等，详见文档；
+其他类：\Gene\Controller、\Gene\View、\Gene\Request、\Gene\Response、\Gene\Session、\Gene\Reg、\Gene\Load、\Gene\Exception等，详见文档；
 	
 安装：
 	
@@ -97,9 +97,9 @@ DEMO：
 	
 测试：
 
-	测试网站：php-gene.com
-	http://php-gene.com/
-	可测试路由实例：
+	测试网站：http://php-gene.com/
+    
+	测试路由示例：
 	http://php-gene.com/demo/admin
 	http://php-gene.com/demo/admin.html
 	http://php-gene.com/demo/admin/demo.jpg
