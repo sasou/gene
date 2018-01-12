@@ -68,6 +68,9 @@ static void php_gene_init_globals()
 	GENE_G(app_key) = NULL;
 	GENE_G(auto_load_fun) = NULL;
 	GENE_G(child_views) = NULL;
+	GENE_G(module) = NULL;
+	GENE_G(controller) = NULL;
+	GENE_G(action) = NULL;
 	GENE_G(cache) = NULL;
 	GENE_G(cache_easy) = NULL;
 	gene_cache_init();
@@ -119,6 +122,18 @@ static void php_gene_close_globals()
     	efree(GENE_G(app_key));
     	GENE_G(app_key) = NULL;
     }
+	if (GENE_G(module)) {
+		efree(GENE_G(module));
+		GENE_G(module) = NULL;
+	}
+	if (GENE_G(controller)) {
+		efree(GENE_G(controller));
+		GENE_G(controller) = NULL;
+	}
+	if (GENE_G(action)) {
+		efree(GENE_G(action));
+		GENE_G(action) = NULL;
+	}
 }
 /* }}} */
 
