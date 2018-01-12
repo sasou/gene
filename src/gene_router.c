@@ -46,6 +46,33 @@ ZEND_BEGIN_ARG_INFO_EX(gene_router_call_arginfo, 0, 0, 2)
 ZEND_END_ARG_INFO()
 /* }}} */
 
+/** {{{ static void get_router_info(char *keyString, int keyString_len TSRMLS_DC)
+ */
+int setMca(char key, char *val TSRMLS_DC)
+{
+	zval sval;
+	switch(key) {
+	    case 'm':
+	    	GENE_G(module) = estrndup(val, strlen(val));
+	    	ZVAL_STRING(&sval, val);
+	    	zend_hash_str_update(&EG(symbol_table), "m", 1, &sval);
+	    	break;
+	    case 'c':
+	    	GENE_G(controller) = estrndup(val, strlen(val));
+	    	ZVAL_STRING(&sval, val);
+	    	zend_hash_str_update(&EG(symbol_table), "c", 1, &sval);
+		    break;
+	    case 'a':
+	    	GENE_G(action) = estrndup(val, strlen(val));
+	    	ZVAL_STRING(&sval, val);
+	    	zend_hash_str_update(&EG(symbol_table), "a", 1, &sval);
+		    break;
+	}
+	return 1;
+}
+/* }}} */
+
+
 /** {{{ static void get_path_router(char *keyString, int keyString_len TSRMLS_DC)
  */
 zval * get_path_router(zval *val, char *paths TSRMLS_DC)
@@ -69,6 +96,9 @@ zval * get_path_router(zval *val, char *paths TSRMLS_DC)
 				if (ret){
 					ZEND_HASH_FOREACH_KEY_VAL(Z_ARRVAL_P(ret), idx, key, tmp) {
 						if (key) {
+							if (ZSTR_LEN(key) == 1) {
+								setMca(ZSTR_VAL(key)[0], seg TSRMLS_CC);
+							}
 							if (tmp != NULL) {
 								leaf = get_path_router(tmp,ptr TSRMLS_CC);
 								if (leaf ) {
@@ -80,6 +110,9 @@ zval * get_path_router(zval *val, char *paths TSRMLS_DC)
 							}
 
 						} else {
+							if (ZSTR_LEN(key) == 1) {
+								setMca(ZSTR_VAL(key)[0], seg TSRMLS_CC);
+							}
 							if (tmp != NULL) {
 								leaf = get_path_router(tmp,ptr TSRMLS_CC);
 								if (leaf ) {
@@ -102,16 +135,21 @@ zval * get_path_router(zval *val, char *paths TSRMLS_DC)
 				if (ret){
 					ZEND_HASH_FOREACH_KEY_VAL(Z_ARRVAL_P(ret), idx, key, tmp) {
 						if (key) {
+							if (ZSTR_LEN(key) == 1) {
+								setMca(ZSTR_VAL(key)[0], seg TSRMLS_CC);
+							}
 							if (tmp != NULL) {
 								leaf = zend_symtable_str_find(Z_ARRVAL_P(tmp), "leaf", 4);
 								if (leaf){
 									ZVAL_STRING(&var,seg);
-									gene_cache_set_by_router(PHP_GENE_URL_PARAMS, strlen(PHP_GENE_URL_PARAMS), ZSTR_VAL(key), &var, 0 TSRMLS_CC);
 									zval_ptr_dtor(&var);
 									break;
 								}
 							}
 						} else {
+							if (ZSTR_LEN(key) == 1) {
+								setMca(ZSTR_VAL(key)[0], seg TSRMLS_CC);
+							}
 							if (tmp != NULL) {
 								leaf = zend_symtable_str_find(Z_ARRVAL_P(tmp), "leaf", 4);
 								if (leaf){
@@ -199,6 +237,7 @@ int get_router_info(zval **leaf,zval **cacheHook TSRMLS_DC)
 			run[size-1] = 0;
 		}
 	}
+
 	zend_try {
 		zend_eval_stringl(run, strlen(run), NULL, "" TSRMLS_CC);
 	} zend_catch {
