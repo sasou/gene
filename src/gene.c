@@ -78,7 +78,7 @@ static void php_gene_init_globals()
 /* }}} */
 
 
-/* {{{ php_gene_init_globals
+/* {{{ php_gene_close_globals
  */
 static void php_gene_close_globals()
 {
@@ -230,14 +230,13 @@ PHP_MINFO_FUNCTION(gene)
 	php_info_print_table_row(2, "Web site:", " http://www.php-gene.com");
 	php_info_print_table_row(2, "Version:", PHP_GENE_VERSION);
 	php_info_print_table_end();
-
-	/* Remove comments if you have entries in php.ini
-	DISPLAY_INI_ENTRIES();
-	*/
 }
 /* }}} */
 
 
+/*
+ * {{{ gene_urlParams()
+ */
 PHP_FUNCTION(gene_urlParams){
 	zval *cache = NULL;
 	zend_string *keyString = NULL;
@@ -255,10 +254,15 @@ PHP_FUNCTION(gene_urlParams){
     }
 	RETURN_NULL();
 }
+/* }}} */
 
+/*
+ * {{{ gene_version()
+ */
 PHP_FUNCTION(gene_version) {
 	RETURN_STRING(PHP_GENE_VERSION);
 }
+/* }}} */
 
 /* {{{ gene_functions[]
  *

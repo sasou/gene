@@ -217,6 +217,43 @@ PHP_METHOD(gene_application, getPath)
 /* }}} */
 
 /*
+ * {{{ public gene_application::getModule()
+ */
+PHP_METHOD(gene_application, getModule)
+{
+	if (GENE_G(module)) {
+		RETURN_STRING(GENE_G(module));
+	}
+	RETURN_NULL();
+}
+/* }}} */
+
+/*
+ * {{{ public gene_application::getController()
+ */
+PHP_METHOD(gene_application, getController)
+{
+	if (GENE_G(controller)) {
+		RETURN_STRING(GENE_G(controller));
+	}
+	RETURN_NULL();
+}
+/* }}} */
+
+
+/*
+ * {{{ public gene_application::getAction()
+ */
+PHP_METHOD(gene_application, getAction)
+{
+	if (GENE_G(action)) {
+		RETURN_STRING(GENE_G(action));
+	}
+	RETURN_NULL();
+}
+/* }}} */
+
+/*
  * {{{ public gene_application::getRouterUri()
  */
 PHP_METHOD(gene_application, getRouterUri)
@@ -419,6 +456,9 @@ zend_function_entry gene_application_methods[] = {
 		PHP_ME(gene_application, getMethod, NULL, ZEND_ACC_PUBLIC|ZEND_ACC_STATIC)
 		PHP_ME(gene_application, getPath, NULL, ZEND_ACC_PUBLIC|ZEND_ACC_STATIC)
 		PHP_ME(gene_application, getRouterUri, NULL, ZEND_ACC_PUBLIC|ZEND_ACC_STATIC)
+		PHP_ME(gene_application, getModule, NULL, ZEND_ACC_PUBLIC|ZEND_ACC_STATIC)
+		PHP_ME(gene_application, getController, NULL, ZEND_ACC_PUBLIC|ZEND_ACC_STATIC)
+		PHP_ME(gene_application, getAction, NULL, ZEND_ACC_PUBLIC|ZEND_ACC_STATIC)
 		PHP_ME(gene_application, getEnvironment, NULL, ZEND_ACC_PUBLIC|ZEND_ACC_STATIC)
 		PHP_ME(gene_application, config, NULL, ZEND_ACC_PUBLIC|ZEND_ACC_STATIC)
 		PHP_ME(gene_application, __construct, NULL, ZEND_ACC_PUBLIC|ZEND_ACC_CTOR)
