@@ -466,6 +466,8 @@ char * get_router_content(zval **content,char *method,char *path TSRMLS_DC)
 	char *contents,*seg,*ptr,*tmp;
 	spprintf(&contents, 0, "%s", Z_STRVAL_P(*content));
 	seg = php_strtok_r(contents, "@", &ptr);
+	replaceAll(seg,':','$');
+	replaceAll(ptr,':','$');
 	if (seg && ptr && strlen(ptr)>0) {
 		if (strcmp(method, "hook") == 0) {
 			if (strcmp(path, "before") == 0) {
