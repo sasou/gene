@@ -49,12 +49,12 @@ PHP_METHOD(gene_config, __construct) {
 	} else {
 		if (GENE_G(app_key)) {
 			zend_update_property_string(gene_config_ce, getThis(),
-					GENE_CONFIG_SAFE, strlen(GENE_CONFIG_SAFE),
+			GENE_CONFIG_SAFE, strlen(GENE_CONFIG_SAFE),
 					GENE_G(app_key) TSRMLS_CC);
 		} else {
 			gene_ini_router();
 			zend_update_property_string(gene_config_ce, getThis(),
-					GENE_CONFIG_SAFE, strlen(GENE_CONFIG_SAFE),
+			GENE_CONFIG_SAFE, strlen(GENE_CONFIG_SAFE),
 					GENE_G(directory) TSRMLS_CC);
 		}
 	}
@@ -76,7 +76,7 @@ PHP_METHOD(gene_config, set) {
 			strlen(GENE_CONFIG_SAFE), 1, NULL);
 	if (Z_STRLEN_P(safe)) {
 		router_e_len = spprintf(&router_e, 0, "%s%s", Z_STRVAL_P(safe),
-				GENE_CONFIG_CACHE);
+		GENE_CONFIG_CACHE);
 	} else {
 		router_e_len = spprintf(&router_e, 0, "%s", GENE_CONFIG_CACHE);
 	}
@@ -108,7 +108,7 @@ PHP_METHOD(gene_config, get) {
 			strlen(GENE_CONFIG_SAFE), 1, NULL);
 	if (Z_STRLEN_P(safe)) {
 		router_e_len = spprintf(&router_e, 0, "%s%s", Z_STRVAL_P(safe),
-				GENE_CONFIG_CACHE);
+		GENE_CONFIG_CACHE);
 	} else {
 		router_e_len = spprintf(&router_e, 0, "%s", GENE_CONFIG_CACHE);
 	}
@@ -137,7 +137,7 @@ PHP_METHOD(gene_config, del) {
 			strlen(GENE_CONFIG_SAFE), 1, NULL);
 	if (Z_STRLEN_P(safe)) {
 		router_e_len = spprintf(&router_e, 0, "%s%s", Z_STRVAL_P(safe),
-				GENE_CONFIG_CACHE);
+		GENE_CONFIG_CACHE);
 	} else {
 		router_e_len = spprintf(&router_e, 0, "%s", GENE_CONFIG_CACHE);
 	}
@@ -164,7 +164,7 @@ PHP_METHOD(gene_config, clear) {
 			strlen(GENE_CONFIG_SAFE), 1, NULL);
 	if (Z_STRLEN_P(safe)) {
 		router_e_len = spprintf(&router_e, 0, "%s%s", Z_STRVAL_P(safe),
-				GENE_CONFIG_CACHE);
+		GENE_CONFIG_CACHE);
 	} else {
 		router_e_len = spprintf(&router_e, 0, "%s", GENE_CONFIG_CACHE);
 	}
@@ -189,7 +189,7 @@ PHP_ME(gene_config, get, NULL, ZEND_ACC_PUBLIC)
 PHP_ME(gene_config, del, NULL, ZEND_ACC_PUBLIC)
 PHP_ME(gene_config, clear, NULL, ZEND_ACC_PUBLIC)
 PHP_ME(gene_config, __construct, NULL, ZEND_ACC_PUBLIC|ZEND_ACC_CTOR) { NULL,
-		NULL, NULL } };
+NULL, NULL } };
 /* }}} */
 
 /*

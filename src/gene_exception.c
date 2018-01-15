@@ -56,8 +56,7 @@ int gene_exception_error_register(zval *callback, zval *error_type TSRMLS_DC) {
 
 	ZVAL_STRING(&function, "set_error_handler");
 	if (call_user_function(EG(function_table), NULL, &function, &ret, arg_num,
-			params TSRMLS_CC)
-			== FAILURE) {
+			params TSRMLS_CC) == FAILURE) {
 		zval_dtor(&ret);
 		php_error_docref(NULL TSRMLS_CC, E_WARNING,
 				"Call to set_error_handler failed");
@@ -88,8 +87,7 @@ int gene_exception_register(zval *callback, zval *error_type TSRMLS_DC) {
 
 	ZVAL_STRING(&function, "set_exception_handler");
 	if (call_user_function(EG(function_table), NULL, &function, &ret, arg_num,
-			params TSRMLS_CC)
-			== FAILURE) {
+			params TSRMLS_CC) == FAILURE) {
 		zval_dtor(&ret);
 		php_error_docref(NULL TSRMLS_CC, E_WARNING,
 				"Call to set_exception_handler failed");
@@ -224,11 +222,11 @@ GENE_MINIT_FUNCTION(exception) {
 			gene_get_exception_base(0));
 
 	zend_declare_property_null(gene_exception_ce, ZEND_STRL("message"),
-			ZEND_ACC_PROTECTED);
+	ZEND_ACC_PROTECTED);
 	zend_declare_property_long(gene_exception_ce, ZEND_STRL("code"), 0,
-			ZEND_ACC_PROTECTED);
+	ZEND_ACC_PROTECTED);
 	zend_declare_property_null(gene_exception_ce, ZEND_STRL("previous"),
-			ZEND_ACC_PROTECTED);
+	ZEND_ACC_PROTECTED);
 
 	//
 	return SUCCESS;

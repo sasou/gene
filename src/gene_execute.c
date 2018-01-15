@@ -59,11 +59,10 @@ PHP_METHOD(gene_execute, __construct) {
 	}
 	if (debug) {
 		zend_update_property_long(gene_execute_ce, getThis(),
-				GENE_EXECUTE_DEBUG, strlen(GENE_EXECUTE_DEBUG),
-				debug TSRMLS_CC);
+		GENE_EXECUTE_DEBUG, strlen(GENE_EXECUTE_DEBUG), debug TSRMLS_CC);
 	} else {
 		zend_update_property_long(gene_execute_ce, getThis(),
-				GENE_EXECUTE_DEBUG, strlen(GENE_EXECUTE_DEBUG), 0 TSRMLS_CC);
+		GENE_EXECUTE_DEBUG, strlen(GENE_EXECUTE_DEBUG), 0 TSRMLS_CC);
 	}
 }
 /* }}} */
@@ -115,7 +114,7 @@ PHP_METHOD(gene_execute, StringRun) {
 	zend_try
 			{
 				zend_eval_stringl(ZSTR_VAL(php_script), ZSTR_LEN(php_script),
-						NULL, "" TSRMLS_CC);
+				NULL, "" TSRMLS_CC);
 			}zend_catch
 			{
 				zend_bailout();
@@ -132,7 +131,7 @@ zend_function_entry gene_execute_methods[] = {
 PHP_ME(gene_execute, GetOpcodes, NULL, ZEND_ACC_PUBLIC)
 PHP_ME(gene_execute, StringRun, NULL, ZEND_ACC_PUBLIC)
 PHP_ME(gene_execute, __construct, NULL, ZEND_ACC_PUBLIC|ZEND_ACC_CTOR) { NULL,
-		NULL, NULL } };
+NULL, NULL } };
 /* }}} */
 
 /*

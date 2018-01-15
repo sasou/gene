@@ -86,8 +86,7 @@ int gene_load_import(char *path TSRMLS_DC) {
  */
 zval *gene_load_instance(zval *this_ptr TSRMLS_DC) {
 	zval *instance = zend_read_static_property(gene_load_ce,
-			GENE_LOAD_PROPERTY_INSTANCE, strlen(GENE_LOAD_PROPERTY_INSTANCE),
-			1);
+	GENE_LOAD_PROPERTY_INSTANCE, strlen(GENE_LOAD_PROPERTY_INSTANCE), 1);
 
 	if (Z_TYPE_P(instance) == IS_OBJECT) {
 		return instance;
@@ -162,7 +161,7 @@ PHP_METHOD(gene_load, __construct) {
  * {{{ public gene_load::autoload($key)
  */
 PHP_METHOD(gene_load, autoload) {
-	int className_len, filePath_len = 0;
+	int filePath_len = 0;
 	char *fileNmae = NULL, *filePath = NULL;
 	zend_string *className;
 	smart_str buf = { 0 };
@@ -225,7 +224,7 @@ PHP_ME(gene_load, getInstance, NULL, ZEND_ACC_PUBLIC|ZEND_ACC_STATIC)
 PHP_ME(gene_load, import, NULL, ZEND_ACC_PUBLIC)
 PHP_ME(gene_load, autoload, NULL, ZEND_ACC_PUBLIC)
 PHP_ME(gene_load, __construct, NULL, ZEND_ACC_PRIVATE|ZEND_ACC_CTOR) { NULL,
-		NULL, NULL } };
+NULL, NULL } };
 /* }}} */
 
 /*
@@ -240,7 +239,7 @@ GENE_MINIT_FUNCTION(load) {
 	//static
 	zend_declare_property_null(gene_load_ce, GENE_LOAD_PROPERTY_INSTANCE,
 			strlen(GENE_LOAD_PROPERTY_INSTANCE),
-			ZEND_ACC_PROTECTED | ZEND_ACC_STATICTSRMLS_CC);
+			ZEND_ACC_PROTECTED | ZEND_ACC_STATIC TSRMLS_CC);
 
 	return SUCCESS;
 }

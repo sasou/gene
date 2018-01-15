@@ -52,7 +52,7 @@ int gene_view_display(char *file TSRMLS_DC) {
 				GENE_G(app_view), file, GENE_G(app_ext));
 	} else {
 		path_len = spprintf(&path, 0, "app/%s/%s%s", GENE_VIEW_VIEW, file,
-				GENE_VIEW_EXT);
+		GENE_VIEW_EXT);
 	}
 	gene_load_import(path TSRMLS_CC);
 	efree(path);
@@ -243,7 +243,7 @@ zend_function_entry gene_view_methods[] = {
 PHP_ME(gene_view, display, NULL, ZEND_ACC_PUBLIC)
 PHP_ME(gene_view, template, NULL, ZEND_ACC_PUBLIC|ZEND_ACC_STATIC)
 PHP_ME(gene_view, __construct, NULL, ZEND_ACC_PUBLIC|ZEND_ACC_CTOR) { NULL,
-		NULL, NULL } };
+NULL, NULL } };
 /* }}} */
 
 /*

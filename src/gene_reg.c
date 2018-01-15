@@ -74,7 +74,7 @@ PHP_METHOD(gene_reg, __clone) {
  */
 zval *gene_reg_instance(zval *this_ptr) {
 	zval *instance = zend_read_static_property(gene_reg_ce,
-			GENE_REG_PROPERTY_INSTANCE, strlen(GENE_REG_PROPERTY_INSTANCE), 1);
+	GENE_REG_PROPERTY_INSTANCE, strlen(GENE_REG_PROPERTY_INSTANCE), 1);
 
 	if (UNEXPECTED(
 			Z_TYPE_P(instance) != IS_OBJECT || !instanceof_function(Z_OBJCE_P(instance), gene_reg_ce))) {
@@ -206,7 +206,7 @@ PHP_ME(gene_reg, get, gene_reg_get_arginfo, ZEND_ACC_PUBLIC|ZEND_ACC_STATIC)
 PHP_ME(gene_reg, has, gene_reg_has_arginfo, ZEND_ACC_PUBLIC|ZEND_ACC_STATIC)
 PHP_ME(gene_reg, set, gene_reg_set_arginfo, ZEND_ACC_PUBLIC|ZEND_ACC_STATIC)
 PHP_ME(gene_reg, del, gene_reg_del_arginfo, ZEND_ACC_PUBLIC|ZEND_ACC_STATIC) {
-		NULL, NULL, NULL } };
+NULL, NULL, NULL } };
 /* }}} */
 
 /*

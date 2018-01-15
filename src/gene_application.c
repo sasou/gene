@@ -290,10 +290,10 @@ PHP_METHOD(gene_application, config) {
 
 	if (GENE_G(app_key)) {
 		router_e_len = spprintf(&router_e, 0, "%s%s", GENE_G(app_key),
-				GENE_CONFIG_CACHE);
+		GENE_CONFIG_CACHE);
 	} else {
 		router_e_len = spprintf(&router_e, 0, "%s%s", GENE_G(directory),
-				GENE_CONFIG_CACHE);
+		GENE_CONFIG_CACHE);
 	}
 	cache = gene_cache_get_by_config(router_e, router_e_len,
 			ZSTR_VAL(keyString) TSRMLS_CC);
@@ -469,7 +469,7 @@ PHP_ME(gene_application, getAction, NULL, ZEND_ACC_PUBLIC|ZEND_ACC_STATIC)
 PHP_ME(gene_application, getEnvironment, NULL, ZEND_ACC_PUBLIC|ZEND_ACC_STATIC)
 PHP_ME(gene_application, config, NULL, ZEND_ACC_PUBLIC|ZEND_ACC_STATIC)
 PHP_ME(gene_application, __construct, NULL, ZEND_ACC_PUBLIC|ZEND_ACC_CTOR) {
-		NULL, NULL, NULL } };
+NULL, NULL, NULL } };
 /* }}} */
 
 /*
