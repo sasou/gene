@@ -549,12 +549,11 @@ PHP_METHOD(gene_cache, __construct) {
 	} else {
 		if (GENE_G(app_key)) {
 			zend_update_property_string(gene_cache_ce, getThis(),
-					GENE_CACHE_SAFE, strlen(GENE_CACHE_SAFE), GENE_G(app_key));
+			GENE_CACHE_SAFE, strlen(GENE_CACHE_SAFE), GENE_G(app_key));
 		} else {
 			gene_ini_router();
 			zend_update_property_string(gene_cache_ce, getThis(),
-					GENE_CACHE_SAFE, strlen(GENE_CACHE_SAFE),
-					GENE_G(directory));
+			GENE_CACHE_SAFE, strlen(GENE_CACHE_SAFE), GENE_G(directory));
 		}
 	}
 }
@@ -722,7 +721,7 @@ PHP_ME(gene_cache, exists, NULL, ZEND_ACC_PUBLIC)
 PHP_ME(gene_cache, del, NULL, ZEND_ACC_PUBLIC)
 PHP_ME(gene_cache, clean, NULL, ZEND_ACC_PUBLIC)
 PHP_ME(gene_cache, __construct, NULL, ZEND_ACC_PUBLIC|ZEND_ACC_CTOR) { NULL,
-		NULL, NULL } };
+NULL, NULL } };
 /* }}} */
 
 /*

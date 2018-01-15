@@ -133,8 +133,7 @@ PHP_METHOD(gene_controller, isAjax) {
 			ZEND_STRL("HTTP_X_REQUESTED_WITH") TSRMLS_CC);
 	if (header && Z_TYPE_P(header) == IS_STRING
 			&& strncasecmp("XMLHttpRequest", Z_STRVAL_P(header),
-					Z_STRLEN_P(header))
-					== 0) {
+					Z_STRLEN_P(header)) == 0) {
 		RETURN_TRUE
 		;
 	}
