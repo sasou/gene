@@ -1,18 +1,18 @@
 /*
-  +----------------------------------------------------------------------+
-  | gene                                                                 |
-  +----------------------------------------------------------------------+
-  | This source file is subject to version 3.01 of the PHP license,      |
-  | that is bundled with this package in the file LICENSE, and is        |
-  | available through the world-wide-web at the following url:           |
-  | http://www.php.net/license/3_01.txt                                  |
-  | If you did not receive a copy of the PHP license and are unable to   |
-  | obtain it through the world-wide-web, please send a note to          |
-  | license@php.net so we can mail you a copy immediately.               |
-  +----------------------------------------------------------------------+
-  | Author: Sasou  <admin@php-gene.com> web:www.php-gene.com             |
-  +----------------------------------------------------------------------+
-*/
+ +----------------------------------------------------------------------+
+ | gene                                                                 |
+ +----------------------------------------------------------------------+
+ | This source file is subject to version 3.01 of the PHP license,      |
+ | that is bundled with this package in the file LICENSE, and is        |
+ | available through the world-wide-web at the following url:           |
+ | http://www.php.net/license/3_01.txt                                  |
+ | If you did not receive a copy of the PHP license and are unable to   |
+ | obtain it through the world-wide-web, please send a note to          |
+ | license@php.net so we can mail you a copy immediately.               |
+ +----------------------------------------------------------------------+
+ | Author: Sasou  <admin@php-gene.com> web:www.php-gene.com             |
+ +----------------------------------------------------------------------+
+ */
 
 #ifndef PHP_GENE_H
 #define PHP_GENE_H
@@ -29,7 +29,6 @@ extern zend_module_entry gene_module_entry;
 #else
 #	define PHP_GENE_API
 #endif
-
 
 #ifdef ZTS
 #include "TSRM.h"
@@ -54,43 +53,38 @@ extern zend_module_entry gene_module_entry;
 #define GENE_MINFO_FUNCTION(module)   	PHP_MINFO_FUNCTION(module)
 #define GENE_STARTUP(module)	 		ZEND_MODULE_STARTUP_N(gene_##module)(INIT_FUNC_ARGS_PASSTHRU)
 
+PHP_MINIT_FUNCTION (gene);
+PHP_MSHUTDOWN_FUNCTION (gene);
+PHP_RINIT_FUNCTION (gene);
+PHP_RSHUTDOWN_FUNCTION (gene);
+PHP_MINFO_FUNCTION (gene);
 
-PHP_MINIT_FUNCTION(gene);
-PHP_MSHUTDOWN_FUNCTION(gene);
-PHP_RINIT_FUNCTION(gene);
-PHP_RSHUTDOWN_FUNCTION(gene);
-PHP_MINFO_FUNCTION(gene);
+ZEND_BEGIN_MODULE_GLOBALS (gene)
+char *directory;
+char *app_root;
+char *app_view;
+char *app_ext;
+char *method;
+char *path;
+char *router_path;
+char *app_key;
+char *auto_load_fun;
+char *child_views;
+char *module;
+char *controller;
+char *action;
+zend_bool gene_error;
+zend_bool gene_exception;
+zend_bool run_environment;
+zend_bool use_namespace;
+zend_bool view_compile;
+HashTable *cache;
+HashTable *cache_easy;
+ZEND_END_MODULE_GLOBALS (gene)
 
-
-
-ZEND_BEGIN_MODULE_GLOBALS(gene)
-	char 		*directory;
-    char        *app_root;
-    char        *app_view;
-    char        *app_ext;
-	char		*method;
-	char 		*path;
-	char 		*router_path;
-	char 		*app_key;
-	char 		*auto_load_fun;
-	char 		*child_views;
-	char 		*module;
-	char 		*controller;
-	char 		*action;
-    zend_bool   gene_error;
-    zend_bool   gene_exception;
-    zend_bool   run_environment;
-	zend_bool   use_namespace;
-    zend_bool   view_compile;
-	HashTable	*cache;
-	HashTable	*cache_easy;
-ZEND_END_MODULE_GLOBALS(gene)
-
-extern ZEND_DECLARE_MODULE_GLOBALS(gene);
-
+extern ZEND_DECLARE_MODULE_GLOBALS (gene);
 
 #endif	/* PHP_GENE_H */
-
 
 /*
  * Local variables:

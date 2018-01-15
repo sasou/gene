@@ -1,18 +1,18 @@
 ﻿/*
-  +----------------------------------------------------------------------+
-  | gene                                                                 |
-  +----------------------------------------------------------------------+
-  | This source file is subject to version 3.01 of the PHP license,      |
-  | that is bundled with this package in the file LICENSE, and is        |
-  | available through the world-wide-web at the following url:           |
-  | http://www.php.net/license/3_01.txt                                  |
-  | If you did not receive a copy of the PHP license and are unable to   |
-  | obtain it through the world-wide-web, please send a note to          |
-  | license@php.net so we can mail you a copy immediately.               |
-  +----------------------------------------------------------------------+
-  | Author: Sasou  <admin@php-gene.com> web:www.php-gene.com             |
-  +----------------------------------------------------------------------+
-*/
+ +----------------------------------------------------------------------+
+ | gene                                                                 |
+ +----------------------------------------------------------------------+
+ | This source file is subject to version 3.01 of the PHP license,      |
+ | that is bundled with this package in the file LICENSE, and is        |
+ | available through the world-wide-web at the following url:           |
+ | http://www.php.net/license/3_01.txt                                  |
+ | If you did not receive a copy of the PHP license and are unable to   |
+ | obtain it through the world-wide-web, please send a note to          |
+ | license@php.net so we can mail you a copy immediately.               |
+ +----------------------------------------------------------------------+
+ | Author: Sasou  <admin@php-gene.com> web:www.php-gene.com             |
+ +----------------------------------------------------------------------+
+ */
 
 #ifdef HAVE_CONFIG_H
 #include "config.h"
@@ -28,10 +28,9 @@
 /*
  * {{{ char *strupr(char *str)
  */
-char *strtoupper(char *str)
-{
-	char *orign=str;
-	while(*str!='\0'){
+char *strtoupper(char *str) {
+	char *orign = str;
+	while (*str != '\0') {
 		*str = toupper(*str);
 		str++;
 	}
@@ -42,10 +41,9 @@ char *strtoupper(char *str)
 /*
  * {{{ char *strupr(char *str)
  */
-char *strtolower(char *str)
-{
-	char *orign=str;
-	while(*str!='\0'){
+char *strtolower(char *str) {
+	char *orign = str;
+	while (*str != '\0') {
 		*str = tolower(*str);
 		str++;
 	}
@@ -56,27 +54,28 @@ char *strtolower(char *str)
 /*
  * {{{ left(char *dst,char *src, int n)
  */
-void left(char *dst,char *src, int n)
-{
-    char *p = src;
-    char *q = dst;
-    int len = strlen(src);
-    if(n>len) n = len;
-    /*p += (len-n);*/
-    while(n--) *(q++) = *(p++);
-    *(q++)='\0';
-    return;
+void left(char *dst, char *src, int n) {
+	char *p = src;
+	char *q = dst;
+	int len = strlen(src);
+	if (n > len)
+		n = len;
+	/*p += (len-n);*/
+	while (n--)
+		*(q++) = *(p++);
+	*(q++) = '\0';
+	return;
 }
 /* }}} */
 
 /*
- * {{{ void leftByChar(char *dst,char *src, char val)
+ * {{{ void leftByChar(char *dst, char *src, char val)
  */
-void leftByChar(char *dst,char *src, char val)
-{
-	char *q=dst;
-	while(*src!='\0'){
-		if(*src==val) break;
+void leftByChar(char *dst, char *src, char val) {
+	char *q = dst;
+	while (*src != '\0') {
+		if (*src == val)
+			break;
 		*(q++) = *(src++);
 	}
 	return;
@@ -84,46 +83,49 @@ void leftByChar(char *dst,char *src, char val)
 /* }}} */
 
 /*
- * {{{ mid(char *dst,char *src, int n,int m) n为长度，m为位置
+ * {{{ mid(char *dst, char *src, int n,int m) n为长度，m为位置
  */
-void mid(char *dst,char *src, int n,int m)
-{
-    char *p = src;
-    char *q = dst;
-    int len = strlen(src);
-    if(n>len) n = len-m;
-    if(m<0) m=0;
-    //if(m>len) return NULL;
-    p += m;
-    while(n--) *(q++) = *(p++);
-    *(q++)='\0';
-    return;
+void mid(char *dst, char *src, int n, int m) {
+	char *p = src;
+	char *q = dst;
+	int len = strlen(src);
+	if (n > len)
+		n = len - m;
+	if (m < 0)
+		m = 0;
+	//if(m>len) return NULL;
+	p += m;
+	while (n--)
+		*(q++) = *(p++);
+	*(q++) = '\0';
+	return;
 }
 /* }}} */
 
 /*
  * {{{ right(char *dst,char *src, int n)
  */
-void right(char *dst,char *src, int n)
-{
-    char *p = src;
-    char *q = dst;
-    int len = strlen(src);
-    if(n>len) n = len;
-    p += (len-n);
-    while(*(q++) = *(p++));
-    return;
+void right(char *dst, char *src, int n) {
+	char *p = src;
+	char *q = dst;
+	int len = strlen(src);
+	if (n > len)
+		n = len;
+	p += (len - n);
+	while (*(q++) = *(p++))
+		;
+	return;
 }
 /* }}} */
 
 /*
- * {{{ right(char *dst,char *src, int n)
+ * {{{ right(char *dst, char *src, int n)
  */
-char * replaceAll(char * src,const char oldChar,const char newChar)
-{
-	char *head=src;
-	while(*src!='\0'){
-		if(*src==oldChar) *src=newChar;
+char * replaceAll(char * src, const char oldChar, const char newChar) {
+	char *head = src;
+	while (*src != '\0') {
+		if (*src == oldChar)
+			*src = newChar;
 		src++;
 	}
 	return head;
@@ -131,17 +133,16 @@ char * replaceAll(char * src,const char oldChar,const char newChar)
 /* }}} */
 
 /*
- * {{{ insertAll(char *dst,char *src, int n)
+ * {{{ insertAll(char *dst, char *src, int n)
  */
-char * insertAll(char * dest,char * src,char oldChar,char newChar)
-{
+char * insertAll(char * dest, char * src, char oldChar, char newChar) {
 	int size = 50;
-	dest = (char *) emalloc(strlen(src)+size+1);
-	while(*src!='\0'){
-		if(*src==oldChar){
+	dest = (char *) emalloc(strlen(src) + size + 1);
+	while (*src != '\0') {
+		if (*src == oldChar) {
 			*dest = *src;
 			dest++;
-			*dest=newChar;
+			*dest = newChar;
 		} else {
 			*dest = *src;
 		}
@@ -156,31 +157,33 @@ char * insertAll(char * dest,char * src,char oldChar,char newChar)
 /*
  * {{{ trim(char* s, char c)
  */
-void trim(char* s,const char c)
-{
-    char *t  = s;
-    while (*s == c){s++;};
-    if (*s)
-    {
-        char* t1 = s;
-        while (*s){s++;};
-        s--;
-        while (*s == c){s--;};
-        while (t1 <= s)
-        {
-            *(t++) = *(t1++);
-        }
-    }
-    *t = 0;
+void trim(char* s, const char c) {
+	char *t = s;
+	while (*s == c) {
+		s++;
+	};
+	if (*s) {
+		char* t1 = s;
+		while (*s) {
+			s++;
+		};
+		s--;
+		while (*s == c) {
+			s--;
+		};
+		while (t1 <= s) {
+			*(t++) = *(t1++);
+		}
+	}
+	*t = 0;
 }
 /* }}} */
 
 /*
  * {{{ char *replace(char *st, char *orig, char *repl)
  */
-void replace(char originalString[], char key[], char swap[])
-{
-	int lengthOfOriginalString, lengthOfKey, lengthOfSwap, i, j , flag;
+void replace(char originalString[], char key[], char swap[]) {
+	int lengthOfOriginalString, lengthOfKey, lengthOfSwap, i, j, flag;
 	char tmp[1000];
 
 	//获取各个字符串的长度
@@ -188,20 +191,20 @@ void replace(char originalString[], char key[], char swap[])
 	lengthOfKey = strlen(key);
 	lengthOfSwap = strlen(swap);
 
-	for( i = 0; i <= lengthOfOriginalString - lengthOfKey; i++){
+	for (i = 0; i <= lengthOfOriginalString - lengthOfKey; i++) {
 		flag = 1;
 		//搜索key
-		for(j  = 0; j < lengthOfKey; j ++){
-			if(originalString[i + j] != key[j]){
+		for (j = 0; j < lengthOfKey; j++) {
+			if (originalString[i + j] != key[j]) {
 				flag = 0;
 				break;
 			}
 		}
 		//如果搜索成功，则进行替换
-		if(flag){
+		if (flag) {
 			strcpy(tmp, originalString);
 			strcpy(&tmp[i], swap);
-			strcpy(&tmp[i + lengthOfSwap], &originalString[i  + lengthOfKey]);
+			strcpy(&tmp[i + lengthOfSwap], &originalString[i + lengthOfKey]);
 			strcpy(originalString, tmp);
 			i += lengthOfSwap - 1;
 			lengthOfOriginalString = strlen(originalString);
@@ -213,28 +216,26 @@ void replace(char originalString[], char key[], char swap[])
 /*
  * {{{ int findChildCnt(char* str1, char* str2)
  */
-int findChildCnt(char* str1,const char* str2)
-{
-    int len = strlen(str2);
-    int cnt = 0;
-    while (str1 = strstr(str1, str2))
-    {
-        cnt++;
-        str1 += len;
-    }
-    return cnt;
+int findChildCnt(char* str1, const char* str2) {
+	int len = strlen(str2);
+	int cnt = 0;
+	while (str1 = strstr(str1, str2)) {
+		cnt++;
+		str1 += len;
+	}
+	return cnt;
 }
 /* }}} */
 
 /*
  * {{{ int findChildC(char* src, char* car)
  */
-int findChildC(char* src,const char car)
-{
+int findChildC(char* src, const char car) {
 	char *h = src;
 	int num = 0;
-	while(*h!='\0'){
-		if(*h==car) num++;
+	while (*h != '\0') {
+		if (*h == car)
+			num++;
 		h++;
 	}
 	return num;
@@ -244,10 +245,9 @@ int findChildC(char* src,const char car)
 /*
  * {{{ char * charIfFirst(char * src,const char oldChar)
  */
-int charIfFirst(char *src,const char car)
-{
+int charIfFirst(char *src, const char car) {
 	char *h = src;
-	if(h[0] == car) {
+	if (h[0] == car) {
 		return 1;
 	}
 	return 0;
@@ -257,29 +257,29 @@ int charIfFirst(char *src,const char car)
 /*
  * {{{ char * replace_string (char * string, const char * source, const char * destination )
  */
-char * replace_string (char * string, char source, const char * destination )
-{
-	char *sk = NULL,*newstr,*ptr;
-	int size,newsize,num = 0,isFirst;
+char * replace_string(char * string, char source, const char * destination) {
+	char *sk = NULL, *newstr, *ptr;
+	int size, newsize, num = 0, isFirst;
 	num = findChildC(string, source);
 	isFirst = charIfFirst(string, ':');
-	if (num == 0) return NULL;
-	newsize = strlen(string)+(strlen(destination) - 1 )*num+1;
-	newstr = (char *) ecalloc(newsize,sizeof(char));
-	if (newstr == NULL) return NULL;
+	if (num == 0)
+		return NULL;
+	newsize = strlen(string) + (strlen(destination) - 1) * num + 1;
+	newstr = (char *) ecalloc(newsize, sizeof(char));
+	if (newstr == NULL)
+		return NULL;
 	sk = php_strtok_r(string, ":", &ptr);
 	size = 0;
-	while (sk != NULL)
-	{
-		if(isFirst == 1) {
-			if (size<num) {
-				strcat(newstr,destination);
+	while (sk != NULL) {
+		if (isFirst == 1) {
+			if (size < num) {
+				strcat(newstr, destination);
 			}
-			strcat(newstr,sk);
+			strcat(newstr, sk);
 		} else {
-			strcat(newstr,sk);
-			if (size<num) {
-				strcat(newstr,destination);
+			strcat(newstr, sk);
+			if (size < num) {
+				strcat(newstr, destination);
 			}
 		}
 		sk = php_strtok_r(NULL, ":", &ptr);
@@ -293,25 +293,23 @@ char * replace_string (char * string, char source, const char * destination )
 /*
  * {{{ char * replace_string (char * string, const char * source, const char * destination )
  */
-int ReplaceStr(char* sSrc, char* sMatchStr, char* sReplaceStr)
-{
+int ReplaceStr(char* sSrc, char* sMatchStr, char* sReplaceStr) {
 	int StringLen;
 	char caNewString[500];
 	char* FindPos;
-	FindPos =(char *)strstr(sSrc, sMatchStr);
-	if( (!FindPos) || (!sMatchStr) )
-			return -1;
+	FindPos = (char *) strstr(sSrc, sMatchStr);
+	if ((!FindPos) || (!sMatchStr))
+		return -1;
 
-	while( FindPos )
-	{
-			memset(caNewString, 0, sizeof(caNewString));
-			StringLen = FindPos - sSrc;
-			strncpy(caNewString, sSrc, StringLen);
-			strcat(caNewString, sReplaceStr);
-			strcat(caNewString, FindPos + strlen(sMatchStr));
-			strcpy(sSrc, caNewString);
+	while (FindPos) {
+		memset(caNewString, 0, sizeof(caNewString));
+		StringLen = FindPos - sSrc;
+		strncpy(caNewString, sSrc, StringLen);
+		strcat(caNewString, sReplaceStr);
+		strcat(caNewString, FindPos + strlen(sMatchStr));
+		strcpy(sSrc, caNewString);
 
-			FindPos =(char *)strstr(sSrc, sMatchStr);
+		FindPos = (char *) strstr(sSrc, sMatchStr);
 	}
 	free(FindPos);
 	return 0;
@@ -321,152 +319,145 @@ int ReplaceStr(char* sSrc, char* sMatchStr, char* sReplaceStr)
 /*
  * {{{ char * insert_string (char * string, const char * source, const char * destination )
  */
-char * insert_string (char * string, const char * source, const char * destination )
-{
-	char *sk,*newstr,*retstr;
+char * insert_string(char * string, const char * source,
+		const char * destination) {
+	char *sk, *newstr, *retstr;
 	int size;
 	int pos = 0;
-	sk = strstr (string, source);
-	if (sk == NULL) return NULL;
-	size = strlen(string)+strlen(destination)+1;
-	newstr = (char*)emalloc (size);
-	if (newstr == NULL) return NULL;
+	sk = strstr(string, source);
+	if (sk == NULL)
+		return NULL;
+	size = strlen(string) + strlen(destination) + 1;
+	newstr = (char*) emalloc(size);
+	if (newstr == NULL)
+		return NULL;
 
-	retstr = (char*)emalloc (size);
-	if (retstr == NULL)
-	{
-		free (newstr);
+	retstr = (char*) emalloc(size);
+	if (retstr == NULL) {
+		free(newstr);
 		return NULL;
 	}
 
-	snprintf (newstr, size-1, "%s", string);
+	snprintf(newstr, size - 1, "%s", string);
 
-	sk = strstr (newstr, source);
+	sk = strstr(newstr, source);
 
 	pos = 0;
 	sk += strlen(source);
 
-	memcpy (retstr+pos, newstr, sk - newstr);
+	memcpy(retstr + pos, newstr, sk - newstr);
 	pos += sk - newstr;
 
-	memcpy (retstr+pos, destination, strlen(destination));
+	memcpy(retstr + pos, destination, strlen(destination));
 	pos += strlen(destination);
-	memcpy (retstr+pos, sk, strlen(sk));
+	memcpy(retstr + pos, sk, strlen(sk));
 
-	free (newstr);
+	free(newstr);
 	return retstr;
 
 }
 /* }}} */
 
-int fullToHalf(char *sFullStr, char *sHalfStr)
-{
-    int iFullStrIndex = 0;
-    int iHalfStrIndex = 0;
+int fullToHalf(char *sFullStr, char *sHalfStr) {
+	int iFullStrIndex = 0;
+	int iHalfStrIndex = 0;
 
-    int iFullStrLen = strlen(sFullStr);
+	int iFullStrLen = strlen(sFullStr);
 
-    printf("sFullStr[%s]\n", sFullStr);
+	printf("sFullStr[%s]\n", sFullStr);
 
-    for(; iFullStrIndex < iFullStrLen; iFullStrIndex++, iHalfStrIndex++){
+	for (; iFullStrIndex < iFullStrLen; iFullStrIndex++, iHalfStrIndex++) {
 
-        if(sFullStr[iFullStrIndex] == 0xA3){
-            sHalfStr[iHalfStrIndex] = sFullStr[++iFullStrIndex]- 0x80;
+		if (sFullStr[iFullStrIndex] == 0xA3) {
+			sHalfStr[iHalfStrIndex] = sFullStr[++iFullStrIndex] - 0x80;
 
-        }else{
-            sHalfStr[iHalfStrIndex] = sFullStr[iFullStrIndex];
+		} else {
+			sHalfStr[iHalfStrIndex] = sFullStr[iFullStrIndex];
 
-        }
+		}
 
-    }
+	}
 
-    printf("sHalfStr:[%s]\n", sHalfStr);
+	printf("sHalfStr:[%s]\n", sHalfStr);
 
-    return 0;
+	return 0;
 }
 
+int halfToFull(char *sFullStr, char *sHalfStr) {
+	int iFullStrIndex = 0;
+	int iHalfStrIndex = 0;
 
-int halfToFull(char *sFullStr, char *sHalfStr)
-{
-    int iFullStrIndex = 0;
-    int iHalfStrIndex = 0;
+	int iHalfStrlen = strlen(sHalfStr);
 
-    int iHalfStrlen = strlen(sHalfStr);
+	printf("sHalfStr[%s]\n", sHalfStr);
 
-    printf("sHalfStr[%s]\n", sHalfStr);
+	for (; iHalfStrIndex < iHalfStrlen; iHalfStrIndex++, iFullStrIndex++) {
 
-    for(; iHalfStrIndex < iHalfStrlen; iHalfStrIndex++, iFullStrIndex++){
+		if (sHalfStr[iHalfStrIndex] < 0x80) {
+			sFullStr[iFullStrIndex] = 0xA3;
+			sFullStr[++iFullStrIndex] = sHalfStr[iHalfStrIndex] + 0x80;
 
-        if(sHalfStr[iHalfStrIndex] < 0x80){
-            sFullStr[iFullStrIndex] = 0xA3;
-            sFullStr[++iFullStrIndex] = sHalfStr[iHalfStrIndex] + 0x80;
+		} else {
+			sFullStr[iFullStrIndex] = sHalfStr[iHalfStrIndex];
 
-        }else{
-            sFullStr[iFullStrIndex] = sHalfStr[iHalfStrIndex];
+		}
 
-        }
+	}
 
-    }
+	printf("sFullStr:[%s]\n", sFullStr);
 
-    printf("sFullStr:[%s]\n", sFullStr);
-
-    return 0;
+	return 0;
 }
 
-void remove_extra_space(char *str)
-{
-    char *sp = str;
-    char *prev = 0;
+void remove_extra_space(char *str) {
+	char *sp = str;
+	char *prev = 0;
 
-    while(*str && (*str == ' ' || *str == '\n' || *str =='\t'))
-        ++str;
+	while (*str && (*str == ' ' || *str == '\n' || *str == '\t'))
+		++str;
 
-    for(; *str; ++str)
-    {
-        switch (*str)
-        {
-			case '\t':
-				*str = ' ';
-			case ' ' :
-				if (*prev == '\n' || *prev ==' ')
-					continue;
-				break;
+	for (; *str; ++str) {
+		switch (*str) {
+		case '\t':
+			*str = ' ';
+		case ' ':
+			if (*prev == '\n' || *prev == ' ')
+				continue;
+			break;
 
-			case '\n':
-				if (*prev == '\n')
-					continue;
-				else if (*prev == ' ')
-				{
-					*prev = '\n';
-					continue;
-				}
-				break;
-        }
+		case '\n':
+			if (*prev == '\n')
+				continue;
+			else if (*prev == ' ') {
+				*prev = '\n';
+				continue;
+			}
+			break;
+		}
 
-        prev = sp;
-        *sp++ = *str;
-    }
+		prev = sp;
+		*sp++ = *str;
+	}
 
-    if(prev && *prev && (*prev == ' ' || *prev == '\n'))
-        --sp;
-    *sp = 0;
+	if (prev && *prev && (*prev == ' ' || *prev == '\n'))
+		--sp;
+	*sp = 0;
 }
 
-char *readfilecontent(char *file)
-{
+char *readfilecontent(char *file) {
 	char *tmp = NULL;
 	int file_size = 0;
 	FILE *fp = NULL;
-    fp = fopen(file, "rb");
-    if (fp != NULL) {
-        fseek(fp , 0 , SEEK_END);
-        file_size = ftell(fp);
-        fseek(fp , 0 , SEEK_SET);
-        tmp = (char*) ecalloc(file_size + 1, sizeof(char));
-        fread(tmp , file_size , sizeof(char) , fp);
-        fclose(fp);
-    }
-    return tmp;
+	fp = fopen(file, "rb");
+	if (fp != NULL) {
+		fseek(fp, 0, SEEK_END);
+		file_size = ftell(fp);
+		fseek(fp, 0, SEEK_SET);
+		tmp = (char*) ecalloc(file_size + 1, sizeof(char));
+		fread(tmp, file_size, sizeof(char), fp);
+		fclose(fp);
+	}
+	return tmp;
 }
 
 /*
