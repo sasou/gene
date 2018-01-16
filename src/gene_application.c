@@ -452,24 +452,25 @@ PHP_METHOD(gene_application, run) {
  * {{{ gene_application_methods
  */
 zend_function_entry gene_application_methods[] = {
-PHP_ME(gene_application, load, NULL, ZEND_ACC_PUBLIC)
-PHP_ME(gene_application, autoload, NULL, ZEND_ACC_PUBLIC)
-PHP_ME(gene_application, setMode, NULL, ZEND_ACC_PUBLIC)
-PHP_ME(gene_application, setView, NULL, ZEND_ACC_PUBLIC)
-PHP_ME(gene_application, error, NULL, ZEND_ACC_PUBLIC)
-PHP_ME(gene_application, exception, NULL, ZEND_ACC_PUBLIC)
-PHP_ME(gene_application, run, NULL, ZEND_ACC_PUBLIC)
-PHP_ME(gene_application, urlParams, NULL, ZEND_ACC_PUBLIC|ZEND_ACC_STATIC)
-PHP_ME(gene_application, getMethod, NULL, ZEND_ACC_PUBLIC|ZEND_ACC_STATIC)
-PHP_ME(gene_application, getPath, NULL, ZEND_ACC_PUBLIC|ZEND_ACC_STATIC)
-PHP_ME(gene_application, getRouterUri, NULL, ZEND_ACC_PUBLIC|ZEND_ACC_STATIC)
-PHP_ME(gene_application, getModule, NULL, ZEND_ACC_PUBLIC|ZEND_ACC_STATIC)
-PHP_ME(gene_application, getController, NULL, ZEND_ACC_PUBLIC|ZEND_ACC_STATIC)
-PHP_ME(gene_application, getAction, NULL, ZEND_ACC_PUBLIC|ZEND_ACC_STATIC)
-PHP_ME(gene_application, getEnvironment, NULL, ZEND_ACC_PUBLIC|ZEND_ACC_STATIC)
-PHP_ME(gene_application, config, NULL, ZEND_ACC_PUBLIC|ZEND_ACC_STATIC)
-PHP_ME(gene_application, __construct, NULL, ZEND_ACC_PUBLIC|ZEND_ACC_CTOR) {
-NULL, NULL, NULL } };
+	PHP_ME(gene_application, load, NULL, ZEND_ACC_PUBLIC)
+	PHP_ME(gene_application, autoload, NULL, ZEND_ACC_PUBLIC)
+	PHP_ME(gene_application, setMode, NULL, ZEND_ACC_PUBLIC)
+	PHP_ME(gene_application, setView, NULL, ZEND_ACC_PUBLIC)
+	PHP_ME(gene_application, error, NULL, ZEND_ACC_PUBLIC)
+	PHP_ME(gene_application, exception, NULL, ZEND_ACC_PUBLIC)
+	PHP_ME(gene_application, run, NULL, ZEND_ACC_PUBLIC)
+	PHP_ME(gene_application, urlParams, NULL, ZEND_ACC_PUBLIC|ZEND_ACC_STATIC)
+	PHP_ME(gene_application, getMethod, NULL, ZEND_ACC_PUBLIC|ZEND_ACC_STATIC)
+	PHP_ME(gene_application, getPath, NULL, ZEND_ACC_PUBLIC|ZEND_ACC_STATIC)
+	PHP_ME(gene_application, getRouterUri, NULL, ZEND_ACC_PUBLIC|ZEND_ACC_STATIC)
+	PHP_ME(gene_application, getModule, NULL, ZEND_ACC_PUBLIC|ZEND_ACC_STATIC)
+	PHP_ME(gene_application, getController, NULL, ZEND_ACC_PUBLIC|ZEND_ACC_STATIC)
+	PHP_ME(gene_application, getAction, NULL, ZEND_ACC_PUBLIC|ZEND_ACC_STATIC)
+	PHP_ME(gene_application, getEnvironment, NULL, ZEND_ACC_PUBLIC|ZEND_ACC_STATIC)
+	PHP_ME(gene_application, config, NULL, ZEND_ACC_PUBLIC|ZEND_ACC_STATIC)
+	PHP_ME(gene_application, __construct, NULL, ZEND_ACC_PUBLIC|ZEND_ACC_CTOR)
+	{ NULL, NULL, NULL }
+};
 /* }}} */
 
 /*

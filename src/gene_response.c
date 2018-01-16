@@ -95,10 +95,11 @@ PHP_METHOD(gene_response, alert) {
  * {{{ gene_response_methods
  */
 zend_function_entry gene_response_methods[] = {
-PHP_ME(gene_response, redirect, NULL, ZEND_ACC_PUBLIC|ZEND_ACC_STATIC)
-PHP_ME(gene_response, alert, NULL, ZEND_ACC_PUBLIC|ZEND_ACC_STATIC)
-PHP_ME(gene_response, __construct, NULL, ZEND_ACC_PUBLIC|ZEND_ACC_CTOR) { NULL,
-NULL, NULL } };
+	PHP_ME(gene_response, redirect, NULL, ZEND_ACC_PUBLIC|ZEND_ACC_STATIC)
+	PHP_ME(gene_response, alert, NULL, ZEND_ACC_PUBLIC|ZEND_ACC_STATIC)
+	PHP_ME(gene_response, __construct, NULL, ZEND_ACC_PUBLIC|ZEND_ACC_CTOR)
+	{ NULL, NULL, NULL }
+};
 /* }}} */
 
 /*

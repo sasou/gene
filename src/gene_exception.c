@@ -199,16 +199,16 @@ PHP_METHOD(gene_exception, doError) {
 /*
  * {{{ gene_exception_methods
  */
-zend_function_entry gene_exception_methods[] =
-		{
-						PHP_ME(gene_exception, setErrorHandler, NULL, ZEND_ACC_PUBLIC|ZEND_ACC_STATIC)
-						PHP_ME(gene_exception, setExceptionHandler, NULL, ZEND_ACC_PUBLIC|ZEND_ACC_STATIC)
-						PHP_ME(gene_exception, doError, NULL, ZEND_ACC_PUBLIC|ZEND_ACC_STATIC)
+zend_function_entry gene_exception_methods[] = {
+	PHP_ME(gene_exception, setErrorHandler, NULL, ZEND_ACC_PUBLIC|ZEND_ACC_STATIC)
+	PHP_ME(gene_exception, setExceptionHandler, NULL, ZEND_ACC_PUBLIC|ZEND_ACC_STATIC)
+	PHP_ME(gene_exception, doError, NULL, ZEND_ACC_PUBLIC|ZEND_ACC_STATIC)
 #if ((PHP_MAJOR_VERSION == 5) && (PHP_MINOR_VERSION < 3)) || (PHP_MAJOR_VERSION < 5)
-				PHP_ME(gene_exception, __construct, NULL, ZEND_ACC_PUBLIC|ZEND_ACC_CTOR)
-				PHP_ME(gene_exception, getPrevious, NULL, ZEND_ACC_PUBLIC)
+	PHP_ME(gene_exception, __construct, NULL, ZEND_ACC_PUBLIC|ZEND_ACC_CTOR)
+	PHP_ME(gene_exception, getPrevious, NULL, ZEND_ACC_PUBLIC)
 #endif
-				{ NULL, NULL, NULL } };
+	{ NULL, NULL, NULL }
+};
 /* }}} */
 
 /*

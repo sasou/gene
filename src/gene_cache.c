@@ -714,14 +714,15 @@ PHP_METHOD(gene_cache, clean) {
  * {{{ gene_cache_methods
  */
 zend_function_entry gene_cache_methods[] = {
-PHP_ME(gene_cache, set, NULL, ZEND_ACC_PUBLIC)
-PHP_ME(gene_cache, get, NULL, ZEND_ACC_PUBLIC)
-PHP_ME(gene_cache, getTime, NULL, ZEND_ACC_PUBLIC)
-PHP_ME(gene_cache, exists, NULL, ZEND_ACC_PUBLIC)
-PHP_ME(gene_cache, del, NULL, ZEND_ACC_PUBLIC)
-PHP_ME(gene_cache, clean, NULL, ZEND_ACC_PUBLIC)
-PHP_ME(gene_cache, __construct, NULL, ZEND_ACC_PUBLIC|ZEND_ACC_CTOR) { NULL,
-NULL, NULL } };
+	PHP_ME(gene_cache, set, NULL, ZEND_ACC_PUBLIC)
+	PHP_ME(gene_cache, get, NULL, ZEND_ACC_PUBLIC)
+	PHP_ME(gene_cache, getTime, NULL, ZEND_ACC_PUBLIC)
+	PHP_ME(gene_cache, exists, NULL, ZEND_ACC_PUBLIC)
+	PHP_ME(gene_cache, del, NULL, ZEND_ACC_PUBLIC)
+	PHP_ME(gene_cache, clean, NULL, ZEND_ACC_PUBLIC)
+	PHP_ME(gene_cache, __construct, NULL, ZEND_ACC_PUBLIC|ZEND_ACC_CTOR)
+	{ NULL, NULL, NULL }
+};
 /* }}} */
 
 /*

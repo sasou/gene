@@ -184,12 +184,13 @@ PHP_METHOD(gene_config, clear) {
  * {{{ gene_config_methods
  */
 zend_function_entry gene_config_methods[] = {
-PHP_ME(gene_config, set, NULL, ZEND_ACC_PUBLIC)
-PHP_ME(gene_config, get, NULL, ZEND_ACC_PUBLIC)
-PHP_ME(gene_config, del, NULL, ZEND_ACC_PUBLIC)
-PHP_ME(gene_config, clear, NULL, ZEND_ACC_PUBLIC)
-PHP_ME(gene_config, __construct, NULL, ZEND_ACC_PUBLIC|ZEND_ACC_CTOR) { NULL,
-NULL, NULL } };
+	PHP_ME(gene_config, set, NULL, ZEND_ACC_PUBLIC)
+	PHP_ME(gene_config, get, NULL, ZEND_ACC_PUBLIC)
+	PHP_ME(gene_config, del, NULL, ZEND_ACC_PUBLIC)
+	PHP_ME(gene_config, clear, NULL, ZEND_ACC_PUBLIC)
+	PHP_ME(gene_config, __construct, NULL, ZEND_ACC_PUBLIC|ZEND_ACC_CTOR)
+	{ NULL, NULL, NULL }
+};
 /* }}} */
 
 /*

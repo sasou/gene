@@ -199,14 +199,15 @@ PHP_METHOD(gene_reg, getInstance) {
  * {{{ gene_reg_methods
  */
 zend_function_entry gene_reg_methods[] = {
-PHP_ME(gene_reg, __construct, NULL, ZEND_ACC_CTOR|ZEND_ACC_PRIVATE)
-PHP_ME(gene_reg, __clone, NULL, ZEND_ACC_CLONE|ZEND_ACC_PRIVATE)
-PHP_ME(gene_reg, getInstance, NULL, ZEND_ACC_PUBLIC|ZEND_ACC_STATIC)
-PHP_ME(gene_reg, get, gene_reg_get_arginfo, ZEND_ACC_PUBLIC|ZEND_ACC_STATIC)
-PHP_ME(gene_reg, has, gene_reg_has_arginfo, ZEND_ACC_PUBLIC|ZEND_ACC_STATIC)
-PHP_ME(gene_reg, set, gene_reg_set_arginfo, ZEND_ACC_PUBLIC|ZEND_ACC_STATIC)
-PHP_ME(gene_reg, del, gene_reg_del_arginfo, ZEND_ACC_PUBLIC|ZEND_ACC_STATIC) {
-NULL, NULL, NULL } };
+	PHP_ME(gene_reg, __construct, NULL, ZEND_ACC_CTOR|ZEND_ACC_PRIVATE)
+	PHP_ME(gene_reg, __clone, NULL, ZEND_ACC_CLONE|ZEND_ACC_PRIVATE)
+	PHP_ME(gene_reg, getInstance, NULL, ZEND_ACC_PUBLIC|ZEND_ACC_STATIC)
+	PHP_ME(gene_reg, get, gene_reg_get_arginfo, ZEND_ACC_PUBLIC|ZEND_ACC_STATIC)
+	PHP_ME(gene_reg, has, gene_reg_has_arginfo, ZEND_ACC_PUBLIC|ZEND_ACC_STATIC)
+	PHP_ME(gene_reg, set, gene_reg_set_arginfo, ZEND_ACC_PUBLIC|ZEND_ACC_STATIC)
+	PHP_ME(gene_reg, del, gene_reg_del_arginfo, ZEND_ACC_PUBLIC|ZEND_ACC_STATIC)
+	{ NULL, NULL, NULL }
+};
 /* }}} */
 
 /*

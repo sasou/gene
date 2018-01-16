@@ -256,9 +256,10 @@ PHP_FUNCTION(gene_version) {
  * Every user visible function must have an entry in gene_functions[].
  */
 zend_function_entry gene_functions[] = {
-PHP_FE(gene_urlParams,NULL)
-PHP_FE(gene_version,NULL)
-PHP_FE_END };
+	PHP_FE(gene_urlParams,NULL)
+	PHP_FE(gene_version,NULL)
+	PHP_FE_END
+};
 /* }}} */
 
 /*
@@ -273,9 +274,11 @@ ZEND_GET_MODULE(gene)
  */
 #if ZEND_MODULE_API_NO >= 20050922
 zend_module_dep gene_deps[] = {
-ZEND_MOD_REQUIRED("spl")
-ZEND_MOD_REQUIRED("pcre")
-ZEND_MOD_OPTIONAL("session") { NULL, NULL, NULL } };
+	ZEND_MOD_REQUIRED("spl")
+	ZEND_MOD_REQUIRED("pcre")
+	ZEND_MOD_OPTIONAL("session")
+	{ NULL, NULL, NULL }
+};
 #endif
 /* }}} */
 
@@ -283,22 +286,23 @@ ZEND_MOD_OPTIONAL("session") { NULL, NULL, NULL } };
  */
 zend_module_entry gene_module_entry = {
 #if ZEND_MODULE_API_NO >= 20050922
-		STANDARD_MODULE_HEADER_EX, NULL, gene_deps,
+	STANDARD_MODULE_HEADER_EX, NULL, gene_deps,
 #else
-		STANDARD_MODULE_HEADER,
+	STANDARD_MODULE_HEADER,
 #endif
-		"gene", gene_functions,
-		PHP_MINIT(gene),
-		PHP_MSHUTDOWN(gene),
-		PHP_RINIT(gene),
-		PHP_RSHUTDOWN(gene),
-		PHP_MINFO(gene),
-		PHP_GENE_VERSION,
-		PHP_MODULE_GLOBALS(gene),
-		PHP_GINIT(gene),
-		NULL,
-		NULL,
-		STANDARD_MODULE_PROPERTIES_EX };
+	"gene", gene_functions,
+	PHP_MINIT(gene),
+	PHP_MSHUTDOWN(gene),
+	PHP_RINIT(gene),
+	PHP_RSHUTDOWN(gene),
+	PHP_MINFO(gene),
+	PHP_GENE_VERSION,
+	PHP_MODULE_GLOBALS(gene),
+	PHP_GINIT(gene),
+	NULL,
+	NULL,
+	STANDARD_MODULE_PROPERTIES_EX
+};
 /* }}} */
 
 /*
