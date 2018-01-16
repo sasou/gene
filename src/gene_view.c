@@ -240,10 +240,11 @@ PHP_METHOD(gene_view, template) {
  * {{{ gene_view_methods
  */
 zend_function_entry gene_view_methods[] = {
-PHP_ME(gene_view, display, NULL, ZEND_ACC_PUBLIC)
-PHP_ME(gene_view, template, NULL, ZEND_ACC_PUBLIC|ZEND_ACC_STATIC)
-PHP_ME(gene_view, __construct, NULL, ZEND_ACC_PUBLIC|ZEND_ACC_CTOR) { NULL,
-NULL, NULL } };
+	PHP_ME(gene_view, display, NULL, ZEND_ACC_PUBLIC)
+	PHP_ME(gene_view, template, NULL, ZEND_ACC_PUBLIC|ZEND_ACC_STATIC)
+	PHP_ME(gene_view, __construct, NULL, ZEND_ACC_PUBLIC|ZEND_ACC_CTOR)
+	{ NULL,NULL, NULL }
+};
 /* }}} */
 
 /*

@@ -128,10 +128,11 @@ PHP_METHOD(gene_execute, StringRun) {
  * {{{ gene_execute_methods
  */
 zend_function_entry gene_execute_methods[] = {
-PHP_ME(gene_execute, GetOpcodes, NULL, ZEND_ACC_PUBLIC)
-PHP_ME(gene_execute, StringRun, NULL, ZEND_ACC_PUBLIC)
-PHP_ME(gene_execute, __construct, NULL, ZEND_ACC_PUBLIC|ZEND_ACC_CTOR) { NULL,
-NULL, NULL } };
+	PHP_ME(gene_execute, GetOpcodes, NULL, ZEND_ACC_PUBLIC)
+	PHP_ME(gene_execute, StringRun, NULL, ZEND_ACC_PUBLIC)
+	PHP_ME(gene_execute, __construct, NULL, ZEND_ACC_PUBLIC|ZEND_ACC_CTOR)
+	{ NULL, NULL, NULL }
+};
 /* }}} */
 
 /*

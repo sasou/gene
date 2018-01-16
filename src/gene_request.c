@@ -230,26 +230,26 @@ PHP_METHOD(gene_request, urlParams) {
 /*
  * {{{ gene_request_methods
  */
-zend_function_entry gene_request_methods[] =
-		{
-						PHP_ME(gene_request, get, geme_request_get_param_arginfo, ZEND_ACC_PUBLIC|ZEND_ACC_STATIC)
-						PHP_ME(gene_request, request, geme_request_get_param_arginfo, ZEND_ACC_PUBLIC|ZEND_ACC_STATIC)
-						PHP_ME(gene_request, post, geme_request_get_param_arginfo, ZEND_ACC_PUBLIC|ZEND_ACC_STATIC)
-						PHP_ME(gene_request, cookie, geme_request_get_param_arginfo, ZEND_ACC_PUBLIC|ZEND_ACC_STATIC)
-						PHP_ME(gene_request, files, geme_request_get_param_arginfo, ZEND_ACC_PUBLIC|ZEND_ACC_STATIC)
-						PHP_ME(gene_request, server, geme_request_get_param_arginfo, ZEND_ACC_PUBLIC|ZEND_ACC_STATIC)
-						PHP_ME(gene_request, env, geme_request_get_param_arginfo, ZEND_ACC_PUBLIC|ZEND_ACC_STATIC)
-						PHP_ME(gene_request, isAjax, NULL, ZEND_ACC_PUBLIC|ZEND_ACC_STATIC)
-						PHP_ME(gene_request, urlParams, NULL, ZEND_ACC_PUBLIC|ZEND_ACC_STATIC)
-						PHP_ME(gene_request, getMethod, NULL, ZEND_ACC_PUBLIC|ZEND_ACC_STATIC)
-						PHP_ME(gene_request, isGet, geme_request_void_arginfo, ZEND_ACC_PUBLIC|ZEND_ACC_STATIC)
-						PHP_ME(gene_request, isPost, geme_request_void_arginfo, ZEND_ACC_PUBLIC|ZEND_ACC_STATIC)
-						PHP_ME(gene_request, isPut, geme_request_void_arginfo, ZEND_ACC_PUBLIC|ZEND_ACC_STATIC)
-						PHP_ME(gene_request, isHead, geme_request_void_arginfo, ZEND_ACC_PUBLIC|ZEND_ACC_STATIC)
-						PHP_ME(gene_request, isOptions, geme_request_void_arginfo, ZEND_ACC_PUBLIC|ZEND_ACC_STATIC)
-						PHP_ME(gene_request, isCli, geme_request_void_arginfo, ZEND_ACC_PUBLIC|ZEND_ACC_STATIC)
-						PHP_ME(gene_request, __construct, NULL, ZEND_ACC_PUBLIC|ZEND_ACC_CTOR)
-				{ NULL, NULL, NULL } };
+zend_function_entry gene_request_methods[] = {
+	PHP_ME(gene_request, get, geme_request_get_param_arginfo, ZEND_ACC_PUBLIC|ZEND_ACC_STATIC)
+	PHP_ME(gene_request, request, geme_request_get_param_arginfo, ZEND_ACC_PUBLIC|ZEND_ACC_STATIC)
+	PHP_ME(gene_request, post, geme_request_get_param_arginfo, ZEND_ACC_PUBLIC|ZEND_ACC_STATIC)
+	PHP_ME(gene_request, cookie, geme_request_get_param_arginfo, ZEND_ACC_PUBLIC|ZEND_ACC_STATIC)
+	PHP_ME(gene_request, files, geme_request_get_param_arginfo, ZEND_ACC_PUBLIC|ZEND_ACC_STATIC)
+	PHP_ME(gene_request, server, geme_request_get_param_arginfo, ZEND_ACC_PUBLIC|ZEND_ACC_STATIC)
+	PHP_ME(gene_request, env, geme_request_get_param_arginfo, ZEND_ACC_PUBLIC|ZEND_ACC_STATIC)
+	PHP_ME(gene_request, isAjax, NULL, ZEND_ACC_PUBLIC|ZEND_ACC_STATIC)
+	PHP_ME(gene_request, urlParams, NULL, ZEND_ACC_PUBLIC|ZEND_ACC_STATIC)
+	PHP_ME(gene_request, getMethod, NULL, ZEND_ACC_PUBLIC|ZEND_ACC_STATIC)
+	PHP_ME(gene_request, isGet, geme_request_void_arginfo, ZEND_ACC_PUBLIC|ZEND_ACC_STATIC)
+	PHP_ME(gene_request, isPost, geme_request_void_arginfo, ZEND_ACC_PUBLIC|ZEND_ACC_STATIC)
+	PHP_ME(gene_request, isPut, geme_request_void_arginfo, ZEND_ACC_PUBLIC|ZEND_ACC_STATIC)
+	PHP_ME(gene_request, isHead, geme_request_void_arginfo, ZEND_ACC_PUBLIC|ZEND_ACC_STATIC)
+	PHP_ME(gene_request, isOptions, geme_request_void_arginfo, ZEND_ACC_PUBLIC|ZEND_ACC_STATIC)
+	PHP_ME(gene_request, isCli, geme_request_void_arginfo, ZEND_ACC_PUBLIC|ZEND_ACC_STATIC)
+	PHP_ME(gene_request, __construct, NULL, ZEND_ACC_PUBLIC|ZEND_ACC_CTOR)
+	{ NULL, NULL, NULL }
+};
 /* }}} */
 
 /*

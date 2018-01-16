@@ -1185,23 +1185,23 @@ PHP_METHOD(gene_router, match) {
  * {{{ gene_router_methods
  */
 zend_function_entry gene_router_methods[] = {
-PHP_ME(gene_router, getEvent, NULL, ZEND_ACC_PUBLIC)
-PHP_ME(gene_router, getTree, NULL, ZEND_ACC_PUBLIC)
-PHP_ME(gene_router, delTree, NULL, ZEND_ACC_PUBLIC)
-PHP_ME(gene_router, delEvent, NULL, ZEND_ACC_PUBLIC)
-PHP_ME(gene_router, clear, NULL, ZEND_ACC_PUBLIC)
-PHP_ME(gene_router, getTime, NULL, ZEND_ACC_PUBLIC)
-PHP_ME(gene_router, getRouter, NULL, ZEND_ACC_PUBLIC)
-PHP_ME(gene_router, display, NULL, ZEND_ACC_PUBLIC|ZEND_ACC_STATIC)
-PHP_ME(gene_router, displayExt, NULL, ZEND_ACC_PUBLIC|ZEND_ACC_STATIC)
-PHP_ME(gene_router, runError, NULL, ZEND_ACC_PUBLIC|ZEND_ACC_STATIC)
-PHP_ME(gene_router, run, NULL, ZEND_ACC_PUBLIC)
-PHP_ME(gene_router, readFile, NULL, ZEND_ACC_PUBLIC)
-PHP_ME(gene_router, match, NULL, ZEND_ACC_PUBLIC)
-PHP_ME(gene_router, __call, gene_router_call_arginfo, ZEND_ACC_PUBLIC)
-PHP_ME(gene_router, __construct, NULL, ZEND_ACC_PUBLIC|ZEND_ACC_CTOR) {
-NULL,
-NULL, NULL } };
+	PHP_ME(gene_router, getEvent, NULL, ZEND_ACC_PUBLIC)
+	PHP_ME(gene_router, getTree, NULL, ZEND_ACC_PUBLIC)
+	PHP_ME(gene_router, delTree, NULL, ZEND_ACC_PUBLIC)
+	PHP_ME(gene_router, delEvent, NULL, ZEND_ACC_PUBLIC)
+	PHP_ME(gene_router, clear, NULL, ZEND_ACC_PUBLIC)
+	PHP_ME(gene_router, getTime, NULL, ZEND_ACC_PUBLIC)
+	PHP_ME(gene_router, getRouter, NULL, ZEND_ACC_PUBLIC)
+	PHP_ME(gene_router, display, NULL, ZEND_ACC_PUBLIC|ZEND_ACC_STATIC)
+	PHP_ME(gene_router, displayExt, NULL, ZEND_ACC_PUBLIC|ZEND_ACC_STATIC)
+	PHP_ME(gene_router, runError, NULL, ZEND_ACC_PUBLIC|ZEND_ACC_STATIC)
+	PHP_ME(gene_router, run, NULL, ZEND_ACC_PUBLIC)
+	PHP_ME(gene_router, readFile, NULL, ZEND_ACC_PUBLIC)
+	PHP_ME(gene_router, match, NULL, ZEND_ACC_PUBLIC)
+	PHP_ME(gene_router, __call, gene_router_call_arginfo, ZEND_ACC_PUBLIC)
+	PHP_ME(gene_router, __construct, NULL, ZEND_ACC_PUBLIC|ZEND_ACC_CTOR)
+	{ NULL, NULL, NULL }
+};
 /* }}} */
 
 /*
