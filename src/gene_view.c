@@ -42,17 +42,14 @@ int gene_view_display(char *file TSRMLS_DC) {
 	int path_len;
 	if (GENE_G(app_root)) {
 		if (!GENE_G(app_view)) {
-			GENE_G(app_view) = estrndup(GENE_VIEW_VIEW,
-					strlen(GENE_VIEW_VIEW));
+			GENE_G(app_view) = estrndup(GENE_VIEW_VIEW, strlen(GENE_VIEW_VIEW));
 		}
 		if (!GENE_G(app_ext)) {
 			GENE_G(app_ext) = estrndup(GENE_VIEW_EXT, strlen(GENE_VIEW_EXT));
 		}
-		path_len = spprintf(&path, 0, "%s/%s/%s%s", GENE_G(app_root),
-				GENE_G(app_view), file, GENE_G(app_ext));
+		path_len = spprintf(&path, 0, "%s/%s/%s%s", GENE_G(app_root), GENE_G(app_view), file, GENE_G(app_ext));
 	} else {
-		path_len = spprintf(&path, 0, "app/%s/%s%s", GENE_VIEW_VIEW, file,
-		GENE_VIEW_EXT);
+		path_len = spprintf(&path, 0, "app/%s/%s%s", GENE_VIEW_VIEW, file, GENE_VIEW_EXT);
 	}
 	gene_load_import(path TSRMLS_CC);
 	efree(path);
@@ -65,31 +62,32 @@ int gene_view_display(char *file TSRMLS_DC) {
 int gene_view_display_ext(char *file, zend_bool isCompile TSRMLS_DC) {
 	char *path, *compile_path, *cpath;
 	int path_len, compile_path_len, cpath_len;
-	php_stream *stream;
-	compile_path_len = spprintf(&compile_path, 0, "%s/Cache/Views/%s.php",
-			GENE_G(app_root), file);
+	php_stream *stream = NULL;
+	compile_path_len = spprintf(&compile_path, 0, "%s/Cache/Views/%s.php", GENE_G(app_root), file);
 	if (isCompile || GENE_G(view_compile)) {
 		if (!GENE_G(app_view)) {
-			GENE_G(app_view) = estrndup(GENE_VIEW_VIEW,
-					strlen(GENE_VIEW_VIEW));
+			GENE_G(app_view) = estrndup(GENE_VIEW_VIEW, strlen(GENE_VIEW_VIEW));
 		}
 		if (!GENE_G(app_ext)) {
 			GENE_G(app_ext) = estrndup(GENE_VIEW_EXT, strlen(GENE_VIEW_EXT));
 		}
-		path_len = spprintf(&path, 0, "%s/%s/%s%s", GENE_G(app_root),
-				GENE_G(app_view), file, GENE_G(app_ext));
+		path_len = spprintf(&path, 0, "%s/%s/%s%s", GENE_G(app_root), GENE_G(app_view), file, GENE_G(app_ext));
 		stream = php_stream_open_wrapper(path, "rb", REPORT_ERRORS, NULL);
-		efree(path);
 		if (stream == NULL) {
 			zend_error(E_WARNING, "%s does not read able", path);
+			efree(path);
 			return 0;
 		} else {
+			efree(path);
 			cpath = estrndup(compile_path, compile_path_len);
 			cpath_len = php_dirname(cpath, compile_path_len);
 			if (check_folder_exists(cpath) == FAILURE) {
+				efree(cpath);
 				return 0;
 			}
-			parser_templates(stream, compile_path);
+			efree(cpath);
+			parser_templates(&stream, compile_path);
+			php_stream_close(stream);
 		}
 	}
 	gene_load_import(compile_path TSRMLS_CC);
@@ -117,10 +115,12 @@ static int check_folder_exists(char *fullpath) {
 /*
  * {{{ gene_view
  */
-static int parser_templates(php_stream *stream, char *compile_path) {
+static int parser_templates(php_stream **stream, char *compile_path) {
 	zval replace_val;
 	int result_len, i;
-	zend_string *a, *result;
+	zend_string *arg,*ret;
+	php_stream *CacheStream = NULL;
+	char *subject = NULL,*result = NULL;
 
 	char regex[PARSER_NUMS][100] = { "/([\\n\\r]+)\\t+/s",
 			"/\\<\\!\\-\\-\\{(.+?)\\}\\-\\-\\>/s", "/\\{template\\s+(\\S+)\\}/",
@@ -153,40 +153,43 @@ static int parser_templates(php_stream *stream, char *compile_path) {
 			"<?php } ?>", "<?php echo \\1; ?>", "<?php \\1; ?>",
 			"<?php $this::contains()?>" };
 
-	char subject[1024];
 	smart_str content = { 0 };
+	subject = (char *) ecalloc(1024, sizeof(char));
 
-	while (!php_stream_eof(stream)) {
-		if (!php_stream_gets(stream, subject, 1024)) {
+	while (!php_stream_eof(*stream)) {
+		if (!php_stream_gets(*stream, subject, 1024)) {
 			break;
 		}
 		smart_str_appendl(&content, subject, strlen(subject));
 	}
-
+	efree(subject);
+	subject = NULL;
 	smart_str_0(&content);
 
+	result = str_init(content.s->val);
+	result_len = content.s->len;
+	smart_str_free(&content);
+
 	for (i = 0; i < PARSER_NUMS; i++) {
-		a = zend_string_init(regex[i], strlen(regex[i]), 0);
+		arg = zend_string_init(regex[i], strlen(regex[i]), 0);
 		ZVAL_STRINGL(&replace_val, replace[i], strlen(replace[i]));
-		if ((result = php_pcre_replace(a, NULL, content.s->val, content.s->len,
-				&replace_val, 0, -1, &result_len)) != NULL) {
-			smart_str_setl(&content, ZSTR_VAL(result), ZSTR_LEN(result));
-		} else {
-			smart_str_free(&content);
+		if ((ret = php_pcre_replace(arg, NULL, result, result_len, &replace_val, 0, -1, &result_len)) != NULL) {
+			efree(result);
+			result = str_init(ret->val);
+			result_len = ret->len;
+			zend_string_free(ret);
 		}
+		zend_string_free(arg);
+		zval_ptr_dtor(&replace_val);
 	}
-	php_stream_close(stream);
 
-	stream = php_stream_open_wrapper(compile_path, "wb", REPORT_ERRORS, NULL);
-
-	php_stream_write_string(stream, ZSTR_VAL(result));
-
+	CacheStream = php_stream_open_wrapper(compile_path, "wb", REPORT_ERRORS, NULL);
+	php_stream_write_string(CacheStream, result);
 	if (stream == NULL) {
 		zend_error(E_WARNING, "%s does not read able", compile_path);
 		return 1;
 	}
-
-	php_stream_close(stream);
+	php_stream_close(CacheStream);
 
 	if (result != NULL)
 		efree(result);

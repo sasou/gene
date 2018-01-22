@@ -39,12 +39,15 @@ zend_class_entry * gene_load_ce;
 int gene_load_import(char *path TSRMLS_DC) {
 	zend_file_handle file_handle;
 	zend_op_array *op_array;
-	char realpath[MAXPATHLEN];
+	char *realpath;
+
+	realpath = (char *) ecalloc(MAXPATHLEN, sizeof(char));
 
 	if (!VCWD_REALPATH(path, realpath)) {
 		php_error_docref(NULL, E_WARNING, "Unable to load file %s", path);
 		return 0;
 	}
+	efree(realpath);
 
 	file_handle.filename = path;
 	file_handle.free_filename = 0;

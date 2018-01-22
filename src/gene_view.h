@@ -25,7 +25,7 @@ extern zend_class_entry *gene_view_ce;
 int gene_view_display(char *file TSRMLS_DC);
 static int check_folder_exists(char *fullpath);
 int gene_view_display_ext(char *file ,zend_bool isCompile TSRMLS_DC);
-static int parser_templates(php_stream *stream, char *compile_path);
+static int parser_templates(php_stream **stream, char *compile_path);
 static int check_folder_exists(char *fullpath);
 
 GENE_MINIT_FUNCTION (view);

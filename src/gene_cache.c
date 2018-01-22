@@ -33,9 +33,7 @@ zend_class_entry * gene_cache_ce;
 
 static void gene_cache_hash_copy(HashTable *target, HashTable *source);
 static void gene_cache_zval_persistent(zval *dst, zval *source TSRMLS_DC);
-static void gene_cache_copy_persistent(HashTable *pdst,
-		HashTable *src TSRMLS_DC);
-static void gene_cache_copy_losable(HashTable *pdst, HashTable *src TSRMLS_DC);
+static void gene_cache_copy_persistent(HashTable *pdst, HashTable *src TSRMLS_DC);
 
 /* }}} */
 
@@ -136,7 +134,7 @@ static void gene_hash_copy(HashTable *dst, HashTable *source) /* {{{ */{
 /*
  * {{{ static void * gene_cache_init()
  */
-void gene_cache_init() {
+void gene_cache_init(TSRMLS_DC) {
 	if (!GENE_G(cache)) {
 		PALLOC_HASHTABLE(GENE_G(cache));
 		zend_hash_init(GENE_G(cache), 8, NULL, gene_cache_zval_dtor, 1);
@@ -289,52 +287,49 @@ static void gene_cache_copy_persistent(HashTable *pdst,
 	int keyvallen;
 	zend_long idx;
 
-	ZEND_HASH_FOREACH_KEY_VAL(pdst, idx, key, ppzval)
-				{
-					if (key) {
-						if (zend_hash_exists(src, key) != 1) {
-							zend_hash_del(pdst, key);
-						}
-					} else {
-						if (zend_hash_index_exists(src, idx) != 1) {
-							zend_hash_index_del(pdst, idx);
-						}
-					}
-				}ZEND_HASH_FOREACH_END();
+	ZEND_HASH_FOREACH_KEY_VAL(pdst, idx, key, ppzval) {
+		if (key) {
+			if (zend_hash_exists(src, key) != 1) {
+				zend_hash_del(pdst, key);
+			}
+		} else {
+			if (zend_hash_index_exists(src, idx) != 1) {
+				zend_hash_index_del(pdst, idx);
+			}
+		}
+	}ZEND_HASH_FOREACH_END();
 
-	ZEND_HASH_FOREACH_KEY_VAL(src, idx, key, ppzval)
-				{
-					if (ppzval == NULL) {
-						continue;
-					}
-					if (key) {
-						zval *copyval, *tmp;
-						copyval = zend_hash_find(pdst, key);
-						if (copyval == NULL) {
-							gene_cache_zval_persistent(tmp, ppzval);
-							if (tmp) {
-								keyvallen = spprintf(&keyval, 0, "%s", key);
-								zend_hash_str_update(pdst, keyval, keyvallen,
-										tmp);
-								efree(keyval);
-								keyval = NULL;
-							}
-						} else {
-							gene_cache_zval_edit_persistent(copyval, ppzval);
-						}
-					} else {
-						zval *copyval, *tmp;
-						copyval = zend_hash_index_find(pdst, idx);
-						if (copyval == NULL) {
-							gene_cache_zval_persistent(tmp, ppzval);
-							if (tmp) {
-								zend_hash_index_update(pdst, idx, tmp);
-							}
-						} else {
-							gene_cache_zval_edit_persistent(copyval, ppzval);
-						}
-					}
-				}ZEND_HASH_FOREACH_END();
+	ZEND_HASH_FOREACH_KEY_VAL(src, idx, key, ppzval) {
+		if (ppzval == NULL) {
+			continue;
+		}
+		if (key) {
+			zval *copyval, *tmp;
+			copyval = zend_hash_find(pdst, key);
+			if (copyval == NULL) {
+				gene_cache_zval_persistent(tmp, ppzval);
+				if (tmp) {
+					keyvallen = spprintf(&keyval, 0, "%s", key);
+					zend_hash_str_update(pdst, keyval, keyvallen, tmp);
+					efree(keyval);
+					keyval = NULL;
+				}
+			} else {
+				gene_cache_zval_edit_persistent(copyval, ppzval);
+			}
+		} else {
+			zval *copyval, *tmp;
+			copyval = zend_hash_index_find(pdst, idx);
+			if (copyval == NULL) {
+				gene_cache_zval_persistent(tmp, ppzval);
+				if (tmp) {
+					zend_hash_index_update(pdst, idx, tmp);
+				}
+			} else {
+				gene_cache_zval_edit_persistent(copyval, ppzval);
+			}
+		}
+	}ZEND_HASH_FOREACH_END();
 }
 /* }}} */
 
@@ -377,8 +372,7 @@ zval * gene_cache_get_quick(char *keyString, int keyString_len TSRMLS_DC) {
 
 /** {{{ zval * gene_cache_get_by_config(char *keyString, int keyString_len,char *path TSRMLS_DC)
  */
-zval * gene_cache_get_by_config(char *keyString, int keyString_len,
-		char *path TSRMLS_DC) {
+zval * gene_cache_get_by_config(char *keyString, int keyString_len, char *path TSRMLS_DC) {
 	char *ptr = NULL, *seg = NULL;
 	zval *tmp = NULL;
 	zval *ret = NULL;
@@ -421,15 +415,13 @@ void file_cache_set_val(char *val, int keyString_len, long times,
 	n.ftime = times;
 	n.validity = validity;
 	n.status = 0;
-	zend_hash_update_mem(GENE_G(cache_easy),
-			gene_str_persistent(val, keyString_len), &n, sizeof(filenode));
+	zend_hash_update_mem(GENE_G(cache_easy), gene_str_persistent(val, keyString_len), &n, sizeof(filenode));
 }
 /* }}} */
 
 /** {{{ static zval * gene_cache_set_val(char *keyString, int keyString_len TSRMLS_DC)
  */
-static zval * gene_cache_set_val(zval *val, char *keyString, int keyString_len,
-		zval *zvalue TSRMLS_DC) {
+static zval * gene_cache_set_val(zval *val, char *keyString, int keyString_len, zval *zvalue TSRMLS_DC) {
 	zval tmp, *copyval;
 	if (val == NULL) {
 		return NULL;
@@ -441,8 +433,7 @@ static zval * gene_cache_set_val(zval *val, char *keyString, int keyString_len,
 		} else {
 			gene_hash_init(&tmp, 8);
 		}
-		return gene_symtable_update(Z_ARRVAL_P(val),
-				gene_str_persistent(keyString, keyString_len), &tmp);
+		return gene_symtable_update(Z_ARRVAL_P(val), gene_str_persistent(keyString, keyString_len), &tmp);
 	} else {
 		if (zvalue) {
 			gene_cache_zval_edit_persistent(copyval, zvalue);
@@ -461,16 +452,14 @@ static zval * gene_cache_set_val(zval *val, char *keyString, int keyString_len,
 
 /** {{{ void gene_cache_set_by_router(char *keyString, int keyString_len, char *path, zval *zvalue, int validity TSRMLS_DC)
  */
-void gene_cache_set_by_router(char *keyString, int keyString_len, char *path,
-		zval *zvalue, int validity TSRMLS_DC) {
+void gene_cache_set_by_router(char *keyString, int keyString_len, char *path, zval *zvalue, int validity TSRMLS_DC) {
 	char *ptr = NULL, *seg = NULL;
 	zval *tmp;
 	zval *copyval = NULL, ret;
 	copyval = zend_symtable_str_find(GENE_G(cache), keyString, keyString_len);
 	if (copyval == NULL) {
 		gene_hash_init(&ret, 1);
-		gene_symtable_update(GENE_G(cache),
-				gene_str_persistent(keyString, keyString_len), &ret);
+		gene_symtable_update(GENE_G(cache), gene_str_persistent(keyString, keyString_len), &ret);
 		tmp = &ret;
 		seg = php_strtok_r(path, "/", &ptr);
 		while (seg) {
@@ -500,8 +489,7 @@ void gene_cache_set_by_router(char *keyString, int keyString_len, char *path,
 /** {{{ void gene_cache_exists(char *keyString, int keyString_len TSRMLS_DC)
  */
 int gene_cache_exists(char *keyString, int keyString_len TSRMLS_DC) {
-	if (zend_symtable_str_exists(GENE_G(cache), keyString, keyString_len)
-			!= 1) {
+	if (zend_symtable_str_exists(GENE_G(cache), keyString, keyString_len) != 1) {
 		return 0;
 	}
 	return 1;
@@ -512,8 +500,7 @@ int gene_cache_exists(char *keyString, int keyString_len TSRMLS_DC) {
  */
 long gene_cache_getTime(char *keyString, int keyString_len TSRMLS_DC) {
 	zval *zvalue;
-	zvalue = zend_symtable_str_find(GENE_G(cache), keyString,
-			keyString_len + 1);
+	zvalue = zend_symtable_str_find(GENE_G(cache), keyString, keyString_len + 1);
 	if (zvalue == NULL) {
 		return 0;
 	}
@@ -544,8 +531,7 @@ PHP_METHOD(gene_cache, __construct) {
 	}
 
 	if (safe) {
-		zend_update_property_string(gene_cache_ce, getThis(), GENE_CACHE_SAFE,
-				strlen(GENE_CACHE_SAFE), Z_STRVAL_P(safe));
+		zend_update_property_string(gene_cache_ce, getThis(), GENE_CACHE_SAFE, strlen(GENE_CACHE_SAFE), Z_STRVAL_P(safe));
 	} else {
 		if (GENE_G(app_key)) {
 			zend_update_property_string(gene_cache_ce, getThis(),
@@ -567,15 +553,12 @@ PHP_METHOD(gene_cache, set) {
 	char *router_e;
 	int validity = 0, router_e_len;
 	zval *zvalue, *safe;
-	if (zend_parse_parameters(ZEND_NUM_ARGS()TSRMLS_CC, "Sz|l", &keyString,
-			&zvalue, &validity) == FAILURE) {
+	if (zend_parse_parameters(ZEND_NUM_ARGS()TSRMLS_CC, "Sz|l", &keyString, &zvalue, &validity) == FAILURE) {
 		return;
 	}
-	safe = zend_read_property(gene_cache_ce, getThis(), GENE_CACHE_SAFE,
-			strlen(GENE_CACHE_SAFE), 1, NULL);
+	safe = zend_read_property(gene_cache_ce, getThis(), GENE_CACHE_SAFE, strlen(GENE_CACHE_SAFE), 1, NULL);
 	if (Z_STRLEN_P(safe)) {
-		router_e_len = spprintf(&router_e, 0, "%s:%s", Z_STRVAL_P(safe),
-				ZSTR_VAL(keyString));
+		router_e_len = spprintf(&router_e, 0, "%s:%s", Z_STRVAL_P(safe), ZSTR_VAL(keyString));
 	} else {
 		router_e_len = spprintf(&router_e, 0, ":%s", ZSTR_VAL(keyString));
 	}
@@ -595,12 +578,10 @@ PHP_METHOD(gene_cache, get) {
 	char *router_e;
 	int router_e_len;
 	zval *zvalue, *safe;
-	if (zend_parse_parameters(ZEND_NUM_ARGS()TSRMLS_CC, "S", &keyString)
-			== FAILURE) {
+	if (zend_parse_parameters(ZEND_NUM_ARGS()TSRMLS_CC, "S", &keyString) == FAILURE) {
 		return;
 	}
-	safe = zend_read_property(gene_cache_ce, getThis(), GENE_CACHE_SAFE,
-			strlen(GENE_CACHE_SAFE), 1, NULL);
+	safe = zend_read_property(gene_cache_ce, getThis(), GENE_CACHE_SAFE, strlen(GENE_CACHE_SAFE), 1, NULL);
 	if (Z_STRLEN_P(safe)) {
 		router_e_len = spprintf(&router_e, 0, "%s:%s", Z_STRVAL_P(safe),
 				ZSTR_VAL(keyString));
@@ -613,8 +594,7 @@ PHP_METHOD(gene_cache, get) {
 		gene_cache_zval_local(return_value, zvalue);
 		return;
 	}
-	RETURN_NULL()
-	;
+	RETURN_NULL();
 }
 /* }}} */
 
@@ -626,12 +606,10 @@ PHP_METHOD(gene_cache, getTime) {
 	char *router_e;
 	int router_e_len, ret;
 	zval *safe;
-	if (zend_parse_parameters(ZEND_NUM_ARGS()TSRMLS_CC, "S", &keyString)
-			== FAILURE) {
+	if (zend_parse_parameters(ZEND_NUM_ARGS()TSRMLS_CC, "S", &keyString) == FAILURE) {
 		return;
 	}
-	safe = zend_read_property(gene_cache_ce, getThis(), GENE_CACHE_SAFE,
-			strlen(GENE_CACHE_SAFE), 1, NULL);
+	safe = zend_read_property(gene_cache_ce, getThis(), GENE_CACHE_SAFE, strlen(GENE_CACHE_SAFE), 1, NULL);
 	if (Z_STRLEN_P(safe)) {
 		router_e_len = spprintf(&router_e, 0, "%s:%s", Z_STRVAL_P(safe),
 				ZSTR_VAL(keyString));
@@ -652,15 +630,12 @@ PHP_METHOD(gene_cache, exists) {
 	char *router_e;
 	int router_e_len, ret;
 	zval *safe;
-	if (zend_parse_parameters(ZEND_NUM_ARGS()TSRMLS_CC, "S", &keyString)
-			== FAILURE) {
+	if (zend_parse_parameters(ZEND_NUM_ARGS()TSRMLS_CC, "S", &keyString) == FAILURE) {
 		return;
 	}
-	safe = zend_read_property(gene_cache_ce, getThis(), GENE_CACHE_SAFE,
-			strlen(GENE_CACHE_SAFE), 1, NULL);
+	safe = zend_read_property(gene_cache_ce, getThis(), GENE_CACHE_SAFE, strlen(GENE_CACHE_SAFE), 1, NULL);
 	if (Z_STRLEN_P(safe)) {
-		router_e_len = spprintf(&router_e, 0, "%s:%s", Z_STRVAL_P(safe),
-				ZSTR_VAL(keyString));
+		router_e_len = spprintf(&router_e, 0, "%s:%s", Z_STRVAL_P(safe), ZSTR_VAL(keyString));
 	} else {
 		router_e_len = spprintf(&router_e, 0, ":%s", ZSTR_VAL(keyString));
 	}
@@ -678,15 +653,12 @@ PHP_METHOD(gene_cache, del) {
 	char *router_e;
 	int router_e_len, ret;
 	zval *safe;
-	if (zend_parse_parameters(ZEND_NUM_ARGS()TSRMLS_CC, "S", &keyString)
-			== FAILURE) {
+	if (zend_parse_parameters(ZEND_NUM_ARGS()TSRMLS_CC, "S", &keyString) == FAILURE) {
 		return;
 	}
-	safe = zend_read_property(gene_cache_ce, getThis(), GENE_CACHE_SAFE,
-			strlen(GENE_CACHE_SAFE), 1, NULL);
+	safe = zend_read_property(gene_cache_ce, getThis(), GENE_CACHE_SAFE, strlen(GENE_CACHE_SAFE), 1, NULL);
 	if (Z_STRLEN_P(safe)) {
-		router_e_len = spprintf(&router_e, 0, "%s:%s", Z_STRVAL_P(safe),
-				ZSTR_VAL(keyString));
+		router_e_len = spprintf(&router_e, 0, "%s:%s", Z_STRVAL_P(safe), ZSTR_VAL(keyString));
 	} else {
 		router_e_len = spprintf(&router_e, 0, ":%s", ZSTR_VAL(keyString));
 	}
@@ -705,8 +677,7 @@ PHP_METHOD(gene_cache, clean) {
 		GENE_G(cache) = NULL;
 	}
 	gene_cache_init();
-	RETURN_TRUE
-	;
+	RETURN_TRUE;
 }
 /* }}} */
 
@@ -730,13 +701,11 @@ zend_function_entry gene_cache_methods[] = {
  */
 GENE_MINIT_FUNCTION(cache) {
 	zend_class_entry gene_cache;
-	GENE_INIT_CLASS_ENTRY(gene_cache, "Gene_Cache", "Gene\\Cache",
-			gene_cache_methods);
+	GENE_INIT_CLASS_ENTRY(gene_cache, "Gene_Cache", "Gene\\Cache", gene_cache_methods);
 	gene_cache_ce = zend_register_internal_class(&gene_cache TSRMLS_CC);
 
 	//debug
-	zend_declare_property_string(gene_cache_ce, GENE_CACHE_SAFE,
-			strlen(GENE_CACHE_SAFE), "", ZEND_ACC_PUBLIC);
+	zend_declare_property_string(gene_cache_ce, GENE_CACHE_SAFE, strlen(GENE_CACHE_SAFE), "", ZEND_ACC_PUBLIC);
 	//
 	return SUCCESS;
 }

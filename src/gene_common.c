@@ -25,6 +25,27 @@
 #include "gene_common.h"
 #include <ctype.h>
 
+char* str_init(char *s)
+{
+	int size = strlen(s) + 1;
+	char *p = (char *) ecalloc(size, sizeof(char));
+	strcat(p, s);
+	p[size -1] = 0;
+	return p;
+}
+
+
+char* str_append(char* s, const char* t)
+{
+    int size = 0;
+    char *p = NULL;
+	size =  strlen(s) + strlen(t) + 1;
+	p = erealloc(s, size);
+	strcat(p, t);
+	p[size - 1] = 0;
+	return p;
+}
+
 /*
  * {{{ char *strupr(char *str)
  */
@@ -46,6 +67,30 @@ char *strtolower(char *str) {
 	while (*str != '\0') {
 		*str = tolower(*str);
 		str++;
+	}
+	return orign;
+}
+/* }}} */
+
+/*
+ * {{{ char *firstToUpper(char *str)
+ */
+char *firstToUpper(char *str) {
+	char *orign = str;
+	if (*str != '\0') {
+		*str = toupper(*str);
+	}
+	return orign;
+}
+/* }}} */
+
+/*
+ * {{{ char *firstToUpper(char *str)
+ */
+char *firstToLower(char *str) {
+	char *orign = str;
+	if (*str != '\0') {
+		*str = tolower(*str);
 	}
 	return orign;
 }
@@ -180,27 +225,24 @@ void trim(char* s, const char c) {
 /* }}} */
 
 /*
- * {{{ char *replace(char *st, char *orig, char *repl)
+ * {{{ replace(char originalString[], char key[], char swap[])
  */
 void replace(char originalString[], char key[], char swap[]) {
 	int lengthOfOriginalString, lengthOfKey, lengthOfSwap, i, j, flag;
 	char tmp[1000];
 
-	//获取各个字符串的长度
 	lengthOfOriginalString = strlen(originalString);
 	lengthOfKey = strlen(key);
 	lengthOfSwap = strlen(swap);
 
 	for (i = 0; i <= lengthOfOriginalString - lengthOfKey; i++) {
 		flag = 1;
-		//搜索key
 		for (j = 0; j < lengthOfKey; j++) {
 			if (originalString[i + j] != key[j]) {
 				flag = 0;
 				break;
 			}
 		}
-		//如果搜索成功，则进行替换
 		if (flag) {
 			strcpy(tmp, originalString);
 			strcpy(&tmp[i], swap);
@@ -458,6 +500,92 @@ char *readfilecontent(char *file) {
 		fclose(fp);
 	}
 	return tmp;
+}
+
+char *strreplace(char *original, char *pattern, char *replacement)
+{
+  int replen = strlen(replacement);
+  int patlen = strlen(pattern);
+  int orilen = strlen(original);
+
+  int patcnt = 0;
+  char * oriptr;
+  char * patloc;
+
+  // find how many times the pattern occurs in the original string
+  for (oriptr = original; (patloc = strstr(oriptr, pattern)); oriptr = patloc + patlen)
+  {
+    patcnt++;
+  }
+
+  {
+    // allocate memory for the new string
+	int const retlen = orilen + patcnt * (replen - patlen);
+    char *returned = (char *) ecalloc(retlen + 1,  sizeof(char));
+
+    if (returned != NULL)
+    {
+      // copy the original string,
+      // replacing all the instances of the pattern
+      char * retptr = returned;
+      for (oriptr = original; (patloc = strstr(oriptr, pattern)); oriptr = patloc + patlen)
+      {
+    	int skplen = patloc - oriptr;
+        // copy the section until the occurence of the pattern
+        strncpy(retptr, oriptr, skplen);
+        retptr += skplen;
+        // copy the replacement
+        strncpy(retptr, replacement, replen);
+        retptr += replen;
+      }
+      // copy the rest of the string.
+      strcpy(retptr, oriptr);
+    }
+    efree(original);
+    return returned;
+  }
+}
+
+char *strreplace2(char *src, char *from, char *to)
+{
+   int size    = strlen(src) + 1;
+   int fromlen = strlen(from);
+   int tolen   = strlen(to);
+   char *value = ecalloc(size, sizeof(char));
+   char *dst = value;
+   if ( value != NULL )
+   {
+      for ( ;; )
+      {
+         const char *match = strstr(src, from);
+         if ( match != NULL )
+         {
+        	int count = match - src;
+            char *temp;
+            size += tolen - fromlen;
+            temp = erealloc(value, size);
+            if ( temp == NULL )
+            {
+               free(value);
+               return NULL;
+            }
+            dst = temp + (dst - value);
+            value = temp;
+            memmove(dst, src, count);
+            src += count;
+            dst += count;
+            memmove(dst, to, tolen);
+            src += fromlen;
+            dst += tolen;
+         }
+         else /* No match found. */
+         {
+            strcpy(dst, src);
+            break;
+         }
+      }
+   }
+   return value;
 }
 
 /*

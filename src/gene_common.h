@@ -17,23 +17,27 @@
 #ifndef GENE_COMMON_H
 #define GENE_COMMON_H
 
+char *str_init(char *s);
+char *str_append(char* s, const char* t);
+char *firstToUpper(char *str);
 char *strtoupper(char *str);
 char *strtolower(char *str);
 void left(char *dst, char *src, int n);
 void leftByChar(char *dst, char *src, char val);
 void mid(char *dst, char *src, int n, int m);
 void right(char *dst, char *src, int n);
-char * replaceAll(char * src, const char oldChar, const char newChar);
+char *replaceAll(char * src, const char oldChar, const char newChar);
 void trim(char* s, const char c);
-char * insert_string(char * string, const char * source,
-		const char * destination);
-char * replace_string(char * string, char source, const char * destination);
+char *insert_string(char * string, const char * source, const char * destination);
+char *replace_string(char * string, char source, const char * destination);
 int ReplaceStr(char* sSrc, char* sMatchStr, char* sReplaceStr);
-char * insertAll(char * dest, char * src, char oldChar, char newChar);
+char *insertAll(char * dest, char * src, char oldChar, char newChar);
 void replace(char originalString[], char key[], char swap[]);
 int findChildCnt(char* str1, const char* str2);
 int fullToHalf(char *sFullStr, char *sHalfStr);
 void remove_extra_space(char *str);
-char * readfilecontent(char *file);
+char *readfilecontent(char *file);
+char *strreplace(char *original, char *pattern, char *replacement);
+char *strreplace2(char *src, char *from, char *to);
 
 #endif
