@@ -27,19 +27,18 @@
 #define GENE_ROUTER_LEAF_HOOK_L "%s/%s/leaf/hook"
 #define GENE_ROUTER_LEAF_KEY_L "%s/%s/leaf/key"
 #define GENE_ROUTER_CHIRD "chird/"
-#define GENE_ROUTER_CHIRD_PRE  "$gene_url = gene_urlParams();"
-#define GENE_ROUTER_CONTENT_B  "$gene_b= new %s;$gene_h=$gene_b->%s($gene_url);if(isset($gene_h) && ($gene_h == 0))return;"
-#define GENE_ROUTER_CONTENT_A  "$gene_a= new %s;$gene_a->%s($gene_mp);"
-#define GENE_ROUTER_CONTENT_M  "$gene_m= new %s;$gene_mp=$gene_m->%s($gene_url);"
-#define GENE_ROUTER_CONTENT_H  "$gene_h= new %s;$gene_h=$gene_h->%s($gene_url);if(isset($gene_h) && ($gene_h == 0))return;"
-#define GENE_ROUTER_CONTENT_FB  "$funb=%s;$gene_h=$funb($gene_url);if(isset($gene_h) && ($gene_h == 0))return;"
+#define GENE_ROUTER_CONTENT_B  "$gene_b=new %s;$gene_h=$gene_b->%s($params);if(isset($gene_h)&&($gene_h==0))return;"
+#define GENE_ROUTER_CONTENT_A  "$gene_a=new %s;$gene_a->%s($gene_mp);"
+#define GENE_ROUTER_CONTENT_M  "$obj=\"%s\";$gene_m=new $obj;$gene_mp=$gene_m->%s($params);"
+#define GENE_ROUTER_CONTENT_H  "$gene_h=new %s;$gene_h=$gene_h->%s($params);if(isset($gene_h)&&($gene_h==0))return;"
+#define GENE_ROUTER_CONTENT_FB  "$funb=%s;$gene_h=$funb($params);if(isset($gene_h)&&($gene_h==0))return;"
 #define GENE_ROUTER_CONTENT_FA  "$funa=%s;$funa($gene_mp);"
-#define GENE_ROUTER_CONTENT_FM  "$funm=%s;$gene_mp=$funm($gene_url);"
-#define GENE_ROUTER_CONTENT_FH  "$funh=%s;$gene_h=$funh($gene_url);if(isset($gene_h) && ($gene_h == 0))return;"
-#define GENE_ROUTER_CONTENT_REG  "/[^\\,]?([\\s]*?)function[\\s]*?([\\s\\S]*?)[\\s]*?{[\\s\\S]*?(}[\\s]*?\\,|}[\\s]*?\\))/i"
+#define GENE_ROUTER_CONTENT_FM  "$funm=%s;$gene_mp=$funm($params);"
+#define GENE_ROUTER_CONTENT_FH  "$funh=%s;$gene_h=$funh($params);if(isset($gene_h)&&($gene_h==0))return;"
 
 extern zend_class_entry *gene_router_ce;
 
+void init();
 zval * request_query(int type, char * name, int len TSRMLS_DC);
 void get_router_content_run(char *methodin,char *pathin,zval *safe TSRMLS_DC);
 
