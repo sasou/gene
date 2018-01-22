@@ -1,7 +1,7 @@
 # php-gene-for-php7
 
     Simple, high performance,C extension framework for php7！
-    版本：1.2.3
+    版本：2.0.0
     
 php5的版本 ：https://github.com/sasou/php-gene
 
@@ -33,39 +33,39 @@ windows版本：https://github.com/sasou/php-gene-for-windows
 			})	
 		//分组模式
 		->group("/admin")
-			->get("/:name/",function($abc){
-				echo $abc;
+			->get("/:name/",function($params){
+				var_dump($params);
 			})
-			->get("/:name.:ext",function($abc){
-				echo $abc;
+			->get("/:name.:ext",function($params){
+				var_dump($params);
 			})
-			->get("/:name/sasoud",function(){
-				echo 'dd';
-			},"name")
-			->get("/blog/:ext/baidu",function(){
+			->get("/:name/sasoud",function($params){
+				var_dump($params);
+			})
+			->get("/blog/:ext/baidu",function($params){
 				echo 'baidu';
-				return array('sdfasd'=>'baidu.edu.com');
+				return array('return'=>1);
 			},"auth@clearAll")
 		->group()
 		
 		->get("/index",function(){
 			echo 'index';
 		})
-		//定义401
-		->error(401,function(){
-			echo " 401 ";
+		//定义404
+		->error(404,function(){
+			echo " 404 ";
 		})
 		//定义自定义钩子
 		->hook("auth",function(){
-			echo " auth ";
+			echo " auth hook ";
 		})
 		//全局前置钩子
 		->hook("before", function(){
-			echo " before ";
+			echo " before hook ";
 		})
 		//全局后置钩子
 		->hook("after", function($params){
-			echo " after ";
+			echo " after hook ";
 			if(is_array($params))var_dump($params);
 		});
 
