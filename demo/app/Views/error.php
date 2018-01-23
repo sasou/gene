@@ -28,55 +28,55 @@ table.trace td {padding : 2px 4px 2px 4px;}
 </head>
 <body>
 <div class="content">
-	<center><h1>Uncaught {:get_class($e)}</h1></center>
-	<h2>{:$e->getMessage()}</h2>
-	<p>An uncaught {:get_class($e)} was thrown on line {$line} of file {:basename( $file )} that prevented further execution of this request.</p>
-	<h2>Where it happened:</h2>
-	{if isset($lines)}
-	<code>File:***{:substr($file,-(ceil(strlen($file)*0.6)))} Line:{:$line}</code>
-	<ul class="code">
-		{for $i=$line-3;$i<$line+3;$i++}
-			{if $i>0 && $i<count($lines)}
-				{if $i == $line-1}
-					<li class="line">{:htmlspecialchars(str_replace( "\n", "", $lines[$i] ), ENT_COMPAT)}</li>
-				{else}
-					<li>{:htmlspecialchars(str_replace( "\n", "", $lines[$i] ))}</li>
-				{/if}
-			{/if}
-		{/for}
-	</ul>
-	{/if}
-	{if is_array( $e->getTrace() )}
-	<h2>Stack trace:</h2>
-	<table class="trace">
-		<thead><tr><td>File</td><td>Line</td><td>Class</td><td>Function</td><td>Arguments</td></tr></thead>
-		<tbody>
-		{loop $e->getTrace() $i $trace}
-			{if isset($trace[ 'class' ])}
-			<tr class="{:$i % 2 == 0 ? 'even' : 'odd'}">
-				<td>{:isset($trace[ 'file' ]) ? basename($trace[ 'file' ]) : ''}</td>
-				<td>{:isset($trace[ 'line' ]) ? $trace[ 'line' ] : ''}</td>
-				<td>{:isset($trace[ 'class' ]) ? $trace[ 'class' ] : ''}</td>
-				<td>{:isset($trace[ 'function' ]) ? $trace[ 'function' ] : ''}</td>
-				<td>
-					{if isset($trace['args'])}
-						{loop $trace['args'] $i $arg}
-							<span title="{:var_export( $arg, true )}">{:gettype( $arg )}</span>
-							{:$i < count( $trace['args'] ) -1 ? ',' : ''}
-						{/loop}
-					{else}
-					NULL
-					{/if}
-				</td>
-			</tr>
-			{/if}
-		{/loop}
-		</tbody>
-	</table>
-	{else}
-		<pre>{:$e->getTraceAsString()}</pre>
-	{/if}
-	<center class="foot">Gene {:gene_version()}</center>
+<center><h1>Uncaught <?php echo get_class($e); ?></h1></center>
+<h2><?php echo $e->getMessage(); ?></h2>
+<p>An uncaught <?php echo get_class($e); ?> was thrown on line <?php echo htmlspecialchars($line, ENT_COMPAT);?> of file <?php echo basename( $file ); ?> that prevented further execution of this request.</p>
+<h2>Where it happened:</h2>
+<?php if(isset($lines)) { ?>
+<code>File:***<?php echo substr($file,-(ceil(strlen($file)*0.6))); ?> Line:<?php echo $line; ?></code>
+<ul class="code">
+<?php for($i=$line-3;$i<$line+3;$i++) { ?>
+<?php if($i>0 && $i<count($lines)) { ?>
+<?php if($i == $line-1) { ?>
+<li class="line"><?php echo htmlspecialchars(str_replace( "\n", "", $lines[$i] ), ENT_COMPAT); ?></li>
+<?php } else { ?>
+<li><?php echo htmlspecialchars(str_replace( "\n", "", $lines[$i] )); ?></li>
+<?php } ?>
+<?php } ?>
+<?php } ?>
+</ul>
+<?php } ?>
+<?php if(is_array( $e->getTrace() )) { ?>
+<h2>Stack trace:</h2>
+<table class="trace">
+<thead><tr><td>File</td><td>Line</td><td>Class</td><td>Function</td><td>Arguments</td></tr></thead>
+<tbody>
+<?php if(is_array($e->getTrace())) { foreach($e->getTrace() as $i => $trace) { ?>
+<?php if(isset($trace[ 'class' ])) { ?>
+<tr class="<?php echo $i % 2 == 0 ? 'even' : 'odd'; ?>">
+<td><?php echo isset($trace[ 'file' ]) ? basename($trace[ 'file' ]) : ''; ?></td>
+<td><?php echo isset($trace[ 'line' ]) ? $trace[ 'line' ] : ''; ?></td>
+<td><?php echo isset($trace[ 'class' ]) ? $trace[ 'class' ] : ''; ?></td>
+<td><?php echo isset($trace[ 'function' ]) ? $trace[ 'function' ] : ''; ?></td>
+<td>
+<?php if(isset($trace['args'])) { ?>
+<?php if(is_array($trace['args'])) { foreach($trace['args'] as $i => $arg) { ?>
+<span title="<?php echo var_export( $arg, true ); ?>"><?php echo gettype( $arg ); ?></span>
+<?php echo $i < count( $trace['args'] ) -1 ? ',' : ''; ?>
+<?php } } ?>
+<?php } else { ?>
+NULL
+<?php } ?>
+</td>
+</tr>
+<?php } ?>
+<?php } } ?>
+</tbody>
+</table>
+<?php } else { ?>
+<pre><?php echo $e->getTraceAsString(); ?></pre>
+<?php } ?>
+<center class="foot">Gene <?php echo gene_version(); ?></center>
 </div>
 </body>
 </html>

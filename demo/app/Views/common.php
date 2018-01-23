@@ -1,3 +1,3 @@
-{eval echo ' head run ';}
-{contains}
-{eval echo ' foot run ';}
+<?php echo ' head run ';?>
+<?php $this::contains()?>
+<?php echo ' foot run ';?>

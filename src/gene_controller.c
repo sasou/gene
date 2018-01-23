@@ -193,13 +193,19 @@ PHP_METHOD(gene_controller, redirect) {
 /** {{{ public gene_controller::display(string $file)
  */
 PHP_METHOD(gene_controller, display) {
-	zend_string *file;
+	zend_string *file, *parent_file = NULL;
 
-	if (zend_parse_parameters(ZEND_NUM_ARGS()TSRMLS_CC, "S", &file)
-			== FAILURE) {
+	if (zend_parse_parameters(ZEND_NUM_ARGS()TSRMLS_CC, "S|S", &file, &parent_file) == FAILURE) {
 		return;
 	}
-	if (ZSTR_LEN(file)) {
+	if (parent_file && ZSTR_LEN(parent_file) > 0) {
+		if (GENE_G(child_views)) {
+			efree(GENE_G(child_views));
+			GENE_G(child_views) = NULL;
+		}
+		GENE_G(child_views) = estrndup(ZSTR_VAL(file), ZSTR_LEN(file));
+		gene_view_display(ZSTR_VAL(parent_file) TSRMLS_CC);
+	} else {
 		gene_view_display(ZSTR_VAL(file) TSRMLS_CC);
 	}
 }
@@ -211,11 +217,14 @@ PHP_METHOD(gene_controller, displayExt) {
 	zend_string *file, *parent_file = NULL;
 	zend_bool isCompile = 0;
 
-	if (zend_parse_parameters(ZEND_NUM_ARGS()TSRMLS_CC, "S|Sb", &file,
-			&parent_file, &isCompile) == FAILURE) {
+	if (zend_parse_parameters(ZEND_NUM_ARGS()TSRMLS_CC, "S|Sb", &file, &parent_file, &isCompile) == FAILURE) {
 		return;
 	}
 	if (parent_file && ZSTR_LEN(parent_file) > 0) {
+		if (GENE_G(child_views)) {
+			efree(GENE_G(child_views));
+			GENE_G(child_views) = NULL;
+		}
 		GENE_G(child_views) = estrndup(ZSTR_VAL(file), ZSTR_LEN(file));
 		gene_view_display_ext(ZSTR_VAL(parent_file), isCompile TSRMLS_CC);
 	} else {
@@ -227,6 +236,13 @@ PHP_METHOD(gene_controller, displayExt) {
 /** {{{ public gene_controller::contains(string $file)
  */
 PHP_METHOD(gene_controller, contains) {
+	gene_view_display(GENE_G(child_views) TSRMLS_CC);
+}
+/* }}} */
+
+/** {{{ public gene_controller::contains(string $file)
+ */
+PHP_METHOD(gene_controller, containsExt) {
 	gene_view_display_ext(GENE_G(child_views), 0 TSRMLS_CC);
 }
 /* }}} */
@@ -256,6 +272,7 @@ zend_function_entry gene_controller_methods[] = {
 	PHP_ME(gene_controller, display, NULL, ZEND_ACC_PUBLIC)
 	PHP_ME(gene_controller, displayExt, NULL, ZEND_ACC_PUBLIC)
 	PHP_ME(gene_controller, contains, NULL, ZEND_ACC_PUBLIC|ZEND_ACC_STATIC)
+	PHP_ME(gene_controller, containsExt, NULL, ZEND_ACC_PUBLIC|ZEND_ACC_STATIC)
 	PHP_ME(gene_controller, __construct, NULL, ZEND_ACC_PUBLIC|ZEND_ACC_CTOR)
 	{ NULL, NULL, NULL }
 };
@@ -266,12 +283,8 @@ zend_function_entry gene_controller_methods[] = {
  */
 GENE_MINIT_FUNCTION(controller) {
 	zend_class_entry gene_controller;
-	GENE_INIT_CLASS_ENTRY(gene_controller, "Gene_Controller",
-			"Gene\\Controller", gene_controller_methods);
-	gene_controller_ce = zend_register_internal_class(
-			&gene_controller TSRMLS_CC);
-
-	//
+	GENE_INIT_CLASS_ENTRY(gene_controller, "Gene_Controller", "Gene\\Controller", gene_controller_methods);
+	gene_controller_ce = zend_register_internal_class(&gene_controller TSRMLS_CC);
 	return SUCCESS;
 }
 /* }}} */
