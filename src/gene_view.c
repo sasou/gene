@@ -32,6 +32,7 @@
 #include "php_gene.h"
 #include "gene_view.h"
 #include "gene_load.h"
+#include "gene_common.h"
 
 zend_class_entry * gene_view_ce;
 
@@ -166,7 +167,7 @@ static int parser_templates(php_stream **stream, char *compile_path) {
 	subject = NULL;
 	smart_str_0(&content);
 
-	result = str_init(content.s->val);
+	result = estrndup(content.s->val, content.s->len);
 	result_len = content.s->len;
 	smart_str_free(&content);
 
@@ -175,7 +176,7 @@ static int parser_templates(php_stream **stream, char *compile_path) {
 		ZVAL_STRINGL(&replace_val, replace[i], strlen(replace[i]));
 		if ((ret = php_pcre_replace(arg, NULL, result, result_len, &replace_val, 0, -1, &result_len)) != NULL) {
 			efree(result);
-			result = str_init(ret->val);
+			result = estrndup(ret->val, ret->len);
 			result_len = ret->len;
 			zend_string_free(ret);
 		}
@@ -213,13 +214,19 @@ PHP_METHOD(gene_view, __construct) {
 /** {{{ public gene_view::display(string $file)
  */
 PHP_METHOD(gene_view, display) {
-	zend_string *file;
+	zend_string *file, *parent_file = NULL;
 
-	if (zend_parse_parameters(ZEND_NUM_ARGS()TSRMLS_CC, "S|l", &file)
-			== FAILURE) {
+	if (zend_parse_parameters(ZEND_NUM_ARGS()TSRMLS_CC, "S|S", &file, &parent_file) == FAILURE) {
 		return;
 	}
-	if (ZSTR_LEN(file)) {
+	if (parent_file && ZSTR_LEN(parent_file) > 0) {
+		if (GENE_G(child_views)) {
+			efree(GENE_G(child_views));
+			GENE_G(child_views) = NULL;
+		}
+		GENE_G(child_views) = estrndup(ZSTR_VAL(file), ZSTR_LEN(file));
+		gene_view_display(ZSTR_VAL(parent_file) TSRMLS_CC);
+	} else {
 		gene_view_display(ZSTR_VAL(file) TSRMLS_CC);
 	}
 }
@@ -227,15 +234,37 @@ PHP_METHOD(gene_view, display) {
 
 /** {{{ public gene_view::display(string $file)
  */
-PHP_METHOD(gene_view, template) {
-	zend_string *file;
-	zend_bool isCompile;
+PHP_METHOD(gene_view, displayExt) {
+	zend_string *file, *parent_file = NULL;
+	zend_bool isCompile = 0;
 
-	if (zend_parse_parameters(ZEND_NUM_ARGS()TSRMLS_CC, "S|b", &file,
-			&isCompile) == FAILURE) {
+	if (zend_parse_parameters(ZEND_NUM_ARGS()TSRMLS_CC, "S|Sb", &file, &parent_file, &isCompile) == FAILURE) {
 		return;
 	}
-	gene_view_display_ext(ZSTR_VAL(file), isCompile TSRMLS_CC);
+	if (parent_file && ZSTR_LEN(parent_file)) {
+		if (GENE_G(child_views)) {
+			efree(GENE_G(child_views));
+			GENE_G(child_views) = NULL;
+		}
+		GENE_G(child_views) = estrndup(ZSTR_VAL(file), ZSTR_LEN(file));
+		gene_view_display_ext(ZSTR_VAL(parent_file), isCompile TSRMLS_CC);
+	} else {
+		gene_view_display_ext(ZSTR_VAL(file), isCompile TSRMLS_CC);
+	}
+}
+/* }}} */
+
+/** {{{ public gene_view::contains(string $file)
+ */
+PHP_METHOD(gene_view, contains) {
+	gene_view_display(GENE_G(child_views) TSRMLS_CC);
+}
+/* }}} */
+
+/** {{{ public gene_view::containsExt(string $file)
+ */
+PHP_METHOD(gene_view, containsExt) {
+	gene_view_display_ext(GENE_G(child_views), 0 TSRMLS_CC);
 }
 /* }}} */
 
@@ -243,8 +272,10 @@ PHP_METHOD(gene_view, template) {
  * {{{ gene_view_methods
  */
 zend_function_entry gene_view_methods[] = {
-	PHP_ME(gene_view, display, NULL, ZEND_ACC_PUBLIC)
-	PHP_ME(gene_view, template, NULL, ZEND_ACC_PUBLIC|ZEND_ACC_STATIC)
+	PHP_ME(gene_view, display, NULL, ZEND_ACC_PUBLIC|ZEND_ACC_STATIC)
+	PHP_ME(gene_view, displayExt, NULL, ZEND_ACC_PUBLIC|ZEND_ACC_STATIC)
+	PHP_ME(gene_view, contains, NULL, ZEND_ACC_PUBLIC|ZEND_ACC_STATIC)
+	PHP_ME(gene_view, containsExt, NULL, ZEND_ACC_PUBLIC|ZEND_ACC_STATIC)
 	PHP_ME(gene_view, __construct, NULL, ZEND_ACC_PUBLIC|ZEND_ACC_CTOR)
 	{ NULL,NULL, NULL }
 };
@@ -255,8 +286,7 @@ zend_function_entry gene_view_methods[] = {
  */
 GENE_MINIT_FUNCTION(view) {
 	zend_class_entry gene_view;
-	GENE_INIT_CLASS_ENTRY(gene_view, "Gene_View", "Gene\\View",
-			gene_view_methods);
+	GENE_INIT_CLASS_ENTRY(gene_view, "Gene_View", "Gene\\View", gene_view_methods);
 	gene_view_ce = zend_register_internal_class(&gene_view TSRMLS_CC);
 
 	//
