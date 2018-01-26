@@ -51,12 +51,7 @@ void init() {
 	params = zend_hash_str_find(&EG(symbol_table), "params", 6);
 	if (params == NULL) {
 		array_init(&sval);
-		zend_hash_str_update(&EG(symbol_table), "params", 6, &sval);
-	}
-	// uri reset
-	if (GENE_G(router_path)) {
-		efree(GENE_G(router_path));
-		GENE_G(router_path) = NULL;
+		zend_hash_str_add(&EG(symbol_table), "params", 6, &sval);
 	}
 }
 /* }}} */
