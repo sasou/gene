@@ -35,7 +35,6 @@ zend_class_entry * gene_exception_ce;
  */
 int gene_exception_error_register(zval *callback, zval *error_type TSRMLS_DC) {
 	zval ret, bak;
-	zval params[2] = { 0 };
 	zval function;
 	int arg_num = 1;
 
@@ -45,32 +44,30 @@ int gene_exception_error_register(zval *callback, zval *error_type TSRMLS_DC) {
 		} else {
 			ZVAL_STRING(&bak, GENE_ERROR_FUNC_NAME);
 		}
-		ZVAL_COPY(&params[0], &bak);
-	} else {
-		ZVAL_COPY(&params[0], callback);
+		callback = &bak;
 	}
+	zval params[] = {*callback};
 	if (error_type) {
-		ZVAL_COPY(&params[1], error_type);
+		zval params[] = {*callback, *callback};
 		arg_num = 2;
 	}
-
 	ZVAL_STRING(&function, "set_error_handler");
-	if (call_user_function(EG(function_table), NULL, &function, &ret, arg_num,
-			params TSRMLS_CC) == FAILURE) {
-		zval_dtor(&ret);
-		php_error_docref(NULL TSRMLS_CC, E_WARNING,
-				"Call to set_error_handler failed");
+	if (call_user_function(EG(function_table), NULL, &function, &ret, arg_num, params TSRMLS_CC) == FAILURE) {
+		zval_ptr_dtor(&ret);
+		php_error_docref(NULL TSRMLS_CC, E_WARNING, "Call to set_error_handler failed");
 		return 0;
 	}
-	zval_dtor(&ret);
+	zval_ptr_dtor(&function);
+	zval_ptr_dtor(&bak);
+	zval_ptr_dtor(&ret);
+	zval_dtor(params);
 	return 1;
 }
 
-/** {{{ int gene_exception_register(zval *callback,zval *error_type TSRMLS_DC)
+/** {{{ int gene_exception_register(zval *callback TSRMLS_DC)
  */
-int gene_exception_register(zval *callback, zval *error_type TSRMLS_DC) {
+int gene_exception_register(zval *callback TSRMLS_DC) {
 	zval ret, bak;
-	zval params[1] = { 0 };
 	zval function;
 	int arg_num = 1;
 
@@ -80,20 +77,19 @@ int gene_exception_register(zval *callback, zval *error_type TSRMLS_DC) {
 		} else {
 			ZVAL_STRING(&bak, GENE_EXCEPTION_FUNC_NAME);
 		}
-		ZVAL_COPY(&params[0], &bak);
-	} else {
-		ZVAL_COPY(&params[0], callback);
+		callback = &bak;
 	}
-
+	zval params[] = {*callback};
 	ZVAL_STRING(&function, "set_exception_handler");
-	if (call_user_function(EG(function_table), NULL, &function, &ret, arg_num,
-			params TSRMLS_CC) == FAILURE) {
-		zval_dtor(&ret);
-		php_error_docref(NULL TSRMLS_CC, E_WARNING,
-				"Call to set_exception_handler failed");
+	if (call_user_function(EG(function_table), NULL, &function, &ret, arg_num, params TSRMLS_CC) == FAILURE) {
+		zval_ptr_dtor(&ret);
+		php_error_docref(NULL TSRMLS_CC, E_WARNING, "Call to set_exception_handler failed");
 		return 0;
 	}
-	zval_dtor(&ret);
+	zval_ptr_dtor(&function);
+	zval_ptr_dtor(&ret);
+	zval_ptr_dtor(&bak);
+	zval_dtor(params);
 	return 1;
 }
 
@@ -170,7 +166,7 @@ PHP_METHOD(gene_exception, setExceptionHandler) {
 			== FAILURE) {
 		return;
 	}
-	gene_exception_register(callback, NULL TSRMLS_CC);
+	gene_exception_register(callback TSRMLS_CC);
 	RETURN_TRUE
 	;
 }
