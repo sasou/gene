@@ -355,7 +355,7 @@ PHP_METHOD(gene_application, error) {
 	} else {
 		GENE_G(gene_error) = 0;
 	}
-	gene_exception_error_register(callback,error_type TSRMLS_CC);
+	gene_exception_error_register(callback, error_type TSRMLS_CC);
 	RETURN_ZVAL(self, 1, 0);
 }
 /* }}} */

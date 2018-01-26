@@ -48,7 +48,7 @@ int gene_exception_error_register(zval *callback, zval *error_type TSRMLS_DC) {
 	}
 	zval params[] = {*callback};
 	if (error_type) {
-		zval params[] = {*callback, *callback};
+		zval params[] = {*callback, *error_type};
 		arg_num = 2;
 	}
 	ZVAL_STRING(&function, "set_error_handler");
@@ -58,7 +58,6 @@ int gene_exception_error_register(zval *callback, zval *error_type TSRMLS_DC) {
 		return 0;
 	}
 	zval_ptr_dtor(&function);
-	zval_ptr_dtor(&bak);
 	zval_ptr_dtor(&ret);
 	zval_dtor(params);
 	return 1;
@@ -88,7 +87,6 @@ int gene_exception_register(zval *callback TSRMLS_DC) {
 	}
 	zval_ptr_dtor(&function);
 	zval_ptr_dtor(&ret);
-	zval_ptr_dtor(&bak);
 	zval_dtor(params);
 	return 1;
 }
