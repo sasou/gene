@@ -41,5 +41,5 @@ if test "$PHP_GENE" != "no"; then
   else
     AC_MSG_RESULT([$php_version, ok])
   fi
-  PHP_NEW_EXTENSION(gene, gene.c gene_application.c gene_load.c gene_reg.c gene_router.c gene_execute.c gene_cache.c gene_common.c gene_config.c gene_controller.c gene_session.c gene_request.c gene_response.c gene_view.c gene_exception.c, $ext_shared)
+  PHP_NEW_EXTENSION(gene, gene.c gene_application.c gene_load.c gene_reg.c gene_router.c gene_execute.c gene_cache.c gene_common.c gene_config.c gene_controller.c gene_session.c gene_request.c gene_response.c gene_view.c gene_exception.c gene_benchmark.c, $ext_shared)
 fi
