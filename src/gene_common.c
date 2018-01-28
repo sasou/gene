@@ -25,17 +25,17 @@
 #include "gene_common.h"
 #include <ctype.h>
 
-char* str_init(char *s)
+char *str_init(char *s)
 {
-	int size = strlen(s) + 1;
-	char *p = (char *) ecalloc(size, sizeof(char));
-	strcat(p, s);
-	p[size -1] = 0;
+	int s_l = strlen(s);
+	char *p = (char *) emalloc(s_l + 1);
+	strncpy(p, s, s_l);
+	p[s_l] = 0;
 	return p;
 }
 
 
-char* str_append(char* s, const char* t)
+char *str_append(char *s, const char*t)
 {
     int size = 0;
     char *p = NULL;
@@ -43,6 +43,20 @@ char* str_append(char* s, const char* t)
 	p = erealloc(s, size);
 	strcat(p, t);
 	p[size - 1] = 0;
+	return p;
+}
+
+char *str_concat(char *s, const char *t)
+{
+	int s_l = strlen(s);
+	int t_l = strlen(t);
+    char *p = NULL,*tmp = NULL;
+	p = (char *) emalloc(s_l + t_l +1);
+    tmp = p;
+    strncpy(tmp, s, s_l);
+    tmp += s_l;
+    strncpy(tmp, t, t_l);
+	p[s_l+t_l] = 0;
 	return p;
 }
 

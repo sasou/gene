@@ -57,7 +57,6 @@ extern zend_class_entry *gene_load_ce;
 int gene_load_import(char *path TSRMLS_DC);
 zval *gene_load_instance(zval *this_ptr TSRMLS_DC);
 int gene_loader_register(TSRMLS_DC);
-int gene_loader_register_function(TSRMLS_DC);
 
 GENE_MINIT_FUNCTION (load);
 
