@@ -147,6 +147,7 @@ PHP_MINIT_FUNCTION(gene) {
 	GENE_STARTUP(session);
 	GENE_STARTUP(view);
 	GENE_STARTUP(exception);
+	GENE_STARTUP(benchmark);
 
 	return SUCCESS;
 }

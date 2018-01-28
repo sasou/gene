@@ -46,10 +46,11 @@ ZEND_END_ARG_INFO()
 /** {{{ int init()
  */
 void init() {
-	zval sval, *params = NULL;
+	zval *params = NULL;
 	// param reset
 	params = zend_hash_str_find(&EG(symbol_table), "params", 6);
 	if (params == NULL) {
+		zval sval;
 		array_init(&sval);
 		zend_hash_str_add(&EG(symbol_table), "params", 6, &sval);
 	}
@@ -96,10 +97,10 @@ void gene_router_set_uri(zval **leaf TSRMLS_DC) {
 	zval *key = NULL;
 	key = zend_hash_str_find((*leaf)->value.arr, "key", 3);
 	if (key) {
+		if (GENE_G(router_path)) {
+			efree(GENE_G(router_path));
+		}
 		if (Z_STRLEN_P(key)) {
-			if (GENE_G(router_path)) {
-				efree(GENE_G(router_path));
-			}
 			GENE_G(router_path) = estrndup(Z_STRVAL_P(key), Z_STRLEN_P(key));
 		} else {
 			GENE_G(router_path) = str_init("");
@@ -192,13 +193,9 @@ zval *get_path_router(zval *val, char *paths TSRMLS_DC) {
 int get_router_info(zval **leaf, zval **cacheHook TSRMLS_DC) {
 	zval *hname, *before, *after, *m, *h;
 	int size = 0, is = 1;
-	char *run = NULL, *hookname = NULL, *seg = NULL, *ptr = NULL, *filename = "";
+	char *run = NULL, *hookname = NULL, *seg = NULL, *ptr = NULL;
 
 	gene_router_set_uri(leaf TSRMLS_CC);
-
-	if (GENE_G(router_path)) {
-		filename = GENE_G(router_path);
-	}
 
 	hname = zend_hash_str_find((*leaf)->value.arr, "hook", 4);
 	if (hname) {
@@ -242,8 +239,7 @@ int get_router_info(zval **leaf, zval **cacheHook TSRMLS_DC) {
 		run[size - 1] = 0;
 	}
 	if (ptr && strlen(ptr) > 0) {
-		if ((strcmp(ptr, "clearAfter") == 0)
-				|| (strcmp(ptr, "clearAll") == 0)) {
+		if ((strcmp(ptr, "clearAfter") == 0) || (strcmp(ptr, "clearAll") == 0)) {
 			is = 0;
 		}
 	}
@@ -258,7 +254,7 @@ int get_router_info(zval **leaf, zval **cacheHook TSRMLS_DC) {
 	}
 
 	zend_try{
-		zend_eval_stringl(run, strlen(run), NULL, filename TSRMLS_CC);
+		zend_eval_stringl(run, size - 1, NULL, "" TSRMLS_CC);
 	} zend_catch {
 		efree(run);
 		if (hookname) {
@@ -470,7 +466,6 @@ char *get_router_content_F(char *src, char *method, char *path TSRMLS_DC) {
 			spprintf(&dist, 0, GENE_ROUTER_CONTENT_FA, src);
 		} else {
 			spprintf(&dist, 0, GENE_ROUTER_CONTENT_FH, src);
-			;
 		}
 	} else {
 		spprintf(&dist, 0, GENE_ROUTER_CONTENT_FM, src);
@@ -510,20 +505,20 @@ char* get_router_content(zval **content, char *method, char *path TSRMLS_DC) {
 void get_router_content_run(char *methodin, char *pathin, zval *safe TSRMLS_DC) {
 	char *method = NULL, *path = NULL, *run = NULL, *hook = NULL, *router_e;
 	size_t router_e_len;
-	zval *temp, *lead;
+	zval *temp = NULL, *lead = NULL;
 	zval *cache = NULL, *cacheHook = NULL;
 
 	if (methodin == NULL && pathin == NULL) {
 		if (GENE_G(method)) {
-			method = estrdup(GENE_G(method));
+			method = str_init(GENE_G(method));
 		}
 		if (GENE_G(path)) {
-			path = estrdup(GENE_G(path));
+			path = str_init(GENE_G(path));
 		}
 	} else {
-		method = estrdup(methodin);
+		method = str_init(methodin);
 		strtolower(method);
-		path = estrdup(pathin);
+		path = str_init(pathin);
 	}
 
 	if (method == NULL || path == NULL) {
@@ -532,12 +527,15 @@ void get_router_content_run(char *methodin, char *pathin, zval *safe TSRMLS_DC) 
 	}
 
 	if (safe != NULL && Z_STRLEN_P(safe)) {
-		router_e_len = spprintf(&router_e, 0, "%s%s", Z_STRVAL_P(safe), GENE_ROUTER_ROUTER_TREE);
+		router_e = str_concat(Z_STRVAL_P(safe), GENE_ROUTER_ROUTER_TREE);
+		router_e_len = strlen(router_e);
 	} else {
-		router_e_len = spprintf(&router_e, 0, "%s", GENE_ROUTER_ROUTER_TREE);
+		router_e = str_init(GENE_ROUTER_ROUTER_TREE);
+		router_e_len = strlen(router_e);
 	}
 	cache = gene_cache_get_quick(router_e, router_e_len TSRMLS_CC);
 	efree(router_e);
+
 	if (cache) {
 		temp = zend_symtable_str_find(cache->value.arr, method, strlen(method));
 		if (temp == NULL) {
@@ -548,9 +546,11 @@ void get_router_content_run(char *methodin, char *pathin, zval *safe TSRMLS_DC) 
 			return;
 		}
 		if (safe != NULL && Z_STRLEN_P(safe)) {
-			router_e_len = spprintf(&router_e, 0, "%s%s", Z_STRVAL_P(safe), GENE_ROUTER_ROUTER_EVENT);
+			router_e = str_concat(Z_STRVAL_P(safe), GENE_ROUTER_ROUTER_EVENT);
+			router_e_len = strlen(router_e);
 		} else {
-			router_e_len = spprintf(&router_e, 0, "%s", GENE_ROUTER_ROUTER_EVENT);
+			router_e = str_init(GENE_ROUTER_ROUTER_EVENT);
+			router_e_len = strlen(router_e);
 		}
 		cacheHook = gene_cache_get_quick(router_e, router_e_len TSRMLS_CC);
 		efree(router_e);
@@ -1144,8 +1144,6 @@ GENE_MINIT_FUNCTION(router) {
 	//prop
 	zend_declare_property_string(gene_router_ce, GENE_ROUTER_SAFE, strlen(GENE_ROUTER_SAFE), "", ZEND_ACC_PUBLIC TSRMLS_CC);
 	zend_declare_property_string(gene_router_ce, GENE_ROUTER_PREFIX, strlen(GENE_ROUTER_PREFIX), "", ZEND_ACC_PUBLIC TSRMLS_CC);
-	//zend_declare_property_string(gene_router_ce, GENE_ROUTER_PREFIX, strlen(GENE_ROUTER_PREFIX), "", ZEND_ACC_PUBLIC TSRMLS_CC);
-	//
 	return SUCCESS;
 }
 /* }}} */

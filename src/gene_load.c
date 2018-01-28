@@ -74,7 +74,7 @@ int gene_load_import(char *path TSRMLS_DC) {
 		zend_execute(op_array, &result);
 
 		destroy_op_array(op_array);
-		efree(op_array);
+		efree_size(op_array, sizeof(op_array));
 		if (!EG(exception)) {
 			zval_ptr_dtor(&result);
 		}
@@ -136,9 +136,7 @@ int gene_loader_register(TSRMLS_DC) {
 			zval_ptr_dtor(&function);
 			zval_ptr_dtor(&autoload);
 			zval_ptr_dtor(&ret);
-			php_error_docref(NULL, E_WARNING,
-					"Unable to register autoload function %s",
-					GENE_AUTOLOAD_FUNC_NAME);
+			php_error_docref(NULL, E_WARNING, "Unable to register autoload function %s", GENE_AUTOLOAD_FUNC_NAME);
 			return 0;
 		}
 

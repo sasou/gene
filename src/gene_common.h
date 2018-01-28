@@ -39,5 +39,6 @@ void remove_extra_space(char *str);
 char *readfilecontent(char *file);
 char *strreplace(char *original, char *pattern, char *replacement);
 char *strreplace2(char *src, char *from, char *to);
+char *str_concat(char *s, const char *t);
 
 #endif
