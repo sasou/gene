@@ -39,6 +39,7 @@
 #include "gene_session.h"
 #include "gene_view.h"
 #include "gene_exception.h"
+#include "gene_benchmark.h"
 
 ZEND_DECLARE_MODULE_GLOBALS(gene);
 
@@ -146,8 +147,8 @@ PHP_MINIT_FUNCTION(gene) {
 	GENE_STARTUP(response);
 	GENE_STARTUP(session);
 	GENE_STARTUP(view);
-	GENE_STARTUP(exception);
 	GENE_STARTUP(benchmark);
+	GENE_STARTUP(exception);
 
 	return SUCCESS;
 }
