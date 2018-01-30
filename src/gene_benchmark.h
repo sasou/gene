@@ -23,6 +23,6 @@
 extern zend_class_entry *gene_benchmark_ce;
 
 
-GENE_MINIT_FUNCTION(benchmark);
+GENE_MINIT_FUNCTION (benchmark);
 
 #endif
