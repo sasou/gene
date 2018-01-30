@@ -23,50 +23,151 @@
 #include "main/SAPI.h"
 #include "Zend/zend_API.h"
 #include "zend_exceptions.h"
-
+#include "Zend/zend_exceptions.h"
+#include "Zend/zend_alloc.h"
+#include "Zend/zend_interfaces.h"
 
 #include "php_gene.h"
 #include "gene_benchmark.h"
 
 zend_class_entry * gene_benchmark_ce;
 
+PHPAPI int gettimeofday(struct timeval *time_Info, struct timezone *timezone_Info);
+
+struct timeval start, end;
+long memory_start = 0, memory_end = 0;
+
 /*
- * {{{ gene_benchmark
+ * {{{ void markStart()
  */
-PHP_METHOD(gene_benchmark, __construct)
+void markStart() {
+	zval func, ret;
+	gettimeofday( &start, NULL );
+
+	ZVAL_STRING(&func, "memory_get_peak_usage");
+	ZVAL_NULL(&ret);
+	call_user_function(EG(function_table), NULL, &func, &ret, 0, NULL);
+	if (Z_TYPE(ret) == IS_LONG) {
+		memory_start = Z_LVAL(ret);
+	}
+	zval_ptr_dtor(&func);
+	zval_ptr_dtor(&ret);
+}
+/* }}} */
+
+/*
+ * {{{ void markEnd()
+ */
+void markEnd() {
+	zval func, ret;
+    gettimeofday( &end, NULL );
+
+	ZVAL_STRING(&func, "memory_get_peak_usage");
+	ZVAL_NULL(&ret);
+	call_user_function(EG(function_table), NULL, &func, &ret, 0, NULL);
+	if (Z_TYPE(ret) == IS_LONG) {
+		memory_end = Z_LVAL(ret);
+	}
+	zval_ptr_dtor(&func);
+	zval_ptr_dtor(&ret);
+}
+/* }}} */
+
+/*
+ * {{{ double difftimeval(const struct timeval *start, const struct timeval *end)
+ */
+double difftimeval(const struct timeval *start, const struct timeval *end)
 {
-	long debug = 0;
-    if (zend_parse_parameters(ZEND_NUM_ARGS() TSRMLS_CC,"|l", &debug) == FAILURE)
-    {
-        RETURN_NULL();
-    }
-    php_printf(" time:%d ", clock());
+	double timeuse;
+	timeuse= 1000000 * (end->tv_sec-start->tv_sec) + end->tv_usec - start->tv_usec;
+	timeuse /= 1000000;
+	return(timeuse);
+}
+
+/*
+ * {{{ public gene_benchmark::start()
+ */
+PHP_METHOD(gene_benchmark, start)
+{
+	markStart();
 }
 /* }}} */
 
 
 /*
- * {{{ public gene_benchmark::test($key)
+ * {{{ public gene_benchmark::end()
  */
-PHP_METHOD(gene_benchmark, test)
+PHP_METHOD(gene_benchmark, end)
 {
-	zval *self = getThis();
-	zend_string *script = NULL;
-	if (zend_parse_parameters(ZEND_NUM_ARGS() TSRMLS_CC, "|S", &script) == FAILURE) {
+	markEnd();
+}
+/* }}} */
+
+/*
+ * {{{ public gene_benchmark::time($type)
+ */
+PHP_METHOD(gene_benchmark, time)
+{
+	double time;
+	char *ret = NULL;
+	zend_bool type = FALSE;
+
+	if (zend_parse_parameters(ZEND_NUM_ARGS() TSRMLS_CC, "|b", &type) == FAILURE) {
 		return;
 	}
-	php_printf(" key:%s ",ZSTR_VAL(script));
-	RETURN_ZVAL(self, 1, 0);
+
+	time = difftimeval(&start, &end);
+
+	if (type) {
+		spprintf(&ret, 0, "%f", time);
+	} else {
+		spprintf(&ret, 0, "%.3f", time);
+	}
+
+	ZVAL_STRING(return_value, ret);
+	efree(ret);
+	return;
 }
 /* }}} */
 
+/*
+ * {{{ public gene_benchmark::memory($type)
+ */
+PHP_METHOD(gene_benchmark, memory)
+{
+	double memory;
+	char *ret = NULL;
+	zend_bool type = FALSE;
+
+	if (zend_parse_parameters(ZEND_NUM_ARGS() TSRMLS_CC, "|b", &type) == FAILURE) {
+		return;
+	}
+
+    if (!memory_start || !memory_end) {
+    	RETURN_NULL();
+    }
+	memory = memory_end - memory_start;
+
+	if (type) {
+		spprintf(&ret, 0, "%.3f", memory/1024);
+	} else {
+		spprintf(&ret, 0, "%.3f", memory/1048576);
+	}
+
+	ZVAL_STRING(return_value, ret);
+	efree(ret);
+	return;
+}
+/* }}} */
 
 /*
  * {{{ gene_benchmark_methods
  */
 zend_function_entry gene_benchmark_methods[] = {
-		PHP_ME(gene_benchmark, test, NULL, ZEND_ACC_PUBLIC)
-		PHP_ME(gene_benchmark, __construct, NULL, ZEND_ACC_PUBLIC|ZEND_ACC_CTOR)
+		PHP_ME(gene_benchmark, start, NULL, ZEND_ACC_PUBLIC|ZEND_ACC_STATIC)
+		PHP_ME(gene_benchmark, end, NULL, ZEND_ACC_PUBLIC|ZEND_ACC_STATIC)
+		PHP_ME(gene_benchmark, time, NULL, ZEND_ACC_PUBLIC|ZEND_ACC_STATIC)
+		PHP_ME(gene_benchmark, memory, NULL, ZEND_ACC_PUBLIC|ZEND_ACC_STATIC)
 		{NULL, NULL, NULL}
 };
 /* }}} */
@@ -81,10 +182,6 @@ GENE_MINIT_FUNCTION(benchmark)
     GENE_INIT_CLASS_ENTRY(gene_benchmark, "Gene_Benchmark", "Gene\\Benchmark", gene_benchmark_methods);
     gene_benchmark_ce = zend_register_internal_class_ex(&gene_benchmark, NULL);
     gene_benchmark_ce->ce_flags |= ZEND_ACC_FINAL;
-
-	//static
-	zend_declare_property_null(gene_benchmark_ce, GENE_BENCHMARK_T, strlen(GENE_BENCHMARK_T), ZEND_ACC_PROTECTED | ZEND_ACC_STATIC TSRMLS_CC);
-	zend_declare_property_null(gene_benchmark_ce, GENE_BENCHMARK_M, strlen(GENE_BENCHMARK_M), ZEND_ACC_PROTECTED | ZEND_ACC_STATIC TSRMLS_CC);
 
 	return SUCCESS;
 }
