@@ -110,7 +110,7 @@ PHP_METHOD(gene_benchmark, time)
 {
 	double time;
 	char *ret = NULL;
-	zend_bool type = FALSE;
+	zend_bool type = 0;
 
 	if (zend_parse_parameters(ZEND_NUM_ARGS() TSRMLS_CC, "|b", &type) == FAILURE) {
 		return;
@@ -137,7 +137,7 @@ PHP_METHOD(gene_benchmark, memory)
 {
 	double memory;
 	char *ret = NULL;
-	zend_bool type = FALSE;
+	zend_bool type = 0;
 
 	if (zend_parse_parameters(ZEND_NUM_ARGS() TSRMLS_CC, "|b", &type) == FAILURE) {
 		return;
