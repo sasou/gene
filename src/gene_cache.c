@@ -33,7 +33,6 @@ zend_class_entry * gene_cache_ce;
 
 static void gene_cache_hash_copy(HashTable *target, HashTable *source);
 static void gene_cache_zval_persistent(zval *dst, zval *source TSRMLS_DC);
-static void gene_cache_copy_persistent(HashTable *pdst, HashTable *src TSRMLS_DC);
 
 /* }}} */
 
@@ -111,24 +110,6 @@ void gene_hash_destroy(HashTable *ht) /* {{{ */{
 		free(HT_GET_DATA_ADDR(ht));
 	}
 	free(ht);
-} /* }}} */
-
-static void gene_hash_copy(HashTable *dst, HashTable *source) /* {{{ */{
-	zend_string *key;
-	zend_long idx;
-	zval *element, rv;
-
-	ZEND_HASH_FOREACH_KEY_VAL(source, idx, key, element)
-				{
-					gene_cache_zval_persistent(&rv, element);
-					if (key) {
-						gene_symtable_update(dst,
-								gene_str_persistent(ZSTR_VAL(key),
-										ZSTR_LEN(key)), &rv);
-					} else {
-						zend_hash_index_update(dst, idx, &rv);
-					}
-				}ZEND_HASH_FOREACH_END();
 } /* }}} */
 
 /*
@@ -277,61 +258,6 @@ void gene_cache_zval_local(zval *dst, zval *source) /* {{{ */{
 
 /* }}} */
 
-/** {{{ static void gene_cache_copy_persistent(HashTable *pdst, HashTable *src TSRMLS_DC)
- */
-static void gene_cache_copy_persistent(HashTable *pdst,
-		HashTable *src TSRMLS_DC) {
-	zval *ppzval;
-	zend_string *key;
-	char *keyval;
-	int keyvallen;
-	zend_long idx;
-
-	ZEND_HASH_FOREACH_KEY_VAL(pdst, idx, key, ppzval) {
-		if (key) {
-			if (zend_hash_exists(src, key) != 1) {
-				zend_hash_del(pdst, key);
-			}
-		} else {
-			if (zend_hash_index_exists(src, idx) != 1) {
-				zend_hash_index_del(pdst, idx);
-			}
-		}
-	}ZEND_HASH_FOREACH_END();
-
-	ZEND_HASH_FOREACH_KEY_VAL(src, idx, key, ppzval) {
-		if (ppzval == NULL) {
-			continue;
-		}
-		if (key) {
-			zval *copyval, *tmp;
-			copyval = zend_hash_find(pdst, key);
-			if (copyval == NULL) {
-				gene_cache_zval_persistent(tmp, ppzval);
-				if (tmp) {
-					keyvallen = spprintf(&keyval, 0, "%s", key);
-					zend_hash_str_update(pdst, keyval, keyvallen, tmp);
-					efree(keyval);
-					keyval = NULL;
-				}
-			} else {
-				gene_cache_zval_edit_persistent(copyval, ppzval);
-			}
-		} else {
-			zval *copyval, *tmp;
-			copyval = zend_hash_index_find(pdst, idx);
-			if (copyval == NULL) {
-				gene_cache_zval_persistent(tmp, ppzval);
-				if (tmp) {
-					zend_hash_index_update(pdst, idx, tmp);
-				}
-			} else {
-				gene_cache_zval_edit_persistent(copyval, ppzval);
-			}
-		}
-	}ZEND_HASH_FOREACH_END();
-}
-/* }}} */
 
 /** {{{ void gene_cache_set(char *keyString,int keyString_len,zval *zvalue, int validity TSRMLS_DC)
  */
