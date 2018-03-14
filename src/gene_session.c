@@ -21,6 +21,7 @@
 #include "php.h"
 
 #include "php_gene.h"
+#include "ext/session/php_session.h"
 #include "gene_session.h"
 
 zend_class_entry * gene_session_ce;
@@ -53,19 +54,6 @@ PHP_METHOD(gene_session, __construct) {
 }
 /* }}} */
 
-/** {{{ public static gene_session::start()
- */
-PHP_METHOD(gene_session, start) {
-	php_session_start(TSRMLS_C);
-}
-/* }}} */
-
-/** {{{ public static gene_session::close()
- */
-PHP_METHOD(gene_session, close) {
-	php_session_flush(TSRMLS_C);
-}
-/* }}} */
 
 /** {{{ public static gene_session::get($name)
  */
@@ -178,8 +166,6 @@ PHP_METHOD(gene_session, has) {
  * {{{ gene_session_methods
  */
 zend_function_entry gene_session_methods[] = {
-	PHP_ME(gene_session, start, gene_session_get_arginfo, ZEND_ACC_PUBLIC|ZEND_ACC_STATIC)
-	PHP_ME(gene_session, close, gene_session_get_arginfo, ZEND_ACC_PUBLIC|ZEND_ACC_STATIC)
 	PHP_ME(gene_session, get, gene_session_get_arginfo, ZEND_ACC_PUBLIC|ZEND_ACC_STATIC)
 	PHP_ME(gene_session, has, gene_session_has_arginfo, ZEND_ACC_PUBLIC|ZEND_ACC_STATIC)
 	PHP_ME(gene_session, set, gene_session_set_arginfo, ZEND_ACC_PUBLIC|ZEND_ACC_STATIC)
