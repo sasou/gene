@@ -37,7 +37,7 @@ PHP_METHOD(gene_model, __construct)
 {
 	long debug = 0;
     if (zend_parse_parameters(ZEND_NUM_ARGS() TSRMLS_CC,"|l", &debug) == FAILURE)
-    {o0`
+    {
         RETURN_NULL();
     }
 }
