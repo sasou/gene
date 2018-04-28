@@ -80,9 +80,8 @@ zend_function_entry gene_model_methods[] = {
 GENE_MINIT_FUNCTION(model)
 {
     zend_class_entry gene_model;
-    INIT_CLASS_ENTRY(gene_model,"gene_model",gene_model_methods);
-    gene_model_ce = zend_register_internal_class(&gene_model TSRMLS_CC);
-
+	GENE_INIT_CLASS_ENTRY(gene_model, "Gene_Model", "Gene\\Model", gene_model_methods);
+	gene_model_ce = zend_register_internal_class_ex(&gene_model, NULL);
 	//debug
     //zend_declare_property_null(gene_application_ce, GENE_EXECUTE_DEBUG, strlen(GENE_EXECUTE_DEBUG), ZEND_ACC_PUBLIC TSRMLS_CC);
     //
