@@ -168,7 +168,9 @@ void gene_pdo_prepare(zval *pdo_object, char *sql, zval *retval) /*{{{ RETURN a 
         ZVAL_STRING(&prepare_sql, sql);
         zval params[] = { prepare_sql };
         call_user_function(NULL, pdo_object, &function_name, retval, param_count, params);
+        zval_ptr_dtor(&prepare_sql);
     }
+    zval_ptr_dtor(&function_name);
 }/*}}}*/
 
 void gene_pdo_roll_back(zval *pdo_object, zval *retval) /*{{{*/
@@ -181,19 +183,20 @@ void gene_pdo_roll_back(zval *pdo_object, zval *retval) /*{{{*/
 }/*}}}*/
 
 
-void gene_pdo_statement_execute(zval *pdostatement_obj, zval *bind_parameters, zval **retval)/*{{{*/
+void gene_pdo_statement_execute(zval *pdostatement_obj, zval *bind_parameters, zval *retval)/*{{{*/
 {
     zval function_name;
     ZVAL_STRING(&function_name, "execute");
     if (bind_parameters){
         uint32_t param_count = 1;
         zval params[] = { *bind_parameters };
-        call_user_function(NULL, pdostatement_obj, &function_name, *retval, param_count, params);
+        call_user_function(NULL, pdostatement_obj, &function_name, retval, param_count, params);
     } else {
         uint32_t param_count = 0;
         zval *params = NULL;
-        call_user_function(NULL, pdostatement_obj, &function_name, *retval, param_count, params);
+        call_user_function(NULL, pdostatement_obj, &function_name, retval, param_count, params);
     }
+    zval_ptr_dtor(&function_name);
     return ;
 }/*}}}*/
 
@@ -213,6 +216,7 @@ void gene_pdo_statement_fetch_all(zval *pdostatement_obj, zval *retval)/*{{{*/
     uint32_t param_count = 0;
     zval *params = NULL;
     call_user_function(NULL, pdostatement_obj, &function_name, retval, param_count, params);
+    zval_ptr_dtor(&function_name);
 }/*}}}*/
 
 void gene_pdo_statement_fetch_object(zval *pdostatement_obj, zval *retval)/*{{{*/
@@ -246,28 +250,23 @@ void gene_pdo_statement_set_fetch_mode(zval *pdostatement_obj, int fetch_style, 
 }/*}}}*/
 
 
-void gene_pdo_execute (zval *self, zval **statement)
+void gene_pdo_execute (zval *self, zval *statement)
 {
-	zval *pdo_object = NULL, *retval = NULL, *params = NULL, *type = NULL;
+	zval *pdo_object = NULL, *params = NULL, *type = NULL, *pdo_sql = NULL;
+	zval retval;
 	char *sql = NULL;
 	pdo_object = zend_read_property(gene_db_ce, self, GENE_DB_PDO, strlen(GENE_DB_PDO), 1, NULL);
-	type = zend_read_property(gene_db_ce, self, GENE_DB_TYPE, strlen(GENE_DB_TYPE), 1, NULL);
-	if (pdo_object) {
-		switch(Z_LVAL_P(type)) {
-		case 1:
-			break;
-		case 2:
-			break;
-		case 3:
-			break;
-		}
-	}
-	gene_pdo_prepare(pdo_object, sql, *statement);
-	if (*statement != NULL) {
+	pdo_sql = zend_read_property(gene_db_ce, self, GENE_DB_SQL, strlen(GENE_DB_SQL), 1, NULL);
+
+	spprintf(&sql, 0, "%s", Z_STRVAL_P(pdo_sql));
+	gene_pdo_prepare(pdo_object, sql, statement);
+	efree(sql);
+	if (statement != NULL) {
 		params = zend_read_property(gene_db_ce, self, GENE_DB_DATA, strlen(GENE_DB_DATA), 1, NULL);
 		//execute
-		gene_pdo_statement_execute(*statement, params, &retval);
+		gene_pdo_statement_execute(statement, params, &retval);
 	}
+    zval_ptr_dtor(&retval);
 }
 
 /*
@@ -541,10 +540,11 @@ PHP_METHOD(gene_db, limit)
 PHP_METHOD(gene_db, all)
 {
 	zval *self = getThis();
-	zval *statement = NULL;
-	gene_pdo_execute (self, &statement);
-
-	RETURN_ZVAL(self, 1, 0);
+	zval statement, retval;
+	gene_pdo_execute(self, &statement);
+	gene_pdo_statement_fetch_all(&statement, &retval);
+	zval_ptr_dtor(&statement);
+	RETURN_ZVAL(&retval, 1, 1);
 }
 /* }}} */
 
