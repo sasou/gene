@@ -216,14 +216,14 @@ void gene_cache_hash_copy_local(HashTable *target, HashTable *source) /* {{{ */{
 	zend_string *key;
 	zend_long idx;
 	zval *element, rv;
-
+	zend_string *str_key = NULL;
 	ZEND_HASH_FOREACH_KEY_VAL(source, idx, key, element)
 				{
 					gene_cache_zval_local(&rv, element);
 					if (key) {
-						gene_symtable_update(target,
-								zend_string_init(ZSTR_VAL(key), ZSTR_LEN(key),
-										0), &rv);
+						str_key = zend_string_init(ZSTR_VAL(key), ZSTR_LEN(key), 0);
+						gene_symtable_update(target, str_key, &rv);
+						zend_string_release(str_key);
 					} else {
 						zend_hash_index_update(target, idx, &rv);
 					}
@@ -231,11 +231,13 @@ void gene_cache_hash_copy_local(HashTable *target, HashTable *source) /* {{{ */{
 } /* }}} */
 
 void gene_cache_zval_local(zval *dst, zval *source) /* {{{ */{
+	zend_string *str_key = NULL;
 	switch (Z_TYPE_P(source)) {
 	case IS_CONSTANT:
 	case IS_STRING:
-		ZVAL_INTERNED_STR(dst,
-				zend_string_init(Z_STRVAL_P(source), Z_STRLEN_P(source), 0));
+		str_key = zend_string_init(Z_STRVAL_P(source), Z_STRLEN_P(source), 0);
+		ZVAL_INTERNED_STR(dst, str_key);
+		zend_string_release(str_key);
 		break;
 	case IS_ARRAY: {
 		array_init(dst);
