@@ -223,7 +223,6 @@ void gene_cache_hash_copy_local(HashTable *target, HashTable *source) /* {{{ */{
 					if (key) {
 						str_key = zend_string_init(ZSTR_VAL(key), ZSTR_LEN(key), 0);
 						gene_symtable_update(target, str_key, &rv);
-						zend_string_release(str_key);
 					} else {
 						zend_hash_index_update(target, idx, &rv);
 					}
@@ -237,12 +236,10 @@ void gene_cache_zval_local(zval *dst, zval *source) /* {{{ */{
 	case IS_STRING:
 		str_key = zend_string_init(Z_STRVAL_P(source), Z_STRLEN_P(source), 0);
 		ZVAL_INTERNED_STR(dst, str_key);
-		zend_string_release(str_key);
 		break;
-	case IS_ARRAY: {
+	case IS_ARRAY:
 		array_init(dst);
 		gene_cache_hash_copy_local(Z_ARRVAL_P(dst), Z_ARRVAL_P(source));
-	}
 		break;
 	case IS_TRUE:
 	case IS_FALSE:
@@ -361,7 +358,7 @@ static zval * gene_cache_set_val(zval *val, char *keyString, int keyString_len, 
 		} else {
 			gene_hash_init(&tmp, 8);
 		}
-		return gene_symtable_update(Z_ARRVAL_P(val), gene_str_persistent(keyString, keyString_len), &tmp);
+		return gene_symtable_update(Z_ARRVAL_P(val), zend_string_init(keyString, keyString_len, 1), &tmp);
 	} else {
 		if (zvalue) {
 			gene_cache_zval_edit_persistent(copyval, zvalue);
@@ -387,7 +384,7 @@ void gene_cache_set_by_router(char *keyString, int keyString_len, char *path, zv
 	copyval = zend_symtable_str_find(GENE_G(cache), keyString, keyString_len);
 	if (copyval == NULL) {
 		gene_hash_init(&ret, 1);
-		gene_symtable_update(GENE_G(cache), gene_str_persistent(keyString, keyString_len), &ret);
+		gene_symtable_update(GENE_G(cache), zend_string_init(keyString, keyString_len, 1), &ret);
 		tmp = &ret;
 		seg = php_strtok_r(path, "/", &ptr);
 		while (seg) {
