@@ -5,6 +5,6 @@ ARG_ENABLE("gene", "enable gene support", "no");
 
 if (PHP_GENE == "yes") {
 	ADD_FLAG("CFLAGS_YAF", "/I " + configure_module_dirname);
-	EXTENSION("gene", "gene.c gene_application.c gene_load.c gene_reg.c gene_router.c gene_execute.c gene_cache.c gene_common.c gene_config.c gene_controller.c gene_session.c gene_request.c gene_response.c gene_view.c gene_exception.c gene_benchmark.c gene_db.c gene_model.c");
+	EXTENSION("gene", "gene.c gene_application.c gene_load.c gene_reg.c gene_router.c gene_execute.c gene_memory.c gene_common.c gene_config.c gene_controller.c gene_session.c gene_request.c gene_response.c gene_view.c gene_exception.c gene_benchmark.c gene_db.c gene_model.c");
 	AC_DEFINE("HAVE_GENE", 1, "Have Gene Support");
 }
