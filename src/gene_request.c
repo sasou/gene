@@ -27,7 +27,7 @@
 
 #include "php_gene.h"
 #include "gene_request.h"
-#include "gene_cache.h"
+#include "gene_memory.h"
 
 zend_class_entry * gene_request_ce;
 
@@ -216,14 +216,12 @@ PHP_METHOD(gene_request, urlParams) {
 			== FAILURE) {
 		return;
 	}
-	cache = gene_cache_get_by_config(PHP_GENE_URL_PARAMS,
-			strlen(PHP_GENE_URL_PARAMS), ZSTR_VAL(keyString) TSRMLS_CC);
+	cache = gene_memory_get_by_config(PHP_GENE_URL_PARAMS, strlen(PHP_GENE_URL_PARAMS), ZSTR_VAL(keyString) TSRMLS_CC);
 	if (cache) {
 		ZVAL_COPY_VALUE(return_value, cache);
 		return;
 	}
-	RETURN_NULL()
-	;
+	RETURN_NULL();
 }
 /* }}} */
 
