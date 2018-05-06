@@ -28,7 +28,7 @@
 #include "php_gene.h"
 #include "gene_application.h"
 #include "gene_load.h"
-#include "gene_cache.h"
+#include "gene_memory.h"
 #include "gene_config.h"
 #include "gene_router.h"
 #include "gene_request.h"
@@ -306,10 +306,10 @@ PHP_METHOD(gene_application, config) {
 		router_e_len = spprintf(&router_e, 0, "%s%s", GENE_G(directory),
 		GENE_CONFIG_CACHE);
 	}
-	cache = gene_cache_get_by_config(router_e, router_e_len, ZSTR_VAL(keyString) TSRMLS_CC);
+	cache = gene_memory_get_by_config(router_e, router_e_len, ZSTR_VAL(keyString) TSRMLS_CC);
 	efree(router_e);
 	if (cache) {
-		gene_cache_zval_local(return_value, cache);
+		gene_memory_zval_local(return_value, cache);
 		return;
 	}
 	RETURN_NULL();

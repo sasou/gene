@@ -14,9 +14,9 @@
  +----------------------------------------------------------------------+
  */
 
-#ifndef GENE_CACHE_H
-#define GENE_CACHE_H
-#define GENE_CACHE_SAFE	"safe"
+#ifndef GENE_MEMORY_H
+#define GENE_MEMORY_H
+#define GENE_MEMORY_SAFE	"safe"
 #define PHP_GENE_URL_PARAMS ":gene_url"
 #define PALLOC_HASHTABLE(ht)   do {                                                       \
 	(ht) = (HashTable*) pemalloc(sizeof(HashTable), 1);                                    \
@@ -34,23 +34,23 @@ struct _filenode {
 
 typedef struct _filenode filenode;
 
-extern zend_class_entry *gene_cache_ce;
+extern zend_class_entry *gene_memory_ce;
 
-void gene_cache_init(TSRMLS_D);
+void gene_memory_init(TSRMLS_D);
 void gene_hash_destroy(HashTable *ht);
-void gene_cache_set(char *keyString, int keyString_len, zval *zvalue, int validity TSRMLS_DC);
-zval * gene_cache_get(char *keyString, int keyString_len TSRMLS_DC);
-zval * gene_cache_get_quick(char *keyString, int keyString_len TSRMLS_DC);
-zval * gene_cache_get_by_config(char *keyString, int keyString_len,char *path TSRMLS_DC);
-void gene_cache_set_by_router(char *keyString, int keyString_len, char *path, zval *zvalue, int validity TSRMLS_DC);
-long gene_cache_getTime(char *keyString, int keyString_len TSRMLS_DC);
-int gene_cache_exists(char *keyString, int keyString_len TSRMLS_DC);
-int gene_cache_del(char *keyString, int keyString_len TSRMLS_DC);
+void gene_memory_set(char *keyString, int keyString_len, zval *zvalue, int validity TSRMLS_DC);
+zval * gene_memory_get(char *keyString, int keyString_len TSRMLS_DC);
+zval * gene_memory_get_quick(char *keyString, int keyString_len TSRMLS_DC);
+zval * gene_memory_get_by_config(char *keyString, int keyString_len,char *path TSRMLS_DC);
+void gene_memory_set_by_router(char *keyString, int keyString_len, char *path, zval *zvalue, int validity TSRMLS_DC);
+long gene_memory_getTime(char *keyString, int keyString_len TSRMLS_DC);
+int gene_memory_exists(char *keyString, int keyString_len TSRMLS_DC);
+int gene_memory_del(char *keyString, int keyString_len TSRMLS_DC);
 void file_cache_set_val(char *val, int keyString_len, long times, int validity TSRMLS_DC);
 filenode * file_cache_get_easy(char *keyString, size_t keyString_len TSRMLS_DC);
-static zval * gene_cache_set_val(zval *val, char *keyString, int keyString_len, zval *zvalue TSRMLS_DC);
-void gene_cache_hash_copy_local(HashTable *target, HashTable *source);
-void gene_cache_zval_local(zval *dst, zval *source);
+static zval * gene_memory_set_val(zval *val, char *keyString, int keyString_len, zval *zvalue TSRMLS_DC);
+void gene_memory_hash_copy_local(HashTable *target, HashTable *source);
+void gene_memory_zval_local(zval *dst, zval *source);
 
 GENE_MINIT_FUNCTION (cache);
 

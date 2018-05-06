@@ -27,7 +27,7 @@
 
 #include "php_gene.h"
 #include "gene_common.h"
-#include "gene_cache.h"
+#include "gene_memory.h"
 #include "gene_db.h"
 
 zend_class_entry * gene_db_ce;
@@ -644,7 +644,7 @@ PHP_METHOD(gene_db, where)
     				add_next_index_zval(data, value);
     			} ZEND_HASH_FOREACH_END();
     		} else {
-    			gene_cache_zval_local(&params, fields);
+    			gene_memory_zval_local(&params, fields);
     			zend_update_property(gene_db_ce, self, GENE_DB_DATA, strlen(GENE_DB_DATA), &params);
     			zval_ptr_dtor(&params);
     		}
@@ -768,15 +768,53 @@ PHP_METHOD(gene_db, in)
  */
 PHP_METHOD(gene_db, sql)
 {
-	zval *self = getThis();
-	char *php_script;
-	int php_script_len = 0;
-	if (zend_parse_parameters(ZEND_NUM_ARGS() TSRMLS_CC, "|s", &php_script, &php_script_len) == FAILURE) {
+	zval *self = getThis(), *fields = NULL, *data = NULL, *value = NULL;
+	char *sql = NULL, *pdo_sql = NULL;
+	int sql_len;
+	zval params;
+	if (zend_parse_parameters(ZEND_NUM_ARGS() TSRMLS_CC, "s|z", &sql, &sql_len, &fields) == FAILURE) {
 		return;
 	}
-	if (php_script_len) {
-		php_printf(" key:%s ",php_script);
-	}
+	reset_sql_params(self);
+    if (sql_len) {
+        spprintf(&pdo_sql, 0, "%s", sql);
+        zend_update_property_string(gene_db_ce, self, GENE_DB_WHERE, strlen(GENE_DB_WHERE), pdo_sql);
+        efree(pdo_sql);
+    }
+    if (fields) {
+    	data = zend_read_property(gene_db_ce, self, GENE_DB_DATA, strlen(GENE_DB_DATA), 1, NULL);
+    	switch(Z_TYPE_P(fields)) {
+    	case IS_ARRAY:
+    		if (Z_TYPE_P(data) == IS_ARRAY) {
+    			ZEND_HASH_FOREACH_VAL(Z_ARRVAL_P(fields), value) {
+    				add_next_index_zval(data, value);
+    			} ZEND_HASH_FOREACH_END();
+    		} else {
+    			gene_memory_zval_local(&params, fields);
+    			zend_update_property(gene_db_ce, self, GENE_DB_DATA, strlen(GENE_DB_DATA), &params);
+    			zval_ptr_dtor(&params);
+    		}
+    		break;
+    	case IS_STRING:
+    	case IS_LONG:
+    	case IS_DOUBLE:
+    	case IS_FALSE:
+    	case IS_TRUE:
+    	case IS_NULL:
+    		if (Z_TYPE_P(data) == IS_ARRAY) {
+    			add_next_index_zval(data, fields);
+    		} else {
+            	array_init(&params);
+            	add_next_index_zval(&params, fields);
+            	zend_update_property(gene_db_ce, self, GENE_DB_DATA, strlen(GENE_DB_DATA), &params);
+            	zval_ptr_dtor(&params);
+    		}
+    		break;
+    	default:
+    		php_error_docref(NULL, E_ERROR, "Parameter error.");
+    		break;
+    	}
+    }
 	RETURN_ZVAL(self, 1, 0);
 }
 /* }}} */

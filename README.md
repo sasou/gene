@@ -2,7 +2,7 @@
 
     Simple, high performance,C extension framework for php7！
 	
-    版本：2.1.0  
+    版本：2.2.0  
     
 
 php5的版本 ：https://github.com/sasou/php-gene
@@ -19,7 +19,7 @@ windows版本：https://github.com/sasou/php-gene-for-windows
 	    ->load("config.ini.php")
 	    ->run();
 
-框架的基础是一个高性能的进程缓存模块，基于缓存模块，实现了一个高性能的强大路由解析以及配置缓存；
+框架的基础是一个高性能的进程级缓存模块，基于缓存模块，实现了一个高性能的强大路由解析以及配置缓存；
 路由强大灵活，支持回调、rest、http请求方式（get,post,put,patch,delete,trace,connect,options,head）等：
 
 	<?php
@@ -81,8 +81,40 @@ windows版本：https://github.com/sasou/php-gene-for-windows
 	$config->set("dsfsdfsd.port",'test');
 	$config->get("dsfsdfsd.port");
 	
+数据库支持orm操作：
 
-其他类：\Gene\Controller、\Gene\View、\Gene\Request、\Gene\Response、\Gene\Session、\Gene\Reg、\Gene\Load、\Gene\Exception等，详见文档；
+    <?php
+    $config = array (
+            'dsn' => 'mysql:dbname=test;host=127.0.0.1;port=3306;charset=utf8',
+            'username' => 'root',
+            'password' => '',
+            'options' => array(PDO::ATTR_PERSISTENT => true)
+    );
+    
+	$abc = new Gene\db($config);
+    // 查询全部
+	var_dump($abc->select('user', ["id", "name","time"])->order("id desc")->limit(0, 1)->all());
+    // 原生查询
+	var_dump($abc->select('user', ["id", "name","time"])->limit(0, 1)->execute()->fetch());
+    // 条件查询
+	var_dump($abc->select('user', ["id", "name","time"])->where("id=:id and name=:name",[":name"=>"wuya1", ":id"=>5])->row());
+    // 简单插入
+	var_dump($abc->insert('user', ["name"=>"wuya","time"=>"2018-12-21"])->lastId());
+    // 批量插入
+	var_dump($abc->batchInsert('user', [["name"=>"wuya1","time"=>"2018-12-21"],["name"=>"wuya2","time"=>"2018-12-22"]])->affectedRows());
+    // 简单更新
+	var_dump($abc->update('user', ["name"=>"wuya55","time"=>"2018-12-24"])->where("id=?", [4])->affectedRows());
+	// 删除操作
+	var_dump($abc->delete('user')->where("id=?", 4)->affectedRows());
+    // in条件更新
+	var_dump($abc->update('user', ["name"=>"wuya55","time"=>"2018-12-24"])->where("id=?", [3])->in(" and id in(?)", [3,4])->affectedRows());
+    // in 查询
+	var_dump($abc->select('user', ["id", "name","time"])->where("id=?", [3])->in(" and id in(?)", [3,4])->row());
+    // sql执行
+    var_dump($abc->sql("select * from user where id=?", [3])->in(" and id in(?)", [3,4])->order("id desc")->limit(0, 1)->row());
+    
+    
+其他类：\Gene\Controller、\Gene\Db、\Gene\View、\Gene\Request、\Gene\Response、\Gene\Session、\Gene\Reg、\Gene\Load、\Gene\Exception等，详见文档；
 	
 安装：
 	
