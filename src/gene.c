@@ -31,7 +31,7 @@
 #include "gene_config.h"
 #include "gene_router.h"
 #include "gene_execute.h"
-#include "gene_cache.h"
+#include "gene_memory.h"
 #include "gene_reg.h"
 #include "gene_controller.h"
 #include "gene_request.h"
@@ -68,7 +68,7 @@ static void php_gene_init_globals() {
 	GENE_G(child_views) = NULL;
 	GENE_G(cache) = NULL;
 	GENE_G(cache_easy) = NULL;
-	gene_cache_init(TSRMLS_CC);
+	gene_memory_init(TSRMLS_CC);
 }
 /* }}} */
 

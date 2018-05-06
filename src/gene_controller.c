@@ -29,7 +29,7 @@
 #include "gene_controller.h"
 #include "gene_request.h"
 #include "gene_response.h"
-#include "gene_cache.h"
+#include "gene_memory.h"
 #include "gene_router.h"
 #include "gene_view.h"
 
@@ -164,14 +164,13 @@ PHP_METHOD(gene_controller, urlParams) {
 			== FAILURE) {
 		return;
 	}
-	cache = gene_cache_get_by_config(PHP_GENE_URL_PARAMS,
+	cache = gene_memory_get_by_config(PHP_GENE_URL_PARAMS,
 			strlen(PHP_GENE_URL_PARAMS), ZSTR_VAL(keyString) TSRMLS_CC);
 	if (cache) {
 		ZVAL_COPY_VALUE(return_value, cache);
 		return;
 	}
-	RETURN_NULL()
-	;
+	RETURN_NULL();
 }
 /* }}} */
 

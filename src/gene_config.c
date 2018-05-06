@@ -28,7 +28,7 @@
 #include "gene_application.h"
 #include "gene_common.h"
 #include "gene_config.h"
-#include "gene_cache.h"
+#include "gene_memory.h"
 
 zend_class_entry * gene_config_ce;
 
@@ -83,7 +83,7 @@ PHP_METHOD(gene_config, set) {
 	if (zvalue) {
 		spprintf(&path, 0, "%s", keyString);
 		replaceAll(path, '.', '/');
-		gene_cache_set_by_router(router_e, router_e_len, path, zvalue,
+		gene_memory_set_by_router(router_e, router_e_len, path, zvalue,
 				validity TSRMLS_CC);
 		efree(path);
 	}
@@ -114,11 +114,11 @@ PHP_METHOD(gene_config, get) {
 	}
 	spprintf(&path, 0, "%s", ZSTR_VAL(keyString));
 	replaceAll(path, '.', '/');
-	cache = gene_cache_get_by_config(router_e, router_e_len, path TSRMLS_CC);
+	cache = gene_memory_get_by_config(router_e, router_e_len, path TSRMLS_CC);
 	efree(router_e);
 	efree(path);
 	if (cache) {
-		gene_cache_zval_local(return_value, cache);
+		gene_memory_zval_local(return_value, cache);
 		return;
 	}
 	RETURN_NULL()
@@ -141,7 +141,7 @@ PHP_METHOD(gene_config, del) {
 	} else {
 		router_e_len = spprintf(&router_e, 0, "%s", GENE_CONFIG_CACHE);
 	}
-	ret = gene_cache_del(router_e, router_e_len TSRMLS_CC);
+	ret = gene_memory_del(router_e, router_e_len TSRMLS_CC);
 	if (ret) {
 		efree(router_e);
 		RETURN_TRUE
@@ -168,15 +168,13 @@ PHP_METHOD(gene_config, clear) {
 	} else {
 		router_e_len = spprintf(&router_e, 0, "%s", GENE_CONFIG_CACHE);
 	}
-	ret = gene_cache_del(router_e, router_e_len TSRMLS_CC);
+	ret = gene_memory_del(router_e, router_e_len TSRMLS_CC);
 	if (ret) {
 		efree(router_e);
-		RETURN_TRUE
-		;
+		RETURN_TRUE;
 	}
 	efree(router_e);
-	RETURN_FALSE
-	;
+	RETURN_FALSE;
 }
 /* }}} */
 
