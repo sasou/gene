@@ -41,6 +41,12 @@ void reset_sql_params (zval *self)
     zend_update_property_null(gene_db_ce, self, GENE_DB_DATA, strlen(GENE_DB_DATA));
 }
 
+void set_value_ref(zval *field) {
+	if (Z_TYPE_P(field) == IS_STRING) {
+		Z_ADDREF_P(field);
+	}
+}
+
 void array_to_string(zval *array, char **result)
 {
     zval *value;
@@ -419,7 +425,7 @@ void gene_insert_field_value (zval *fields, smart_str *field_str, smart_str *val
         smart_str_appends(value_str, "?");
         smart_str_appends(field_str, "`");
     	add_next_index_zval(field_value, value);
-    	Z_ADDREF_P(value);
+    	set_value_ref(value);
     } ZEND_HASH_FOREACH_END();
     smart_str_0(field_str);
     smart_str_0(value_str);
@@ -448,7 +454,7 @@ void gene_insert_field_value_batch (zval *fields, smart_str *field_str, smart_st
         smart_str_appends(value_str, "?");
         smart_str_appends(field_str, "`");
         add_next_index_zval(field_value, value);
-    	Z_ADDREF_P(value);
+        set_value_ref(value);
     } ZEND_HASH_FOREACH_END();
     smart_str_appends(value_str, ")");
     smart_str_0(field_str);
@@ -467,7 +473,7 @@ void gene_insert_field_value_batch_other (zval *fields, smart_str *value_str, zv
     	}
         smart_str_appends(value_str, "?");
         add_next_index_zval(field_value, value);
-    	Z_ADDREF_P(value);
+        set_value_ref(value);
     } ZEND_HASH_FOREACH_END();
     smart_str_appends(value_str, ")");
     smart_str_0(value_str);
@@ -493,7 +499,7 @@ void gene_update_field_value (zval *fields, smart_str *field_str, zval *field_va
         }
         smart_str_appends(field_str, "`=?");
     	add_next_index_zval(field_value, value);
-    	Z_ADDREF_P(value);
+    	set_value_ref(value);
     } ZEND_HASH_FOREACH_END();
     smart_str_0(field_str);
 }
@@ -642,6 +648,7 @@ PHP_METHOD(gene_db, where)
     		if (Z_TYPE_P(data) == IS_ARRAY) {
     			ZEND_HASH_FOREACH_VAL(Z_ARRVAL_P(fields), value) {
     				add_next_index_zval(data, value);
+    				set_value_ref(value);
     			} ZEND_HASH_FOREACH_END();
     		} else {
     			gene_memory_zval_local(&params, fields);
@@ -657,9 +664,11 @@ PHP_METHOD(gene_db, where)
     	case IS_NULL:
     		if (Z_TYPE_P(data) == IS_ARRAY) {
     			add_next_index_zval(data, fields);
+    			set_value_ref(fields);
     		} else {
             	array_init(&params);
             	add_next_index_zval(&params, fields);
+            	set_value_ref(fields);
             	zend_update_property(gene_db_ce, self, GENE_DB_DATA, strlen(GENE_DB_DATA), &params);
             	zval_ptr_dtor(&params);
     		}
@@ -712,6 +721,7 @@ PHP_METHOD(gene_db, in)
     					pre = TRUE;
     				}
     				add_next_index_zval(data, value);
+    				set_value_ref(value);
     			} ZEND_HASH_FOREACH_END();
     		} else {
     			ZEND_HASH_FOREACH_VAL(Z_ARRVAL_P(fields), value) {
@@ -741,9 +751,11 @@ PHP_METHOD(gene_db, in)
     		smart_str_appends(&field_str, in_tmp);
     		if (Z_TYPE_P(data) == IS_ARRAY) {
     			add_next_index_zval(data, fields);
+    			set_value_ref(fields);
     		} else {
             	array_init(&params);
             	add_next_index_zval(&params, fields);
+            	set_value_ref(fields);
             	zend_update_property(gene_db_ce, self, GENE_DB_DATA, strlen(GENE_DB_DATA), &params);
             	zval_ptr_dtor(&params);
     		}
@@ -788,9 +800,11 @@ PHP_METHOD(gene_db, sql)
     		if (Z_TYPE_P(data) == IS_ARRAY) {
     			ZEND_HASH_FOREACH_VAL(Z_ARRVAL_P(fields), value) {
     				add_next_index_zval(data, value);
+    				set_value_ref(value);
     			} ZEND_HASH_FOREACH_END();
     		} else {
     			gene_memory_zval_local(&params, fields);
+    			set_value_ref(fields);
     			zend_update_property(gene_db_ce, self, GENE_DB_DATA, strlen(GENE_DB_DATA), &params);
     			zval_ptr_dtor(&params);
     		}
@@ -803,9 +817,11 @@ PHP_METHOD(gene_db, sql)
     	case IS_NULL:
     		if (Z_TYPE_P(data) == IS_ARRAY) {
     			add_next_index_zval(data, fields);
+    			set_value_ref(fields);
     		} else {
             	array_init(&params);
             	add_next_index_zval(&params, fields);
+            	set_value_ref(fields);
             	zend_update_property(gene_db_ce, self, GENE_DB_DATA, strlen(GENE_DB_DATA), &params);
             	zval_ptr_dtor(&params);
     		}
