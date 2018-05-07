@@ -97,6 +97,7 @@ void gene_pdo_begin_transaction(zval *pdo_object, zval *retval) /*{{{*/
     uint32_t param_count = 0;
     zval *params = NULL;
     call_user_function(NULL, pdo_object, &function_name, retval, param_count, params);
+    zval_ptr_dtor(&function_name);
 }/*}}}*/
 
 void gene_pdo_commit(zval *pdo_object, zval *retval)/*{{{*/
@@ -106,6 +107,7 @@ void gene_pdo_commit(zval *pdo_object, zval *retval)/*{{{*/
     uint32_t param_count = 0;
     zval *params = NULL;
     call_user_function(NULL, pdo_object, &function_name, retval, param_count, params);
+    zval_ptr_dtor(&function_name);
 }/*}}}*/
 
 void gene_pdo_error_code(zval *pdostatement_obj, zval *retval) /*{{{*/
@@ -145,6 +147,7 @@ void gene_pdo_in_transaction(zval *pdo_object, zval *retval) /*{{{*/
     uint32_t param_count = 0;
     zval *params = NULL;
     call_user_function(NULL, pdo_object, &function_name, retval, param_count, params);
+    zval_ptr_dtor(&function_name);
 }/*}}}*/
 
 void gene_pdo_last_insert_id(zval *pdo_object, char *name, zval *retval) /*{{{*/
@@ -181,7 +184,7 @@ void gene_pdo_prepare(zval *pdo_object, char *sql, zval *retval) /*{{{ RETURN a 
     zval_ptr_dtor(&function_name);
 }/*}}}*/
 
-void gene_pdo_roll_back(zval *pdo_object, zval *retval) /*{{{*/
+void gene_pdo_rollback(zval *pdo_object, zval *retval) /*{{{*/
 {
     zval function_name;
     ZVAL_STRING(&function_name, "rollBack");
@@ -296,7 +299,6 @@ zend_bool gene_pdo_execute (zval *self, zval *statement)
 		smart_str_appends(&sql, Z_STRVAL_P(pdo_limit));
 	}
 	smart_str_0(&sql);
-	php_printf(" sql:%s ", ZSTR_VAL(sql.s));
 	gene_pdo_prepare(pdo_object, ZSTR_VAL(sql.s), statement);
 	smart_str_free(&sql);
 	if (statement != NULL) {
@@ -973,6 +975,91 @@ PHP_METHOD(gene_db, affectedRows)
 /* }}} */
 
 /*
+ * {{{ public gene_db::print($key)
+ */
+PHP_METHOD(gene_db, print)
+{
+	zval *self = getThis(),*pdo_object = NULL, *pdo_sql = NULL, *pdo_where = NULL, *pdo_order = NULL, *pdo_limit = NULL;
+	smart_str sql = {0};
+	pdo_object = zend_read_property(gene_db_ce, self, GENE_DB_PDO, strlen(GENE_DB_PDO), 1, NULL);
+	pdo_sql = zend_read_property(gene_db_ce, self, GENE_DB_SQL, strlen(GENE_DB_SQL), 1, NULL);
+	pdo_where = zend_read_property(gene_db_ce, self, GENE_DB_WHERE, strlen(GENE_DB_WHERE), 1, NULL);
+	pdo_order = zend_read_property(gene_db_ce, self, GENE_DB_ORDER, strlen(GENE_DB_ORDER), 1, NULL);
+	pdo_limit = zend_read_property(gene_db_ce, self, GENE_DB_LIMIT, strlen(GENE_DB_LIMIT), 1, NULL);
+
+	if (Z_TYPE_P(pdo_sql) == IS_STRING) {
+		smart_str_appends(&sql, Z_STRVAL_P(pdo_sql));
+	}
+	if (Z_TYPE_P(pdo_where) == IS_STRING) {
+		smart_str_appends(&sql, Z_STRVAL_P(pdo_where));
+	}
+	if (Z_TYPE_P(pdo_order) == IS_STRING) {
+		smart_str_appends(&sql, Z_STRVAL_P(pdo_order));
+	}
+	if (Z_TYPE_P(pdo_limit) == IS_STRING) {
+		smart_str_appends(&sql, Z_STRVAL_P(pdo_limit));
+	}
+	smart_str_0(&sql);
+	php_printf(" SQL:%s ", ZSTR_VAL(sql.s));
+	smart_str_free(&sql);
+	RETURN_ZVAL(self, 1, 0);
+}
+/* }}} */
+
+/*
+ * {{{ public gene_db::beginTransaction()
+ */
+PHP_METHOD(gene_db, beginTransaction)
+{
+	zval *self = getThis(), *pdo_object = NULL;
+	zval retval;
+	pdo_object = zend_read_property(gene_db_ce, self, GENE_DB_PDO, strlen(GENE_DB_PDO), 1, NULL);
+	gene_pdo_begin_transaction(pdo_object, &retval);
+	RETURN_ZVAL(&retval, 1, 1);
+}
+/* }}} */
+
+/*
+ * {{{ public gene_db::inTransaction()
+ */
+PHP_METHOD(gene_db, inTransaction)
+{
+	zval *self = getThis(), *pdo_object = NULL;
+	zval retval;
+	pdo_object = zend_read_property(gene_db_ce, self, GENE_DB_PDO, strlen(GENE_DB_PDO), 1, NULL);
+	gene_pdo_in_transaction(pdo_object, &retval);
+	RETURN_ZVAL(&retval, 1, 1);
+}
+/* }}} */
+
+/*
+ * {{{ public gene_db::rollBack()
+ */
+PHP_METHOD(gene_db, rollBack)
+{
+	zval *self = getThis(), *pdo_object = NULL;
+	zval retval;
+	pdo_object = zend_read_property(gene_db_ce, self, GENE_DB_PDO, strlen(GENE_DB_PDO), 1, NULL);
+	gene_pdo_rollback(pdo_object, &retval);
+	RETURN_ZVAL(&retval, 1, 1);
+}
+/* }}} */
+
+
+/*
+ * {{{ public gene_db::commit()
+ */
+PHP_METHOD(gene_db, commit)
+{
+	zval *self = getThis(), *pdo_object = NULL;
+	zval retval;
+	pdo_object = zend_read_property(gene_db_ce, self, GENE_DB_PDO, strlen(GENE_DB_PDO), 1, NULL);
+	gene_pdo_commit(pdo_object, &retval);
+	RETURN_ZVAL(&retval, 1, 1);
+}
+/* }}} */
+
+/*
  * {{{ gene_db_methods
  */
 zend_function_entry gene_db_methods[] = {
@@ -993,6 +1080,11 @@ zend_function_entry gene_db_methods[] = {
 		PHP_ME(gene_db, cell, NULL, ZEND_ACC_PUBLIC)
 		PHP_ME(gene_db, lastId, NULL, ZEND_ACC_PUBLIC)
 		PHP_ME(gene_db, affectedRows, NULL, ZEND_ACC_PUBLIC)
+		PHP_ME(gene_db, print, NULL, ZEND_ACC_PUBLIC)
+		PHP_ME(gene_db, beginTransaction, NULL, ZEND_ACC_PUBLIC)
+		PHP_ME(gene_db, inTransaction, NULL, ZEND_ACC_PUBLIC)
+		PHP_ME(gene_db, rollBack, NULL, ZEND_ACC_PUBLIC)
+		PHP_ME(gene_db, commit, NULL, ZEND_ACC_PUBLIC)
 		PHP_ME(gene_db, __construct, NULL, ZEND_ACC_PUBLIC|ZEND_ACC_CTOR)
 		{NULL, NULL, NULL}
 };
