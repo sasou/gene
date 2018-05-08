@@ -30,24 +30,86 @@
 
 zend_class_entry * gene_model_ce;
 
+
+ZEND_BEGIN_ARG_INFO_EX(gene_model_get, 0, 0, 1)
+    ZEND_ARG_INFO(0, name)
+ZEND_END_ARG_INFO()
+
+ZEND_BEGIN_ARG_INFO_EX(gene_model_set, 0, 0, 2)
+    ZEND_ARG_INFO(0, name)
+    ZEND_ARG_INFO(0, value)
+ZEND_END_ARG_INFO()
+
 /*
  * {{{ gene_model
  */
 PHP_METHOD(gene_model, __construct)
 {
-	long debug = 0;
-    if (zend_parse_parameters(ZEND_NUM_ARGS() TSRMLS_CC,"|l", &debug) == FAILURE)
-    {
-        RETURN_NULL();
-    }
+	zval prop;
+	array_init(&prop);
+	zend_update_property(gene_model_ce, getThis(), ZEND_STRL(GENE_MODEL_ATTR), &prop);
+	zval_ptr_dtor(&prop);
+}
+/* }}} */
+
+/*
+ * {{{ gene_model
+ */
+PHP_METHOD(gene_model, __set)
+{
+	zend_string *name;
+	zval *value, *props;
+	if (zend_parse_parameters(ZEND_NUM_ARGS(), "Sz", &name, &value) == FAILURE) {
+		return;
+	}
+	props = zend_read_property(gene_model_ce, getThis(), ZEND_STRL(GENE_MODEL_ATTR), 1, NULL);
+	if (zend_hash_update(Z_ARRVAL_P(props), name, value) != NULL) {
+		Z_TRY_ADDREF_P(value);
+		RETURN_TRUE;
+	}
+	RETURN_FALSE;
 }
 /* }}} */
 
 
 /*
- * {{{ public gene_model::test($key)
+ * {{{ gene_model
  */
-PHP_METHOD(gene_model, test)
+PHP_METHOD(gene_model, __get)
+{
+	zval *pzval, *props, db_object;
+	zend_string *name = NULL;
+
+	if (zend_parse_parameters(ZEND_NUM_ARGS(), "|S", &name) == FAILURE) {
+		return;
+	}
+
+	if (!name) {
+		RETURN_ZVAL(getThis(), 1, 0);
+	} else {
+		props = zend_read_property(gene_model_ce, getThis(), ZEND_STRL(GENE_MODEL_ATTR), 1, NULL);
+		if ((pzval = zend_hash_find(Z_ARRVAL_P(props), name)) == NULL) {
+			zend_string *c_key = zend_string_init(ZEND_STRL("\\Ext\\Model"), 0);
+			zend_class_entry *pdo_ptr = zend_lookup_class(c_key);
+			zend_string_free(c_key);
+			if (pdo_ptr) {
+				object_init_ex(&db_object, pdo_ptr);
+				RETURN_ZVAL(&db_object, 1, 0);
+			}
+
+			RETURN_FALSE;
+		}
+		RETURN_ZVAL(pzval, 1, 0);
+	}
+	RETURN_FALSE;
+}
+/* }}} */
+
+
+/*
+ * {{{ public gene_model::getInstance()
+ */
+PHP_METHOD(gene_model, getInstance)
 {
 	zval *self = getThis();
 	char *php_script;
@@ -63,12 +125,15 @@ PHP_METHOD(gene_model, test)
 /* }}} */
 
 
+
 /*
  * {{{ gene_model_methods
  */
 zend_function_entry gene_model_methods[] = {
-		PHP_ME(gene_model, test, NULL, ZEND_ACC_PUBLIC)
 		PHP_ME(gene_model, __construct, NULL, ZEND_ACC_PUBLIC|ZEND_ACC_CTOR)
+		PHP_ME(gene_model, __get, gene_model_get, ZEND_ACC_PUBLIC)
+		PHP_ME(gene_model, __set, gene_model_set, ZEND_ACC_PUBLIC)
+		PHP_ME(gene_model, getInstance, NULL, ZEND_ACC_PUBLIC)
 		{NULL, NULL, NULL}
 };
 /* }}} */
@@ -82,9 +147,8 @@ GENE_MINIT_FUNCTION(model)
     zend_class_entry gene_model;
 	GENE_INIT_CLASS_ENTRY(gene_model, "Gene_Model", "Gene\\Model", gene_model_methods);
 	gene_model_ce = zend_register_internal_class_ex(&gene_model, NULL);
-	//debug
-    //zend_declare_property_null(gene_application_ce, GENE_EXECUTE_DEBUG, strlen(GENE_EXECUTE_DEBUG), ZEND_ACC_PUBLIC TSRMLS_CC);
-    //
+	zend_declare_property_null(gene_model_ce, ZEND_STRL(GENE_MODEL_ATTR), ZEND_ACC_PROTECTED TSRMLS_CC);
+
 	return SUCCESS;
 }
 /* }}} */
