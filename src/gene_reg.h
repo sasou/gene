@@ -23,4 +23,6 @@ extern zend_class_entry *gene_reg_ce;
 
 GENE_MINIT_FUNCTION (reg);
 
+zval *gene_reg_instance();
+
 #endif

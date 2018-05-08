@@ -84,6 +84,27 @@ int gene_load_import(char *path TSRMLS_DC) {
 }
 /* }}} */
 
+void gene_load_file_by_class_name (char *className) {
+	int filePath_len = 0;
+	char *fileNmae = NULL, *filePath = NULL;
+
+	fileNmae = estrdup(className);
+	if (GENE_G(use_namespace)) {
+		replaceAll(fileNmae, '\\', '/');
+	} else {
+		replaceAll(fileNmae, '_', '/');
+	}
+
+	if (GENE_G(directory)) {
+		filePath_len = spprintf(&filePath, 0, "%s%s.php", GENE_G(app_root), fileNmae);
+	} else {
+		filePath_len = spprintf(&filePath, 0, "%s.php", fileNmae);
+	}
+	gene_load_import(filePath TSRMLS_CC);
+	efree(fileNmae);
+	efree(filePath);
+}
+
 /*
  *  {{{ zval *gene_load_instance(zval *this_ptr TSRMLS_DC)
  */
@@ -160,28 +181,11 @@ PHP_METHOD(gene_load, __construct) {
  * {{{ public gene_load::autoload($key)
  */
 PHP_METHOD(gene_load, autoload) {
-	int filePath_len = 0;
-	char *fileNmae = NULL, *filePath = NULL;
 	zend_string *className;
-	smart_str buf = { 0 };
 	if (zend_parse_parameters(ZEND_NUM_ARGS()TSRMLS_CC, "S", &className) == FAILURE) {
 		return;
 	}
-	fileNmae = estrndup(ZSTR_VAL(className), ZSTR_LEN(className));
-	if (GENE_G(use_namespace)) {
-		replaceAll(fileNmae, '\\', '/');
-	} else {
-		replaceAll(fileNmae, '_', '/');
-	}
-
-	if (GENE_G(directory)) {
-		filePath_len = spprintf(&filePath, 0, "%s%s.php", GENE_G(app_root), fileNmae);
-	} else {
-		filePath_len = spprintf(&filePath, 0, "%s.php", fileNmae);
-	}
-	gene_load_import(filePath TSRMLS_CC);
-	efree(fileNmae);
-	efree(filePath);
+	gene_load_file_by_class_name(ZSTR_VAL(className));
 }
 /* }}} */
 
