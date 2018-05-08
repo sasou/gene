@@ -405,6 +405,29 @@ PHP_METHOD(gene_db, select)
 }
 /* }}} */
 
+/*
+ * {{{ public gene_model::count($key)
+ */
+PHP_METHOD(gene_db, count)
+{
+	zval *self = getThis();
+	char *table = NULL,*fields = NULL,*select = NULL, *sql = NULL;
+	int table_len = 0,fields_len = 0;
+	if (zend_parse_parameters(ZEND_NUM_ARGS() TSRMLS_CC, "s|s", &table, &table_len, &fields, &fields_len) == FAILURE) {
+		return;
+	}
+	reset_sql_params (self);
+    if (fields_len) {
+    	spprintf(&sql, 0, "SELECT count(%s) AS count FROM `%s`", fields, table);
+    } else {
+    	spprintf(&sql, 0, "SELECT count(1) AS count FROM `%s`", table);
+    }
+    zend_update_property_string(gene_db_ce, self, GENE_DB_SQL, strlen(GENE_DB_SQL), sql);
+    efree(sql);
+	RETURN_ZVAL(self, 1, 0);
+}
+/* }}} */
+
 void gene_insert_field_value (zval *fields, smart_str *field_str, smart_str *value_str,zval *field_value) {
 	zval *value = NULL;
 	zend_bool pre = FALSE;
@@ -1065,6 +1088,7 @@ PHP_METHOD(gene_db, commit)
 zend_function_entry gene_db_methods[] = {
 		PHP_ME(gene_db, getPdo, NULL, ZEND_ACC_PUBLIC)
 		PHP_ME(gene_db, select, NULL, ZEND_ACC_PUBLIC)
+		PHP_ME(gene_db, count, NULL, ZEND_ACC_PUBLIC)
 		PHP_ME(gene_db, insert, NULL, ZEND_ACC_PUBLIC)
 		PHP_ME(gene_db, batchInsert, NULL, ZEND_ACC_PUBLIC)
 		PHP_ME(gene_db, update, NULL, ZEND_ACC_PUBLIC)
