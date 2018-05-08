@@ -72,27 +72,25 @@ PHP_METHOD(gene_reg, __clone) {
 /*
  *  {{{ zval *gene_reg_instance(zval *this_ptr TSRMLS_DC)
  */
-zval *gene_reg_instance(zval *this_ptr) {
+zval *gene_reg_instance() {
 	zval *instance = zend_read_static_property(gene_reg_ce,
 	GENE_REG_PROPERTY_INSTANCE, strlen(GENE_REG_PROPERTY_INSTANCE), 1);
 
 	if (UNEXPECTED(
 			Z_TYPE_P(instance) != IS_OBJECT || !instanceof_function(Z_OBJCE_P(instance), gene_reg_ce))) {
-		zval regs;
+		zval regs, this_ptr;
 
-		object_init_ex(this_ptr, gene_reg_ce);
+		object_init_ex(&this_ptr, gene_reg_ce);
 
 		array_init(&regs);
-		zend_update_property(gene_reg_ce, this_ptr, GENE_REG_PROPERTY_REG,
+		zend_update_property(gene_reg_ce, &this_ptr, GENE_REG_PROPERTY_REG,
 				strlen(GENE_REG_PROPERTY_REG), &regs);
 		zend_update_static_property(gene_reg_ce, GENE_REG_PROPERTY_INSTANCE,
-				strlen(GENE_REG_PROPERTY_INSTANCE), this_ptr);
+				strlen(GENE_REG_PROPERTY_INSTANCE), &this_ptr);
 		zval_ptr_dtor(&regs);
-		zval_ptr_dtor(this_ptr);
-
-		instance = this_ptr;
+		zval_ptr_dtor(&this_ptr);
+		instance = zend_read_static_property(gene_reg_ce, GENE_REG_PROPERTY_INSTANCE, strlen(GENE_REG_PROPERTY_INSTANCE), 1);
 	}
-
 	return instance;
 }
 /* }}} */
@@ -108,7 +106,7 @@ PHP_METHOD(gene_reg, get) {
 		RETURN_NULL()
 		;
 	}
-	reg = gene_reg_instance(&rv);
+	reg = gene_reg_instance();
 	entrys = zend_read_property(gene_reg_ce, reg, GENE_REG_PROPERTY_REG,
 			strlen(GENE_REG_PROPERTY_REG), 1, NULL);
 	if ((ppzval = zend_hash_find(Z_ARRVAL_P(entrys), name)) != NULL) {
@@ -123,14 +121,14 @@ PHP_METHOD(gene_reg, get) {
  *  {{{ public static gene_reg::set($name, $value)
  */
 PHP_METHOD(gene_reg, set) {
-	zval *value, *reg, *entrys, rv;
+	zval *value, *reg, *entrys;
 	zend_string *name;
 	if (zend_parse_parameters(ZEND_NUM_ARGS()TSRMLS_CC, "Sz", &name, &value)
 			== FAILURE) {
 		RETURN_NULL()
 		;
 	}
-	reg = gene_reg_instance(&rv);
+	reg = gene_reg_instance();
 	entrys = zend_read_property(gene_reg_ce, reg, GENE_REG_PROPERTY_REG,
 			strlen(GENE_REG_PROPERTY_REG), 1, NULL);
 	if (zend_hash_update(Z_ARRVAL_P(entrys), name, value) != NULL) {
@@ -148,13 +146,13 @@ PHP_METHOD(gene_reg, set) {
  */
 PHP_METHOD(gene_reg, del) {
 	zend_string *name;
-	zval *reg, *entrys, rv;
+	zval *reg, *entrys;
 	if (zend_parse_parameters(ZEND_NUM_ARGS()TSRMLS_CC, "S", &name)
 			== FAILURE) {
 		RETURN_NULL()
 		;
 	}
-	reg = gene_reg_instance(&rv);
+	reg = gene_reg_instance();
 	entrys = zend_read_property(gene_reg_ce, reg, GENE_REG_PROPERTY_REG,
 			strlen(GENE_REG_PROPERTY_REG), 1, NULL);
 	zend_hash_del(Z_ARRVAL_P(entrys), name);
@@ -168,12 +166,12 @@ PHP_METHOD(gene_reg, del) {
  */
 PHP_METHOD(gene_reg, has) {
 	zend_string *name;
-	zval *reg, *entrys, rv;
+	zval *reg, *entrys;
 	if (zend_parse_parameters(ZEND_NUM_ARGS(), "S", &name) == FAILURE) {
 		RETURN_NULL()
 		;
 	}
-	reg = gene_reg_instance(&rv);
+	reg = gene_reg_instance();
 	entrys = zend_read_property(gene_reg_ce, reg, GENE_REG_PROPERTY_REG,
 			strlen(GENE_REG_PROPERTY_REG), 1, NULL);
 	if (zend_hash_exists(Z_ARRVAL_P(entrys), name) == 1) {
@@ -189,8 +187,8 @@ PHP_METHOD(gene_reg, has) {
  *  {{{ public gene_reg::getInstance(void)
  */
 PHP_METHOD(gene_reg, getInstance) {
-	zval *reg, rv;
-	reg = gene_reg_instance(&rv);
+	zval *reg;
+	reg = gene_reg_instance();
 	RETURN_ZVAL(reg, 1, 0);
 }
 /* }}} */
