@@ -65,39 +65,44 @@ void gene_factory_construct(zval *object, zval *param, zval *retval) /*{{{*/
 	zval *one = NULL,*two = NULL, *three = NULL, *fro = NULL;
     zval function_name;
     ZVAL_STRING(&function_name, "__construct");
-    uint32_t param_count = zend_hash_num_elements(Z_ARRVAL_P(param));
+    uint32_t param_count = 0;
     zval params[] = {0};
-    switch(param_count) {
-    case 1:
-    	one = zend_hash_index_find(Z_ARRVAL_P(param), 0);
-    	params[0] = *one;
-    	break;
-    case 2:
-    	one = zend_hash_index_find(Z_ARRVAL_P(param), 0);
-    	two = zend_hash_index_find(Z_ARRVAL_P(param), 1);
-    	params[0] = *one;
-    	params[1] = *two;
-    	break;
-    case 3:
-    	one = zend_hash_index_find(Z_ARRVAL_P(param), 0);
-    	two = zend_hash_index_find(Z_ARRVAL_P(param), 1);
-    	three = zend_hash_index_find(Z_ARRVAL_P(param), 2);
-    	params[0] = *one;
-    	params[1] = *two;
-    	params[2] = *three;
-    	break;
-    case 4:
-    	one = zend_hash_index_find(Z_ARRVAL_P(param), 0);
-    	two = zend_hash_index_find(Z_ARRVAL_P(param), 1);
-    	three = zend_hash_index_find(Z_ARRVAL_P(param), 2);
-    	fro = zend_hash_index_find(Z_ARRVAL_P(param), 3);
-    	params[0] = *one;
-    	params[1] = *two;
-    	params[2] = *three;
-    	params[3] = *fro;
-    	break;
+    if (param && Z_TYPE_P(param) == IS_ARRAY) {
+    	param_count = zend_hash_num_elements(Z_ARRVAL_P(param));
+        switch(param_count) {
+        case 1:
+        	one = zend_hash_index_find(Z_ARRVAL_P(param), 0);
+        	params[0] = *one;
+        	break;
+        case 2:
+        	one = zend_hash_index_find(Z_ARRVAL_P(param), 0);
+        	two = zend_hash_index_find(Z_ARRVAL_P(param), 1);
+        	params[0] = *one;
+        	params[1] = *two;
+        	break;
+        case 3:
+        	one = zend_hash_index_find(Z_ARRVAL_P(param), 0);
+        	two = zend_hash_index_find(Z_ARRVAL_P(param), 1);
+        	three = zend_hash_index_find(Z_ARRVAL_P(param), 2);
+        	params[0] = *one;
+        	params[1] = *two;
+        	params[2] = *three;
+        	break;
+        case 4:
+        	one = zend_hash_index_find(Z_ARRVAL_P(param), 0);
+        	two = zend_hash_index_find(Z_ARRVAL_P(param), 1);
+        	three = zend_hash_index_find(Z_ARRVAL_P(param), 2);
+        	fro = zend_hash_index_find(Z_ARRVAL_P(param), 3);
+        	params[0] = *one;
+        	params[1] = *two;
+        	params[2] = *three;
+        	params[3] = *fro;
+        	break;
+        }
+        call_user_function(NULL, object, &function_name, retval, param_count, params);
+    } else {
+    	call_user_function(NULL, object, &function_name, retval, param_count, NULL);
     }
-    call_user_function(NULL, object, &function_name, retval, param_count, params);
     zval_ptr_dtor(&function_name);
 }/*}}}*/
 
@@ -110,9 +115,7 @@ zend_bool gene_factory(char *className, int tmp_len, zval *params, zval *classOb
 	zend_string_free(c_key);
 	if (pdo_ptr) {
 		object_init_ex(classObject, pdo_ptr);
-		if (params && Z_TYPE_P(params) == IS_ARRAY) {
-			gene_factory_construct(classObject, params, &ret);
-		}
+		gene_factory_construct(classObject, params, &ret);
 		zval_ptr_dtor(&ret);
 		return TRUE;
 	}
@@ -212,9 +215,12 @@ PHP_METHOD(gene_model, __get)
 			    		 php_error_docref(NULL, E_ERROR, "Factory need a valid class.");
 			    		 RETURN_FALSE;
 			    	}
-			    	if (EXPECTED(params = zend_hash_str_find(cache->value.arr, "param", 5)) == NULL) {
+			    	if (EXPECTED(params = zend_hash_str_find(cache->value.arr, "params", 6)) == NULL) {
+				    	php_error_docref(NULL, E_ERROR, "Factory need a valid param.");
+				    	RETURN_FALSE;
+			    	} else {
 			    		 if (Z_TYPE_P(params) != IS_ARRAY) {
-				    		 php_error_docref(NULL, E_ERROR, "Factory need a valid param.");
+				    		 php_error_docref(NULL, E_ERROR, "Factory need a array param.");
 				    		 RETURN_FALSE;
 			    		 }
 			    	}
