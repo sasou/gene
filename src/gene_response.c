@@ -29,19 +29,15 @@
 
 zend_class_entry * gene_response_ce;
 
-/** {{{ int gene_response_set_redirect(zval *response, char *url, long code TSRMLS_DC)
+/** {{{ void gene_response_set_redirect(zval *response, char *url, long code TSRMLS_DC)
  */
-int gene_response_set_redirect(char *url, zend_long code TSRMLS_DC) {
+void gene_response_set_redirect(char *url, zend_long code TSRMLS_DC) {
 	sapi_header_line ctr = { 0 };
 
 	ctr.line_len = spprintf(&(ctr.line), 0, "%s %s", "Location:", url);
 	ctr.response_code = code;
-	if (sapi_header_op(SAPI_HEADER_REPLACE, &ctr TSRMLS_CC) == SUCCESS) {
-		efree(ctr.line);
-		return 1;
-	}
+	sapi_header_op(SAPI_HEADER_REPLACE, &ctr TSRMLS_CC);
 	efree(ctr.line);
-	return 0;
 }
 /* }}} */
 
@@ -50,10 +46,8 @@ int gene_response_set_redirect(char *url, zend_long code TSRMLS_DC) {
  */
 PHP_METHOD(gene_response, __construct) {
 	long debug = 0;
-	if (zend_parse_parameters(ZEND_NUM_ARGS()TSRMLS_CC, "|l", &debug)
-			== FAILURE) {
-		RETURN_NULL()
-		;
+	if (zend_parse_parameters(ZEND_NUM_ARGS()TSRMLS_CC, "|l", &debug) == FAILURE) {
+		RETURN_NULL();
 	}
 }
 /* }}} */
@@ -64,12 +58,12 @@ PHP_METHOD(gene_response, redirect) {
 	zend_string *url;
 	zend_long code = 302;
 
-	if (zend_parse_parameters(ZEND_NUM_ARGS()TSRMLS_CC, "S|l", &url, &code)
-			== FAILURE) {
+	if (zend_parse_parameters(ZEND_NUM_ARGS()TSRMLS_CC, "S|l", &url, &code) == FAILURE) {
 		return;
 	}
 
 	gene_response_set_redirect(ZSTR_VAL(url), code TSRMLS_CC);
+	RETURN_TRUE;
 }
 /* }}} */
 
@@ -78,12 +72,10 @@ PHP_METHOD(gene_response, redirect) {
 PHP_METHOD(gene_response, alert) {
 	zend_string *text, *url;
 
-	if (zend_parse_parameters(ZEND_NUM_ARGS()TSRMLS_CC, "S|S", &text, &url)
-			== FAILURE) {
+	if (zend_parse_parameters(ZEND_NUM_ARGS()TSRMLS_CC, "S|S", &text, &url) == FAILURE) {
 		return;
 	}
-	php_printf("\n<script type=\"text/javascript\">\nalert(\"%s\");\n",
-			ZSTR_VAL(text));
+	php_printf("\n<script type=\"text/javascript\">\nalert(\"%s\");\n", ZSTR_VAL(text));
 	if (url && ZSTR_LEN(url)) {
 		php_printf("window.location.href=\"%s\";\n", ZSTR_VAL(url));
 	}
@@ -107,8 +99,7 @@ zend_function_entry gene_response_methods[] = {
  */
 GENE_MINIT_FUNCTION(response) {
 	zend_class_entry gene_response;
-	GENE_INIT_CLASS_ENTRY(gene_response, "Gene_Response", "Gene\\Response",
-			gene_response_methods);
+	GENE_INIT_CLASS_ENTRY(gene_response, "Gene_Response", "Gene\\Response", gene_response_methods);
 	gene_response_ce = zend_register_internal_class(&gene_response TSRMLS_CC);
 
 	//
