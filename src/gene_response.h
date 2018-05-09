@@ -19,7 +19,7 @@
 
 extern zend_class_entry *gene_response_ce;
 
-int gene_response_set_redirect(char *url, zend_long code TSRMLS_DC);
+void gene_response_set_redirect(char *url, zend_long code TSRMLS_DC);
 
 GENE_MINIT_FUNCTION (response);
 
