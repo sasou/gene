@@ -100,11 +100,9 @@ zval *gene_reg_instance() {
  */
 PHP_METHOD(gene_reg, get) {
 	zend_string *name;
-	zval *ppzval, *reg, *entrys, rv;
-	if (zend_parse_parameters(ZEND_NUM_ARGS()TSRMLS_CC, "S", &name)
-			== FAILURE) {
-		RETURN_NULL()
-		;
+	zval *ppzval, *reg, *entrys;
+	if (zend_parse_parameters(ZEND_NUM_ARGS()TSRMLS_CC, "S", &name) == FAILURE) {
+		RETURN_NULL();
 	}
 	reg = gene_reg_instance();
 	entrys = zend_read_property(gene_reg_ce, reg, GENE_REG_PROPERTY_REG,
@@ -112,8 +110,7 @@ PHP_METHOD(gene_reg, get) {
 	if ((ppzval = zend_hash_find(Z_ARRVAL_P(entrys), name)) != NULL) {
 		RETURN_ZVAL(ppzval, 1, 0);
 	}
-	RETURN_NULL()
-	;
+	RETURN_NULL();
 }
 /* }}} */
 
@@ -123,21 +120,17 @@ PHP_METHOD(gene_reg, get) {
 PHP_METHOD(gene_reg, set) {
 	zval *value, *reg, *entrys;
 	zend_string *name;
-	if (zend_parse_parameters(ZEND_NUM_ARGS()TSRMLS_CC, "Sz", &name, &value)
-			== FAILURE) {
-		RETURN_NULL()
-		;
+	if (zend_parse_parameters(ZEND_NUM_ARGS()TSRMLS_CC, "Sz", &name, &value) == FAILURE) {
+		RETURN_NULL();
 	}
 	reg = gene_reg_instance();
 	entrys = zend_read_property(gene_reg_ce, reg, GENE_REG_PROPERTY_REG,
 			strlen(GENE_REG_PROPERTY_REG), 1, NULL);
 	if (zend_hash_update(Z_ARRVAL_P(entrys), name, value) != NULL) {
 		Z_TRY_ADDREF_P(value);
-		RETURN_TRUE
-		;
+		RETURN_TRUE;
 	}
-	RETURN_FALSE
-	;
+	RETURN_FALSE;
 }
 /* }}} */
 
@@ -147,17 +140,14 @@ PHP_METHOD(gene_reg, set) {
 PHP_METHOD(gene_reg, del) {
 	zend_string *name;
 	zval *reg, *entrys;
-	if (zend_parse_parameters(ZEND_NUM_ARGS()TSRMLS_CC, "S", &name)
-			== FAILURE) {
-		RETURN_NULL()
-		;
+	if (zend_parse_parameters(ZEND_NUM_ARGS()TSRMLS_CC, "S", &name) == FAILURE) {
+		RETURN_NULL();
 	}
 	reg = gene_reg_instance();
 	entrys = zend_read_property(gene_reg_ce, reg, GENE_REG_PROPERTY_REG,
 			strlen(GENE_REG_PROPERTY_REG), 1, NULL);
 	zend_hash_del(Z_ARRVAL_P(entrys), name);
-	RETURN_TRUE
-	;
+	RETURN_TRUE;
 }
 /* }}} */
 
@@ -168,18 +158,15 @@ PHP_METHOD(gene_reg, has) {
 	zend_string *name;
 	zval *reg, *entrys;
 	if (zend_parse_parameters(ZEND_NUM_ARGS(), "S", &name) == FAILURE) {
-		RETURN_NULL()
-		;
+		RETURN_NULL();
 	}
 	reg = gene_reg_instance();
 	entrys = zend_read_property(gene_reg_ce, reg, GENE_REG_PROPERTY_REG,
 			strlen(GENE_REG_PROPERTY_REG), 1, NULL);
 	if (zend_hash_exists(Z_ARRVAL_P(entrys), name) == 1) {
-		RETURN_TRUE
-		;
+		RETURN_TRUE;
 	}
-	RETURN_FALSE
-	;
+	RETURN_FALSE;
 }
 /* }}} */
 
