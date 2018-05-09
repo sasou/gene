@@ -24,4 +24,6 @@ extern zend_class_entry *gene_model_ce;
 
 GENE_MINIT_FUNCTION(model);
 
+zend_bool gene_factory(char *className, int tmp_len, zval *params, zval *classObject);
+
 #endif
