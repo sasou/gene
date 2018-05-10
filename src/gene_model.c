@@ -126,7 +126,7 @@ zval *gene_model_instance(zval *obj) {
 	zval *ppzval = NULL, *reg, *entrys;
 	zval ret;
 	char *name;
-	int name_len = 0;
+	size_t name_len = 0;
 	zend_call_method_with_0_params(NULL, NULL, NULL, "get_called_class", &ret);
 	name_len = spprintf(&name, 0, "%s", Z_STRVAL(ret));
 	zval_ptr_dtor(&ret);
