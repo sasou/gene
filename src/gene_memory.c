@@ -23,6 +23,7 @@
 #include "main/SAPI.h"
 #include "Zend/zend_API.h"
 #include "zend_exceptions.h"
+#include "zend_smart_str.h"
 
 #include "php_gene.h"
 #include "gene_application.h"
@@ -486,23 +487,24 @@ PHP_METHOD(gene_memory, __construct) {
  * {{{ public gene_memory::set($key, $data)
  */
 PHP_METHOD(gene_memory, set) {
-	zend_string *keyString;
-	char *router_e;
-	int validity = 0, router_e_len;
+	zend_string *keyString = NULL;
+	long validity = 0;
 	zval *zvalue, *safe;
-	if (zend_parse_parameters(ZEND_NUM_ARGS()TSRMLS_CC, "Sz|l", &keyString, &zvalue, &validity) == FAILURE) {
+	smart_str router_e = {0};
+	if (zend_parse_parameters(ZEND_NUM_ARGS() TSRMLS_CC, "Sz|l", &keyString, &zvalue, &validity) == FAILURE) {
 		return;
 	}
 	safe = zend_read_property(gene_memory_ce, getThis(), GENE_MEMORY_SAFE, strlen(GENE_MEMORY_SAFE), 1, NULL);
 	if (Z_STRLEN_P(safe)) {
-		router_e_len = spprintf(&router_e, 0, "%s:%s", Z_STRVAL_P(safe), ZSTR_VAL(keyString));
-	} else {
-		router_e_len = spprintf(&router_e, 0, ":%s", ZSTR_VAL(keyString));
+		smart_str_appends(&router_e, Z_STRVAL_P(safe));
 	}
+	smart_str_appends(&router_e, ":");
+	smart_str_appendl(&router_e, ZSTR_VAL(keyString), ZSTR_LEN(keyString));
+	smart_str_0(&router_e);
 	if (zvalue) {
-		gene_memory_set(router_e, router_e_len, zvalue, validity TSRMLS_CC);
+		gene_memory_set(router_e.s->val, router_e.s->len, zvalue, validity TSRMLS_CC);
 	}
-	efree(router_e);
+	smart_str_free(&router_e);
 	RETURN_BOOL(1);
 }
 /* }}} */
