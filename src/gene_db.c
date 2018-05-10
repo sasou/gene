@@ -376,7 +376,7 @@ PHP_METHOD(gene_db, select)
 {
 	zval *self = getThis(),*fields = NULL;
 	char *table = NULL,*select = NULL, *sql = NULL;
-	int table_len;
+	size_t table_len;
 	if (zend_parse_parameters(ZEND_NUM_ARGS() TSRMLS_CC, "s|z", &table, &table_len, &fields) == FAILURE) {
 		return;
 	}
@@ -536,7 +536,7 @@ PHP_METHOD(gene_db, insert)
 {
 	zval *self = getThis(),*fields = NULL;
 	char *table = NULL,*select = NULL, *sql = NULL;
-	int table_len;
+	size_t table_len;
 	smart_str field_str = {0} , value_str = {0};
 	zval field_value;
 	if (zend_parse_parameters(ZEND_NUM_ARGS() TSRMLS_CC, "s|z", &table, &table_len, &fields) == FAILURE) {
@@ -566,7 +566,7 @@ PHP_METHOD(gene_db, batchInsert)
 {
 	zval *self = getThis(),*fields = NULL, *row = NULL;
 	char *table = NULL,*select = NULL, *sql = NULL;
-	int table_len;
+	size_t table_len;
 	smart_str field_str = {0} , value_str = {0};
 	zval field_value;
 	zend_bool pre = 0;
@@ -605,7 +605,7 @@ PHP_METHOD(gene_db, update)
 {
 	zval *self = getThis(),*fields = NULL;
 	char *table = NULL,*select = NULL, *sql = NULL;
-	int table_len;
+	size_t table_len;
 	smart_str field_str = {0};
 	zval field_value;
 	if (zend_parse_parameters(ZEND_NUM_ARGS() TSRMLS_CC, "s|z", &table, &table_len, &fields) == FAILURE) {
@@ -635,7 +635,7 @@ PHP_METHOD(gene_db, delete)
 {
 	zval *self = getThis();
 	char *table = NULL, *sql = NULL;
-	int table_len;
+	size_t table_len;
 	if (zend_parse_parameters(ZEND_NUM_ARGS() TSRMLS_CC, "s", &table, &table_len) == FAILURE) {
 		return;
 	}
@@ -655,7 +655,7 @@ PHP_METHOD(gene_db, where)
 {
 	zval *self = getThis(), *fields = NULL, *data = NULL, *value = NULL;
 	char *where = NULL, *sql_where = NULL;
-	int where_len;
+	size_t where_len;
 	zval params;
 	if (zend_parse_parameters(ZEND_NUM_ARGS() TSRMLS_CC, "s|z", &where, &where_len, &fields) == FAILURE) {
 		return;
@@ -714,7 +714,7 @@ PHP_METHOD(gene_db, in)
 {
 	zval *self = getThis(), *fields = NULL, *data = NULL, *value = NULL, *pdo_where = NULL;
 	char *in = NULL, *sql_in = NULL, *seg = NULL, *ptr = NULL, *in_tmp = NULL;
-	int in_len;
+	size_t in_len;
 	zval params;
 	smart_str field_str = {0},value_str = {0};
 	zend_bool pre = 0;
@@ -807,7 +807,7 @@ PHP_METHOD(gene_db, sql)
 {
 	zval *self = getThis(), *fields = NULL, *data = NULL, *value = NULL;
 	char *sql = NULL, *pdo_sql = NULL;
-	int sql_len;
+	size_t sql_len;
 	zval params;
 	if (zend_parse_parameters(ZEND_NUM_ARGS() TSRMLS_CC, "s|z", &sql, &sql_len, &fields) == FAILURE) {
 		return;
@@ -879,8 +879,8 @@ PHP_METHOD(gene_db, execute)
 PHP_METHOD(gene_db, order)
 {
 	zval *self = getThis();
-	char *order;
-	int order_len = 0;
+	char *order = NULL;
+	size_t order_len = 0;
 	char *order_tmp;
 	if (zend_parse_parameters(ZEND_NUM_ARGS() TSRMLS_CC, "s", &order, &order_len) == FAILURE) {
 		return;

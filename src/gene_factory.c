@@ -49,7 +49,7 @@ PHP_METHOD(gene_factory, create)
 {
 	zval *params = NULL, *reg = NULL, *entrys = NULL, *pzval = NULL, classObject;
 	char *class;
-	int class_len = 0;
+	size_t class_len = 0;
 	long type = 0;
 	if (zend_parse_parameters(ZEND_NUM_ARGS() TSRMLS_CC, "s|zl", &class, &class_len, &params, &type) == FAILURE) {
 		return;
