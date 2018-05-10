@@ -411,16 +411,16 @@ PHP_METHOD(gene_db, select)
 PHP_METHOD(gene_db, count)
 {
 	zval *self = getThis();
-	char *table = NULL,*fields = NULL,*select = NULL, *sql = NULL;
-	int table_len = 0,fields_len = 0;
-	if (zend_parse_parameters(ZEND_NUM_ARGS() TSRMLS_CC, "s|s", &table, &table_len, &fields, &fields_len) == FAILURE) {
+	char *sql = NULL;
+	zend_string *table = NULL,*fields = NULL;
+	if (zend_parse_parameters(ZEND_NUM_ARGS() TSRMLS_CC, "S|S", &table, &fields) == FAILURE) {
 		return;
 	}
 	reset_sql_params (self);
-    if (fields_len) {
-    	spprintf(&sql, 0, "SELECT count(%s) AS count FROM `%s`", fields, table);
+    if (fields) {
+    	spprintf(&sql, 0, "SELECT count(%s) AS count FROM `%s`", ZSTR_VAL(fields), ZSTR_VAL(table));
     } else {
-    	spprintf(&sql, 0, "SELECT count(1) AS count FROM `%s`", table);
+    	spprintf(&sql, 0, "SELECT count(1) AS count FROM `%s`", ZSTR_VAL(table));
     }
     zend_update_property_string(gene_db_ce, self, GENE_DB_SQL, strlen(GENE_DB_SQL), sql);
     efree(sql);
