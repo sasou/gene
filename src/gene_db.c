@@ -51,13 +51,13 @@ void array_to_string(zval *array, char **result)
 {
     zval *value;
     smart_str field_str = {0};
-    zend_bool pre = FALSE;
+    zend_bool pre = 0;
     ZEND_HASH_FOREACH_VAL(Z_ARRVAL_P(array), value) {
     	if (pre) {
     		smart_str_appends(&field_str, ",`");
     	} else {
     		smart_str_appendc(&field_str, '`');
-    		pre = TRUE;
+    		pre = 1;
     	}
         if ( Z_TYPE_P(value) == IS_OBJECT ) convert_to_string(value);
         if ( (Z_TYPE_P(value) == IS_STRING) && isalpha(*(Z_STRVAL_P(value))) ) {
@@ -305,9 +305,9 @@ zend_bool gene_pdo_execute (zval *self, zval *statement)
 		params = zend_read_property(gene_db_ce, self, GENE_DB_DATA, strlen(GENE_DB_DATA), 1, NULL);
 		//execute
 		gene_pdo_statement_execute(statement, params, &retval);
-		return Z_TYPE(retval) == 3 ? TRUE : FALSE;
+		return Z_TYPE(retval) == 3 ? 1 : 0;
 	}
-    return FALSE;
+    return 0;
 }
 
 /*
@@ -327,15 +327,15 @@ PHP_METHOD(gene_db, __construct)
 		zend_string_free(c_key);
 		object_init_ex(&pdo_object, pdo_ptr);
 
-    	if (EXPECTED(dsn = zend_hash_str_find(config->value.arr, "dsn", 3)) == NULL) {
+    	if ((dsn = zend_hash_str_find(config->value.arr, "dsn", 3)) == NULL) {
     		 php_error_docref(NULL, E_ERROR, "PDO need a valid dns.");
     		 RETURN_FALSE;
     	}
-    	if (EXPECTED(user = zend_hash_str_find(config->value.arr, "username", 8)) == NULL) {
+    	if ((user = zend_hash_str_find(config->value.arr, "username", 8)) == NULL) {
     		 php_error_docref(NULL, E_ERROR, "PDO need a valid username.");
     		 RETURN_FALSE;
     	}
-    	if (EXPECTED(pass = zend_hash_str_find(config->value.arr, "password", 8)) == NULL) {
+    	if ((pass = zend_hash_str_find(config->value.arr, "password", 8)) == NULL) {
     		 php_error_docref(NULL, E_ERROR, "PDO need a valid password.");
     		 RETURN_FALSE;
     	}
@@ -430,7 +430,7 @@ PHP_METHOD(gene_db, count)
 
 void gene_insert_field_value (zval *fields, smart_str *field_str, smart_str *value_str,zval *field_value) {
 	zval *value = NULL;
-	zend_bool pre = FALSE;
+	zend_bool pre = 0;
 	zend_string *key = NULL;
 	zend_long id;
 	array_init(field_value);
@@ -440,7 +440,7 @@ void gene_insert_field_value (zval *fields, smart_str *field_str, smart_str *val
     		smart_str_appends(value_str, ",");
     	} else {
     		smart_str_appendc(field_str, '`');
-    		pre = TRUE;
+    		pre = 1;
     	}
         if (key) {
         	smart_str_append(field_str, key);
@@ -458,7 +458,7 @@ void gene_insert_field_value (zval *fields, smart_str *field_str, smart_str *val
 
 void gene_insert_field_value_batch (zval *fields, smart_str *field_str, smart_str *value_str, zval *field_value) {
 	zval *value = NULL;
-	zend_bool pre = FALSE;
+	zend_bool pre = 0;
 	zend_string *key = NULL;
 	zend_long id;
 	array_init(field_value);
@@ -469,7 +469,7 @@ void gene_insert_field_value_batch (zval *fields, smart_str *field_str, smart_st
     	} else {
     		smart_str_appendc(field_str, '`');
     		smart_str_appends(value_str, "(");
-    		pre = TRUE;
+    		pre = 1;
     	}
         if (key) {
         	smart_str_append(field_str, key);
@@ -488,13 +488,13 @@ void gene_insert_field_value_batch (zval *fields, smart_str *field_str, smart_st
 
 void gene_insert_field_value_batch_other (zval *fields, smart_str *value_str, zval *field_value) {
 	zval *value = NULL;
-	zend_bool pre = FALSE;
+	zend_bool pre = 0;
 	ZEND_HASH_FOREACH_VAL(Z_ARRVAL_P(fields), value) {
     	if (pre) {
     		smart_str_appends(value_str, ",");
     	} else {
     		smart_str_appends(value_str, "(");
-    		pre = TRUE;
+    		pre = 1;
     	}
         smart_str_appends(value_str, "?");
         add_next_index_zval(field_value, value);
@@ -506,7 +506,7 @@ void gene_insert_field_value_batch_other (zval *fields, smart_str *value_str, zv
 
 void gene_update_field_value (zval *fields, smart_str *field_str, zval *field_value) {
 	zval *value = NULL;
-	zend_bool pre = FALSE;
+	zend_bool pre = 0;
 	zend_string *key = NULL;
 	zend_long id;
 	array_init(field_value);
@@ -515,7 +515,7 @@ void gene_update_field_value (zval *fields, smart_str *field_str, zval *field_va
     		smart_str_appends(field_str, ",`");
     	} else {
     		smart_str_appendc(field_str, '`');
-    		pre = TRUE;
+    		pre = 1;
     	}
         if (key) {
         	smart_str_append(field_str, key);
@@ -569,7 +569,7 @@ PHP_METHOD(gene_db, batchInsert)
 	int table_len;
 	smart_str field_str = {0} , value_str = {0};
 	zval field_value;
-	zend_bool pre = FALSE;
+	zend_bool pre = 0;
 	if (zend_parse_parameters(ZEND_NUM_ARGS() TSRMLS_CC, "s|z", &table, &table_len, &fields) == FAILURE) {
 		return;
 	}
@@ -581,7 +581,7 @@ PHP_METHOD(gene_db, batchInsert)
         		gene_insert_field_value_batch_other (row, &value_str, &field_value);
         	} else {
         		gene_insert_field_value_batch (row, &field_str, &value_str, &field_value);
-        		pre = TRUE;
+        		pre = 1;
         	}
         } ZEND_HASH_FOREACH_END();
     	zend_update_property(gene_db_ce, self, GENE_DB_DATA, strlen(GENE_DB_DATA), &field_value);
@@ -717,7 +717,7 @@ PHP_METHOD(gene_db, in)
 	int in_len;
 	zval params;
 	smart_str field_str = {0},value_str = {0};
-	zend_bool pre = FALSE;
+	zend_bool pre = 0;
 	if (zend_parse_parameters(ZEND_NUM_ARGS() TSRMLS_CC, "s|z", &in, &in_len, &fields) == FAILURE) {
 		return;
 	}
@@ -743,7 +743,7 @@ PHP_METHOD(gene_db, in)
     					smart_str_appends(&value_str, ",?");
     				} else {
     					smart_str_appends(&value_str, " in(?");
-    					pre = TRUE;
+    					pre = 1;
     				}
     				add_next_index_zval(data, value);
     				set_value_ref(value);
@@ -754,7 +754,7 @@ PHP_METHOD(gene_db, in)
     					smart_str_appends(&value_str, ",?");
     				} else {
     					smart_str_appends(&value_str, " in(?");
-    					pre = TRUE;
+    					pre = 1;
     				}
     			} ZEND_HASH_FOREACH_END();
     			zend_update_property(gene_db_ce, self, GENE_DB_DATA, strlen(GENE_DB_DATA), fields);

@@ -55,9 +55,9 @@ zend_bool gene_factory_load_class(char *className, int tmp_len, zval *classObjec
 	zend_string_free(c_key);
 	if (pdo_ptr) {
 		object_init_ex(classObject, pdo_ptr);
-		return TRUE;
+		return 1;
 	}
-	return FALSE;
+	return 0;
 }
 
 void gene_factory_construct(zval *object, zval *param, zval *retval) /*{{{*/
@@ -117,9 +117,9 @@ zend_bool gene_factory(char *className, int tmp_len, zval *params, zval *classOb
 		object_init_ex(classObject, pdo_ptr);
 		gene_factory_construct(classObject, params, &ret);
 		zval_ptr_dtor(&ret);
-		return TRUE;
+		return 1;
 	}
-	return FALSE;
+	return 0;
 }
 
 zval *gene_model_instance(zval *obj) {
@@ -188,7 +188,7 @@ PHP_METHOD(gene_model, __get)
 {
 	zval *pzval = NULL, *props = NULL, obj, classObject, *class = NULL, *params = NULL, *cache = NULL, *instance = NULL, *reg = NULL, *entrys = NULL;
 	zend_string *name = NULL;
-	zend_bool type = FALSE;
+	zend_bool type = 0;
 
 	if (zend_parse_parameters(ZEND_NUM_ARGS(), "|S", &name) == FAILURE) {
 		return;
@@ -211,11 +211,11 @@ PHP_METHOD(gene_model, __get)
 				cache = gene_memory_get_by_config(router_e, router_e_len, ZSTR_VAL(name) TSRMLS_CC);
 				efree(router_e);
 				if (cache && Z_TYPE_P(cache) == IS_ARRAY) {
-			    	if (EXPECTED(class = zend_hash_str_find(cache->value.arr, "class", 5)) == NULL) {
+			    	if ((class = zend_hash_str_find(cache->value.arr, "class", 5)) == NULL) {
 			    		 php_error_docref(NULL, E_ERROR, "Factory need a valid class.");
 			    		 RETURN_FALSE;
 			    	}
-			    	if (EXPECTED(params = zend_hash_str_find(cache->value.arr, "params", 6)) == NULL) {
+			    	if ((params = zend_hash_str_find(cache->value.arr, "params", 6)) == NULL) {
 				    	php_error_docref(NULL, E_ERROR, "Factory need a valid param.");
 				    	RETURN_FALSE;
 			    	} else {
@@ -226,7 +226,7 @@ PHP_METHOD(gene_model, __get)
 			    	}
 			    	instance = zend_hash_str_find(cache->value.arr, "instance", 8);
 			    	if (Z_TYPE_P(instance) == IS_TRUE) {
-			    		type = TRUE;
+			    		type = 1;
 			    	}
 			    	reg = gene_reg_instance();
 					entrys = zend_read_property(gene_reg_ce, reg, GENE_REG_PROPERTY_REG, strlen(GENE_REG_PROPERTY_REG), 1, NULL);
