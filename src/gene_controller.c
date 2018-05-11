@@ -47,12 +47,10 @@ PHP_METHOD(gene_controller, __construct) {
 	int debug = 0;
 	if (zend_parse_parameters(ZEND_NUM_ARGS()TSRMLS_CC, "|l", &debug)
 			== FAILURE) {
-		RETURN_NULL()
-		;
+		RETURN_NULL();
 	}
 	gene_ini_router(TSRMLS_C);
-	RETURN_NULL()
-	;
+	RETURN_NULL();
 }
 /* }}} */
 
