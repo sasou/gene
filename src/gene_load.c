@@ -221,7 +221,7 @@ zend_function_entry gene_load_methods[] = {
 	PHP_ME(gene_load, getInstance, NULL, ZEND_ACC_PUBLIC|ZEND_ACC_STATIC)
 	PHP_ME(gene_load, import, NULL, ZEND_ACC_PUBLIC)
 	PHP_ME(gene_load, autoload, NULL, ZEND_ACC_PUBLIC|ZEND_ACC_STATIC)
-	PHP_ME(gene_load, __construct, NULL, ZEND_ACC_PRIVATE|ZEND_ACC_CTOR)
+	PHP_ME(gene_load, __construct, NULL, ZEND_ACC_PUBLIC|ZEND_ACC_CTOR)
 	{ NULL, NULL, NULL }
 };
 /* }}} */
