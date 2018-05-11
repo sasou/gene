@@ -32,13 +32,13 @@
 
 zend_class_entry * gene_db_ce;
 
-void reset_sql_params (zval *self)
+void reset_sql_params(zval *self)
 {
-	zend_update_property_null(gene_db_ce, self, GENE_DB_SQL, strlen(GENE_DB_SQL));
-	zend_update_property_null(gene_db_ce, self, GENE_DB_WHERE, strlen(GENE_DB_WHERE));
-	zend_update_property_null(gene_db_ce, self, GENE_DB_ORDER, strlen(GENE_DB_ORDER));
-	zend_update_property_null(gene_db_ce, self, GENE_DB_LIMIT, strlen(GENE_DB_LIMIT));
-    zend_update_property_null(gene_db_ce, self, GENE_DB_DATA, strlen(GENE_DB_DATA));
+	zend_update_property_null(gene_db_ce, self, ZEND_STRL(GENE_DB_SQL));
+	zend_update_property_null(gene_db_ce, self, ZEND_STRL(GENE_DB_WHERE));
+	zend_update_property_null(gene_db_ce, self, ZEND_STRL(GENE_DB_ORDER));
+	zend_update_property_null(gene_db_ce, self, ZEND_STRL(GENE_DB_LIMIT));
+    zend_update_property_null(gene_db_ce, self, ZEND_STRL(GENE_DB_DATA));
 }
 
 void set_value_ref(zval *field) {
@@ -280,11 +280,11 @@ zend_bool gene_pdo_execute (zval *self, zval *statement)
 	zval *pdo_object = NULL, *params = NULL, *pdo_sql = NULL, *pdo_where = NULL, *pdo_order = NULL, *pdo_limit = NULL;
 	zval retval;
 	smart_str sql = {0};
-	pdo_object = zend_read_property(gene_db_ce, self, GENE_DB_PDO, strlen(GENE_DB_PDO), 1, NULL);
-	pdo_sql = zend_read_property(gene_db_ce, self, GENE_DB_SQL, strlen(GENE_DB_SQL), 1, NULL);
-	pdo_where = zend_read_property(gene_db_ce, self, GENE_DB_WHERE, strlen(GENE_DB_WHERE), 1, NULL);
-	pdo_order = zend_read_property(gene_db_ce, self, GENE_DB_ORDER, strlen(GENE_DB_ORDER), 1, NULL);
-	pdo_limit = zend_read_property(gene_db_ce, self, GENE_DB_LIMIT, strlen(GENE_DB_LIMIT), 1, NULL);
+	pdo_object = zend_read_property(gene_db_ce, self, ZEND_STRL(GENE_DB_PDO), 1, NULL);
+	pdo_sql = zend_read_property(gene_db_ce, self, ZEND_STRL(GENE_DB_SQL), 1, NULL);
+	pdo_where = zend_read_property(gene_db_ce, self, ZEND_STRL(GENE_DB_WHERE), 1, NULL);
+	pdo_order = zend_read_property(gene_db_ce, self, ZEND_STRL(GENE_DB_ORDER), 1, NULL);
+	pdo_limit = zend_read_property(gene_db_ce, self, ZEND_STRL(GENE_DB_LIMIT), 1, NULL);
 
 	if (Z_TYPE_P(pdo_sql) == IS_STRING) {
 		smart_str_appends(&sql, Z_STRVAL_P(pdo_sql));
@@ -302,7 +302,7 @@ zend_bool gene_pdo_execute (zval *self, zval *statement)
 	gene_pdo_prepare(pdo_object, ZSTR_VAL(sql.s), statement);
 	smart_str_free(&sql);
 	if (statement != NULL) {
-		params = zend_read_property(gene_db_ce, self, GENE_DB_DATA, strlen(GENE_DB_DATA), 1, NULL);
+		params = zend_read_property(gene_db_ce, self, ZEND_STRL(GENE_DB_DATA), 1, NULL);
 		//execute
 		gene_pdo_statement_execute(statement, params, &retval);
 		return Z_TYPE(retval) == 3 ? 1 : 0;
@@ -327,19 +327,19 @@ PHP_METHOD(gene_db, __construct)
 		zend_string_free(c_key);
 		object_init_ex(&pdo_object, pdo_ptr);
 
-    	if ((dsn = zend_hash_str_find(config->value.arr, "dsn", 3)) == NULL) {
+    	if ((dsn = zend_hash_str_find(config->value.arr, ZEND_STRL("dsn"))) == NULL) {
     		 php_error_docref(NULL, E_ERROR, "PDO need a valid dns.");
     		 RETURN_FALSE;
     	}
-    	if ((user = zend_hash_str_find(config->value.arr, "username", 8)) == NULL) {
+    	if ((user = zend_hash_str_find(config->value.arr, ZEND_STRL("username"))) == NULL) {
     		 php_error_docref(NULL, E_ERROR, "PDO need a valid username.");
     		 RETURN_FALSE;
     	}
-    	if ((pass = zend_hash_str_find(config->value.arr, "password", 8)) == NULL) {
+    	if ((pass = zend_hash_str_find(config->value.arr, ZEND_STRL("password"))) == NULL) {
     		 php_error_docref(NULL, E_ERROR, "PDO need a valid password.");
     		 RETURN_FALSE;
     	}
-    	options = zend_hash_str_find(config->value.arr, "options", 7);
+    	options = zend_hash_str_find(config->value.arr, ZEND_STRL("options"));
         if (options == NULL) {
         	array_init(&option);
         	add_index_long(&option, 19, 2);
@@ -349,7 +349,7 @@ PHP_METHOD(gene_db, __construct)
         	add_index_long(options, 19, 2);
         	gene_pdo_construct(&pdo_object, dsn, user, pass, options);
         }
-        zend_update_property(gene_db_ce, self, GENE_DB_PDO, strlen(GENE_DB_PDO), &pdo_object);
+        zend_update_property(gene_db_ce, self, ZEND_STRL(GENE_DB_PDO), &pdo_object);
         zval_ptr_dtor(&pdo_object);
     }
     RETURN_ZVAL(self, 1, 0);
@@ -363,7 +363,7 @@ PHP_METHOD(gene_db, __construct)
 PHP_METHOD(gene_db, getPdo)
 {
 	zval *self = getThis();
-	zval *pdo_object = zend_read_property(gene_db_ce, self, GENE_DB_PDO, strlen(GENE_DB_PDO), 1, NULL);
+	zval *pdo_object = zend_read_property(gene_db_ce, self, ZEND_STRL(GENE_DB_PDO), 1, NULL);
 	RETURN_ZVAL(pdo_object, 1, 0);
 }
 /* }}} */
@@ -399,7 +399,7 @@ PHP_METHOD(gene_db, select)
     } else {
     	spprintf(&sql, 0, "SELECT * FROM `%s`", table);
     }
-    zend_update_property_string(gene_db_ce, self, GENE_DB_SQL, strlen(GENE_DB_SQL), sql);
+    zend_update_property_string(gene_db_ce, self, ZEND_STRL(GENE_DB_SQL), sql);
     efree(sql);
 	RETURN_ZVAL(self, 1, 0);
 }
@@ -416,13 +416,13 @@ PHP_METHOD(gene_db, count)
 	if (zend_parse_parameters(ZEND_NUM_ARGS() TSRMLS_CC, "S|S", &table, &fields) == FAILURE) {
 		return;
 	}
-	reset_sql_params (self);
+	reset_sql_params(self);
     if (fields) {
     	spprintf(&sql, 0, "SELECT count(%s) AS count FROM `%s`", ZSTR_VAL(fields), ZSTR_VAL(table));
     } else {
     	spprintf(&sql, 0, "SELECT count(1) AS count FROM `%s`", ZSTR_VAL(table));
     }
-    zend_update_property_string(gene_db_ce, self, GENE_DB_SQL, strlen(GENE_DB_SQL), sql);
+    zend_update_property_string(gene_db_ce, self, ZEND_STRL(GENE_DB_SQL), sql);
     efree(sql);
 	RETURN_ZVAL(self, 1, 0);
 }
@@ -542,16 +542,16 @@ PHP_METHOD(gene_db, insert)
 	if (zend_parse_parameters(ZEND_NUM_ARGS() TSRMLS_CC, "s|z", &table, &table_len, &fields) == FAILURE) {
 		return;
 	}
-	reset_sql_params (self);
+	reset_sql_params(self);
     if (fields && Z_TYPE_P(fields) == IS_ARRAY) {
     	gene_insert_field_value (fields, &field_str, &value_str, &field_value);
-    	zend_update_property(gene_db_ce, self, GENE_DB_DATA, strlen(GENE_DB_DATA), &field_value);
+    	zend_update_property(gene_db_ce, self, ZEND_STRL(GENE_DB_DATA), &field_value);
     	zval_ptr_dtor(&field_value);
     } else {
     	php_error_docref(NULL, E_ERROR, "Data Parameter can only be array.");
     }
     spprintf(&sql, 0, "INSERT INTO `%s`(%s) VALUES(%s)", table, field_str.s->val, value_str.s->val);
-    zend_update_property_string(gene_db_ce, self, GENE_DB_SQL, strlen(GENE_DB_SQL), sql);
+    zend_update_property_string(gene_db_ce, self, ZEND_STRL(GENE_DB_SQL), sql);
     efree(sql);
     smart_str_free(&field_str);
     smart_str_free(&value_str);
@@ -573,7 +573,7 @@ PHP_METHOD(gene_db, batchInsert)
 	if (zend_parse_parameters(ZEND_NUM_ARGS() TSRMLS_CC, "s|z", &table, &table_len, &fields) == FAILURE) {
 		return;
 	}
-	reset_sql_params (self);
+	reset_sql_params(self);
     if (fields && Z_TYPE_P(fields) == IS_ARRAY) {
     	ZEND_HASH_FOREACH_VAL(Z_ARRVAL_P(fields), row) {
         	if (pre) {
@@ -584,13 +584,13 @@ PHP_METHOD(gene_db, batchInsert)
         		pre = 1;
         	}
         } ZEND_HASH_FOREACH_END();
-    	zend_update_property(gene_db_ce, self, GENE_DB_DATA, strlen(GENE_DB_DATA), &field_value);
+    	zend_update_property(gene_db_ce, self, ZEND_STRL(GENE_DB_DATA), &field_value);
     	zval_ptr_dtor(&field_value);
     } else {
     	php_error_docref(NULL, E_ERROR, "Data Parameter can only be array.");
     }
     spprintf(&sql, 0, "INSERT INTO `%s`(%s) VALUES %s", table, field_str.s->val, value_str.s->val);
-    zend_update_property_string(gene_db_ce, self, GENE_DB_SQL, strlen(GENE_DB_SQL), sql);
+    zend_update_property_string(gene_db_ce, self, ZEND_STRL(GENE_DB_SQL), sql);
     efree(sql);
     smart_str_free(&field_str);
     smart_str_free(&value_str);
@@ -614,13 +614,13 @@ PHP_METHOD(gene_db, update)
 	reset_sql_params(self);
     if (fields && Z_TYPE_P(fields) == IS_ARRAY) {
     	gene_update_field_value (fields, &field_str, &field_value);
-    	zend_update_property(gene_db_ce, self, GENE_DB_DATA, strlen(GENE_DB_DATA), &field_value);
+    	zend_update_property(gene_db_ce, self, ZEND_STRL(GENE_DB_DATA), &field_value);
     	zval_ptr_dtor(&field_value);
     } else {
     	php_error_docref(NULL, E_ERROR, "Data Parameter can only be array.");
     }
     spprintf(&sql, 0, "UPDATE `%s` SET %s", table, field_str.s->val);
-    zend_update_property_string(gene_db_ce, self, GENE_DB_SQL, strlen(GENE_DB_SQL), sql);
+    zend_update_property_string(gene_db_ce, self, ZEND_STRL(GENE_DB_SQL), sql);
     efree(sql);
     smart_str_free(&field_str);
 	RETURN_ZVAL(self, 1, 0);
@@ -641,7 +641,7 @@ PHP_METHOD(gene_db, delete)
 	}
 	reset_sql_params(self);
     spprintf(&sql, 0, "DELETE FROM `%s`", table);
-    zend_update_property_string(gene_db_ce, self, GENE_DB_SQL, strlen(GENE_DB_SQL), sql);
+    zend_update_property_string(gene_db_ce, self, ZEND_STRL(GENE_DB_SQL), sql);
     efree(sql);
 	RETURN_ZVAL(self, 1, 0);
 }
@@ -663,11 +663,11 @@ PHP_METHOD(gene_db, where)
 
     if (where_len) {
         spprintf(&sql_where, 0, " WHERE %s", where);
-        zend_update_property_string(gene_db_ce, self, GENE_DB_WHERE, strlen(GENE_DB_WHERE), sql_where);
+        zend_update_property_string(gene_db_ce, self, ZEND_STRL(GENE_DB_WHERE), sql_where);
         efree(sql_where);
     }
     if (fields) {
-    	data = zend_read_property(gene_db_ce, self, GENE_DB_DATA, strlen(GENE_DB_DATA), 1, NULL);
+    	data = zend_read_property(gene_db_ce, self, ZEND_STRL(GENE_DB_DATA), 1, NULL);
     	switch(Z_TYPE_P(fields)) {
     	case IS_ARRAY:
     		if (Z_TYPE_P(data) == IS_ARRAY) {
@@ -677,7 +677,7 @@ PHP_METHOD(gene_db, where)
     			} ZEND_HASH_FOREACH_END();
     		} else {
     			gene_memory_zval_local(&params, fields);
-    			zend_update_property(gene_db_ce, self, GENE_DB_DATA, strlen(GENE_DB_DATA), &params);
+    			zend_update_property(gene_db_ce, self, ZEND_STRL(GENE_DB_DATA), &params);
     			zval_ptr_dtor(&params);
     		}
     		break;
@@ -694,7 +694,7 @@ PHP_METHOD(gene_db, where)
             	array_init(&params);
             	add_next_index_zval(&params, fields);
             	set_value_ref(fields);
-            	zend_update_property(gene_db_ce, self, GENE_DB_DATA, strlen(GENE_DB_DATA), &params);
+            	zend_update_property(gene_db_ce, self, ZEND_STRL(GENE_DB_DATA), &params);
             	zval_ptr_dtor(&params);
     		}
     		break;
@@ -721,7 +721,7 @@ PHP_METHOD(gene_db, in)
 	if (zend_parse_parameters(ZEND_NUM_ARGS() TSRMLS_CC, "s|z", &in, &in_len, &fields) == FAILURE) {
 		return;
 	}
-	pdo_where = zend_read_property(gene_db_ce, self, GENE_DB_WHERE, strlen(GENE_DB_WHERE), 1, NULL);
+	pdo_where = zend_read_property(gene_db_ce, self, ZEND_STRL(GENE_DB_WHERE), 1, NULL);
 	if (pdo_where && Z_TYPE_P(pdo_where) == IS_STRING) {
 		smart_str_appends(&field_str, Z_STRVAL_P(pdo_where));
 	}
@@ -729,7 +729,7 @@ PHP_METHOD(gene_db, in)
 		spprintf(&in_tmp, 0, "%s", in, in_len);
 	}
     if (fields) {
-    	data = zend_read_property(gene_db_ce, self, GENE_DB_DATA, strlen(GENE_DB_DATA), 1, NULL);
+    	data = zend_read_property(gene_db_ce, self, ZEND_STRL(GENE_DB_DATA), 1, NULL);
     	switch(Z_TYPE_P(fields)) {
     	case IS_ARRAY:
     		ReplaceStr(in_tmp, "in(?)", "$");
@@ -757,7 +757,7 @@ PHP_METHOD(gene_db, in)
     					pre = 1;
     				}
     			} ZEND_HASH_FOREACH_END();
-    			zend_update_property(gene_db_ce, self, GENE_DB_DATA, strlen(GENE_DB_DATA), fields);
+    			zend_update_property(gene_db_ce, self, ZEND_STRL(GENE_DB_DATA), fields);
     		}
     		smart_str_appends(&value_str, ")");
     		smart_str_0(&value_str);
@@ -781,7 +781,7 @@ PHP_METHOD(gene_db, in)
             	array_init(&params);
             	add_next_index_zval(&params, fields);
             	set_value_ref(fields);
-            	zend_update_property(gene_db_ce, self, GENE_DB_DATA, strlen(GENE_DB_DATA), &params);
+            	zend_update_property(gene_db_ce, self, ZEND_STRL(GENE_DB_DATA), &params);
             	zval_ptr_dtor(&params);
     		}
     		break;
@@ -793,7 +793,7 @@ PHP_METHOD(gene_db, in)
 	smart_str_0(&field_str);
     if (in_len) {
     	efree(in_tmp);
-        zend_update_property_string(gene_db_ce, self, GENE_DB_WHERE, strlen(GENE_DB_WHERE), ZSTR_VAL(field_str.s));
+        zend_update_property_string(gene_db_ce, self, ZEND_STRL(GENE_DB_WHERE), ZSTR_VAL(field_str.s));
         smart_str_free(&field_str);
     }
 	RETURN_ZVAL(self, 1, 0);
@@ -815,11 +815,11 @@ PHP_METHOD(gene_db, sql)
 	reset_sql_params(self);
     if (sql_len) {
         spprintf(&pdo_sql, 0, "%s", sql);
-        zend_update_property_string(gene_db_ce, self, GENE_DB_WHERE, strlen(GENE_DB_WHERE), pdo_sql);
+        zend_update_property_string(gene_db_ce, self, ZEND_STRL(GENE_DB_WHERE), pdo_sql);
         efree(pdo_sql);
     }
     if (fields) {
-    	data = zend_read_property(gene_db_ce, self, GENE_DB_DATA, strlen(GENE_DB_DATA), 1, NULL);
+    	data = zend_read_property(gene_db_ce, self, ZEND_STRL(GENE_DB_DATA), 1, NULL);
     	switch(Z_TYPE_P(fields)) {
     	case IS_ARRAY:
     		if (Z_TYPE_P(data) == IS_ARRAY) {
@@ -830,7 +830,7 @@ PHP_METHOD(gene_db, sql)
     		} else {
     			gene_memory_zval_local(&params, fields);
     			set_value_ref(fields);
-    			zend_update_property(gene_db_ce, self, GENE_DB_DATA, strlen(GENE_DB_DATA), &params);
+    			zend_update_property(gene_db_ce, self, ZEND_STRL(GENE_DB_DATA), &params);
     			zval_ptr_dtor(&params);
     		}
     		break;
@@ -847,7 +847,7 @@ PHP_METHOD(gene_db, sql)
             	array_init(&params);
             	add_next_index_zval(&params, fields);
             	set_value_ref(fields);
-            	zend_update_property(gene_db_ce, self, GENE_DB_DATA, strlen(GENE_DB_DATA), &params);
+            	zend_update_property(gene_db_ce, self, ZEND_STRL(GENE_DB_DATA), &params);
             	zval_ptr_dtor(&params);
     		}
     		break;
@@ -887,7 +887,7 @@ PHP_METHOD(gene_db, order)
 	}
 	if (order_len) {
 		spprintf(&order_tmp, 0, " ORDER BY %s", order);
-		zend_update_property_string(gene_db_ce, self, GENE_DB_ORDER, strlen(GENE_DB_ORDER), order_tmp);
+		zend_update_property_string(gene_db_ce, self, ZEND_STRL(GENE_DB_ORDER), order_tmp);
 		efree(order_tmp);
 	}
 	RETURN_ZVAL(self, 1, 0);
@@ -911,7 +911,7 @@ PHP_METHOD(gene_db, limit)
 	} else {
 		spprintf(&limit, 0, " LIMIT %d", num);
 	}
-	zend_update_property_string(gene_db_ce, self, GENE_DB_LIMIT, strlen(GENE_DB_LIMIT), limit);
+	zend_update_property_string(gene_db_ce, self, ZEND_STRL(GENE_DB_LIMIT), limit);
 	efree(limit);
 	RETURN_ZVAL(self, 1, 0);
 }
@@ -973,7 +973,7 @@ PHP_METHOD(gene_db, lastId)
 {
 	zval *self = getThis(), *pdo_object = NULL;
 	zval statement, retval;
-	pdo_object = zend_read_property(gene_db_ce, self, GENE_DB_PDO, strlen(GENE_DB_PDO), 1, NULL);
+	pdo_object = zend_read_property(gene_db_ce, self, ZEND_STRL(GENE_DB_PDO), 1, NULL);
 	if (gene_pdo_execute(self, &statement)) {
 		gene_pdo_last_insert_id(pdo_object, NULL, &retval);
 	}
@@ -1004,11 +1004,11 @@ PHP_METHOD(gene_db, print)
 {
 	zval *self = getThis(),*pdo_object = NULL, *pdo_sql = NULL, *pdo_where = NULL, *pdo_order = NULL, *pdo_limit = NULL;
 	smart_str sql = {0};
-	pdo_object = zend_read_property(gene_db_ce, self, GENE_DB_PDO, strlen(GENE_DB_PDO), 1, NULL);
-	pdo_sql = zend_read_property(gene_db_ce, self, GENE_DB_SQL, strlen(GENE_DB_SQL), 1, NULL);
-	pdo_where = zend_read_property(gene_db_ce, self, GENE_DB_WHERE, strlen(GENE_DB_WHERE), 1, NULL);
-	pdo_order = zend_read_property(gene_db_ce, self, GENE_DB_ORDER, strlen(GENE_DB_ORDER), 1, NULL);
-	pdo_limit = zend_read_property(gene_db_ce, self, GENE_DB_LIMIT, strlen(GENE_DB_LIMIT), 1, NULL);
+	pdo_object = zend_read_property(gene_db_ce, self, ZEND_STRL(GENE_DB_PDO), 1, NULL);
+	pdo_sql = zend_read_property(gene_db_ce, self, ZEND_STRL(GENE_DB_SQL), 1, NULL);
+	pdo_where = zend_read_property(gene_db_ce, self, ZEND_STRL(GENE_DB_WHERE), 1, NULL);
+	pdo_order = zend_read_property(gene_db_ce, self, ZEND_STRL(GENE_DB_ORDER), 1, NULL);
+	pdo_limit = zend_read_property(gene_db_ce, self, ZEND_STRL(GENE_DB_LIMIT), 1, NULL);
 
 	if (Z_TYPE_P(pdo_sql) == IS_STRING) {
 		smart_str_appends(&sql, Z_STRVAL_P(pdo_sql));
@@ -1036,7 +1036,7 @@ PHP_METHOD(gene_db, beginTransaction)
 {
 	zval *self = getThis(), *pdo_object = NULL;
 	zval retval;
-	pdo_object = zend_read_property(gene_db_ce, self, GENE_DB_PDO, strlen(GENE_DB_PDO), 1, NULL);
+	pdo_object = zend_read_property(gene_db_ce, self, ZEND_STRL(GENE_DB_PDO), 1, NULL);
 	gene_pdo_begin_transaction(pdo_object, &retval);
 	RETURN_ZVAL(&retval, 1, 1);
 }
@@ -1049,7 +1049,7 @@ PHP_METHOD(gene_db, inTransaction)
 {
 	zval *self = getThis(), *pdo_object = NULL;
 	zval retval;
-	pdo_object = zend_read_property(gene_db_ce, self, GENE_DB_PDO, strlen(GENE_DB_PDO), 1, NULL);
+	pdo_object = zend_read_property(gene_db_ce, self, ZEND_STRL(GENE_DB_PDO), 1, NULL);
 	gene_pdo_in_transaction(pdo_object, &retval);
 	RETURN_ZVAL(&retval, 1, 1);
 }
@@ -1062,7 +1062,7 @@ PHP_METHOD(gene_db, rollBack)
 {
 	zval *self = getThis(), *pdo_object = NULL;
 	zval retval;
-	pdo_object = zend_read_property(gene_db_ce, self, GENE_DB_PDO, strlen(GENE_DB_PDO), 1, NULL);
+	pdo_object = zend_read_property(gene_db_ce, self, ZEND_STRL(GENE_DB_PDO), 1, NULL);
 	gene_pdo_rollback(pdo_object, &retval);
 	RETURN_ZVAL(&retval, 1, 1);
 }
@@ -1076,7 +1076,7 @@ PHP_METHOD(gene_db, commit)
 {
 	zval *self = getThis(), *pdo_object = NULL;
 	zval retval;
-	pdo_object = zend_read_property(gene_db_ce, self, GENE_DB_PDO, strlen(GENE_DB_PDO), 1, NULL);
+	pdo_object = zend_read_property(gene_db_ce, self, ZEND_STRL(GENE_DB_PDO), 1, NULL);
 	gene_pdo_commit(pdo_object, &retval);
 	RETURN_ZVAL(&retval, 1, 1);
 }
@@ -1126,12 +1126,12 @@ GENE_MINIT_FUNCTION(db)
 	gene_db_ce->ce_flags |= ZEND_ACC_FINAL;
 
 	//pdo
-	zend_declare_property_null(gene_db_ce, GENE_DB_PDO, strlen(GENE_DB_PDO), ZEND_ACC_PUBLIC TSRMLS_CC);
-    zend_declare_property_null(gene_db_ce, GENE_DB_SQL, strlen(GENE_DB_SQL), ZEND_ACC_PUBLIC TSRMLS_CC);
-    zend_declare_property_null(gene_db_ce, GENE_DB_WHERE, strlen(GENE_DB_WHERE), ZEND_ACC_PUBLIC TSRMLS_CC);
-    zend_declare_property_null(gene_db_ce, GENE_DB_ORDER, strlen(GENE_DB_ORDER), ZEND_ACC_PUBLIC TSRMLS_CC);
-    zend_declare_property_null(gene_db_ce, GENE_DB_LIMIT, strlen(GENE_DB_LIMIT), ZEND_ACC_PUBLIC TSRMLS_CC);
-    zend_declare_property_null(gene_db_ce, GENE_DB_DATA, strlen(GENE_DB_DATA), ZEND_ACC_PUBLIC TSRMLS_CC);
+	zend_declare_property_null(gene_db_ce, ZEND_STRL(GENE_DB_PDO), ZEND_ACC_PUBLIC TSRMLS_CC);
+    zend_declare_property_null(gene_db_ce, ZEND_STRL(GENE_DB_SQL), ZEND_ACC_PUBLIC TSRMLS_CC);
+    zend_declare_property_null(gene_db_ce, ZEND_STRL(GENE_DB_WHERE), ZEND_ACC_PUBLIC TSRMLS_CC);
+    zend_declare_property_null(gene_db_ce, ZEND_STRL(GENE_DB_ORDER), ZEND_ACC_PUBLIC TSRMLS_CC);
+    zend_declare_property_null(gene_db_ce, ZEND_STRL(GENE_DB_LIMIT), ZEND_ACC_PUBLIC TSRMLS_CC);
+    zend_declare_property_null(gene_db_ce, ZEND_STRL(GENE_DB_DATA), ZEND_ACC_PUBLIC TSRMLS_CC);
 
 	return SUCCESS;
 }

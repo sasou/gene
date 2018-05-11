@@ -125,30 +125,26 @@ zend_bool gene_factory(char *className, int tmp_len, zval *params, zval *classOb
 zval *gene_model_instance(zval *obj) {
 	zval *ppzval = NULL, *reg, *entrys;
 	zval ret;
-	char *name;
-	size_t name_len = 0;
 	zend_call_method_with_0_params(NULL, NULL, NULL, "get_called_class", &ret);
-	name_len = spprintf(&name, 0, "%s", Z_STRVAL(ret));
-	zval_ptr_dtor(&ret);
 	reg = gene_reg_instance();
-	entrys = zend_read_property(gene_reg_ce, reg, GENE_REG_PROPERTY_REG,
-			strlen(GENE_REG_PROPERTY_REG), 1, NULL);
-	if ((ppzval = zend_hash_str_find(Z_ARRVAL_P(entrys), name, name_len)) != NULL) {
-		efree(name);
+	entrys = zend_read_property(gene_reg_ce, reg, ZEND_STRL(GENE_REG_PROPERTY_REG), 1, NULL);
+	if ((ppzval = zend_hash_str_find(Z_ARRVAL_P(entrys), Z_STRVAL(ret), Z_STRLEN(ret))) != NULL) {
+		zval_ptr_dtor(&ret);
 		return ppzval;
 	} else {
-		if (gene_factory_load_class(name, name_len, obj)) {
-			if (zend_hash_str_update(Z_ARRVAL_P(entrys), name, name_len, obj) != NULL) {
+		if (gene_factory_load_class(Z_STRVAL(ret), Z_STRLEN(ret), obj)) {
+			if (zend_hash_str_update(Z_ARRVAL_P(entrys), Z_STRVAL(ret), Z_STRLEN(ret), obj) != NULL) {
 				Z_TRY_ADDREF_P(obj);
 				zval prop;
 				array_init(&prop);
 				zend_update_property(gene_model_ce, obj, ZEND_STRL(GENE_MODEL_ATTR), &prop);
 				zval_ptr_dtor(&prop);
 			}
-			efree(name);
+			zval_ptr_dtor(&ret);
 			return obj;
 		}
 	}
+	zval_ptr_dtor(&ret);
 	return NULL;
 }
 
@@ -300,7 +296,7 @@ GENE_MINIT_FUNCTION(model)
     zend_class_entry gene_model;
 	GENE_INIT_CLASS_ENTRY(gene_model, "Gene_Model", "Gene\\Model", gene_model_methods);
 	gene_model_ce = zend_register_internal_class_ex(&gene_model, NULL);
-	gene_model_ce->ce_flags |= ZEND_ACC_EXPLICIT_ABSTRACT_CLASS;
+	//gene_model_ce->ce_flags |= ZEND_ACC_EXPLICIT_ABSTRACT_CLASS;
 	zend_declare_property_null(gene_model_ce, ZEND_STRL(GENE_MODEL_ATTR), ZEND_ACC_PUBLIC);
 
 	return SUCCESS;
