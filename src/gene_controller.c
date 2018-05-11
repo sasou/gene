@@ -176,9 +176,9 @@ PHP_METHOD(gene_controller, urlParams) {
  */
 PHP_METHOD(gene_controller, redirect) {
 	zend_string *url;
-	long code = 302;
+	zend_long code = 302;
 
-	if (zend_parse_parameters(ZEND_NUM_ARGS()TSRMLS_CC, "S|l", &url) == FAILURE) {
+	if (zend_parse_parameters(ZEND_NUM_ARGS()TSRMLS_CC, "S|l", &url, &code) == FAILURE) {
 		return;
 	}
 	gene_response_set_redirect(ZSTR_VAL(url), code TSRMLS_CC);
