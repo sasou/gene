@@ -41,12 +41,6 @@ void reset_sql_params(zval *self)
     zend_update_property_null(gene_db_ce, self, ZEND_STRL(GENE_DB_DATA));
 }
 
-void set_value_ref(zval *field) {
-	if (Z_TYPE_P(field) == IS_STRING) {
-		Z_ADDREF_P(field);
-	}
-}
-
 void array_to_string(zval *array, char **result)
 {
     zval *value;
@@ -69,7 +63,6 @@ void array_to_string(zval *array, char **result)
     *result = str_init(ZSTR_VAL(field_str.s));
     smart_str_free(&field_str);
 }/*}}}*/
-
 
 
 void gene_pdo_construct(zval *pdo_object, zval *dsn, zval *user, zval *pass, zval *options) /*{{{*/
@@ -117,6 +110,7 @@ void gene_pdo_error_code(zval *pdostatement_obj, zval *retval) /*{{{*/
     uint32_t param_count = 0;
     zval *params = NULL;
     call_user_function(NULL, pdostatement_obj, &function_name, retval, param_count, params);
+    zval_ptr_dtor(&function_name);
 }/*}}}*/
 
 void gene_pdo_error_info(zval *pdostatement_obj, zval *retval) /*{{{*/
@@ -126,6 +120,7 @@ void gene_pdo_error_info(zval *pdostatement_obj, zval *retval) /*{{{*/
     uint32_t param_count = 0;
     zval *params = NULL;
     call_user_function(NULL, pdostatement_obj, &function_name, retval, param_count, params);
+    zval_ptr_dtor(&function_name);
 }/*}}}*/
 
 void gene_pdo_exec(zval *pdo_object, char *sql, zval *retval) /*{{{*/
@@ -167,6 +162,23 @@ void gene_pdo_last_insert_id(zval *pdo_object, char *name, zval *retval) /*{{{*/
         call_user_function(NULL, pdo_object, &function_name, retval, param_count, params);
     }
     zval_ptr_dtor(&function_name);
+}/*}}}*/
+
+
+zend_bool show_sql_errors(zval *pdo_statement)
+{
+    zval retval;
+    gene_pdo_error_info(pdo_statement, &retval);
+    zval *sql_state = zend_hash_index_find(Z_ARRVAL(retval), 0);
+    zval *sql_code = zend_hash_index_find(Z_ARRVAL_P(&retval), 1);
+    zval *sql_info = zend_hash_index_find(Z_ARRVAL_P(&retval), 2);
+    if (!zend_string_equals(Z_STR_P(sql_state), strpprintf(0, "00000"))) {
+    	php_error_docref(NULL, E_ERROR, "SQL: %d %s", Z_LVAL_P(sql_code), Z_STRVAL_P(sql_info));
+    	zval_ptr_dtor(&retval);
+        return TRUE;
+    }
+    zval_ptr_dtor(&retval);
+    return FALSE;
 }/*}}}*/
 
 void gene_pdo_prepare(zval *pdo_object, char *sql, zval *retval) /*{{{ RETURN a PDOStatement */
@@ -301,7 +313,7 @@ zend_bool gene_pdo_execute (zval *self, zval *statement)
 	smart_str_0(&sql);
 	gene_pdo_prepare(pdo_object, ZSTR_VAL(sql.s), statement);
 	smart_str_free(&sql);
-	if (statement != NULL) {
+	if (Z_TYPE_P(statement) == IS_OBJECT) {
 		params = zend_read_property(gene_db_ce, self, ZEND_STRL(GENE_DB_DATA), 1, NULL);
 		//execute
 		gene_pdo_statement_execute(statement, params, &retval);
@@ -450,7 +462,7 @@ void gene_insert_field_value (zval *fields, smart_str *field_str, smart_str *val
         smart_str_appends(value_str, "?");
         smart_str_appends(field_str, "`");
     	add_next_index_zval(field_value, value);
-    	set_value_ref(value);
+    	Z_TRY_ADDREF_P(value);
     } ZEND_HASH_FOREACH_END();
     smart_str_0(field_str);
     smart_str_0(value_str);
@@ -479,7 +491,7 @@ void gene_insert_field_value_batch (zval *fields, smart_str *field_str, smart_st
         smart_str_appends(value_str, "?");
         smart_str_appends(field_str, "`");
         add_next_index_zval(field_value, value);
-        set_value_ref(value);
+        Z_TRY_ADDREF_P(value);
     } ZEND_HASH_FOREACH_END();
     smart_str_appends(value_str, ")");
     smart_str_0(field_str);
@@ -498,7 +510,7 @@ void gene_insert_field_value_batch_other (zval *fields, smart_str *value_str, zv
     	}
         smart_str_appends(value_str, "?");
         add_next_index_zval(field_value, value);
-        set_value_ref(value);
+        Z_TRY_ADDREF_P(value);
     } ZEND_HASH_FOREACH_END();
     smart_str_appends(value_str, ")");
     smart_str_0(value_str);
@@ -524,7 +536,7 @@ void gene_update_field_value (zval *fields, smart_str *field_str, zval *field_va
         }
         smart_str_appends(field_str, "`=?");
     	add_next_index_zval(field_value, value);
-    	set_value_ref(value);
+    	Z_TRY_ADDREF_P(value);
     } ZEND_HASH_FOREACH_END();
     smart_str_0(field_str);
 }
@@ -673,7 +685,7 @@ PHP_METHOD(gene_db, where)
     		if (Z_TYPE_P(data) == IS_ARRAY) {
     			ZEND_HASH_FOREACH_VAL(Z_ARRVAL_P(fields), value) {
     				add_next_index_zval(data, value);
-    				set_value_ref(value);
+    				Z_TRY_ADDREF_P(value);
     			} ZEND_HASH_FOREACH_END();
     		} else {
     			gene_memory_zval_local(&params, fields);
@@ -689,11 +701,11 @@ PHP_METHOD(gene_db, where)
     	case IS_NULL:
     		if (Z_TYPE_P(data) == IS_ARRAY) {
     			add_next_index_zval(data, fields);
-    			set_value_ref(fields);
+    			Z_TRY_ADDREF_P(fields);
     		} else {
             	array_init(&params);
             	add_next_index_zval(&params, fields);
-            	set_value_ref(fields);
+            	Z_TRY_ADDREF_P(fields);
             	zend_update_property(gene_db_ce, self, ZEND_STRL(GENE_DB_DATA), &params);
             	zval_ptr_dtor(&params);
     		}
@@ -746,7 +758,7 @@ PHP_METHOD(gene_db, in)
     					pre = 1;
     				}
     				add_next_index_zval(data, value);
-    				set_value_ref(value);
+    				Z_TRY_ADDREF_P(value);
     			} ZEND_HASH_FOREACH_END();
     		} else {
     			ZEND_HASH_FOREACH_VAL(Z_ARRVAL_P(fields), value) {
@@ -776,11 +788,11 @@ PHP_METHOD(gene_db, in)
     		smart_str_appends(&field_str, in_tmp);
     		if (Z_TYPE_P(data) == IS_ARRAY) {
     			add_next_index_zval(data, fields);
-    			set_value_ref(fields);
+    			Z_TRY_ADDREF_P(fields);
     		} else {
             	array_init(&params);
             	add_next_index_zval(&params, fields);
-            	set_value_ref(fields);
+            	Z_TRY_ADDREF_P(fields);
             	zend_update_property(gene_db_ce, self, ZEND_STRL(GENE_DB_DATA), &params);
             	zval_ptr_dtor(&params);
     		}
@@ -825,11 +837,11 @@ PHP_METHOD(gene_db, sql)
     		if (Z_TYPE_P(data) == IS_ARRAY) {
     			ZEND_HASH_FOREACH_VAL(Z_ARRVAL_P(fields), value) {
     				add_next_index_zval(data, value);
-    				set_value_ref(value);
+    				Z_TRY_ADDREF_P(value);
     			} ZEND_HASH_FOREACH_END();
     		} else {
     			gene_memory_zval_local(&params, fields);
-    			set_value_ref(fields);
+    			Z_TRY_ADDREF_P(fields);
     			zend_update_property(gene_db_ce, self, ZEND_STRL(GENE_DB_DATA), &params);
     			zval_ptr_dtor(&params);
     		}
@@ -842,11 +854,11 @@ PHP_METHOD(gene_db, sql)
     	case IS_NULL:
     		if (Z_TYPE_P(data) == IS_ARRAY) {
     			add_next_index_zval(data, fields);
-    			set_value_ref(fields);
+    			Z_TRY_ADDREF_P(fields);
     		} else {
             	array_init(&params);
             	add_next_index_zval(&params, fields);
-            	set_value_ref(fields);
+            	Z_TRY_ADDREF_P(fields);
             	zend_update_property(gene_db_ce, self, ZEND_STRL(GENE_DB_DATA), &params);
             	zval_ptr_dtor(&params);
     		}
@@ -927,9 +939,10 @@ PHP_METHOD(gene_db, all)
 	zval statement, retval;
 	if (gene_pdo_execute(self, &statement)) {
 		gene_pdo_statement_fetch_all(&statement, &retval);
+		zval_ptr_dtor(&statement);
+		RETURN_ZVAL(&retval, 1, 1);
 	}
-	zval_ptr_dtor(&statement);
-	RETURN_ZVAL(&retval, 1, 1);
+	RETURN_NULL();
 }
 /* }}} */
 
@@ -943,9 +956,10 @@ PHP_METHOD(gene_db, row)
 	zval statement, retval;
 	if (gene_pdo_execute(self, &statement)) {
 		gene_pdo_statement_fetch(&statement, &retval);
+		zval_ptr_dtor(&statement);
+		RETURN_ZVAL(&retval, 1, 1);
 	}
-	zval_ptr_dtor(&statement);
-	RETURN_ZVAL(&retval, 1, 1);
+	RETURN_NULL();
 }
 /* }}} */
 
@@ -959,9 +973,10 @@ PHP_METHOD(gene_db, cell)
 	zval statement, retval;
 	if (gene_pdo_execute(self, &statement)) {
 		gene_pdo_statement_fetch_column(&statement, &retval);
+		zval_ptr_dtor(&statement);
+		RETURN_ZVAL(&retval, 1, 1);
 	}
-	zval_ptr_dtor(&statement);
-	RETURN_ZVAL(&retval, 1, 1);
+	RETURN_NULL();
 }
 /* }}} */
 
@@ -976,9 +991,10 @@ PHP_METHOD(gene_db, lastId)
 	pdo_object = zend_read_property(gene_db_ce, self, ZEND_STRL(GENE_DB_PDO), 1, NULL);
 	if (gene_pdo_execute(self, &statement)) {
 		gene_pdo_last_insert_id(pdo_object, NULL, &retval);
+		zval_ptr_dtor(&statement);
+		RETURN_ZVAL(&retval, 1, 1);
 	}
-	zval_ptr_dtor(&statement);
-	RETURN_ZVAL(&retval, 1, 1);
+	RETURN_NULL();
 }
 /* }}} */
 
@@ -991,9 +1007,10 @@ PHP_METHOD(gene_db, affectedRows)
 	zval statement, retval;
 	if (gene_pdo_execute(self, &statement)) {
 		gene_pdo_statement_row_count(&statement, &retval);
+		zval_ptr_dtor(&statement);
+		RETURN_ZVAL(&retval, 1, 1);
 	}
-	zval_ptr_dtor(&statement);
-	RETURN_ZVAL(&retval, 1, 1);
+	RETURN_NULL();
 }
 /* }}} */
 
