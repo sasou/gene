@@ -23,6 +23,7 @@
 #include "php_gene.h"
 #include "ext/session/php_session.h"
 #include "gene_session.h"
+#include "gene_common.h"
 
 zend_class_entry * gene_session_ce;
 
@@ -76,6 +77,132 @@ void gene_session_commit() /*{{{*/
 }/*}}}*/
 
 
+/** {{{ zval * gene_session_get_by_path(char *path TSRMLS_DC)
+ */
+zval * gene_session_get_by_path(char *path TSRMLS_DC) {
+	char *ptr = NULL, *seg = NULL;
+	zval *tmp = NULL;
+	zval *sess = NULL;
+
+	sess = zend_hash_str_find(&EG(symbol_table), ZEND_STRL("_SESSION"));
+	if (sess) {
+		tmp = Z_REFVAL_P(sess);
+		if (path != NULL) {
+			seg = php_strtok_r(path, "/", &ptr);
+			while (seg) {
+				if (Z_TYPE_P(tmp) != IS_ARRAY) {
+					return NULL;
+				}
+				tmp = zend_symtable_str_find(Z_ARRVAL_P(tmp), seg, strlen(seg));
+				if (tmp == NULL) {
+					return NULL;
+				}
+				seg = php_strtok_r(NULL, "/", &ptr);
+			}
+		}
+		return tmp;
+	}
+	return NULL;
+}
+/* }}} */
+
+/** {{{ static zval * gene_session_set_val(char *keyString, int keyString_len TSRMLS_DC)
+ */
+static zval * gene_session_set_val(zval *val, char *keyString, int keyString_len, zval *zvalue TSRMLS_DC) {
+	zval tmp, *copyval;
+	if (val == NULL) {
+		return NULL;
+	}
+
+	if (zvalue == NULL) {
+		copyval = zend_symtable_str_find(Z_ARRVAL_P(val), keyString, keyString_len);
+		if (copyval == NULL) {
+			array_init(&tmp);
+			copyval = zend_symtable_str_update(Z_ARRVAL_P(val), keyString, keyString_len, &tmp);
+			zval_ptr_dtor(&tmp);
+		} else {
+			if (Z_TYPE_P(copyval) != IS_ARRAY) {
+				array_init(&tmp);
+				copyval = zend_symtable_str_update(Z_ARRVAL_P(val), keyString, keyString_len, &tmp);
+				zval_ptr_dtor(&tmp);
+			}
+		}
+	} else {
+		copyval = zend_symtable_str_update(Z_ARRVAL_P(val), keyString, keyString_len, zvalue);
+	}
+	return copyval;
+}
+/* }}} */
+
+/** {{{ void gene_session_set_by_path(char *path, zval *zvalue TSRMLS_DC)
+ */
+void gene_session_set_by_path(char *path, zval *zvalue TSRMLS_DC) {
+	char *ptr = NULL, *seg = NULL;
+	zval *tmp;
+	zval *sess = NULL, ret;
+	sess = zend_hash_str_find(&EG(symbol_table), ZEND_STRL("_SESSION"));
+	if (sess == NULL) {
+		array_init(&ret);
+		zend_symtable_str_update(GENE_G(cache), ZEND_STRL("_SESSION"), &ret);
+		tmp = &ret;
+		seg = php_strtok_r(path, "/", &ptr);
+		while (seg) {
+			if (ptr && strlen(ptr) > 0) {
+				tmp = gene_session_set_val(tmp, seg, strlen(seg), NULL);
+			} else {
+				tmp = gene_session_set_val(tmp, seg, strlen(seg), zvalue);
+				Z_TRY_ADDREF_P(zvalue);
+			}
+			seg = php_strtok_r(NULL, "/", &ptr);
+		}
+		zval_ptr_dtor(&ret);
+	} else {
+		tmp = Z_REFVAL_P(sess);
+		seg = php_strtok_r(path, "/", &ptr);
+		while (seg) {
+			if (ptr && strlen(ptr) > 0) {
+				tmp = gene_session_set_val(tmp, seg, strlen(seg), NULL);
+			} else {
+				tmp = gene_session_set_val(tmp, seg, strlen(seg), zvalue);
+				Z_TRY_ADDREF_P(zvalue);
+			}
+			seg = php_strtok_r(NULL, "/", &ptr);
+		}
+	}
+	return;
+}
+/* }}} */
+
+/** {{{ zval * gene_session_del_by_path(char *path TSRMLS_DC)
+ */
+zend_bool gene_session_del_by_path(char *path TSRMLS_DC) {
+	char *ptr = NULL, *seg = NULL;
+	zval *tmp = NULL;
+	zval *sess = NULL;
+
+	sess = zend_hash_str_find(&EG(symbol_table), ZEND_STRL("_SESSION"));
+	if (sess) {
+		tmp = Z_REFVAL_P(sess);
+		if (path != NULL) {
+			seg = php_strtok_r(path, "/", &ptr);
+			while (seg) {
+				if (Z_TYPE_P(tmp) != IS_ARRAY) {
+					return 0;
+				}
+				if (ptr && strlen(ptr) > 0) {
+					tmp = zend_symtable_str_find(Z_ARRVAL_P(tmp), seg, strlen(seg));
+				} else {
+					return zend_symtable_str_del(Z_ARRVAL_P(tmp), seg, strlen(seg));
+				}
+				seg = php_strtok_r(NULL, "/", &ptr);
+			}
+		}
+		return 0;
+	}
+	return 0;
+}
+/* }}} */
+
 /*
  * {{{ gene_session
  */
@@ -89,31 +216,37 @@ PHP_METHOD(gene_session, __construct) {
  */
 PHP_METHOD(gene_session, get) {
 	zend_string *name = NULL;
-	zval *ret, *sess = NULL;
+	zval *sess = NULL;
+	char *path = NULL;
 	if (zend_parse_parameters(ZEND_NUM_ARGS()TSRMLS_CC, "|S", &name) == FAILURE) {
 		return;
 	}
 	if (gene_session_status() != 2) {
 		gene_session_start();
 	}
-	sess = zend_hash_str_find(&EG(symbol_table), ZEND_STRL("_SESSION"));
 	if (name) {
-		ret = zend_hash_find(Z_ARRVAL_P(Z_REFVAL_P(sess)), name);
-		if (ret) {
-			RETURN_ZVAL(ret, 1, 0);
-		}
-		RETURN_NULL();
+		spprintf(&path, 0, "%s", ZSTR_VAL(name));
+		replaceAll(path, '.', '/');
+	}
+
+	sess = gene_session_get_by_path(path TSRMLS_CC);
+	if (path) {
+		efree(path);
 	}
 	gene_session_commit();
-	RETURN_ZVAL(sess, 1, 0);
+	if (sess) {
+		RETURN_ZVAL(sess, 1, 0);
+	}
+	RETURN_NULL();
 }
 /* }}} */
 
 /** {{{ public static gene_session::set($name, $value)
  */
 PHP_METHOD(gene_session, set) {
-	zval *value,*sess = NULL;
+	zval *value;
 	zend_string *name;
+	char *path = NULL;
 
 	if (zend_parse_parameters(ZEND_NUM_ARGS()TSRMLS_CC, "Sz", &name, &value) == FAILURE) {
 		return;
@@ -121,14 +254,16 @@ PHP_METHOD(gene_session, set) {
 	if (gene_session_status() != 2) {
 		gene_session_start();
 	}
-	sess = zend_hash_str_find(&EG(symbol_table), ZEND_STRL("_SESSION"));
-	if (name && zend_hash_update(Z_ARRVAL_P(Z_REFVAL_P(sess)), name, value) != NULL) {
-		Z_TRY_ADDREF_P(value);
-		gene_session_commit();
-		RETURN_TRUE;
+	if (name) {
+		spprintf(&path, 0, "%s", ZSTR_VAL(name));
+		replaceAll(path, '.', '/');
+	}
+	gene_session_set_by_path(path, value TSRMLS_CC);
+	if (path) {
+		efree(path);
 	}
 	gene_session_commit();
-	RETURN_FALSE;
+	RETURN_TRUE;
 }
 /* }}} */
 
@@ -136,18 +271,20 @@ PHP_METHOD(gene_session, set) {
  */
 PHP_METHOD(gene_session, del) {
 	zend_string *name;
-	zval *sess = NULL;
-
+	char *path = NULL;
 	if (zend_parse_parameters(ZEND_NUM_ARGS()TSRMLS_CC, "S", &name) == FAILURE) {
 		return;
 	}
 	if (gene_session_status() != 2) {
 		gene_session_start();
 	}
-	sess = zend_hash_str_find(&EG(symbol_table), ZEND_STRL("_SESSION"));
-	if (sess && zend_hash_del(Z_ARRVAL_P(Z_REFVAL_P(sess)), name) == SUCCESS) {
-		gene_session_commit();
-		RETURN_TRUE;
+	if (name) {
+		spprintf(&path, 0, "%s", ZSTR_VAL(name));
+		replaceAll(path, '.', '/');
+	}
+	gene_session_del_by_path(path TSRMLS_CC);
+	if (path) {
+		efree(path);
 	}
 	gene_session_commit();
 	RETURN_FALSE;
