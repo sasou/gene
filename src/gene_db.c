@@ -175,10 +175,10 @@ zend_bool show_sql_errors(zval *pdo_statement)
     if (!zend_string_equals(Z_STR_P(sql_state), strpprintf(0, "00000"))) {
     	php_error_docref(NULL, E_ERROR, "SQL: %d %s", Z_LVAL_P(sql_code), Z_STRVAL_P(sql_info));
     	zval_ptr_dtor(&retval);
-        return TRUE;
+        return 1;
     }
     zval_ptr_dtor(&retval);
-    return FALSE;
+    return 0;
 }/*}}}*/
 
 void gene_pdo_prepare(zval *pdo_object, char *sql, zval *retval) /*{{{ RETURN a PDOStatement */
@@ -354,10 +354,12 @@ PHP_METHOD(gene_db, __construct)
     	options = zend_hash_str_find(config->value.arr, ZEND_STRL("options"));
         if (options == NULL) {
         	array_init(&option);
+        	add_index_long(&option, 3, 2);
         	add_index_long(&option, 19, 2);
         	gene_pdo_construct(&pdo_object, dsn, user, pass, &option);
         	zval_ptr_dtor(&option);
         } else {
+        	add_index_long(options, 3, 2);
         	add_index_long(options, 19, 2);
         	gene_pdo_construct(&pdo_object, dsn, user, pass, options);
         }
@@ -827,7 +829,7 @@ PHP_METHOD(gene_db, sql)
 	reset_sql_params(self);
     if (sql_len) {
         spprintf(&pdo_sql, 0, "%s", sql);
-        zend_update_property_string(gene_db_ce, self, ZEND_STRL(GENE_DB_WHERE), pdo_sql);
+        zend_update_property_string(gene_db_ce, self, ZEND_STRL(GENE_DB_SQL), pdo_sql);
         efree(pdo_sql);
     }
     if (fields) {
