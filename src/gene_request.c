@@ -88,8 +88,7 @@ zval * request_query(int type, char * name, int len TSRMLS_DC) {
 	if (len <= 0) {
 		return carrier;
 	}
-	if ((ret = zend_hash_str_find(Z_ARRVAL_P(carrier), (char *) name, len))
-			== NULL) {
+	if ((ret = zend_hash_str_find(Z_ARRVAL_P(carrier), (char *) name, len)) == NULL) {
 		return NULL;
 	}
 	return ret;
@@ -100,11 +99,10 @@ zval * request_query(int type, char * name, int len TSRMLS_DC) {
  */
 PHP_METHOD(gene_request, __construct) {
 	long debug = 0;
-	if (zend_parse_parameters(ZEND_NUM_ARGS()TSRMLS_CC, "|l", &debug)
-			== FAILURE) {
-		RETURN_NULL()
-		;
+	if (zend_parse_parameters(ZEND_NUM_ARGS()TSRMLS_CC, "|l", &debug) == FAILURE) {
+		return;
 	}
+	RETURN_NULL();
 }
 /* }}} */
 
@@ -181,16 +179,11 @@ GENE_REQUEST_IS_METHOD(gene_request, Cli);
 /** {{{ public gene_request::isAjax()
  */
 PHP_METHOD(gene_request, isAjax) {
-	zval *header = request_query(TRACK_VARS_SERVER,
-			ZEND_STRL("HTTP_X_REQUESTED_WITH") TSRMLS_CC);
-	if (header && Z_TYPE_P(header) == IS_STRING
-			&& strncasecmp("XMLHttpRequest", Z_STRVAL_P(header),
-					Z_STRLEN_P(header)) == 0) {
-		RETURN_TRUE
-		;
+	zval *header = request_query(TRACK_VARS_SERVER, ZEND_STRL("HTTP_X_REQUESTED_WITH") TSRMLS_CC);
+	if (header && Z_TYPE_P(header) == IS_STRING && strncasecmp("XMLHttpRequest", Z_STRVAL_P(header), Z_STRLEN_P(header)) == 0) {
+		RETURN_TRUE;
 	}
-	RETURN_FALSE
-	;
+	RETURN_FALSE;
 }
 /* }}} */
 
@@ -201,8 +194,7 @@ PHP_METHOD(gene_request, getMethod) {
 	if (GENE_G(method)) {
 		RETURN_STRING(GENE_G(method));
 	}
-	RETURN_NULL()
-	;
+	RETURN_NULL();
 }
 /* }}} */
 
@@ -212,8 +204,7 @@ PHP_METHOD(gene_request, getMethod) {
 PHP_METHOD(gene_request, urlParams) {
 	zval *cache = NULL;
 	zend_string *keyString = NULL;
-	if (zend_parse_parameters(ZEND_NUM_ARGS()TSRMLS_CC, "|S", &keyString)
-			== FAILURE) {
+	if (zend_parse_parameters(ZEND_NUM_ARGS()TSRMLS_CC, "|S", &keyString) == FAILURE) {
 		return;
 	}
 	cache = gene_memory_get_by_config(PHP_GENE_URL_PARAMS, strlen(PHP_GENE_URL_PARAMS), ZSTR_VAL(keyString) TSRMLS_CC);
@@ -255,8 +246,7 @@ zend_function_entry gene_request_methods[] = {
  */
 GENE_MINIT_FUNCTION(request) {
 	zend_class_entry gene_request;
-	GENE_INIT_CLASS_ENTRY(gene_request, "Gene_Request", "Gene\\Request",
-			gene_request_methods);
+	GENE_INIT_CLASS_ENTRY(gene_request, "Gene_Request", "Gene\\Request", gene_request_methods);
 	gene_request_ce = zend_register_internal_class(&gene_request TSRMLS_CC);
 
 	//

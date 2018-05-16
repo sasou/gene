@@ -23,6 +23,8 @@
 #include "main/SAPI.h"
 #include "Zend/zend_API.h"
 #include "zend_exceptions.h"
+#include "Zend/zend_smart_str.h"
+#include "Zend/zend_interfaces.h"
 
 #include "php_gene.h"
 #include "gene_application.h"
@@ -45,8 +47,7 @@ ZEND_BEGIN_ARG_INFO_EX(gene_controller_void_arginfo, 0, 0, 0) ZEND_END_ARG_INFO(
  */
 PHP_METHOD(gene_controller, __construct) {
 	int debug = 0;
-	if (zend_parse_parameters(ZEND_NUM_ARGS()TSRMLS_CC, "|l", &debug)
-			== FAILURE) {
+	if (zend_parse_parameters(ZEND_NUM_ARGS()TSRMLS_CC, "|l", &debug) == FAILURE) {
 		RETURN_NULL();
 	}
 	gene_ini_router(TSRMLS_C);
@@ -127,16 +128,11 @@ GENE_REQUEST_IS_METHOD(gene_controller, Cli);
 /** {{{ proto public gene_controller::isAjax()
  */
 PHP_METHOD(gene_controller, isAjax) {
-	zval *header = request_query(TRACK_VARS_SERVER,
-			ZEND_STRL("HTTP_X_REQUESTED_WITH") TSRMLS_CC);
-	if (header && Z_TYPE_P(header) == IS_STRING
-			&& strncasecmp("XMLHttpRequest", Z_STRVAL_P(header),
-					Z_STRLEN_P(header)) == 0) {
-		RETURN_TRUE
-		;
+	zval *header = request_query(TRACK_VARS_SERVER, ZEND_STRL("HTTP_X_REQUESTED_WITH") TSRMLS_CC);
+	if (header && Z_TYPE_P(header) == IS_STRING && strncasecmp("XMLHttpRequest", Z_STRVAL_P(header), Z_STRLEN_P(header)) == 0) {
+		RETURN_TRUE;
 	}
-	RETURN_FALSE
-	;
+	RETURN_FALSE;
 }
 /* }}} */
 
@@ -147,8 +143,7 @@ PHP_METHOD(gene_controller, getMethod) {
 	if (GENE_G(method)) {
 		RETURN_STRING(GENE_G(method));
 	}
-	RETURN_NULL()
-	;
+	RETURN_NULL();
 }
 /* }}} */
 
@@ -158,12 +153,10 @@ PHP_METHOD(gene_controller, getMethod) {
 PHP_METHOD(gene_controller, urlParams) {
 	zval *cache = NULL;
 	zend_string *keyString = NULL;
-	if (zend_parse_parameters(ZEND_NUM_ARGS()TSRMLS_CC, "|S", &keyString)
-			== FAILURE) {
+	if (zend_parse_parameters(ZEND_NUM_ARGS()TSRMLS_CC, "|S", &keyString) == FAILURE) {
 		return;
 	}
-	cache = gene_memory_get_by_config(PHP_GENE_URL_PARAMS,
-			strlen(PHP_GENE_URL_PARAMS), ZSTR_VAL(keyString) TSRMLS_CC);
+	cache = gene_memory_get_by_config(PHP_GENE_URL_PARAMS, strlen(PHP_GENE_URL_PARAMS), ZSTR_VAL(keyString) TSRMLS_CC);
 	if (cache) {
 		ZVAL_COPY_VALUE(return_value, cache);
 		return;
@@ -243,6 +236,97 @@ PHP_METHOD(gene_controller, containsExt) {
 }
 /* }}} */
 
+/** {{{ proto public gene_controller::success(string $text, int $code)
+ */
+PHP_METHOD(gene_controller, success) {
+	zend_string *text;
+	zend_long code = 200;
+	zval ret;
+
+	if (zend_parse_parameters(ZEND_NUM_ARGS()TSRMLS_CC, "S|l", &text, &code) == FAILURE) {
+		return;
+	}
+	array_init(&ret);
+	add_assoc_long_ex(&ret, ZEND_STRL(GENE_RESPONSE_CODE), code);
+	add_assoc_str_ex(&ret, ZEND_STRL(GENE_RESPONSE_MSG), text);
+	RETURN_ZVAL(&ret, 1, 1);
+}
+/* }}} */
+
+
+/** {{{ proto public gene_controller::error(string $text, int $code)
+ */
+PHP_METHOD(gene_controller, error) {
+	zend_string *text;
+	zend_long code = 400;
+	zval ret;
+
+	if (zend_parse_parameters(ZEND_NUM_ARGS()TSRMLS_CC, "S|l", &text, &code) == FAILURE) {
+		return;
+	}
+	array_init(&ret);
+	add_assoc_long_ex(&ret, ZEND_STRL(GENE_RESPONSE_CODE), code);
+	add_assoc_str_ex(&ret, ZEND_STRL(GENE_RESPONSE_MSG), text);
+	RETURN_ZVAL(&ret, 1, 1);
+}
+/* }}} */
+
+/** {{{ proto public gene_controller::data(mixed $data, int $count,string $text, int $code)
+ */
+PHP_METHOD(gene_controller, data) {
+	zval *data = NULL;
+	zend_long count = 0;
+	zend_string *text = NULL;
+	zend_long code = 200;
+	zval ret;
+
+	if (zend_parse_parameters(ZEND_NUM_ARGS()TSRMLS_CC, "z|lSl", &data, &count, &text, &code) == FAILURE) {
+		return;
+	}
+	array_init(&ret);
+	add_assoc_long_ex(&ret, ZEND_STRL(GENE_RESPONSE_CODE), code);
+	add_assoc_str_ex(&ret, ZEND_STRL(GENE_RESPONSE_MSG), text);
+	add_assoc_zval_ex(&ret, ZEND_STRL(GENE_RESPONSE_DATA), data);
+	add_assoc_long_ex(&ret, ZEND_STRL(GENE_RESPONSE_COUNT), count);
+	RETURN_ZVAL(&ret, 1, 1);
+}
+/* }}} */
+
+
+/** {{{ proto public gene_controller::json(array $json, int $code)
+ */
+PHP_METHOD(gene_controller, json) {
+	zval *data = NULL;
+	zend_string *callback = NULL;
+	zend_long code = 256;
+    zval ret;
+    zval json_opt;
+    zend_long callback_len = 0;
+
+	if (zend_parse_parameters(ZEND_NUM_ARGS()TSRMLS_CC, "z|sl", &data, &callback, &callback_len, &code) == FAILURE) {
+		return;
+	}
+	ZVAL_LONG(&json_opt, code);
+	zend_call_method_with_2_params(NULL, NULL, NULL, "json_encode", &ret, data, &json_opt);
+	zval_ptr_dtor(&json_opt);
+	if (Z_TYPE(ret) == IS_STRING) {
+		if (callback_len) {
+			php_write(callback, callback_len);
+			php_write(ZEND_STRL("("));
+		}
+		php_write(Z_STRVAL(ret), Z_STRLEN(ret));
+		if (callback_len) {
+			php_write(ZEND_STRL(")"));
+		}
+		zval_ptr_dtor(&ret);
+		RETURN_TRUE;
+	}
+    zval_ptr_dtor(&ret);
+    RETURN_FALSE;
+}
+/* }}} */
+
+
 /*
  * {{{ gene_controller_methods
  */
@@ -269,6 +353,10 @@ zend_function_entry gene_controller_methods[] = {
 	PHP_ME(gene_controller, displayExt, NULL, ZEND_ACC_PUBLIC)
 	PHP_ME(gene_controller, contains, NULL, ZEND_ACC_PUBLIC|ZEND_ACC_STATIC)
 	PHP_ME(gene_controller, containsExt, NULL, ZEND_ACC_PUBLIC|ZEND_ACC_STATIC)
+	PHP_ME(gene_controller, success, NULL, ZEND_ACC_PUBLIC|ZEND_ACC_STATIC)
+	PHP_ME(gene_controller, error, NULL, ZEND_ACC_PUBLIC|ZEND_ACC_STATIC)
+	PHP_ME(gene_controller, data, NULL, ZEND_ACC_PUBLIC|ZEND_ACC_STATIC)
+	PHP_ME(gene_controller, json, NULL, ZEND_ACC_PUBLIC|ZEND_ACC_STATIC)
 	PHP_ME(gene_controller, __construct, NULL, ZEND_ACC_PUBLIC|ZEND_ACC_CTOR)
 	{ NULL, NULL, NULL }
 };

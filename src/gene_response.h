@@ -16,6 +16,10 @@
 
 #ifndef GENE_RESPONSE_H
 #define GENE_RESPONSE_H
+#define GENE_RESPONSE_CODE "code"
+#define GENE_RESPONSE_MSG  "msg"
+#define GENE_RESPONSE_DATA  "data"
+#define GENE_RESPONSE_COUNT  "count"
 
 extern zend_class_entry *gene_response_ce;
 
