@@ -43,14 +43,44 @@ ZEND_END_ARG_INFO()
 /* }}} */
 
 
+void gene_session_start() /*{{{*/
+{
+    zval function_name,ret;
+    ZVAL_STRING(&function_name, "session_start");
+    call_user_function(NULL, NULL, &function_name, &ret, 0, NULL);
+    zval_ptr_dtor(&function_name);
+    zval_ptr_dtor(&ret);
+}/*}}}*/
+
+int gene_session_status() /*{{{*/
+{
+    zval function_name,ret;
+    zend_long type = 0;
+    ZVAL_STRING(&function_name, "session_status");
+    call_user_function(NULL, NULL, &function_name, &ret, 0, NULL);
+    zval_ptr_dtor(&function_name);
+    if (Z_TYPE(ret) == IS_LONG) {
+    	type = Z_LVAL(ret);
+    }
+    zval_ptr_dtor(&ret);
+    return type;
+}/*}}}*/
+
+void gene_session_commit() /*{{{*/
+{
+    zval function_name,ret;
+    ZVAL_STRING(&function_name, "session_commit");
+    call_user_function(NULL, NULL, &function_name, &ret, 0, NULL);
+    zval_ptr_dtor(&function_name);
+    zval_ptr_dtor(&ret);
+}/*}}}*/
+
+
 /*
  * {{{ gene_session
  */
 PHP_METHOD(gene_session, __construct) {
-	long debug = 0;
-	if (zend_parse_parameters(ZEND_NUM_ARGS()TSRMLS_CC, "|l", &debug) == FAILURE) {
-		RETURN_NULL();
-	}
+
 }
 /* }}} */
 
@@ -59,49 +89,46 @@ PHP_METHOD(gene_session, __construct) {
  */
 PHP_METHOD(gene_session, get) {
 	zend_string *name = NULL;
+	zval *ret, *sess = NULL;
 	if (zend_parse_parameters(ZEND_NUM_ARGS()TSRMLS_CC, "|S", &name) == FAILURE) {
-		WRONG_PARAM_COUNT;
-	} else {
-		zval *ret, *sess = NULL;
-		sess = zend_hash_str_find(&EG(symbol_table), ZEND_STRL("_SESSION"));
-		if (sess == NULL || Z_TYPE_P(sess) != IS_REFERENCE || Z_TYPE_P(Z_REFVAL_P(sess)) != IS_ARRAY) {
-			php_error_docref(NULL TSRMLS_CC, E_WARNING, "Session is not started");
-			RETURN_NULL();
-		}
-		if (name) {
-			ret = zend_hash_find(Z_ARRVAL_P(Z_REFVAL_P(sess)), name);
-			if (ret) {
-				RETURN_ZVAL(ret, 1, 0);
-			}
-			RETURN_NULL();
-		}
-		RETURN_ZVAL(sess, 1, 0);
+		return;
 	}
+	if (gene_session_status() != 2) {
+		gene_session_start();
+	}
+	sess = zend_hash_str_find(&EG(symbol_table), ZEND_STRL("_SESSION"));
+	if (name) {
+		ret = zend_hash_find(Z_ARRVAL_P(Z_REFVAL_P(sess)), name);
+		if (ret) {
+			RETURN_ZVAL(ret, 1, 0);
+		}
+		RETURN_NULL();
+	}
+	gene_session_commit();
+	RETURN_ZVAL(sess, 1, 0);
 }
 /* }}} */
 
 /** {{{ public static gene_session::set($name, $value)
  */
 PHP_METHOD(gene_session, set) {
-	zval *value;
+	zval *value,*sess = NULL;
 	zend_string *name;
+
 	if (zend_parse_parameters(ZEND_NUM_ARGS()TSRMLS_CC, "Sz", &name, &value) == FAILURE) {
 		return;
-	} else {
-		zval *sess = NULL;
-		sess = zend_hash_str_find(&EG(symbol_table), ZEND_STRL("_SESSION"));
-		if (sess == NULL || Z_TYPE_P(sess) != IS_REFERENCE || Z_TYPE_P(Z_REFVAL_P(sess)) != IS_ARRAY) {
-			php_error_docref(NULL TSRMLS_CC, E_WARNING, "Session is not started");
-			RETURN_NULL();
-		}
-
-		if (zend_hash_update(Z_ARRVAL_P(Z_REFVAL_P(sess)), name, value) != NULL) {
-			Z_TRY_ADDREF_P(value);
-			RETURN_TRUE;
-		}
 	}
-	RETURN_FALSE
-	;
+	if (gene_session_status() != 2) {
+		gene_session_start();
+	}
+	sess = zend_hash_str_find(&EG(symbol_table), ZEND_STRL("_SESSION"));
+	if (name && zend_hash_update(Z_ARRVAL_P(Z_REFVAL_P(sess)), name, value) != NULL) {
+		Z_TRY_ADDREF_P(value);
+		gene_session_commit();
+		RETURN_TRUE;
+	}
+	gene_session_commit();
+	RETURN_FALSE;
 }
 /* }}} */
 
@@ -109,20 +136,20 @@ PHP_METHOD(gene_session, set) {
  */
 PHP_METHOD(gene_session, del) {
 	zend_string *name;
+	zval *sess = NULL;
 
 	if (zend_parse_parameters(ZEND_NUM_ARGS()TSRMLS_CC, "S", &name) == FAILURE) {
 		return;
-	} else {
-		zval *sess = NULL;
-		sess = zend_hash_str_find(&EG(symbol_table), ZEND_STRL("_SESSION"));
-		if (sess == NULL || Z_TYPE_P(sess) != IS_REFERENCE || Z_TYPE_P(Z_REFVAL_P(sess)) != IS_ARRAY) {
-			php_error_docref(NULL TSRMLS_CC, E_WARNING, "Session is not started");
-			RETURN_NULL();
-		}
-		if (zend_hash_del(Z_ARRVAL_P(Z_REFVAL_P(sess)), name) == SUCCESS) {
-			RETURN_TRUE;
-		}
 	}
+	if (gene_session_status() != 2) {
+		gene_session_start();
+	}
+	sess = zend_hash_str_find(&EG(symbol_table), ZEND_STRL("_SESSION"));
+	if (sess && zend_hash_del(Z_ARRVAL_P(Z_REFVAL_P(sess)), name) == SUCCESS) {
+		gene_session_commit();
+		RETURN_TRUE;
+	}
+	gene_session_commit();
 	RETURN_FALSE;
 }
 /* }}} */
@@ -131,14 +158,15 @@ PHP_METHOD(gene_session, del) {
  */
 PHP_METHOD(gene_session, clear) {
 	zval *sess = NULL;
-	sess = zend_hash_str_find(&EG(symbol_table), ZEND_STRL("_SESSION"));
-	if (sess == NULL || Z_TYPE_P(sess) != IS_REFERENCE || Z_TYPE_P(Z_REFVAL_P(sess)) != IS_ARRAY) {
-		php_error_docref(NULL TSRMLS_CC, E_WARNING, "Session is not started");
-		RETURN_NULL();
+	if (gene_session_status() < 2) {
+		gene_session_start();
 	}
-	zend_hash_clean(Z_ARRVAL_P(Z_REFVAL_P(sess)));
-	RETURN_TRUE
-	;
+	sess = zend_hash_str_find(&EG(symbol_table), ZEND_STRL("_SESSION"));
+	if (sess) {
+		zend_hash_clean(Z_ARRVAL_P(Z_REFVAL_P(sess)));
+	}
+	gene_session_commit();
+	RETURN_TRUE;
 }
 /* }}} */
 
@@ -146,18 +174,21 @@ PHP_METHOD(gene_session, clear) {
  */
 PHP_METHOD(gene_session, has) {
 	zend_string *name;
+	zend_bool ret = 0;
+	zval *sess = NULL;
 
 	if (zend_parse_parameters(ZEND_NUM_ARGS()TSRMLS_CC, "S", &name) == FAILURE) {
 		return;
-	} else {
-		zval *sess = NULL;
-		sess = zend_hash_str_find(&EG(symbol_table), ZEND_STRL("_SESSION"));
-		if (sess == NULL || Z_TYPE_P(sess) != IS_REFERENCE || Z_TYPE_P(Z_REFVAL_P(sess)) != IS_ARRAY) {
-			php_error_docref(NULL TSRMLS_CC, E_WARNING, "Session is not started");
-			RETURN_NULL();
-		}
-		RETURN_BOOL(zend_hash_exists(Z_ARRVAL_P(Z_REFVAL_P(sess)), name));
 	}
+	if (gene_session_status() != 2) {
+		gene_session_start();
+	}
+	sess = zend_hash_str_find(&EG(symbol_table), ZEND_STRL("_SESSION"));
+	if (sess) {
+		ret = zend_hash_exists(Z_ARRVAL_P(Z_REFVAL_P(sess)), name);
+	}
+	gene_session_commit();
+	RETURN_BOOL(ret);
 
 }
 /* }}} */
