@@ -177,16 +177,13 @@ PHP_METHOD(gene_exception, doError) {
 	zend_string *msg, *file;
 	zval *params = NULL;
 	long code = 0, line = 0;
-	if (zend_parse_parameters(ZEND_NUM_ARGS()TSRMLS_CC, "lS|Slz", &code, &msg,
-			&file, &line, &params) == FAILURE) {
-		RETURN_NULL()
-		;
+	if (zend_parse_parameters(ZEND_NUM_ARGS()TSRMLS_CC, "lS|Slz", &code, &msg, &file, &line, &params) == FAILURE) {
+		RETURN_NULL();
 	}
 	if (GENE_G(gene_error) == 1) {
 		gene_trigger_error(code, "%s", ZSTR_VAL(msg));
 	}
-	RETURN_TRUE
-	;
+	RETURN_TRUE;
 }
 /* }}} */
 
