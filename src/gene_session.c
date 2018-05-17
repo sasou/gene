@@ -173,7 +173,7 @@ void gene_session_set_by_path(char *path, zval *zvalue TSRMLS_DC) {
 }
 /* }}} */
 
-/** {{{ zval * gene_session_del_by_path(char *path TSRMLS_DC)
+/** {{{ zend_bool gene_session_del_by_path(char *path TSRMLS_DC)
  */
 zend_bool gene_session_del_by_path(char *path TSRMLS_DC) {
 	char *ptr = NULL, *seg = NULL;
@@ -192,7 +192,7 @@ zend_bool gene_session_del_by_path(char *path TSRMLS_DC) {
 				if (ptr && strlen(ptr) > 0) {
 					tmp = zend_symtable_str_find(Z_ARRVAL_P(tmp), seg, strlen(seg));
 				} else {
-					return zend_symtable_str_del(Z_ARRVAL_P(tmp), seg, strlen(seg));
+					return zend_symtable_str_del(Z_ARRVAL_P(tmp), seg, strlen(seg)) == 0 ? 1 : 0;
 				}
 				seg = php_strtok_r(NULL, "/", &ptr);
 			}
@@ -272,6 +272,7 @@ PHP_METHOD(gene_session, set) {
 PHP_METHOD(gene_session, del) {
 	zend_string *name;
 	char *path = NULL;
+	zend_bool ret = 0;
 	if (zend_parse_parameters(ZEND_NUM_ARGS()TSRMLS_CC, "S", &name) == FAILURE) {
 		return;
 	}
@@ -282,12 +283,12 @@ PHP_METHOD(gene_session, del) {
 		spprintf(&path, 0, "%s", ZSTR_VAL(name));
 		replaceAll(path, '.', '/');
 	}
-	gene_session_del_by_path(path TSRMLS_CC);
+	ret = gene_session_del_by_path(path TSRMLS_CC);
 	if (path) {
 		efree(path);
 	}
 	gene_session_commit();
-	RETURN_FALSE;
+	RETURN_BOOL(ret);
 }
 /* }}} */
 
