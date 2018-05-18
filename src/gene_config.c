@@ -38,10 +38,8 @@ zend_class_entry * gene_config_ce;
 PHP_METHOD(gene_config, __construct) {
 	zval *safe = NULL;
 	int len = 0;
-	if (zend_parse_parameters(ZEND_NUM_ARGS()TSRMLS_CC, "|z", &safe)
-			== FAILURE) {
-		RETURN_NULL()
-		;
+	if (zend_parse_parameters(ZEND_NUM_ARGS()TSRMLS_CC, "|z", &safe) == FAILURE) {
+		RETURN_NULL();
 	}
 	if (safe) {
 		zend_update_property_string(gene_config_ce, getThis(), GENE_CONFIG_SAFE,
@@ -121,8 +119,7 @@ PHP_METHOD(gene_config, get) {
 		gene_memory_zval_local(return_value, cache);
 		return;
 	}
-	RETURN_NULL()
-	;
+	RETURN_NULL();
 }
 /* }}} */
 
@@ -148,8 +145,7 @@ PHP_METHOD(gene_config, del) {
 		;
 	}
 	efree(router_e);
-	RETURN_FALSE
-	;
+	RETURN_FALSE;
 }
 /* }}} */
 
@@ -201,8 +197,7 @@ GENE_MINIT_FUNCTION(config) {
 	gene_config_ce = zend_register_internal_class(&gene_config TSRMLS_CC);
 
 	//debug
-	zend_declare_property_string(gene_config_ce, GENE_CONFIG_SAFE,
-			strlen(GENE_CONFIG_SAFE), "", ZEND_ACC_PUBLIC TSRMLS_CC);
+	zend_declare_property_string(gene_config_ce, GENE_CONFIG_SAFE, strlen(GENE_CONFIG_SAFE), "", ZEND_ACC_PUBLIC TSRMLS_CC);
 
 	return SUCCESS;
 }
