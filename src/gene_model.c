@@ -185,6 +185,7 @@ PHP_METHOD(gene_model, __get)
 	zval *pzval = NULL, *props = NULL, obj, classObject, *class = NULL, *params = NULL, *cache = NULL, *instance = NULL, *reg = NULL, *entrys = NULL;
 	zend_string *name = NULL;
 	zend_bool type = 0;
+	zval local_params;
 
 	if (zend_parse_parameters(ZEND_NUM_ARGS(), "|S", &name) == FAILURE) {
 		return;
@@ -234,7 +235,8 @@ PHP_METHOD(gene_model, __get)
 							}
 						}
 					}
-					if (gene_factory(ZSTR_VAL(class->value.str), ZSTR_LEN(class->value.str), params, &classObject)) {
+					gene_memory_zval_local(&local_params, params);
+					if (gene_factory(ZSTR_VAL(class->value.str), ZSTR_LEN(class->value.str), &local_params, &classObject)) {
 						if (type) {
 							if (zend_hash_str_update(Z_ARRVAL_P(entrys), ZSTR_VAL(class->value.str), ZSTR_LEN(class->value.str), &classObject) != NULL) {
 								Z_TRY_ADDREF_P(&classObject);
@@ -242,9 +244,11 @@ PHP_METHOD(gene_model, __get)
 						}
 						if (zend_hash_update(Z_ARRVAL_P(props), name, &classObject) != NULL) {
 							Z_TRY_ADDREF_P(&classObject);
+							zval_ptr_dtor(&local_params);
 							RETURN_ZVAL(&classObject, 1, 0);
 						}
 					}
+					zval_ptr_dtor(&local_params);
 				}
 				RETURN_NULL();
 			}
