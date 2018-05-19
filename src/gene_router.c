@@ -69,6 +69,7 @@ int setMca(zend_string *key, char *val TSRMLS_DC) {
 			break;
 		case 'c':
 			GENE_G(controller) = str_init(val);
+			firstToUpper(GENE_G(controller));
 			break;
 		case 'a':
 			GENE_G(action) = str_init(val);

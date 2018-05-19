@@ -230,6 +230,7 @@ PHP_METHOD(gene_application, getRouterUri) {
 	if (GENE_G(action) != NULL) {
 		path = strreplace2(path, ":a", GENE_G(action));
 	}
+	strtolower(path);
 	RETVAL_STRING(path);
 }
 /* }}} */
