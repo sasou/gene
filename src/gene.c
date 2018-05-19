@@ -40,6 +40,7 @@
 #include "gene_view.h"
 #include "gene_exception.h"
 #include "gene_db.h"
+#include "gene_common.h"
 #include "gene_model.h"
 #include "gene_factory.h"
 #include "gene_benchmark.h"
@@ -64,6 +65,9 @@ static void php_gene_init_globals() {
 	GENE_G(method) = NULL;
 	GENE_G(path) = NULL;
 	GENE_G(router_path) = NULL;
+	GENE_G(module) = NULL;
+	GENE_G(controller) = NULL;
+	GENE_G(action) = NULL;
 	GENE_G(app_key) = NULL;
 	GENE_G(auto_load_fun) = NULL;
 	GENE_G(child_views) = NULL;
@@ -103,6 +107,18 @@ static void php_gene_close_globals() {
 	if (GENE_G(router_path)) {
 		efree(GENE_G(router_path));
 		GENE_G(router_path) = NULL;
+	}
+	if (GENE_G(module)) {
+		efree(GENE_G(module));
+		GENE_G(module) = NULL;
+	}
+	if (GENE_G(controller)) {
+		efree(GENE_G(controller));
+		GENE_G(controller) = NULL;
+	}
+	if (GENE_G(action)) {
+		efree(GENE_G(module));
+		GENE_G(module) = NULL;
 	}
 	if (GENE_G(auto_load_fun)) {
 		efree(GENE_G(auto_load_fun));
@@ -211,23 +227,35 @@ PHP_MINFO_FUNCTION(gene) {
 /* }}} */
 
 /*
- * {{{ gene_urlParams()
+ * {{{ gene_load()
  */
-PHP_FUNCTION(gene_urlParams) {
-	zval *ret = NULL, *val = NULL;
-	zend_string *keyString = NULL;
-	if (zend_parse_parameters(ZEND_NUM_ARGS()TSRMLS_CC, "|S", &keyString) == FAILURE) {
+PHP_FUNCTION(gene_call) {
+	char *class = NULL, *action = NULL;
+	zend_long class_len = 0, action_len = 0;
+	zval *params = NULL, classObject, ret;
+	if (zend_parse_parameters(ZEND_NUM_ARGS()TSRMLS_CC, "ssz", &class, &class_len, &action, &action_len, &params) == FAILURE) {
 		return;
 	}
-	ret = zend_symtable_str_find(&EG(symbol_table), "params", 6);
-	if (ret) {
-		if (keyString) {
-			val = zend_symtable_find(Z_ARRVAL_P(ret), keyString);
-			if (val) {
-				RETURN_ZVAL(val, 1, 0);
-			}
+	if (GENE_G(module) != NULL) {
+		class = strreplace2(class, ":m", GENE_G(module));
+	}
+	if (GENE_G(controller) != NULL) {
+		class = strreplace2(class, ":c", GENE_G(controller));
+	}
+	if (gene_factory(class, strlen(class), NULL, &classObject)) {
+		if (GENE_G(action) != NULL) {
+			action = strreplace2(action, ":a", GENE_G(action));
 		}
-		RETURN_ZVAL(ret, 1, 0);
+		if (Z_TYPE(classObject) == IS_OBJECT
+				&& zend_hash_str_exists(&(Z_OBJCE(classObject)->function_table), action, strlen(action))) {
+			gene_factory_call_action(&classObject, action, params, &ret);
+		} else {
+			php_error_docref(NULL, E_WARNING, "Unable to call method '%s' in class '%s'." , action, class);
+		}
+
+		RETURN_ZVAL(&ret, 1, 0);
+	} else {
+		php_error_docref(NULL, E_WARNING, "Unable to init calss '%s'." , class);
 	}
 	RETURN_NULL();
 }
@@ -246,7 +274,7 @@ PHP_FUNCTION(gene_version) {
  * Every user visible function must have an entry in gene_functions[].
  */
 zend_function_entry gene_functions[] = {
-	PHP_FE(gene_urlParams,NULL)
+	PHP_FE(gene_call,NULL)
 	PHP_FE(gene_version,NULL)
 	PHP_FE_END
 };
