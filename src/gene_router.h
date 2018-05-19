@@ -29,7 +29,7 @@
 #define GENE_ROUTER_CHIRD "chird/"
 #define GENE_ROUTER_CONTENT_B  "$gene_b=new %s;$gene_h=$gene_b->%s($params);if(isset($gene_h)&&($gene_h==0))return;"
 #define GENE_ROUTER_CONTENT_A  "$gene_a=new %s;$gene_a->%s($gene_mp);"
-#define GENE_ROUTER_CONTENT_M  "$obj=\"%s\";$gene_m=new $obj;$gene_mp=$gene_m->%s($params);"
+#define GENE_ROUTER_CONTENT_M  "$gene_mp=gene_call(\"%s\",\"%s\",$params);"
 #define GENE_ROUTER_CONTENT_H  "$gene_h=new %s;$gene_h=$gene_h->%s($params);if(isset($gene_h)&&($gene_h==0))return;"
 #define GENE_ROUTER_CONTENT_FB  "$funb=%s;$gene_h=$funb($params);if(isset($gene_h)&&($gene_h==0))return;"
 #define GENE_ROUTER_CONTENT_FA  "$funa=%s;$funa($gene_mp);"

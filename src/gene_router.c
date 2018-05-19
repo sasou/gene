@@ -62,22 +62,16 @@ void init() {
  */
 int setMca(zend_string *key, char *val TSRMLS_DC) {
 	zval sval, *params = NULL;
-	char *tmp = NULL;
 	if (key->len == 1) {
 		switch (key->val[0]) {
 		case 'm':
-			ZVAL_STRING(&sval, val);
-			zend_hash_str_update(&EG(symbol_table), "m", 1, &sval);
+			GENE_G(module) = str_init(val);
 			break;
 		case 'c':
-			ZVAL_STRING(&sval, val);
-			tmp = (char *) &sval.value.str->val;
-			firstToUpper(tmp);
-			zend_hash_str_update(&EG(symbol_table), "c", 1, &sval);
+			GENE_G(controller) = str_init(val);
 			break;
 		case 'a':
-			ZVAL_STRING(&sval, val);
-			zend_hash_str_update(&EG(symbol_table), "a", 1, &sval);
+			GENE_G(action) = str_init(val);
 			break;
 		}
 	} else {
@@ -479,8 +473,6 @@ char* get_router_content(zval **content, char *method, char *path TSRMLS_DC) {
 	char *contents, *seg, *ptr, *tmp;
 	spprintf(&contents, 0, "%s", Z_STRVAL_P(*content));
 	seg = php_strtok_r(contents, "@", &ptr);
-	replaceAll(seg, ':', '$');
-	replaceAll(ptr, ':', '$');
 	if (seg && ptr && strlen(ptr) > 0) {
 		if (strcmp(method, "hook") == 0) {
 			if (strcmp(path, "before") == 0) {

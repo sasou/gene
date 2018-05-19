@@ -106,6 +106,24 @@ void gene_factory_construct(zval *object, zval *param, zval *retval) /*{{{*/
     zval_ptr_dtor(&function_name);
 }/*}}}*/
 
+
+void gene_factory_call_action(zval *object, char *action, zval *param, zval *retval) /*{{{*/
+{
+	zval *one = NULL,*two = NULL, *three = NULL, *fro = NULL;
+    zval function_name;
+    ZVAL_STRING(&function_name, action);
+    uint32_t param_count = 0;
+    zval params[] = {0};
+    if (param && Z_TYPE_P(param) == IS_ARRAY) {
+    	param_count = 1;
+    	params[0] = *param;
+        call_user_function(NULL, object, &function_name, retval, param_count, params);
+    } else {
+    	call_user_function(NULL, object, &function_name, retval, param_count, NULL);
+    }
+    zval_ptr_dtor(&function_name);
+}/*}}}*/
+
 zend_bool gene_factory(char *className, int tmp_len, zval *params, zval *classObject) {
 	zend_string *c_key = NULL;
 	zend_class_entry *pdo_ptr = NULL;
@@ -115,7 +133,10 @@ zend_bool gene_factory(char *className, int tmp_len, zval *params, zval *classOb
 	zend_string_free(c_key);
 	if (pdo_ptr) {
 		object_init_ex(classObject, pdo_ptr);
-		gene_factory_construct(classObject, params, &ret);
+		if (Z_TYPE_P(classObject) == IS_OBJECT
+				&& zend_hash_str_exists(&(Z_OBJCE_P(classObject)->function_table), ZEND_STRL("__construct"))) {
+			gene_factory_construct(classObject, params, &ret);
+		}
 		zval_ptr_dtor(&ret);
 		return 1;
 	}
@@ -225,9 +246,10 @@ PHP_METHOD(gene_model, __get)
 			    	if (Z_TYPE_P(instance) == IS_TRUE) {
 			    		type = 1;
 			    	}
-			    	reg = gene_reg_instance();
-					entrys = zend_read_property(gene_reg_ce, reg, GENE_REG_PROPERTY_REG, strlen(GENE_REG_PROPERTY_REG), 1, NULL);
+
 					if (type) {
+				    	reg = gene_reg_instance();
+						entrys = zend_read_property(gene_reg_ce, reg, GENE_REG_PROPERTY_REG, strlen(GENE_REG_PROPERTY_REG), 1, NULL);
 						if ((pzval = zend_hash_str_find(Z_ARRVAL_P(entrys), ZSTR_VAL(class->value.str), ZSTR_LEN(class->value.str))) != NULL) {
 							if (zend_hash_update(Z_ARRVAL_P(props), name, pzval) != NULL) {
 								Z_TRY_ADDREF_P(pzval);
