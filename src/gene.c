@@ -242,18 +242,21 @@ PHP_FUNCTION(gene_call) {
 	if (GENE_G(controller) != NULL) {
 		class = strreplace2(class, ":c", GENE_G(controller));
 	}
+
 	if (gene_factory(class, strlen(class), NULL, &classObject)) {
 		if (GENE_G(action) != NULL) {
 			action = strreplace2(action, ":a", GENE_G(action));
 		}
+		strtolower(action);
 		if (Z_TYPE(classObject) == IS_OBJECT
 				&& zend_hash_str_exists(&(Z_OBJCE(classObject)->function_table), action, strlen(action))) {
 			gene_factory_call_action(&classObject, action, params, &ret);
+			RETURN_ZVAL(&ret, 1, 0);
 		} else {
 			php_error_docref(NULL, E_WARNING, "Unable to call method '%s' in class '%s'." , action, class);
 		}
+		RETURN_NULL();
 
-		RETURN_ZVAL(&ret, 1, 0);
 	} else {
 		php_error_docref(NULL, E_WARNING, "Unable to init calss '%s'." , class);
 	}
