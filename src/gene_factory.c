@@ -55,9 +55,9 @@ PHP_METHOD(gene_factory, create)
 		return;
 	}
 
-	reg = gene_reg_instance();
-	entrys = zend_read_property(gene_reg_ce, reg, GENE_REG_PROPERTY_REG, strlen(GENE_REG_PROPERTY_REG), 1, NULL);
 	if (type) {
+		reg = gene_reg_instance();
+		entrys = zend_read_property(gene_reg_ce, reg, GENE_REG_PROPERTY_REG, strlen(GENE_REG_PROPERTY_REG), 1, NULL);
 		if ((pzval = zend_hash_str_find(Z_ARRVAL_P(entrys), class, class_len)) != NULL) {
 			RETURN_ZVAL(pzval, 1, 0);
 		}

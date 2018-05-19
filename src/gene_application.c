@@ -156,27 +156,6 @@ PHP_METHOD(gene_application, load) {
 /* }}} */
 
 /*
- * {{{ public gene_application::urlParams()
- */
-PHP_METHOD(gene_application, urlParams) {
-	zval *ret = NULL, *val = NULL;
-	zend_string *keyString = NULL;
-	if (zend_parse_parameters(ZEND_NUM_ARGS()TSRMLS_CC, "|S", &keyString) == FAILURE) {
-		return;
-	}
-	ret = zend_symtable_str_find(&EG(symbol_table), "params", 6);
-	if (ret) {
-		val = zend_symtable_find(Z_ARRVAL_P(ret), keyString);
-		if (val) {
-			RETURN_ZVAL(val, 1, 0);
-		}
-		RETURN_ZVAL(ret, 1, 0);
-	}
-	RETURN_NULL();
-}
-/* }}} */
-
-/*
  * {{{ public gene_application::getMethod()
  */
 PHP_METHOD(gene_application, getMethod) {
@@ -202,10 +181,8 @@ PHP_METHOD(gene_application, getPath) {
  * {{{ public gene_application::getModule()
  */
 PHP_METHOD(gene_application, getModule) {
-	zval *ret = NULL;
-	ret = zend_hash_str_find(&EG(symbol_table), "m", 1);
-	if (ret) {
-		RETURN_ZVAL(ret, 1, 0);
+	if (GENE_G(module)) {
+		RETURN_STRING(GENE_G(module));
 	}
 	RETURN_NULL();
 }
@@ -215,10 +192,8 @@ PHP_METHOD(gene_application, getModule) {
  * {{{ public gene_application::getController()
  */
 PHP_METHOD(gene_application, getController) {
-	zval *ret = NULL;
-	ret = zend_hash_str_find(&EG(symbol_table), "c", 1);
-	if (ret) {
-		RETURN_ZVAL(ret, 1, 0);
+	if (GENE_G(controller)) {
+		RETURN_STRING(GENE_G(controller));
 	}
 	RETURN_NULL();
 }
@@ -228,10 +203,8 @@ PHP_METHOD(gene_application, getController) {
  * {{{ public gene_application::getAction()
  */
 PHP_METHOD(gene_application, getAction) {
-	zval *ret = NULL;
-	ret = zend_hash_str_find(&EG(symbol_table), "a", 1);
-	if (ret) {
-		RETURN_ZVAL(ret, 1, 0);
+	if (GENE_G(action)) {
+		RETURN_STRING(GENE_G(action));
 	}
 	RETURN_NULL();
 }
@@ -242,40 +215,22 @@ PHP_METHOD(gene_application, getAction) {
  */
 PHP_METHOD(gene_application, getRouterUri) {
 	zval *ret = NULL;
-	char *path = NULL,*tmp = NULL;
+	char *path = NULL,*tmp = NULL, *seg = NULL, *ptr = NULL, *seg_c = NULL, *ptr_c = NULL;
 	if (!GENE_G(router_path)) {
 		RETURN_NULL();
 	}
 
 	path = str_init(GENE_G(router_path));
-	ret = zend_hash_str_find(&EG(symbol_table), "m", 1);
-	if (ret) {
-		tmp = strreplace2(path, ":m", ret->value.str->val);
-		efree(path);
-		path = tmp;
-		ret = NULL;
+	if (GENE_G(module) != NULL) {
+		path = strreplace2(path, ":m", GENE_G(module));
 	}
-
-	ret = zend_hash_str_find(&EG(symbol_table), "c", 1);
-	if (ret) {
-		tmp = strreplace2(path, ":c", ret->value.str->val);
-		strtolower(tmp);
-		efree(path);
-		path = tmp;
-		ret = NULL;
+	if (GENE_G(controller) != NULL) {
+		path = strreplace2(path, ":c", GENE_G(controller));
 	}
-
-	ret = zend_hash_str_find(&EG(symbol_table), "a", 1);
-	if (ret) {
-		tmp = strreplace2(path, ":a", ret->value.str->val);
-		efree(path);
-		path = tmp;
-		ret = NULL;
+	if (GENE_G(action) != NULL) {
+		path = strreplace2(path, ":a", GENE_G(action));
 	}
-	if (path) {
-		RETURN_STRING(path);
-	}
-	RETURN_NULL();
+	RETVAL_STRING(path);
 }
 /* }}} */
 
@@ -468,7 +423,6 @@ zend_function_entry gene_application_methods[] = {
 	PHP_ME(gene_application, error, NULL, ZEND_ACC_PUBLIC)
 	PHP_ME(gene_application, exception, NULL, ZEND_ACC_PUBLIC)
 	PHP_ME(gene_application, run, NULL, ZEND_ACC_PUBLIC)
-	PHP_ME(gene_application, urlParams, NULL, ZEND_ACC_PUBLIC|ZEND_ACC_STATIC)
 	PHP_ME(gene_application, getMethod, NULL, ZEND_ACC_PUBLIC|ZEND_ACC_STATIC)
 	PHP_ME(gene_application, getPath, NULL, ZEND_ACC_PUBLIC|ZEND_ACC_STATIC)
 	PHP_ME(gene_application, getRouterUri, NULL, ZEND_ACC_PUBLIC|ZEND_ACC_STATIC)
