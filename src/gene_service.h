@@ -14,18 +14,15 @@
  +----------------------------------------------------------------------+
  */
 
-#ifndef GENE_MODEL_H
-#define GENE_MODEL_H
-#define GENE_MODEL_ATTR "attr"
+#ifndef GENE_SERVICE_H
+#define GENE_SERVICE_H
+#define GENE_SERVICE_ATTR "attr"
 
 
-extern zend_class_entry *gene_model_ce;
+extern zend_class_entry *gene_service_ce;
 
 
-GENE_MINIT_FUNCTION(model);
+GENE_MINIT_FUNCTION(service);
 
-zend_bool gene_factory(char *className, int tmp_len, zval *params, zval *classObject);
-void gene_factory_call_action(zval *object, char *action, zval *param, zval *retval);
-zend_bool gene_factory_load_class(char *className, int tmp_len, zval *classObject);
 
 #endif

@@ -28,123 +28,27 @@
 
 #include "php_gene.h"
 #include "gene_model.h"
+#include "gene_service.h"
 #include "gene_reg.h"
 #include "gene_memory.h"
 #include "gene_config.h"
 #include "gene_response.h"
 
 
-zend_class_entry * gene_model_ce;
+zend_class_entry * gene_service_ce;
 
 
-ZEND_BEGIN_ARG_INFO_EX(gene_model_get, 0, 0, 1)
+ZEND_BEGIN_ARG_INFO_EX(gene_service_get, 0, 0, 1)
     ZEND_ARG_INFO(0, name)
 ZEND_END_ARG_INFO()
 
-ZEND_BEGIN_ARG_INFO_EX(gene_model_set, 0, 0, 2)
+ZEND_BEGIN_ARG_INFO_EX(gene_service_set, 0, 0, 2)
     ZEND_ARG_INFO(0, name)
     ZEND_ARG_INFO(0, value)
 ZEND_END_ARG_INFO()
 
 
-zend_bool gene_factory_load_class(char *className, int tmp_len, zval *classObject) {
-	zend_string *c_key = NULL;
-	zend_class_entry *pdo_ptr = NULL;
-
-	c_key = zend_string_init(className, tmp_len, 0);
-	pdo_ptr = zend_lookup_class(c_key);
-	zend_string_free(c_key);
-	if (pdo_ptr) {
-		object_init_ex(classObject, pdo_ptr);
-		return 1;
-	}
-	return 0;
-}
-
-void gene_factory_construct(zval *object, zval *param, zval *retval) /*{{{*/
-{
-	zval *one = NULL,*two = NULL, *three = NULL, *fro = NULL;
-    zval function_name;
-    ZVAL_STRING(&function_name, "__construct");
-    uint32_t param_count = 0;
-    zval params[] = {0};
-    if (param && Z_TYPE_P(param) == IS_ARRAY) {
-    	param_count = zend_hash_num_elements(Z_ARRVAL_P(param));
-        switch(param_count) {
-        case 1:
-        	one = zend_hash_index_find(Z_ARRVAL_P(param), 0);
-        	params[0] = *one;
-        	break;
-        case 2:
-        	one = zend_hash_index_find(Z_ARRVAL_P(param), 0);
-        	two = zend_hash_index_find(Z_ARRVAL_P(param), 1);
-        	params[0] = *one;
-        	params[1] = *two;
-        	break;
-        case 3:
-        	one = zend_hash_index_find(Z_ARRVAL_P(param), 0);
-        	two = zend_hash_index_find(Z_ARRVAL_P(param), 1);
-        	three = zend_hash_index_find(Z_ARRVAL_P(param), 2);
-        	params[0] = *one;
-        	params[1] = *two;
-        	params[2] = *three;
-        	break;
-        case 4:
-        	one = zend_hash_index_find(Z_ARRVAL_P(param), 0);
-        	two = zend_hash_index_find(Z_ARRVAL_P(param), 1);
-        	three = zend_hash_index_find(Z_ARRVAL_P(param), 2);
-        	fro = zend_hash_index_find(Z_ARRVAL_P(param), 3);
-        	params[0] = *one;
-        	params[1] = *two;
-        	params[2] = *three;
-        	params[3] = *fro;
-        	break;
-        }
-        call_user_function(NULL, object, &function_name, retval, param_count, params);
-    } else {
-    	call_user_function(NULL, object, &function_name, retval, param_count, NULL);
-    }
-    zval_ptr_dtor(&function_name);
-}/*}}}*/
-
-
-void gene_factory_call_action(zval *object, char *action, zval *param, zval *retval) /*{{{*/
-{
-	zval *one = NULL,*two = NULL, *three = NULL, *fro = NULL;
-    zval function_name;
-    ZVAL_STRING(&function_name, action);
-    uint32_t param_count = 0;
-    zval params[] = {0};
-    if (param && Z_TYPE_P(param) == IS_ARRAY) {
-    	param_count = 1;
-    	params[0] = *param;
-        call_user_function(NULL, object, &function_name, retval, param_count, params);
-    } else {
-    	call_user_function(NULL, object, &function_name, retval, param_count, NULL);
-    }
-    zval_ptr_dtor(&function_name);
-}/*}}}*/
-
-zend_bool gene_factory(char *className, int tmp_len, zval *params, zval *classObject) {
-	zend_string *c_key = NULL;
-	zend_class_entry *pdo_ptr = NULL;
-	zval ret;
-	c_key = zend_string_init(className, tmp_len, 0);
-	pdo_ptr = zend_lookup_class(c_key);
-	zend_string_free(c_key);
-	if (pdo_ptr) {
-		object_init_ex(classObject, pdo_ptr);
-		if (Z_TYPE_P(classObject) == IS_OBJECT
-				&& zend_hash_str_exists(&(Z_OBJCE_P(classObject)->function_table), ZEND_STRL("__construct"))) {
-			gene_factory_construct(classObject, params, &ret);
-		}
-		zval_ptr_dtor(&ret);
-		return 1;
-	}
-	return 0;
-}
-
-zval *gene_model_instance(zval *obj) {
+zval *gene_service_instance(zval *obj) {
 	zval *ppzval = NULL, *reg, *entrys;
 	zval ret;
 	zend_call_method_with_0_params(NULL, NULL, NULL, "get_called_class", &ret);
@@ -159,7 +63,7 @@ zval *gene_model_instance(zval *obj) {
 				Z_TRY_ADDREF_P(obj);
 				zval prop;
 				array_init(&prop);
-				zend_update_property(gene_model_ce, obj, ZEND_STRL(GENE_MODEL_ATTR), &prop);
+				zend_update_property(gene_service_ce, obj, ZEND_STRL(GENE_SERVICE_ATTR), &prop);
 				zval_ptr_dtor(&prop);
 			}
 			zval_ptr_dtor(&ret);
@@ -171,25 +75,25 @@ zval *gene_model_instance(zval *obj) {
 }
 
 /*
- * {{{ gene_model
+ * {{{ gene_service
  */
-PHP_METHOD(gene_model, __construct)
+PHP_METHOD(gene_service, __construct)
 {
 
 }
 /* }}} */
 
 /*
- * {{{ gene_model
+ * {{{ gene_service
  */
-PHP_METHOD(gene_model, __set)
+PHP_METHOD(gene_service, __set)
 {
 	zend_string *name;
 	zval *value, *props, obj;
 	if (zend_parse_parameters(ZEND_NUM_ARGS(), "Sz", &name, &value) == FAILURE) {
 		return;
 	}
-	props = zend_read_property(gene_model_ce, gene_model_instance(&obj), ZEND_STRL(GENE_MODEL_ATTR), 1, NULL);
+	props = zend_read_property(gene_service_ce, gene_service_instance(&obj), ZEND_STRL(GENE_SERVICE_ATTR), 1, NULL);
 	if (zend_hash_update(Z_ARRVAL_P(props), name, value) != NULL) {
 		Z_TRY_ADDREF_P(value);
 		RETURN_TRUE;
@@ -200,9 +104,9 @@ PHP_METHOD(gene_model, __set)
 
 
 /*
- * {{{ gene_model
+ * {{{ gene_service
  */
-PHP_METHOD(gene_model, __get)
+PHP_METHOD(gene_service, __get)
 {
 	zval *pzval = NULL, *props = NULL, obj, classObject, *class = NULL, *params = NULL, *cache = NULL, *instance = NULL, *reg = NULL, *entrys = NULL;
 	zend_string *name = NULL;
@@ -216,7 +120,7 @@ PHP_METHOD(gene_model, __get)
 	if (!name) {
 		RETURN_NULL();
 	} else {
-		props = zend_read_property(gene_model_ce, gene_model_instance(&obj), ZEND_STRL(GENE_MODEL_ATTR), 1, NULL);
+		props = zend_read_property(gene_service_ce, gene_service_instance(&obj), ZEND_STRL(GENE_SERVICE_ATTR), 1, NULL);
 		if (props) {
 			pzval = zend_hash_find(Z_ARRVAL_P(props), name);
 			if (pzval == NULL) {
@@ -284,9 +188,9 @@ PHP_METHOD(gene_model, __get)
 /* }}} */
 
 
-/** {{{ proto public gene_model::success(string $text, int $code)
+/** {{{ proto public gene_service::success(string $text, int $code)
  */
-PHP_METHOD(gene_model, success) {
+PHP_METHOD(gene_service, success) {
 	zend_string *text;
 	zend_long code = 2000;
 	zval ret;
@@ -302,9 +206,9 @@ PHP_METHOD(gene_model, success) {
 /* }}} */
 
 
-/** {{{ proto public gene_model::error(string $text, int $code)
+/** {{{ proto public gene_service::error(string $text, int $code)
  */
-PHP_METHOD(gene_model, error) {
+PHP_METHOD(gene_service, error) {
 	zend_string *text;
 	zend_long code = 4000;
 	zval ret;
@@ -319,9 +223,9 @@ PHP_METHOD(gene_model, error) {
 }
 /* }}} */
 
-/** {{{ proto public gene_model::data(mixed $data, int $count,string $text, int $code)
+/** {{{ proto public gene_service::data(mixed $data, int $count,string $text, int $code)
  */
-PHP_METHOD(gene_model, data) {
+PHP_METHOD(gene_service, data) {
 	zval *data = NULL;
 	zend_long count = 0;
 	zend_string *text = NULL;
@@ -341,34 +245,34 @@ PHP_METHOD(gene_model, data) {
 /* }}} */
 
 /*
- * {{{ public gene_model::getInstance()
+ * {{{ public gene_service::getInstance()
  */
-PHP_METHOD(gene_model, getInstance)
+PHP_METHOD(gene_service, getInstance)
 {
 	zval obj;
-	RETURN_ZVAL(gene_model_instance(&obj), 1, 0);
+	RETURN_ZVAL(gene_service_instance(&obj), 1, 0);
 }
 /* }}} */
 
-/** {{{ proto public gene_model::__destruct
+/** {{{ proto public gene_service::__destruct
 */
-PHP_METHOD(gene_model, __destruct) {
+PHP_METHOD(gene_service, __destruct) {
 
 }
 /* }}} */
 
 /*
- * {{{ gene_model_methods
+ * {{{ gene_service_methods
  */
-zend_function_entry gene_model_methods[] = {
-		PHP_ME(gene_model, __construct, NULL, ZEND_ACC_PUBLIC|ZEND_ACC_CTOR)
-		PHP_ME(gene_model, __destruct,	NULL, ZEND_ACC_PUBLIC|ZEND_ACC_DTOR)
-		PHP_ME(gene_model, __get, gene_model_get, ZEND_ACC_PUBLIC)
-		PHP_ME(gene_model, __set, gene_model_set, ZEND_ACC_PUBLIC)
-		PHP_ME(gene_model, success, NULL, ZEND_ACC_PUBLIC)
-		PHP_ME(gene_model, error, NULL, ZEND_ACC_PUBLIC)
-		PHP_ME(gene_model, data, NULL, ZEND_ACC_PUBLIC)
-		PHP_ME(gene_model, getInstance, NULL, ZEND_ACC_PUBLIC|ZEND_ACC_STATIC)
+zend_function_entry gene_service_methods[] = {
+		PHP_ME(gene_service, __construct, NULL, ZEND_ACC_PUBLIC|ZEND_ACC_CTOR)
+		PHP_ME(gene_service, __destruct,	NULL, ZEND_ACC_PUBLIC|ZEND_ACC_DTOR)
+		PHP_ME(gene_service, __get, gene_service_get, ZEND_ACC_PUBLIC)
+		PHP_ME(gene_service, __set, gene_service_set, ZEND_ACC_PUBLIC)
+		PHP_ME(gene_service, success, NULL, ZEND_ACC_PUBLIC)
+		PHP_ME(gene_service, error, NULL, ZEND_ACC_PUBLIC)
+		PHP_ME(gene_service, data, NULL, ZEND_ACC_PUBLIC)
+		PHP_ME(gene_service, getInstance, NULL, ZEND_ACC_PUBLIC|ZEND_ACC_STATIC)
 		{NULL, NULL, NULL}
 };
 /* }}} */
@@ -377,13 +281,12 @@ zend_function_entry gene_model_methods[] = {
 /*
  * {{{ GENE_MINIT_FUNCTION
  */
-GENE_MINIT_FUNCTION(model)
+GENE_MINIT_FUNCTION(service)
 {
-    zend_class_entry gene_model;
-	GENE_INIT_CLASS_ENTRY(gene_model, "Gene_Model", "Gene\\Model", gene_model_methods);
-	gene_model_ce = zend_register_internal_class_ex(&gene_model, NULL);
-	//gene_model_ce->ce_flags |= ZEND_ACC_EXPLICIT_ABSTRACT_CLASS;
-	zend_declare_property_null(gene_model_ce, ZEND_STRL(GENE_MODEL_ATTR), ZEND_ACC_PUBLIC);
+    zend_class_entry gene_service;
+	GENE_INIT_CLASS_ENTRY(gene_service, "Gene_Service", "Gene\\Service", gene_service_methods);
+	gene_service_ce = zend_register_internal_class_ex(&gene_service, NULL);
+	zend_declare_property_null(gene_service_ce, ZEND_STRL(GENE_SERVICE_ATTR), ZEND_ACC_PUBLIC);
 
 	return SUCCESS;
 }
