@@ -42,6 +42,7 @@
 #include "gene_db.h"
 #include "gene_common.h"
 #include "gene_model.h"
+#include "gene_service.h"
 #include "gene_factory.h"
 #include "gene_benchmark.h"
 
@@ -169,6 +170,7 @@ PHP_MINIT_FUNCTION(gene) {
 	GENE_STARTUP(benchmark);
 	GENE_STARTUP(db);
 	GENE_STARTUP(model);
+	GENE_STARTUP(service);
 	GENE_STARTUP(factory);
 	GENE_STARTUP(exception);
 

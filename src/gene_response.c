@@ -101,7 +101,7 @@ PHP_METHOD(gene_response, alert) {
  */
 PHP_METHOD(gene_response, success) {
 	zend_string *text;
-	zend_long code = 200;
+	zend_long code = 2000;
 	zval ret;
 
 	if (zend_parse_parameters(ZEND_NUM_ARGS()TSRMLS_CC, "S|l", &text, &code) == FAILURE) {
@@ -119,7 +119,7 @@ PHP_METHOD(gene_response, success) {
  */
 PHP_METHOD(gene_response, error) {
 	zend_string *text;
-	zend_long code = 400;
+	zend_long code = 4000;
 	zval ret;
 
 	if (zend_parse_parameters(ZEND_NUM_ARGS()TSRMLS_CC, "S|l", &text, &code) == FAILURE) {
@@ -138,7 +138,7 @@ PHP_METHOD(gene_response, data) {
 	zval *data = NULL;
 	zend_long count = 0;
 	zend_string *text = NULL;
-	zend_long code = 200;
+	zend_long code = 2000;
 	zval ret;
 
 	if (zend_parse_parameters(ZEND_NUM_ARGS()TSRMLS_CC, "z|lSl", &data, &count, &text, &code) == FAILURE) {
