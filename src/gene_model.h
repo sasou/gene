@@ -26,5 +26,6 @@ GENE_MINIT_FUNCTION(model);
 
 zend_bool gene_factory(char *className, int tmp_len, zval *params, zval *classObject);
 void gene_factory_call_action(zval *object, char *action, zval *param, zval *retval);
+zend_bool gene_factory_load_class(char *className, int tmp_len, zval *classObject);
 
 #endif

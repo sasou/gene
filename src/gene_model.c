@@ -31,6 +31,7 @@
 #include "gene_reg.h"
 #include "gene_memory.h"
 #include "gene_config.h"
+#include "gene_response.h"
 
 
 zend_class_entry * gene_model_ce;
@@ -283,6 +284,62 @@ PHP_METHOD(gene_model, __get)
 /* }}} */
 
 
+/** {{{ proto public gene_model::success(string $text, int $code)
+ */
+PHP_METHOD(gene_model, success) {
+	zend_string *text;
+	zend_long code = 2000;
+	zval ret;
+
+	if (zend_parse_parameters(ZEND_NUM_ARGS()TSRMLS_CC, "S|l", &text, &code) == FAILURE) {
+		return;
+	}
+	array_init(&ret);
+	add_assoc_long_ex(&ret, ZEND_STRL(GENE_RESPONSE_CODE), code);
+	add_assoc_str_ex(&ret, ZEND_STRL(GENE_RESPONSE_MSG), text);
+	RETURN_ZVAL(&ret, 1, 1);
+}
+/* }}} */
+
+
+/** {{{ proto public gene_model::error(string $text, int $code)
+ */
+PHP_METHOD(gene_model, error) {
+	zend_string *text;
+	zend_long code = 4000;
+	zval ret;
+
+	if (zend_parse_parameters(ZEND_NUM_ARGS()TSRMLS_CC, "S|l", &text, &code) == FAILURE) {
+		return;
+	}
+	array_init(&ret);
+	add_assoc_long_ex(&ret, ZEND_STRL(GENE_RESPONSE_CODE), code);
+	add_assoc_str_ex(&ret, ZEND_STRL(GENE_RESPONSE_MSG), text);
+	RETURN_ZVAL(&ret, 1, 1);
+}
+/* }}} */
+
+/** {{{ proto public gene_model::data(mixed $data, int $count,string $text, int $code)
+ */
+PHP_METHOD(gene_model, data) {
+	zval *data = NULL;
+	zend_long count = 0;
+	zend_string *text = NULL;
+	zend_long code = 2000;
+	zval ret;
+
+	if (zend_parse_parameters(ZEND_NUM_ARGS()TSRMLS_CC, "z|lSl", &data, &count, &text, &code) == FAILURE) {
+		return;
+	}
+	array_init(&ret);
+	add_assoc_long_ex(&ret, ZEND_STRL(GENE_RESPONSE_CODE), code);
+	add_assoc_str_ex(&ret, ZEND_STRL(GENE_RESPONSE_MSG), text);
+	add_assoc_zval_ex(&ret, ZEND_STRL(GENE_RESPONSE_DATA), data);
+	add_assoc_long_ex(&ret, ZEND_STRL(GENE_RESPONSE_COUNT), count);
+	RETURN_ZVAL(&ret, 1, 1);
+}
+/* }}} */
+
 /*
  * {{{ public gene_model::getInstance()
  */
@@ -308,6 +365,9 @@ zend_function_entry gene_model_methods[] = {
 		PHP_ME(gene_model, __destruct,	NULL, ZEND_ACC_PUBLIC|ZEND_ACC_DTOR)
 		PHP_ME(gene_model, __get, gene_model_get, ZEND_ACC_PUBLIC)
 		PHP_ME(gene_model, __set, gene_model_set, ZEND_ACC_PUBLIC)
+		PHP_ME(gene_model, success, NULL, ZEND_ACC_PUBLIC)
+		PHP_ME(gene_model, error, NULL, ZEND_ACC_PUBLIC)
+		PHP_ME(gene_model, data, NULL, ZEND_ACC_PUBLIC)
 		PHP_ME(gene_model, getInstance, NULL, ZEND_ACC_PUBLIC|ZEND_ACC_STATIC)
 		{NULL, NULL, NULL}
 };
