@@ -237,7 +237,9 @@ PHP_METHOD(gene_service, data) {
 	}
 	array_init(&ret);
 	add_assoc_long_ex(&ret, ZEND_STRL(GENE_RESPONSE_CODE), code);
-	add_assoc_str_ex(&ret, ZEND_STRL(GENE_RESPONSE_MSG), text);
+	if (text) {
+		add_assoc_str_ex(&ret, ZEND_STRL(GENE_RESPONSE_MSG), text);
+	}
 	add_assoc_zval_ex(&ret, ZEND_STRL(GENE_RESPONSE_DATA), data);
 	add_assoc_long_ex(&ret, ZEND_STRL(GENE_RESPONSE_COUNT), count);
 	RETURN_ZVAL(&ret, 1, 1);
