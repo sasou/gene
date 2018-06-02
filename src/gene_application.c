@@ -34,9 +34,19 @@
 #include "gene_request.h"
 #include "gene_common.h"
 #include "gene_view.h"
+#include "gene_di.h"
 #include "gene_exception.h"
 
 zend_class_entry * gene_application_ce;
+
+ZEND_BEGIN_ARG_INFO_EX(gene_application_get, 0, 0, 1)
+    ZEND_ARG_INFO(0, name)
+ZEND_END_ARG_INFO()
+
+ZEND_BEGIN_ARG_INFO_EX(gene_application_set, 0, 0, 2)
+    ZEND_ARG_INFO(0, name)
+    ZEND_ARG_INFO(0, value)
+ZEND_END_ARG_INFO()
 
 /*
  * {{{ void load_file(char *key, int key_len,char *php_script, int validity TSRMLS_DC)
@@ -129,7 +139,6 @@ PHP_METHOD(gene_application, __construct) {
 		}
 		spprintf(&GENE_G(app_root), 0, "%s/app/", GENE_G(directory));
 	}
-
 }
 /* }}} */
 
@@ -414,6 +423,78 @@ PHP_METHOD(gene_application, run) {
 /* }}} */
 
 /*
+ * {{{ gene_application
+ */
+PHP_METHOD(gene_application, __set)
+{
+	zend_string *name;
+	zval *value, *props = NULL;
+	if (zend_parse_parameters(ZEND_NUM_ARGS(), "Sz", &name, &value) == FAILURE) {
+		return;
+	}
+	props = zend_read_property(gene_application_ce, getThis(), ZEND_STRL(GENE_APPLICATION_ATTR), 1, NULL);
+	if (props == NULL) {
+		zval prop;
+		array_init(&prop);
+		if (zend_hash_update(Z_ARRVAL_P(props), name, value) != NULL) {
+			Z_TRY_ADDREF_P(value);
+		}
+		zend_update_property(gene_application_ce, getThis(), ZEND_STRL(GENE_APPLICATION_ATTR), &prop);
+		zval_ptr_dtor(&prop);
+	} else {
+		if (zend_hash_update(Z_ARRVAL_P(props), name, value) != NULL) {
+			Z_TRY_ADDREF_P(value);
+			RETURN_TRUE;
+		}
+	}
+	RETURN_FALSE;
+}
+/* }}} */
+
+/*
+ * {{{ gene_application
+ */
+PHP_METHOD(gene_application, __get)
+{
+	zval *pzval = NULL, *props = NULL, classObject;
+	zend_string *name = NULL;
+
+	if (zend_parse_parameters(ZEND_NUM_ARGS(), "|S", &name) == FAILURE) {
+		return;
+	}
+
+	if (!name) {
+		RETURN_NULL();
+	} else {
+		props = zend_read_property(gene_application_ce, getThis(), ZEND_STRL(GENE_APPLICATION_ATTR), 1, NULL);
+		if (Z_TYPE_P(props) == IS_NULL) {
+			zval prop;
+			array_init(&prop);
+			pzval = gene_di_get(&prop, name, &classObject);
+			zend_update_property(gene_application_ce, getThis(), ZEND_STRL(GENE_APPLICATION_ATTR), &prop);
+			zval_ptr_dtor(&prop);
+			if (pzval) {
+				RETURN_ZVAL(pzval, 1, 0);
+			}
+			RETURN_NULL();
+		} else {
+			pzval = zend_hash_find(Z_ARRVAL_P(props), name);
+			if (pzval == NULL) {
+				pzval = gene_di_get(props, name, &classObject);
+				if (pzval) {
+					RETURN_ZVAL(pzval, 1, 0);
+				}
+				RETURN_NULL();
+			}
+			RETURN_ZVAL(pzval, 1, 0);
+		}
+		RETURN_NULL();
+	}
+	RETURN_NULL();
+}
+/* }}} */
+
+/*
  * {{{ gene_application_methods
  */
 zend_function_entry gene_application_methods[] = {
@@ -432,6 +513,8 @@ zend_function_entry gene_application_methods[] = {
 	PHP_ME(gene_application, getAction, NULL, ZEND_ACC_PUBLIC|ZEND_ACC_STATIC)
 	PHP_ME(gene_application, getEnvironment, NULL, ZEND_ACC_PUBLIC|ZEND_ACC_STATIC)
 	PHP_ME(gene_application, config, NULL, ZEND_ACC_PUBLIC|ZEND_ACC_STATIC)
+	PHP_ME(gene_application, __get, gene_application_get, ZEND_ACC_PUBLIC)
+	PHP_ME(gene_application, __set, gene_application_set, ZEND_ACC_PUBLIC)
 	PHP_ME(gene_application, __construct, NULL, ZEND_ACC_PUBLIC|ZEND_ACC_CTOR)
 	{ NULL, NULL, NULL }
 };
@@ -444,6 +527,7 @@ GENE_MINIT_FUNCTION(application) {
 	zend_class_entry gene_application;
 	GENE_INIT_CLASS_ENTRY(gene_application, "Gene_Application", "Gene\\Application", gene_application_methods);
 	gene_application_ce = zend_register_internal_class( &gene_application TSRMLS_CC);
+	zend_declare_property_null(gene_application_ce, ZEND_STRL(GENE_APPLICATION_ATTR), ZEND_ACC_PUBLIC);
 
 	return SUCCESS;
 }

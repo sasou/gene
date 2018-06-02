@@ -32,7 +32,7 @@
 #include "gene_router.h"
 #include "gene_execute.h"
 #include "gene_memory.h"
-#include "gene_reg.h"
+#include "gene_di.h"
 #include "gene_controller.h"
 #include "gene_request.h"
 #include "gene_response.h"
@@ -157,7 +157,7 @@ PHP_MINIT_FUNCTION(gene) {
 	/* startup components */
 	GENE_STARTUP(application);
 	GENE_STARTUP(load);
-	GENE_STARTUP(reg);
+	GENE_STARTUP(di);
 	GENE_STARTUP(config);
 	GENE_STARTUP(router);
 	GENE_STARTUP(execute);
