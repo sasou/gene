@@ -17,6 +17,7 @@
 #ifndef GENE_APPLICATION_H
 #define GENE_APPLICATION_H
 #define GENE_APPLICATION_SAFE "safe"
+#define GENE_APPLICATION_ATTR "attr"
 
 extern zend_class_entry *gene_application_ce;
 

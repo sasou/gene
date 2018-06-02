@@ -29,9 +29,8 @@
 #include "php_gene.h"
 #include "gene_model.h"
 #include "gene_service.h"
-#include "gene_reg.h"
-#include "gene_memory.h"
-#include "gene_config.h"
+#include "gene_di.h"
+#include "gene_factory.h"
 #include "gene_response.h"
 
 
@@ -49,11 +48,11 @@ ZEND_END_ARG_INFO()
 
 
 zval *gene_service_instance(zval *obj) {
-	zval *ppzval = NULL, *reg, *entrys;
+	zval *ppzval = NULL, *di, *entrys;
 	zval ret;
 	zend_call_method_with_0_params(NULL, NULL, NULL, "get_called_class", &ret);
-	reg = gene_reg_instance();
-	entrys = zend_read_property(gene_reg_ce, reg, ZEND_STRL(GENE_REG_PROPERTY_REG), 1, NULL);
+	di = gene_di_instance();
+	entrys = zend_read_property(gene_di_ce, di, ZEND_STRL(GENE_DI_PROPERTY_REG), 1, NULL);
 	if ((ppzval = zend_hash_str_find(Z_ARRVAL_P(entrys), Z_STRVAL(ret), Z_STRLEN(ret))) != NULL) {
 		zval_ptr_dtor(&ret);
 		return ppzval;
@@ -108,10 +107,8 @@ PHP_METHOD(gene_service, __set)
  */
 PHP_METHOD(gene_service, __get)
 {
-	zval *pzval = NULL, *props = NULL, obj, classObject, *class = NULL, *params = NULL, *cache = NULL, *instance = NULL, *reg = NULL, *entrys = NULL;
+	zval *pzval = NULL, *props = NULL, obj, classObject;
 	zend_string *name = NULL;
-	zend_bool type = 0;
-	zval local_params;
 
 	if (zend_parse_parameters(ZEND_NUM_ARGS(), "|S", &name) == FAILURE) {
 		return;
@@ -124,58 +121,9 @@ PHP_METHOD(gene_service, __get)
 		if (props) {
 			pzval = zend_hash_find(Z_ARRVAL_P(props), name);
 			if (pzval == NULL) {
-				char *router_e = NULL;
-				int router_e_len = 0;
-				if (GENE_G(app_key)) {
-					router_e_len = spprintf(&router_e, 0, "%s%s", GENE_G(app_key), GENE_CONFIG_CACHE);
-				} else {
-					router_e_len = spprintf(&router_e, 0, "%s%s", GENE_G(directory), GENE_CONFIG_CACHE);
-				}
-				cache = gene_memory_get_by_config(router_e, router_e_len, ZSTR_VAL(name) TSRMLS_CC);
-				efree(router_e);
-				if (cache && Z_TYPE_P(cache) == IS_ARRAY) {
-			    	if ((class = zend_hash_str_find(cache->value.arr, "class", 5)) == NULL) {
-			    		 php_error_docref(NULL, E_ERROR, "Factory need a valid class.");
-			    		 RETURN_FALSE;
-			    	}
-			    	if ((params = zend_hash_str_find(cache->value.arr, "params", 6)) == NULL) {
-				    	php_error_docref(NULL, E_ERROR, "Factory need a valid param.");
-				    	RETURN_FALSE;
-			    	} else {
-			    		 if (Z_TYPE_P(params) != IS_ARRAY) {
-				    		 php_error_docref(NULL, E_ERROR, "Factory need a array param.");
-				    		 RETURN_FALSE;
-			    		 }
-			    	}
-			    	instance = zend_hash_str_find(cache->value.arr, "instance", 8);
-			    	if (Z_TYPE_P(instance) == IS_TRUE) {
-			    		type = 1;
-			    	}
-
-					if (type) {
-				    	reg = gene_reg_instance();
-						entrys = zend_read_property(gene_reg_ce, reg, GENE_REG_PROPERTY_REG, strlen(GENE_REG_PROPERTY_REG), 1, NULL);
-						if ((pzval = zend_hash_str_find(Z_ARRVAL_P(entrys), ZSTR_VAL(class->value.str), ZSTR_LEN(class->value.str))) != NULL) {
-							if (zend_hash_update(Z_ARRVAL_P(props), name, pzval) != NULL) {
-								Z_TRY_ADDREF_P(pzval);
-								RETURN_ZVAL(pzval, 1, 0);
-							}
-						}
-					}
-					gene_memory_zval_local(&local_params, params);
-					if (gene_factory(ZSTR_VAL(class->value.str), ZSTR_LEN(class->value.str), &local_params, &classObject)) {
-						if (type) {
-							if (zend_hash_str_update(Z_ARRVAL_P(entrys), ZSTR_VAL(class->value.str), ZSTR_LEN(class->value.str), &classObject) != NULL) {
-								Z_TRY_ADDREF_P(&classObject);
-							}
-						}
-						if (zend_hash_update(Z_ARRVAL_P(props), name, &classObject) != NULL) {
-							Z_TRY_ADDREF_P(&classObject);
-							zval_ptr_dtor(&local_params);
-							RETURN_ZVAL(&classObject, 1, 0);
-						}
-					}
-					zval_ptr_dtor(&local_params);
+				pzval = gene_di_get(props, name, &classObject);
+				if (pzval) {
+					RETURN_ZVAL(pzval, 1, 0);
 				}
 				RETURN_NULL();
 			}
