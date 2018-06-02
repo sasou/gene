@@ -14,15 +14,17 @@
  +----------------------------------------------------------------------+
  */
 
-#ifndef GENE_REG_H
-#define GENE_REG_H
-#define GENE_REG_PROPERTY_INSTANCE "_instance"
-#define GENE_REG_PROPERTY_REG "_reg"
+#ifndef GENE_DI_H
+#define GENE_DI_H
+#define GENE_DI_PROPERTY_INSTANCE "_instance"
+#define GENE_DI_PROPERTY_REG "_reg"
 
-extern zend_class_entry *gene_reg_ce;
+extern zend_class_entry *gene_di_ce;
 
-GENE_MINIT_FUNCTION (reg);
+GENE_MINIT_FUNCTION (di);
 
-zval *gene_reg_instance();
+zval *gene_di_instance();
+
+zval *gene_di_get(zval *props, zend_string *name, zval *classObject);
 
 #endif

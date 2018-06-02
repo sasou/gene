@@ -16,6 +16,7 @@
 
 #ifndef GENE_CONTROLLER_H
 #define GENE_CONTROLLER_H
+#define GENE_CONTROLLER_ATTR "attr"
 
 extern zend_class_entry *gene_controller_ce;
 
