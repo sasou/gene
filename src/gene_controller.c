@@ -349,10 +349,10 @@ PHP_METHOD(gene_controller, __set)
 		return;
 	}
 	props = zend_read_property(gene_controller_ce, getThis(), ZEND_STRL(GENE_CONTROLLER_ATTR), 1, NULL);
-	if (props == NULL) {
+	if (Z_TYPE_P(props) == IS_NULL) {
 		zval prop;
 		array_init(&prop);
-		if (zend_hash_update(Z_ARRVAL_P(props), name, value) != NULL) {
+		if (zend_hash_update(Z_ARRVAL(prop), name, value) != NULL) {
 			Z_TRY_ADDREF_P(value);
 		}
 		zend_update_property(gene_controller_ce, getThis(), ZEND_STRL(GENE_CONTROLLER_ATTR), &prop);
