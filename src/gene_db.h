@@ -23,6 +23,7 @@
 #define GENE_DB_ORDER "order"
 #define GENE_DB_LIMIT "limit"
 #define GENE_DB_DATA "data"
+#define GENE_DB_HISTORY "history"
 
 
 extern zend_class_entry *gene_db_ce;

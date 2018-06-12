@@ -252,6 +252,20 @@ PHP_METHOD(gene_application, getEnvironment) {
 }
 /* }}} */
 
+
+/*
+ * {{{ public gene_application::setEnvironment($type)
+ */
+PHP_METHOD(gene_application, setEnvironment) {
+	zend_long type = 0;
+	if (zend_parse_parameters(ZEND_NUM_ARGS()TSRMLS_CC, "|l", &type) == FAILURE) {
+		return;
+	}
+	GENE_G(run_environment) = type;
+	RETURN_TRUE;
+}
+/* }}} */
+
 /*
  * {{{ public gene_application::config()
  */
@@ -282,7 +296,7 @@ PHP_METHOD(gene_application, config) {
 /* }}} */
 
 /*
- * {{{ public gene_load::autoload($key)
+ * {{{ public gene_application::autoload($key)
  */
 PHP_METHOD(gene_application, autoload) {
 	zend_string *fileName = NULL, *app_root = NULL;
@@ -307,7 +321,7 @@ PHP_METHOD(gene_application, autoload) {
 /* }}} */
 
 /*
- * {{{ public gene_load::error($callback, $type)
+ * {{{ public gene_application::error($callback, $type)
  */
 PHP_METHOD(gene_application, error) {
 	zval *callback = NULL, *error_type = NULL, *self = getThis();
@@ -325,7 +339,7 @@ PHP_METHOD(gene_application, error) {
 }
 /* }}} */
 
-/** {{{ public gene_exception::exception(string $callbacak[, int $error_types = E_ALL | E_STRICT ] )
+/** {{{ public gene_application::exception(string $callbacak[, int $error_types = E_ALL | E_STRICT ] )
  */
 PHP_METHOD(gene_application, exception) {
 	zval *callback = NULL, *error_type = NULL, *self = getThis();
@@ -344,7 +358,7 @@ PHP_METHOD(gene_application, exception) {
 /* }}} */
 
 /*
- * {{{ public gene_load::error($callback, $type)
+ * {{{ public gene_application::setMode($error_type, $exception_type)
  */
 PHP_METHOD(gene_application, setMode) {
 	zval *self = getThis();
@@ -511,6 +525,7 @@ zend_function_entry gene_application_methods[] = {
 	PHP_ME(gene_application, getModule, NULL, ZEND_ACC_PUBLIC|ZEND_ACC_STATIC)
 	PHP_ME(gene_application, getController, NULL, ZEND_ACC_PUBLIC|ZEND_ACC_STATIC)
 	PHP_ME(gene_application, getAction, NULL, ZEND_ACC_PUBLIC|ZEND_ACC_STATIC)
+	PHP_ME(gene_application, setEnvironment, NULL, ZEND_ACC_PUBLIC|ZEND_ACC_STATIC)
 	PHP_ME(gene_application, getEnvironment, NULL, ZEND_ACC_PUBLIC|ZEND_ACC_STATIC)
 	PHP_ME(gene_application, config, NULL, ZEND_ACC_PUBLIC|ZEND_ACC_STATIC)
 	PHP_ME(gene_application, __get, gene_application_get, ZEND_ACC_PUBLIC)
