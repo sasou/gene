@@ -160,13 +160,11 @@ PHP_METHOD(gene_exception, setErrorHandler) {
  */
 PHP_METHOD(gene_exception, setExceptionHandler) {
 	zval *callback = NULL;
-	if (zend_parse_parameters(ZEND_NUM_ARGS()TSRMLS_CC, "|z", &callback)
-			== FAILURE) {
+	if (zend_parse_parameters(ZEND_NUM_ARGS()TSRMLS_CC, "|z", &callback) == FAILURE) {
 		return;
 	}
 	gene_exception_register(callback TSRMLS_CC);
-	RETURN_TRUE
-	;
+	RETURN_TRUE;
 }
 /* }}} */
 

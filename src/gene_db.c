@@ -29,8 +29,13 @@
 #include "gene_common.h"
 #include "gene_memory.h"
 #include "gene_db.h"
+#include "gene_benchmark.h"
 
 zend_class_entry * gene_db_ce;
+
+struct timeval db_start, db_end;
+long db_memory_start = 0, db_memory_end = 0;
+
 
 void reset_sql_params(zval *self)
 {
@@ -286,12 +291,63 @@ void gene_pdo_statement_set_fetch_mode(zval *pdostatement_obj, int fetch_style, 
     zval_ptr_dtor(&function_name);
 }/*}}}*/
 
+void jsonEncode(zval *data, zval *param) {
+	zval func, ret;
+	ZVAL_STRING(&func, "json_encode");
+	ZVAL_NULL(&ret);
+	if (Z_TYPE_P(param) == IS_ARRAY) {
+		call_user_function(EG(function_table), NULL, &func, &ret, 1, param);
+		if (Z_TYPE(ret) == IS_STRING) {
+			ZVAL_STRING(data, Z_STRVAL(ret));
+		}
+	} else {
+		ZVAL_NULL(data);
+	}
+	zval_ptr_dtor(&func);
+	zval_ptr_dtor(&ret);
+}
+
+
+void saveHistory(smart_str *sql, zval *param) {
+	zval *history = NULL;
+	zval params, z_row, z_sql, z_data, z_time, z_memory;
+	char *char_t,*char_m;
+	history = zend_read_static_property(gene_db_ce, ZEND_STRL(GENE_DB_HISTORY), 1);
+
+	ZVAL_STRING(&z_sql, ZSTR_VAL(sql->s));
+
+	jsonEncode(&z_data, param);
+
+	getBenchTime(&db_start, &db_end, &char_t, 1);
+	ZVAL_STRING(&z_time, char_t);
+	efree(char_t);
+
+    getBenchMemory(&db_memory_start, &db_memory_end, &char_m, 1);
+	ZVAL_STRING(&z_memory, char_m);
+	efree(char_m);
+
+	array_init(&z_row);
+	add_assoc_zval_ex(&z_row, ZEND_STRL("sql"), &z_sql);
+	add_assoc_zval_ex(&z_row, ZEND_STRL("param"), &z_data);
+	add_assoc_zval_ex(&z_row, ZEND_STRL("time"), &z_time);
+	add_assoc_zval_ex(&z_row, ZEND_STRL("memory"), &z_memory);
+
+	if (history && Z_TYPE_P(history) == IS_ARRAY) {
+		add_next_index_zval(history, &z_row);
+	} else {
+    	array_init(&params);
+    	add_next_index_zval(&params, &z_row);
+    	zend_update_static_property(gene_db_ce, ZEND_STRL(GENE_DB_HISTORY), &params);
+    	zval_ptr_dtor(&params);
+	}
+}
 
 zend_bool gene_pdo_execute (zval *self, zval *statement)
 {
 	zval *pdo_object = NULL, *params = NULL, *pdo_sql = NULL, *pdo_where = NULL, *pdo_order = NULL, *pdo_limit = NULL;
 	zval retval;
 	smart_str sql = {0};
+
 	pdo_object = zend_read_property(gene_db_ce, self, ZEND_STRL(GENE_DB_PDO), 1, NULL);
 	pdo_sql = zend_read_property(gene_db_ce, self, ZEND_STRL(GENE_DB_SQL), 1, NULL);
 	pdo_where = zend_read_property(gene_db_ce, self, ZEND_STRL(GENE_DB_WHERE), 1, NULL);
@@ -311,14 +367,22 @@ zend_bool gene_pdo_execute (zval *self, zval *statement)
 		smart_str_appends(&sql, Z_STRVAL_P(pdo_limit));
 	}
 	smart_str_0(&sql);
+	if (!GENE_G(run_environment)) {
+		markStart(&db_start, &db_memory_start);
+	}
 	gene_pdo_prepare(pdo_object, ZSTR_VAL(sql.s), statement);
-	smart_str_free(&sql);
 	if (Z_TYPE_P(statement) == IS_OBJECT) {
 		params = zend_read_property(gene_db_ce, self, ZEND_STRL(GENE_DB_DATA), 1, NULL);
 		//execute
 		gene_pdo_statement_execute(statement, params, &retval);
+		if (!GENE_G(run_environment)) {
+			markEnd(&db_end, &db_memory_end);
+			saveHistory(&sql, params);
+		}
+		smart_str_free(&sql);
 		return Z_TYPE(retval) == 3 ? 1 : 0;
 	}
+	smart_str_free(&sql);
     return 0;
 }
 
@@ -333,6 +397,9 @@ PHP_METHOD(gene_db, __construct)
     {
         return;
     }
+
+    zend_update_static_property_null(gene_db_ce, ZEND_STRL(GENE_DB_HISTORY));
+
     if (config) {
 		zend_string *c_key = zend_string_init(ZEND_STRL("PDO"), 0);
 		zend_class_entry *pdo_ptr = zend_lookup_class(c_key);
@@ -1224,6 +1291,17 @@ PHP_METHOD(gene_db, commit)
 /* }}} */
 
 /*
+ * {{{ public gene_db::history()
+ */
+PHP_METHOD(gene_db, history)
+{
+	zval *history = NULL;
+	history = zend_read_static_property(gene_db_ce, ZEND_STRL(GENE_DB_HISTORY), 1);
+	RETURN_ZVAL(history, 1, 0);
+}
+/* }}} */
+
+/*
  * {{{ gene_db_methods
  */
 zend_function_entry gene_db_methods[] = {
@@ -1250,6 +1328,7 @@ zend_function_entry gene_db_methods[] = {
 		PHP_ME(gene_db, inTransaction, NULL, ZEND_ACC_PUBLIC)
 		PHP_ME(gene_db, rollBack, NULL, ZEND_ACC_PUBLIC)
 		PHP_ME(gene_db, commit, NULL, ZEND_ACC_PUBLIC)
+		PHP_ME(gene_db, history, NULL, ZEND_ACC_PUBLIC)
 		PHP_ME(gene_db, __construct, NULL, ZEND_ACC_PUBLIC|ZEND_ACC_CTOR)
 		{NULL, NULL, NULL}
 };
@@ -1273,6 +1352,7 @@ GENE_MINIT_FUNCTION(db)
     zend_declare_property_null(gene_db_ce, ZEND_STRL(GENE_DB_ORDER), ZEND_ACC_PUBLIC TSRMLS_CC);
     zend_declare_property_null(gene_db_ce, ZEND_STRL(GENE_DB_LIMIT), ZEND_ACC_PUBLIC TSRMLS_CC);
     zend_declare_property_null(gene_db_ce, ZEND_STRL(GENE_DB_DATA), ZEND_ACC_PUBLIC TSRMLS_CC);
+    zend_declare_property_null(gene_db_ce, ZEND_STRL(GENE_DB_HISTORY), ZEND_ACC_PROTECTED | ZEND_ACC_STATIC TSRMLS_CC);
 
 	return SUCCESS;
 }

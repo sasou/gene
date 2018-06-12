@@ -34,21 +34,21 @@ zend_class_entry * gene_benchmark_ce;
 
 PHPAPI int gettimeofday(struct timeval *time_Info, struct timezone *timezone_Info);
 
-struct timeval start, end;
-long memory_start = 0, memory_end = 0;
+struct timeval bench_start, bench_end;
+long bench_memory_start = 0, bench_memory_end = 0;
 
 /*
- * {{{ void markStart()
+ * {{{ void markStart(timeval *start, long *memory_start)
  */
-void markStart() {
+void markStart(struct timeval *start, long *memory_start) {
 	zval func, ret;
-	gettimeofday( &start, NULL );
+	gettimeofday( start, NULL );
 
 	ZVAL_STRING(&func, "memory_get_peak_usage");
 	ZVAL_NULL(&ret);
 	call_user_function(EG(function_table), NULL, &func, &ret, 0, NULL);
 	if (Z_TYPE(ret) == IS_LONG) {
-		memory_start = Z_LVAL(ret);
+		*memory_start = Z_LVAL(ret);
 	}
 	zval_ptr_dtor(&func);
 	zval_ptr_dtor(&ret);
@@ -58,15 +58,15 @@ void markStart() {
 /*
  * {{{ void markEnd()
  */
-void markEnd() {
+void markEnd(struct timeval *end, long *memory_end) {
 	zval func, ret;
-    gettimeofday( &end, NULL );
+    gettimeofday( end, NULL );
 
 	ZVAL_STRING(&func, "memory_get_peak_usage");
 	ZVAL_NULL(&ret);
 	call_user_function(EG(function_table), NULL, &func, &ret, 0, NULL);
 	if (Z_TYPE(ret) == IS_LONG) {
-		memory_end = Z_LVAL(ret);
+		*memory_end = Z_LVAL(ret);
 	}
 	zval_ptr_dtor(&func);
 	zval_ptr_dtor(&ret);
@@ -84,12 +84,34 @@ double difftimeval(const struct timeval *start, const struct timeval *end)
 	return(timeuse);
 }
 
+void getBenchTime(struct timeval *start, struct timeval *end, char **ret, zend_bool type) {
+	double time;
+	time = difftimeval(start, end);
+
+	if (type) {
+		spprintf(ret, 0, "%f", time);
+	} else {
+		spprintf(ret, 0, "%.3f", time);
+	}
+}
+
+void getBenchMemory(long *memory_start, long *memory_end, char **ret, zend_bool type) {
+	double memory;
+	memory = *memory_end - *memory_start;
+
+	if (type) {
+		spprintf(ret, 0, "%.3f", memory/1024);
+	} else {
+		spprintf(ret, 0, "%.3f", memory/1048576);
+	}
+}
+
 /*
  * {{{ public gene_benchmark::start()
  */
 PHP_METHOD(gene_benchmark, start)
 {
-	markStart();
+	markStart(&bench_start, &bench_memory_start);
 }
 /* }}} */
 
@@ -99,7 +121,7 @@ PHP_METHOD(gene_benchmark, start)
  */
 PHP_METHOD(gene_benchmark, end)
 {
-	markEnd();
+	markEnd(&bench_end, &bench_memory_end);
 }
 /* }}} */
 
@@ -108,7 +130,6 @@ PHP_METHOD(gene_benchmark, end)
  */
 PHP_METHOD(gene_benchmark, time)
 {
-	double time;
 	char *ret = NULL;
 	zend_bool type = 0;
 
@@ -116,13 +137,7 @@ PHP_METHOD(gene_benchmark, time)
 		return;
 	}
 
-	time = difftimeval(&start, &end);
-
-	if (type) {
-		spprintf(&ret, 0, "%f", time);
-	} else {
-		spprintf(&ret, 0, "%.3f", time);
-	}
+	getBenchTime(&bench_start, &bench_end, &ret, type);
 
 	ZVAL_STRING(return_value, ret);
 	efree(ret);
@@ -135,7 +150,6 @@ PHP_METHOD(gene_benchmark, time)
  */
 PHP_METHOD(gene_benchmark, memory)
 {
-	double memory;
 	char *ret = NULL;
 	zend_bool type = 0;
 
@@ -143,16 +157,10 @@ PHP_METHOD(gene_benchmark, memory)
 		return;
 	}
 
-    if (!memory_start || !memory_end) {
+    if (!bench_memory_start || !bench_memory_end) {
     	RETURN_NULL();
     }
-	memory = memory_end - memory_start;
-
-	if (type) {
-		spprintf(&ret, 0, "%.3f", memory/1024);
-	} else {
-		spprintf(&ret, 0, "%.3f", memory/1048576);
-	}
+    getBenchMemory(&bench_memory_start, &bench_memory_end, &ret, type);
 
 	ZVAL_STRING(return_value, ret);
 	efree(ret);
