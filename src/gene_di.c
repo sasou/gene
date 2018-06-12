@@ -270,11 +270,8 @@ GENE_MINIT_FUNCTION(di) {
 	gene_di_ce->ce_flags |= ZEND_ACC_FINAL;
 
 	//static
-	zend_declare_property_null(gene_di_ce, GENE_DI_PROPERTY_INSTANCE,
-			strlen(GENE_DI_PROPERTY_INSTANCE),
-			ZEND_ACC_PROTECTED | ZEND_ACC_STATIC);
-	zend_declare_property_null(gene_di_ce, GENE_DI_PROPERTY_REG,
-			strlen(GENE_DI_PROPERTY_REG), ZEND_ACC_PROTECTED);
+	zend_declare_property_null(gene_di_ce, GENE_DI_PROPERTY_INSTANCE, strlen(GENE_DI_PROPERTY_INSTANCE), ZEND_ACC_PROTECTED | ZEND_ACC_STATIC);
+	zend_declare_property_null(gene_di_ce, GENE_DI_PROPERTY_REG, strlen(GENE_DI_PROPERTY_REG), ZEND_ACC_PROTECTED);
 	//
 	return SUCCESS;
 }
