@@ -225,6 +225,8 @@ PHP_MINFO_FUNCTION(gene) {
 	php_info_print_table_row(2, "Web site:", " http://www.php-gene.com");
 	php_info_print_table_row(2, "Version:", PHP_GENE_VERSION);
 	php_info_print_table_end();
+
+	DISPLAY_INI_ENTRIES();
 }
 /* }}} */
 
