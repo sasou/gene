@@ -624,6 +624,9 @@ PHP_METHOD(gene_db, insert)
 		return;
 	}
 	reset_sql_params(self);
+	ZVAL_NULL(&field_value);
+	smart_str_appends(&field_str, "");
+	smart_str_appends(&value_str, "");
     if (fields && Z_TYPE_P(fields) == IS_ARRAY) {
     	gene_insert_field_value (fields, &field_str, &value_str, &field_value);
     	zend_update_property(gene_db_ce, self, ZEND_STRL(GENE_DB_DATA), &field_value);
@@ -631,6 +634,8 @@ PHP_METHOD(gene_db, insert)
     } else {
     	php_error_docref(NULL, E_ERROR, "Data Parameter can only be array.");
     }
+	smart_str_0(&field_str);
+	smart_str_0(&value_str);
     spprintf(&sql, 0, "INSERT INTO `%s`(%s) VALUES(%s)", table, field_str.s->val, value_str.s->val);
     zend_update_property_string(gene_db_ce, self, ZEND_STRL(GENE_DB_SQL), sql);
     efree(sql);
@@ -655,6 +660,9 @@ PHP_METHOD(gene_db, batchInsert)
 		return;
 	}
 	reset_sql_params(self);
+	ZVAL_NULL(&field_value);
+	smart_str_appends(&field_str, "");
+	smart_str_appends(&value_str, "");
     if (fields && Z_TYPE_P(fields) == IS_ARRAY) {
     	ZEND_HASH_FOREACH_VAL(Z_ARRVAL_P(fields), row) {
         	if (pre) {
@@ -670,6 +678,8 @@ PHP_METHOD(gene_db, batchInsert)
     } else {
     	php_error_docref(NULL, E_ERROR, "Data Parameter can only be array.");
     }
+	smart_str_0(&field_str);
+	smart_str_0(&value_str);
     spprintf(&sql, 0, "INSERT INTO `%s`(%s) VALUES %s", table, field_str.s->val, value_str.s->val);
     zend_update_property_string(gene_db_ce, self, ZEND_STRL(GENE_DB_SQL), sql);
     efree(sql);
@@ -693,6 +703,8 @@ PHP_METHOD(gene_db, update)
 		return;
 	}
 	reset_sql_params(self);
+	ZVAL_NULL(&field_value);
+	smart_str_appends(&field_str, "");
     if (fields && Z_TYPE_P(fields) == IS_ARRAY) {
     	gene_update_field_value (fields, &field_str, &field_value);
     	zend_update_property(gene_db_ce, self, ZEND_STRL(GENE_DB_DATA), &field_value);
@@ -700,6 +712,7 @@ PHP_METHOD(gene_db, update)
     } else {
     	php_error_docref(NULL, E_ERROR, "Data Parameter can only be array.");
     }
+	smart_str_0(&field_str);
     spprintf(&sql, 0, "UPDATE `%s` SET %s", table, field_str.s->val);
     zend_update_property_string(gene_db_ce, self, ZEND_STRL(GENE_DB_SQL), sql);
     efree(sql);

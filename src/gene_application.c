@@ -120,25 +120,57 @@ void gene_ini_router() {
 /* }}} */
 
 /*
+ *  {{{ zval *gene_application_instance(zval *this_ptr,zval *safe TSRMLS_DC)
+ */
+zval *gene_application_instance(zval *this_ptr, zval *safe TSRMLS_DC) {
+	zval *instance = zend_read_static_property(gene_application_ce, ZEND_STRL(GENE_APPLICATION_INSTANCE), 1);
+
+	if (Z_TYPE_P(instance) == IS_OBJECT) {
+		return instance;
+	}
+	if (this_ptr) {
+		instance = this_ptr;
+	} else {
+		object_init_ex(instance, gene_application_ce);
+		gene_ini_router(TSRMLS_C);
+		if (safe && !GENE_G(app_key)) {
+			GENE_G(app_key) = estrndup(Z_STRVAL_P(safe), Z_STRLEN_P(safe));
+		}
+
+		if (GENE_G(directory) != NULL) {
+			if (GENE_G(app_root)) {
+				efree(GENE_G(app_root));
+			}
+			spprintf(&GENE_G(app_root), 0, "%s/app/", GENE_G(directory));
+		}
+	}
+	zend_update_static_property(gene_application_ce, ZEND_STRL(GENE_APPLICATION_INSTANCE), instance);
+	return instance;
+}
+/* }}} */
+
+
+/*
+ *  {{{ public gene_application::getInstance(void)
+ */
+PHP_METHOD(gene_application, getInstance) {
+	zval *safe = NULL;
+	if (zend_parse_parameters(ZEND_NUM_ARGS()TSRMLS_CC, "|z", &safe) == FAILURE) {
+		RETURN_NULL();
+	}
+	RETURN_ZVAL(gene_application_instance(NULL, safe TSRMLS_CC), 1, 0);
+}
+/* }}} */
+
+/*
  * {{{ gene_application
  */
 PHP_METHOD(gene_application, __construct) {
 	zval *safe = NULL;
-	int len = 0;
 	if (zend_parse_parameters(ZEND_NUM_ARGS()TSRMLS_CC, "|z", &safe) == FAILURE) {
 		RETURN_NULL();
 	}
-	gene_ini_router(TSRMLS_C);
-	if (safe && !GENE_G(app_key)) {
-		GENE_G(app_key) = estrndup(Z_STRVAL_P(safe), Z_STRLEN_P(safe));
-	}
-
-	if (GENE_G(directory) != NULL) {
-		if (GENE_G(app_root)) {
-			efree(GENE_G(app_root));
-		}
-		spprintf(&GENE_G(app_root), 0, "%s/app/", GENE_G(directory));
-	}
+	RETURN_ZVAL(gene_application_instance(NULL, safe TSRMLS_CC), 1, 0);
 }
 /* }}} */
 
@@ -530,6 +562,7 @@ zend_function_entry gene_application_methods[] = {
 	PHP_ME(gene_application, config, NULL, ZEND_ACC_PUBLIC|ZEND_ACC_STATIC)
 	PHP_ME(gene_application, __get, gene_application_get, ZEND_ACC_PUBLIC)
 	PHP_ME(gene_application, __set, gene_application_set, ZEND_ACC_PUBLIC)
+	PHP_ME(gene_application, getInstance, NULL, ZEND_ACC_PUBLIC|ZEND_ACC_STATIC)
 	PHP_ME(gene_application, __construct, NULL, ZEND_ACC_PUBLIC|ZEND_ACC_CTOR)
 	{ NULL, NULL, NULL }
 };
@@ -542,6 +575,10 @@ GENE_MINIT_FUNCTION(application) {
 	zend_class_entry gene_application;
 	GENE_INIT_CLASS_ENTRY(gene_application, "Gene_Application", "Gene\\Application", gene_application_methods);
 	gene_application_ce = zend_register_internal_class( &gene_application TSRMLS_CC);
+	gene_application_ce->ce_flags |= ZEND_ACC_FINAL;
+
+	//static
+	zend_declare_property_null(gene_application_ce, ZEND_STRL(GENE_APPLICATION_INSTANCE), ZEND_ACC_PROTECTED | ZEND_ACC_STATIC TSRMLS_CC);
 	zend_declare_property_null(gene_application_ce, ZEND_STRL(GENE_APPLICATION_ATTR), ZEND_ACC_PUBLIC);
 
 	return SUCCESS;
