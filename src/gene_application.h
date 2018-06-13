@@ -16,6 +16,7 @@
 
 #ifndef GENE_APPLICATION_H
 #define GENE_APPLICATION_H
+#define GENE_APPLICATION_INSTANCE "instance"
 #define GENE_APPLICATION_SAFE "safe"
 #define GENE_APPLICATION_ATTR "attr"
 
