@@ -31,6 +31,23 @@
 
 zend_class_entry * gene_exception_ce;
 
+ZEND_BEGIN_ARG_INFO_EX(gene_exception_error, 0, 0, 1)
+	ZEND_ARG_INFO(0, callback)
+    ZEND_ARG_INFO(0, error_type)
+ZEND_END_ARG_INFO()
+
+ZEND_BEGIN_ARG_INFO_EX(gene_exception_exception, 0, 0, 0)
+	ZEND_ARG_INFO(0, callback)
+ZEND_END_ARG_INFO()
+
+ZEND_BEGIN_ARG_INFO_EX(gene_exception_do_error, 0, 0, 2)
+	ZEND_ARG_INFO(0, code)
+    ZEND_ARG_INFO(0, msg)
+    ZEND_ARG_INFO(0, file)
+    ZEND_ARG_INFO(0, line)
+    ZEND_ARG_INFO(0, params)
+ZEND_END_ARG_INFO()
+
 /** {{{ int gene_exception_error_register(zval *callback,zval *error_type TSRMLS_DC)
  */
 int gene_exception_error_register(zval *callback, zval *error_type TSRMLS_DC) {
@@ -146,13 +163,11 @@ void gene_throw_exception(long code, char *message TSRMLS_DC) {
  */
 PHP_METHOD(gene_exception, setErrorHandler) {
 	zval *callback, *error_type = NULL;
-	if (zend_parse_parameters(ZEND_NUM_ARGS()TSRMLS_CC, "z|z", &callback,
-			&error_type) == FAILURE) {
+	if (zend_parse_parameters(ZEND_NUM_ARGS()TSRMLS_CC, "z|z", &callback, &error_type) == FAILURE) {
 		return;
 	}
 	gene_exception_error_register(callback, error_type TSRMLS_CC);
-	RETURN_TRUE
-	;
+	RETURN_TRUE;
 }
 /* }}} */
 
@@ -189,9 +204,9 @@ PHP_METHOD(gene_exception, doError) {
  * {{{ gene_exception_methods
  */
 zend_function_entry gene_exception_methods[] = {
-	PHP_ME(gene_exception, setErrorHandler, NULL, ZEND_ACC_PUBLIC|ZEND_ACC_STATIC)
-	PHP_ME(gene_exception, setExceptionHandler, NULL, ZEND_ACC_PUBLIC|ZEND_ACC_STATIC)
-	PHP_ME(gene_exception, doError, NULL, ZEND_ACC_PUBLIC|ZEND_ACC_STATIC)
+	PHP_ME(gene_exception, setErrorHandler, gene_exception_error, ZEND_ACC_PUBLIC|ZEND_ACC_STATIC)
+	PHP_ME(gene_exception, setExceptionHandler, gene_exception_exception, ZEND_ACC_PUBLIC|ZEND_ACC_STATIC)
+	PHP_ME(gene_exception, doError, gene_exception_do_error, ZEND_ACC_PUBLIC|ZEND_ACC_STATIC)
 #if ((PHP_MAJOR_VERSION == 5) && (PHP_MINOR_VERSION < 3)) || (PHP_MAJOR_VERSION < 5)
 	PHP_ME(gene_exception, __construct, NULL, ZEND_ACC_PUBLIC|ZEND_ACC_CTOR)
 	PHP_ME(gene_exception, getPrevious, NULL, ZEND_ACC_PUBLIC)

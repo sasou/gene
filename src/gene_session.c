@@ -29,17 +29,21 @@ zend_class_entry * gene_session_ce;
 
 /* {{{ ARG_INFO
  */
-ZEND_BEGIN_ARG_INFO_EX(gene_session_get_arginfo, 0, 0, 1) ZEND_ARG_INFO(0, name)
+ZEND_BEGIN_ARG_INFO_EX(gene_session_get_arginfo, 0, 0, 1)
+	ZEND_ARG_INFO(0, name)
 ZEND_END_ARG_INFO()
 
-ZEND_BEGIN_ARG_INFO_EX(gene_session_has_arginfo, 0, 0, 1) ZEND_ARG_INFO(0, name)
+ZEND_BEGIN_ARG_INFO_EX(gene_session_has_arginfo, 0, 0, 1)
+	ZEND_ARG_INFO(0, name)
 ZEND_END_ARG_INFO()
 
-ZEND_BEGIN_ARG_INFO_EX(gene_session_del_arginfo, 0, 0, 1) ZEND_ARG_INFO(0, name)
+ZEND_BEGIN_ARG_INFO_EX(gene_session_del_arginfo, 0, 0, 1)
+	ZEND_ARG_INFO(0, name)
 ZEND_END_ARG_INFO()
 
-ZEND_BEGIN_ARG_INFO_EX(gene_session_set_arginfo, 0, 0, 2) ZEND_ARG_INFO(0, name)
-ZEND_ARG_INFO(0, value)
+ZEND_BEGIN_ARG_INFO_EX(gene_session_set_arginfo, 0, 0, 2)
+	ZEND_ARG_INFO(0, name)
+	ZEND_ARG_INFO(0, value)
 ZEND_END_ARG_INFO()
 /* }}} */
 
@@ -335,6 +339,7 @@ PHP_METHOD(gene_session, has) {
  * {{{ gene_session_methods
  */
 zend_function_entry gene_session_methods[] = {
+	PHP_ME(gene_session, __construct, NULL, ZEND_ACC_PUBLIC|ZEND_ACC_CTOR)
 	PHP_ME(gene_session, get, gene_session_get_arginfo, ZEND_ACC_PUBLIC|ZEND_ACC_STATIC)
 	PHP_ME(gene_session, has, gene_session_has_arginfo, ZEND_ACC_PUBLIC|ZEND_ACC_STATIC)
 	PHP_ME(gene_session, set, gene_session_set_arginfo, ZEND_ACC_PUBLIC|ZEND_ACC_STATIC)
@@ -344,7 +349,6 @@ zend_function_entry gene_session_methods[] = {
 	PHP_MALIAS(gene_session, __isset, has, gene_session_has_arginfo, ZEND_ACC_PUBLIC)
 	PHP_MALIAS(gene_session, __set, set, gene_session_set_arginfo, ZEND_ACC_PUBLIC)
 	PHP_MALIAS(gene_session, __unset, del, gene_session_del_arginfo, ZEND_ACC_PUBLIC)
-	PHP_ME(gene_session, __construct, NULL, ZEND_ACC_PUBLIC|ZEND_ACC_CTOR)
 	{ NULL, NULL, NULL }
 };
 /* }}} */

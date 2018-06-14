@@ -32,6 +32,26 @@
 
 zend_class_entry * gene_config_ce;
 
+ZEND_BEGIN_ARG_INFO_EX(gene_config_construct, 0, 0, 0)
+	ZEND_ARG_INFO(0, safe)
+ZEND_END_ARG_INFO()
+
+ZEND_BEGIN_ARG_INFO_EX(gene_config_set, 0, 0, 2)
+	ZEND_ARG_INFO(0, key)
+    ZEND_ARG_INFO(0, value)
+    ZEND_ARG_INFO(0, ttl)
+ZEND_END_ARG_INFO()
+
+ZEND_BEGIN_ARG_INFO_EX(gene_config_get, 0, 0, 1)
+	ZEND_ARG_INFO(0, key)
+ZEND_END_ARG_INFO()
+
+ZEND_BEGIN_ARG_INFO_EX(gene_config_del, 0, 0, 0)
+ZEND_END_ARG_INFO()
+
+ZEND_BEGIN_ARG_INFO_EX(gene_config_clear, 0, 0, 0)
+ZEND_END_ARG_INFO()
+
 /*
  * {{{ gene_config
  */
@@ -178,11 +198,11 @@ PHP_METHOD(gene_config, clear) {
  * {{{ gene_config_methods
  */
 zend_function_entry gene_config_methods[] = {
-	PHP_ME(gene_config, set, NULL, ZEND_ACC_PUBLIC)
-	PHP_ME(gene_config, get, NULL, ZEND_ACC_PUBLIC)
-	PHP_ME(gene_config, del, NULL, ZEND_ACC_PUBLIC)
-	PHP_ME(gene_config, clear, NULL, ZEND_ACC_PUBLIC)
-	PHP_ME(gene_config, __construct, NULL, ZEND_ACC_PUBLIC|ZEND_ACC_CTOR)
+	PHP_ME(gene_config, __construct, gene_config_construct, ZEND_ACC_PUBLIC|ZEND_ACC_CTOR)
+	PHP_ME(gene_config, set, gene_config_set, ZEND_ACC_PUBLIC)
+	PHP_ME(gene_config, get, gene_config_get, ZEND_ACC_PUBLIC)
+	PHP_ME(gene_config, del, gene_config_del, ZEND_ACC_PUBLIC)
+	PHP_ME(gene_config, clear, gene_config_clear, ZEND_ACC_PUBLIC)
 	{ NULL, NULL, NULL }
 };
 /* }}} */
