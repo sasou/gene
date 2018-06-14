@@ -39,6 +39,80 @@
 
 zend_class_entry * gene_application_ce;
 
+ZEND_BEGIN_ARG_INFO_EX(gene_application_construct, 0, 0, 0)
+    ZEND_ARG_INFO(0, safe)
+ZEND_END_ARG_INFO()
+
+ZEND_BEGIN_ARG_INFO_EX(gene_application_get_instance, 0, 0, 0)
+	ZEND_ARG_INFO(0, safe)
+ZEND_END_ARG_INFO()
+
+ZEND_BEGIN_ARG_INFO_EX(gene_application_load, 0, 0, 1)
+	ZEND_ARG_INFO(0, file)
+	ZEND_ARG_INFO(0, path)
+	ZEND_ARG_INFO(0, validity)
+ZEND_END_ARG_INFO()
+
+ZEND_BEGIN_ARG_INFO_EX(gene_application_autoload, 0, 0, 1)
+	ZEND_ARG_INFO(0, app_root)
+	ZEND_ARG_INFO(0, auto_function)
+ZEND_END_ARG_INFO()
+
+ZEND_BEGIN_ARG_INFO_EX(gene_application_set_mode, 0, 0, 0)
+	ZEND_ARG_INFO(0, error_type)
+	ZEND_ARG_INFO(0, exception_type)
+ZEND_END_ARG_INFO()
+
+ZEND_BEGIN_ARG_INFO_EX(gene_application_set_view, 0, 0, 0)
+	ZEND_ARG_INFO(0, view)
+	ZEND_ARG_INFO(0, tpl_ext)
+ZEND_END_ARG_INFO()
+
+ZEND_BEGIN_ARG_INFO_EX(gene_application_error, 0, 0, 3)
+	ZEND_ARG_INFO(0, type)
+	ZEND_ARG_INFO(0, callback)
+	ZEND_ARG_INFO(0, error_type)
+ZEND_END_ARG_INFO()
+
+ZEND_BEGIN_ARG_INFO_EX(gene_application_exception, 0, 0, 2)
+	ZEND_ARG_INFO(0, type)
+	ZEND_ARG_INFO(0, callback)
+ZEND_END_ARG_INFO()
+
+ZEND_BEGIN_ARG_INFO_EX(gene_application_run, 0, 0, 0)
+	ZEND_ARG_INFO(0, method)
+	ZEND_ARG_INFO(0, uri)
+ZEND_END_ARG_INFO()
+
+ZEND_BEGIN_ARG_INFO_EX(gene_application_get_method, 0, 0, 0)
+ZEND_END_ARG_INFO()
+
+ZEND_BEGIN_ARG_INFO_EX(gene_application_get_path, 0, 0, 0)
+ZEND_END_ARG_INFO()
+
+ZEND_BEGIN_ARG_INFO_EX(gene_application_get_uri, 0, 0, 0)
+ZEND_END_ARG_INFO()
+
+ZEND_BEGIN_ARG_INFO_EX(gene_application_get_module, 0, 0, 0)
+ZEND_END_ARG_INFO()
+
+ZEND_BEGIN_ARG_INFO_EX(gene_application_get_controller, 0, 0, 0)
+ZEND_END_ARG_INFO()
+
+ZEND_BEGIN_ARG_INFO_EX(gene_application_get_action, 0, 0, 0)
+ZEND_END_ARG_INFO()
+
+ZEND_BEGIN_ARG_INFO_EX(gene_application_set_environment, 0, 0, 0)
+	ZEND_ARG_INFO(0, type)
+ZEND_END_ARG_INFO()
+
+ZEND_BEGIN_ARG_INFO_EX(gene_application_get_environment, 0, 0, 0)
+ZEND_END_ARG_INFO()
+
+ZEND_BEGIN_ARG_INFO_EX(gene_application_config, 0, 0, 1)
+	ZEND_ARG_INFO(0, key)
+ZEND_END_ARG_INFO()
+
 ZEND_BEGIN_ARG_INFO_EX(gene_application_get, 0, 0, 1)
     ZEND_ARG_INFO(0, name)
 ZEND_END_ARG_INFO()
@@ -182,7 +256,7 @@ PHP_METHOD(gene_application, load) {
 	zend_string *file = NULL, *path = NULL;
 	char *cache_key;
 	int validity = 10, cache_key_len;
-	if (zend_parse_parameters(ZEND_NUM_ARGS()TSRMLS_CC, "|SSl", &file, &path, &validity) == FAILURE) {
+	if (zend_parse_parameters(ZEND_NUM_ARGS()TSRMLS_CC, "S|Sl", &file, &path, &validity) == FAILURE) {
 		return;
 	}
 	if (path && ZSTR_LEN(path) > 0) {
@@ -358,7 +432,7 @@ PHP_METHOD(gene_application, autoload) {
 PHP_METHOD(gene_application, error) {
 	zval *callback = NULL, *error_type = NULL, *self = getThis();
 	long type = 0;
-	if (zend_parse_parameters(ZEND_NUM_ARGS()TSRMLS_CC, "|lzz", &type, &callback, &error_type) == FAILURE) {
+	if (zend_parse_parameters(ZEND_NUM_ARGS()TSRMLS_CC, "lzz", &type, &callback, &error_type) == FAILURE) {
 		return;
 	}
 	if (type > 0) {
@@ -376,7 +450,7 @@ PHP_METHOD(gene_application, error) {
 PHP_METHOD(gene_application, exception) {
 	zval *callback = NULL, *error_type = NULL, *self = getThis();
 	long type = 0;
-	if (zend_parse_parameters(ZEND_NUM_ARGS()TSRMLS_CC, "|lz", &type, &callback) == FAILURE) {
+	if (zend_parse_parameters(ZEND_NUM_ARGS()TSRMLS_CC, "lz", &type, &callback) == FAILURE) {
 		return;
 	}
 	if (type > 0) {
@@ -544,26 +618,26 @@ PHP_METHOD(gene_application, __get)
  * {{{ gene_application_methods
  */
 zend_function_entry gene_application_methods[] = {
-	PHP_ME(gene_application, load, NULL, ZEND_ACC_PUBLIC)
-	PHP_ME(gene_application, autoload, NULL, ZEND_ACC_PUBLIC)
-	PHP_ME(gene_application, setMode, NULL, ZEND_ACC_PUBLIC)
-	PHP_ME(gene_application, setView, NULL, ZEND_ACC_PUBLIC)
-	PHP_ME(gene_application, error, NULL, ZEND_ACC_PUBLIC)
-	PHP_ME(gene_application, exception, NULL, ZEND_ACC_PUBLIC)
-	PHP_ME(gene_application, run, NULL, ZEND_ACC_PUBLIC)
-	PHP_ME(gene_application, getMethod, NULL, ZEND_ACC_PUBLIC|ZEND_ACC_STATIC)
-	PHP_ME(gene_application, getPath, NULL, ZEND_ACC_PUBLIC|ZEND_ACC_STATIC)
-	PHP_ME(gene_application, getRouterUri, NULL, ZEND_ACC_PUBLIC|ZEND_ACC_STATIC)
-	PHP_ME(gene_application, getModule, NULL, ZEND_ACC_PUBLIC|ZEND_ACC_STATIC)
-	PHP_ME(gene_application, getController, NULL, ZEND_ACC_PUBLIC|ZEND_ACC_STATIC)
-	PHP_ME(gene_application, getAction, NULL, ZEND_ACC_PUBLIC|ZEND_ACC_STATIC)
-	PHP_ME(gene_application, setEnvironment, NULL, ZEND_ACC_PUBLIC|ZEND_ACC_STATIC)
-	PHP_ME(gene_application, getEnvironment, NULL, ZEND_ACC_PUBLIC|ZEND_ACC_STATIC)
-	PHP_ME(gene_application, config, NULL, ZEND_ACC_PUBLIC|ZEND_ACC_STATIC)
+	PHP_ME(gene_application, __construct, gene_application_construct, ZEND_ACC_PUBLIC|ZEND_ACC_CTOR)
+	PHP_ME(gene_application, getInstance, gene_application_get_instance, ZEND_ACC_PUBLIC|ZEND_ACC_STATIC)
+	PHP_ME(gene_application, load, gene_application_load, ZEND_ACC_PUBLIC)
+	PHP_ME(gene_application, autoload, gene_application_autoload, ZEND_ACC_PUBLIC)
+	PHP_ME(gene_application, setMode, gene_application_set_mode, ZEND_ACC_PUBLIC)
+	PHP_ME(gene_application, setView, gene_application_set_view, ZEND_ACC_PUBLIC)
+	PHP_ME(gene_application, error, gene_application_error, ZEND_ACC_PUBLIC)
+	PHP_ME(gene_application, exception, gene_application_exception, ZEND_ACC_PUBLIC)
+	PHP_ME(gene_application, run, gene_application_run, ZEND_ACC_PUBLIC)
+	PHP_ME(gene_application, getMethod, gene_application_get_method, ZEND_ACC_PUBLIC|ZEND_ACC_STATIC)
+	PHP_ME(gene_application, getPath, gene_application_get_path, ZEND_ACC_PUBLIC|ZEND_ACC_STATIC)
+	PHP_ME(gene_application, getRouterUri, gene_application_get_uri, ZEND_ACC_PUBLIC|ZEND_ACC_STATIC)
+	PHP_ME(gene_application, getModule, gene_application_get_module, ZEND_ACC_PUBLIC|ZEND_ACC_STATIC)
+	PHP_ME(gene_application, getController, gene_application_get_controller, ZEND_ACC_PUBLIC|ZEND_ACC_STATIC)
+	PHP_ME(gene_application, getAction, gene_application_get_action, ZEND_ACC_PUBLIC|ZEND_ACC_STATIC)
+	PHP_ME(gene_application, setEnvironment, gene_application_set_environment, ZEND_ACC_PUBLIC|ZEND_ACC_STATIC)
+	PHP_ME(gene_application, getEnvironment, gene_application_get_environment, ZEND_ACC_PUBLIC|ZEND_ACC_STATIC)
+	PHP_ME(gene_application, config, gene_application_config, ZEND_ACC_PUBLIC|ZEND_ACC_STATIC)
 	PHP_ME(gene_application, __get, gene_application_get, ZEND_ACC_PUBLIC)
 	PHP_ME(gene_application, __set, gene_application_set, ZEND_ACC_PUBLIC)
-	PHP_ME(gene_application, getInstance, NULL, ZEND_ACC_PUBLIC|ZEND_ACC_STATIC)
-	PHP_ME(gene_application, __construct, NULL, ZEND_ACC_PUBLIC|ZEND_ACC_CTOR)
 	{ NULL, NULL, NULL }
 };
 /* }}} */

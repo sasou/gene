@@ -37,6 +37,21 @@ PHPAPI int gettimeofday(struct timeval *time_Info, struct timezone *timezone_Inf
 struct timeval bench_start, bench_end;
 long bench_memory_start = 0, bench_memory_end = 0;
 
+ZEND_BEGIN_ARG_INFO_EX(gene_benchmark_start, 0, 0, 0)
+ZEND_END_ARG_INFO()
+
+ZEND_BEGIN_ARG_INFO_EX(gene_benchmark_end, 0, 0, 0)
+ZEND_END_ARG_INFO()
+
+ZEND_BEGIN_ARG_INFO_EX(gene_benchmark_time, 0, 0, 0)
+	ZEND_ARG_INFO(0, type)
+ZEND_END_ARG_INFO()
+
+ZEND_BEGIN_ARG_INFO_EX(gene_benchmark_memory, 0, 0, 0)
+	ZEND_ARG_INFO(0, type)
+ZEND_END_ARG_INFO()
+
+
 /*
  * {{{ void markStart(timeval *start, long *memory_start)
  */
@@ -172,10 +187,10 @@ PHP_METHOD(gene_benchmark, memory)
  * {{{ gene_benchmark_methods
  */
 zend_function_entry gene_benchmark_methods[] = {
-		PHP_ME(gene_benchmark, start, NULL, ZEND_ACC_PUBLIC|ZEND_ACC_STATIC)
-		PHP_ME(gene_benchmark, end, NULL, ZEND_ACC_PUBLIC|ZEND_ACC_STATIC)
-		PHP_ME(gene_benchmark, time, NULL, ZEND_ACC_PUBLIC|ZEND_ACC_STATIC)
-		PHP_ME(gene_benchmark, memory, NULL, ZEND_ACC_PUBLIC|ZEND_ACC_STATIC)
+		PHP_ME(gene_benchmark, start, gene_benchmark_start, ZEND_ACC_PUBLIC|ZEND_ACC_STATIC)
+		PHP_ME(gene_benchmark, end, gene_benchmark_end, ZEND_ACC_PUBLIC|ZEND_ACC_STATIC)
+		PHP_ME(gene_benchmark, time, gene_benchmark_time, ZEND_ACC_PUBLIC|ZEND_ACC_STATIC)
+		PHP_ME(gene_benchmark, memory, gene_benchmark_memory, ZEND_ACC_PUBLIC|ZEND_ACC_STATIC)
 		{NULL, NULL, NULL}
 };
 /* }}} */
