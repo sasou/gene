@@ -35,6 +35,27 @@ zend_class_entry * gene_memory_ce;
 static void gene_memory_hash_copy(HashTable *target, HashTable *source);
 static void gene_memory_zval_persistent(zval *dst, zval *source TSRMLS_DC);
 
+
+ZEND_BEGIN_ARG_INFO_EX(gene_memory_arg_construct, 0, 0, 0)
+	ZEND_ARG_INFO(0, safe)
+ZEND_END_ARG_INFO()
+
+ZEND_BEGIN_ARG_INFO_EX(gene_memory_arg_set, 0, 0, 2)
+	ZEND_ARG_INFO(0, key)
+    ZEND_ARG_INFO(0, value)
+    ZEND_ARG_INFO(0, ttl)
+ZEND_END_ARG_INFO()
+
+ZEND_BEGIN_ARG_INFO_EX(gene_memory_arg_get, 0, 0, 1)
+	ZEND_ARG_INFO(0, key)
+ZEND_END_ARG_INFO()
+
+ZEND_BEGIN_ARG_INFO_EX(gene_memory_arg_del, 0, 0, 0)
+ZEND_END_ARG_INFO()
+
+ZEND_BEGIN_ARG_INFO_EX(gene_memory_arg_clear, 0, 0, 0)
+ZEND_END_ARG_INFO()
+
 /* }}} */
 
 static zend_string* gene_str_persistent(char *str, size_t len) /* {{{ */{
@@ -624,13 +645,13 @@ PHP_METHOD(gene_memory, clean) {
  * {{{ gene_memory_methods
  */
 zend_function_entry gene_memory_methods[] = {
-	PHP_ME(gene_memory, set, NULL, ZEND_ACC_PUBLIC)
-	PHP_ME(gene_memory, get, NULL, ZEND_ACC_PUBLIC)
-	PHP_ME(gene_memory, getTime, NULL, ZEND_ACC_PUBLIC)
-	PHP_ME(gene_memory, exists, NULL, ZEND_ACC_PUBLIC)
-	PHP_ME(gene_memory, del, NULL, ZEND_ACC_PUBLIC)
-	PHP_ME(gene_memory, clean, NULL, ZEND_ACC_PUBLIC)
-	PHP_ME(gene_memory, __construct, NULL, ZEND_ACC_PUBLIC|ZEND_ACC_CTOR)
+	PHP_ME(gene_memory, __construct, gene_memory_arg_construct, ZEND_ACC_PUBLIC|ZEND_ACC_CTOR)
+	PHP_ME(gene_memory, set, gene_memory_arg_set, ZEND_ACC_PUBLIC)
+	PHP_ME(gene_memory, get, gene_memory_arg_get, ZEND_ACC_PUBLIC)
+	PHP_ME(gene_memory, getTime, gene_memory_arg_get, ZEND_ACC_PUBLIC)
+	PHP_ME(gene_memory, exists, gene_memory_arg_get, ZEND_ACC_PUBLIC)
+	PHP_ME(gene_memory, del, gene_memory_arg_get, ZEND_ACC_PUBLIC)
+	PHP_ME(gene_memory, clean, gene_memory_arg_clear, ZEND_ACC_PUBLIC)
 	{ NULL, NULL, NULL }
 };
 /* }}} */

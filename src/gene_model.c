@@ -35,6 +35,18 @@
 
 zend_class_entry * gene_model_ce;
 
+ZEND_BEGIN_ARG_INFO_EX(gene_model_se, 0, 0, 1)
+    ZEND_ARG_INFO(0, msg)
+	ZEND_ARG_INFO(0, code)
+ZEND_END_ARG_INFO()
+
+ZEND_BEGIN_ARG_INFO_EX(gene_model_se_data, 0, 0, 1)
+	ZEND_ARG_INFO(0, data)
+	ZEND_ARG_INFO(0, count)
+	ZEND_ARG_INFO(0, msg)
+	ZEND_ARG_INFO(0, code)
+ZEND_END_ARG_INFO()
+
 
 ZEND_BEGIN_ARG_INFO_EX(gene_model_get, 0, 0, 1)
     ZEND_ARG_INFO(0, name)
@@ -216,9 +228,9 @@ zend_function_entry gene_model_methods[] = {
 		PHP_ME(gene_model, __destruct,	NULL, ZEND_ACC_PUBLIC|ZEND_ACC_DTOR)
 		PHP_ME(gene_model, __get, gene_model_get, ZEND_ACC_PUBLIC)
 		PHP_ME(gene_model, __set, gene_model_set, ZEND_ACC_PUBLIC)
-		PHP_ME(gene_model, success, NULL, ZEND_ACC_PUBLIC)
-		PHP_ME(gene_model, error, NULL, ZEND_ACC_PUBLIC)
-		PHP_ME(gene_model, data, NULL, ZEND_ACC_PUBLIC)
+		PHP_ME(gene_model, success, gene_model_se, ZEND_ACC_PUBLIC)
+		PHP_ME(gene_model, error, gene_model_se, ZEND_ACC_PUBLIC)
+		PHP_ME(gene_model, data, gene_model_se_data, ZEND_ACC_PUBLIC)
 		PHP_ME(gene_model, getInstance, NULL, ZEND_ACC_PUBLIC|ZEND_ACC_STATIC)
 		{NULL, NULL, NULL}
 };

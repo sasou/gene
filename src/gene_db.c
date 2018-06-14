@@ -36,6 +36,61 @@ zend_class_entry * gene_db_ce;
 struct timeval db_start, db_end;
 long db_memory_start = 0, db_memory_end = 0;
 
+ZEND_BEGIN_ARG_INFO_EX(gene_db_construct, 0, 0, 1)
+	ZEND_ARG_INFO(0, config)
+ZEND_END_ARG_INFO()
+
+ZEND_BEGIN_ARG_INFO_EX(gene_db_select, 0, 0, 1)
+	ZEND_ARG_INFO(0, table)
+    ZEND_ARG_INFO(0, fields)
+ZEND_END_ARG_INFO()
+
+ZEND_BEGIN_ARG_INFO_EX(gene_db_count, 0, 0, 1)
+	ZEND_ARG_INFO(0, table)
+    ZEND_ARG_INFO(0, fields)
+ZEND_END_ARG_INFO()
+
+ZEND_BEGIN_ARG_INFO_EX(gene_db_insert, 0, 0, 2)
+	ZEND_ARG_INFO(0, table)
+    ZEND_ARG_INFO(0, fields)
+ZEND_END_ARG_INFO()
+
+ZEND_BEGIN_ARG_INFO_EX(gene_db_batch_insert, 0, 0, 2)
+	ZEND_ARG_INFO(0, table)
+    ZEND_ARG_INFO(0, fields)
+ZEND_END_ARG_INFO()
+
+ZEND_BEGIN_ARG_INFO_EX(gene_db_update, 0, 0, 2)
+	ZEND_ARG_INFO(0, table)
+    ZEND_ARG_INFO(0, fields)
+ZEND_END_ARG_INFO()
+
+ZEND_BEGIN_ARG_INFO_EX(gene_db_delete, 0, 0, 1)
+	ZEND_ARG_INFO(0, table)
+ZEND_END_ARG_INFO()
+
+ZEND_BEGIN_ARG_INFO_EX(gene_db_where, 0, 0, 1)
+	ZEND_ARG_INFO(0, where)
+	ZEND_ARG_INFO(0, fields)
+ZEND_END_ARG_INFO()
+
+ZEND_BEGIN_ARG_INFO_EX(gene_db_in, 0, 0, 1)
+	ZEND_ARG_INFO(0, in)
+	ZEND_ARG_INFO(0, fields)
+ZEND_END_ARG_INFO()
+
+ZEND_BEGIN_ARG_INFO_EX(gene_db_sql, 0, 0, 1)
+	ZEND_ARG_INFO(0, sql)
+	ZEND_ARG_INFO(0, fields)
+ZEND_END_ARG_INFO()
+
+ZEND_BEGIN_ARG_INFO_EX(gene_db_order, 0, 0, 1)
+	ZEND_ARG_INFO(0, order)
+ZEND_END_ARG_INFO()
+
+ZEND_BEGIN_ARG_INFO_EX(gene_db_limit, 0, 0, 1)
+	ZEND_ARG_INFO(0, limit)
+ZEND_END_ARG_INFO()
 
 void reset_sql_params(zval *self)
 {
@@ -1318,18 +1373,19 @@ PHP_METHOD(gene_db, history)
  * {{{ gene_db_methods
  */
 zend_function_entry gene_db_methods[] = {
+		PHP_ME(gene_db, __construct, gene_db_construct, ZEND_ACC_PUBLIC|ZEND_ACC_CTOR)
 		PHP_ME(gene_db, getPdo, NULL, ZEND_ACC_PUBLIC)
-		PHP_ME(gene_db, select, NULL, ZEND_ACC_PUBLIC)
-		PHP_ME(gene_db, count, NULL, ZEND_ACC_PUBLIC)
-		PHP_ME(gene_db, insert, NULL, ZEND_ACC_PUBLIC)
-		PHP_ME(gene_db, batchInsert, NULL, ZEND_ACC_PUBLIC)
-		PHP_ME(gene_db, update, NULL, ZEND_ACC_PUBLIC)
-		PHP_ME(gene_db, delete, NULL, ZEND_ACC_PUBLIC)
-		PHP_ME(gene_db, where, NULL, ZEND_ACC_PUBLIC)
-		PHP_ME(gene_db, in, NULL, ZEND_ACC_PUBLIC)
-		PHP_ME(gene_db, sql, NULL, ZEND_ACC_PUBLIC)
-		PHP_ME(gene_db, limit, NULL, ZEND_ACC_PUBLIC)
-		PHP_ME(gene_db, order, NULL, ZEND_ACC_PUBLIC)
+		PHP_ME(gene_db, select, gene_db_select, ZEND_ACC_PUBLIC)
+		PHP_ME(gene_db, count, gene_db_count, ZEND_ACC_PUBLIC)
+		PHP_ME(gene_db, insert, gene_db_insert, ZEND_ACC_PUBLIC)
+		PHP_ME(gene_db, batchInsert, gene_db_batch_insert, ZEND_ACC_PUBLIC)
+		PHP_ME(gene_db, update, gene_db_update, ZEND_ACC_PUBLIC)
+		PHP_ME(gene_db, delete, gene_db_delete, ZEND_ACC_PUBLIC)
+		PHP_ME(gene_db, where, gene_db_where, ZEND_ACC_PUBLIC)
+		PHP_ME(gene_db, in, gene_db_in, ZEND_ACC_PUBLIC)
+		PHP_ME(gene_db, sql, gene_db_sql, ZEND_ACC_PUBLIC)
+		PHP_ME(gene_db, limit, gene_db_limit, ZEND_ACC_PUBLIC)
+		PHP_ME(gene_db, order, gene_db_order, ZEND_ACC_PUBLIC)
 		PHP_ME(gene_db, execute, NULL, ZEND_ACC_PUBLIC)
 		PHP_ME(gene_db, all, NULL, ZEND_ACC_PUBLIC)
 		PHP_ME(gene_db, row, NULL, ZEND_ACC_PUBLIC)
@@ -1342,7 +1398,6 @@ zend_function_entry gene_db_methods[] = {
 		PHP_ME(gene_db, rollBack, NULL, ZEND_ACC_PUBLIC)
 		PHP_ME(gene_db, commit, NULL, ZEND_ACC_PUBLIC)
 		PHP_ME(gene_db, history, NULL, ZEND_ACC_PUBLIC)
-		PHP_ME(gene_db, __construct, NULL, ZEND_ACC_PUBLIC|ZEND_ACC_CTOR)
 		{NULL, NULL, NULL}
 };
 /* }}} */

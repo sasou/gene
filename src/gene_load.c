@@ -34,6 +34,15 @@
 
 zend_class_entry * gene_load_ce;
 
+
+ZEND_BEGIN_ARG_INFO_EX(gene_load_arg_import, 0, 0, 1)
+	ZEND_ARG_INFO(0, file)
+ZEND_END_ARG_INFO()
+
+ZEND_BEGIN_ARG_INFO_EX(gene_load_arg_autoload, 0, 0, 1)
+	ZEND_ARG_INFO(0, className)
+ZEND_END_ARG_INFO()
+
 /** {{{ int gene_load_import(char *path TSRMLS_DC)
  */
 int gene_load_import(char *path TSRMLS_DC) {
@@ -218,10 +227,10 @@ PHP_METHOD(gene_load, getInstance) {
  * {{{ gene_load_methods
  */
 zend_function_entry gene_load_methods[] = {
-	PHP_ME(gene_load, getInstance, NULL, ZEND_ACC_PUBLIC|ZEND_ACC_STATIC)
-	PHP_ME(gene_load, import, NULL, ZEND_ACC_PUBLIC)
-	PHP_ME(gene_load, autoload, NULL, ZEND_ACC_PUBLIC|ZEND_ACC_STATIC)
 	PHP_ME(gene_load, __construct, NULL, ZEND_ACC_PUBLIC|ZEND_ACC_CTOR)
+	PHP_ME(gene_load, getInstance, NULL, ZEND_ACC_PUBLIC|ZEND_ACC_STATIC)
+	PHP_ME(gene_load, import, gene_load_arg_import, ZEND_ACC_PUBLIC)
+	PHP_ME(gene_load, autoload, gene_load_arg_autoload, ZEND_ACC_PUBLIC|ZEND_ACC_STATIC)
 	{ NULL, NULL, NULL }
 };
 /* }}} */

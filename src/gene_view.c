@@ -36,6 +36,17 @@
 
 zend_class_entry * gene_view_ce;
 
+ZEND_BEGIN_ARG_INFO_EX(gene_view_arg_display, 0, 0, 1)
+    ZEND_ARG_INFO(0, file)
+    ZEND_ARG_INFO(0, parent_file)
+ZEND_END_ARG_INFO()
+
+ZEND_BEGIN_ARG_INFO_EX(gene_view_arg_display_ext, 0, 0, 1)
+    ZEND_ARG_INFO(0, file)
+    ZEND_ARG_INFO(0, parent_file)
+	ZEND_ARG_INFO(0, isCompile)
+ZEND_END_ARG_INFO()
+
 /** {{{ gene_view_display
  */
 int gene_view_display(char *file TSRMLS_DC) {
@@ -272,8 +283,8 @@ PHP_METHOD(gene_view, containsExt) {
  * {{{ gene_view_methods
  */
 zend_function_entry gene_view_methods[] = {
-	PHP_ME(gene_view, display, NULL, ZEND_ACC_PUBLIC|ZEND_ACC_STATIC)
-	PHP_ME(gene_view, displayExt, NULL, ZEND_ACC_PUBLIC|ZEND_ACC_STATIC)
+	PHP_ME(gene_view, display, gene_view_arg_display, ZEND_ACC_PUBLIC|ZEND_ACC_STATIC)
+	PHP_ME(gene_view, displayExt, gene_view_arg_display_ext, ZEND_ACC_PUBLIC|ZEND_ACC_STATIC)
 	PHP_ME(gene_view, contains, NULL, ZEND_ACC_PUBLIC|ZEND_ACC_STATIC)
 	PHP_ME(gene_view, containsExt, NULL, ZEND_ACC_PUBLIC|ZEND_ACC_STATIC)
 	PHP_ME(gene_view, __construct, NULL, ZEND_ACC_PUBLIC|ZEND_ACC_CTOR)

@@ -52,10 +52,8 @@ void *gene_execite_opcodes_run(zend_op_array *op_array TSRMLS_DC) {
  */
 PHP_METHOD(gene_execute, __construct) {
 	long debug = 0;
-	if (zend_parse_parameters(ZEND_NUM_ARGS()TSRMLS_CC, "|l", &debug)
-			== FAILURE) {
-		RETURN_NULL()
-		;
+	if (zend_parse_parameters(ZEND_NUM_ARGS()TSRMLS_CC, "|l", &debug) == FAILURE) {
+		RETURN_NULL();
 	}
 	if (debug) {
 		zend_update_property_long(gene_execute_ce, getThis(),
@@ -76,12 +74,10 @@ PHP_METHOD(gene_execute, GetOpcodes) {
 	zval zv, opcodes_array, *debug;
 	zend_op_array *op_array;
 	debug = NULL;
-	if (zend_parse_parameters(ZEND_NUM_ARGS()TSRMLS_CC, "S", &php_script)
-			== FAILURE) {
+	if (zend_parse_parameters(ZEND_NUM_ARGS()TSRMLS_CC, "S", &php_script) == FAILURE) {
 		return;
 	}
-	debug = zend_read_property(gene_execute_ce, getThis(), GENE_EXECUTE_DEBUG,
-			strlen(GENE_EXECUTE_DEBUG), 0, NULL);
+	debug = zend_read_property(gene_execute_ce, getThis(), GENE_EXECUTE_DEBUG, strlen(GENE_EXECUTE_DEBUG), 0, NULL);
 	if (debug->value.lval) {
 		php_printf(ZSTR_VAL(php_script));
 	}
@@ -107,20 +103,16 @@ PHP_METHOD(gene_execute, GetOpcodes) {
  */
 PHP_METHOD(gene_execute, StringRun) {
 	zend_string *php_script;
-	if (zend_parse_parameters(ZEND_NUM_ARGS()TSRMLS_CC, "S", &php_script)
-			== FAILURE) {
+	if (zend_parse_parameters(ZEND_NUM_ARGS()TSRMLS_CC, "S", &php_script) == FAILURE) {
 		return;
 	}
-	zend_try
-			{
-				zend_eval_stringl(ZSTR_VAL(php_script), ZSTR_LEN(php_script),
-				NULL, "" TSRMLS_CC);
-			}zend_catch
-			{
-				zend_bailout();
-			}zend_end_try();
-	RETURN_TRUE
-	;
+	zend_try {
+		zend_eval_stringl(ZSTR_VAL(php_script), ZSTR_LEN(php_script), NULL, "" TSRMLS_CC);
+	}zend_catch
+	{
+		zend_bailout();
+	}zend_end_try();
+	RETURN_TRUE;
 }
 /* }}} */
 
@@ -140,13 +132,11 @@ zend_function_entry gene_execute_methods[] = {
  */
 GENE_MINIT_FUNCTION(execute) {
 	zend_class_entry gene_execute;
-	GENE_INIT_CLASS_ENTRY(gene_execute, "Gene_Execute", "Gene\\Execute",
-			gene_execute_methods);
+	GENE_INIT_CLASS_ENTRY(gene_execute, "Gene_Execute", "Gene\\Execute", gene_execute_methods);
 	gene_execute_ce = zend_register_internal_class(&gene_execute TSRMLS_CC);
 
 	//debug
-	zend_declare_property_null(gene_execute_ce, GENE_EXECUTE_DEBUG,
-			strlen(GENE_EXECUTE_DEBUG), ZEND_ACC_PUBLIC TSRMLS_CC);
+	zend_declare_property_null(gene_execute_ce, GENE_EXECUTE_DEBUG, strlen(GENE_EXECUTE_DEBUG), ZEND_ACC_PUBLIC TSRMLS_CC);
 	//
 	return SUCCESS;
 }
