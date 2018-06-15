@@ -62,6 +62,7 @@ PHP_MINFO_FUNCTION (gene);
 ZEND_BEGIN_MODULE_GLOBALS (gene)
 char *directory;
 char *app_root;
+char *library_root;
 char *app_view;
 char *app_ext;
 char *method;
@@ -73,6 +74,7 @@ char *action;
 char *app_key;
 char *auto_load_fun;
 char *child_views;
+zend_bool use_library;
 zend_bool gene_error;
 zend_bool gene_exception;
 zend_bool run_environment;
