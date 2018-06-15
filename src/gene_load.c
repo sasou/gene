@@ -53,7 +53,6 @@ int gene_load_import(char *path TSRMLS_DC) {
 	realpath = (char *) ecalloc(MAXPATHLEN, sizeof(char));
 
 	if (!VCWD_REALPATH(path, realpath)) {
-		php_error_docref(NULL, E_WARNING, "Unable to load file %s", path);
 		return 0;
 	}
 	efree(realpath);
@@ -94,10 +93,11 @@ int gene_load_import(char *path TSRMLS_DC) {
 /* }}} */
 
 void gene_load_file_by_class_name (char *className) {
-	int filePath_len = 0;
-	char *fileNmae = NULL, *filePath = NULL;
+	char *fileNmae = NULL, *filePath = NULL, *class_lowercase = NULL;
+	zend_class_entry *ce 	= NULL;
 
 	fileNmae = estrdup(className);
+
 	if (GENE_G(use_namespace)) {
 		replaceAll(fileNmae, '\\', '/');
 	} else {
@@ -105,13 +105,23 @@ void gene_load_file_by_class_name (char *className) {
 	}
 
 	if (GENE_G(directory)) {
-		filePath_len = spprintf(&filePath, 0, "%s%s.php", GENE_G(app_root), fileNmae);
+		spprintf(&filePath, 0, "%s%s.php", GENE_G(app_root), fileNmae);
 	} else {
-		filePath_len = spprintf(&filePath, 0, "%s.php", fileNmae);
+		spprintf(&filePath, 0, "%s.php", fileNmae);
 	}
-	gene_load_import(filePath TSRMLS_CC);
-	efree(fileNmae);
+	if (!gene_load_import(filePath TSRMLS_CC)) {
+		if (!GENE_G(use_library)) {
+			php_error_docref(NULL, E_WARNING, "Unable to load file %s", filePath);
+		} else {
+			efree(filePath);
+			spprintf(&filePath, 0, "%s%s.php", GENE_G(library_root), fileNmae);
+			if (!gene_load_import(filePath TSRMLS_CC)) {
+				php_error_docref(NULL, E_WARNING, "Unable to load file %s", filePath);
+			}
+		}
+	}
 	efree(filePath);
+	efree(fileNmae);
 }
 
 /*
