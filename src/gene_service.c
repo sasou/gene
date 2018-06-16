@@ -118,7 +118,7 @@ PHP_METHOD(gene_service, __set)
  */
 PHP_METHOD(gene_service, __get)
 {
-	zval *pzval = NULL, *props = NULL, obj, classObject;
+	zval *pzval = NULL, *props = NULL, obj;
 	zend_string *name = NULL;
 
 	if (zend_parse_parameters(ZEND_NUM_ARGS(), "|S", &name) == FAILURE) {
@@ -132,7 +132,7 @@ PHP_METHOD(gene_service, __get)
 		if (props) {
 			pzval = zend_hash_find(Z_ARRVAL_P(props), name);
 			if (pzval == NULL) {
-				pzval = gene_di_get(props, name, &classObject);
+				pzval = gene_di_get_easy(name);
 				if (pzval) {
 					RETURN_ZVAL(pzval, 1, 0);
 				}
