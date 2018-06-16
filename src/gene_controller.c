@@ -413,7 +413,7 @@ PHP_METHOD(gene_controller, __set)
  */
 PHP_METHOD(gene_controller, __get)
 {
-	zval *pzval = NULL, *props = NULL,*obj = getThis(), classObject;
+	zval *pzval = NULL, *props = NULL,*obj = getThis();
 	zend_string *name = NULL;
 
 	if (zend_parse_parameters(ZEND_NUM_ARGS(), "|S", &name) == FAILURE) {
@@ -427,9 +427,9 @@ PHP_METHOD(gene_controller, __get)
 		if (Z_TYPE_P(props) == IS_NULL) {
 			zval prop;
 			array_init(&prop);
-			pzval = gene_di_get(&prop, name, &classObject);
 			zend_update_property(gene_controller_ce, obj, ZEND_STRL(GENE_CONTROLLER_ATTR), &prop);
 			zval_ptr_dtor(&prop);
+			pzval = gene_di_get_easy(name);
 			if (pzval) {
 				RETURN_ZVAL(pzval, 1, 0);
 			}
@@ -437,7 +437,7 @@ PHP_METHOD(gene_controller, __get)
 		} else {
 			pzval = zend_hash_find(Z_ARRVAL_P(props), name);
 			if (pzval == NULL) {
-				pzval = gene_di_get(props, name, &classObject);
+				pzval = gene_di_get_easy(name);
 				if (pzval) {
 					RETURN_ZVAL(pzval, 1, 0);
 				}
