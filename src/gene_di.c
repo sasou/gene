@@ -71,17 +71,14 @@ zval *gene_di_get(zval *props, zend_string *name, zval *classObject) {
     		 php_error_docref(NULL, E_ERROR, "Factory need a valid class.");
     		 return NULL;
     	}
-    	if ((params = zend_hash_str_find(cache->value.arr, "params", 6)) == NULL) {
-	    	php_error_docref(NULL, E_ERROR, "Factory need a valid param.");
-	    	return NULL;
-    	} else {
+    	if ((params = zend_hash_str_find(cache->value.arr, "params", 6)) != NULL) {
     		 if (Z_TYPE_P(params) != IS_ARRAY) {
 	    		 php_error_docref(NULL, E_ERROR, "Factory need a array param.");
 	    		 return NULL;
     		 }
     	}
     	instance = zend_hash_str_find(cache->value.arr, "instance", 8);
-    	if (Z_TYPE_P(instance) == IS_TRUE) {
+    	if (instance && Z_TYPE_P(instance) == IS_TRUE) {
     		type = 1;
     	}
 
@@ -95,7 +92,12 @@ zval *gene_di_get(zval *props, zend_string *name, zval *classObject) {
 				}
 			}
 		}
-		gene_memory_zval_local(&local_params, params);
+		if (params) {
+			gene_memory_zval_local(&local_params, params);
+		} else {
+			ZVAL_NULL(&local_params);
+		}
+
 		if (gene_factory(ZSTR_VAL(class->value.str), ZSTR_LEN(class->value.str), &local_params, classObject)) {
 			if (type) {
 				if (zend_hash_str_update(Z_ARRVAL_P(entrys), ZSTR_VAL(class->value.str), ZSTR_LEN(class->value.str), classObject) != NULL) {

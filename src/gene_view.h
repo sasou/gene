@@ -17,6 +17,7 @@
 #ifndef GENE_VIEW_H
 #define GENE_VIEW_H
 #define GENE_VIEW_VIEW	"Views"
+#define GENE_VIEW_ATTR	"attr"
 #define GENE_VIEW_EXT ".php"
 #define PARSER_NUMS 28
 
