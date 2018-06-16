@@ -146,7 +146,7 @@ PHP_METHOD(gene_di, __clone) {
 zval *gene_di_instance() {
 	zval *instance = zend_read_static_property(gene_di_ce, GENE_DI_PROPERTY_INSTANCE, strlen(GENE_DI_PROPERTY_INSTANCE), 1);
 
-	if (UNEXPECTED(Z_TYPE_P(instance) != IS_OBJECT || !instanceof_function(Z_OBJCE_P(instance), gene_di_ce))) {
+	if (Z_TYPE_P(instance) != IS_OBJECT) {
 		zval regs, this_ptr;
 
 		object_init_ex(&this_ptr, gene_di_ce);
@@ -163,24 +163,31 @@ zval *gene_di_instance() {
 /* }}} */
 
 /*
+ *  {{{ int gene_di_get_easy(zend_string *name, zval *ppzval)
+ */
+zval *gene_di_get_easy(zend_string *name) {
+	zval *di, *entrys, classObject, *ppzval = NULL;
+	di = gene_di_instance();
+	entrys = zend_read_property(gene_di_ce, di, GENE_DI_PROPERTY_REG, strlen(GENE_DI_PROPERTY_REG), 1, NULL);
+	if ((ppzval = zend_hash_find(Z_ARRVAL_P(entrys), name)) == NULL) {
+		ppzval = gene_di_get(entrys, name, &classObject);
+	}
+	return ppzval;
+}
+/* }}} */
+
+/*
  *  {{{ public static gene_di::get($name)
  */
 PHP_METHOD(gene_di, get) {
 	zend_string *name;
-	zval *ppzval = NULL, *di, *entrys, classObject;
+	zval *ppzval = NULL;
 	if (zend_parse_parameters(ZEND_NUM_ARGS()TSRMLS_CC, "S", &name) == FAILURE) {
 		RETURN_NULL();
 	}
-	di = gene_di_instance();
-	entrys = zend_read_property(gene_di_ce, di, GENE_DI_PROPERTY_REG, strlen(GENE_DI_PROPERTY_REG), 1, NULL);
-	if ((ppzval = zend_hash_find(Z_ARRVAL_P(entrys), name)) != NULL) {
+	ppzval = gene_di_get_easy(name);
+	if (ppzval) {
 		RETURN_ZVAL(ppzval, 1, 0);
-	} else {
-		ppzval = gene_di_get(entrys, name, &classObject);
-		if (ppzval) {
-			RETURN_ZVAL(ppzval, 1, 0);
-		}
-		RETURN_NULL();
 	}
 	RETURN_NULL();
 }
