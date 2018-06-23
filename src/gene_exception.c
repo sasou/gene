@@ -119,11 +119,7 @@ void gene_trigger_error(int type TSRMLS_DC, char *format, ...) {
 	msg_len = vspprintf(&message, 0, format, args);
 	va_end(args);
 
-	if (GENE_G(gene_error)) {
-		gene_throw_exception(type, message TSRMLS_CC);
-	} else {
-		php_error_docref(NULL TSRMLS_CC, E_RECOVERABLE_ERROR, "%s", message);
-	}
+	gene_throw_exception(type, message TSRMLS_CC);
 	efree(message);
 }
 /* }}} */
@@ -193,9 +189,7 @@ PHP_METHOD(gene_exception, doError) {
 	if (zend_parse_parameters(ZEND_NUM_ARGS()TSRMLS_CC, "lS|Slz", &code, &msg, &file, &line, &params) == FAILURE) {
 		RETURN_NULL();
 	}
-	if (GENE_G(gene_error) == 1) {
-		gene_trigger_error(code, "%s", ZSTR_VAL(msg));
-	}
+	gene_trigger_error(code, "%s", ZSTR_VAL(msg));
 	RETURN_TRUE;
 }
 /* }}} */
