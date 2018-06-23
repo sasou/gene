@@ -75,8 +75,6 @@ char *app_key;
 char *auto_load_fun;
 char *child_views;
 zend_bool use_library;
-zend_bool gene_error;
-zend_bool gene_exception;
 zend_bool run_environment;
 zend_bool use_namespace;
 zend_bool view_compile;
