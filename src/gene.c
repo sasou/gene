@@ -143,8 +143,6 @@ static void php_gene_close_globals() {
 /** {{{ PHP_GINIT_FUNCTION
  */
 PHP_GINIT_FUNCTION(gene) {
-	gene_globals->gene_error = 1;
-	gene_globals->gene_exception = 0;
 	gene_globals->run_environment = 1;
 	gene_globals->use_namespace = 1;
 	gene_globals->view_compile = 0;

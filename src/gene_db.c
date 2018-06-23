@@ -425,10 +425,12 @@ zend_bool gene_pdo_execute (zval *self, zval *statement)
 	if (!GENE_G(run_environment)) {
 		markStart(&db_start, &db_memory_start);
 	}
+
 	gene_pdo_prepare(pdo_object, ZSTR_VAL(sql.s), statement);
 	if (Z_TYPE_P(statement) == IS_OBJECT) {
 		params = zend_read_property(gene_db_ce, self, ZEND_STRL(GENE_DB_DATA), 1, NULL);
 		//execute
+		ZVAL_NULL(&retval);
 		gene_pdo_statement_execute(statement, params, &retval);
 		if (!GENE_G(run_environment)) {
 			markEnd(&db_end, &db_memory_end);

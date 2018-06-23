@@ -436,11 +436,8 @@ PHP_METHOD(gene_application, error) {
 		return;
 	}
 	if (type > 0) {
-		GENE_G(gene_error) = 1;
-	} else {
-		GENE_G(gene_error) = 0;
+		gene_exception_error_register(callback, error_type TSRMLS_CC);
 	}
-	gene_exception_error_register(callback, error_type TSRMLS_CC);
 	RETURN_ZVAL(self, 1, 0);
 }
 /* }}} */
@@ -454,11 +451,8 @@ PHP_METHOD(gene_application, exception) {
 		return;
 	}
 	if (type > 0) {
-		GENE_G(gene_exception) = 1;
-	} else {
-		GENE_G(gene_exception) = 0;
+		gene_exception_register(callback TSRMLS_CC);
 	}
-	gene_exception_register(callback TSRMLS_CC);
 	RETURN_ZVAL(self, 1, 0);
 }
 /* }}} */
@@ -473,17 +467,11 @@ PHP_METHOD(gene_application, setMode) {
 		return;
 	}
 	if (error_type > 0) {
-		GENE_G(gene_error) = 1;
-	} else {
-		GENE_G(gene_error) = 0;
+		gene_exception_error_register(NULL, NULL TSRMLS_CC);
 	}
 	if (exception_type > 0) {
-		GENE_G(gene_exception) = 1;
-	} else {
-		GENE_G(gene_exception) = 0;
+		gene_exception_register(NULL TSRMLS_CC);
 	}
-	gene_exception_error_register(NULL, NULL TSRMLS_CC);
-	gene_exception_register(NULL TSRMLS_CC);
 	RETURN_ZVAL(self, 1, 0);
 }
 /* }}} */
