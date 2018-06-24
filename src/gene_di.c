@@ -66,6 +66,7 @@ zval *gene_di_get(zval *props, zend_string *name, zval *classObject) {
 	}
 	cache = gene_memory_get_by_config(router_e, router_e_len, ZSTR_VAL(name) TSRMLS_CC);
 	efree(router_e);
+	router_e = NULL;
 	if (cache && Z_TYPE_P(cache) == IS_ARRAY) {
     	if ((class = zend_hash_str_find(cache->value.arr, "class", 5)) == NULL) {
     		 php_error_docref(NULL, E_ERROR, "Factory need a valid class.");
@@ -85,9 +86,14 @@ zval *gene_di_get(zval *props, zend_string *name, zval *classObject) {
 		if (type) {
 	    	di = gene_di_instance();
 			entrys = zend_read_property(gene_di_ce, di, GENE_DI_PROPERTY_REG, strlen(GENE_DI_PROPERTY_REG), 1, NULL);
-			if ((pzval = zend_hash_str_find(Z_ARRVAL_P(entrys), ZSTR_VAL(class->value.str), ZSTR_LEN(class->value.str))) != NULL) {
+			router_e_len = spprintf(&router_e, 0, "%s%s", ZSTR_VAL(name), ZSTR_VAL(class->value.str));
+			if ((pzval = zend_hash_str_find(Z_ARRVAL_P(entrys), router_e, router_e_len)) != NULL) {
 				if (zend_hash_update(Z_ARRVAL_P(props), name, pzval) != NULL) {
 					Z_TRY_ADDREF_P(pzval);
+					if (router_e) {
+						efree(router_e);
+						router_e = NULL;
+					}
 					return pzval;
 				}
 			}
@@ -100,8 +106,12 @@ zval *gene_di_get(zval *props, zend_string *name, zval *classObject) {
 
 		if (gene_factory(ZSTR_VAL(class->value.str), ZSTR_LEN(class->value.str), &local_params, classObject)) {
 			if (type) {
-				if (zend_hash_str_update(Z_ARRVAL_P(entrys), ZSTR_VAL(class->value.str), ZSTR_LEN(class->value.str), classObject) != NULL) {
+				if (zend_hash_str_update(Z_ARRVAL_P(entrys), router_e, router_e_len, classObject) != NULL) {
 					Z_TRY_ADDREF_P(classObject);
+				}
+				if (router_e) {
+					efree(router_e);
+					router_e = NULL;
 				}
 			}
 			if (zend_hash_update(Z_ARRVAL_P(props), name, classObject) != NULL) {
