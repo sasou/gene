@@ -389,9 +389,11 @@ void saveHistory(smart_str *sql, zval *param) {
 
 	if (history && Z_TYPE_P(history) == IS_ARRAY) {
 		add_next_index_zval(history, &z_row);
+		Z_TRY_ADDREF_P(&z_row);
 	} else {
     	array_init(&params);
     	add_next_index_zval(&params, &z_row);
+    	Z_TRY_ADDREF_P(&z_row);
     	zend_update_static_property(gene_db_ce, ZEND_STRL(GENE_DB_HISTORY), &params);
     	zval_ptr_dtor(&params);
 	}
