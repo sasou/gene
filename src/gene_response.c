@@ -28,6 +28,7 @@
 
 #include "php_gene.h"
 #include "gene_response.h"
+#include "gene_memory.h"
 
 zend_class_entry * gene_response_ce;
 
@@ -192,9 +193,9 @@ PHP_METHOD(gene_response, data) {
  */
 PHP_METHOD(gene_response, json) {
 	zval *data = NULL;
-	zend_string *callback = NULL;
+	char *callback = NULL;
 	zend_long code = 256;
-    zval ret;
+    zval params, ret;
     zval json_opt;
     zend_long callback_len = 0;
 
@@ -202,7 +203,9 @@ PHP_METHOD(gene_response, json) {
 		return;
 	}
 	ZVAL_LONG(&json_opt, code);
-	zend_call_method_with_2_params(NULL, NULL, NULL, "json_encode", &ret, data, &json_opt);
+	gene_memory_zval_local(&params, data);
+	zend_call_method_with_2_params(NULL, NULL, NULL, "json_encode", &ret, &params, &json_opt);
+	zval_ptr_dtor(&params);
 	zval_ptr_dtor(&json_opt);
 	if (Z_TYPE(ret) == IS_STRING) {
 		if (callback_len) {
