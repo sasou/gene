@@ -326,7 +326,7 @@ PHP_METHOD(gene_controller, error) {
  */
 PHP_METHOD(gene_controller, data) {
 	zval *data = NULL;
-	zend_long count = 0;
+	zend_long count = -1;
 	zend_string *text = NULL;
 	zend_long code = 2000;
 	zval ret;
@@ -341,7 +341,7 @@ PHP_METHOD(gene_controller, data) {
 	}
 	add_assoc_zval_ex(&ret, ZEND_STRL(GENE_RESPONSE_DATA), data);
 	Z_TRY_ADDREF_P(data);
-	if (count) {
+	if (count >= 0) {
 		add_assoc_long_ex(&ret, ZEND_STRL(GENE_RESPONSE_COUNT), count);
 	}
 	RETURN_ZVAL(&ret, 1, 1);

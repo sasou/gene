@@ -184,7 +184,7 @@ PHP_METHOD(gene_model, error) {
  */
 PHP_METHOD(gene_model, data) {
 	zval *data = NULL;
-	zend_long count = 0;
+	zend_long count = -1;
 	zend_string *text = NULL;
 	zend_long code = 2000;
 	zval ret;
@@ -198,7 +198,10 @@ PHP_METHOD(gene_model, data) {
 		add_assoc_str_ex(&ret, ZEND_STRL(GENE_RESPONSE_MSG), text);
 	}
 	add_assoc_zval_ex(&ret, ZEND_STRL(GENE_RESPONSE_DATA), data);
-	add_assoc_long_ex(&ret, ZEND_STRL(GENE_RESPONSE_COUNT), count);
+	Z_TRY_ADDREF_P(data);
+	if (count >= 0) {
+		add_assoc_long_ex(&ret, ZEND_STRL(GENE_RESPONSE_COUNT), count);
+	}
 	RETURN_ZVAL(&ret, 1, 1);
 }
 /* }}} */
