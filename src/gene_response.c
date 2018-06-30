@@ -184,7 +184,10 @@ PHP_METHOD(gene_response, data) {
 		add_assoc_str_ex(&ret, ZEND_STRL(GENE_RESPONSE_MSG), text);
 	}
 	add_assoc_zval_ex(&ret, ZEND_STRL(GENE_RESPONSE_DATA), data);
-	add_assoc_long_ex(&ret, ZEND_STRL(GENE_RESPONSE_COUNT), count);
+	Z_TRY_ADDREF_P(data);
+	if (count) {
+		add_assoc_long_ex(&ret, ZEND_STRL(GENE_RESPONSE_COUNT), count);
+	}
 	RETURN_ZVAL(&ret, 1, 1);
 }
 /* }}} */
@@ -195,17 +198,14 @@ PHP_METHOD(gene_response, json) {
 	zval *data = NULL;
 	char *callback = NULL;
 	zend_long code = 256;
-    zval params, ret;
-    zval json_opt;
+    zval ret, json_opt;
     zend_long callback_len = 0;
 
 	if (zend_parse_parameters(ZEND_NUM_ARGS()TSRMLS_CC, "z|sl", &data, &callback, &callback_len, &code) == FAILURE) {
 		return;
 	}
 	ZVAL_LONG(&json_opt, code);
-	gene_memory_zval_local(&params, data);
-	zend_call_method_with_2_params(NULL, NULL, NULL, "json_encode", &ret, &params, &json_opt);
-	zval_ptr_dtor(&params);
+	zend_call_method_with_2_params(NULL, NULL, NULL, "json_encode", &ret, data, &json_opt);
 	zval_ptr_dtor(&json_opt);
 	if (Z_TYPE(ret) == IS_STRING) {
 		if (callback_len) {

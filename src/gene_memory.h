@@ -50,7 +50,7 @@ void file_cache_set_val(char *val, int keyString_len, long times, int validity T
 filenode * file_cache_get_easy(char *keyString, size_t keyString_len TSRMLS_DC);
 static zval * gene_memory_set_val(zval *val, char *keyString, int keyString_len, zval *zvalue TSRMLS_DC);
 void gene_memory_hash_copy_local(HashTable *target, HashTable *source);
-void gene_memory_zval_local(zval *dst, zval *source);
+zval * gene_memory_zval_local(zval *dst, zval *source);
 
 GENE_MINIT_FUNCTION (cache);
 

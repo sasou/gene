@@ -1104,7 +1104,6 @@ PHP_METHOD(gene_db, sql)
     			} ZEND_HASH_FOREACH_END();
     		} else {
     			gene_memory_zval_local(&params, fields);
-    			Z_TRY_ADDREF_P(fields);
     			zend_update_property(gene_db_ce, self, ZEND_STRL(GENE_DB_DATA), &params);
     			zval_ptr_dtor(&params);
     		}

@@ -239,10 +239,11 @@ static void * gene_memory_zval_edit_persistent(zval *dst, zval *source) {
 void gene_memory_hash_copy_local(HashTable *target, HashTable *source) /* {{{ */{
 	zend_string *key;
 	zend_long idx;
-	zval *element, rv;
+	zval *element;
 	zend_string *str_key = NULL;
 	ZEND_HASH_FOREACH_KEY_VAL(source, idx, key, element)
 	{
+		zval rv;
 		gene_memory_zval_local(&rv, element);
 		if (key) {
 			str_key = zend_string_init(ZSTR_VAL(key), ZSTR_LEN(key), 0);
@@ -253,7 +254,8 @@ void gene_memory_hash_copy_local(HashTable *target, HashTable *source) /* {{{ */
 	}ZEND_HASH_FOREACH_END();
 } /* }}} */
 
-void gene_memory_zval_local(zval *dst, zval *source) /* {{{ */{
+zval *gene_memory_zval_local(zval *dst, zval *source) /* {{{ */
+{
 	zend_string *str_key = NULL;
 	switch (Z_TYPE_P(source)) {
 	case IS_CONSTANT:
@@ -277,6 +279,7 @@ void gene_memory_zval_local(zval *dst, zval *source) /* {{{ */{
 		zend_error(E_ERROR, "An unsupported data type");
 		break;
 	}
+	return dst;
 } /* }}} */
 
 /* }}} */
@@ -289,8 +292,7 @@ void gene_memory_set(char *keyString, int keyString_len, zval *zvalue,
 	zval *copyval, ret;
 	zend_string *key;
 	if (zvalue) {
-		copyval = zend_symtable_str_find(GENE_G(cache), keyString,
-				keyString_len);
+		copyval = zend_symtable_str_find(GENE_G(cache), keyString, keyString_len);
 		if (copyval == NULL) {
 			gene_memory_zval_persistent(&ret, zvalue);
 			key = gene_str_persistent(keyString, keyString_len);
