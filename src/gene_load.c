@@ -111,12 +111,12 @@ void gene_load_file_by_class_name (char *className) {
 	}
 	if (!gene_load_import(filePath TSRMLS_CC)) {
 		if (!GENE_G(use_library)) {
-			php_error_docref(NULL, E_WARNING, "Unable to load file %s", filePath);
+			php_error_docref(NULL, E_WARNING, "Unable to load class file %s", filePath);
 		} else {
 			efree(filePath);
 			spprintf(&filePath, 0, "%s%s.php", GENE_G(library_root), fileNmae);
 			if (!gene_load_import(filePath TSRMLS_CC)) {
-				php_error_docref(NULL, E_WARNING, "Unable to load file %s", filePath);
+				php_error_docref(NULL, E_WARNING, "Unable to load class file %s", filePath);
 			}
 		}
 	}
@@ -218,7 +218,9 @@ PHP_METHOD(gene_load, import) {
 		return;
 	}
 	if (php_script && ZSTR_LEN(php_script)) {
-		gene_load_import(ZSTR_VAL(php_script) TSRMLS_CC);
+		if(!gene_load_import(ZSTR_VAL(php_script) TSRMLS_CC)) {
+			php_error_docref(NULL, E_WARNING, "Unable to load file %s", ZSTR_VAL(php_script));
+		}
 	}
 	RETURN_ZVAL(self, 1, 0);
 }
