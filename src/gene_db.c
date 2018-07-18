@@ -830,71 +830,98 @@ void makeWhere(zval *self, smart_str *where_str, zval *where, zval *field_value)
 			if (value == NULL) {
 				return;
 			}
-	    	if (pre) {
-	    		if (condition && Z_TYPE_P(condition) == IS_STRING) {
-	    			smart_str_appends(where_str, " ");
-	    			smart_str_appends(where_str, Z_STRVAL_P(condition));
-	    			smart_str_appends(where_str, " `");
-	    		} else {
-	    			smart_str_appends(where_str, " and `");
-	    		}
-	    	} else {
-	    		smart_str_appendc(where_str, '`');
-	    		pre = 1;
-	    	}
 	        if (key) {
+		    	if (pre) {
+		    		if (condition && Z_TYPE_P(condition) == IS_STRING) {
+		    			smart_str_appends(where_str, " ");
+		    			smart_str_appends(where_str, Z_STRVAL_P(condition));
+		    			smart_str_appends(where_str, " `");
+		    		} else {
+		    			smart_str_appends(where_str, " and `");
+		    		}
+		    	} else {
+		    		smart_str_appendc(where_str, '`');
+		    		pre = 1;
+		    	}
 	        	smart_str_append(where_str, key);
-	        } else {
-	        	smart_str_append_long(where_str, id);
-	        }
-	        if (ops && Z_TYPE_P(ops) == IS_STRING) {
-	        	if (strcmp("in", Z_STRVAL_P(ops)) == 0) {
-	        		if (Z_TYPE_P(value) == IS_ARRAY) {
-	        			pre = 0;
-	        			smart_str_appends(where_str, "` in(");
-	        			ZEND_HASH_FOREACH_VAL(Z_ARRVAL_P(value), tmp) {
-	        				if (pre) {
-	        					smart_str_appends(where_str, ",?");
-	        				} else {
-	        					smart_str_appends(where_str, "?");
-	        					pre = 1;
-	        				}
-			    	    	add_next_index_zval(field_value, tmp);
-			    	    	Z_TRY_ADDREF_P(tmp);
-	        			} ZEND_HASH_FOREACH_END();
-	            		smart_str_appends(where_str, ")");
-	        		} else {
-	        			smart_str_appends(where_str, "` in(?)");
+		        if (ops && Z_TYPE_P(ops) == IS_STRING) {
+		        	if (strcmp("in", Z_STRVAL_P(ops)) == 0) {
+		        		if (Z_TYPE_P(value) == IS_ARRAY) {
+		        			pre = 0;
+		        			smart_str_appends(where_str, "` in(");
+		        			ZEND_HASH_FOREACH_VAL(Z_ARRVAL_P(value), tmp) {
+		        				if (pre) {
+		        					smart_str_appends(where_str, ",?");
+		        				} else {
+		        					smart_str_appends(where_str, "?");
+		        					pre = 1;
+		        				}
+				    	    	add_next_index_zval(field_value, tmp);
+				    	    	Z_TRY_ADDREF_P(tmp);
+		        			} ZEND_HASH_FOREACH_END();
+		            		smart_str_appends(where_str, ")");
+		        		} else {
+		        			smart_str_appends(where_str, "` in(?)");
+			    	    	add_next_index_zval(field_value, value);
+			    	    	Z_TRY_ADDREF_P(value);
+		        		}
+		        	} else {
+		    			smart_str_appends(where_str, "` ");
+		    			smart_str_appends(where_str, Z_STRVAL_P(ops));
+		    			smart_str_appends(where_str, " ?");
 		    	    	add_next_index_zval(field_value, value);
 		    	    	Z_TRY_ADDREF_P(value);
-	        		}
-	        	} else {
-	    			smart_str_appends(where_str, "` ");
-	    			smart_str_appends(where_str, Z_STRVAL_P(ops));
-	    			smart_str_appends(where_str, " ?");
+		        	}
+		        } else {
+		        	smart_str_appends(where_str, "` = ?");
+			    	add_next_index_zval(field_value, value);
+			    	Z_TRY_ADDREF_P(value);
+		        }
+	        } else {
+		    	if (pre) {
+		    		if (condition && Z_TYPE_P(condition) == IS_STRING) {
+		    			smart_str_appends(where_str, " ");
+		    			smart_str_appends(where_str, Z_STRVAL_P(condition));
+		    			smart_str_appends(where_str, " ");
+		    		} else {
+		    			smart_str_appends(where_str, " and ");
+		    		}
+		    	} else {
+		    		pre = 1;
+		    	}
+        		if (Z_TYPE_P(value) == IS_ARRAY) {
+        			ZEND_HASH_FOREACH_VAL(Z_ARRVAL_P(value), tmp) {
+		    	    	add_next_index_zval(field_value, tmp);
+		    	    	Z_TRY_ADDREF_P(tmp);
+        			} ZEND_HASH_FOREACH_END();
+        		} else {
 	    	    	add_next_index_zval(field_value, value);
 	    	    	Z_TRY_ADDREF_P(value);
-	        	}
-	        } else {
-	        	smart_str_appends(where_str, "` = ?");
-		    	add_next_index_zval(field_value, value);
-		    	Z_TRY_ADDREF_P(value);
+        		}
+		    	smart_str_appends(where_str, Z_STRVAL_P(ops));
 	        }
 		} else {
-	    	if (pre) {
-	    		smart_str_appends(where_str, " and `");
-	    	} else {
-	    		smart_str_appendc(where_str, '`');
-	    		pre = 1;
-	    	}
 	        if (key) {
+		    	if (pre) {
+		    		smart_str_appends(where_str, " and `");
+		    	} else {
+		    		smart_str_appendc(where_str, '`');
+		    		pre = 1;
+		    	}
 	        	smart_str_append(where_str, key);
+		        smart_str_appends(where_str, "` = ?");
+		    	add_next_index_zval(field_value, obj);
+		    	Z_TRY_ADDREF_P(obj);
 	        } else {
-	        	smart_str_append_long(where_str, id);
+	        	if (obj && Z_TYPE_P(obj) == IS_STRING) {
+			    	if (pre) {
+			    		smart_str_appends(where_str, " and ");
+			    	} else {
+			    		pre = 1;
+			    	}
+			    	smart_str_appends(where_str, Z_STRVAL_P(obj));
+	        	}
 	        }
-	        smart_str_appends(where_str, "` = ?");
-	    	add_next_index_zval(field_value, obj);
-	    	Z_TRY_ADDREF_P(obj);
 		}
     } ZEND_HASH_FOREACH_END();
     smart_str_0(where_str);
