@@ -217,7 +217,7 @@ zval *gene_application_instance(zval *this_ptr, zval *safe TSRMLS_DC) {
 			if (GENE_G(app_root)) {
 				efree(GENE_G(app_root));
 			}
-			spprintf(&GENE_G(app_root), 0, "%s/app/", GENE_G(directory));
+			spprintf(&GENE_G(app_root), 0, "%s/application", GENE_G(directory));
 		}
 	}
 	zend_update_static_property(gene_application_ce, ZEND_STRL(GENE_APPLICATION_INSTANCE), instance);
@@ -264,7 +264,7 @@ PHP_METHOD(gene_application, load) {
 	if (path && ZSTR_LEN(path) > 0) {
 		cache_key_len = spprintf(&cache_key, 0, "%s/%s", ZSTR_VAL(path), ZSTR_VAL(file));
 	} else {
-		cache_key_len = spprintf(&cache_key, 0, "%sConfig/%s", GENE_G(app_root), ZSTR_VAL(file));
+		cache_key_len = spprintf(&cache_key, 0, "%s/Config/%s", GENE_G(app_root), ZSTR_VAL(file));
 	}
 	load_file(cache_key, cache_key_len, cache_key, validity TSRMLS_CC);
 	efree(cache_key);
