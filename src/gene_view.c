@@ -74,7 +74,9 @@ int gene_view_display(char *file TSRMLS_DC) {
 	} else {
 		path_len = spprintf(&path, 0, "app/%s/%s%s", GENE_VIEW_VIEW, file, GENE_VIEW_EXT);
 	}
-	gene_load_import(path TSRMLS_CC);
+	if(!gene_load_import(path TSRMLS_CC)) {
+		php_error_docref(NULL, E_WARNING, "Unable to load view file %s", path);
+	}
 	efree(path);
 	return 1;
 }
@@ -113,7 +115,9 @@ int gene_view_display_ext(char *file, zend_bool isCompile TSRMLS_DC) {
 			php_stream_close(stream);
 		}
 	}
-	gene_load_import(compile_path TSRMLS_CC);
+	if (!gene_load_import(compile_path TSRMLS_CC)) {
+		php_error_docref(NULL, E_WARNING, "Unable to load view file %s", compile_path);
+	}
 	efree(compile_path);
 	return 1;
 }
