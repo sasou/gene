@@ -110,14 +110,10 @@ void gene_load_file_by_class_name (char *className) {
 		spprintf(&filePath, 0, "%s.php", fileNmae);
 	}
 	if (!gene_load_import(filePath TSRMLS_CC)) {
-		if (!GENE_G(use_library)) {
-			php_error_docref(NULL, E_WARNING, "Unable to load class file %s", filePath);
-		} else {
+		if (GENE_G(use_library)) {
 			efree(filePath);
 			spprintf(&filePath, 0, "%s/%s.php", GENE_G(library_root), fileNmae);
-			if (!gene_load_import(filePath TSRMLS_CC)) {
-				php_error_docref(NULL, E_WARNING, "Unable to load class file %s", filePath);
-			}
+			gene_load_import(filePath TSRMLS_CC);
 		}
 	}
 	efree(filePath);
