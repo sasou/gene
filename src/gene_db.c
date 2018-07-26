@@ -818,7 +818,6 @@ void makeWhere(zval *self, smart_str *where_str, zval *where, zval *field_value)
 	zend_bool pre = 0;
 	zend_string *key = NULL;
 	zend_long id;
-	array_init(field_value);
 	if (ZSTR_LEN(where_str->s) == 0 && zend_hash_num_elements(Z_ARRVAL_P(where)) > 0) {
 		smart_str_appends(where_str, " WHERE ");
 	}
@@ -945,9 +944,15 @@ PHP_METHOD(gene_db, where)
 
 	switch(Z_TYPE_P(where)) {
 	case IS_ARRAY:
-		makeWhere(self, &where_str, where, &params);
-		zend_update_property(gene_db_ce, self, ZEND_STRL(GENE_DB_DATA), &params);
-		zval_ptr_dtor(&params);
+        data = zend_read_property(gene_db_ce, self, ZEND_STRL(GENE_DB_DATA), 1, NULL);
+        if (Z_TYPE_P(data) == IS_ARRAY) {
+            makeWhere(self, &where_str, where, data);
+        } else {
+            array_init(&params);
+            makeWhere(self, &where_str, where, &params);
+            zend_update_property(gene_db_ce, self, ZEND_STRL(GENE_DB_DATA), &params);
+            zval_ptr_dtor(&params);
+        }
 		break;
 	case IS_STRING:
 		if (Z_STRLEN_P(where)) {
