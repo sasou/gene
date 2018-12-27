@@ -19,8 +19,6 @@
 
 extern zend_class_entry *gene_session_ce;
 
-PHPAPI void php_session_start(TSRMLS_D);
-PHPAPI void php_session_flush(TSRMLS_D);
 
 GENE_MINIT_FUNCTION (session);
 
