@@ -105,8 +105,13 @@ static void gene_hash_init(zval *zv, size_t size) /* {{{ */{
 	zend_hash_init(ht, size, NULL, gene_memory_zval_dtor, 1);
 	GC_FLAGS(ht) |= IS_ARRAY_IMMUTABLE;
 	ZVAL_ARR(zv, ht);
-	//Z_ADDREF_P(zv);
+#if PHP_VERSION_ID < 70200
 	Z_TYPE_FLAGS_P(zv) = IS_TYPE_IMMUTABLE;
+#elif PHP_VERSION_ID < 70300
+	Z_TYPE_FLAGS_P(zv) = IS_TYPE_COPYABLE;
+#else
+	Z_TYPE_FLAGS_P(zv) = 0;
+#endif
 }
 /* }}} */
 
