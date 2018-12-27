@@ -271,7 +271,7 @@ PHP_METHOD(gene_di, getInstance) {
  */
 zend_function_entry gene_di_methods[] = {
 	PHP_ME(gene_di, __construct, NULL, ZEND_ACC_CTOR|ZEND_ACC_PRIVATE)
-	PHP_ME(gene_di, __clone, NULL, ZEND_ACC_CLONE|ZEND_ACC_PRIVATE)
+	PHP_ME(gene_di, __clone, NULL, ZEND_ACC_PRIVATE)
 	PHP_ME(gene_di, getInstance, NULL, ZEND_ACC_PUBLIC|ZEND_ACC_STATIC)
 	PHP_ME(gene_di, get, gene_di_get_arginfo, ZEND_ACC_PUBLIC|ZEND_ACC_STATIC)
 	PHP_ME(gene_di, has, gene_di_has_arginfo, ZEND_ACC_PUBLIC|ZEND_ACC_STATIC)
