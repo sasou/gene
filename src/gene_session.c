@@ -27,6 +27,10 @@
 
 zend_class_entry * gene_session_ce;
 
+#if defined(HAVE_SPL) && PHP_VERSION_ID < 70200
+extern PHPAPI zend_class_entry *spl_ce_Countable;
+#endif
+
 /* {{{ ARG_INFO
  */
 ZEND_BEGIN_ARG_INFO_EX(gene_session_get_arginfo, 0, 0, 1)
