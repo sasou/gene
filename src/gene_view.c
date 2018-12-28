@@ -202,10 +202,17 @@ static int parser_templates(php_stream **stream, char *compile_path) {
 	for (i = 0; i < PARSER_NUMS; i++) {
 		arg = zend_string_init(regex[i], strlen(regex[i]), 0);
 
+#if PHP_VERSION_ID < 70300
+	int count;
+#else
+	size_t count;
+#endif
+
 #if PHP_VERSION_ID < 70200
 		zval replace_val;
+
 		ZVAL_STRINGL(&replace_val, replace[i], strlen(replace[i]));
-		if ((ret = php_pcre_replace(arg, NULL, result, result_len, &replace_val, 0, -1, &result_len)) != NULL) {
+		if ((ret = php_pcre_replace(arg, NULL, result, result_len, &replace_val, 0, -1, &count)) != NULL) {
 			efree(result);
 			result = estrndup(ret->val, ret->len);
 			result_len = ret->len;
@@ -216,7 +223,7 @@ static int parser_templates(php_stream **stream, char *compile_path) {
 #else
 	zend_string *replace_val;
 	replace_val = zend_string_init(replace[i], strlen(replace[i]), 0);
-	if ((ret = php_pcre_replace(arg, NULL, result, result_len, replace_val, -1, &result_len)) != NULL) {
+	if ((ret = php_pcre_replace(arg, NULL, result, result_len, replace_val, -1, &count)) != NULL) {
 		efree(result);
 		result = estrndup(ret->val, ret->len);
 		result_len = ret->len;
