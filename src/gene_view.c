@@ -143,9 +143,8 @@ static int check_folder_exists(char *fullpath) {
  * {{{ gene_view
  */
 static int parser_templates(php_stream **stream, char *compile_path) {
-	zval replace_val;
 	int result_len, i;
-	zend_string *arg,*ret;
+	zend_string *arg,*ret,*replace_val;
 	php_stream *CacheStream = NULL;
 	char *subject = NULL,*result = NULL;
 
@@ -201,15 +200,15 @@ static int parser_templates(php_stream **stream, char *compile_path) {
 
 	for (i = 0; i < PARSER_NUMS; i++) {
 		arg = zend_string_init(regex[i], strlen(regex[i]), 0);
-		ZVAL_STRINGL(&replace_val, replace[i], strlen(replace[i]));
-		if ((ret = php_pcre_replace(arg, NULL, result, result_len, &replace_val, 0, -1, &result_len)) != NULL) {
+		replace_val = zend_string_init(replace[i], strlen(replace[i]), 0);
+		if ((ret = php_pcre_replace(arg, NULL, result, result_len, replace_val, -1, &result_len)) != NULL) {
 			efree(result);
 			result = estrndup(ret->val, ret->len);
 			result_len = ret->len;
 			zend_string_free(ret);
 		}
 		zend_string_free(arg);
-		zval_ptr_dtor(&replace_val);
+		zend_string_free(replace_val);
 	}
 
 	CacheStream = php_stream_open_wrapper(compile_path, "wb", REPORT_ERRORS, NULL);
