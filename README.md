@@ -9,7 +9,7 @@ php5的版本 ：https://github.com/sasou/php-gene
 
 windows版本：https://github.com/sasou/php-gene-for-windows
 
-简单、高性能的php c扩展框架！
+简单、高性能、优雅的php c扩展框架！
 框架的核心是gene_application类，加载配置文件并启动：
 
     简单运行：
@@ -146,7 +146,10 @@ DEMO：
         
 案例二：
         尚动电子商务平台
-        https://www.shangsports.com/
+
+案例三：
+        生材网
+	https://www.materialw.com/
 
 
 <a href="https://info.flagcounter.com/AEYx"><img src="https://s11.flagcounter.com/count2/AEYx/bg_FFFFFF/txt_000000/border_CCCCCC/columns_2/maxflags_10/viewers_0/labels_1/pageviews_1/flags_0/percent_0/" alt="Flag Counter" border="0"></a>
