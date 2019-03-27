@@ -16,10 +16,13 @@
 
 #ifndef GENE_DB_H
 #define GENE_DB_H
+#define GENE_DB_CONFIG "config"
 #define GENE_DB_PDO "pdo"
 #define GENE_DB_TYPE "type"
 #define GENE_DB_SQL "sql"
 #define GENE_DB_WHERE "where"
+#define GENE_DB_GROUP "group"
+#define GENE_DB_HAVING "having"
 #define GENE_DB_ORDER "order"
 #define GENE_DB_LIMIT "limit"
 #define GENE_DB_DATA "data"
