@@ -27,8 +27,8 @@
 #include "Zend/zend_alloc.h"
 #include "Zend/zend_interfaces.h"
 
-#include "php_gene.h"
-#include "tool/benchmark.h"
+#include "../php_gene.h"
+#include "../tool/benchmark.h"
 
 zend_class_entry * gene_benchmark_ce;
 

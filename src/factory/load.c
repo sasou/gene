@@ -27,10 +27,10 @@
 #include "zend_virtual_cwd.h"
 #include "zend_smart_str.h"
 
-#include "php_gene.h"
-#include "factory/load.h"
-#include "config/config.h"
-#include "common/common.h"
+#include "../php_gene.h"
+#include "../factory/load.h"
+#include "../config/config.h"
+#include "../common/common.h"
 
 zend_class_entry * gene_load_ce;
 

@@ -29,11 +29,11 @@
 #include "ext/standard/php_filestat.h"
 #include "ext/standard/php_string.h"
 
-#include "php_gene.h"
-#include "mvc/view.h"
-#include "factory/load.h"
-#include "di/di.h"
-#include "common/common.h"
+#include "../php_gene.h"
+#include "../mvc/view.h"
+#include "../factory/load.h"
+#include "../di/di.h"
+#include "../common/common.h"
 
 zend_class_entry * gene_view_ce;
 

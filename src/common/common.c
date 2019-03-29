@@ -23,7 +23,7 @@
 #include "php.h"
 #include "string.h"
 #include <ctype.h>
-#include "common/common.h"
+#include "../common/common.h"
 
 char *str_init(char *s)
 {

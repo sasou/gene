@@ -24,10 +24,10 @@
 #include "Zend/zend_API.h"
 #include "zend_exceptions.h"
 
-#include "php_gene.h"
-#include "exception/exception.h"
-#include "router/router.h"
-#include "mvc/view.h"
+#include "../php_gene.h"
+#include "../exception/exception.h"
+#include "../router/router.h"
+#include "../mvc/view.h"
 
 zend_class_entry * gene_exception_ce;
 

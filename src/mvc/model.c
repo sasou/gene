@@ -26,11 +26,11 @@
 #include "zend_exceptions.h"
 
 
-#include "php_gene.h"
-#include "mvc/model.h"
-#include "di/di.h"
-#include "factory/factory.h"
-#include "http/response.h"
+#include "../php_gene.h"
+#include "../mvc/model.h"
+#include "../di/di.h"
+#include "../factory/factory.h"
+#include "../http/response.h"
 
 
 zend_class_entry * gene_model_ce;

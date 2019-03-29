@@ -26,15 +26,15 @@
 #include "Zend/zend_smart_str.h"
 #include "Zend/zend_interfaces.h"
 
-#include "php_gene.h"
-#include "app/application.h"
-#include "mvc/controller.h"
-#include "http/request.h"
-#include "http/response.h"
-#include "cache/memory.h"
-#include "router/router.h"
-#include "mvc/view.h"
-#include "di/di.h"
+#include "../php_gene.h"
+#include "../app/application.h"
+#include "../mvc/controller.h"
+#include "../http/request.h"
+#include "../http/response.h"
+#include "../cache/memory.h"
+#include "../router/router.h"
+#include "../mvc/view.h"
+#include "../di/di.h"
 
 zend_class_entry * gene_controller_ce;
 
