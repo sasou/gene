@@ -27,12 +27,12 @@
 #include "Zend/zend_interfaces.h"
 #include "ext/pcre/php_pcre.h"
 
-#include "php_gene.h"
-#include "router/router.h"
-#include "cache/memory.h"
-#include "common/common.h"
-#include "app/application.h"
-#include "mvc/view.h"
+#include "../php_gene.h"
+#include "../router/router.h"
+#include "../cache/memory.h"
+#include "../common/common.h"
+#include "../app/application.h"
+#include "../mvc/view.h"
 
 zend_class_entry *gene_router_ce;
 

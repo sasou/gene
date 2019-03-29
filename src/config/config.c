@@ -24,11 +24,11 @@
 #include "Zend/zend_API.h"
 #include "zend_exceptions.h"
 
-#include "php_gene.h"
-#include "app/application.h"
-#include "common/common.h"
-#include "config/config.h"
-#include "cache/memory.h"
+#include "../php_gene.h"
+#include "../app/application.h"
+#include "../common/common.h"
+#include "../config/config.h"
+#include "../cache/memory.h"
 
 zend_class_entry * gene_config_ce;
 

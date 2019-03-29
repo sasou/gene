@@ -25,17 +25,17 @@
 #include "Zend/zend_API.h"
 #include "zend_exceptions.h"
 
-#include "php_gene.h"
-#include "application.h"
-#include "factory/load.h"
-#include "cache/memory.h"
-#include "config/config.h"
-#include "router/router.h"
-#include "http/request.h"
-#include "common/common.h"
-#include "mvc/view.h"
-#include "di/di.h"
-#include "exception/exception.h"
+#include "../php_gene.h"
+#include "../app/application.h"
+#include "../factory/load.h"
+#include "../cache/memory.h"
+#include "../config/config.h"
+#include "../router/router.h"
+#include "../http/request.h"
+#include "../common/common.h"
+#include "../mvc/view.h"
+#include "../di/di.h"
+#include "../exception/exception.h"
 
 zend_class_entry * gene_application_ce;
 
