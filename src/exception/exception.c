@@ -25,9 +25,9 @@
 #include "zend_exceptions.h"
 
 #include "php_gene.h"
-#include "gene_exception.h"
-#include "gene_router.h"
-#include "gene_view.h"
+#include "exception/exception.h"
+#include "router/router.h"
+#include "mvc/view.h"
 
 zend_class_entry * gene_exception_ce;
 

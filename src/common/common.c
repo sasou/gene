@@ -22,8 +22,8 @@
 #include <stdlib.h>
 #include "php.h"
 #include "string.h"
-#include "gene_common.h"
 #include <ctype.h>
+#include "common/common.h"
 
 char *str_init(char *s)
 {

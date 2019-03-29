@@ -26,16 +26,16 @@
 #include "zend_exceptions.h"
 
 #include "php_gene.h"
-#include "gene_application.h"
-#include "gene_load.h"
-#include "gene_memory.h"
-#include "gene_config.h"
-#include "gene_router.h"
-#include "gene_request.h"
-#include "gene_common.h"
-#include "gene_view.h"
-#include "gene_di.h"
-#include "gene_exception.h"
+#include "application.h"
+#include "factory/load.h"
+#include "cache/memory.h"
+#include "config/config.h"
+#include "router/router.h"
+#include "http/request.h"
+#include "common/common.h"
+#include "mvc/view.h"
+#include "di/di.h"
+#include "exception/exception.h"
 
 zend_class_entry * gene_application_ce;
 

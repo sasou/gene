@@ -27,11 +27,11 @@
 
 
 #include "php_gene.h"
-#include "gene_model.h"
-#include "gene_service.h"
-#include "gene_di.h"
-#include "gene_factory.h"
-#include "gene_response.h"
+#include "mvc/model.h"
+#include "service/service.h"
+#include "di/di.h"
+#include "factory/factory.h"
+#include "http/response.h"
 
 
 zend_class_entry * gene_service_ce;

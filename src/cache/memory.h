@@ -52,6 +52,6 @@ static zval * gene_memory_set_val(zval *val, char *keyString, int keyString_len,
 void gene_memory_hash_copy_local(HashTable *target, HashTable *source);
 zval * gene_memory_zval_local(zval *dst, zval *source);
 
-GENE_MINIT_FUNCTION (cache);
+GENE_MINIT_FUNCTION (memory);
 
 #endif

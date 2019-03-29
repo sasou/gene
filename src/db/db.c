@@ -26,10 +26,10 @@
 #include "zend_smart_str.h"
 
 #include "php_gene.h"
-#include "gene_common.h"
-#include "gene_memory.h"
-#include "gene_db.h"
-#include "gene_benchmark.h"
+#include "common/common.h"
+#include "cache/memory.h"
+#include "db/db.h"
+#include "tool/benchmark.h"
 
 zend_class_entry * gene_db_ce;
 

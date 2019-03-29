@@ -26,8 +26,8 @@
 #include "zend_exceptions.h"
 
 #include "php_gene.h"
-#include "gene_request.h"
-#include "gene_memory.h"
+#include "http/request.h"
+#include "cache/memory.h"
 
 zend_class_entry * gene_request_ce;
 
