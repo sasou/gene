@@ -14,8 +14,8 @@
   +----------------------------------------------------------------------+
 */
 
-#ifndef GENE_TEST_H
-#define GENE_TEST_H
+#ifndef GENE_MEMCACHED_H
+#define GENE_MEMCACHED_H
 
 
 extern zend_class_entry *gene_memcached_ce;
