@@ -25,7 +25,7 @@
 #include "zend_exceptions.h"
 
 #include "php_gene.h"
-#include "gene_execute.h"
+#include "tool/execute.h"
 
 zend_class_entry * gene_execute_ce;
 

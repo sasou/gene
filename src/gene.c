@@ -26,25 +26,28 @@
 #include "zend_exceptions.h"
 
 #include "php_gene.h"
-#include "gene_application.h"
-#include "gene_load.h"
-#include "gene_config.h"
-#include "gene_router.h"
-#include "gene_execute.h"
-#include "gene_memory.h"
-#include "gene_di.h"
-#include "gene_controller.h"
-#include "gene_request.h"
-#include "gene_response.h"
-#include "gene_session.h"
-#include "gene_view.h"
-#include "gene_exception.h"
-#include "gene_db.h"
-#include "gene_common.h"
-#include "gene_model.h"
-#include "gene_service.h"
-#include "gene_factory.h"
-#include "gene_benchmark.h"
+#include "app/application.h"
+#include "factory/load.h"
+#include "config/config.h"
+#include "router/router.h"
+#include "tool/execute.h"
+#include "cache/memory.h"
+#include "di/di.h"
+#include "mvc/controller.h"
+#include "http/request.h"
+#include "http/response.h"
+#include "session/session.h"
+#include "mvc/view.h"
+#include "exception/exception.h"
+#include "db/db.h"
+#include "common/common.h"
+#include "mvc/model.h"
+#include "service/service.h"
+#include "factory/factory.h"
+#include "tool/benchmark.h"
+#include "cache/memcached.h"
+#include "cache/redis.h"
+#include "cache/cache.h"
 
 ZEND_DECLARE_MODULE_GLOBALS(gene);
 
@@ -164,7 +167,7 @@ PHP_MINIT_FUNCTION(gene) {
 	GENE_STARTUP(config);
 	GENE_STARTUP(router);
 	GENE_STARTUP(execute);
-	GENE_STARTUP(cache);
+	GENE_STARTUP(memory);
 	GENE_STARTUP(controller);
 	GENE_STARTUP(request);
 	GENE_STARTUP(response);
@@ -175,6 +178,9 @@ PHP_MINIT_FUNCTION(gene) {
 	GENE_STARTUP(model);
 	GENE_STARTUP(service);
 	GENE_STARTUP(factory);
+	GENE_STARTUP(redis);
+	GENE_STARTUP(memcached);
+	GENE_STARTUP(cache);
 	GENE_STARTUP(exception);
 
 	return SUCCESS;

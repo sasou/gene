@@ -30,10 +30,10 @@
 #include "ext/standard/php_string.h"
 
 #include "php_gene.h"
-#include "gene_view.h"
-#include "gene_load.h"
-#include "gene_di.h"
-#include "gene_common.h"
+#include "mvc/view.h"
+#include "factory/load.h"
+#include "di/di.h"
+#include "common/common.h"
 
 zend_class_entry * gene_view_ce;
 

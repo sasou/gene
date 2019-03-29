@@ -26,8 +26,8 @@
 
 
 #include "php_gene.h"
-#include "gene_factory.h"
-#include "gene_di.h"
+#include "factory/factory.h"
+#include "di/di.h"
 
 zend_class_entry * gene_factory_ce;
 

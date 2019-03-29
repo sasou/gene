@@ -27,14 +27,14 @@
 #include "Zend/zend_interfaces.h"
 
 #include "php_gene.h"
-#include "gene_application.h"
-#include "gene_controller.h"
-#include "gene_request.h"
-#include "gene_response.h"
-#include "gene_memory.h"
-#include "gene_router.h"
-#include "gene_view.h"
-#include "gene_di.h"
+#include "app/application.h"
+#include "mvc/controller.h"
+#include "http/request.h"
+#include "http/response.h"
+#include "cache/memory.h"
+#include "router/router.h"
+#include "mvc/view.h"
+#include "di/di.h"
 
 zend_class_entry * gene_controller_ce;
 
