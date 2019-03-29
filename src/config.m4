@@ -62,7 +62,7 @@ if test "$PHP_GENE" != "no"; then
   db/db.c \
   mvc/model.c \
   service/service.c \
-  factoryfactory.c \
+  factory/factory.c \
   cache/redis.c \
   cache/memcached.c \
   cache/cache.c, 
