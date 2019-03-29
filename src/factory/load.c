@@ -28,9 +28,9 @@
 #include "zend_smart_str.h"
 
 #include "php_gene.h"
-#include "gene_load.h"
-#include "gene_config.h"
-#include "gene_common.h"
+#include "factory/load.h"
+#include "config/config.h"
+#include "common/common.h"
 
 zend_class_entry * gene_load_ce;
 

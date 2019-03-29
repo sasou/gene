@@ -1,5 +1,5 @@
 PHP_ARG_ENABLE(gene, whether to enable gene support,
-[  --enable-gene           Enable gene support])
+[  --enable-gene           Enable gene support], yes)
 
 AC_ARG_ENABLE(gene-debug,
 [  --enable-gene-debug     Enable gene debug mode default=no],
@@ -9,9 +9,9 @@ AC_ARG_ENABLE(gene-debug,
 if test "$PHP_GENE" != "no"; then
 
   if test "$PHP_YAF_DEBUG" = "yes"; then
-    AC_DEFINE(PHP_GENE_DEBUG,1,[define to 1 if you want to change the POST/GET by php script])
+    AC_DEFINE(PHP_GENE_DEBUG, 1, [define to 1 if you want to change the POST/GET by php script])
   else
-    AC_DEFINE(PHP_GENE_DEBUG,0,[define to 1 if you want to change the POST/GET by php script])
+    AC_DEFINE(PHP_GENE_DEBUG, 0, [define to 1 if you want to change the POST/GET by php script])
   fi
 
   AC_MSG_CHECKING([PHP version])
@@ -41,5 +41,45 @@ if test "$PHP_GENE" != "no"; then
   else
     AC_MSG_RESULT([$php_version, ok])
   fi
-  PHP_NEW_EXTENSION(gene, gene.c gene_application.c gene_load.c gene_di.c gene_router.c gene_execute.c gene_memory.c gene_common.c gene_config.c gene_controller.c gene_session.c gene_request.c gene_response.c gene_view.c gene_exception.c gene_benchmark.c gene_db.c gene_model.c gene_service.c gene_factory.c, $ext_shared)
+  
+  PHP_NEW_EXTENSION(gene, 
+  gene.c \
+  app/application.c \
+  factory/load.c \
+  di/di.c \
+  router/router.c \
+  tool/execute.c \
+  cache/memory.c \ 
+  common/common.c \
+  config/config.c \
+  mvc/controller.c \
+  session/session.c \
+  http/request.c \
+  http/response.c \
+  mvc/view.c \
+  exception/exception.c \
+  tool/benchmark.c \
+  db/db.c \
+  mvc/model.c \
+  service/service.c \
+  factoryfactory.c \
+  cache/redis.c \
+  cache/memcached.c \
+  cache/cache.c, 
+  $ext_shared, -DZEND_ENABLE_STATIC_TSRMLS_CACHE=1, ,yes)
+  PHP_ADD_BUILD_DIR([$ext_builddir/app], 1)
+  PHP_ADD_BUILD_DIR([$ext_builddir/cache], 1)
+  PHP_ADD_BUILD_DIR([$ext_builddir/common], 1)
+  PHP_ADD_BUILD_DIR([$ext_builddir/config], 1)
+  PHP_ADD_BUILD_DIR([$ext_builddir/db], 1)
+  PHP_ADD_BUILD_DIR([$ext_builddir/di], 1)
+  PHP_ADD_BUILD_DIR([$ext_builddir/exception], 1)
+  PHP_ADD_BUILD_DIR([$ext_builddir/factory], 1)
+  PHP_ADD_BUILD_DIR([$ext_builddir/http], 1)
+  PHP_ADD_BUILD_DIR([$ext_builddir/mvc], 1)
+  PHP_ADD_BUILD_DIR([$ext_builddir/router], 1)
+  PHP_ADD_BUILD_DIR([$ext_builddir/service], 1)
+  PHP_ADD_BUILD_DIR([$ext_builddir/session], 1)
+  PHP_ADD_BUILD_DIR([$ext_builddir/tool], 1)
+
 fi

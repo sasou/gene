@@ -19,11 +19,11 @@
 #endif
 
 #include "php.h"
+#include "ext/session/php_session.h"
 
 #include "php_gene.h"
-#include "ext/session/php_session.h"
-#include "gene_session.h"
-#include "gene_common.h"
+#include "session/session.h"
+#include "common/common.h"
 
 zend_class_entry * gene_session_ce;
 

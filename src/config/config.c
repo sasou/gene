@@ -25,10 +25,10 @@
 #include "zend_exceptions.h"
 
 #include "php_gene.h"
-#include "gene_application.h"
-#include "gene_common.h"
-#include "gene_config.h"
-#include "gene_memory.h"
+#include "app/application.h"
+#include "common/common.h"
+#include "config/config.h"
+#include "cache/memory.h"
 
 zend_class_entry * gene_config_ce;
 
