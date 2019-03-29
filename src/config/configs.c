@@ -15,7 +15,7 @@
  */
 
 #ifdef HAVE_CONFIG_H
-#include "gene_config.h"
+#include "config.h"
 #endif
 
 #include "php.h"
