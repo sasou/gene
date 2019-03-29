@@ -227,7 +227,7 @@ GENE_MINIT_FUNCTION(exception) {
 	ZEND_ACC_PROTECTED);
 
 	//
-	return SUCCESS;
+	return SUCCESS; // @suppress("Symbol is not resolved")
 }
 /* }}} */
 

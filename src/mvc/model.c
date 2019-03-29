@@ -255,7 +255,7 @@ GENE_MINIT_FUNCTION(model)
 	gene_model_ce = zend_register_internal_class_ex(&gene_model, NULL);
 	zend_declare_property_null(gene_model_ce, ZEND_STRL(GENE_MODEL_ATTR), ZEND_ACC_PUBLIC);
 
-	return SUCCESS;
+	return SUCCESS; // @suppress("Symbol is not resolved")
 }
 /* }}} */
 

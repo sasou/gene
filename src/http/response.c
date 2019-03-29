@@ -282,7 +282,7 @@ GENE_MINIT_FUNCTION(response) {
 	gene_response_ce = zend_register_internal_class(&gene_response TSRMLS_CC);
 
 	//
-	return SUCCESS;
+	return SUCCESS; // @suppress("Symbol is not resolved")
 }
 /* }}} */
 

@@ -645,7 +645,7 @@ GENE_MINIT_FUNCTION(application) {
 	zend_declare_property_null(gene_application_ce, ZEND_STRL(GENE_APPLICATION_INSTANCE), ZEND_ACC_PROTECTED | ZEND_ACC_STATIC TSRMLS_CC);
 	zend_declare_property_null(gene_application_ce, ZEND_STRL(GENE_APPLICATION_ATTR), ZEND_ACC_PUBLIC);
 
-	return SUCCESS;
+	return SUCCESS; // @suppress("Symbol is not resolved")
 }
 /* }}} */
 

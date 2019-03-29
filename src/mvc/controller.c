@@ -499,7 +499,7 @@ GENE_MINIT_FUNCTION(controller) {
 	gene_controller_ce = zend_register_internal_class(&gene_controller TSRMLS_CC);
 	zend_declare_property_null(gene_controller_ce, ZEND_STRL(GENE_CONTROLLER_ATTR), ZEND_ACC_PUBLIC);
 
-	return SUCCESS;
+	return SUCCESS; // @suppress("Symbol is not resolved")
 }
 /* }}} */
 

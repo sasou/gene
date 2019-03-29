@@ -152,7 +152,7 @@ PHP_METHOD(gene_factory, create)
 {
 	zval *params = NULL, *di = NULL, *entrys = NULL, *pzval = NULL, classObject;
 	char *class;
-	size_t class_len = 0;
+	size_t class_len = 0;// @suppress("Type cannot be resolved")
 	long type = 0;
 	if (zend_parse_parameters(ZEND_NUM_ARGS() TSRMLS_CC, "s|zl", &class, &class_len, &params, &type) == FAILURE) {
 		return;
@@ -198,7 +198,7 @@ GENE_MINIT_FUNCTION(factory)
 	GENE_INIT_CLASS_ENTRY(gene_factory, "Gene_Factory", "Gene\\Factory", gene_factory_methods);
 	gene_factory_ce = zend_register_internal_class_ex(&gene_factory, NULL);
 
-	return SUCCESS;
+	return SUCCESS; // @suppress("Symbol is not resolved")
 }
 /* }}} */
 
