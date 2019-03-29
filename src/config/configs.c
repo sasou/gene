@@ -15,7 +15,7 @@
  */
 
 #ifdef HAVE_CONFIG_H
-#include "config.h"
+#include "gene_config.h"
 #endif
 
 #include "php.h"
@@ -27,7 +27,7 @@
 #include "../php_gene.h"
 #include "../app/application.h"
 #include "../common/common.h"
-#include "../config/config.h"
+#include "../config/configs.h"
 #include "../cache/memory.h"
 
 zend_class_entry * gene_config_ce;

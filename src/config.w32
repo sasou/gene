@@ -11,7 +11,7 @@ if (PHP_GENE == "yes") {
 	ADD_SOURCES(configure_module_dirname + "/cache", "cache.c memcached.c memory.c redis.c", "gene");
 	ADD_SOURCES(configure_module_dirname + "/tool", "benchmark.c execute.c", "gene");
 	ADD_SOURCES(configure_module_dirname + "/common", "common.c", "gene");
-	ADD_SOURCES(configure_module_dirname + "/config", "config.c", "gene");
+	ADD_SOURCES(configure_module_dirname + "/config", "configs.c", "gene");
 	ADD_SOURCES(configure_module_dirname + "/db", "db.c", "gene");
 	ADD_SOURCES(configure_module_dirname + "/di", "di.c", "gene");
 	ADD_SOURCES(configure_module_dirname + "/exception", "exception.c", "gene");

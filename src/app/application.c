@@ -29,7 +29,7 @@
 #include "../app/application.h"
 #include "../factory/load.h"
 #include "../cache/memory.h"
-#include "../config/config.h"
+#include "../config/configs.h"
 #include "../router/router.h"
 #include "../http/request.h"
 #include "../common/common.h"
