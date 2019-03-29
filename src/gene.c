@@ -28,7 +28,7 @@
 #include "php_gene.h"
 #include "app/application.h"
 #include "factory/load.h"
-#include "config/config.h"
+#include "config/configs.h"
 #include "router/router.h"
 #include "tool/execute.h"
 #include "cache/memory.h"
