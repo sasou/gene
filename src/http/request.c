@@ -25,7 +25,7 @@
 #include "Zend/zend_API.h"
 #include "zend_exceptions.h"
 
-#include "../php_gene.h"
+#include "../gene.h"
 #include "../http/request.h"
 #include "../cache/memory.h"
 
