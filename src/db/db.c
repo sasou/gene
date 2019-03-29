@@ -25,11 +25,11 @@
 #include "zend_exceptions.h"
 #include "zend_smart_str.h"
 
-#include "php_gene.h"
-#include "common/common.h"
-#include "cache/memory.h"
-#include "db/db.h"
-#include "tool/benchmark.h"
+#include "../php_gene.h"
+#include "../common/common.h"
+#include "../cache/memory.h"
+#include "../db/db.h"
+#include "../tool/benchmark.h"
 
 zend_class_entry * gene_db_ce;
 

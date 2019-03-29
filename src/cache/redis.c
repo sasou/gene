@@ -25,8 +25,8 @@
 #include "zend_exceptions.h"
 
 
-#include "php_gene.h"
-#include "cache/redis.h"
+#include "../php_gene.h"
+#include "../cache/redis.h"
 
 zend_class_entry * gene_redis_ce;
 

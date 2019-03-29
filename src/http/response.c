@@ -26,9 +26,9 @@
 #include "Zend/zend_smart_str.h"
 #include "Zend/zend_interfaces.h"
 
-#include "php_gene.h"
-#include "http/response.h"
-#include "cache/memory.h"
+#include "../php_gene.h"
+#include "../http/response.h"
+#include "../cache/memory.h"
 
 zend_class_entry * gene_response_ce;
 
