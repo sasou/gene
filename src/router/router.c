@@ -27,7 +27,7 @@
 #include "Zend/zend_interfaces.h"
 #include "ext/pcre/php_pcre.h"
 
-#include "../php_gene.h"
+#include "../gene.h"
 #include "../router/router.h"
 #include "../cache/memory.h"
 #include "../common/common.h"

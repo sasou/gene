@@ -29,7 +29,7 @@
 #include "ext/standard/php_filestat.h"
 #include "ext/standard/php_string.h"
 
-#include "../php_gene.h"
+#include "../gene.h"
 #include "../mvc/view.h"
 #include "../factory/load.h"
 #include "../di/di.h"

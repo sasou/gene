@@ -26,7 +26,7 @@
 #include "zend_exceptions.h"
 
 
-#include "../php_gene.h"
+#include "../gene.h"
 #include "../mvc/model.h"
 #include "../service/service.h"
 #include "../di/di.h"

@@ -27,7 +27,7 @@
 #include "zend_virtual_cwd.h"
 #include "zend_smart_str.h"
 
-#include "../php_gene.h"
+#include "../gene.h"
 #include "../factory/load.h"
 #include "../config/configs.h"
 #include "../common/common.h"

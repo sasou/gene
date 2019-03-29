@@ -21,7 +21,7 @@
 #include "php.h"
 #include "ext/session/php_session.h"
 
-#include "../php_gene.h"
+#include "../gene.h"
 #include "../session/session.h"
 #include "../common/common.h"
 
