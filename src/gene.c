@@ -55,11 +55,11 @@ ZEND_DECLARE_MODULE_GLOBALS(gene);
 /** {{{ PHP_INI
  */
 PHP_INI_BEGIN()
-STD_PHP_INI_BOOLEAN("gene.run_environment", "1", PHP_INI_SYSTEM, OnUpdateBool, run_environment, zend_gene_globals, gene_globals)
-STD_PHP_INI_BOOLEAN("gene.use_namespace", "1", PHP_INI_SYSTEM, OnUpdateBool, use_namespace, zend_gene_globals, gene_globals)
-STD_PHP_INI_BOOLEAN("gene.view_compile", "0", PHP_INI_SYSTEM, OnUpdateBool, view_compile, zend_gene_globals, gene_globals)
-STD_PHP_INI_BOOLEAN("gene.use_library", "0", PHP_INI_SYSTEM, OnUpdateBool, use_library, zend_gene_globals, gene_globals)
-STD_PHP_INI_ENTRY("gene.library_root", "", PHP_INI_SYSTEM, OnUpdateString, library_root, zend_gene_globals, gene_globals)
+STD_PHP_INI_BOOLEAN("gene.run_environment", "1", PHP_INI_SYSTEM, OnUpdateBool, run_environment, zend_gene_globals, gene_globals) // @suppress("Symbol is not resolved")
+STD_PHP_INI_BOOLEAN("gene.use_namespace", "1", PHP_INI_SYSTEM, OnUpdateBool, use_namespace, zend_gene_globals, gene_globals) // @suppress("Symbol is not resolved")
+STD_PHP_INI_BOOLEAN("gene.view_compile", "0", PHP_INI_SYSTEM, OnUpdateBool, view_compile, zend_gene_globals, gene_globals) // @suppress("Symbol is not resolved")
+STD_PHP_INI_BOOLEAN("gene.use_library", "0", PHP_INI_SYSTEM, OnUpdateBool, use_library, zend_gene_globals, gene_globals) // @suppress("Symbol is not resolved")
+STD_PHP_INI_ENTRY("gene.library_root", "", PHP_INI_SYSTEM, OnUpdateString, library_root, zend_gene_globals, gene_globals) // @suppress("Symbol is not resolved")
 PHP_INI_END();
 /* }}} */
 
@@ -183,7 +183,7 @@ PHP_MINIT_FUNCTION(gene) {
 	GENE_STARTUP(cache);
 	GENE_STARTUP(exception);
 
-	return SUCCESS;
+	return SUCCESS; // @suppress("Symbol is not resolved")
 }
 /* }}} */
 
@@ -202,7 +202,7 @@ PHP_MSHUTDOWN_FUNCTION(gene) {
 		gene_hash_destroy(GENE_G(cache_easy));
 		GENE_G(cache_easy) = NULL;
 	}
-	return SUCCESS;
+	return SUCCESS; // @suppress("Symbol is not resolved")
 }
 
 /* }}} */
@@ -211,7 +211,7 @@ PHP_MSHUTDOWN_FUNCTION(gene) {
  * {{{ PHP_RINIT_FUNCTION
  */
 PHP_RINIT_FUNCTION(gene) {
-	return SUCCESS;
+	return SUCCESS; // @suppress("Symbol is not resolved")
 }
 /* }}} */
 
@@ -220,7 +220,7 @@ PHP_RINIT_FUNCTION(gene) {
  */
 PHP_RSHUTDOWN_FUNCTION(gene) {
 	php_gene_close_globals();
-	return SUCCESS;
+	return SUCCESS; // @suppress("Symbol is not resolved")
 }
 /* }}} */
 
@@ -320,7 +320,7 @@ zend_module_dep gene_deps[] = {
  */
 zend_module_entry gene_module_entry = {
 #if ZEND_MODULE_API_NO >= 20050922
-	STANDARD_MODULE_HEADER_EX, NULL, gene_deps,
+	STANDARD_MODULE_HEADER_EX, NULL, gene_deps, // @suppress("Symbol is not resolved")
 #else
 	STANDARD_MODULE_HEADER,
 #endif

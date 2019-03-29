@@ -206,7 +206,7 @@ GENE_MINIT_FUNCTION(benchmark)
     gene_benchmark_ce = zend_register_internal_class_ex(&gene_benchmark, NULL);
     gene_benchmark_ce->ce_flags |= ZEND_ACC_FINAL;
 
-	return SUCCESS;
+	return SUCCESS; // @suppress("Symbol is not resolved")
 }
 /* }}} */
 
