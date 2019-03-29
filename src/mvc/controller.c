@@ -26,7 +26,7 @@
 #include "Zend/zend_smart_str.h"
 #include "Zend/zend_interfaces.h"
 
-#include "../php_gene.h"
+#include "../gene.h"
 #include "../app/application.h"
 #include "../mvc/controller.h"
 #include "../http/request.h"

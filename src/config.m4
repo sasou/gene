@@ -43,30 +43,30 @@ if test "$PHP_GENE" != "no"; then
   fi
   
   PHP_NEW_EXTENSION(gene, 
-  gene.c \
-  app/application.c \
-  factory/load.c \
-  di/di.c \
-  router/router.c \
-  tool/execute.c \
-  cache/memory.c \ 
-  common/common.c \
-  config/configs.c \
-  mvc/controller.c \
-  session/session.c \
-  http/request.c \
-  http/response.c \
-  mvc/view.c \
-  exception/exception.c \
-  tool/benchmark.c \
-  db/db.c \
-  mvc/model.c \
-  service/service.c \
-  factory/factory.c \
-  cache/redis.c \
-  cache/memcached.c \
-  cache/cache.c, 
-  $ext_shared, -DZEND_ENABLE_STATIC_TSRMLS_CACHE=1, ,yes)
+	  gene.c \
+	  app/application.c \
+	  factory/load.c \
+	  di/di.c \
+	  router/router.c \
+	  tool/execute.c \
+	  cache/memory.c \ 
+	  common/common.c \
+	  config/configs.c \
+	  mvc/controller.c \
+	  session/session.c \
+	  http/request.c \
+	  http/response.c \
+	  mvc/view.c \
+	  exception/exception.c \
+	  tool/benchmark.c \
+	  db/db.c \
+	  mvc/model.c \
+	  service/service.c \
+	  factory/factory.c \
+	  cache/redis.c \
+	  cache/memcached.c \
+	  cache/cache.c, 
+	  $ext_shared,, -DZEND_ENABLE_STATIC_TSRMLS_CACHE=1)
   PHP_ADD_BUILD_DIR([$ext_builddir/app], 1)
   PHP_ADD_BUILD_DIR([$ext_builddir/cache], 1)
   PHP_ADD_BUILD_DIR([$ext_builddir/common], 1)

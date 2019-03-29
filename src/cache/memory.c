@@ -25,7 +25,7 @@
 #include "zend_exceptions.h"
 #include "zend_smart_str.h"
 
-#include "../php_gene.h"
+#include "../gene.h"
 #include "../app/application.h"
 #include "../cache/memory.h"
 #include "../common/common.h"
