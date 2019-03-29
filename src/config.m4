@@ -51,7 +51,7 @@ if test "$PHP_GENE" != "no"; then
   tool/execute.c \
   cache/memory.c \ 
   common/common.c \
-  config/config.c \
+  config/configs.c \
   mvc/controller.c \
   session/session.c \
   http/request.c \

@@ -29,7 +29,7 @@
 
 #include "../php_gene.h"
 #include "../factory/load.h"
-#include "../config/config.h"
+#include "../config/configs.h"
 #include "../common/common.h"
 
 zend_class_entry * gene_load_ce;

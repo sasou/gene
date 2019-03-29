@@ -26,7 +26,7 @@
 
 #include "../php_gene.h"
 #include "../di/di.h"
-#include "../config/config.h"
+#include "../config/configs.h"
 #include "../cache/memory.h"
 #include "../factory/factory.h"
 
