@@ -257,7 +257,7 @@ GENE_MINIT_FUNCTION(service)
 	gene_service_ce = zend_register_internal_class_ex(&gene_service, NULL);
 	zend_declare_property_null(gene_service_ce, ZEND_STRL(GENE_SERVICE_ATTR), ZEND_ACC_PUBLIC);
 
-	return SUCCESS;
+	return SUCCESS; // @suppress("Symbol is not resolved")
 }
 /* }}} */
 

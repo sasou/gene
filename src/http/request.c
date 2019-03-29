@@ -256,7 +256,7 @@ GENE_MINIT_FUNCTION(request) {
 	gene_request_ce = zend_register_internal_class(&gene_request TSRMLS_CC);
 
 	//
-	return SUCCESS;
+	return SUCCESS; // @suppress("Symbol is not resolved")
 }
 /* }}} */
 
