@@ -58,7 +58,7 @@ ZEND_BEGIN_ARG_INFO_EX(gene_service_set, 0, 0, 2)
 ZEND_END_ARG_INFO()
 
 
-zval *gene_service_instance(zval *obj) {
+zval *gene_service_instance(zval *obj, zval *params) {
 	zval *ppzval = NULL, *di, *entrys;
 	zval ret;
 	zend_call_method_with_0_params(NULL, NULL, NULL, "get_called_class", &ret);
@@ -71,7 +71,7 @@ zval *gene_service_instance(zval *obj) {
 		if (gene_factory_load_class(Z_STRVAL(ret), Z_STRLEN(ret), obj)) {
 			if (zend_hash_str_exists(&(Z_OBJCE_P(obj)->function_table), ZEND_STRL("__construct"))) {
 				zval tmp;
-				gene_factory_call(obj, "__construct", NULL, &tmp);
+				gene_factory_call(obj, "__construct", params, &tmp);
 				zval_ptr_dtor(&tmp);
 			}
 			if (zend_hash_str_update(Z_ARRVAL_P(entrys), Z_STRVAL(ret), Z_STRLEN(ret), obj) != NULL) {
@@ -108,7 +108,7 @@ PHP_METHOD(gene_service, __set)
 	if (zend_parse_parameters(ZEND_NUM_ARGS(), "Sz", &name, &value) == FAILURE) {
 		return;
 	}
-	props = zend_read_property(gene_service_ce, gene_service_instance(&obj), ZEND_STRL(GENE_SERVICE_ATTR), 1, NULL);
+	props = zend_read_property(gene_service_ce, gene_service_instance(&obj, NULL), ZEND_STRL(GENE_SERVICE_ATTR), 1, NULL);
 	if (zend_hash_update(Z_ARRVAL_P(props), name, value) != NULL) {
 		Z_TRY_ADDREF_P(value);
 		RETURN_TRUE;
@@ -133,17 +133,17 @@ PHP_METHOD(gene_service, __get)
 	if (!name) {
 		RETURN_NULL();
 	} else {
-		props = zend_read_property(gene_service_ce, gene_service_instance(&obj), ZEND_STRL(GENE_SERVICE_ATTR), 1, NULL);
+		props = zend_read_property(gene_service_ce, gene_service_instance(&obj, NULL), ZEND_STRL(GENE_SERVICE_ATTR), 1, NULL);
 		if (props) {
 			pzval = zend_hash_find(Z_ARRVAL_P(props), name);
 			if (pzval == NULL) {
 				pzval = gene_di_get_easy(name);
 				if (pzval) {
-					RETURN_ZVAL(pzval, 1, 0);
+					RETURN_ZVAL(pzval, 0, 0);
 				}
 				RETURN_NULL();
 			}
-			RETURN_ZVAL(pzval, 1, 0);
+			RETURN_ZVAL(pzval, 0, 0);
 		}
 		RETURN_NULL();
 	}
@@ -165,7 +165,7 @@ PHP_METHOD(gene_service, success) {
 	array_init(&ret);
 	add_assoc_long_ex(&ret, ZEND_STRL(GENE_RESPONSE_CODE), code);
 	add_assoc_str_ex(&ret, ZEND_STRL(GENE_RESPONSE_MSG), text);
-	RETURN_ZVAL(&ret, 1, 1);
+	RETURN_ZVAL(&ret, 0, 0);
 }
 /* }}} */
 
@@ -183,7 +183,7 @@ PHP_METHOD(gene_service, error) {
 	array_init(&ret);
 	add_assoc_long_ex(&ret, ZEND_STRL(GENE_RESPONSE_CODE), code);
 	add_assoc_str_ex(&ret, ZEND_STRL(GENE_RESPONSE_MSG), text);
-	RETURN_ZVAL(&ret, 1, 1);
+	RETURN_ZVAL(&ret, 0, 0);
 }
 /* }}} */
 
@@ -209,7 +209,7 @@ PHP_METHOD(gene_service, data) {
 	if (count >= 0) {
 		add_assoc_long_ex(&ret, ZEND_STRL(GENE_RESPONSE_COUNT), count);
 	}
-	RETURN_ZVAL(&ret, 1, 1);
+	RETURN_ZVAL(&ret, 0, 0);
 }
 /* }}} */
 
@@ -218,8 +218,11 @@ PHP_METHOD(gene_service, data) {
  */
 PHP_METHOD(gene_service, getInstance)
 {
-	zval obj;
-	RETURN_ZVAL(gene_service_instance(&obj), 1, 0);
+	zval obj, *params = NULL;
+	if (zend_parse_parameters(ZEND_NUM_ARGS()TSRMLS_CC, "|z", &params) == FAILURE) {
+		return;
+	}
+	RETURN_ZVAL(gene_service_instance(&obj, params), 1, 0);
 }
 /* }}} */
 
