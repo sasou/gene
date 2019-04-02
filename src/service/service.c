@@ -71,7 +71,7 @@ zval *gene_service_instance(zval *obj) {
 		if (gene_factory_load_class(Z_STRVAL(ret), Z_STRLEN(ret), obj)) {
 			if (zend_hash_str_exists(&(Z_OBJCE_P(obj)->function_table), ZEND_STRL("__construct"))) {
 				zval tmp;
-				gene_factory_construct(obj, NULL, &tmp);
+				gene_factory_call(obj, "__construct", NULL, &tmp);
 				zval_ptr_dtor(&tmp);
 			}
 			if (zend_hash_str_update(Z_ARRVAL_P(entrys), Z_STRVAL(ret), Z_STRLEN(ret), obj) != NULL) {
