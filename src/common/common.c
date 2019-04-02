@@ -171,7 +171,7 @@ void right(char *dst, char *src, int n) {
 	if (n > len)
 		n = len;
 	p += (len - n);
-	while (*(q++) = *(p++))
+	while (*(q++) = *(p++)) // @suppress("Assignment in condition")
 		;
 	return;
 }
@@ -275,7 +275,7 @@ void replace(char originalString[], char key[], char swap[]) {
 int findChildCnt(char* str1, const char* str2) {
 	int len = strlen(str2);
 	int cnt = 0;
-	while (str1 = strstr(str1, str2)) {
+	while (str1 = strstr(str1, str2)) { // @suppress("Assignment in condition")
 		cnt++;
 		str1 += len;
 	}
@@ -476,6 +476,7 @@ void remove_extra_space(char *str) {
 		switch (*str) {
 		case '\t':
 			*str = ' ';
+			/* no break */
 		case ' ':
 			if (*prev == '\n' || *prev == ' ')
 				continue;
