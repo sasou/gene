@@ -57,6 +57,11 @@ ZEND_BEGIN_ARG_INFO_EX(gene_model_set, 0, 0, 2)
     ZEND_ARG_INFO(0, value)
 ZEND_END_ARG_INFO()
 
+ZEND_BEGIN_ARG_INFO_EX(gene_model_arg_instance, 0, 0, 1)
+	ZEND_ARG_INFO(0, params)
+ZEND_END_ARG_INFO()
+
+
 zval *gene_model_instance(zval *obj, zval *params) {
 	zval *ppzval = NULL, *di, *entrys;
 	zval ret;
@@ -242,7 +247,7 @@ zend_function_entry gene_model_methods[] = {
 		PHP_ME(gene_model, success, gene_model_se, ZEND_ACC_PUBLIC)
 		PHP_ME(gene_model, error, gene_model_se, ZEND_ACC_PUBLIC)
 		PHP_ME(gene_model, data, gene_model_se_data, ZEND_ACC_PUBLIC)
-		PHP_ME(gene_model, getInstance, NULL, ZEND_ACC_PUBLIC|ZEND_ACC_STATIC)
+		PHP_ME(gene_model, getInstance, gene_model_arg_instance, ZEND_ACC_PUBLIC|ZEND_ACC_STATIC)
 		{NULL, NULL, NULL}
 };
 /* }}} */
