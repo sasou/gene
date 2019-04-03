@@ -72,10 +72,26 @@ void gene_factory_call(zval *object, char *action, zval *param, zval *retval) /*
         	}ZEND_HASH_FOREACH_END();
             call_user_function(NULL, object, &function_name, retval, param_count, params);
     	} else {
-    		call_user_function(NULL, object, &function_name, retval, 1, param);
+    		call_user_function(NULL, object, &function_name, retval, 0, NULL);
     	}
     } else {
-    	call_user_function(NULL, object, &function_name, retval, param_count, NULL);
+    	call_user_function(NULL, object, &function_name, retval, 0, NULL);
+    }
+    zval_ptr_dtor(&function_name);
+}/*}}}*/
+
+void gene_factory_call_1(zval *object, char *action, zval *param, zval *retval) /*{{{*/
+{
+    zval function_name;
+    uint param_count = 0;
+
+    ZVAL_STRING(&function_name, action);
+    if (param && Z_TYPE_P(param) == IS_ARRAY) {
+    	zval params[1];
+    	params[0] = *param;
+        call_user_function(NULL, object, &function_name, retval, 1, params);
+    } else {
+    	call_user_function(NULL, object, &function_name, retval, 0, NULL);
     }
     zval_ptr_dtor(&function_name);
 }/*}}}*/
