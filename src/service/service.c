@@ -26,12 +26,12 @@
 #include "zend_exceptions.h"
 
 
-#include "php_gene.h"
-#include "gene_model.h"
-#include "gene_service.h"
-#include "gene_di.h"
-#include "gene_factory.h"
-#include "gene_response.h"
+#include "../gene.h"
+#include "../mvc/model.h"
+#include "../service/service.h"
+#include "../di/di.h"
+#include "../factory/factory.h"
+#include "../http/response.h"
 
 
 zend_class_entry * gene_service_ce;
@@ -57,8 +57,12 @@ ZEND_BEGIN_ARG_INFO_EX(gene_service_set, 0, 0, 2)
     ZEND_ARG_INFO(0, value)
 ZEND_END_ARG_INFO()
 
+ZEND_BEGIN_ARG_INFO_EX(gene_model_arg_instance, 0, 0, 1)
+	ZEND_ARG_INFO(0, params)
+ZEND_END_ARG_INFO()
 
-zval *gene_service_instance(zval *obj) {
+
+zval *gene_service_instance(zval *obj, zval *params) {
 	zval *ppzval = NULL, *di, *entrys;
 	zval ret;
 	zend_call_method_with_0_params(NULL, NULL, NULL, "get_called_class", &ret);
@@ -71,7 +75,7 @@ zval *gene_service_instance(zval *obj) {
 		if (gene_factory_load_class(Z_STRVAL(ret), Z_STRLEN(ret), obj)) {
 			if (zend_hash_str_exists(&(Z_OBJCE_P(obj)->function_table), ZEND_STRL("__construct"))) {
 				zval tmp;
-				gene_factory_construct(obj, NULL, &tmp);
+				gene_factory_call(obj, "__construct", params, &tmp);
 				zval_ptr_dtor(&tmp);
 			}
 			if (zend_hash_str_update(Z_ARRVAL_P(entrys), Z_STRVAL(ret), Z_STRLEN(ret), obj) != NULL) {
@@ -108,7 +112,7 @@ PHP_METHOD(gene_service, __set)
 	if (zend_parse_parameters(ZEND_NUM_ARGS(), "Sz", &name, &value) == FAILURE) {
 		return;
 	}
-	props = zend_read_property(gene_service_ce, gene_service_instance(&obj), ZEND_STRL(GENE_SERVICE_ATTR), 1, NULL);
+	props = zend_read_property(gene_service_ce, gene_service_instance(&obj, NULL), ZEND_STRL(GENE_SERVICE_ATTR), 1, NULL);
 	if (zend_hash_update(Z_ARRVAL_P(props), name, value) != NULL) {
 		Z_TRY_ADDREF_P(value);
 		RETURN_TRUE;
@@ -133,7 +137,7 @@ PHP_METHOD(gene_service, __get)
 	if (!name) {
 		RETURN_NULL();
 	} else {
-		props = zend_read_property(gene_service_ce, gene_service_instance(&obj), ZEND_STRL(GENE_SERVICE_ATTR), 1, NULL);
+		props = zend_read_property(gene_service_ce, gene_service_instance(&obj, NULL), ZEND_STRL(GENE_SERVICE_ATTR), 1, NULL);
 		if (props) {
 			pzval = zend_hash_find(Z_ARRVAL_P(props), name);
 			if (pzval == NULL) {
@@ -165,7 +169,7 @@ PHP_METHOD(gene_service, success) {
 	array_init(&ret);
 	add_assoc_long_ex(&ret, ZEND_STRL(GENE_RESPONSE_CODE), code);
 	add_assoc_str_ex(&ret, ZEND_STRL(GENE_RESPONSE_MSG), text);
-	RETURN_ZVAL(&ret, 1, 1);
+	RETURN_ZVAL(&ret, 0, 0);
 }
 /* }}} */
 
@@ -183,7 +187,7 @@ PHP_METHOD(gene_service, error) {
 	array_init(&ret);
 	add_assoc_long_ex(&ret, ZEND_STRL(GENE_RESPONSE_CODE), code);
 	add_assoc_str_ex(&ret, ZEND_STRL(GENE_RESPONSE_MSG), text);
-	RETURN_ZVAL(&ret, 1, 1);
+	RETURN_ZVAL(&ret, 0, 0);
 }
 /* }}} */
 
@@ -209,7 +213,7 @@ PHP_METHOD(gene_service, data) {
 	if (count >= 0) {
 		add_assoc_long_ex(&ret, ZEND_STRL(GENE_RESPONSE_COUNT), count);
 	}
-	RETURN_ZVAL(&ret, 1, 1);
+	RETURN_ZVAL(&ret, 0, 0);
 }
 /* }}} */
 
@@ -218,8 +222,11 @@ PHP_METHOD(gene_service, data) {
  */
 PHP_METHOD(gene_service, getInstance)
 {
-	zval obj;
-	RETURN_ZVAL(gene_service_instance(&obj), 1, 0);
+	zval obj, *params = NULL;
+	if (zend_parse_parameters(ZEND_NUM_ARGS()TSRMLS_CC, "|z", &params) == FAILURE) {
+		return;
+	}
+	RETURN_ZVAL(gene_service_instance(&obj, params), 1, 0);
 }
 /* }}} */
 
@@ -241,7 +248,7 @@ zend_function_entry gene_service_methods[] = {
 		PHP_ME(gene_service, success, gene_service_arg_se, ZEND_ACC_PUBLIC)
 		PHP_ME(gene_service, error, gene_service_arg_se, ZEND_ACC_PUBLIC)
 		PHP_ME(gene_service, data, gene_service_arg_se_data, ZEND_ACC_PUBLIC)
-		PHP_ME(gene_service, getInstance, NULL, ZEND_ACC_PUBLIC|ZEND_ACC_STATIC)
+		PHP_ME(gene_service, getInstance, gene_model_arg_instance, ZEND_ACC_PUBLIC|ZEND_ACC_STATIC)
 		{NULL, NULL, NULL}
 };
 /* }}} */
@@ -257,7 +264,7 @@ GENE_MINIT_FUNCTION(service)
 	gene_service_ce = zend_register_internal_class_ex(&gene_service, NULL);
 	zend_declare_property_null(gene_service_ce, ZEND_STRL(GENE_SERVICE_ATTR), ZEND_ACC_PUBLIC);
 
-	return SUCCESS;
+	return SUCCESS; // @suppress("Symbol is not resolved")
 }
 /* }}} */
 

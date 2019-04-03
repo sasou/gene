@@ -25,10 +25,10 @@
 #include "zend_exceptions.h"
 #include "zend_smart_str.h"
 
-#include "php_gene.h"
-#include "gene_application.h"
-#include "gene_memory.h"
-#include "gene_common.h"
+#include "../gene.h"
+#include "../app/application.h"
+#include "../cache/memory.h"
+#include "../common/common.h"
 
 zend_class_entry * gene_memory_ce;
 
@@ -699,7 +699,7 @@ zend_function_entry gene_memory_methods[] = {
 /*
  * {{{ GENE_MINIT_FUNCTION
  */
-GENE_MINIT_FUNCTION(cache) {
+GENE_MINIT_FUNCTION(memory) {
 	zend_class_entry gene_memory;
 	GENE_INIT_CLASS_ENTRY(gene_memory, "Gene_Memory", "Gene\\Memory", gene_memory_methods);
 	gene_memory_ce = zend_register_internal_class(&gene_memory TSRMLS_CC);

@@ -25,9 +25,9 @@
 #include "Zend/zend_API.h"
 #include "zend_exceptions.h"
 
-#include "php_gene.h"
-#include "gene_request.h"
-#include "gene_memory.h"
+#include "../gene.h"
+#include "../http/request.h"
+#include "../cache/memory.h"
 
 zend_class_entry * gene_request_ce;
 
@@ -256,7 +256,7 @@ GENE_MINIT_FUNCTION(request) {
 	gene_request_ce = zend_register_internal_class(&gene_request TSRMLS_CC);
 
 	//
-	return SUCCESS;
+	return SUCCESS; // @suppress("Symbol is not resolved")
 }
 /* }}} */
 

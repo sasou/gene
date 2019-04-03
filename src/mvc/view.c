@@ -29,11 +29,11 @@
 #include "ext/standard/php_filestat.h"
 #include "ext/standard/php_string.h"
 
-#include "php_gene.h"
-#include "gene_view.h"
-#include "gene_load.h"
-#include "gene_di.h"
-#include "gene_common.h"
+#include "../gene.h"
+#include "../mvc/view.h"
+#include "../factory/load.h"
+#include "../di/di.h"
+#include "../common/common.h"
 
 zend_class_entry * gene_view_ce;
 
@@ -135,7 +135,7 @@ static int check_folder_exists(char *fullpath) {
 			return FAILURE;
 		}
 	}
-	return SUCCESS;
+	return SUCCESS; // @suppress("Symbol is not resolved")
 }
 /* }}} */
 
@@ -143,7 +143,7 @@ static int check_folder_exists(char *fullpath) {
  * {{{ gene_view
  */
 static int parser_templates(php_stream **stream, char *compile_path) {
-	size_t result_len;
+	size_t result_len;// @suppress("Type cannot be resolved")
 	int i;
 	zend_string *arg,*ret;
 	php_stream *CacheStream = NULL;
@@ -412,7 +412,7 @@ GENE_MINIT_FUNCTION(view) {
 
 	//var
 	zend_declare_property_null(gene_view_ce, ZEND_STRL(GENE_VIEW_ATTR), ZEND_ACC_PUBLIC);
-	return SUCCESS;
+	return SUCCESS; // @suppress("Symbol is not resolved")
 }
 /* }}} */
 

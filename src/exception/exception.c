@@ -24,10 +24,10 @@
 #include "Zend/zend_API.h"
 #include "zend_exceptions.h"
 
-#include "php_gene.h"
-#include "gene_exception.h"
-#include "gene_router.h"
-#include "gene_view.h"
+#include "../gene.h"
+#include "../exception/exception.h"
+#include "../router/router.h"
+#include "../mvc/view.h"
 
 zend_class_entry * gene_exception_ce;
 
@@ -227,7 +227,7 @@ GENE_MINIT_FUNCTION(exception) {
 	ZEND_ACC_PROTECTED);
 
 	//
-	return SUCCESS;
+	return SUCCESS; // @suppress("Symbol is not resolved")
 }
 /* }}} */
 
