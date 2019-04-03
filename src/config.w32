@@ -1,11 +1,11 @@
 
-ARG_ENABLE("gene", "enable gene support", "yes");
+ARG_ENABLE("gene", "enable gene support", "no");
 
 if (PHP_GENE == "yes") {
 	
-	AC_DEFINE("HAVE_GENE", 1, "Have Gene Support");
-	
 	EXTENSION("gene", "gene.c", true, "/DZEND_ENABLE_STATIC_TSRMLS_CACHE=1");
+	
+	ADD_FLAG("CFLAGS_GENE", "/I " + configure_module_dirname);
 	
 	ADD_SOURCES(configure_module_dirname + "/app", "application.c", "gene");
 	ADD_SOURCES(configure_module_dirname + "/cache", "cache.c memcached.c memory.c redis.c", "gene");
@@ -22,5 +22,5 @@ if (PHP_GENE == "yes") {
 	ADD_SOURCES(configure_module_dirname + "/service", "service.c", "gene");
 	ADD_SOURCES(configure_module_dirname + "/session", "session.c", "gene");
 	
-	ADD_FLAG("CFLAGS_GENE", "/I " + configure_module_dirname);
+	AC_DEFINE("HAVE_GENE", 1, "Have Gene Support");
 }
