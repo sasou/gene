@@ -263,7 +263,7 @@ PHP_FUNCTION(gene_call) {
 		strtolower(action);
 		if (Z_TYPE(classObject) == IS_OBJECT
 				&& zend_hash_str_exists(&(Z_OBJCE(classObject)->function_table), action, strlen(action))) {
-			gene_factory_call(&classObject, action, params, &ret);
+			gene_factory_call_1(&classObject, action, params, &ret);
 			RETURN_ZVAL(&ret, 1, 0);
 		} else {
 			php_error_docref(NULL, E_WARNING, "Unable to call method '%s' in class '%s'." , action, class);
