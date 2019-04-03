@@ -25,26 +25,29 @@
 #include "Zend/zend_API.h"
 #include "zend_exceptions.h"
 
-#include "php_gene.h"
-#include "gene_application.h"
-#include "gene_load.h"
-#include "gene_config.h"
-#include "gene_router.h"
-#include "gene_execute.h"
-#include "gene_memory.h"
-#include "gene_di.h"
-#include "gene_controller.h"
-#include "gene_request.h"
-#include "gene_response.h"
-#include "gene_session.h"
-#include "gene_view.h"
-#include "gene_exception.h"
-#include "gene_db.h"
-#include "gene_common.h"
-#include "gene_model.h"
-#include "gene_service.h"
-#include "gene_factory.h"
-#include "gene_benchmark.h"
+#include "gene.h"
+#include "app/application.h"
+#include "factory/load.h"
+#include "config/configs.h"
+#include "router/router.h"
+#include "tool/execute.h"
+#include "cache/memory.h"
+#include "di/di.h"
+#include "mvc/controller.h"
+#include "http/request.h"
+#include "http/response.h"
+#include "session/session.h"
+#include "mvc/view.h"
+#include "exception/exception.h"
+#include "db/db.h"
+#include "common/common.h"
+#include "mvc/model.h"
+#include "service/service.h"
+#include "factory/factory.h"
+#include "tool/benchmark.h"
+#include "cache/memcached.h"
+#include "cache/redis.h"
+#include "cache/cache.h"
 
 ZEND_DECLARE_MODULE_GLOBALS(gene);
 
@@ -52,11 +55,11 @@ ZEND_DECLARE_MODULE_GLOBALS(gene);
 /** {{{ PHP_INI
  */
 PHP_INI_BEGIN()
-STD_PHP_INI_BOOLEAN("gene.run_environment", "1", PHP_INI_SYSTEM, OnUpdateBool, run_environment, zend_gene_globals, gene_globals)
-STD_PHP_INI_BOOLEAN("gene.use_namespace", "1", PHP_INI_SYSTEM, OnUpdateBool, use_namespace, zend_gene_globals, gene_globals)
-STD_PHP_INI_BOOLEAN("gene.view_compile", "0", PHP_INI_SYSTEM, OnUpdateBool, view_compile, zend_gene_globals, gene_globals)
-STD_PHP_INI_BOOLEAN("gene.use_library", "0", PHP_INI_SYSTEM, OnUpdateBool, use_library, zend_gene_globals, gene_globals)
-STD_PHP_INI_ENTRY("gene.library_root", "", PHP_INI_SYSTEM, OnUpdateString, library_root, zend_gene_globals, gene_globals)
+STD_PHP_INI_BOOLEAN("gene.run_environment", "1", PHP_INI_SYSTEM, OnUpdateBool, run_environment, zend_gene_globals, gene_globals) // @suppress("Symbol is not resolved")
+STD_PHP_INI_BOOLEAN("gene.use_namespace", "1", PHP_INI_SYSTEM, OnUpdateBool, use_namespace, zend_gene_globals, gene_globals) // @suppress("Symbol is not resolved")
+STD_PHP_INI_BOOLEAN("gene.view_compile", "0", PHP_INI_SYSTEM, OnUpdateBool, view_compile, zend_gene_globals, gene_globals) // @suppress("Symbol is not resolved")
+STD_PHP_INI_BOOLEAN("gene.use_library", "0", PHP_INI_SYSTEM, OnUpdateBool, use_library, zend_gene_globals, gene_globals) // @suppress("Symbol is not resolved")
+STD_PHP_INI_ENTRY("gene.library_root", "", PHP_INI_SYSTEM, OnUpdateString, library_root, zend_gene_globals, gene_globals) // @suppress("Symbol is not resolved")
 PHP_INI_END();
 /* }}} */
 
@@ -164,7 +167,7 @@ PHP_MINIT_FUNCTION(gene) {
 	GENE_STARTUP(config);
 	GENE_STARTUP(router);
 	GENE_STARTUP(execute);
-	GENE_STARTUP(cache);
+	GENE_STARTUP(memory);
 	GENE_STARTUP(controller);
 	GENE_STARTUP(request);
 	GENE_STARTUP(response);
@@ -175,9 +178,12 @@ PHP_MINIT_FUNCTION(gene) {
 	GENE_STARTUP(model);
 	GENE_STARTUP(service);
 	GENE_STARTUP(factory);
+	GENE_STARTUP(redis);
+	GENE_STARTUP(memcached);
+	GENE_STARTUP(cache);
 	GENE_STARTUP(exception);
 
-	return SUCCESS;
+	return SUCCESS; // @suppress("Symbol is not resolved")
 }
 /* }}} */
 
@@ -196,7 +202,7 @@ PHP_MSHUTDOWN_FUNCTION(gene) {
 		gene_hash_destroy(GENE_G(cache_easy));
 		GENE_G(cache_easy) = NULL;
 	}
-	return SUCCESS;
+	return SUCCESS; // @suppress("Symbol is not resolved")
 }
 
 /* }}} */
@@ -205,7 +211,7 @@ PHP_MSHUTDOWN_FUNCTION(gene) {
  * {{{ PHP_RINIT_FUNCTION
  */
 PHP_RINIT_FUNCTION(gene) {
-	return SUCCESS;
+	return SUCCESS; // @suppress("Symbol is not resolved")
 }
 /* }}} */
 
@@ -214,7 +220,7 @@ PHP_RINIT_FUNCTION(gene) {
  */
 PHP_RSHUTDOWN_FUNCTION(gene) {
 	php_gene_close_globals();
-	return SUCCESS;
+	return SUCCESS; // @suppress("Symbol is not resolved")
 }
 /* }}} */
 
@@ -257,7 +263,7 @@ PHP_FUNCTION(gene_call) {
 		strtolower(action);
 		if (Z_TYPE(classObject) == IS_OBJECT
 				&& zend_hash_str_exists(&(Z_OBJCE(classObject)->function_table), action, strlen(action))) {
-			gene_factory_call_action(&classObject, action, params, &ret);
+			gene_factory_call_1(&classObject, action, params, &ret);
 			RETURN_ZVAL(&ret, 1, 0);
 		} else {
 			php_error_docref(NULL, E_WARNING, "Unable to call method '%s' in class '%s'." , action, class);
@@ -314,7 +320,7 @@ zend_module_dep gene_deps[] = {
  */
 zend_module_entry gene_module_entry = {
 #if ZEND_MODULE_API_NO >= 20050922
-	STANDARD_MODULE_HEADER_EX, NULL, gene_deps,
+	STANDARD_MODULE_HEADER_EX, NULL, gene_deps, // @suppress("Symbol is not resolved")
 #else
 	STANDARD_MODULE_HEADER,
 #endif

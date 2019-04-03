@@ -14,19 +14,13 @@
   +----------------------------------------------------------------------+
 */
 
-#ifndef GENE_FACTORY_H
-#define GENE_FACTORY_H
+#ifndef GENE_CACHE_H
+#define GENE_CACHE_H
 
 
-extern zend_class_entry *gene_factory_ce;
+extern zend_class_entry *gene_cache_ce;
 
 
-GENE_MINIT_FUNCTION(factory);
-
-
-zend_bool gene_factory(char *className, int tmp_len, zval *params, zval *classObject);
-void gene_factory_call_action(zval *object, char *action, zval *param, zval *retval);
-zend_bool gene_factory_load_class(char *className, int tmp_len, zval *classObject);
-void gene_factory_construct(zval *object, zval *param, zval *retval);
+GENE_MINIT_FUNCTION(cache);
 
 #endif

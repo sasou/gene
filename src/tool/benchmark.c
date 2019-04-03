@@ -27,8 +27,8 @@
 #include "Zend/zend_alloc.h"
 #include "Zend/zend_interfaces.h"
 
-#include "php_gene.h"
-#include "gene_benchmark.h"
+#include "../gene.h"
+#include "../tool/benchmark.h"
 
 zend_class_entry * gene_benchmark_ce;
 
@@ -206,7 +206,7 @@ GENE_MINIT_FUNCTION(benchmark)
     gene_benchmark_ce = zend_register_internal_class_ex(&gene_benchmark, NULL);
     gene_benchmark_ce->ce_flags |= ZEND_ACC_FINAL;
 
-	return SUCCESS;
+	return SUCCESS; // @suppress("Symbol is not resolved")
 }
 /* }}} */
 

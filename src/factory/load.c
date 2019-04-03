@@ -27,10 +27,10 @@
 #include "zend_virtual_cwd.h"
 #include "zend_smart_str.h"
 
-#include "php_gene.h"
-#include "gene_load.h"
-#include "gene_config.h"
-#include "gene_common.h"
+#include "../gene.h"
+#include "../factory/load.h"
+#include "../config/configs.h"
+#include "../common/common.h"
 
 zend_class_entry * gene_load_ce;
 
@@ -254,7 +254,7 @@ GENE_MINIT_FUNCTION(load) {
 	//static
 	zend_declare_property_null(gene_load_ce, GENE_LOAD_PROPERTY_INSTANCE, strlen(GENE_LOAD_PROPERTY_INSTANCE), ZEND_ACC_PROTECTED | ZEND_ACC_STATIC TSRMLS_CC);
 
-	return SUCCESS;
+	return SUCCESS; // @suppress("Symbol is not resolved")
 }
 /* }}} */
 

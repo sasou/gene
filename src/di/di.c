@@ -24,11 +24,11 @@
 #include "Zend/zend_API.h"
 #include "zend_exceptions.h"
 
-#include "php_gene.h"
-#include "gene_di.h"
-#include "gene_config.h"
-#include "gene_memory.h"
-#include "gene_factory.h"
+#include "../gene.h"
+#include "../di/di.h"
+#include "../config/configs.h"
+#include "../cache/memory.h"
+#include "../factory/factory.h"
 
 zend_class_entry *gene_di_ce;
 
@@ -296,7 +296,7 @@ GENE_MINIT_FUNCTION(di) {
 	zend_declare_property_null(gene_di_ce, GENE_DI_PROPERTY_INSTANCE, strlen(GENE_DI_PROPERTY_INSTANCE), ZEND_ACC_PROTECTED | ZEND_ACC_STATIC);
 	zend_declare_property_null(gene_di_ce, GENE_DI_PROPERTY_REG, strlen(GENE_DI_PROPERTY_REG), ZEND_ACC_PROTECTED);
 	//
-	return SUCCESS;
+	return SUCCESS; // @suppress("Symbol is not resolved")
 }
 /* }}} */
 

@@ -26,9 +26,9 @@
 #include "Zend/zend_smart_str.h"
 #include "Zend/zend_interfaces.h"
 
-#include "php_gene.h"
-#include "gene_response.h"
-#include "gene_memory.h"
+#include "../gene.h"
+#include "../http/response.h"
+#include "../cache/memory.h"
 
 zend_class_entry * gene_response_ce;
 
@@ -282,7 +282,7 @@ GENE_MINIT_FUNCTION(response) {
 	gene_response_ce = zend_register_internal_class(&gene_response TSRMLS_CC);
 
 	//
-	return SUCCESS;
+	return SUCCESS; // @suppress("Symbol is not resolved")
 }
 /* }}} */
 
