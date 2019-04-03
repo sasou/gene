@@ -1,9 +1,9 @@
 
 ARG_ENABLE("gene", "enable gene support", "no");
 
-if (PHP_GENE == "yes") {
+if (PHP_GENE != "no") {
 	
-	EXTENSION("gene", "gene.c", true, "/DZEND_ENABLE_STATIC_TSRMLS_CACHE=1");
+	EXTENSION("gene", "gene.c", true, "/I \"" + configure_module_dirname + "\" /DZEND_ENABLE_STATIC_TSRMLS_CACHE=1");
 	
 	ADD_FLAG("CFLAGS_GENE", "/I " + configure_module_dirname);
 	
