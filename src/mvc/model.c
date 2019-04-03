@@ -142,11 +142,11 @@ PHP_METHOD(gene_model, __get)
 			if (pzval == NULL) {
 				pzval = gene_di_get_easy(name);
 				if (pzval) {
-					RETURN_ZVAL(pzval, 0, 0);
+					RETURN_ZVAL(pzval, 1, 0);
 				}
 				RETURN_NULL();
 			}
-			RETURN_ZVAL(pzval, 0, 0);
+			RETURN_ZVAL(pzval, 1, 0);
 		}
 		RETURN_NULL();
 	}
