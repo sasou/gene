@@ -19,11 +19,11 @@
 #endif
 
 #include "php.h"
-
-#include "php_gene.h"
 #include "ext/session/php_session.h"
-#include "gene_session.h"
-#include "gene_common.h"
+
+#include "../gene.h"
+#include "../session/session.h"
+#include "../common/common.h"
 
 zend_class_entry * gene_session_ce;
 
@@ -368,7 +368,7 @@ GENE_MINIT_FUNCTION(session) {
 	//debug
 	//zend_declare_property_null(gene_application_ce, GENE_EXECUTE_DEBUG, strlen(GENE_EXECUTE_DEBUG), ZEND_ACC_PUBLIC TSRMLS_CC);
 	//
-	return SUCCESS;
+	return SUCCESS; // @suppress("Symbol is not resolved")
 }
 /* }}} */
 

@@ -24,11 +24,11 @@
 #include "Zend/zend_API.h"
 #include "zend_exceptions.h"
 
-#include "php_gene.h"
-#include "gene_application.h"
-#include "gene_common.h"
-#include "gene_config.h"
-#include "gene_memory.h"
+#include "../gene.h"
+#include "../app/application.h"
+#include "../common/common.h"
+#include "../config/configs.h"
+#include "../cache/memory.h"
 
 zend_class_entry * gene_config_ce;
 
@@ -219,7 +219,7 @@ GENE_MINIT_FUNCTION(config) {
 	//debug
 	zend_declare_property_string(gene_config_ce, GENE_CONFIG_SAFE, strlen(GENE_CONFIG_SAFE), "", ZEND_ACC_PUBLIC TSRMLS_CC);
 
-	return SUCCESS;
+	return SUCCESS; // @suppress("Symbol is not resolved")
 }
 /* }}} */
 

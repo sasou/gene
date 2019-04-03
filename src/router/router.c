@@ -27,12 +27,12 @@
 #include "Zend/zend_interfaces.h"
 #include "ext/pcre/php_pcre.h"
 
-#include "php_gene.h"
-#include "gene_router.h"
-#include "gene_memory.h"
-#include "gene_common.h"
-#include "gene_application.h"
-#include "gene_view.h"
+#include "../gene.h"
+#include "../router/router.h"
+#include "../cache/memory.h"
+#include "../common/common.h"
+#include "../app/application.h"
+#include "../mvc/view.h"
 
 zend_class_entry *gene_router_ce;
 
@@ -524,7 +524,7 @@ char* get_router_content(zval **content, char *method, char *path TSRMLS_DC) {
  */
 void get_router_content_run(char *methodin, char *pathin, zval *safe TSRMLS_DC) {
 	char *method = NULL, *path = NULL, *run = NULL, *hook = NULL, *router_e;
-	size_t router_e_len;
+	size_t router_e_len;// @suppress("Type cannot be resolved")
 	zval *temp = NULL, *lead = NULL;
 	zval *cache = NULL, *cacheHook = NULL;
 
@@ -1164,7 +1164,7 @@ GENE_MINIT_FUNCTION(router) {
 	//prop
 	zend_declare_property_string(gene_router_ce, GENE_ROUTER_SAFE, strlen(GENE_ROUTER_SAFE), "", ZEND_ACC_PUBLIC TSRMLS_CC);
 	zend_declare_property_string(gene_router_ce, GENE_ROUTER_PREFIX, strlen(GENE_ROUTER_PREFIX), "", ZEND_ACC_PUBLIC TSRMLS_CC);
-	return SUCCESS;
+	return SUCCESS; // @suppress("Symbol is not resolved")
 }
 /* }}} */
 
