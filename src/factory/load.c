@@ -24,6 +24,7 @@
 #include "Zend/zend_API.h"
 #include "zend_exceptions.h"
 #include "zend_string.h"
+#include "zend_globals.h"
 #include "zend_virtual_cwd.h"
 #include "zend_smart_str.h"
 
@@ -42,6 +43,31 @@ ZEND_END_ARG_INFO()
 ZEND_BEGIN_ARG_INFO_EX(gene_load_arg_autoload, 0, 0, 1)
 	ZEND_ARG_INFO(0, className)
 ZEND_END_ARG_INFO()
+
+
+void gene_zend_execute(zend_op_array *op_array, zval *return_value)
+{
+	zend_execute_data *execute_data;
+
+	if (EG(exception) != NULL) {
+		return;
+	}
+
+	execute_data = zend_vm_stack_push_call_frame(ZEND_CALL_TOP_CODE | ZEND_CALL_HAS_SYMBOL_TABLE,
+		(zend_function*)op_array, 0, zend_get_called_scope(EG(current_execute_data)), zend_get_this_object(EG(current_execute_data)));
+	if (EG(current_execute_data)) {
+		execute_data->symbol_table = zend_rebuild_symbol_table();
+	} else {
+		execute_data->symbol_table = &EG(symbol_table);
+	}
+	// todo win32 opcache var lost
+	EX(prev_execute_data) = EG(current_execute_data);
+	zend_init_execute_data(execute_data, op_array, return_value);
+	ZEND_ADD_CALL_FLAG(execute_data, ZEND_CALL_TOP);
+	zend_execute_ex(execute_data);
+	zend_vm_stack_free_call_frame(execute_data);
+}
+
 
 /** {{{ int gene_load_import(char *path TSRMLS_DC)
  */
@@ -79,7 +105,7 @@ int gene_load_import(char *path TSRMLS_DC) {
 		zval result;
 
 		ZVAL_UNDEF(&result);
-		zend_execute(op_array, &result);
+		gene_zend_execute(op_array, &result);
 
 		destroy_op_array(op_array);
 		efree_size(op_array, sizeof(op_array));
