@@ -18,8 +18,7 @@
 #include "config.h"
 #endif
 
-#include "php.h"
-#include "php_ini.h"
+#include "php.h"#include "php_ini.h"
 #include "main/SAPI.h"
 #include "Zend/zend_API.h"
 #include "zend_exceptions.h"
@@ -29,6 +28,54 @@
 #include "../cache/memcached.h"
 
 zend_class_entry * gene_memcached_ce;
+
+
+void gene_memcached_construct(zval *object, zval *persistent_id) /*{{{*/
+{
+    zval retval;
+    zval function_name;
+    ZVAL_STRING(&function_name, "__construct");
+    if (persistent_id) {
+    	uint32_t param_count = 0;
+    	zval params[] = { persistent_id };
+    	call_user_function(NULL, object, &function_name, retval, param_count, params);
+    } else {
+           uint32_t param_count = 0;
+           zval *params = NULL;
+           call_user_function(NULL, object, &function_name, retval, param_count, params);
+    }
+    zval_ptr_dtor(&retval);
+    zval_ptr_dtor(&function_name);
+}/*}}}*/
+
+
+void gene_memcached_getServerList(zval *object, zval *retval) /*{{{*/
+{
+    zval function_name;
+    ZVAL_STRING(&function_name, "getServerList");
+    call_user_function(NULL, object, &function_name, retval, 0, NULL);
+    zval_ptr_dtor(&function_name);
+}/*}}}*/
+
+
+void gene_memcached_resetServerList(zval *object) /*{{{*/
+{
+    zval function_name, retval;
+    ZVAL_STRING(&function_name, "resetServerList");
+    call_user_function(NULL, object, &function_name, &retval, 0, NULL);
+    zval_ptr_dtor(&function_name);
+}/*}}}*/
+
+
+void gene_memcached_addServers(zval *object, zval *servers) /*{{{*/
+{
+    zval function_name, retval;
+    ZVAL_STRING(&function_name, "addServers");
+	zval params[] = { servers };
+    call_user_function(NULL, object, &function_name, &retval, 1, params);
+    zval_ptr_dtor(&function_name);
+
+}/*}}}*/
 
 /*
  * {{{ gene_memcached
