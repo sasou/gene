@@ -42,9 +42,8 @@ void gene_memcached_construct(zval *object, zval *persistent_id) /*{{{*/
     zval function_name;
     ZVAL_STRING(&function_name, "__construct");
     if (persistent_id) {
-    	uint32_t param_count = 0;
     	zval params[] = { *persistent_id };
-    	call_user_function(NULL, object, &function_name, &retval, param_count, params);
+    	call_user_function(NULL, object, &function_name, &retval, 1, params);
     } else {
         call_user_function(NULL, object, &function_name, &retval, 0, NULL);
     }
