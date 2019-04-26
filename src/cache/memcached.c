@@ -162,27 +162,27 @@ zend_bool initObj (zval * self, zval *config) {
 
 	object_init_ex(&obj_object, obj_ptr);
 
-	servers = zend_hash_str_find(config->value.arr, ZEND_STRL("servers"));
+	servers = zend_hash_str_find(Z_ARRVAL_P(config), ZEND_STRL("servers"));
 
 	if (servers == NULL || Z_TYPE_P(servers) != IS_ARRAY) {
 		 php_error_docref(NULL, E_ERROR, "param servers must a array.");
 	}
 
-	persistent = zend_hash_str_find(config->value.arr, ZEND_STRL("persistent"));
-	options = zend_hash_str_find(config->value.arr, ZEND_STRL("options"));
+	persistent = zend_hash_str_find(Z_ARRVAL_P(config), ZEND_STRL("persistent"));
+	options = zend_hash_str_find(Z_ARRVAL_P(config), ZEND_STRL("options"));
     gene_memcached_construct(&obj_object, persistent);
     if (options) {
-    	gene_memcached_setOptions(&obj_object, persistent);
+    	gene_memcached_setOptions(&obj_object, options);
     }
     gene_memcached_getServerList(&obj_object, &serverList);
     if (Z_TYPE(serverList) != IS_ARRAY ||  zend_hash_num_elements(Z_ARRVAL(serverList)) != zend_hash_num_elements(Z_ARRVAL_P(servers))) {
         gene_memcached_resetServerList(&obj_object);
-        gene_memcached_addServers(&obj_object, options);
+        gene_memcached_addServers(&obj_object, servers);
     }
     zval_ptr_dtor(&serverList);
     zend_update_property(gene_memcached_ce, self, ZEND_STRL(GENE_MEM_OBJ), &obj_object);
     zval_ptr_dtor(&obj_object);
-	return 0;
+	return 1;
 }
 
 zend_bool initObjWin (zval * self, zval *config) {
@@ -216,7 +216,7 @@ zend_bool initObjWin (zval * self, zval *config) {
     zend_update_property(gene_memcached_ce, self, ZEND_STRL(GENE_MEM_OBJ), &obj_object);
     zval_ptr_dtor(&serverList);
     zval_ptr_dtor(&obj_object);
-	return 0;
+	return 1;
 }
 
 /*
@@ -263,16 +263,16 @@ PHP_METHOD(gene_memcached, set)
 		}
 	}
 	object = zend_read_property(gene_memcached_ce, self, ZEND_STRL(GENE_MEM_OBJ), 1, NULL);
-#ifdef PHP_WIN32
-	if (flag == NULL) {
-		ZVAL_LONG(&tmp_flag, 0);
-		flag = &tmp_flag;
-	}
-	ret = gene_memcache_set (object, key, value, ttl, flag);
-	zval_ptr_dtor(&tmp_flag);
-#else
-	ret = gene_memcached_set (object, key, value, ttl);
-#endif
+	#ifdef PHP_WIN32
+		if (flag == NULL) {
+			ZVAL_LONG(&tmp_flag, 0);
+			flag = &tmp_flag;
+		}
+		ret = gene_memcache_set (object, key, value, ttl, flag);
+		zval_ptr_dtor(&tmp_flag);
+	#else
+		ret = gene_memcached_set (object, key, value, ttl);
+	#endif
 	zval_ptr_dtor(&tmp_ttl);
 	if (ret) {
 		RETURN_TRUE;
