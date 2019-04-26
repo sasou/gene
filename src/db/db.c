@@ -445,15 +445,12 @@ zend_bool initPdo (zval * self, zval *config) {
 
 	if ((dsn = zend_hash_str_find(config->value.arr, ZEND_STRL("dsn"))) == NULL) {
 		 php_error_docref(NULL, E_ERROR, "PDO need a valid dns.");
-		 0;
 	}
 	if ((user = zend_hash_str_find(config->value.arr, ZEND_STRL("username"))) == NULL) {
 		 php_error_docref(NULL, E_ERROR, "PDO need a valid username.");
-		 0;
 	}
 	if ((pass = zend_hash_str_find(config->value.arr, ZEND_STRL("password"))) == NULL) {
 		 php_error_docref(NULL, E_ERROR, "PDO need a valid password.");
-		 0;
 	}
 	options = zend_hash_str_find(config->value.arr, ZEND_STRL("options"));
     if (options == NULL) {
