@@ -76,14 +76,16 @@ void gene_redis_set(zval *object, zval *key, zval *value, zval *retval) /*{{{*/
     ZVAL_STRING(&function_name, "set");
 	zval params[] = { *key, *value };
     call_user_function(NULL, object, &function_name, retval, 2, params);
+    zval_ptr_dtor(&function_name);
 }/*}}}*/
 
-void gene_redis_setex(zval *object, zval *key, zval *ttl, zval *value, zval *retval) /*{{{*/
+void gene_redis_setEx(zval *object, zval *key, zval *ttl, zval *value, zval *retval) /*{{{*/
 {
     zval function_name;
-    ZVAL_STRING(&function_name, "setex");
+    ZVAL_STRING(&function_name, "setEx");
 	zval params[] = { *key, *ttl, *value };
     call_user_function(NULL, object, &function_name, retval, 3, params);
+    zval_ptr_dtor(&function_name);
 }/*}}}*/
 
 
@@ -93,6 +95,7 @@ void gene_redis_get(zval *object, zval *key, zval *retval) /*{{{*/
     ZVAL_STRING(&function_name, "get");
 	zval params[] = { *key };
     call_user_function(NULL, object, &function_name, retval, 1, params);
+    zval_ptr_dtor(&function_name);
 }/*}}}*/
 
 void gene_redis_mGet(zval *object, zval *key, zval *retval) /*{{{*/
@@ -101,6 +104,7 @@ void gene_redis_mGet(zval *object, zval *key, zval *retval) /*{{{*/
     ZVAL_STRING(&function_name, "mGet");
 	zval params[] = { *key };
     call_user_function(NULL, object, &function_name, retval, 1, params);
+    zval_ptr_dtor(&function_name);
 }/*}}}*/
 
 zend_bool initRObj (zval * self, zval *config) {
@@ -142,8 +146,6 @@ zend_bool initRObj (zval * self, zval *config) {
     		gene_redis_setOption(&obj_object, &key_v, element);
     		zval_ptr_dtor(&key_v);
     	}ZEND_HASH_FOREACH_END();
-    } else {
-
     }
     zend_update_property(gene_redis_ce, self, ZEND_STRL(GENE_REDIS_OBJ), &obj_object);
     zval_ptr_dtor(&obj_object);
@@ -205,8 +207,8 @@ PHP_METHOD(gene_redis, set) {
 	}
 	object = zend_read_property(gene_redis_ce, self, ZEND_STRL(GENE_REDIS_OBJ), 1, NULL);
 	if (object) {
-		if (ttl) {
-			gene_redis_setex(object, key, ttl, value, &ret);
+		if (ttl && Z_LVAL_P(ttl) > 0) {
+			gene_redis_setEx(object, key, ttl, value, &ret);
 		} else {
 			gene_redis_set(object, key, value, &ret);
 		}
