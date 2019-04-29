@@ -16,7 +16,8 @@
 
 #ifndef GENE_REDIS_H
 #define GENE_REDIS_H
-
+#define GENE_REDIS_CONFIG "config"
+#define GENE_REDIS_OBJ "obj"
 
 extern zend_class_entry *gene_redis_ce;
 
