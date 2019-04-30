@@ -26,6 +26,7 @@
 
 
 #include "../gene.h"
+#include "../common/common.h"
 #include "../cache/redis.h"
 #include "../factory/factory.h"
 
@@ -136,6 +137,7 @@ zend_bool initRObj (zval * self, zval *config) {
     	gene_redis_connect(&obj_object, host, port, timeout);
     }
     if (options && Z_TYPE_P(options) == IS_ARRAY) {
+    	zend_update_property_bool(gene_redis_ce, self, ZEND_STRL(GENE_REDIS_JSON), 0);
     	zend_string *key;
     	zval *element;
     	zend_long id;
@@ -175,17 +177,30 @@ PHP_METHOD(gene_redis, __construct)
  * {{{ public gene_redis::get()
  */
 PHP_METHOD(gene_redis, get) {
-	zval *self = getThis(), *object = NULL, *key = NULL;
+	zval *self = getThis(), *object = NULL, *is_json = NULL, *key = NULL;
 	if (zend_parse_parameters(ZEND_NUM_ARGS()TSRMLS_CC, "z", &key) == FAILURE) {
 		RETURN_NULL();
 	}
 	object = zend_read_property(gene_redis_ce, self, ZEND_STRL(GENE_REDIS_OBJ), 1, NULL);
 	if (object) {
+		is_json = zend_read_property(gene_redis_ce, self, ZEND_STRL(GENE_REDIS_JSON), 1, NULL);
 		zval ret;
 		if (Z_TYPE_P(key) == IS_ARRAY) {
 			gene_redis_mGet(object, key, &ret);
 		} else {
 			gene_redis_get(object, key, &ret);
+		}
+		if(Z_TYPE_P(is_json) == IS_TRUE) {
+			zval assoc,ret_arr;
+			ZVAL_BOOL(&assoc, 1);
+			gene_json_decode(&ret, &assoc, &ret_arr);
+			zval_ptr_dtor(&assoc);
+			if (Z_TYPE(ret_arr) == IS_NULL) {
+				zval_ptr_dtor(&ret_arr);
+				RETURN_ZVAL(&ret, 0, 0);
+			}
+			zval_ptr_dtor(&ret);
+			RETURN_ZVAL(&ret_arr, 0, 0);
 		}
 		RETURN_ZVAL(&ret, 0, 0);
 	}
@@ -196,7 +211,7 @@ PHP_METHOD(gene_redis, get) {
  * {{{ public gene_redis::set()
  */
 PHP_METHOD(gene_redis, set) {
-	zval *self = getThis(),  *object = NULL, *key = NULL, *value = NULL, *ttl = NULL, *config = NULL;
+	zval *self = getThis(),  *object = NULL, *is_json = NULL, *key = NULL, *value = NULL, *ttl = NULL, *config = NULL;
 	zval ret;
 	if (zend_parse_parameters(ZEND_NUM_ARGS() TSRMLS_CC, "zz|z", &key, &value, &ttl) == FAILURE) {
 		return;
@@ -207,10 +222,26 @@ PHP_METHOD(gene_redis, set) {
 	}
 	object = zend_read_property(gene_redis_ce, self, ZEND_STRL(GENE_REDIS_OBJ), 1, NULL);
 	if (object) {
-		if (ttl && Z_LVAL_P(ttl) > 0) {
-			gene_redis_setEx(object, key, ttl, value, &ret);
+		if (Z_TYPE_P(value) == IS_ARRAY) {
+			is_json = zend_read_property(gene_redis_ce, self, ZEND_STRL(GENE_REDIS_JSON), 1, NULL);
+			if(Z_TYPE_P(is_json) == IS_TRUE) {
+				zval options,ret_string;
+				ZVAL_LONG(&options, 256);
+				gene_json_encode(value, &options, &ret_string);
+				zval_ptr_dtor(&options);
+				if (ttl && Z_LVAL_P(ttl) > 0) {
+					gene_redis_setEx(object, key, ttl, &ret_string, &ret);
+				} else {
+					gene_redis_set(object, key, &ret_string, &ret);
+				}
+				zval_ptr_dtor(&ret_string);
+			}
 		} else {
-			gene_redis_set(object, key, value, &ret);
+			if (ttl && Z_LVAL_P(ttl) > 0) {
+				gene_redis_setEx(object, key, ttl, value, &ret);
+			} else {
+				gene_redis_set(object, key, value, &ret);
+			}
 		}
 		RETURN_ZVAL(&ret, 0, 0);
 	}
@@ -259,6 +290,7 @@ GENE_MINIT_FUNCTION(redis)
 
     zend_declare_property_null(gene_redis_ce, ZEND_STRL(GENE_REDIS_CONFIG), ZEND_ACC_PUBLIC TSRMLS_CC);
 	zend_declare_property_null(gene_redis_ce, ZEND_STRL(GENE_REDIS_OBJ), ZEND_ACC_PUBLIC TSRMLS_CC);
+	zend_declare_property_bool(gene_redis_ce, ZEND_STRL(GENE_REDIS_JSON), 1, ZEND_ACC_PUBLIC TSRMLS_CC);
     //
 	return SUCCESS; // @suppress("Symbol is not resolved")
 }
