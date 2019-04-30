@@ -603,6 +603,24 @@ char *strreplace2(char *src, char *from, char *to)
    return value;
 }
 
+void gene_json_encode(zval *value, zval *options, zval *retval) /*{{{*/
+{
+    zval function_name;
+    ZVAL_STRING(&function_name, "json_encode");
+	zval params[] = { *value, *options };
+    call_user_function(NULL, NULL, &function_name, retval, 2, params);
+    zval_ptr_dtor(&function_name);
+}/*}}}*/
+
+void gene_json_decode(zval *value, zval *options, zval *retval) /*{{{*/
+{
+    zval function_name;
+    ZVAL_STRING(&function_name, "json_decode");
+	zval params[] = { *value, *options };
+    call_user_function(NULL, NULL, &function_name, retval, 2, params);
+    zval_ptr_dtor(&function_name);
+}/*}}}*/
+
 /*
  * Local variables:
  * tab-width: 4

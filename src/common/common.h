@@ -40,5 +40,7 @@ char *readfilecontent(char *file);
 char *strreplace(char *original, char *pattern, char *replacement);
 char *strreplace2(char *src, char *from, char *to);
 char *str_concat(char *s, const char *t);
+void gene_json_encode(zval *value, zval *options, zval *retval);
+void gene_json_decode(zval *value, zval *options, zval *retval);
 
 #endif
