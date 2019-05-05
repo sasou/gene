@@ -14,24 +14,24 @@
  +----------------------------------------------------------------------+
  */
 
-#ifndef GENE_DB_H
-#define GENE_DB_H
-#define GENE_DB_CONFIG "config"
-#define GENE_DB_PDO "pdo"
-#define GENE_DB_TYPE "type"
-#define GENE_DB_SQL "sql"
-#define GENE_DB_WHERE "where"
-#define GENE_DB_GROUP "group"
-#define GENE_DB_HAVING "having"
-#define GENE_DB_ORDER "order"
-#define GENE_DB_LIMIT "limit"
-#define GENE_DB_DATA "data"
-#define GENE_DB_HISTORY "history"
+#ifndef GENE_DB_MYSQL_H
+#define GENE_DB_MYSQL_H
+#define GENE_DB_MYSQL_CONFIG "config"
+#define GENE_DB_MYSQL_PDO "pdo"
+#define GENE_DB_MYSQL_TYPE "type"
+#define GENE_DB_MYSQL_SQL "sql"
+#define GENE_DB_MYSQL_WHERE "where"
+#define GENE_DB_MYSQL_GROUP "group"
+#define GENE_DB_MYSQL_HAVING "having"
+#define GENE_DB_MYSQL_ORDER "order"
+#define GENE_DB_MYSQL_LIMIT "limit"
+#define GENE_DB_MYSQL_DATA "data"
+#define GENE_DB_MYSQL_HISTORY "history"
 
 
-extern zend_class_entry *gene_db_ce;
+extern zend_class_entry *gene_db_mysql_ce;
 
 
-GENE_MINIT_FUNCTION(db);
+GENE_MINIT_FUNCTION(db_mysql);
 
 #endif
