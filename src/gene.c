@@ -39,7 +39,7 @@
 #include "session/session.h"
 #include "mvc/view.h"
 #include "exception/exception.h"
-#include "db/db.h"
+#include "db/mysql.h"
 #include "common/common.h"
 #include "mvc/model.h"
 #include "service/service.h"
@@ -174,7 +174,7 @@ PHP_MINIT_FUNCTION(gene) {
 	GENE_STARTUP(session);
 	GENE_STARTUP(view);
 	GENE_STARTUP(benchmark);
-	GENE_STARTUP(db);
+	GENE_STARTUP(db_mysql);
 	GENE_STARTUP(model);
 	GENE_STARTUP(service);
 	GENE_STARTUP(factory);
