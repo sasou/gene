@@ -108,6 +108,25 @@ void gene_redis_mGet(zval *object, zval *key, zval *retval) /*{{{*/
     zval_ptr_dtor(&function_name);
 }/*}}}*/
 
+zend_bool checkError (zend_object *ex) {
+	zval *msg;
+	zend_class_entry *ce;
+	zval zv, rv;
+	int i;
+	const char *pdoErrorStr[1] = { "read error on connection" };
+
+	ZVAL_OBJ(&zv, ex);
+	ce = Z_OBJCE(zv);
+
+	msg = zend_read_property(ce, &zv, ZEND_STRL("message"), 0, &rv);
+	for (i = 0; i < 1; i++) {
+		if (strstr(Z_STRVAL_P(msg), pdoErrorStr[i]) != NULL) {
+			return 1;
+		}
+	}
+	return 0;
+}
+
 zend_bool initRObj (zval * self, zval *config) {
 	zval  *host = NULL, *port = NULL, *timeout = NULL, *persistent = NULL, *options = NULL;
 	zval   obj_object;
@@ -154,6 +173,22 @@ zend_bool initRObj (zval * self, zval *config) {
 	return 1;
 }
 
+void redis_get(zval *object, zval *key, zval *ret) {
+	if (Z_TYPE_P(key) == IS_ARRAY) {
+		gene_redis_mGet(object, key, ret);
+	} else {
+		gene_redis_get(object, key, ret);
+	}
+}
+
+void redis_set(zval *object, zval *key, zval *ttl, zval *value, zval *ret) {
+	if (ttl && Z_LVAL_P(ttl) > 0) {
+		gene_redis_setEx(object, key, ttl, value, ret);
+	} else {
+		gene_redis_set(object, key, value, ret);
+	}
+}
+
 /*
  * {{{ gene_redis
  */
@@ -168,6 +203,12 @@ PHP_METHOD(gene_redis, __construct)
     if (Z_TYPE_P(config) == IS_ARRAY) {
     	zend_update_property(gene_redis_ce, self, ZEND_STRL(GENE_REDIS_CONFIG), config);
     	initRObj (self, config);
+    	if (EG(exception)) {
+    		if (checkError(EG(exception))) {
+    			EG(exception) = NULL;
+    			initRObj (self, config);
+    		}
+    	}
     }
     RETURN_ZVAL(self, 1, 0);
 }
@@ -185,11 +226,14 @@ PHP_METHOD(gene_redis, get) {
 	if (object) {
 		is_json = zend_read_property(gene_redis_ce, self, ZEND_STRL(GENE_REDIS_JSON), 1, NULL);
 		zval ret;
-		if (Z_TYPE_P(key) == IS_ARRAY) {
-			gene_redis_mGet(object, key, &ret);
-		} else {
-			gene_redis_get(object, key, &ret);
-		}
+		redis_get(object, key, &ret);
+    	if (EG(exception)) {
+    		if (checkError(EG(exception))) {
+    			EG(exception) = NULL;
+    			initRObj (self, NULL);
+    			redis_get(object, key, &ret);
+    		}
+    	}
 		if(Z_TYPE_P(is_json) == IS_TRUE) {
 			zval assoc,ret_arr;
 			ZVAL_BOOL(&assoc, 1);
@@ -229,19 +273,25 @@ PHP_METHOD(gene_redis, set) {
 				ZVAL_LONG(&options, 256);
 				gene_json_encode(value, &options, &ret_string);
 				zval_ptr_dtor(&options);
-				if (ttl && Z_LVAL_P(ttl) > 0) {
-					gene_redis_setEx(object, key, ttl, &ret_string, &ret);
-				} else {
-					gene_redis_set(object, key, &ret_string, &ret);
-				}
+				redis_set(object, key, ttl, &ret_string, &ret);
+		    	if (EG(exception)) {
+		    		if (checkError(EG(exception))) {
+		    			EG(exception) = NULL;
+		    			initRObj (self, NULL);
+		    			redis_set(object, key, ttl, &ret_string, &ret);
+		    		}
+		    	}
 				zval_ptr_dtor(&ret_string);
 			}
 		} else {
-			if (ttl && Z_LVAL_P(ttl) > 0) {
-				gene_redis_setEx(object, key, ttl, value, &ret);
-			} else {
-				gene_redis_set(object, key, value, &ret);
-			}
+			redis_set(object, key, ttl, value, &ret);
+	    	if (EG(exception)) {
+	    		if (checkError(EG(exception))) {
+	    			EG(exception) = NULL;
+	    			initRObj (self, NULL);
+	    			redis_set(object, key, ttl, value, &ret);
+	    		}
+	    	}
 		}
 		RETURN_ZVAL(&ret, 0, 0);
 	}
@@ -261,6 +311,13 @@ PHP_METHOD(gene_redis, __call) {
 	object = zend_read_property(gene_redis_ce, self, ZEND_STRL(GENE_REDIS_OBJ), 1, NULL);
 	if (object) {
 		gene_factory_call(object, method, params, &ret);
+    	if (EG(exception)) {
+    		if (checkError(EG(exception))) {
+    			EG(exception) = NULL;
+    			initRObj (self, NULL);
+    			gene_factory_call(object, method, params, &ret);
+    		}
+    	}
 		RETURN_ZVAL(&ret, 0, 0);
 	}
 	RETURN_NULL();
