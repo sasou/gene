@@ -189,6 +189,23 @@ void redis_set(zval *object, zval *key, zval *ttl, zval *value, zval *ret) {
 	}
 }
 
+int string_to_array(zval *string, zval *arr) {
+	if (Z_TYPE_P(string) == IS_STRING) {
+		zval assoc;
+		ZVAL_BOOL(&assoc, 1);
+		gene_json_decode(string, &assoc, arr);
+		zval_ptr_dtor(&assoc);
+
+		if (Z_TYPE_P(arr) == IS_NULL) {
+			zval_ptr_dtor(arr);
+			return 0;
+		}
+		return 1;
+	}
+	return 0;
+}
+
+
 /*
  * {{{ gene_redis
  */
@@ -235,16 +252,34 @@ PHP_METHOD(gene_redis, get) {
     		}
     	}
 		if(Z_TYPE_P(is_json) == IS_TRUE) {
-			zval assoc,ret_arr;
-			ZVAL_BOOL(&assoc, 1);
-			gene_json_decode(&ret, &assoc, &ret_arr);
-			zval_ptr_dtor(&assoc);
-			if (Z_TYPE(ret_arr) == IS_NULL) {
-				zval_ptr_dtor(&ret_arr);
+			if (Z_TYPE_P(key) == IS_ARRAY) {
+				zval *element,*value;
+				zval arr;
+				array_init(&arr);
+				zend_long i = 0;
+				zval tmp_arr[10];
+				ZEND_HASH_FOREACH_VAL(Z_ARRVAL_P(key), element)
+		    	{
+		    		value = zend_hash_index_find(Z_ARRVAL(ret), i);
+		    		if (Z_TYPE_P(element) == IS_STRING) {
+						if (string_to_array(value, &tmp_arr[i])) {
+							add_assoc_zval_ex(&arr, Z_STRVAL_P(element), Z_STRLEN_P(element), &tmp_arr[i]);
+						} else {
+							add_assoc_zval_ex(&arr, Z_STRVAL_P(element), Z_STRLEN_P(element), value);
+						}
+		    		}
+		    		i=i+1;
+		    	}ZEND_HASH_FOREACH_END();
+		    	zval_ptr_dtor(&ret);
+		    	RETURN_ZVAL(&arr, 0, 0);
+			} else {
+				zval arr;
+				if (string_to_array(&ret, &arr)) {
+					zval_ptr_dtor(&ret);
+					RETURN_ZVAL(&arr, 0, 0);
+				}
 				RETURN_ZVAL(&ret, 0, 0);
 			}
-			zval_ptr_dtor(&ret);
-			RETURN_ZVAL(&ret_arr, 0, 0);
 		}
 		RETURN_ZVAL(&ret, 0, 0);
 	}
