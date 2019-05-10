@@ -42,5 +42,9 @@ char *strreplace2(char *src, char *from, char *to);
 char *str_concat(char *s, const char *t);
 void gene_json_encode(zval *value, zval *options, zval *retval);
 void gene_json_decode(zval *value, zval *options, zval *retval);
+void gene_func_get_args(zval *retval);
+void gene_func_num_args(zval *retval);
+void gene_serialize(zval *value, zval *retval);
+void gene_md5(zval *value, zval *retval);
 
 #endif
