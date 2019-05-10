@@ -621,6 +621,40 @@ void gene_json_decode(zval *value, zval *options, zval *retval) /*{{{*/
     zval_ptr_dtor(&function_name);
 }/*}}}*/
 
+void gene_func_get_args(zval *retval) /*{{{*/
+{
+    zval function_name;
+    ZVAL_STRING(&function_name, "func_get_args");
+    call_user_function(NULL, NULL, &function_name, retval, 0, NULL);
+    zval_ptr_dtor(&function_name);
+}/*}}}*/
+
+void gene_func_num_args(zval *retval) /*{{{*/
+{
+    zval function_name;
+    ZVAL_STRING(&function_name, "func_num_args");
+    call_user_function(NULL, NULL, &function_name, retval, 0, NULL);
+    zval_ptr_dtor(&function_name);
+}/*}}}*/
+
+void gene_serialize(zval *value, zval *retval) /*{{{*/
+{
+    zval function_name;
+    ZVAL_STRING(&function_name, "serialize");
+    zval params[] = { *value };
+    call_user_function(NULL, NULL, &function_name, retval, 1, params);
+    zval_ptr_dtor(&function_name);
+}/*}}}*/
+
+void gene_md5(zval *value, zval *retval) /*{{{*/
+{
+    zval function_name;
+    ZVAL_STRING(&function_name, "md5");
+    zval params[] = { *value };
+    call_user_function(NULL, NULL, &function_name, retval, 1, params);
+    zval_ptr_dtor(&function_name);
+}/*}}}*/
+
 /*
  * Local variables:
  * tab-width: 4
