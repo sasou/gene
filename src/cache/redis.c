@@ -155,6 +155,7 @@ zend_bool initRObj (zval * self, zval *config) {
     } else {
     	gene_redis_connect(&obj_object, host, port, timeout);
     }
+
     if (options && Z_TYPE_P(options) == IS_ARRAY) {
     	zend_update_property_bool(gene_redis_ce, self, ZEND_STRL(GENE_REDIS_JSON), 0);
     	zend_string *key;
