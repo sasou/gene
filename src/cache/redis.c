@@ -292,10 +292,11 @@ PHP_METHOD(gene_redis, get) {
  */
 PHP_METHOD(gene_redis, set) {
 	zval *self = getThis(),  *object = NULL, *is_json = NULL, *key = NULL, *value = NULL, *ttl = NULL, *config = NULL;
-	zval ret;
+	zval ret, key_s;
 	if (zend_parse_parameters(ZEND_NUM_ARGS() TSRMLS_CC, "zz|z", &key, &value, &ttl) == FAILURE) {
 		return;
 	}
+	ZVAL_STRING(&key_s, Z_STRVAL_P(key));
 	if (ttl == NULL) {
 		config =  zend_read_property(gene_redis_ce, self, ZEND_STRL(GENE_REDIS_CONFIG), 1, NULL);
 		ttl = zend_hash_str_find(Z_ARRVAL_P(config), ZEND_STRL("ttl"));
@@ -309,23 +310,23 @@ PHP_METHOD(gene_redis, set) {
 				ZVAL_LONG(&options, 256);
 				gene_json_encode(value, &options, &ret_string);
 				zval_ptr_dtor(&options);
-				redis_set(object, key, ttl, &ret_string, &ret);
+				redis_set(object, &key_s, ttl, &ret_string, &ret);
 		    	if (EG(exception)) {
 		    		if (checkError(EG(exception))) {
 		    			EG(exception) = NULL;
 		    			initRObj (self, NULL);
-		    			redis_set(object, key, ttl, &ret_string, &ret);
+		    			redis_set(object, &key_s, ttl, &ret_string, &ret);
 		    		}
 		    	}
 				zval_ptr_dtor(&ret_string);
 			}
 		} else {
-			redis_set(object, key, ttl, value, &ret);
+			redis_set(object, &key_s, ttl, value, &ret);
 	    	if (EG(exception)) {
 	    		if (checkError(EG(exception))) {
 	    			EG(exception) = NULL;
 	    			initRObj (self, NULL);
-	    			redis_set(object, key, ttl, value, &ret);
+	    			redis_set(object, &key_s, ttl, value, &ret);
 	    		}
 	    	}
 		}
