@@ -186,9 +186,7 @@ zend_bool initObj (zval * self, zval *config) {
 
 zend_bool initObjWin (zval * self, zval *config) {
 	zval  *servers = NULL, *element = NULL;
-	zval serverList, obj_object;
-	zend_string *key;
-	zend_long id;
+	zval obj_object;
 
 	if (config == NULL) {
 		config =  zend_read_property(gene_memcached_ce, self, ZEND_STRL(GENE_MEM_CONFIG), 1, NULL);
@@ -205,7 +203,7 @@ zend_bool initObjWin (zval * self, zval *config) {
 		 php_error_docref(NULL, E_ERROR, "param servers must a array.");
 	}
 
-	ZEND_HASH_FOREACH_KEY_VAL(Z_ARRVAL_P(servers), id, key, element)
+	ZEND_HASH_FOREACH_VAL(Z_ARRVAL_P(servers), element)
 	{
 		zval ret;
 		gene_factory_call(&obj_object, "addServer", element, &ret);
@@ -213,7 +211,6 @@ zend_bool initObjWin (zval * self, zval *config) {
 	}ZEND_HASH_FOREACH_END();
 
     zend_update_property(gene_memcached_ce, self, ZEND_STRL(GENE_MEM_OBJ), &obj_object);
-    zval_ptr_dtor(&serverList);
     zval_ptr_dtor(&obj_object);
 	return 1;
 }
@@ -254,6 +251,7 @@ PHP_METHOD(gene_memcached, set)
 	if (zend_parse_parameters(ZEND_NUM_ARGS() TSRMLS_CC, "zz|zz", &key, &value, &flag, &ttl) == FAILURE) {
 		return;
 	}
+	ZVAL_NULL(&tmp_ttl);
 	if (ttl == NULL) {
 		config =  zend_read_property(gene_memcached_ce, self, ZEND_STRL(GENE_MEM_CONFIG), 1, NULL);
 		if ((ttl = zend_hash_str_find(Z_ARRVAL_P(config), ZEND_STRL("ttl"))) == NULL) {
@@ -272,7 +270,10 @@ PHP_METHOD(gene_memcached, set)
 	#else
 		ret = gene_memcached_set (object, key, value, ttl);
 	#endif
-	zval_ptr_dtor(&tmp_ttl);
+	if (Z_TYPE(tmp_ttl) != IS_NULL) {
+		zval_ptr_dtor(&tmp_ttl);
+	}
+
 	if (ret) {
 		RETURN_TRUE;
 	}
