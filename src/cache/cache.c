@@ -28,6 +28,7 @@
 #include "../gene.h"
 #include "../cache/cache.h"
 #include "../common/common.h"
+#include "../factory/factory.h"
 #include "../di/di.h"
 
 zend_class_entry * gene_cache_ce;
@@ -43,7 +44,7 @@ void gene_cache_get(zval *object, zval *key, zval *retval) /*{{{*/
 }/*}}}*/
 
 
-void gene_cache_set(zval *object, zval *key,zval *value, zval *ttl, zval *retval) /*{{{*/
+void gene_cache_set(zval *object, zval *key, zval *value, zval *ttl, zval *retval) /*{{{*/
 {
     zval function_name;
     ZVAL_STRING(&function_name, "set");
@@ -55,6 +56,8 @@ void gene_cache_set(zval *object, zval *key,zval *value, zval *ttl, zval *retval
 void gene_cache_key(zval *sign, int type, zval *retval) /*{{{*/
 {
     zval args,serialize,md5;
+    int size = ZEND_CALL_NUM_ARGS(EG(current_execute_data));
+    array_init_size(&args, size);
     zend_copy_parameters_array(3, &args);
     gene_serialize(&args, &serialize);
     zval_ptr_dtor(&args);
@@ -72,6 +75,33 @@ void gene_cache_key(zval *sign, int type, zval *retval) /*{{{*/
     smart_str_0(&key);
     ZVAL_STR(retval, key.s);
     smart_str_free(&key);
+}/*}}}*/
+
+
+void gene_cache_call(zval *object, zval *args, zval *retval) /*{{{*/
+{
+	zval *class = NULL, *method = NULL, *element = NULL;
+	zval tmp_class;
+	if (Z_TYPE_P(object) != IS_ARRAY || Z_TYPE_P(args) != IS_ARRAY) {
+		return;
+	}
+	class = zend_hash_index_find(Z_ARRVAL_P(object), 0);
+	method = zend_hash_index_find(Z_ARRVAL_P(object), 1);
+	ZVAL_NULL(&tmp_class);
+	if (Z_TYPE_P(class) == IS_STRING ) {
+		gene_factory_load_class(Z_STRVAL_P(class), Z_STRLEN_P(class), &tmp_class);
+		class = &tmp_class;
+	}
+
+	zval params[10];
+	int num = 0;
+	ZEND_HASH_FOREACH_VAL(Z_ARRVAL_P(args), element)
+	{
+		params[num] = *element;
+		num++;
+	}ZEND_HASH_FOREACH_END();
+    call_user_function(NULL, class, method, retval, num, params);
+    zval_ptr_dtor(&tmp_class);
 }/*}}}*/
 
 /*
@@ -108,10 +138,23 @@ PHP_METHOD(gene_cache, cached)
 
 	hook = gene_di_get_easy(Z_STR_P(hookName));
 
-	zval key, ret;
+	zval key, ret, data;
 	gene_cache_key(sign, 1, &key);
 	gene_cache_get(hook, &key, &ret);
-
+	if (Z_TYPE(ret) == IS_FALSE) {
+		zval tmp_ttl, set_ret;
+		gene_cache_call(obj, args, &data);
+		ZVAL_LONG(&tmp_ttl, 0);
+		if (ttl == NULL) {
+			ttl = &tmp_ttl;
+		}
+		gene_cache_set(hook, &key, &data, ttl, &set_ret);
+		zval_ptr_dtor(&key);
+		zval_ptr_dtor(&set_ret);
+		zval_ptr_dtor(&tmp_ttl);
+		zval_ptr_dtor(&ret);
+		RETURN_ZVAL(&data, 0, 0);
+	}
 	zval_ptr_dtor(&key);
 	RETURN_ZVAL(&ret, 0, 0);
 }
