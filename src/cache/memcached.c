@@ -109,6 +109,23 @@ int gene_memcached_increment(zval *object, zval *key, zval *value, zval *retval)
     return ret;
 }/*}}}*/
 
+void gene_memcached_get(zval *object, zval *key, zval *retval) /*{{{*/
+{
+    zval function_name;
+    ZVAL_STRING(&function_name, "get");
+	zval params[] = { *key };
+    call_user_function(NULL, object, &function_name, retval, 1, params);
+    zval_ptr_dtor(&function_name);
+}/*}}}*/
+
+void gene_memcached_getMulti(zval *object, zval *key, zval *retval) /*{{{*/
+{
+    zval function_name;
+    ZVAL_STRING(&function_name, "getMulti");
+	zval params[] = { *key };
+    call_user_function(NULL, object, &function_name, retval, 1, params);
+    zval_ptr_dtor(&function_name);
+}/*}}}*/
 
 int gene_memcached_decrement(zval *object, zval *key, zval *value, zval *retval) /*{{{*/
 {
@@ -119,6 +136,15 @@ int gene_memcached_decrement(zval *object, zval *key, zval *value, zval *retval)
     int ret =  (Z_TYPE_P(retval) == IS_FALSE ) ? 0 : 1;
     zval_ptr_dtor(&function_name);
     return ret;
+}/*}}}*/
+
+void gene_memcache_get(zval *object, zval *key, zval *retval) /*{{{*/
+{
+    zval function_name;
+    ZVAL_STRING(&function_name, "get");
+	zval params[] = { *key };
+    call_user_function(NULL, object, &function_name, retval, 1, params);
+    zval_ptr_dtor(&function_name);
 }/*}}}*/
 
 int gene_memcache_set(zval *object, zval *key, zval *value, zval *flag, zval *ttl) /*{{{*/
@@ -215,6 +241,14 @@ zend_bool initObjWin (zval * self, zval *config) {
 	return 1;
 }
 
+void memcached_get(zval *object, zval *key, zval *ret) {
+	if (Z_TYPE_P(key) == IS_ARRAY) {
+		gene_memcached_getMulti(object, key, ret);
+	} else {
+		gene_memcached_get(object, key, ret);
+	}
+}
+
 /*
  * {{{ gene_memcached
  */
@@ -238,6 +272,26 @@ PHP_METHOD(gene_memcached, __construct)
 }
 /* }}} */
 
+/*
+ * {{{ public gene_memcached::get()
+ */
+PHP_METHOD(gene_memcached, get) {
+	zval *self = getThis(), *object = NULL, *key = NULL;
+	if (zend_parse_parameters(ZEND_NUM_ARGS()TSRMLS_CC, "z", &key) == FAILURE) {
+		RETURN_NULL();
+	}
+	object = zend_read_property(gene_memcached_ce, self, ZEND_STRL(GENE_MEM_OBJ), 1, NULL);
+	if (object) {
+		zval ret;
+		#ifdef PHP_WIN32
+			gene_memcache_get(object, key, &ret);
+		#else
+			memcached_get(object, key, &ret);
+		#endif
+		RETURN_ZVAL(&ret, 0, 0);
+	}
+	RETURN_NULL();
+}
 
 /*
  * {{{ public gene_memcached::set($key)
@@ -372,6 +426,7 @@ PHP_METHOD(gene_memcached, decr) {
 zend_function_entry gene_memcached_methods[] = {
 		PHP_ME(gene_memcached, decr, NULL, ZEND_ACC_PUBLIC)
 		PHP_ME(gene_memcached, incr, NULL, ZEND_ACC_PUBLIC)
+		PHP_ME(gene_memcached, get, NULL, ZEND_ACC_PUBLIC)
 		PHP_ME(gene_memcached, set, NULL, ZEND_ACC_PUBLIC)
 		PHP_ME(gene_memcached, __call, gene_memcached_call_arginfo, ZEND_ACC_PUBLIC)
 		PHP_ME(gene_memcached, __construct, NULL, ZEND_ACC_PUBLIC|ZEND_ACC_CTOR)
