@@ -330,8 +330,10 @@ PHP_METHOD(gene_redis, set) {
 	    		}
 	    	}
 		}
+		zval_ptr_dtor(&key_s);
 		RETURN_ZVAL(&ret, 0, 0);
 	}
+	zval_ptr_dtor(&key_s);
 	RETURN_NULL();
 }
 
