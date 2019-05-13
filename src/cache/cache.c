@@ -53,6 +53,15 @@ void gene_cache_set(zval *object, zval *key, zval *value, zval *ttl, zval *retva
     zval_ptr_dtor(&function_name);
 }/*}}}*/
 
+void gene_cache_del(zval *object, zval *key, zval *retval) /*{{{*/
+{
+    zval function_name;
+    ZVAL_STRING(&function_name, "delete");
+	zval params[] = { *key };
+    call_user_function(NULL, object, &function_name, retval, 1, params);
+    zval_ptr_dtor(&function_name);
+}/*}}}*/
+
 void gene_cache_key(zval *sign, int type, zval *retval) /*{{{*/
 {
     zval args,serialize,md5;
@@ -165,16 +174,21 @@ PHP_METHOD(gene_cache, cached)
  */
 PHP_METHOD(gene_cache, unsetCached)
 {
-	zval *self = getThis();
-	char *php_script;
-	int php_script_len = 0;
-	if (zend_parse_parameters(ZEND_NUM_ARGS() TSRMLS_CC, "|s", &php_script, &php_script_len) == FAILURE) {
+	zval *self = getThis(), *config = NULL, *hook = NULL, *hookName = NULL,*sign = NULL,*obj = NULL, *args = NULL, *ttl = NULL;
+	if (zend_parse_parameters(ZEND_NUM_ARGS() TSRMLS_CC, "zz|z", &obj, &args, &ttl) == FAILURE) {
 		return;
 	}
-	if (php_script_len) {
-		php_printf(" key:%s ",php_script);
-	}
-	RETURN_ZVAL(self, 1, 0);
+	config =  zend_read_property(gene_cache_ce, self, ZEND_STRL(GENE_CACHE_CONFIG), 1, NULL);
+	hookName = zend_hash_str_find(Z_ARRVAL_P(config), ZEND_STRL("hook"));
+	sign = zend_hash_str_find(Z_ARRVAL_P(config), ZEND_STRL("sign"));
+
+	hook = gene_di_get_easy(Z_STR_P(hookName));
+
+	zval key, ret;
+	gene_cache_key(sign, 1, &key);
+	gene_cache_del(hook, &key, &ret);
+	zval_ptr_dtor(&key);
+	RETURN_ZVAL(&ret, 0, 0);
 }
 /* }}} */
 
@@ -201,16 +215,17 @@ PHP_METHOD(gene_cache, cachedVersion)
  */
 PHP_METHOD(gene_cache, getVersion)
 {
-	zval *self = getThis();
-	char *php_script;
-	int php_script_len = 0;
-	if (zend_parse_parameters(ZEND_NUM_ARGS() TSRMLS_CC, "|s", &php_script, &php_script_len) == FAILURE) {
+	zval *self = getThis(), *versionField = NULL, *config = NULL, *hook = NULL, *hookName = NULL,*sign = NULL;
+	if (zend_parse_parameters(ZEND_NUM_ARGS() TSRMLS_CC, "z", &versionField) == FAILURE) {
 		return;
 	}
-	if (php_script_len) {
-		php_printf(" key:%s ",php_script);
-	}
-	RETURN_ZVAL(self, 1, 0);
+	config =  zend_read_property(gene_cache_ce, self, ZEND_STRL(GENE_CACHE_CONFIG), 1, NULL);
+	hookName = zend_hash_str_find(Z_ARRVAL_P(config), ZEND_STRL("hook"));
+	sign = zend_hash_str_find(Z_ARRVAL_P(config), ZEND_STRL("versionSign"));
+	zval ret;
+	hook = gene_di_get_easy(Z_STR_P(hookName));
+	gene_cache_get(hook, versionField, &ret);
+	RETURN_ZVAL(&ret, 0, 0);
 }
 /* }}} */
 
