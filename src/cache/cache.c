@@ -218,6 +218,9 @@ int checkVersion(zval *oldVersion, zval *newVersion) {
 	if (Z_TYPE_P(oldVersion) != IS_ARRAY || Z_TYPE_P(newVersion) != IS_ARRAY) {
 		return 0;
 	}
+	if (zend_hash_num_elements(Z_ARRVAL_P(newVersion)) != zend_hash_num_elements(Z_ARRVAL_P(oldVersion))) {
+		return 0;
+	}
 	zval *element;
 	zend_string *id;
 	ZEND_HASH_FOREACH_STR_KEY_VAL(Z_ARRVAL_P(newVersion), id, element)
