@@ -53,6 +53,15 @@ void gene_cache_set(zval *object, zval *key, zval *value, zval *ttl, zval *retva
     zval_ptr_dtor(&function_name);
 }/*}}}*/
 
+void gene_cache_incr(zval *object, zval *key, zval *retval) /*{{{*/
+{
+    zval function_name;
+    ZVAL_STRING(&function_name, "incr");
+	zval params[] = { *key };
+    call_user_function(NULL, object, &function_name, retval, 1, params);
+    zval_ptr_dtor(&function_name);
+}/*}}}*/
+
 void gene_cache_del(zval *object, zval *key, zval *retval) /*{{{*/
 {
     zval function_name;
@@ -82,7 +91,7 @@ void gene_cache_key(zval *sign, int type, zval *retval) /*{{{*/
     }
     zval_ptr_dtor(&md5);
     smart_str_0(&key);
-    ZVAL_STR(retval, key.s);
+    ZVAL_STRING(retval, key.s->val);
     smart_str_free(&key);
 }/*}}}*/
 
@@ -111,6 +120,63 @@ void gene_cache_call(zval *object, zval *args, zval *retval) /*{{{*/
 	}ZEND_HASH_FOREACH_END();
     call_user_function(NULL, class, method, retval, num, params);
     zval_ptr_dtor(&tmp_class);
+}/*}}}*/
+
+void makeKey(zval *versionSign, zend_string *key, zval *value, zval *retval) {
+	smart_str key_s = {0},tmp_s = {0};
+	zval tmp_z,md5;
+	if (key) {
+		smart_str_appendl(&tmp_s,  ZSTR_VAL(key), ZSTR_LEN(key));
+	}
+	if (Z_TYPE_P(value) != IS_NULL) {
+		smart_str_appendc(&tmp_s,  '.');
+		convert_to_string(value);
+		smart_str_appendl(&tmp_s,  Z_STRVAL_P(value), Z_STRLEN_P(value));
+	}
+    smart_str_0(&tmp_s);
+    ZVAL_STRING(&tmp_z, tmp_s.s->val);
+    smart_str_free(&tmp_s);
+    gene_md5(&tmp_z, &md5);
+    zval_ptr_dtor(&tmp_z);
+
+    smart_str_appendl(&key_s,  Z_STRVAL_P(versionSign), Z_STRLEN_P(versionSign));
+    smart_str_appendl(&key_s, Z_STRVAL(md5), Z_STRLEN(md5));
+    zval_ptr_dtor(&md5);
+    smart_str_0(&key_s);
+    ZVAL_STRING(retval, key_s.s->val);
+    smart_str_free(&key_s);
+}
+
+void gene_cache_get_version_arr(zval *versionSign, zval *versionField, zval *retval) /*{{{*/
+{
+	zval *value = NULL;
+	zval tmp_arr[10];
+	zend_string *key = NULL;
+	array_init(retval);
+	zend_ulong i = 0;
+	ZEND_HASH_FOREACH_STR_KEY_VAL(Z_ARRVAL_P(versionField), key, value)
+	{
+		makeKey(versionSign, key, value, &tmp_arr[i]);
+		add_next_index_zval(retval, &tmp_arr[i]);
+		i++;
+	}ZEND_HASH_FOREACH_END();
+}/*}}}*/
+
+void gene_cache_update_version(zval *versionSign, zval *versionField, zval *object) /*{{{*/
+{
+	zval *value = NULL;
+	zend_string *key = NULL;
+	zval tmp_arr[10];
+	zend_ulong i = 0;
+	ZEND_HASH_FOREACH_STR_KEY_VAL(Z_ARRVAL_P(versionField), key, value)
+	{
+		makeKey(versionSign, key, value, &tmp_arr[i]);
+		zval ret;
+		gene_cache_incr(object, &tmp_arr[i], &ret);
+		zval_ptr_dtor(&ret);
+		zval_ptr_dtor(&tmp_arr[i]);
+		i++;
+	}ZEND_HASH_FOREACH_END();
 }/*}}}*/
 
 /*
@@ -222,9 +288,11 @@ PHP_METHOD(gene_cache, getVersion)
 	config =  zend_read_property(gene_cache_ce, self, ZEND_STRL(GENE_CACHE_CONFIG), 1, NULL);
 	hookName = zend_hash_str_find(Z_ARRVAL_P(config), ZEND_STRL("hook"));
 	sign = zend_hash_str_find(Z_ARRVAL_P(config), ZEND_STRL("versionSign"));
-	zval ret;
+	zval ret, new_arr;
 	hook = gene_di_get_easy(Z_STR_P(hookName));
-	gene_cache_get(hook, versionField, &ret);
+	gene_cache_get_version_arr(sign, versionField, &new_arr);
+	gene_cache_get(hook, &new_arr, &ret);
+	zval_ptr_dtor(&new_arr);
 	RETURN_ZVAL(&ret, 0, 0);
 }
 /* }}} */
@@ -234,16 +302,16 @@ PHP_METHOD(gene_cache, getVersion)
  */
 PHP_METHOD(gene_cache, updateVersion)
 {
-	zval *self = getThis();
-	char *php_script;
-	int php_script_len = 0;
-	if (zend_parse_parameters(ZEND_NUM_ARGS() TSRMLS_CC, "|s", &php_script, &php_script_len) == FAILURE) {
+	zval *self = getThis(), *versionField = NULL, *config = NULL, *hook = NULL, *hookName = NULL,*sign = NULL;
+	if (zend_parse_parameters(ZEND_NUM_ARGS() TSRMLS_CC, "z", &versionField) == FAILURE) {
 		return;
 	}
-	if (php_script_len) {
-		php_printf(" key:%s ",php_script);
-	}
-	RETURN_ZVAL(self, 1, 0);
+	config =  zend_read_property(gene_cache_ce, self, ZEND_STRL(GENE_CACHE_CONFIG), 1, NULL);
+	hookName = zend_hash_str_find(Z_ARRVAL_P(config), ZEND_STRL("hook"));
+	sign = zend_hash_str_find(Z_ARRVAL_P(config), ZEND_STRL("versionSign"));
+	hook = gene_di_get_easy(Z_STR_P(hookName));
+	gene_cache_update_version(sign, versionField, hook);
+	RETURN_TRUE;
 }
 /* }}} */
 
