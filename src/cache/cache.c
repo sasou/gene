@@ -95,20 +95,31 @@ void gene_cache_key(zval *sign, int type, zval *retval) /*{{{*/
     smart_str_free(&key);
 }/*}}}*/
 
+zval *gene_class_instance(zval *obj, zval *className, zval *params) {
+	zval *ppzval = NULL, *di, *entrys;
+	di = gene_di_instance();
+	entrys = zend_read_property(gene_di_ce, di, ZEND_STRL(GENE_DI_PROPERTY_REG), 1, NULL);
+	if ((ppzval = zend_hash_str_find(Z_ARRVAL_P(entrys), Z_STRVAL_P(className), Z_STRLEN_P(className))) != NULL) {
+		return ppzval;
+	} else {
+		if (gene_factory_load_class(Z_STRVAL_P(className), Z_STRLEN_P(className), obj)) {
+			if (zend_hash_str_exists(&(Z_OBJCE_P(obj)->function_table), ZEND_STRL("__construct"))) {
+				zval tmp;
+				gene_factory_call(obj, "__construct", params, &tmp);
+				zval_ptr_dtor(&tmp);
+			}
+			Z_TRY_ADDREF_P(obj);
+			return zend_hash_str_update(Z_ARRVAL_P(entrys), Z_STRVAL_P(className), Z_STRLEN_P(className), obj);
+		}
+	}
+	return NULL;
+}
 
 void gene_cache_call(zval *object, zval *args, zval *retval) /*{{{*/
 {
 	zval *class = NULL, *method = NULL, *element = NULL;
-	zval tmp_class;
 	if (Z_TYPE_P(object) != IS_ARRAY || Z_TYPE_P(args) != IS_ARRAY) {
 		return;
-	}
-	class = zend_hash_index_find(Z_ARRVAL_P(object), 0);
-	method = zend_hash_index_find(Z_ARRVAL_P(object), 1);
-	ZVAL_NULL(&tmp_class);
-	if (Z_TYPE_P(class) == IS_STRING ) {
-		gene_factory_load_class(Z_STRVAL_P(class), Z_STRLEN_P(class), &tmp_class);
-		class = &tmp_class;
 	}
 
 	zval params[10];
@@ -118,8 +129,16 @@ void gene_cache_call(zval *object, zval *args, zval *retval) /*{{{*/
 		params[num] = *element;
 		num++;
 	}ZEND_HASH_FOREACH_END();
+
+	class = zend_hash_index_find(Z_ARRVAL_P(object), 0);
+	method = zend_hash_index_find(Z_ARRVAL_P(object), 1);
+	if (Z_TYPE_P(class) == IS_STRING ) {
+		zval tmp_class;
+		class = gene_class_instance(&tmp_class, class, NULL);
+		call_user_function(NULL, class, method, retval, num, params);
+	    zval_ptr_dtor(&tmp_class);
+	}
     call_user_function(NULL, class, method, retval, num, params);
-    zval_ptr_dtor(&tmp_class);
 }/*}}}*/
 
 void makeKey(zval *versionSign, zend_string *id, zval *element, zval *retval) {
