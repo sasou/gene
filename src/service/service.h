@@ -16,8 +16,6 @@
 
 #ifndef GENE_SERVICE_H
 #define GENE_SERVICE_H
-#define GENE_SERVICE_ATTR "attr"
-
 
 extern zend_class_entry *gene_service_ce;
 

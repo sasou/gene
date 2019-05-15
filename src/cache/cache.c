@@ -95,26 +95,6 @@ void gene_cache_key(zval *sign, int type, zval *retval) /*{{{*/
     smart_str_free(&key);
 }/*}}}*/
 
-zval *gene_class_instance(zval *obj, zval *className, zval *params) {
-	zval *ppzval = NULL, *di, *entrys;
-	di = gene_di_instance();
-	entrys = zend_read_property(gene_di_ce, di, ZEND_STRL(GENE_DI_PROPERTY_REG), 1, NULL);
-	if ((ppzval = zend_hash_str_find(Z_ARRVAL_P(entrys), Z_STRVAL_P(className), Z_STRLEN_P(className))) != NULL) {
-		return ppzval;
-	} else {
-		if (gene_factory_load_class(Z_STRVAL_P(className), Z_STRLEN_P(className), obj)) {
-			if (zend_hash_str_exists(&(Z_OBJCE_P(obj)->function_table), ZEND_STRL("__construct"))) {
-				zval tmp;
-				gene_factory_call(obj, "__construct", params, &tmp);
-				zval_ptr_dtor(&tmp);
-			}
-			Z_TRY_ADDREF_P(obj);
-			return zend_hash_str_update(Z_ARRVAL_P(entrys), Z_STRVAL_P(className), Z_STRLEN_P(className), obj);
-		}
-	}
-	return NULL;
-}
-
 void gene_cache_call(zval *object, zval *args, zval *retval) /*{{{*/
 {
 	zval *class = NULL, *method = NULL, *element = NULL;

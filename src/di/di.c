@@ -23,6 +23,8 @@
 #include "main/SAPI.h"
 #include "Zend/zend_API.h"
 #include "zend_exceptions.h"
+#include "Zend/zend_interfaces.h"
+#include "zend_smart_str.h" /* for smart_str */
 
 #include "../gene.h"
 #include "../di/di.h"
@@ -87,14 +89,9 @@ zval *gene_di_get(zval *props, zend_string *name, zval *classObject) {
 		if (type) {
 	    	di = gene_di_instance();
 			entrys = zend_read_property(gene_di_ce, di, GENE_DI_PROPERTY_REG, strlen(GENE_DI_PROPERTY_REG), 1, NULL);
-			router_e_len = spprintf(&router_e, 0, "%s%s", ZSTR_VAL(name), ZSTR_VAL(class->value.str));
-			if ((pzval = zend_hash_str_find(Z_ARRVAL_P(entrys), router_e, router_e_len)) != NULL) {
+			if ((pzval = zend_hash_str_find(Z_ARRVAL_P(entrys), Z_STRVAL_P(class), Z_STRLEN_P(class))) != NULL) {
 				if (zend_hash_update(Z_ARRVAL_P(props), name, pzval) != NULL) {
 					Z_TRY_ADDREF_P(pzval);
-					if (router_e) {
-						efree(router_e);
-						router_e = NULL;
-					}
 					return pzval;
 				}
 			}
@@ -108,11 +105,7 @@ zval *gene_di_get(zval *props, zend_string *name, zval *classObject) {
 
 		if (gene_factory(ZSTR_VAL(class->value.str), ZSTR_LEN(class->value.str), &local_params, classObject)) {
 			if (type) {
-				zend_hash_str_update(Z_ARRVAL_P(entrys), router_e, router_e_len, classObject);
-				if (router_e) {
-					efree(router_e);
-					router_e = NULL;
-				}
+				zend_hash_str_update(Z_ARRVAL_P(entrys), Z_STRVAL_P(class), Z_STRLEN_P(class), classObject);
 			}
 
 			if ((classObject = zend_hash_update(Z_ARRVAL_P(props), name, classObject)) != NULL) {
@@ -125,6 +118,98 @@ zval *gene_di_get(zval *props, zend_string *name, zval *classObject) {
 	return NULL;
 }
 
+zval *gene_class_instance(zval *obj, zval *class, zval *params) {
+	zval *ppzval = NULL, *di, *entrys;
+	di = gene_di_instance();
+	zval *class_name = NULL;
+	zval name;
+	if (class == NULL) {
+		zend_call_method_with_0_params(NULL, NULL, NULL, "get_called_class", &name);
+		class_name = &name;
+	} else {
+		class_name = class;
+	}
+	entrys = zend_read_property(gene_di_ce, di, ZEND_STRL(GENE_DI_PROPERTY_REG), 1, NULL);
+	if ((ppzval = zend_hash_str_find(Z_ARRVAL_P(entrys), Z_STRVAL_P(class_name), Z_STRLEN_P(class_name))) != NULL) {
+		return ppzval;
+	} else {
+		if (gene_factory_load_class(Z_STRVAL_P(class_name), Z_STRLEN_P(class_name), obj)) {
+			if (zend_hash_str_exists(&(Z_OBJCE_P(obj)->function_table), ZEND_STRL("__construct"))) {
+				zval tmp;
+				gene_factory_call(obj, "__construct", params, &tmp);
+				zval_ptr_dtor(&tmp);
+			}
+			Z_TRY_ADDREF_P(obj);
+			if ((obj = zend_hash_str_update(Z_ARRVAL_P(entrys), Z_STRVAL_P(class_name), Z_STRLEN_P(class_name), obj)) != NULL) {
+				if (class == NULL) {
+					zval_ptr_dtor(&name);
+				}
+				return obj;
+			}
+		}
+	}
+	if (class == NULL) {
+		zval_ptr_dtor(&name);
+	}
+	return NULL;
+}
+
+
+/*
+ *  {{{ int gene_di_get_easy(zend_string *name, zval *ppzval)
+ */
+zval *gene_di_get_easy(zend_string *name) {
+	zval *di, *entrys, classObject, *ppzval = NULL;
+	di = gene_di_instance();
+	entrys = zend_read_property(gene_di_ce, di, GENE_DI_PROPERTY_REG, strlen(GENE_DI_PROPERTY_REG), 1, NULL);
+	if ((ppzval = zend_hash_find(Z_ARRVAL_P(entrys), name)) == NULL) {
+		ppzval = gene_di_get(entrys, name, &classObject);
+	}
+	return ppzval;
+}
+/* }}} */
+
+
+/*
+ *  {{{ int gene_di_get_class(zend_string class_name, zend_string *name)
+ */
+zval *gene_di_get_class(zend_string *class_name, zend_string *name) {
+	zval *di, *entrys, classObject, *ppzval = NULL;
+	di = gene_di_instance();
+	entrys = zend_read_property(gene_di_ce, di, GENE_DI_PROPERTY_REG, strlen(GENE_DI_PROPERTY_REG), 1, NULL);
+    smart_str class_val = {0};
+    smart_str_appendl(&class_val, class_name->val, class_name->len);
+    smart_str_appendc(&class_val, '_');
+    smart_str_appendl(&class_val, name->val, name->len);
+    smart_str_0(&class_val);
+	if ((ppzval = zend_hash_find(Z_ARRVAL_P(entrys), class_val.s)) == NULL) {
+		if ((ppzval = zend_hash_find(Z_ARRVAL_P(entrys), name)) == NULL) {
+			ppzval = gene_di_get(entrys, name, &classObject);
+		}
+	}
+	smart_str_free(&class_val);
+	return ppzval;
+}
+/* }}} */
+
+
+/*
+ *  {{{ int gene_di_set_class(zend_string class_name, zend_string *name)
+ */
+int gene_di_set_class(zend_string *class_name, zend_string *name, zval *value) {
+	zval *di, *entrys, classObject, *ppzval = NULL;
+	di = gene_di_instance();
+	entrys = zend_read_property(gene_di_ce, di, GENE_DI_PROPERTY_REG, strlen(GENE_DI_PROPERTY_REG), 1, NULL);
+    smart_str class_val = {0};
+    smart_str_appendl(&class_val, class_name->val, class_name->len);
+    smart_str_appendc(&class_val, '_');
+    smart_str_appendl(&class_val, name->val, name->len);
+    smart_str_0(&class_val);
+    zend_hash_update(Z_ARRVAL_P(entrys), class_val.s, value);
+	smart_str_free(&class_val);
+	return 1;
+}
+/* }}} */
 
 /** {{{ proto private gene_di::__construct(void)
  */
@@ -172,19 +257,6 @@ zval *gene_di_instance() {
 }
 /* }}} */
 
-/*
- *  {{{ int gene_di_get_easy(zend_string *name, zval *ppzval)
- */
-zval *gene_di_get_easy(zend_string *name) {
-	zval *di, *entrys, classObject, *ppzval = NULL;
-	di = gene_di_instance();
-	entrys = zend_read_property(gene_di_ce, di, GENE_DI_PROPERTY_REG, strlen(GENE_DI_PROPERTY_REG), 1, NULL);
-	if ((ppzval = zend_hash_find(Z_ARRVAL_P(entrys), name)) == NULL) {
-		ppzval = gene_di_get(entrys, name, &classObject);
-	}
-	return ppzval;
-}
-/* }}} */
 
 /*
  *  {{{ public static gene_di::get($name)
