@@ -118,17 +118,9 @@ zval *gene_di_get(zval *props, zend_string *name, zval *classObject) {
 	return NULL;
 }
 
-zval *gene_class_instance(zval *obj, zval *class, zval *params) {
+zval *gene_class_instance(zval *obj, zval *class_name, zval *params) {
 	zval *ppzval = NULL, *di, *entrys;
 	di = gene_di_instance();
-	zval *class_name = NULL;
-	zval name;
-	if (class == NULL) {
-		zend_call_method_with_0_params(NULL, NULL, NULL, "get_called_class", &name);
-		class_name = &name;
-	} else {
-		class_name = class;
-	}
 	entrys = zend_read_property(gene_di_ce, di, ZEND_STRL(GENE_DI_PROPERTY_REG), 1, NULL);
 	if ((ppzval = zend_hash_str_find(Z_ARRVAL_P(entrys), Z_STRVAL_P(class_name), Z_STRLEN_P(class_name))) != NULL) {
 		return ppzval;
@@ -140,16 +132,8 @@ zval *gene_class_instance(zval *obj, zval *class, zval *params) {
 				zval_ptr_dtor(&tmp);
 			}
 			Z_TRY_ADDREF_P(obj);
-			if ((obj = zend_hash_str_update(Z_ARRVAL_P(entrys), Z_STRVAL_P(class_name), Z_STRLEN_P(class_name), obj)) != NULL) {
-				if (class == NULL) {
-					zval_ptr_dtor(&name);
-				}
-				return obj;
-			}
+			return zend_hash_str_update(Z_ARRVAL_P(entrys), Z_STRVAL_P(class_name), Z_STRLEN_P(class_name), obj);
 		}
-	}
-	if (class == NULL) {
-		zval_ptr_dtor(&name);
 	}
 	return NULL;
 }
