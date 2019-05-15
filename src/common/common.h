@@ -46,5 +46,6 @@ void gene_func_get_args(zval *retval);
 void gene_func_num_args(zval *retval);
 void gene_serialize(zval *value, zval *retval);
 void gene_md5(zval *value, zval *retval);
+void gene_class_name(zval *retval);
 
 #endif

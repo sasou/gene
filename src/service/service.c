@@ -32,6 +32,7 @@
 #include "../di/di.h"
 #include "../factory/factory.h"
 #include "../http/response.h"
+#include "../common/common.h"
 
 
 zend_class_entry * gene_service_ce;
@@ -82,7 +83,7 @@ PHP_METHOD(gene_service, __set)
 		return;
 	}
 	zval class_name;
-	zend_call_method_with_0_params(NULL, NULL, NULL, "get_called_class", &class_name);
+	gene_class_name(&class_name);
 	if (gene_di_set_class(Z_STR(class_name), name, value)) {
 		zval_ptr_dtor(&class_name);
 		RETURN_TRUE;
@@ -109,7 +110,7 @@ PHP_METHOD(gene_service, __get)
 		RETURN_NULL();
 	} else {
 		zval class_name;
-		zend_call_method_with_0_params(NULL, NULL, NULL, "get_called_class", &class_name);
+		gene_class_name(&class_name);
 		pzval = gene_di_get_class(Z_STR(class_name), name);
 		if (pzval) {
 			zval_ptr_dtor(&class_name);
@@ -193,8 +194,11 @@ PHP_METHOD(gene_service, getInstance)
 	if (zend_parse_parameters(ZEND_NUM_ARGS()TSRMLS_CC, "|z", &params) == FAILURE) {
 		return;
 	}
-	gene_class_instance(&obj, NULL, params);
-	RETURN_ZVAL(&obj, 1, 0);
+	zval class_name;
+	gene_class_name(&class_name);
+	zval *ret = gene_class_instance(&obj, &class_name, params);
+	zval_ptr_dtor(&class_name);
+	RETURN_ZVAL(ret, 1, 0);
 }
 /* }}} */
 

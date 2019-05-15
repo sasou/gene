@@ -655,6 +655,14 @@ void gene_md5(zval *value, zval *retval) /*{{{*/
     zval_ptr_dtor(&function_name);
 }/*}}}*/
 
+void gene_class_name(zval *retval) /*{{{*/
+{
+    zval function_name;
+    ZVAL_STRING(&function_name, "get_called_class");
+    call_user_function(NULL, NULL, &function_name, retval, 0, NULL);
+    zval_ptr_dtor(&function_name);
+}/*}}}*/
+
 /*
  * Local variables:
  * tab-width: 4
