@@ -90,8 +90,7 @@ zval *gene_di_get(zval *props, zend_string *name, zval *classObject) {
 	    	di = gene_di_instance();
 			entrys = zend_read_property(gene_di_ce, di, GENE_DI_PROPERTY_REG, strlen(GENE_DI_PROPERTY_REG), 1, NULL);
 			if ((pzval = zend_hash_str_find(Z_ARRVAL_P(entrys), Z_STRVAL_P(class), Z_STRLEN_P(class))) != NULL) {
-				if (zend_hash_update(Z_ARRVAL_P(props), name, pzval) != NULL) {
-					Z_TRY_ADDREF_P(pzval);
+				if ( zend_hash_update(Z_ARRVAL_P(props), name, pzval) != NULL) {
 					return pzval;
 				}
 			}
@@ -105,10 +104,12 @@ zval *gene_di_get(zval *props, zend_string *name, zval *classObject) {
 
 		if (gene_factory(ZSTR_VAL(class->value.str), ZSTR_LEN(class->value.str), &local_params, classObject)) {
 			if (type) {
+				Z_TRY_ADDREF_P(classObject);
 				zend_hash_str_update(Z_ARRVAL_P(entrys), Z_STRVAL_P(class), Z_STRLEN_P(class), classObject);
 			}
 
-			if ((classObject = zend_hash_update(Z_ARRVAL_P(props), name, classObject)) != NULL) {
+			if (zend_hash_update(Z_ARRVAL_P(props), name, classObject) != NULL) {
+				Z_TRY_ADDREF_P(classObject);
 				zval_ptr_dtor(&local_params);
 				return classObject;
 			}
@@ -131,8 +132,10 @@ zval *gene_class_instance(zval *obj, zval *class_name, zval *params) {
 				gene_factory_call(obj, "__construct", params, &tmp);
 				zval_ptr_dtor(&tmp);
 			}
-			Z_TRY_ADDREF_P(obj);
-			return zend_hash_str_update(Z_ARRVAL_P(entrys), Z_STRVAL_P(class_name), Z_STRLEN_P(class_name), obj);
+		    if (zend_hash_str_update(Z_ARRVAL_P(entrys), Z_STRVAL_P(class_name), Z_STRLEN_P(class_name), obj) != NULL ) {
+				Z_TRY_ADDREF_P(obj);
+		    	return obj;
+		    }
 		}
 	}
 	return NULL;
