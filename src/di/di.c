@@ -59,6 +59,7 @@ zval *gene_di_get(zval *props, zend_string *name, zval *classObject) {
 	zend_bool type = 0;
 	zval  *pzval = NULL,*class = NULL,*params = NULL, *instance = NULL,*cache = NULL, *di = NULL, *entrys = NULL;
 	zval local_params;
+
 	if (GENE_G(app_key)) {
 		router_e_len = spprintf(&router_e, 0, "%s%s", GENE_G(app_key), GENE_CONFIG_CACHE);
 	} else {
@@ -98,6 +99,7 @@ zval *gene_di_get(zval *props, zend_string *name, zval *classObject) {
 				}
 			}
 		}
+
 		if (params) {
 			gene_memory_zval_local(&local_params, params);
 		} else {
@@ -106,16 +108,14 @@ zval *gene_di_get(zval *props, zend_string *name, zval *classObject) {
 
 		if (gene_factory(ZSTR_VAL(class->value.str), ZSTR_LEN(class->value.str), &local_params, classObject)) {
 			if (type) {
-				if (zend_hash_str_update(Z_ARRVAL_P(entrys), router_e, router_e_len, classObject) != NULL) {
-					Z_TRY_ADDREF_P(classObject);
-				}
+				zend_hash_str_update(Z_ARRVAL_P(entrys), router_e, router_e_len, classObject);
 				if (router_e) {
 					efree(router_e);
 					router_e = NULL;
 				}
 			}
-			if (zend_hash_update(Z_ARRVAL_P(props), name, classObject) != NULL) {
-				Z_TRY_ADDREF_P(classObject);
+
+			if ((classObject = zend_hash_update(Z_ARRVAL_P(props), name, classObject)) != NULL) {
 				zval_ptr_dtor(&local_params);
 				return classObject;
 			}

@@ -31,6 +31,28 @@
 
 zend_class_entry * gene_memcached_ce;
 
+
+ZEND_BEGIN_ARG_INFO_EX(gene_memcached_incr_arginfo, 0, 0, 2)
+	ZEND_ARG_INFO(0, key)
+	ZEND_ARG_INFO(0, value)
+ZEND_END_ARG_INFO()
+
+ZEND_BEGIN_ARG_INFO_EX(gene_memcached_decr_arginfo, 0, 0, 2)
+	ZEND_ARG_INFO(0, key)
+	ZEND_ARG_INFO(0, value)
+ZEND_END_ARG_INFO()
+
+ZEND_BEGIN_ARG_INFO_EX(gene_memcached_get_arginfo, 0, 0, 1)
+	ZEND_ARG_INFO(0, key)
+ZEND_END_ARG_INFO()
+
+ZEND_BEGIN_ARG_INFO_EX(gene_memcached_set_arginfo, 0, 0, 2)
+	ZEND_ARG_INFO(0, key)
+	ZEND_ARG_INFO(0, value)
+	ZEND_ARG_INFO(0, flag)
+	ZEND_ARG_INFO(0, ttl)
+ZEND_END_ARG_INFO()
+
 ZEND_BEGIN_ARG_INFO_EX(gene_memcached_call_arginfo, 0, 0, 2)
 	ZEND_ARG_INFO(0, method)
 	ZEND_ARG_INFO(0, params)
@@ -277,7 +299,7 @@ PHP_METHOD(gene_memcached, __construct)
  */
 PHP_METHOD(gene_memcached, get) {
 	zval *self = getThis(), *object = NULL, *key = NULL;
-	if (zend_parse_parameters(ZEND_NUM_ARGS()TSRMLS_CC, "z", &key) == FAILURE) {
+	if (zend_parse_parameters(ZEND_NUM_ARGS() TSRMLS_CC, "z", &key) == FAILURE) {
 		RETURN_NULL();
 	}
 	object = zend_read_property(gene_memcached_ce, self, ZEND_STRL(GENE_MEM_OBJ), 1, NULL);
@@ -424,10 +446,10 @@ PHP_METHOD(gene_memcached, decr) {
  * {{{ gene_memcached_methods
  */
 zend_function_entry gene_memcached_methods[] = {
-		PHP_ME(gene_memcached, decr, NULL, ZEND_ACC_PUBLIC)
-		PHP_ME(gene_memcached, incr, NULL, ZEND_ACC_PUBLIC)
-		PHP_ME(gene_memcached, get, NULL, ZEND_ACC_PUBLIC)
-		PHP_ME(gene_memcached, set, NULL, ZEND_ACC_PUBLIC)
+		PHP_ME(gene_memcached, decr, gene_memcached_decr_arginfo, ZEND_ACC_PUBLIC)
+		PHP_ME(gene_memcached, incr, gene_memcached_incr_arginfo, ZEND_ACC_PUBLIC)
+		PHP_ME(gene_memcached, get, gene_memcached_get_arginfo, ZEND_ACC_PUBLIC)
+		PHP_ME(gene_memcached, set, gene_memcached_set_arginfo, ZEND_ACC_PUBLIC)
 		PHP_ME(gene_memcached, __call, gene_memcached_call_arginfo, ZEND_ACC_PUBLIC)
 		PHP_ME(gene_memcached, __construct, NULL, ZEND_ACC_PUBLIC|ZEND_ACC_CTOR)
 		{NULL, NULL, NULL}

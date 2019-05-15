@@ -28,8 +28,8 @@
 #include "../gene.h"
 #include "../cache/cache.h"
 #include "../common/common.h"
-#include "../factory/factory.h"
 #include "../di/di.h"
+#include "../factory/factory.h"
 
 zend_class_entry * gene_cache_ce;
 
@@ -158,11 +158,14 @@ void gene_cache_get_version_arr(zval *versionSign, zval *versionField, zval *ret
 	zend_ulong i = 0;
 	array_init(retval);
 	if (top) {
+		Z_TRY_ADDREF_P(top);
 		add_next_index_zval(retval, top);
 	}
 	ZEND_HASH_FOREACH_STR_KEY_VAL(Z_ARRVAL_P(versionField), id, element)
 	{
 		makeKey(versionSign, id, element, &tmp_arr[i]);
+		Z_TRY_ADDREF(tmp_arr[i]);
+		Z_TRY_ADDREF(tmp_arr[i]);
 		add_next_index_zval(retval, &tmp_arr[i]);
 		i++;
 	}ZEND_HASH_FOREACH_END();
@@ -326,7 +329,6 @@ PHP_METHOD(gene_cache, cachedVersion)
 	hookName = zend_hash_str_find(Z_ARRVAL_P(config), ZEND_STRL("hook"));
 	sign = zend_hash_str_find(Z_ARRVAL_P(config), ZEND_STRL("sign"));
 	versionSign = zend_hash_str_find(Z_ARRVAL_P(config), ZEND_STRL("versionSign"));
-
 	hook = gene_di_get_easy(Z_STR_P(hookName));
 
 	zval key, cache, cache_key;
@@ -403,6 +405,7 @@ PHP_METHOD(gene_cache, getVersion)
 	RETURN_ZVAL(&ret, 0, 0);
 }
 /* }}} */
+
 
 /*
  * {{{ public gene_cache::updateVersion($key)
