@@ -1164,6 +1164,7 @@ GENE_MINIT_FUNCTION(router) {
 	//prop
 	zend_declare_property_string(gene_router_ce, GENE_ROUTER_SAFE, strlen(GENE_ROUTER_SAFE), "", ZEND_ACC_PUBLIC TSRMLS_CC);
 	zend_declare_property_string(gene_router_ce, GENE_ROUTER_PREFIX, strlen(GENE_ROUTER_PREFIX), "", ZEND_ACC_PUBLIC TSRMLS_CC);
+
 	return SUCCESS; // @suppress("Symbol is not resolved")
 }
 /* }}} */

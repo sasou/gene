@@ -16,8 +16,6 @@
 
 #ifndef GENE_MODEL_H
 #define GENE_MODEL_H
-#define GENE_MODEL_ATTR "attr"
-
 
 extern zend_class_entry *gene_model_ce;
 

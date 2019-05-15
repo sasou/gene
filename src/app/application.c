@@ -538,25 +538,17 @@ PHP_METHOD(gene_application, run) {
 PHP_METHOD(gene_application, __set)
 {
 	zend_string *name;
-	zval *value, *props = NULL;
+	zval *value;
 	if (zend_parse_parameters(ZEND_NUM_ARGS(), "Sz", &name, &value) == FAILURE) {
 		return;
 	}
-	props = zend_read_property(gene_application_ce, getThis(), ZEND_STRL(GENE_APPLICATION_ATTR), 1, NULL);
-	if (Z_TYPE_P(props) == IS_NULL) {
-		zval prop;
-		array_init(&prop);
-		if (zend_hash_update(Z_ARRVAL(prop), name, value) != NULL) {
-			Z_TRY_ADDREF_P(value);
-		}
-		zend_update_property(gene_application_ce, getThis(), ZEND_STRL(GENE_APPLICATION_ATTR), &prop);
-		zval_ptr_dtor(&prop);
-	} else {
-		if (zend_hash_update(Z_ARRVAL_P(props), name, value) != NULL) {
-			Z_TRY_ADDREF_P(value);
-			RETURN_TRUE;
-		}
+	zval class_name;
+	gene_class_name(&class_name);
+	if (gene_di_set_class(Z_STR(class_name), name, value)) {
+		zval_ptr_dtor(&class_name);
+		RETURN_TRUE;
 	}
+	zval_ptr_dtor(&class_name);
 	RETURN_FALSE;
 }
 /* }}} */
@@ -566,7 +558,7 @@ PHP_METHOD(gene_application, __set)
  */
 PHP_METHOD(gene_application, __get)
 {
-	zval *pzval = NULL, *props = NULL;
+	zval *pzval = NULL;
 	zend_string *name = NULL;
 
 	if (zend_parse_parameters(ZEND_NUM_ARGS(), "|S", &name) == FAILURE) {
@@ -576,28 +568,14 @@ PHP_METHOD(gene_application, __get)
 	if (!name) {
 		RETURN_NULL();
 	} else {
-		props = zend_read_property(gene_application_ce, getThis(), ZEND_STRL(GENE_APPLICATION_ATTR), 1, NULL);
-		if (Z_TYPE_P(props) == IS_NULL) {
-			zval prop;
-			array_init(&prop);
-			zend_update_property(gene_application_ce, getThis(), ZEND_STRL(GENE_APPLICATION_ATTR), &prop);
-			zval_ptr_dtor(&prop);
-			pzval = gene_di_get_easy(name);
-			if (pzval) {
-				RETURN_ZVAL(pzval, 1, 0);
-			}
-			RETURN_NULL();
-		} else {
-			pzval = zend_hash_find(Z_ARRVAL_P(props), name);
-			if (pzval == NULL) {
-				pzval = gene_di_get_easy(name);
-				if (pzval) {
-					RETURN_ZVAL(pzval, 1, 0);
-				}
-				RETURN_NULL();
-			}
+		zval class_name;
+		gene_class_name(&class_name);
+		pzval = gene_di_get_class(Z_STR(class_name), name);
+		if (pzval) {
+			zval_ptr_dtor(&class_name);
 			RETURN_ZVAL(pzval, 1, 0);
 		}
+		zval_ptr_dtor(&class_name);
 		RETURN_NULL();
 	}
 	RETURN_NULL();
@@ -643,7 +621,6 @@ GENE_MINIT_FUNCTION(application) {
 
 	//static
 	zend_declare_property_null(gene_application_ce, ZEND_STRL(GENE_APPLICATION_INSTANCE), ZEND_ACC_PROTECTED | ZEND_ACC_STATIC TSRMLS_CC);
-	zend_declare_property_null(gene_application_ce, ZEND_STRL(GENE_APPLICATION_ATTR), ZEND_ACC_PUBLIC);
 
 	return SUCCESS; // @suppress("Symbol is not resolved")
 }
