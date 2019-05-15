@@ -237,7 +237,7 @@ PHP_METHOD(gene_redis, __construct)
  */
 PHP_METHOD(gene_redis, get) {
 	zval *self = getThis(), *object = NULL, *is_json = NULL, *key = NULL;
-	if (zend_parse_parameters(ZEND_NUM_ARGS()TSRMLS_CC, "z", &key) == FAILURE) {
+	if (zend_parse_parameters(ZEND_NUM_ARGS() TSRMLS_CC, "z", &key) == FAILURE) {
 		RETURN_NULL();
 	}
 	object = zend_read_property(gene_redis_ce, self, ZEND_STRL(GENE_REDIS_OBJ), 1, NULL);
@@ -344,7 +344,7 @@ PHP_METHOD(gene_redis, __call) {
 	zval *self = getThis(), *object = NULL, *params = NULL, ret;
 	long methodlen;
 	char *method;
-	if (zend_parse_parameters(ZEND_NUM_ARGS()TSRMLS_CC, "sz", &method, &methodlen, &params) == FAILURE) {
+	if (zend_parse_parameters(ZEND_NUM_ARGS() TSRMLS_CC, "sz", &method, &methodlen, &params) == FAILURE) {
 		RETURN_NULL();
 	}
 	object = zend_read_property(gene_redis_ce, self, ZEND_STRL(GENE_REDIS_OBJ), 1, NULL);
