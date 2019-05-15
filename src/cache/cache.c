@@ -158,14 +158,11 @@ void gene_cache_get_version_arr(zval *versionSign, zval *versionField, zval *ret
 	zend_ulong i = 0;
 	array_init(retval);
 	if (top) {
-		Z_TRY_ADDREF_P(top);
 		add_next_index_zval(retval, top);
 	}
 	ZEND_HASH_FOREACH_STR_KEY_VAL(Z_ARRVAL_P(versionField), id, element)
 	{
 		makeKey(versionSign, id, element, &tmp_arr[i]);
-		Z_TRY_ADDREF(tmp_arr[i]);
-		Z_TRY_ADDREF(tmp_arr[i]);
 		add_next_index_zval(retval, &tmp_arr[i]);
 		i++;
 	}ZEND_HASH_FOREACH_END();
@@ -397,6 +394,7 @@ PHP_METHOD(gene_cache, getVersion)
 	config =  zend_read_property(gene_cache_ce, self, ZEND_STRL(GENE_CACHE_CONFIG), 1, NULL);
 	hookName = zend_hash_str_find(Z_ARRVAL_P(config), ZEND_STRL("hook"));
 	versionSign = zend_hash_str_find(Z_ARRVAL_P(config), ZEND_STRL("versionSign"));
+
 	zval ret, new_arr;
 	hook = gene_di_get_easy(Z_STR_P(hookName));
 	gene_cache_get_version_arr(versionSign, versionField, &new_arr, NULL);
