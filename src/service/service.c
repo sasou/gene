@@ -78,7 +78,7 @@ zval *gene_service_instance(zval *obj, zval *params) {
 				gene_factory_call(obj, "__construct", params, &tmp);
 				zval_ptr_dtor(&tmp);
 			}
-			if (zend_hash_str_update(Z_ARRVAL_P(entrys), Z_STRVAL(ret), Z_STRLEN(ret), obj) != NULL) {
+			if ((obj = zend_hash_str_update(Z_ARRVAL_P(entrys), Z_STRVAL(ret), Z_STRLEN(ret), obj)) != NULL) {
 				Z_TRY_ADDREF_P(obj);
 				zval prop;
 				array_init(&prop);
