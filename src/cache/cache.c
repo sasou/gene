@@ -116,7 +116,6 @@ void gene_cache_call(zval *object, zval *args, zval *retval) /*{{{*/
 		zval tmp_class;
 		class = gene_class_instance(&tmp_class, class, NULL);
 		call_user_function(NULL, class, method, retval, num, params);
-	    zval_ptr_dtor(&tmp_class);
 	}
     call_user_function(NULL, class, method, retval, num, params);
 }/*}}}*/
@@ -205,6 +204,7 @@ void curVersion(zval *versionField, zval *cache, zval *retval) {
 		if (i > 0) {
 			zval *val = zend_hash_find(Z_ARRVAL_P(cache), Z_STR_P(element));
 			if (val) {
+				Z_TRY_ADDREF_P(element);
 				Z_TRY_ADDREF_P(val);
 				add_assoc_zval_ex(retval,Z_STRVAL_P(element), Z_STRLEN_P(element), val);
 			}
@@ -336,6 +336,7 @@ PHP_METHOD(gene_cache, cachedVersion)
 	zval *data = NULL,*cacheData = NULL,*cacheVersion = NULL;
 	gene_cache_key(sign, 0, &key);
 	gene_cache_get_version_arr(versionSign, versionField, &cache_key, &key);
+
 	gene_cache_get(hook, &cache_key, &cache);
 
 	if (Z_TYPE(cache) == IS_ARRAY) {
@@ -352,7 +353,7 @@ PHP_METHOD(gene_cache, cachedVersion)
 			zval_ptr_dtor(&data_new);
 			zval_ptr_dtor(&cache_key);
 			zval_ptr_dtor(&cache);
-			RETURN_ZVAL(&cur_data, 1, 0);
+			RETURN_ZVAL(&cur_data, 0, 0);
 		} else {
 			cacheData = zend_hash_str_find(Z_ARRVAL_P(data), ZEND_STRL("data"));
 			cacheVersion = zend_hash_str_find(Z_ARRVAL_P(data), ZEND_STRL("version"));
@@ -369,11 +370,13 @@ PHP_METHOD(gene_cache, cachedVersion)
 				zval_ptr_dtor(&data_new);
 				zval_ptr_dtor(&cache_key);
 				zval_ptr_dtor(&cache);
-				RETURN_ZVAL(&cur_data, 1, 0);
+				RETURN_ZVAL(&cur_data, 0, 0);
 			}
+			Z_TRY_ADDREF_P(cacheData);
+			zval_ptr_dtor(&cache);
 			zval_ptr_dtor(&cache_key);
 			zval_ptr_dtor(&cur_version);
-			RETURN_ZVAL(cacheData, 1, 0);
+			RETURN_ZVAL(cacheData, 0, 0);
 		}
 	}
 	zval_ptr_dtor(&cache_key);
