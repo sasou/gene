@@ -561,7 +561,7 @@ PHP_METHOD(gene_application, __get)
 	zval *pzval = NULL;
 	zend_string *name = NULL;
 
-	if (zend_parse_parameters(ZEND_NUM_ARGS(), "|S", &name) == FAILURE) {
+	if (zend_parse_parameters(ZEND_NUM_ARGS(), "S", &name) == FAILURE) {
 		return;
 	}
 

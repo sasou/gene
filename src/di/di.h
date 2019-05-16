@@ -25,10 +25,9 @@ GENE_MINIT_FUNCTION (di);
 
 zval *gene_di_instance();
 
-zval *gene_di_get(zval *props, zend_string *name, zval *classObject);
+zval *gene_di_get(zend_string *name);
 zval *gene_class_instance(zval *obj, zval *class, zval *params);
 zval *gene_di_get_class(zend_string *class_name, zend_string *name);
 int gene_di_set_class(zend_string *class_name, zend_string *name, zval *value);
-zval *gene_di_get_easy(zend_string *name);
 
 #endif
