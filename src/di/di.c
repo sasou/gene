@@ -117,11 +117,13 @@ zval *gene_di_get(zend_string *name) {
 				zval_ptr_dtor(&tmp);
 				zval_ptr_dtor(&local_params);
 			}
-			Z_TRY_ADDREF(classObject);
+
 			if (type) {
+				Z_TRY_ADDREF(classObject);
 				zend_hash_update(Z_ARRVAL_P(entrys), Z_STR_P(class), &classObject);
 			}
 		    if ((pzval = zend_hash_update(Z_ARRVAL_P(entrys), name, &classObject)) != NULL ) {
+		    	Z_TRY_ADDREF(classObject);
 		    	return pzval;
 		    }
 		}
@@ -167,12 +169,10 @@ zval *gene_di_get_class(zend_string *class_name, zend_string *name) {
     smart_str_appendl(&class_val, name->val, name->len);
     smart_str_0(&class_val);
 	if ((ppzval = zend_hash_find(Z_ARRVAL_P(entrys), class_val.s)) == NULL) {
-		if ((ppzval = zend_hash_find(Z_ARRVAL_P(entrys), name)) == NULL) {
-			ppzval = gene_di_get(name);
-			if (ppzval != NULL) {
-				Z_TRY_ADDREF_P(ppzval);
-				ppzval = zend_hash_update(Z_ARRVAL_P(entrys), class_val.s, ppzval);
-			}
+		ppzval = gene_di_get(name);
+		if (ppzval != NULL) {
+			Z_TRY_ADDREF_P(ppzval);
+			ppzval = zend_hash_update(Z_ARRVAL_P(entrys), class_val.s, ppzval);
 		}
 	}
 	smart_str_free(&class_val);
