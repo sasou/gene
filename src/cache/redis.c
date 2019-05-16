@@ -44,6 +44,7 @@ int gene_redis_connect(zval *object, zval *host, zval *port, zval *timeout) /*{{
 	zval params[] = { *host, *port, *timeout };
     call_user_function(NULL, object, &function_name, &retval, 3, params);
     int ret =  (Z_TYPE(retval) == IS_TRUE ) ? 1 : 0;
+    zval_ptr_dtor(&retval);
     zval_ptr_dtor(&function_name);
     return ret;
 }/*}}}*/
@@ -56,6 +57,7 @@ int gene_redis_pconnect(zval *object, zval *host, zval *port, zval *timeout) /*{
 	zval params[] = { *host, *port, *timeout };
     call_user_function(NULL, object, &function_name, &retval, 3, params);
     int ret =  (Z_TYPE(retval) == IS_TRUE ) ? 1 : 0;
+    zval_ptr_dtor(&retval);
     zval_ptr_dtor(&function_name);
     return ret;
 }/*}}}*/
@@ -67,6 +69,7 @@ int gene_redis_setOption(zval *object, zval *key, zval *value) /*{{{*/
 	zval params[] = { *key, *value };
     call_user_function(NULL, object, &function_name, &retval, 2, params);
     int ret =  (Z_TYPE(retval) == IS_TRUE ) ? 1 : 0;
+    zval_ptr_dtor(&retval);
     zval_ptr_dtor(&function_name);
     return ret;
 }/*}}}*/
@@ -170,7 +173,6 @@ zend_bool initRObj (zval * self, zval *config) {
     	}ZEND_HASH_FOREACH_END();
     }
     zend_update_property(gene_redis_ce, self, ZEND_STRL(GENE_REDIS_OBJ), &obj_object);
-    zval_ptr_dtor(&obj_object);
 	return 1;
 }
 
@@ -267,6 +269,7 @@ PHP_METHOD(gene_redis, get) {
 							if (string_to_array(value, &tmp_arr[i])) {
 								add_assoc_zval_ex(&arr, Z_STRVAL_P(element), Z_STRLEN_P(element), &tmp_arr[i]);
 							} else {
+								Z_TRY_ADDREF_P(value);
 								add_assoc_zval_ex(&arr, Z_STRVAL_P(element), Z_STRLEN_P(element), value);
 							}
 			    		}
@@ -274,17 +277,17 @@ PHP_METHOD(gene_redis, get) {
 		    		i=i+1;
 		    	}ZEND_HASH_FOREACH_END();
 		    	zval_ptr_dtor(&ret);
-		    	RETURN_ZVAL(&arr, 0, 0);
+		    	RETURN_ZVAL(&arr, 1, 1);
 			} else {
 				zval arr;
 				if (string_to_array(&ret, &arr)) {
 					zval_ptr_dtor(&ret);
-					RETURN_ZVAL(&arr, 0, 0);
+					RETURN_ZVAL(&arr, 1, 1);
 				}
-				RETURN_ZVAL(&ret, 0, 0);
+				RETURN_ZVAL(&ret, 1, 1);
 			}
 		}
-		RETURN_ZVAL(&ret, 0, 0);
+		RETURN_ZVAL(&ret, 1, 1);
 	}
 	RETURN_NULL();
 }
@@ -332,7 +335,7 @@ PHP_METHOD(gene_redis, set) {
 	    		}
 	    	}
 		}
-		RETURN_ZVAL(&ret, 0, 0);
+		RETURN_ZVAL(&ret, 1, 1);
 	}
 	RETURN_NULL();
 }
@@ -357,7 +360,7 @@ PHP_METHOD(gene_redis, __call) {
     			gene_factory_call(object, method, params, &ret);
     		}
     	}
-		RETURN_ZVAL(&ret, 0, 0);
+		RETURN_ZVAL(&ret, 1, 1);
 	}
 	RETURN_NULL();
 }

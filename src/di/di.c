@@ -98,7 +98,6 @@ zval *gene_di_get(zend_string *name) {
 
 		if (type) {
 			if ((pzval = zend_hash_find(Z_ARRVAL_P(entrys), Z_STR_P(class))) != NULL) {
-				php_printf(" instance ");
 				return pzval;
 			}
 		}
@@ -119,11 +118,9 @@ zval *gene_di_get(zend_string *name) {
 			}
 
 			if (type) {
-				Z_TRY_ADDREF(classObject);
 				zend_hash_update(Z_ARRVAL_P(entrys), Z_STR_P(class), &classObject);
 			}
 		    if ((pzval = zend_hash_update(Z_ARRVAL_P(entrys), name, &classObject)) != NULL ) {
-		    	Z_TRY_ADDREF(classObject);
 		    	return pzval;
 		    }
 		}
@@ -147,7 +144,6 @@ zval *gene_class_instance(zval *obj, zval *class_name, zval *params) {
 		}
 
 		if ((ppzval = zend_hash_str_update(Z_ARRVAL_P(entrys), Z_STRVAL_P(class_name), Z_STRLEN_P(class_name), obj)) != NULL ) {
-			Z_TRY_ADDREF_P(obj);
 			return ppzval;
 		}
 		return obj;
@@ -170,15 +166,15 @@ zval *gene_di_get_class(zend_string *class_name, zend_string *name) {
     smart_str_appendc(&class_val, '_');
     smart_str_appendl(&class_val, name->val, name->len);
     smart_str_0(&class_val);
-	if ((ppzval = zend_hash_find(Z_ARRVAL_P(entrys), class_val.s)) == NULL) {
-		ppzval = gene_di_get(name);
-		if (ppzval != NULL) {
-			Z_TRY_ADDREF_P(ppzval);
-			ppzval = zend_hash_update(Z_ARRVAL_P(entrys), class_val.s, ppzval);
-		}
+	if ((ppzval = zend_hash_find(Z_ARRVAL_P(entrys), class_val.s)) != NULL) {
+		return ppzval;
+	}
+	ppzval = gene_di_get(name);
+	if (ppzval != NULL) {
+		return ppzval;
 	}
 	smart_str_free(&class_val);
-	return ppzval;
+	return NULL;
 }
 /* }}} */
 

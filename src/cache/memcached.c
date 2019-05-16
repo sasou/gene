@@ -310,7 +310,7 @@ PHP_METHOD(gene_memcached, get) {
 		#else
 			memcached_get(object, key, &ret);
 		#endif
-		RETURN_ZVAL(&ret, 0, 0);
+		RETURN_ZVAL(&ret, 1, 1);
 	}
 	RETURN_NULL();
 }
