@@ -324,7 +324,7 @@ PHP_METHOD(gene_memcached, set)
 	zval tmp_ttl, tmp_flag;
     int ret = 0;
 
-	if (zend_parse_parameters(ZEND_NUM_ARGS() TSRMLS_CC, "zz|zz", &key, &value, &flag, &ttl) == FAILURE) {
+	if (zend_parse_parameters(ZEND_NUM_ARGS() TSRMLS_CC, "zz|zz", &key, &value, &ttl, &flag) == FAILURE) {
 		return;
 	}
 	ZVAL_NULL(&tmp_ttl);

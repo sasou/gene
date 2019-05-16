@@ -55,21 +55,30 @@ ZEND_END_ARG_INFO()
 /* }}} */
 
 
-zval *gene_di_get(zval *props, zend_string *name, zval *classObject) {
+zval *gene_di_get(zend_string *name) {
+	zval  *pzval = NULL,*class = NULL,*params = NULL, *instance = NULL,*cache = NULL, *di = NULL, *entrys = NULL;
+
+	di = gene_di_instance();
+	entrys = zend_read_property(gene_di_ce, di, GENE_DI_PROPERTY_REG, strlen(GENE_DI_PROPERTY_REG), 1, NULL);
+
+	if ((pzval = zend_hash_find(Z_ARRVAL_P(entrys), name)) != NULL) {
+		return pzval;
+	}
+
 	char *router_e = NULL;
 	int router_e_len = 0;
 	zend_bool type = 0;
-	zval  *pzval = NULL,*class = NULL,*params = NULL, *instance = NULL,*cache = NULL, *di = NULL, *entrys = NULL;
-	zval local_params;
 
 	if (GENE_G(app_key)) {
 		router_e_len = spprintf(&router_e, 0, "%s%s", GENE_G(app_key), GENE_CONFIG_CACHE);
 	} else {
 		router_e_len = spprintf(&router_e, 0, "%s%s", GENE_G(directory), GENE_CONFIG_CACHE);
 	}
+
 	cache = gene_memory_get_by_config(router_e, router_e_len, ZSTR_VAL(name) TSRMLS_CC);
 	efree(router_e);
 	router_e = NULL;
+
 	if (cache && Z_TYPE_P(cache) == IS_ARRAY) {
     	if ((class = zend_hash_str_find(cache->value.arr, "class", 5)) == NULL) {
     		 php_error_docref(NULL, E_ERROR, "Factory need a valid class.");
@@ -82,39 +91,40 @@ zval *gene_di_get(zval *props, zend_string *name, zval *classObject) {
     		 }
     	}
     	instance = zend_hash_str_find(cache->value.arr, "instance", 8);
+
     	if (instance && Z_TYPE_P(instance) == IS_TRUE) {
     		type = 1;
     	}
 
 		if (type) {
-	    	di = gene_di_instance();
-			entrys = zend_read_property(gene_di_ce, di, GENE_DI_PROPERTY_REG, strlen(GENE_DI_PROPERTY_REG), 1, NULL);
-			if ((pzval = zend_hash_str_find(Z_ARRVAL_P(entrys), Z_STRVAL_P(class), Z_STRLEN_P(class))) != NULL) {
-				if ( zend_hash_update(Z_ARRVAL_P(props), name, pzval) != NULL) {
-					return pzval;
+			if ((pzval = zend_hash_find(Z_ARRVAL_P(entrys), Z_STR_P(class))) != NULL) {
+				php_printf(" instance ");
+				return pzval;
+			}
+		}
+
+		zval classObject;
+		if (gene_factory_load_class(Z_STRVAL_P(class), Z_STRLEN_P(class), &classObject)) {
+			if (zend_hash_str_exists(&(Z_OBJCE(classObject)->function_table), ZEND_STRL("__construct"))) {
+				zval tmp;
+				zval local_params;
+				if (params) {
+					gene_memory_zval_local(&local_params, params);
+				} else {
+					ZVAL_NULL(&local_params);
 				}
-			}
-		}
-
-		if (params) {
-			gene_memory_zval_local(&local_params, params);
-		} else {
-			ZVAL_NULL(&local_params);
-		}
-
-		if (gene_factory(ZSTR_VAL(class->value.str), ZSTR_LEN(class->value.str), &local_params, classObject)) {
-			if (type) {
-				Z_TRY_ADDREF_P(classObject);
-				zend_hash_str_update(Z_ARRVAL_P(entrys), Z_STRVAL_P(class), Z_STRLEN_P(class), classObject);
-			}
-
-			if (zend_hash_update(Z_ARRVAL_P(props), name, classObject) != NULL) {
-				Z_TRY_ADDREF_P(classObject);
+				gene_factory_call(&classObject, "__construct", &local_params, &tmp);
+				zval_ptr_dtor(&tmp);
 				zval_ptr_dtor(&local_params);
-				return classObject;
 			}
+			Z_TRY_ADDREF(classObject);
+			if (type) {
+				zend_hash_update(Z_ARRVAL_P(entrys), Z_STR_P(class), &classObject);
+			}
+		    if ((pzval = zend_hash_update(Z_ARRVAL_P(entrys), name, &classObject)) != NULL ) {
+		    	return pzval;
+		    }
 		}
-		zval_ptr_dtor(&local_params);
 	}
 	return NULL;
 }
@@ -132,7 +142,7 @@ zval *gene_class_instance(zval *obj, zval *class_name, zval *params) {
 				gene_factory_call(obj, "__construct", params, &tmp);
 				zval_ptr_dtor(&tmp);
 			}
-		    if (zend_hash_str_update(Z_ARRVAL_P(entrys), Z_STRVAL_P(class_name), Z_STRLEN_P(class_name), obj) != NULL ) {
+		    if ((obj = zend_hash_str_update(Z_ARRVAL_P(entrys), Z_STRVAL_P(class_name), Z_STRLEN_P(class_name), obj)) != NULL ) {
 				Z_TRY_ADDREF_P(obj);
 		    	return obj;
 		    }
@@ -143,27 +153,14 @@ zval *gene_class_instance(zval *obj, zval *class_name, zval *params) {
 
 
 /*
- *  {{{ int gene_di_get_easy(zend_string *name, zval *ppzval)
- */
-zval *gene_di_get_easy(zend_string *name) {
-	zval *di, *entrys, classObject, *ppzval = NULL;
-	di = gene_di_instance();
-	entrys = zend_read_property(gene_di_ce, di, GENE_DI_PROPERTY_REG, strlen(GENE_DI_PROPERTY_REG), 1, NULL);
-	if ((ppzval = zend_hash_find(Z_ARRVAL_P(entrys), name)) == NULL) {
-		ppzval = gene_di_get(entrys, name, &classObject);
-	}
-	return ppzval;
-}
-/* }}} */
-
-
-/*
  *  {{{ int gene_di_get_class(zend_string class_name, zend_string *name)
  */
 zval *gene_di_get_class(zend_string *class_name, zend_string *name) {
-	zval *di, *entrys, classObject, *ppzval = NULL;
+	zval *di, *entrys, *ppzval = NULL;
+
 	di = gene_di_instance();
 	entrys = zend_read_property(gene_di_ce, di, GENE_DI_PROPERTY_REG, strlen(GENE_DI_PROPERTY_REG), 1, NULL);
+
     smart_str class_val = {0};
     smart_str_appendl(&class_val, class_name->val, class_name->len);
     smart_str_appendc(&class_val, '_');
@@ -171,7 +168,11 @@ zval *gene_di_get_class(zend_string *class_name, zend_string *name) {
     smart_str_0(&class_val);
 	if ((ppzval = zend_hash_find(Z_ARRVAL_P(entrys), class_val.s)) == NULL) {
 		if ((ppzval = zend_hash_find(Z_ARRVAL_P(entrys), name)) == NULL) {
-			ppzval = gene_di_get(entrys, name, &classObject);
+			ppzval = gene_di_get(name);
+			if (ppzval != NULL) {
+				Z_TRY_ADDREF_P(ppzval);
+				ppzval = zend_hash_update(Z_ARRVAL_P(entrys), class_val.s, ppzval);
+			}
 		}
 	}
 	smart_str_free(&class_val);
@@ -184,7 +185,7 @@ zval *gene_di_get_class(zend_string *class_name, zend_string *name) {
  *  {{{ int gene_di_set_class(zend_string class_name, zend_string *name)
  */
 int gene_di_set_class(zend_string *class_name, zend_string *name, zval *value) {
-	zval *di, *entrys, classObject, *ppzval = NULL;
+	zval *di, *entrys, *ppzval = NULL;
 	di = gene_di_instance();
 	entrys = zend_read_property(gene_di_ce, di, GENE_DI_PROPERTY_REG, strlen(GENE_DI_PROPERTY_REG), 1, NULL);
     smart_str class_val = {0};
@@ -192,6 +193,7 @@ int gene_di_set_class(zend_string *class_name, zend_string *name, zval *value) {
     smart_str_appendc(&class_val, '_');
     smart_str_appendl(&class_val, name->val, name->len);
     smart_str_0(&class_val);
+    Z_TRY_ADDREF_P(value);
     zend_hash_update(Z_ARRVAL_P(entrys), class_val.s, value);
 	smart_str_free(&class_val);
 	return 1;
@@ -254,7 +256,8 @@ PHP_METHOD(gene_di, get) {
 	if (zend_parse_parameters(ZEND_NUM_ARGS()TSRMLS_CC, "S", &name) == FAILURE) {
 		RETURN_NULL();
 	}
-	ppzval = gene_di_get_easy(name);
+
+	ppzval = gene_di_get(name);
 	if (ppzval) {
 		RETURN_ZVAL(ppzval, 1, 0);
 	}
