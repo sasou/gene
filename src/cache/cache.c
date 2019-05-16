@@ -272,7 +272,7 @@ PHP_METHOD(gene_cache, cached)
 	hookName = zend_hash_str_find(Z_ARRVAL_P(config), ZEND_STRL("hook"));
 	sign = zend_hash_str_find(Z_ARRVAL_P(config), ZEND_STRL("sign"));
 
-	hook = gene_di_get_easy(Z_STR_P(hookName));
+	hook = gene_di_get(Z_STR_P(hookName));
 
 	zval key, ret, data;
 	gene_cache_key(sign, 1, &key);
@@ -302,7 +302,7 @@ PHP_METHOD(gene_cache, unsetCached)
 	hookName = zend_hash_str_find(Z_ARRVAL_P(config), ZEND_STRL("hook"));
 	sign = zend_hash_str_find(Z_ARRVAL_P(config), ZEND_STRL("sign"));
 
-	hook = gene_di_get_easy(Z_STR_P(hookName));
+	hook = gene_di_get(Z_STR_P(hookName));
 
 	zval key, ret;
 	gene_cache_key(sign, 1, &key);
@@ -311,6 +311,10 @@ PHP_METHOD(gene_cache, unsetCached)
 	RETURN_ZVAL(&ret, 0, 0);
 }
 /* }}} */
+
+void cache_data(zval *data, zval *version, zval *retval) {
+
+}
 
 /*
  * {{{ public gene_cache::cachedVersion($key)
@@ -325,7 +329,7 @@ PHP_METHOD(gene_cache, cachedVersion)
 	hookName = zend_hash_str_find(Z_ARRVAL_P(config), ZEND_STRL("hook"));
 	sign = zend_hash_str_find(Z_ARRVAL_P(config), ZEND_STRL("sign"));
 	versionSign = zend_hash_str_find(Z_ARRVAL_P(config), ZEND_STRL("versionSign"));
-	hook = gene_di_get_easy(Z_STR_P(hookName));
+	hook = gene_di_get(Z_STR_P(hookName));
 
 	zval key, cache, cache_key;
 	zval *data = NULL,*cacheData = NULL,*cacheVersion = NULL;
@@ -354,10 +358,8 @@ PHP_METHOD(gene_cache, cachedVersion)
 			zval cur_version;
 			curVersion(&cache_key, &cache, &cur_version);
 			if (cacheVersion == NULL || checkVersion(cacheVersion, &cur_version) == 0) {
-				zval_ptr_dtor(&cur_version);
-				zval data_new,cur_data,cur_version;
+				zval data_new,cur_data;
 				gene_cache_call(obj, args, &cur_data);
-				curVersion(&cache_key, &cache, &cur_version);
 				array_init(&data_new);
 				Z_TRY_ADDREF(cur_data);
 				add_assoc_zval_ex(&data_new, ZEND_STRL("data"), &cur_data);
@@ -368,7 +370,6 @@ PHP_METHOD(gene_cache, cachedVersion)
 				zval_ptr_dtor(&cache);
 				RETURN_ZVAL(&cur_data, 0, 0);
 			}
-			Z_TRY_ADDREF_P(cacheData);
 			zval_ptr_dtor(&cache);
 			zval_ptr_dtor(&cache_key);
 			zval_ptr_dtor(&cur_version);
@@ -395,7 +396,7 @@ PHP_METHOD(gene_cache, getVersion)
 	versionSign = zend_hash_str_find(Z_ARRVAL_P(config), ZEND_STRL("versionSign"));
 
 	zval ret, new_arr;
-	hook = gene_di_get_easy(Z_STR_P(hookName));
+	hook = gene_di_get(Z_STR_P(hookName));
 	gene_cache_get_version_arr(versionSign, versionField, &new_arr, NULL);
 	gene_cache_get(hook, &new_arr, &ret);
 	zval_ptr_dtor(&new_arr);
@@ -416,7 +417,8 @@ PHP_METHOD(gene_cache, updateVersion)
 	config =  zend_read_property(gene_cache_ce, self, ZEND_STRL(GENE_CACHE_CONFIG), 1, NULL);
 	hookName = zend_hash_str_find(Z_ARRVAL_P(config), ZEND_STRL("hook"));
 	sign = zend_hash_str_find(Z_ARRVAL_P(config), ZEND_STRL("versionSign"));
-	hook = gene_di_get_easy(Z_STR_P(hookName));
+
+	hook = gene_di_get(Z_STR_P(hookName));
 	gene_cache_update_version(sign, versionField, hook);
 	RETURN_TRUE;
 }
