@@ -1575,7 +1575,6 @@ GENE_MINIT_FUNCTION(db_mysql)
 {
     zend_class_entry gene_db_mysql;
 	GENE_INIT_CLASS_ENTRY(gene_db_mysql, "Gene_Db_Mysql", "Gene\\Db\\Mysql", gene_db_mysql_methods);
-	GENE_INIT_CLASS_ENTRY(gene_db_mysql, "Gene_Db", "Gene\\Db", gene_db_mysql_methods);
 	gene_db_mysql_ce = zend_register_internal_class_ex(&gene_db_mysql, NULL);
 	gene_db_mysql_ce->ce_flags |= ZEND_ACC_FINAL;
 
