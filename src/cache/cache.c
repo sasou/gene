@@ -204,6 +204,7 @@ void curVersion(zval *versionField, zval *cache, zval *retval) {
 		if (i > 0) {
 			zval *val = zend_hash_find(Z_ARRVAL_P(cache), Z_STR_P(element));
 			if (val) {
+				Z_TRY_ADDREF_P(val);
 				add_assoc_zval_ex(retval,Z_STRVAL_P(element), Z_STRLEN_P(element), val);
 			}
 		}
@@ -358,13 +359,11 @@ PHP_METHOD(gene_cache, cachedVersion)
 				array_init(&data_new);
 				Z_TRY_ADDREF(cur_data);
 				add_assoc_zval_ex(&data_new, ZEND_STRL("data"), &cur_data);
-				Z_TRY_ADDREF(cur_version);
 				add_assoc_zval_ex(&data_new, ZEND_STRL("version"), &cur_version);
 				hook_cache_set(hook, &key, &data_new, ttl);
 				zval_ptr_dtor(&data_new);
 				zval_ptr_dtor(&cache_key);
 				zval_ptr_dtor(&cache);
-				zval_ptr_dtor(&cur_version);
 				RETURN_ZVAL(&cur_data, 1, 1);
 			}
 			Z_TRY_ADDREF_P(cacheData);
