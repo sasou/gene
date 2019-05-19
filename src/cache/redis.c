@@ -173,6 +173,7 @@ zend_bool initRObj (zval * self, zval *config) {
     	}ZEND_HASH_FOREACH_END();
     }
     zend_update_property(gene_redis_ce, self, ZEND_STRL(GENE_REDIS_OBJ), &obj_object);
+    zval_ptr_dtor(&obj_object);
 	return 1;
 }
 
