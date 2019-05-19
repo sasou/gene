@@ -116,8 +116,9 @@ void gene_cache_call(zval *object, zval *args, zval *retval) /*{{{*/
 		zval tmp_class;
 		class = gene_class_instance(&tmp_class, class, NULL);
 		call_user_function(NULL, class, method, retval, num, params);
+	} else {
+	    call_user_function(NULL, class, method, retval, num, params);
 	}
-    call_user_function(NULL, class, method, retval, num, params);
 }/*}}}*/
 
 void makeKey(zval *versionSign, zend_string *id, zval *element, zval *retval) {
@@ -191,7 +192,6 @@ void hook_cache_set(zval *object, zval *key, zval *value, zval *ttl) {
 		ttl = &tmp_ttl;
 	}
 	gene_cache_set(object, key, value, ttl, &set_ret);
-	php_printf(" type:%d ", Z_TYPE(set_ret));
 	zval_ptr_dtor(&set_ret);
 	zval_ptr_dtor(&tmp_ttl);
 }
@@ -336,20 +336,7 @@ PHP_METHOD(gene_cache, cachedVersion)
 
 	if (Z_TYPE(cache) == IS_ARRAY) {
 		data = zend_hash_find(Z_ARRVAL(cache), Z_STR(key));
-		if (data == NULL) {
-			zval data_new,cur_data,cur_version;
-			gene_cache_call(obj, args, &cur_data);
-			curVersion(&cache_key, &cache, &cur_version);
-			array_init(&data_new);
-			Z_TRY_ADDREF(cur_data);
-			add_assoc_zval_ex(&data_new, ZEND_STRL("data"), &cur_data);
-			add_assoc_zval_ex(&data_new, ZEND_STRL("version"), &cur_version);
-			hook_cache_set(hook, &key, &data_new, ttl);
-			zval_ptr_dtor(&data_new);
-			zval_ptr_dtor(&cache_key);
-			zval_ptr_dtor(&cache);
-			RETURN_ZVAL(&cur_data, 1, 1);
-		} else {
+		if (data != NULL && Z_TYPE_P(data) == IS_ARRAY) {
 			cacheData = zend_hash_str_find(Z_ARRVAL_P(data), ZEND_STRL("data"));
 			cacheVersion = zend_hash_str_find(Z_ARRVAL_P(data), ZEND_STRL("version"));
 			zval cur_version;
@@ -372,6 +359,19 @@ PHP_METHOD(gene_cache, cachedVersion)
 			zval_ptr_dtor(&cache_key);
 			zval_ptr_dtor(&cur_version);
 			RETURN_ZVAL(cacheData, 1, 1);
+		} else {
+			zval data_new,cur_data,cur_version;
+			gene_cache_call(obj, args, &cur_data);
+			curVersion(&cache_key, &cache, &cur_version);
+			array_init(&data_new);
+			Z_TRY_ADDREF(cur_data);
+			add_assoc_zval_ex(&data_new, ZEND_STRL("data"), &cur_data);
+			add_assoc_zval_ex(&data_new, ZEND_STRL("version"), &cur_version);
+			hook_cache_set(hook, &key, &data_new, ttl);
+			zval_ptr_dtor(&data_new);
+			zval_ptr_dtor(&cache_key);
+			zval_ptr_dtor(&cache);
+			RETURN_ZVAL(&cur_data, 1, 1);
 		}
 	}
 	zval_ptr_dtor(&cache_key);
