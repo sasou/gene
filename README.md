@@ -2,15 +2,25 @@
 
     Simple, high performance,C extension framework for php7！
 	
-    版本：2.2.0  
+    版本：3.0.0  
     
 
-php5的版本 ：https://github.com/sasou/php-gene
+简单、高性能、优雅的php c扩展框架！  
 
-windows版本：https://github.com/sasou/php-gene-for-windows
+框架核心能力：
+* 支持MVCS（瘦MC模式，业务逻辑封装到service）；
+* 强大的路由，采用二叉树查找算法，性能强劲，支持HTTP REST请求；
+* 全局、局部钩子支持；
+* 对象容器注入、反转控制支持；
+* 工厂方法单例支持；
+* 数据库高性能orm类库；
+* 路由、配置进程级缓存；
+* 模板引擎支持；
+* Cli命令运行支持；
+* 方法级定时缓存、实时版本缓存更新功能（创新功能：高效的实时缓存方案，轻松解决复杂缓存的更新，比如分页数据的缓存）； 
+* 其他：redis、memcached类库二次封装；
 
-简单、高性能、优雅的php c扩展框架！
-框架的核心是gene_application类，加载配置文件并启动：
+框架的入口是gene_application类，加载配置文件并启动：
 
     简单运行：
 	<?php
@@ -91,7 +101,7 @@ windows版本：https://github.com/sasou/php-gene-for-windows
             'options' => array(PDO::ATTR_PERSISTENT => true)
     );
     
-	$abc = new Gene\db($config);
+	$abc = new Gene\Db\Mysql($config);
     // 查询全部
 	var_dump($abc->select('user', ["id", "name","time"])->order("id desc")->limit(0, 1)->all());
     // 原生查询
@@ -151,5 +161,9 @@ DEMO：
         生材网
 	https://www.materialw.com/
 
+
+php5的版本 ：https://github.com/sasou/php-gene
+
+windows版本：https://github.com/sasou/php-gene-for-windows
 
 <a href="https://info.flagcounter.com/AEYx"><img src="https://s11.flagcounter.com/count2/AEYx/bg_FFFFFF/txt_000000/border_CCCCCC/columns_2/maxflags_10/viewers_0/labels_1/pageviews_1/flags_0/percent_0/" alt="Flag Counter" border="0"></a>
