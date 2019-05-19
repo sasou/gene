@@ -60,8 +60,7 @@ ZEND_END_ARG_INFO()
 
 void gene_memcached_construct(zval *object, zval *persistent_id) /*{{{*/
 {
-    zval retval;
-    zval function_name;
+    zval function_name, retval;
     ZVAL_STRING(&function_name, "__construct");
     if (persistent_id) {
     	zval params[] = { *persistent_id };
@@ -83,52 +82,50 @@ void gene_memcached_getServerList(zval *object, zval *retval) /*{{{*/
 }/*}}}*/
 
 
-int gene_memcached_resetServerList(zval *object) /*{{{*/
+void gene_memcached_resetServerList(zval *object) /*{{{*/
 {
     zval function_name, retval;
     ZVAL_STRING(&function_name, "resetServerList");
     call_user_function(NULL, object, &function_name, &retval, 0, NULL);
-    int ret =  (Z_TYPE(retval) == IS_TRUE ) ? 1 : 0;
     zval_ptr_dtor(&function_name);
     zval_ptr_dtor(&retval);
-    return ret;
 }/*}}}*/
 
 
-int gene_memcached_addServers(zval *object, zval *servers) /*{{{*/
+void gene_memcached_addServers(zval *object, zval *servers) /*{{{*/
 {
     zval function_name, retval;
     ZVAL_STRING(&function_name, "addServers");
 	zval params[] = { *servers };
     call_user_function(NULL, object, &function_name, &retval, 1, params);
-    int ret =  (Z_TYPE(retval) == IS_TRUE ) ? 1 : 0;
     zval_ptr_dtor(&function_name);
     zval_ptr_dtor(&retval);
-    return ret;
 
 }/*}}}*/
 
-int gene_memcached_set(zval *object, zval *key, zval *value, zval *ttl) /*{{{*/
+void gene_memcached_set(zval *object, zval *key, zval *value, zval *ttl, zval *retval) /*{{{*/
 {
-    zval function_name, retval;
+    zval function_name;
     ZVAL_STRING(&function_name, "set");
-	zval params[] = { *key, *value, *ttl };
-    call_user_function(NULL, object, &function_name, &retval, 3, params);
-    int ret =  (Z_TYPE(retval) == IS_TRUE ) ? 1 : 0;
+    zval params[3];
+    int num = 2;
+    params[0] = *key;
+    params[1] = *value;
+    if (ttl) {
+    	num = 3;
+    	params[2] = *ttl;
+    }
+    call_user_function(NULL, object, &function_name, retval, num, params);
     zval_ptr_dtor(&function_name);
-    zval_ptr_dtor(&retval);
-    return ret;
 }/*}}}*/
 
-int gene_memcached_increment(zval *object, zval *key, zval *value, zval *retval) /*{{{*/
+void gene_memcached_increment(zval *object, zval *key, zval *value, zval *retval) /*{{{*/
 {
     zval function_name;
     ZVAL_STRING(&function_name, "increment");
 	zval params[] = { *key, *value };
     call_user_function(NULL, object, &function_name, retval, 2, params);
-    int ret =  (Z_TYPE_P(retval) == IS_FALSE ) ? 0 : 1;
     zval_ptr_dtor(&function_name);
-    return ret;
 }/*}}}*/
 
 void gene_memcached_get(zval *object, zval *key, zval *retval) /*{{{*/
@@ -149,15 +146,13 @@ void gene_memcached_getMulti(zval *object, zval *key, zval *retval) /*{{{*/
     zval_ptr_dtor(&function_name);
 }/*}}}*/
 
-int gene_memcached_decrement(zval *object, zval *key, zval *value, zval *retval) /*{{{*/
+void gene_memcached_decrement(zval *object, zval *key, zval *value, zval *retval) /*{{{*/
 {
     zval function_name;
     ZVAL_STRING(&function_name, "decrement");
 	zval params[] = { *key, *value };
     call_user_function(NULL, object, &function_name, retval, 2, params);
-    int ret =  (Z_TYPE_P(retval) == IS_FALSE ) ? 0 : 1;
     zval_ptr_dtor(&function_name);
-    return ret;
 }/*}}}*/
 
 void gene_memcache_get(zval *object, zval *key, zval *retval) /*{{{*/
@@ -169,29 +164,36 @@ void gene_memcache_get(zval *object, zval *key, zval *retval) /*{{{*/
     zval_ptr_dtor(&function_name);
 }/*}}}*/
 
-int gene_memcache_set(zval *object, zval *key, zval *value, zval *flag, zval *ttl) /*{{{*/
+void gene_memcache_set(zval *object, zval *key, zval *value, zval *flag, zval *ttl,zval *retval) /*{{{*/
 {
-    zval function_name, retval;
+    zval function_name;
     ZVAL_STRING(&function_name, "set");
-	zval params[] = { *key, *value, *flag, *ttl};
-    call_user_function(NULL, object, &function_name, &retval, 2, params);
-    int ret =  (Z_TYPE(retval) == IS_TRUE ) ? 1 : 0;
+    zval params[4],tmp_flag;
+    int num = 2;
+    params[0] = *key;
+    params[1] = *value;
+	ZVAL_LONG(&tmp_flag, 0);
+    if (ttl) {
+    	if (flag == NULL) {
+    		flag = &tmp_flag;
+    	}
+    	num = 4;
+    	params[2] = *flag;
+    	params[3] = *ttl;
+    }
+    call_user_function(NULL, object, &function_name, retval, num, params);
+    zval_ptr_dtor(&tmp_flag);
     zval_ptr_dtor(&function_name);
-    zval_ptr_dtor(&retval);
-    return ret;
 }/*}}}*/
 
-int gene_memcached_setOptions(zval *object, zval *options) /*{{{*/
+void gene_memcached_setOptions(zval *object, zval *options) /*{{{*/
 {
     zval function_name, retval;
     ZVAL_STRING(&function_name, "setOptions");
 	zval params[] = { *options };
     call_user_function(NULL, object, &function_name, &retval, 1, params);
-    int ret =  (Z_TYPE(retval) == IS_TRUE ) ? 1 : 0;
     zval_ptr_dtor(&function_name);
     zval_ptr_dtor(&retval);
-    return ret;
-
 }/*}}}*/
 
 
@@ -321,39 +323,25 @@ PHP_METHOD(gene_memcached, get) {
 PHP_METHOD(gene_memcached, set)
 {
 	zval *self = getThis(),  *object = NULL, *key = NULL, *value = NULL, *ttl = NULL, *flag = NULL, *config = NULL;
-	zval tmp_ttl, tmp_flag;
-    int ret = 0;
+	zval ret;
 
 	if (zend_parse_parameters(ZEND_NUM_ARGS() TSRMLS_CC, "zz|zz", &key, &value, &ttl, &flag) == FAILURE) {
 		return;
 	}
-	ZVAL_NULL(&tmp_ttl);
+
 	if (ttl == NULL) {
 		config =  zend_read_property(gene_memcached_ce, self, ZEND_STRL(GENE_MEM_CONFIG), 1, NULL);
-		if ((ttl = zend_hash_str_find(Z_ARRVAL_P(config), ZEND_STRL("ttl"))) == NULL) {
-			ZVAL_LONG(&tmp_ttl, 0);
-			ttl = &tmp_ttl;
-		}
-	}
-	object = zend_read_property(gene_memcached_ce, self, ZEND_STRL(GENE_MEM_OBJ), 1, NULL);
-	#ifdef PHP_WIN32
-		if (flag == NULL) {
-			ZVAL_LONG(&tmp_flag, 0);
-			flag = &tmp_flag;
-		}
-		ret = gene_memcache_set (object, key, value, ttl, flag);
-		zval_ptr_dtor(&tmp_flag);
-	#else
-		ret = gene_memcached_set (object, key, value, ttl);
-	#endif
-	if (Z_TYPE(tmp_ttl) != IS_NULL) {
-		zval_ptr_dtor(&tmp_ttl);
+		ttl = zend_hash_str_find(Z_ARRVAL_P(config), ZEND_STRL("ttl"));
 	}
 
-	if (ret) {
-		RETURN_TRUE;
-	}
-	RETURN_FALSE;
+	object = zend_read_property(gene_memcached_ce, self, ZEND_STRL(GENE_MEM_OBJ), 1, NULL);
+	#ifdef PHP_WIN32
+		gene_memcache_set (object, key, value, ttl, flag, &ret);
+	#else
+		gene_memcached_set (object, key, value, ttl, &ret);
+	#endif
+
+	RETURN_ZVAL(&ret, 1, 1);
 }
 /* }}} */
 
@@ -391,8 +379,9 @@ PHP_METHOD(gene_memcached, incr) {
 			ZVAL_LONG(&tmp_value, 1);
 			value = &tmp_value;
 		}
-		if (gene_memcached_increment(object, key, value, &ret)) {
-			RETURN_ZVAL(&ret, 1, 0);
+		gene_memcached_increment(object, key, value, &ret);
+		if (Z_TYPE(ret) != IS_FALSE) {
+			RETURN_ZVAL(&ret, 1, 1);
 		}
 	    zval function_name, retval;
 	    ZVAL_STRING(&function_name, "set");
@@ -424,9 +413,11 @@ PHP_METHOD(gene_memcached, decr) {
 			ZVAL_LONG(&tmp_value, 1);
 			value = &tmp_value;
 		}
-		if (gene_memcached_decrement(object, key, value, &ret)) {
-			RETURN_ZVAL(&ret, 1, 0);
+		gene_memcached_decrement(object, key, value, &ret);
+		if (Z_TYPE(ret) != IS_FALSE) {
+			RETURN_ZVAL(&ret, 1, 1);
 		}
+		zval_ptr_dtor(&ret);
 	    zval function_name, retval;
 	    ZVAL_STRING(&function_name, "set");
 		zval params[] = { *key, *value };

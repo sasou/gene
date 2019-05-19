@@ -191,6 +191,7 @@ void hook_cache_set(zval *object, zval *key, zval *value, zval *ttl) {
 		ttl = &tmp_ttl;
 	}
 	gene_cache_set(object, key, value, ttl, &set_ret);
+	php_printf(" type:%d ", Z_TYPE(set_ret));
 	zval_ptr_dtor(&set_ret);
 	zval_ptr_dtor(&tmp_ttl);
 }
