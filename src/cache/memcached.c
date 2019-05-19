@@ -49,8 +49,8 @@ ZEND_END_ARG_INFO()
 ZEND_BEGIN_ARG_INFO_EX(gene_memcached_set_arginfo, 0, 0, 2)
 	ZEND_ARG_INFO(0, key)
 	ZEND_ARG_INFO(0, value)
-	ZEND_ARG_INFO(0, flag)
 	ZEND_ARG_INFO(0, ttl)
+	ZEND_ARG_INFO(0, flag)
 ZEND_END_ARG_INFO()
 
 ZEND_BEGIN_ARG_INFO_EX(gene_memcached_call_arginfo, 0, 0, 2)
@@ -164,7 +164,7 @@ void gene_memcache_get(zval *object, zval *key, zval *retval) /*{{{*/
     zval_ptr_dtor(&function_name);
 }/*}}}*/
 
-void gene_memcache_set(zval *object, zval *key, zval *value, zval *flag, zval *ttl,zval *retval) /*{{{*/
+void gene_memcache_set(zval *object, zval *key, zval *value, zval *ttl, zval *flag,zval *retval) /*{{{*/
 {
     zval function_name;
     ZVAL_STRING(&function_name, "set");
