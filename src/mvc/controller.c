@@ -277,14 +277,18 @@ PHP_METHOD(gene_controller, displayExt) {
 /** {{{ public gene_controller::contains(string $file)
  */
 PHP_METHOD(gene_controller, contains) {
-	gene_view_display(GENE_G(child_views) TSRMLS_CC);
+	zval child;
+	gene_view_contains(GENE_G(child_views), &child TSRMLS_CC);
+	RETURN_ZVAL(&child, 1, 1);
 }
 /* }}} */
 
 /** {{{ public gene_controller::contains(string $file)
  */
 PHP_METHOD(gene_controller, containsExt) {
-	gene_view_display_ext(GENE_G(child_views), 0 TSRMLS_CC);
+	zval child;
+	gene_view_contains_ext(GENE_G(child_views), 0, &child TSRMLS_CC);
+	RETURN_ZVAL(&child, 1, 1);
 }
 /* }}} */
 
