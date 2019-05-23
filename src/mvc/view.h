@@ -21,7 +21,8 @@
 #define PARSER_NUMS 28
 
 extern zend_class_entry *gene_view_ce;
-
+void gene_view_contains(char *file, zval *ret TSRMLS_DC);
+void gene_view_contains_ext(char *file, zend_bool isCompile, zval *ret TSRMLS_DC);
 int gene_view_display(char *file TSRMLS_DC);
 static int check_folder_exists(char *fullpath);
 int gene_view_display_ext(char *file ,zend_bool isCompile TSRMLS_DC);
