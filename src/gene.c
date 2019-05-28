@@ -229,10 +229,10 @@ PHP_RSHUTDOWN_FUNCTION(gene) {
  */
 PHP_MINFO_FUNCTION(gene) {
 	php_info_print_table_start();
-	php_info_print_table_header(2, "gene support", "enabled");
-	php_info_print_table_row(2, "Author:", " sasou <admin@php-gene.com>");
-	php_info_print_table_row(2, "Web site:", " http://www.php-gene.com");
-	php_info_print_table_row(2, "Version:", PHP_GENE_VERSION);
+	php_info_print_table_header(2, "Gene support", "enabled");
+	php_info_print_table_row(2, "Gene author:", " sasou <admin@php-gene.com>");
+	php_info_print_table_row(2, "Gene site:", " http://www.php-gene.com");
+	php_info_print_table_row(2, "Gene version:", PHP_GENE_VERSION);
 	php_info_print_table_end();
 
 	DISPLAY_INI_ENTRIES();
