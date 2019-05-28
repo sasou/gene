@@ -275,11 +275,13 @@ PHP_METHOD(gene_cache, cached)
 
 	hook = gene_di_get(Z_STR_P(hookName));
 
-	zval key, ret, data;
+	zval key, ret;
 	gene_cache_key(sign, 1, &key);
 	gene_cache_get(hook, &key, &ret);
 	if (Z_TYPE(ret) == IS_FALSE) {
+		zval data;
 		gene_cache_call(obj, args, &data);
+		hook = gene_di_get(Z_STR_P(hookName));
 		hook_cache_set(hook, &key, &data, ttl);
 		zval_ptr_dtor(&key);
 		zval_ptr_dtor(&ret);
@@ -348,6 +350,7 @@ PHP_METHOD(gene_cache, cachedVersion)
 				Z_TRY_ADDREF(cur_data);
 				add_assoc_zval_ex(&data_new, ZEND_STRL("data"), &cur_data);
 				add_assoc_zval_ex(&data_new, ZEND_STRL("version"), &cur_version);
+				hook = gene_di_get(Z_STR_P(hookName));
 				hook_cache_set(hook, &key, &data_new, ttl);
 				zval_ptr_dtor(&data_new);
 				zval_ptr_dtor(&cache_key);
@@ -367,6 +370,7 @@ PHP_METHOD(gene_cache, cachedVersion)
 			Z_TRY_ADDREF(cur_data);
 			add_assoc_zval_ex(&data_new, ZEND_STRL("data"), &cur_data);
 			add_assoc_zval_ex(&data_new, ZEND_STRL("version"), &cur_version);
+			hook = gene_di_get(Z_STR_P(hookName));
 			hook_cache_set(hook, &key, &data_new, ttl);
 			zval_ptr_dtor(&data_new);
 			zval_ptr_dtor(&cache_key);
