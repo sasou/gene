@@ -2,7 +2,7 @@
 
     Simple, high performance,C extension framework for php7！
 	
-    版本：3.0.0  
+    版本：3.0.2  
     
 
 简单、高性能、优雅的php c扩展框架！  
