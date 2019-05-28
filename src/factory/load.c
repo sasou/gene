@@ -53,7 +53,11 @@ void gene_zend_execute(zend_op_array *op_array, zval *return_value)
 		return;
 	}
 
-	execute_data = zend_vm_stack_push_call_frame(ZEND_CALL_TOP_CODE | ZEND_CALL_HAS_SYMBOL_TABLE,
+	execute_data = zend_vm_stack_push_call_frame(ZEND_CALL_TOP_CODE
+#if PHP_VERSION_ID >= 70100
+ | ZEND_CALL_HAS_SYMBOL_TABLE
+#endif
+			,
 		(zend_function*)op_array, 0, zend_get_called_scope(EG(current_execute_data)), zend_get_this_object(EG(current_execute_data)));
 	if (EG(current_execute_data)) {
 		execute_data->symbol_table = zend_rebuild_symbol_table();

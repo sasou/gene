@@ -3,12 +3,11 @@ ARG_ENABLE("gene", "enable gene support", "no");
 
 if (PHP_GENE != "no") {
 	
-	EXTENSION("gene", "gene.c", true, "/I \"" + configure_module_dirname + "\" /DZEND_ENABLE_STATIC_TSRMLS_CACHE=1");
+	EXTENSION("gene", "gene.c", true, "/I " + configure_module_dirname);
 	
 	ADD_FLAG("CFLAGS_GENE", "/I " + configure_module_dirname);
 	
 	ADD_SOURCES(configure_module_dirname + "/app", "application.c", "gene");
-	ADD_SOURCES(configure_module_dirname + "/cache", "cache.c memcached.c memory.c redis.c", "gene");
 	ADD_SOURCES(configure_module_dirname + "/tool", "benchmark.c execute.c", "gene");
 	ADD_SOURCES(configure_module_dirname + "/common", "common.c", "gene");
 	ADD_SOURCES(configure_module_dirname + "/config", "configs.c", "gene");
@@ -21,6 +20,7 @@ if (PHP_GENE != "no") {
 	ADD_SOURCES(configure_module_dirname + "/router", "router.c", "gene");
 	ADD_SOURCES(configure_module_dirname + "/service", "service.c", "gene");
 	ADD_SOURCES(configure_module_dirname + "/session", "session.c", "gene");
+	ADD_SOURCES(configure_module_dirname + "/cache", "memory.c memcached.c redis.c cache.c", "gene");
 	
 	AC_DEFINE("HAVE_GENE", 1, "Have Gene Support");
 }
