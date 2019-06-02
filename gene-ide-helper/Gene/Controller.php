@@ -4,18 +4,18 @@ namespace Gene;
 /**
  * Controller
  * 
- * @property \Gene\Db $db
- * @property \Ext\Cache\Memcache $memcache
- * @property \Ext\Cache\Redis $redis
- * @property \Gene\Cache $cache
+ * @property \Gene\Db\Mysql $db
+ * @property \Gene\Cache\Memcached $memcache
+ * @property \Gene\Cache\Redis $redis
+ * @property \Gene\Cache\Cache $cache
  * @property \Ext\Services\Rest $rest
- * @author  sasou
- * @version  1.0
- * @date  2018-05-15
+ * 
+ * @author  sasou<admin@php-gene.com>
+ * @version  3.0.2
  */
+ 
 class Controller
 {
-    public $attr;
 
     /**
      * __construct

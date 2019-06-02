@@ -4,13 +4,22 @@ namespace Gene;
 /**
  * View
  * 
- * @author  sasou
- * @version  1.0
- * @date  2018-05-15
+ * @author  sasou<admin@php-gene.com>
+ * @version  3.0.2
  */
+
 class View
 {
-    
+
+    /**
+     * __construct
+     * 
+     * @return mixed
+     */
+    public function __construct() {
+
+    }
+
     /**
      * display
      * 
@@ -18,7 +27,7 @@ class View
      * @param mixed $parent_file parent_file
      * @return mixed
      */
-    public static function display($file, $parent_file) {
+    public function display($file, $parent_file) {
 
     }
 
@@ -30,7 +39,7 @@ class View
      * @param mixed $isCompile isCompile
      * @return mixed
      */
-    public static function displayExt($file, $parent_file, $isCompile) {
+    public function displayExt($file, $parent_file, $isCompile) {
 
     }
 
@@ -39,7 +48,7 @@ class View
      * 
      * @return mixed
      */
-    public static function contains() {
+    public function contains() {
 
     }
 
@@ -48,16 +57,28 @@ class View
      * 
      * @return mixed
      */
-    public static function containsExt() {
+    public function containsExt() {
 
     }
 
     /**
-     * __construct
+     * __get
      * 
+     * @param mixed $name name
      * @return mixed
      */
-    public function __construct() {
+    public function __get($name) {
+
+    }
+
+    /**
+     * __set
+     * 
+     * @param mixed $name name
+     * @param mixed $value value
+     * @return mixed
+     */
+    public function __set($name, $value) {
 
     }
 
