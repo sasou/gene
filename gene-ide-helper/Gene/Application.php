@@ -35,7 +35,7 @@ class Application
      * @return mixed
      */
     public static function getInstance($safe) {
-
+        return new static();
     }
 
     /**
