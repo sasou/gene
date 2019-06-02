@@ -1,18 +1,27 @@
 <?php
-namespace Gene;
+namespace Gene\Db;
 
 /**
- * Db
+ * Service
  * 
- * @author  sasou
- * @version  1.0
- * @date  2018-05-15
+ * @property \Gene\Db\Mysql $db
+ * @property \Gene\Cache\Memcache $memcache
+ * @property \Gene\Cache\Redis $redis
+ * @property \Gene\Cache\Cache $cache
+ * @property \Ext\Services\Rest $rest
+ * 
+ * @author  sasou<admin@php-gene.com>
+ * @version  3.0.2
  */
-class Db
+ 
+class Mysql
 {
+    public $config;
     public $pdo;
     public $sql;
     public $where;
+    public $group;
+    public $having;
     public $order;
     public $limit;
     public $data;
@@ -156,6 +165,26 @@ class Db
     }
 
     /**
+     * group
+     * 
+     * @param mixed $group group
+     * @return mixed
+     */
+    public function group($group) {
+
+    }
+
+    /**
+     * having
+     * 
+     * @param mixed $having having
+     * @return mixed
+     */
+    public function having($having) {
+
+    }
+
+    /**
      * execute
      * 
      * @return mixed
@@ -255,6 +284,15 @@ class Db
     }
 
     /**
+     * free
+     * 
+     * @return mixed
+     */
+    public function free() {
+
+    }
+
+    /**
      * history
      * 
      * @return mixed
@@ -262,4 +300,5 @@ class Db
     public function history() {
 
     }
-}    
+
+}
