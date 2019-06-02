@@ -98,7 +98,7 @@ class Model
      * @return mixed
      */
     public static function getInstance($params) {
-
+        return new static();
     }
 
 }

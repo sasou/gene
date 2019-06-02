@@ -1,0 +1,29 @@
+.layui-layout-admin .layui-logo {
+	left:15px;
+	text-align:left;
+	font-size:20px;
+    color:white;
+}
+
+.layui-layout-admin .layui-footer {
+	height: 35px;
+	line-height: 35px;
+}
+
+.layui-icon-logo {
+    font-size: 23px; 
+    color: #1E9FFF;
+}
+
+.layui-breadcrumb a {
+    font-size:15px;  
+}
+
+.layui-form-checkbox {
+    height: 22px;
+    line-height: 22px;
+}
+
+.layui-nav {
+    padding: 0 0px;
+}

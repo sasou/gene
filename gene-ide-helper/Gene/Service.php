@@ -98,7 +98,7 @@ class Service
      * @return mixed
      */
     public static function getInstance($params) {
-
+        return new static();
     }
 
 }
