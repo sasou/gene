@@ -4,13 +4,12 @@ namespace Gene;
 /**
  * Factory
  * 
- * @author  sasou
- * @version  1.0
- * @date  2018-05-15
+ * @author  sasou<admin@php-gene.com>
+ * @version  3.0.2
  */
+ 
 class Factory
 {
-
 
     /**
      * __construct
@@ -32,6 +31,5 @@ class Factory
     public static function create($class, $params, $type) {
 
     }
-
 
 }

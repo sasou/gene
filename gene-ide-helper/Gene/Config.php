@@ -4,10 +4,10 @@ namespace Gene;
 /**
  * Config
  * 
- * @author  sasou
- * @version  1.0
- * @date  2018-05-15
+ * @author  sasou<admin@php-gene.com>
+ * @version  3.0.2
  */
+ 
 class Config
 {
     public $safe;
@@ -61,6 +61,5 @@ class Config
     public function clear() {
 
     }
-
 
 }
