@@ -40,9 +40,6 @@ class Mark extends \Gene\Controller
     
     /**
      * add
-     *
-     * @param  mixed $params url参数
-     * @return mixed
      */
     function add()
     {
@@ -52,9 +49,6 @@ class Mark extends \Gene\Controller
     
     /**
      * addPost
-     *
-     * @param  mixed $params url参数
-     * @return mixed
      */
     function addPost()
     {
@@ -68,9 +62,6 @@ class Mark extends \Gene\Controller
     
     /**
      * edit
-     *
-     * @param  mixed $params url参数
-     * @return mixed
      */
     function edit($params)
     {
@@ -82,9 +73,6 @@ class Mark extends \Gene\Controller
     
     /**
      * editPost
-     *
-     * @param  mixed $params url参数
-     * @return mixed
      */
     function editPost()
     {
@@ -131,9 +119,6 @@ class Mark extends \Gene\Controller
 
     /**
      * delAll
-     *
-     * @param  mixed $params url参数
-     * @return mixed
      */
     function delAll()
     {

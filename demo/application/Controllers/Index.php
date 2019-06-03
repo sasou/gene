@@ -31,9 +31,9 @@ class Index extends \Gene\Controller
         $this->view->title = "文档";
         $this->view->css = ['mdediter/md.min'];
         $this->view->js = ['mdediter/md.min'];
-        $this->view->help = \Services\Admin\Mark::getInstance()->listAll(1);
-        $this->view->doc = \Services\Admin\Mark::getInstance()->listAll(2);
-        $this->view->mark = \Services\Admin\Mark::getInstance()->row($id);
+        $this->view->help = \Services\Doc\Mark::getInstance()->listAll(1);
+        $this->view->doc = \Services\Doc\Mark::getInstance()->listAll(2);
+        $this->view->mark = \Services\Doc\Mark::getInstance()->row($id);
         $this->view->text = $parsedown->text($this->view->mark['app_description']);
         $this->view->display('index/doc', 'common');
     }    
