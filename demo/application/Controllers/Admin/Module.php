@@ -14,13 +14,12 @@ class Module extends \Gene\Controller
     /**
      * run
      *
-     * @param  mixed $params url参数
      * @return mixed
      */
-    function run($arr)
+    function run()
     {
-        $title = '权限分类';
-        $module = \Services\Admin\Module::getInstance()->manageList();
+        $this->title = '权限分类';
+        $this->module = \Services\Admin\Module::getInstance()->manageList();
         $this->display("admin/module/run", "parent");
     }
 
@@ -33,7 +32,7 @@ class Module extends \Gene\Controller
     function info($params)
     {
         $id = intval($params["id"]);
-        $row = \Services\Admin\Module::getInstance()->row($id);
+        $this->row = \Services\Admin\Module::getInstance()->row($id);
     }
     
     /**
@@ -44,8 +43,8 @@ class Module extends \Gene\Controller
      */
     function add()
     {
-        $title = '菜单添加';
-        $moduleList = \Services\Admin\Module::getInstance()->manageList();
+        $this->title = '菜单添加';
+        $this->moduleList = \Services\Admin\Module::getInstance()->manageList();
         $this->display("admin/module/add", "easy");
     }
     
@@ -73,10 +72,10 @@ class Module extends \Gene\Controller
      */
     function edit($params)
     {
-        $title = '菜单修改';
+        $this->title = '菜单修改';
         $id = intval($params["id"]);
-        $moduleList = \Services\Admin\Module::getInstance()->manageList();
-        $module = \Services\Admin\Module::getInstance()->row($id);
+        $this->moduleList = \Services\Admin\Module::getInstance()->manageList();
+        $this->module = \Services\Admin\Module::getInstance()->row($id);
         $this->display("admin/module/edit", "easy");
     }
     

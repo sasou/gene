@@ -6,7 +6,6 @@ namespace Controllers\Admin;
  * 
  * @author  sasou
  * @version  1.0
- * @date  2018-05-15
  */
 class Group extends \gene\Controller
 {
@@ -14,14 +13,13 @@ class Group extends \gene\Controller
     /**
      * run
      *
-     * @param  mixed $params url参数
      * @return mixed
      */
-    function run($arr)
+    function run()
     {
-        $page = intval($this->get("page", 1));
-        $title = '角色管理';
-        $group = \Services\Admin\Group::getInstance()->lists($page);
+        $this->page = intval($this->get("page", 1));
+        $this->title = '角色管理';
+        $this->group = \Services\Admin\Group::getInstance()->lists($this->page);
         $this->display("admin/group/run", "parent");
     }
 
@@ -34,7 +32,7 @@ class Group extends \gene\Controller
     function info($params)
     {
         $id = intval($params["id"]);
-        $row = \Services\Admin\Module::getInstance()->row($id);
+        $this->row = \Services\Admin\Module::getInstance()->row($id);
     }
     
     /**
@@ -45,8 +43,8 @@ class Group extends \gene\Controller
      */
     function add()
     {
-        $title = '角色添加';
-        $purviewList = \Services\Admin\Module::getInstance()->purviewList();
+        $this->title = '角色添加';
+        $this->purviewList = \Services\Admin\Module::getInstance()->purviewList();
         $this->display("admin/group/add", "easy");
     }
     
@@ -76,11 +74,11 @@ class Group extends \gene\Controller
      */
     function edit($params)
     {
-        $title = '角色修改';
+        $this->title = '角色修改';
         $id = intval($params["id"]);
-        $purviewList = \Services\Admin\Module::getInstance()->purviewList();
-        $purview = \Services\Admin\Purview::getInstance()->lists($id);
-        $group = \Services\Admin\Group::getInstance()->row($id);
+        $this->purviewList = \Services\Admin\Module::getInstance()->purviewList();
+        $this->purview = \Services\Admin\Purview::getInstance()->lists($id);
+        $this->group = \Services\Admin\Group::getInstance()->row($id);
         $this->display("admin/group/edit", "easy");
     }
     

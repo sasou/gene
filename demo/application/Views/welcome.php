@@ -1,6 +1,6 @@
 <blockquote class="layui-elem-quote">
     <p>欢迎使用微服务管理后台！</p>
-    <p>登录次数：<?php echo $loginInfo['count']?> 上次登录IP：<?php echo $loginInfo['top']['log_ip'];?>  上次登录时间： <?php echo date("Y-m-d H:i:s", $loginInfo['top']['addtime']);?></p>
+    <p>登录次数：<?php echo $this->loginInfo['count']?> 上次登录IP：<?php echo $this->loginInfo['top']['log_ip'];?>  上次登录时间： <?php echo date("Y-m-d H:i:s", $this->loginInfo['top']['addtime']);?></p>
 </blockquote>
 <fieldset class="layui-elem-field layui-field-title site-title">
   <legend><a name="default">信息统计</a></legend>

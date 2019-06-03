@@ -1,7 +1,10 @@
 <?php
 namespace Controllers;
 /**
- * 首页控制器
+ * Index Controller
+ * 
+ * @author  sasou
+ * @version  1.0
  */
 class Index extends \Gene\Controller
 {
@@ -19,7 +22,9 @@ class Index extends \Gene\Controller
      */
     public function doc($params)
     {
+        // 获取url路由定义的参数
         $id =  $params['id'] ?? 0;
+        // 使用自定义类库
         $parsedown = new \Ext\Parsedown();
         
         // 通过模板赋值
@@ -38,8 +43,9 @@ class Index extends \Gene\Controller
      */
     public function test()
     {
-        // 控制器内变量赋值到模板
+        // 控制器内变量赋值到模板,注意与上述方法的区别
         $this->title = "性能测试";
         $this->display('index/test', 'common');
     }
+    
 }

@@ -6,7 +6,6 @@ namespace Services\Admin;
  * 
  * @author  sasou
  * @version  1.0
- * @date  2018-05-15
  */
 class Purview extends \Gene\Service
 {
@@ -19,7 +18,8 @@ class Purview extends \Gene\Service
      */
     function lists($group_id)
     {
-        return $this->cache->cached(["\Models\Admin\Purview",'lists'], [$group_id], 10);
+        // 方法及定时缓存 60秒
+        return $this->cache->cached(["\Models\Admin\Purview",'lists'], [$group_id], 60);
     }
     
     

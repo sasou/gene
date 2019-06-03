@@ -1,31 +1,28 @@
 <?php
-namespace Controllers\Admin;
+namespace Controllers\Doc;
 
 /**
  * Mark Controller
  * 
  * @author sasou<admin@php-gene.com>
  * @version 1.0
- * @copyright  Copyright (c) 2018 * Co., Ltd.
  */
 class Mark extends \Gene\Controller
 {
     
     /**
      * run
-     *
-     * @param  mixed $params url参数
-     * @return mixed
      */
-    function run($arr)
+    function run()
     {
-        $page = intval($this->get("page", 1));
-        $limit = intval($this->get("limit", 10));
+        $this->page = intval($this->get("page", 1));
+        $this->limit = intval($this->get("limit", 10));
         $search['title'] = trim($this->get("title"));
-        $title = '文档管理';
-        $mark_type = ["", "框架使用", "框架类文档", "技术研究"];
-        $mark = \Services\Admin\Mark::getInstance()->lists($page, $limit, $search);
-        $this->display("admin/mark/run", "parent");
+        $this->title = '文档管理';
+        $this->mark_type = ["", "框架使用", "框架类文档", "技术研究"];
+        $this->search = $search;
+        $this->mark = \Services\Doc\Mark::getInstance()->lists($this->page, $this->limit, $this->search);
+        $this->display("doc/mark/run", "parent");
     }
     
 	
@@ -38,7 +35,7 @@ class Mark extends \Gene\Controller
     function info($params)
     {
         $id = intval($params["id"]);
-        $row = \Services\Admin\Mark::getInstance()->row($id);
+        $this->row = \Services\Doc\Mark::getInstance()->row($id);
     }
     
     /**
@@ -49,8 +46,8 @@ class Mark extends \Gene\Controller
      */
     function add()
     {
-        $title = '文档添加';
-        $this->display("admin/mark/add", "easy");
+        $this->title = '文档添加';
+        $this->display("doc/mark/add", "easy");
     }
     
     /**
@@ -62,7 +59,7 @@ class Mark extends \Gene\Controller
     function addPost()
     {
         $data = $this->post('data');
-        $id = \Services\Admin\Mark::getInstance()->add($data);
+        $id = \Services\Doc\Mark::getInstance()->add($data);
         if ($id) {
             return $this->success("添加成功");
         }
@@ -77,10 +74,10 @@ class Mark extends \Gene\Controller
      */
     function edit($params)
     {
-        $title = '文档修改';
+        $this->title = '文档修改';
         $id = intval($params["id"]);
-        $mark = \Services\Admin\Mark::getInstance()->row($id);
-        $this->display("admin/mark/edit", "easy");
+        $this->mark = \Services\Doc\Mark::getInstance()->row($id);
+        $this->display("doc/mark/edit", "easy");
     }
     
     /**
@@ -93,7 +90,7 @@ class Mark extends \Gene\Controller
     {
         $id = intval($this->post('id'));
         $data = $this->post('data');
-        $count = \Services\Admin\Mark::getInstance()->edit($id, $data);
+        $count = \Services\Doc\Mark::getInstance()->edit($id, $data);
         if ($count) {
             return $this->success("修改成功");
         }
@@ -109,7 +106,7 @@ class Mark extends \Gene\Controller
     function status($params)
     {
         $id = intval($params["id"]);
-        $count = \Services\Admin\Mark::getInstance()->status($id);
+        $count = \Services\Doc\Mark::getInstance()->status($id);
         if ($count) {
             return $this->success("更改成功");
         }
@@ -125,7 +122,7 @@ class Mark extends \Gene\Controller
     function del($params)
     {
         $id = intval($params["id"]);
-        $count = \Services\Admin\Mark::getInstance()->del($id);
+        $count = \Services\Doc\Mark::getInstance()->del($id);
         if ($count) {
             return $this->success("删除成功");
         }
@@ -141,7 +138,7 @@ class Mark extends \Gene\Controller
     function delAll()
     {
         $id_arr = $this->post("id", 0);
-        $count = \Services\Admin\Mark::getInstance()->delAll($id_arr);
+        $count = \Services\Doc\Mark::getInstance()->delAll($id_arr);
         if ($count) {
             return $this->success("删除成功");
         }

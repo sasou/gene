@@ -1,5 +1,5 @@
 <form class="layui-form" action="" lay-filter="geneForm">
-    <input type="hidden" name="id" value="<?php echo $group['group_id'];?>" >
+    <input type="hidden" name="id" value="<?php echo $this->group['group_id'];?>" >
     <div class="layui-tab">
       <ul class="layui-tab-title">
         <li class="layui-this">基本设置</li>
@@ -28,9 +28,13 @@
         </div>
         <div class="layui-tab-item">
             <table class="layui-table">
+                <thead>
+                    <th width="150">栏目</th>
+                    <th>权限</th>
+                </thead>
                 <tbody>
-                <?php if(is_array($purviewList)):?>
-                <?php foreach($purviewList as $v):?>
+                <?php if(is_array($this->purviewList)):?>
+                <?php foreach($this->purviewList as $v):?>
                     <tr>
                         <td>
                             <?php echo str_repeat("&nbsp;", $v['deep'] * 8);?><input type="checkbox" name="purview[<?php echo $v['id'];?>]" lay-skin="switch" lay-text="<?php echo $v['name'];?>|<?php echo $v['name'];?>" value="<?php echo $v['id'];?>">
@@ -59,11 +63,11 @@
 </form>
 <script>
 initForm('geneForm', {
-    "data[group_title]": "<?php echo $group['group_title'];?>",
-    "data[group_description]": "<?php echo $group['group_description'];?>",
-    "data[status]": <?php echo $group['status'];?>,
-    <?php if(isset($purview[0])):?>
-    <?php foreach($purview as $k=>$v):?>
+    "data[group_title]": "<?php echo $this->group['group_title'];?>",
+    "data[group_description]": "<?php echo $this->group['group_description'];?>",
+    "data[status]": <?php echo $this->group['status'];?>,
+    <?php if(isset($this->purview[0])):?>
+    <?php foreach($this->purview as $k=>$v):?>
     "purview[<?php echo $v['obj_id'];?>]": "1",
     <?php endforeach;?>
     <?php endif;?>

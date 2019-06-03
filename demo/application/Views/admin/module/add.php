@@ -4,7 +4,7 @@
     <div class="layui-input-block">
       <select name="data[module_pid]" lay-verify="required">
         <option value="0">根栏目</option>
-        <?php foreach($moduleList['list'] as $one): ?>
+        <?php foreach($this->moduleList['list'] as $one): ?>
         <option value="<?php echo $one['module_id']?>"><?php echo str_repeat("&nbsp;", $one['deep'] * 8). '|-' . $one['module_title']?></option>
         <?php endforeach;?>
       </select>

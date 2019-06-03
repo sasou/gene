@@ -6,7 +6,6 @@ namespace Models\Admin;
  * 
  * @author  sasou
  * @version  1.0
- * @date  2018-05-15
  */
 class Purview extends \Gene\Model
 {

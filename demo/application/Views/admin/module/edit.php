@@ -1,12 +1,12 @@
 <form class="layui-form" action="" lay-filter="geneForm">
-    <input type="hidden" name="id" value="<?php echo $module['module_id'];?>" >
+    <input type="hidden" name="id" value="<?php echo $this->module['module_id'];?>" >
   <div class="layui-form-item">
     <label class="layui-form-label">所属栏目</label>
     <div class="layui-input-block">
       <select name="data[module_pid]" lay-verify="required">
         <option value="0">根栏目</option>
-        <?php foreach($moduleList['list'] as $one): ?>
-        <?php if($one['module_id'] != $module['module_id']): ?>
+        <?php foreach($this->moduleList['list'] as $one): ?>
+        <?php if($one['module_id'] != $this->module['module_id']): ?>
         <option value="<?php echo $one['module_id']?>"><?php echo str_repeat("&nbsp;", $one['deep'] * 8). '|-' . $one['module_title']?></option>
         <?php endif;?>
         <?php endforeach;?>
@@ -48,10 +48,10 @@
 </form>
 <script>
 initForm('geneForm', {
-    "data[module_title]": "<?php echo $module['module_title'];?>"
-    ,"data[module_pid]": "<?php echo $module['module_pid'];?>"
-    ,"data[module_icon]": "<?php echo $module['module_icon'];?>"
-    ,"data[module_url]": "<?php echo $module['module_url'];?>"
-    ,"data[status]": <?php echo $module['status'];?>
+    "data[module_title]": "<?php echo $this->module['module_title'];?>"
+    ,"data[module_pid]": "<?php echo $this->module['module_pid'];?>"
+    ,"data[module_icon]": "<?php echo $this->module['module_icon'];?>"
+    ,"data[module_url]": "<?php echo $this->module['module_url'];?>"
+    ,"data[status]": <?php echo $this->module['status'];?>
 });
 </script>

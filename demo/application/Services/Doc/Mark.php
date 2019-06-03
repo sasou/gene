@@ -1,12 +1,11 @@
 <?php
-namespace Services\Admin;
+namespace Services\Doc;
 
 /**
  * Mark Service
  * 
  * @author sasou<admin@php-gene.com>
  * @version 1.0
- * @copyright  Copyright (c) 2018 * Co., Ltd.
  */
 class Mark extends \Gene\Service
 {
@@ -26,7 +25,7 @@ class Mark extends \Gene\Service
             $params['mark_title'] = ["%{$search['title']}%", 'like'];
         }
         $start = $page > 0 ? ($page - 1) * $limit : 0;
-        return \Models\Admin\Mark::getInstance()->lists($params, $start, $limit);
+        return \Models\Doc\Mark::getInstance()->lists($params, $start, $limit);
     }
     
     /**
@@ -37,7 +36,7 @@ class Mark extends \Gene\Service
      */
     function listAll($type)
     {
-        return \Models\Admin\Mark::getInstance()->listAll($type);
+        return \Models\Doc\Mark::getInstance()->listAll($type);
     }
 
     /**
@@ -48,7 +47,7 @@ class Mark extends \Gene\Service
      */
     function row($id)
     {
-        return \Models\Admin\Mark::getInstance()->row($id);
+        return \Models\Doc\Mark::getInstance()->row($id);
     }
     
     /**
@@ -62,7 +61,7 @@ class Mark extends \Gene\Service
         $data['user_id'] = isset($_SESSION['admin']['user_id']) ? $_SESSION['admin']['user_id'] : 0;
         $data['addtime'] = time();
         $data['status'] = isset($data['status']) && $data['status'] == 'on' ? 1 : 0;
-        return \Models\Admin\Mark::getInstance()->add($data);
+        return \Models\Doc\Mark::getInstance()->add($data);
     }
 
     /**
@@ -76,7 +75,7 @@ class Mark extends \Gene\Service
     {
         $data['updatetime'] = time();
         $data['status'] = isset($data['status']) && $data['status'] == 'on' ? 1 : 0;
-        return \Models\Admin\Mark::getInstance()->edit($id, $data);
+        return \Models\Doc\Mark::getInstance()->edit($id, $data);
     }
 
     /**
@@ -87,7 +86,7 @@ class Mark extends \Gene\Service
      */
     function status($id)
     {
-        return \Models\Admin\Mark::getInstance()->status($id);
+        return \Models\Doc\Mark::getInstance()->status($id);
     }
     
     /**
@@ -98,7 +97,7 @@ class Mark extends \Gene\Service
      */
     function del($id)
     {
-        return \Models\Admin\Mark::getInstance()->del($id);
+        return \Models\Doc\Mark::getInstance()->del($id);
     }
 
     /**
@@ -109,7 +108,7 @@ class Mark extends \Gene\Service
      */
     function delAll($id_arr)
     {
-        return \Models\Admin\Mark::getInstance()->delAll($id_arr);
+        return \Models\Doc\Mark::getInstance()->delAll($id_arr);
     }
     
 }
