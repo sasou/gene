@@ -6,7 +6,6 @@ namespace Services\Admin;
  * 
  * @author  sasou
  * @version  1.0
- * @date  2018-05-15
  */
 class Module extends \Gene\Service
 {
@@ -29,7 +28,8 @@ class Module extends \Gene\Service
      */
     function manageList()
     {
-        return $this->cache->cachedVersion(["\Models\Admin\Module",'manageList'], [], ['db.sys_module' => null], 10);
+        // 方法级版本缓存
+        return $this->cache->cachedVersion(["\Models\Admin\Module",'manageList'], [], ['db.sys_module' => null], 3600);
     }
     
     /**

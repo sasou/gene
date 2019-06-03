@@ -3,7 +3,7 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1">
-  <title><?php echo $title;?> - 微服务管理平台</title>
+  <title><?php echo $this->title;?> - 微服务管理平台</title>
   <meta name="renderer" content="webkit">
   <meta http-equiv="X-UA-Compatible" content="IE=edge,chrome=1">
   <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1">
@@ -52,7 +52,7 @@
     </div>
 </div>
 <div class="layui-trans lau-sign-footer">
-    <p>@ 2018 <a href="http://www.php-gene.com/" target="_blank">Gene</a> V2.2</p>
+    <p>@ 2019 <a href="http://www.php-gene.com/" target="_blank">Gene</a> V<?php echo gene_version();?></p>
 </div>
 </body>
 </html>

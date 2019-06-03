@@ -1,16 +1,16 @@
-<form class="layui-form" action="">
+<form class="layui-form" action="" lay-filter="geneForm">
   <div class="layui-form-item">
     <label class="layui-form-label">用户名</label>
-    <div class="layui-input-block">
+    <div class="layui-input-inline">
       <input type="text" name="data[user_name]" required  lay-verify="required" placeholder="请输入名称" autocomplete="off" class="layui-input">
     </div>
   </div>
   <div class="layui-form-item">
     <label class="layui-form-label">所属角色</label>
-    <div class="layui-input-block">
+    <div class="layui-input-inline">
       <select name="data[group_id]" lay-verify="required">
         <option value=""></option>
-        <?php foreach($group['list'] as $one): ?>
+        <?php foreach($this->group['list'] as $one): ?>
         <option value="<?php echo $one['group_id']?>"><?php echo $one['group_title']?></option>
         <?php endforeach;?>
       </select>
@@ -38,9 +38,9 @@
       </div>
     </div>
   <div class="layui-form-item layui-form-text">
-    <label class="layui-form-label">角色描述</label>
-    <div class="layui-input-block">
-      <textarea name="data[user_realname]" placeholder="请输入角色描述" class="layui-textarea"></textarea>
+    <label class="layui-form-label">真实姓名</label>
+    <div class="layui-input-inline">
+      <input name="data[user_realname]" placeholder="请输入真实姓名" class="layui-input">
     </div>
   </div>
   <div class="layui-form-item">

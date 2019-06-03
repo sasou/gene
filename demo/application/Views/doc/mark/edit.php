@@ -1,5 +1,5 @@
 <form class="layui-form" action="" lay-filter="geneForm">
-    <input type="hidden" name="id" value="<?php echo $mark['mark_id'];?>" >
+    <input type="hidden" name="id" value="<?php echo $this->mark['mark_id'];?>" >
   <div class="layui-form-item">
     <label class="layui-form-label">复选框</label>
     <div class="layui-input-block">
@@ -11,14 +11,14 @@
   <div class="layui-form-item">
     <label class="layui-form-label">文档名称</label>
     <div class="layui-input-block">
-      <input type="text" name="data[mark_title]" value="<?php echo $mark['mark_title'];?>" lay-verify="required" placeholder="请输入文档名称" autocomplete="off" class="layui-input">
+      <input type="text" name="data[mark_title]" value="<?php echo $this->mark['mark_title'];?>" lay-verify="required" placeholder="请输入文档名称" autocomplete="off" class="layui-input">
     </div>
   </div>
 
         <div class="layui-form-item layui-form-text">
         <label class="layui-form-label">文档内容</label>
         <div class="layui-input-block">
-          <textarea name="data[app_description]" style="height:300px;" placeholder="请输入文档内容" lay-verify="required" class="layui-textarea"><?php echo $mark['app_description'];?></textarea>
+          <textarea name="data[app_description]" style="height:300px;" placeholder="请输入文档内容" lay-verify="required" class="layui-textarea"><?php echo $this->mark['app_description'];?></textarea>
         </div>
         </div>
 
@@ -37,7 +37,7 @@
 </form>
 <script>
 initForm('geneForm', {
-    "data[mark_type]": "<?php echo $mark['mark_type'];?>",
-    "data[status]": <?php echo $mark['status'];?>
+    "data[mark_type]": "<?php echo $this->mark['mark_type'];?>",
+    "data[status]": <?php echo $this->mark['status'];?>
 });
 </script>

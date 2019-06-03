@@ -6,7 +6,6 @@ namespace Services\Admin;
  * 
  * @author  sasou
  * @version  1.0
- * @date  2018-05-15
  */
 class Group extends \Gene\Service
 {

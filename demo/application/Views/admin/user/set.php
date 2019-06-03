@@ -2,7 +2,7 @@
   <div class="layui-form-item">
     <label class="layui-form-label">用户名</label>
     <div class="layui-input-block">
-      <?php echo $user['user_name'];?>
+      <?php echo $this->user['user_name'];?>
     </div>
   </div>
     <div class="layui-form-item">
@@ -28,8 +28,8 @@
     </div>
   <div class="layui-form-item layui-form-text">
     <label class="layui-form-label">真实姓名</label>
-    <div class="layui-input-block">
-      <textarea name="user_realname" placeholder="请输入真实姓名" class="layui-textarea"></textarea>
+    <div class="layui-input-inline">
+      <input name="user_realname" placeholder="请输入真实姓名" class="layui-input">
     </div>
   </div>
   <div class="layui-form-item">
@@ -41,7 +41,7 @@
 </form>
 <script>
 initForm('geneForm', {
-    "user_realname": "<?php echo $user['user_realname'];?>",
+    "user_realname": "<?php echo $this->user['user_realname'];?>",
 });
 
 layui.use(['form','layer'], function(){

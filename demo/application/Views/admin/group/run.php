@@ -20,7 +20,7 @@
         </tr>
     </thead>
     <tbody>
-        <?php foreach($group['list'] as $one): ?>
+        <?php foreach($this->group['list'] as $one): ?>
         <tr>
             <td>
                 <div class="layui-unselect layui-form-checkbox" lay-skin="primary" data-id="<?php echo $one['group_id']; ?>"><i class="layui-icon"></i></div>
@@ -48,5 +48,5 @@
 </div>
 <div id="page"></div>
 <script>
-iniPage(<?php echo $page;?>, <?php echo $group['count'];?>);
+iniPage(<?php echo $this->page;?>, <?php echo $this->group['count'];?>);
 </script>

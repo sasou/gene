@@ -1,4 +1,4 @@
-<form class="layui-form" action="">
+<form class="layui-form" action="" lay-filter="geneForm">
     <div class="layui-tab">
       <ul class="layui-tab-title">
         <li class="layui-this">基本设置</li>
@@ -27,9 +27,13 @@
         </div>
         <div class="layui-tab-item">
             <table class="layui-table">
+                <thead>
+                    <th width="150">栏目</th>
+                    <th>权限</th>
+                </thead>
                 <tbody>
-                <?php if(is_array($purviewList)):?>
-                <?php foreach($purviewList as $v):?>
+                <?php if(is_array($this->purviewList)):?>
+                <?php foreach($this->purviewList as $v):?>
                     <tr>
                         <td>
                             <?php echo str_repeat("&nbsp;", $v['deep'] * 8);?><input type="checkbox" name="purview[<?php echo $v['id'];?>]" lay-skin="switch" lay-text="<?php echo $v['name'];?>|<?php echo $v['name'];?>" value="<?php echo $v['id'];?>">
@@ -57,3 +61,8 @@
     </div>
   </div>
 </form>
+<script>
+initForm('geneForm', {
+    "data[status]": "1",
+})
+</script>

@@ -5,7 +5,7 @@
             <div class="layui-input-inline" style="width: 150px;">
               <select name="role" lay-verify="">
                 <option value=""></option>
-                <?php foreach($group['list'] as $one): ?>
+                <?php foreach($this->group['list'] as $one): ?>
                 <option value="<?php echo $one['group_id']?>"><?php echo $one['group_title']?></option>
                 <?php endforeach;?>
               </select>
@@ -37,7 +37,7 @@
         </tr>
     </thead>
     <tbody>
-        <?php foreach($user['list'] as $one): ?>
+        <?php foreach($this->userlist['list'] as $one): ?>
         <tr>
             <td>
                 <div class="layui-unselect layui-form-checkbox" lay-skin="primary" data-id="<?php echo $one['user_id']; ?>"><i class="layui-icon"></i></div>
@@ -65,9 +65,9 @@
 </div>
 <div id="page"></div>
 <script>
-iniPage(<?php echo $page;?>, <?php echo $user['count'];?>, <?php echo $limit;?>);
+iniPage(<?php echo $this->page;?>, <?php echo $this->userlist['count'];?>, <?php echo $this->limit;?>);
 initForm('searchForm', {
-    "role": "<?php echo $search['role'];?>",
-    "name": "<?php echo $search['name'];?>",
+    "role": "<?php echo $this->search['role'];?>",
+    "name": "<?php echo $this->search['name'];?>",
 })
 </script>

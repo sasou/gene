@@ -14,18 +14,18 @@ class User extends \Gene\Controller
     /**
      * run
      *
-     * @param  mixed $params url参数
      * @return mixed
      */
-    function run($arr)
+    function run()
     {
-        $page = intval($this->get("page", 1));
-        $limit = intval($this->get("limit", 10));
+        $this->page = intval($this->get("page", 1));
+        $this->limit = intval($this->get("limit", 10));
         $search['role'] = $this->get("role", '');
         $search['name'] = $this->get("name", '');
-        $title = '用户管理';
-        $user = \Services\Admin\User::getInstance()->lists($page, $limit, $search);
-        $group = \Services\Admin\Group::getInstance()->lists();
+        $this->title = '用户管理';
+        $this->search = $search;
+        $this->userlist = \Services\Admin\User::getInstance()->lists($this->page, $this->limit, $this->search);
+        $this->group = \Services\Admin\Group::getInstance()->lists();
         $this->display("admin/user/run", "parent");
     }
 
@@ -37,7 +37,7 @@ class User extends \Gene\Controller
      */
     function info($params)
     {
-        $id = intval($params["id"]);
+        $this->id = intval($params["id"]);
     }
     
     /**
@@ -48,9 +48,8 @@ class User extends \Gene\Controller
      */
     function set($params)
     {
-        $title = '修改资料';
-        $user = $this->user;
-        $row = \Services\Admin\User::getInstance()->row($user['user_id']);
+        $this->title = '修改资料';
+        $this->row = \Services\Admin\User::getInstance()->row($this->user['user_id']);
         $this->display("admin/user/set", "easy");
     }
     
@@ -62,11 +61,10 @@ class User extends \Gene\Controller
      */
     function save()
     {
-        $user = $this->user;
         $data['user_pass'] = trim($this->post('user_pass'));
         $data['user_realname'] = trim($this->post('user_realname'));
         $data['status'] = 'on';
-        $count = \Services\Admin\User::getInstance()->edit($user['user_id'], $data);
+        $count = \Services\Admin\User::getInstance()->edit($this->user['user_id'], $data);
         if ($count) {
             return $this->success("修改成功");
         }
@@ -81,8 +79,8 @@ class User extends \Gene\Controller
      */
     function add()
     {
-        $title = '菜单添加';
-        $group = \Services\Admin\Group::getInstance()->lists();
+        $this->title = '菜单添加';
+        $this->group = \Services\Admin\Group::getInstance()->lists();
         $this->display("admin/user/add", "easy");
     }
     
@@ -110,10 +108,10 @@ class User extends \Gene\Controller
      */
     function edit($params)
     {
-        $title = '菜单修改';
+        $this->title = '菜单修改';
         $id = intval($params["id"]);
-        $group = \Services\Admin\Group::getInstance()->lists();
-        $user = \Services\Admin\User::getInstance()->row($id);
+        $this->group = \Services\Admin\Group::getInstance()->lists();
+        $this->row = \Services\Admin\User::getInstance()->row($id);
         $this->display("admin/user/edit", "easy");
     }
     

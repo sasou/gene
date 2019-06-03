@@ -20,7 +20,7 @@ $config->set("db", [
 
 //缓存类注入配置
 $config->set("memcache", [
-    'class' => '\Ext\Cache\Memcache',
+    'class' => '\Gene\Cache\Memcached',
     'params' => [[
     'servers' => [['host' => '127.0.0.1', 'port' => 11211]],
     'persistent' => true,
@@ -30,7 +30,7 @@ $config->set("memcache", [
 
 //缓存类注入配置
 $config->set("redis", [
-    'class' => '\Ext\Cache\Redis',
+    'class' => '\Gene\Cache\Redis',
     'params' => [[
     'persistent' => true,
     'host' => '192.168.27.101',
