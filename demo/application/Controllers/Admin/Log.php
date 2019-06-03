@@ -6,7 +6,6 @@ namespace Controllers\Admin;
  * 
  * @author  sasou
  * @version  1.0
- * @date  2018-05-15
  */
 class Log extends \Gene\Controller
 {
@@ -14,21 +13,20 @@ class Log extends \Gene\Controller
     /**
      * run
      *
-     * @param  mixed $params url参数
      * @return mixed
      */
-    function run($arr)
+    function run()
     {
-        $title = '操作日志';
-        $page = intval($this->get("page", 1));
-        $limit = intval($this->get("limit", 10));
+        $this->title = '操作日志';
+        $this->page = intval($this->get("page", 1));
+        $this->limit = intval($this->get("limit", 10));
         $search['url'] = $this->get("url", "");
         $search['ip'] = $this->get("ip", "");
-        $user = $this->user;
-        if ($user['group_id'] != 1) {
-            $search['user_id'] = $user['user_id'];
+        if ($this->user['group_id'] != 1) {
+            $search['user_id'] = $this->user['user_id'];
         }
-        $log = \Services\Admin\Log::getInstance()->lists($page, $limit, $search);
+        $this->search = $search;
+        $this->log = \Services\Admin\Log::getInstance()->lists($this->page, $this->limit, $this->search);
         $this->display("admin/log/run", "parent");
     }
 

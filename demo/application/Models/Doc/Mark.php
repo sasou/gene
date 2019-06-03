@@ -1,12 +1,11 @@
 <?php
-namespace Models\Admin;
+namespace Models\Doc;
 
 /**
  * Mark Model
  * 
  * @author sasou<admin@php-gene.com>
  * @version 1.0
- * @copyright  Copyright (c) 2018 * Co., Ltd.
  */
 class Mark extends \Gene\Model
 {

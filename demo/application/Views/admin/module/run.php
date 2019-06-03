@@ -21,7 +21,7 @@
         </tr>
     </thead>
     <tbody>
-        <?php foreach($module['list'] as $one): ?>
+        <?php foreach($this->module['list'] as $one): ?>
         <tr>
             <td>
                 <div class="layui-unselect layui-form-checkbox" lay-skin="primary" data-id="<?php echo $one['module_id']; ?>"><i class="layui-icon"></i></div>

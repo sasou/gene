@@ -19,9 +19,8 @@ class Index extends \Gene\Controller
      */
     function run()
     {
-        $title = 'Gene';
-        $user = $this->user;
-        $loginInfo = \Services\Admin\Log::getInstance()->getUserLastLoginInfo($user['user_id']);
+        $this->title = 'Gene';
+        $this->loginInfo = \Services\Admin\Log::getInstance()->getUserLastLoginInfo($this->user['user_id']);
         $this->display("welcome", "parent");
     }
     
@@ -33,7 +32,7 @@ class Index extends \Gene\Controller
      */
     function login()
     {
-        $title = 'Gene';
+        $this->title = 'Gene';
         $this->display("index/login");
     }
     
@@ -64,8 +63,8 @@ class Index extends \Gene\Controller
      */
     function exits()
     {
-        $user = $this->user;
-        \Services\Admin\Log::getInstance()->log("后台退出", "用户名:" . $user['user_name'], $user['user_id']);
+        $this->user;
+        \Services\Admin\Log::getInstance()->log("后台退出", "用户名:" . $this->user['user_name'], $this->user['user_id']);
         \gene\session::del('admin');
         return $this->success("退出成功");
     }
