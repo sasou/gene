@@ -52,38 +52,7 @@ $config->set("cache", [
     'instance' => false
 ]);
 
-//Rest调用模块注入配置
-$config->set("rest", [
-    'class' => '\Ext\Services\Rest',
-    'params' => [[
-    'registry' => 'memcache',
-    'sign' => 'apiStore:',
-        ]],
-    'instance' => true
-]);
-
-//文件类注入配置
-$config->set("mogilefs", [
-    'class' => '\Ext\Mogilefs',
-    'params' => [[
-    'host' => '127.0.0.1', 
-    'port' => 7001,
-    'domain' => 'file'
-        ]],
-    'instance' => true
-]);
-
-//mongodb类注入配置
-$config->set("mongodb", [
-    'class' => '\Ext\Mongo',
-    'params' => [[
-    'server' => 'mongodb://127.0.0.1:27017', 
-    'options' => ['connect' => true ]
-        ]],
-    'instance' => true
-]);
-
-//httpsqs队列类注入配置
+//自定义httpsqs队列类注入配置
 $config->set("httpsqs", [
     'class' => '\Ext\Queue\Httpsqs',
     'params' => [[
@@ -94,22 +63,13 @@ $config->set("httpsqs", [
     'instance' => true
 ]);
 
-//redis队列类注入配置
+//自定义redis队列类注入配置
 $config->set("redisQueue", [
     'class' => '\Ext\Queue\Redis',
     'params' => [[
-    'host' => '192.168.27.101', 
+    'host' => '127.0.0.1', 
     'port' => 6379,
     'name' => 'email'
-        ]],
-    'instance' => true
-]);
-
-//redis队列类注入配置
-$config->set("log", [
-    'class' => '\Ext\Log\File',
-    'params' => [[
-    'file' => '/tmp/log.txt', 
         ]],
     'instance' => true
 ]);

@@ -12,8 +12,6 @@ class Log extends \Gene\Controller
 
     /**
      * run
-     *
-     * @return mixed
      */
     function run()
     {
@@ -65,9 +63,6 @@ class Log extends \Gene\Controller
 
     /**
      * delAll
-     *
-     * @param  mixed $params url参数
-     * @return mixed
      */
     function delAll()
     {

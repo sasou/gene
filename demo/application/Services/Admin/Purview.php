@@ -19,7 +19,7 @@ class Purview extends \Gene\Service
     function lists($group_id)
     {
         // 方法及定时缓存 60秒
-        return $this->cache->cached(["\Models\Admin\Purview",'lists'], [$group_id], 60);
+        return $this->cache->cached(["\Models\Admin\Purview",'lists'], [$group_id], 10);
     }
     
     

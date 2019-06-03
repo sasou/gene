@@ -12,8 +12,6 @@ class Group extends \gene\Controller
 
     /**
      * run
-     *
-     * @return mixed
      */
     function run()
     {
@@ -37,9 +35,6 @@ class Group extends \gene\Controller
     
     /**
      * add
-     *
-     * @param  mixed $params url参数
-     * @return mixed
      */
     function add()
     {
@@ -50,9 +45,6 @@ class Group extends \gene\Controller
     
     /**
      * addPost
-     *
-     * @param  mixed $params url参数
-     * @return mixed
      */
     function addPost()
     {
@@ -84,18 +76,15 @@ class Group extends \gene\Controller
     
     /**
      * editPost
-     *
-     * @param  mixed $params url参数
-     * @return mixed
      */
     function editPost()
     {
         $id = intval($this->post('id'));
         $data = $this->post('data');
         $purview = $this->post('purview');
-        $count = \Services\Admin\Group::getInstance()->edit($id, $data);
-        if ($count >= 0) {
-            \Services\Admin\Purview::getInstance()->update($id, $purview);
+        $count_g = \Services\Admin\Group::getInstance()->edit($id, $data);
+        $count_p = \Services\Admin\Purview::getInstance()->update($id, $purview);
+        if ($count_g || $count_p) {
             return $this->success("修改成功");
         }
         return $this->error("修改失败");
@@ -138,9 +127,6 @@ class Group extends \gene\Controller
 
     /**
      * delAll
-     *
-     * @param  mixed $params url参数
-     * @return mixed
      */
     function delAll()
     {
