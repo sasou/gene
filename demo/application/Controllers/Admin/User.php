@@ -50,7 +50,7 @@ class User extends \Gene\Controller
     {
         $this->title = '修改资料';
         $this->row = \Services\Admin\User::getInstance()->row($this->user['user_id']);
-        $this->display("admin/user/set", "easy");
+        $this->display("admin/user/set", "dialog");
     }
     
     /**
@@ -81,7 +81,7 @@ class User extends \Gene\Controller
     {
         $this->title = '菜单添加';
         $this->group = \Services\Admin\Group::getInstance()->lists();
-        $this->display("admin/user/add", "easy");
+        $this->display("admin/user/add", "dialog");
     }
     
     /**
@@ -112,7 +112,7 @@ class User extends \Gene\Controller
         $id = intval($params["id"]);
         $this->group = \Services\Admin\Group::getInstance()->lists();
         $this->row = \Services\Admin\User::getInstance()->row($id);
-        $this->display("admin/user/edit", "easy");
+        $this->display("admin/user/edit", "dialog");
     }
     
     /**

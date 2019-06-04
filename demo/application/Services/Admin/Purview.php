@@ -18,8 +18,8 @@ class Purview extends \Gene\Service
      */
     function lists($group_id)
     {
-        // 方法及定时缓存 60秒
-        return $this->cache->cached(["\Models\Admin\Purview",'lists'], [$group_id], 10);
+        // 方法级实时版本缓存
+        return $this->cache->cachedVersion(["\Models\Admin\Purview",'lists'], [$group_id], ['db.sys_purview' => null], 3600);
     }
     
     
@@ -64,6 +64,8 @@ class Purview extends \Gene\Service
                 $data[] = $row;
             }
         }
+        // 方法级实时缓存版本key更新
+        $this->cache->updateVersion(['db.sys_purview' => null]);
         return \Models\Admin\Purview::getInstance()->batchInsert($data);
     }
 
@@ -77,6 +79,8 @@ class Purview extends \Gene\Service
     function update($group_id, $purview)
     {
         \Models\Admin\Purview::getInstance()->delAll($group_id);
+        // 方法级实时缓存版本key更新
+        $this->cache->updateVersion(['db.sys_purview' => null]);
         return $this->add($group_id, $purview);
     }
 

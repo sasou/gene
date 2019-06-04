@@ -45,7 +45,7 @@ class Module extends \Gene\Controller
     {
         $this->title = '菜单添加';
         $this->moduleList = \Services\Admin\Module::getInstance()->manageList();
-        $this->display("admin/module/add", "easy");
+        $this->display("admin/module/add", "dialog");
     }
     
     /**
@@ -76,7 +76,7 @@ class Module extends \Gene\Controller
         $id = intval($params["id"]);
         $this->moduleList = \Services\Admin\Module::getInstance()->manageList();
         $this->module = \Services\Admin\Module::getInstance()->row($id);
-        $this->display("admin/module/edit", "easy");
+        $this->display("admin/module/edit", "dialog");
     }
     
     /**

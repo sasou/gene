@@ -3,7 +3,7 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1">
-  <title><?php echo $this->title;?> - 文档管理平台</title>
+  <title><?php echo $this->title;?> - Gene文档管理平台</title>
   <meta name="renderer" content="webkit">
   <meta http-equiv="X-UA-Compatible" content="IE=edge,chrome=1">
   <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1">
@@ -20,10 +20,11 @@
 <div class="layui-layout layui-layout-admin">
   <div class="layui-header">
     <div class="layui-logo">
-        <i class="layui-icon layui-icon-template-1 layui-icon-logo"></i> 文档管理平台
+        <i class="layui-icon layui-icon-template-1 layui-icon-logo"></i> Gene文档管理
     </div>
     <ul class="layui-nav layui-layout-left">
       <li class="layui-nav-item"><a href="/admin.html"><i class="layui-icon layui-icon-console" style="top: 3px;"> 控制台</i></a></li>
+      <li class="layui-nav-item"><a href="/"><i class="layui-icon layui-icon-website" style="top: 3px;"> 网站前台</i></a></li>
     </ul>
     <ul class="layui-nav layui-layout-right">
       <li class="layui-nav-item">

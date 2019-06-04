@@ -40,7 +40,7 @@ class Group extends \gene\Controller
     {
         $this->title = '角色添加';
         $this->purviewList = \Services\Admin\Module::getInstance()->purviewList();
-        $this->display("admin/group/add", "easy");
+        $this->display("admin/group/add", "dialog");
     }
     
     /**
@@ -71,7 +71,7 @@ class Group extends \gene\Controller
         $this->purviewList = \Services\Admin\Module::getInstance()->purviewList();
         $this->purview = \Services\Admin\Purview::getInstance()->lists($id);
         $this->group = \Services\Admin\Group::getInstance()->row($id);
-        $this->display("admin/group/edit", "easy");
+        $this->display("admin/group/edit", "dialog");
     }
     
     /**

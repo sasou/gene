@@ -36,7 +36,8 @@ class Mark extends \Gene\Service
      */
     function listAll($type)
     {
-        return \Models\Doc\Mark::getInstance()->listAll($type);
+        // 方法级定时缓存一分钟
+        return $this->cache->cached(["\Models\Doc\Mark", "listAll"], [$type], 60);
     }
 
     /**
@@ -47,7 +48,8 @@ class Mark extends \Gene\Service
      */
     function row($id)
     {
-        return \Models\Doc\Mark::getInstance()->row($id);
+        // 方法级定时缓存一分钟
+        return $this->cache->cached(["\Models\Doc\Mark", "row"], [$id], 60);
     }
     
     /**

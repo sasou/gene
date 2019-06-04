@@ -18,7 +18,8 @@ class Module extends \Gene\Service
      */
     function lists($purview = '')
     {
-        return $this->cache->cached(["\Models\Admin\Module",'lists'], [$purview], 10);
+        // 方法级实时版本缓存
+        return $this->cache->cachedVersion(["\Models\Admin\Module",'lists'], [$purview], ['db.sys_module' => null], 3600);
     }
 
     /**
@@ -28,7 +29,7 @@ class Module extends \Gene\Service
      */
     function manageList()
     {
-        // 方法级版本缓存
+        // 方法级实时版本缓存
         return $this->cache->cachedVersion(["\Models\Admin\Module",'manageList'], [], ['db.sys_module' => null], 3600);
     }
     
@@ -39,7 +40,8 @@ class Module extends \Gene\Service
      */
     function purviewList()
     {
-        return \Models\Admin\Module::getInstance()->purviewList();
+        // 方法级实时版本缓存
+        return $this->cache->cachedVersion(["\Models\Admin\Module",'purviewList'], [], ['db.sys_module' => null], 3600);
     }
     
     /**
@@ -50,7 +52,8 @@ class Module extends \Gene\Service
      */
     function initPath($uri)
     {
-        $path = $this->cache->cached(['\Models\Admin\Module','path'], [$uri], 10);
+        // 方法级实时版本缓存
+        $path = $this->cache->cachedVersion(["\Models\Admin\Module",'path'], [$uri], ['db.sys_module' => null], 3600);
         $this->path = isset($path[0]) ? $path[0] : [];
         $this->id = isset($path[1]) ? $path[1] : 0;
         return $this->id;
@@ -63,7 +66,8 @@ class Module extends \Gene\Service
      */
     public function getPidPath($pid)
     {
-        return \Models\Admin\Module::getInstance()->getPidPath($pid);
+        // 方法级实时版本缓存
+        return $this->cache->cachedVersion(["\Models\Admin\Module",'getPidPath'], [$pid], ['db.sys_module' => null], 3600);
     }
     
     
@@ -75,7 +79,8 @@ class Module extends \Gene\Service
      */
     function row($id)
     {
-        return \Models\Admin\Module::getInstance()->row($id);
+        // 方法级实时版本缓存
+        return $this->cache->cachedVersion(["\Models\Admin\Module",'row'], [$id], ['db.sys_module' => null], 3600);
     }
 
 	/**
@@ -102,6 +107,7 @@ class Module extends \Gene\Service
         $data['status'] = isset($data['status']) && $data['status'] == 'on' ? 1 : 0;
         $data['module_path'] = $this->getPidPath($data['module_pid']);
         $data['addtime'] = time();
+        // 方法级实时缓存版本key更新
         $this->cache->updateVersion(['db.sys_module' => null]);
         return \Models\Admin\Module::getInstance()->add($data);
     }
@@ -118,6 +124,7 @@ class Module extends \Gene\Service
         $data['status'] = isset($data['status']) && $data['status'] == 'on' ? 1 : 0;
         $data['module_path'] = $this->getPidPath($data['module_pid']);
         $data['updatetime'] = time();
+        // 方法级实时缓存版本key更新
         $this->cache->updateVersion(['db.sys_module' => null]);
         return \Models\Admin\Module::getInstance()->edit($id, $data);
     }
@@ -130,6 +137,7 @@ class Module extends \Gene\Service
      */
     function status($id)
     {
+        // 方法级实时缓存版本key更新
         $this->cache->updateVersion(['db.sys_module' => null]);
         return \Models\Admin\Module::getInstance()->status($id);
     }
@@ -142,6 +150,7 @@ class Module extends \Gene\Service
      */
     function del($id)
     {
+        // 方法级实时缓存版本key更新
         $this->cache->updateVersion(['db.sys_module' => null]);
         return \Models\Admin\Module::getInstance()->del($id);
     }
@@ -154,6 +163,7 @@ class Module extends \Gene\Service
      */
     function delAll($id_arr)
     {
+        // 方法级实时缓存版本key更新
         $this->cache->updateVersion(['db.sys_module' => null]);
         return \Models\Admin\Module::getInstance()->delAll($id_arr);
     }
@@ -166,6 +176,7 @@ class Module extends \Gene\Service
      */
     function countChird($id_arr)
     {
-        return \Models\Admin\Module::getInstance()->countChird($id_arr);
+        // 方法级实时版本缓存
+        return $this->cache->cachedVersion(["\Models\Admin\Module",'countChird'], [$id_arr], ['db.sys_module' => null], 3600);
     }
 }
