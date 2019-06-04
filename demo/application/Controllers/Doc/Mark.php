@@ -44,7 +44,7 @@ class Mark extends \Gene\Controller
     function add()
     {
         $this->title = '文档添加';
-        $this->display("doc/mark/add", "easy");
+        $this->display("doc/mark/add", "dialog");
     }
     
     /**
@@ -68,7 +68,7 @@ class Mark extends \Gene\Controller
         $this->title = '文档修改';
         $id = intval($params["id"]);
         $this->mark = \Services\Doc\Mark::getInstance()->row($id);
-        $this->display("doc/mark/edit", "easy");
+        $this->display("doc/mark/edit", "dialog");
     }
     
     /**

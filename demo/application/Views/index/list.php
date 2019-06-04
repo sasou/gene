@@ -13,9 +13,28 @@
 </div>
 <div class="layui-main">
     <fieldset class="layui-elem-field layui-field-title" style="margin-top: 30px;">
-      <legend>灵活、强大、简单、高效的c扩展框架。</legend>
+      <legend><span class="layui-badge-lg layui-bg-cyan">灵活</span>
+  <span class="layui-badge-lg layui-bg-blue">强大</span>
+  <span class="layui-badge-lg layui-bg-black">简单</span>
+  <span class="layui-badge-lg layui-bg-green">高效</span>
+  的 C 扩展框架。框架核心能力如下：</legend>
     </fieldset>
-  <blockquote class="layui-elem-quote">框架的基础是一个高性能的进程级缓存模块，基于缓存模块，实现了一个高性能的强大路由解析以及配置缓存； 路由强大灵活，支持回调、rest、http请求方式（get,post,put,patch,delete,trace,connect,options,head）等；配置缓存支持bool、int、long、string、array、常量等数据类型。
+  <blockquote class="layui-elem-quote">
+* 高性能：极简架构，超过yaf、Phalcon等同类型C扩展框架的功能及性能；</br>
+* MVCS：瘦MC模式，业务逻辑封装到service；</br>
+* 路由：完整支持HTTP REST请求；底层采用二叉树查找算法，性能强劲；</br>
+* 钩子：路由支持全局、局部钩子支持；
+* 依赖注入：参考 Java Spring 的 Bean 设计思想，实现了简易好用的 IoC；全局注入，局部控制反转等；</br>
+* 中间件：AOP (面向切面编程)，配置文件注册对象，调用方便且解耦；</br>
+* 工厂：提供全局工厂单例支持；</br>
+* 数据库：封装高性能orm类库；</br>
+* 配置：配置缓存到进程，修改自动更新；</br>
+* 长连接：按进程保持的长连接，支持Mysql/Redis/Memcached；持久连接断开自动检测；</br>
+* 视图：方式一、使用编译模板引擎，支持模板标签，支持模板缓存；方式二、使用原生PHP做模板引擎；两种方式均支持布局、属性赋值、对象引用等；</br>
+* 命令行：封装了命令行开发基础设施，可快速开发控制台程序、守护进程；</br>
+* 缓存：支持两种缓存，一是方法级定时缓存；二是实时版本缓存（创新功能：高效的实时缓存方案，轻松解决复杂缓存的更新，比如分页数据的缓存）； </br>
+* 自动加载：基于 PSR-4；</br>
+* 其他：redis、memcached类库二次封装；</br>
   </blockquote>
   <ul class="site-idea">
     <li>
@@ -37,4 +56,47 @@
       </fieldset>
     </li>
   </ul>
+    <div class="layui-bg-cyan" style="padding: 5px 10px;">
+<fieldset class="layui-elem-field layui-field-title">
+  <legend>版本历史</legend>
+</fieldset> 
+<ul class="layui-timeline">
+  <li class="layui-timeline-item">
+    <i class="layui-icon layui-timeline-axis"></i>
+    <div class="layui-timeline-content layui-text">
+      <div class="layui-timeline-title">2019年6月，Gene 3.0.2 发布。趋近完美。。。</div>
+    </div>
+  </li>
+  <li class="layui-timeline-item">
+    <i class="layui-icon layui-timeline-axis"></i>
+    <div class="layui-timeline-content layui-text-sm">
+      <div class="layui-timeline-title">2018年7月，Gene 2.2.0 发布。陆续被多个大型商业项目使用。。。</div>
+    </div>
+  </li>
+  <li class="layui-timeline-item">
+    <i class="layui-icon layui-timeline-axis"></i>
+    <div class="layui-timeline-content layui-text-sm">
+      <div class="layui-timeline-title">2017年6月，Gene 里程碑版本 1.2.3 发布，完善了框架的基本元素。。。</div>
+    </div>
+  </li>
+  <li class="layui-timeline-item">
+    <i class="layui-icon layui-timeline-axis"></i>
+    <div class="layui-timeline-content layui-text-sm">
+      <div class="layui-timeline-title">2016年5月，Gene 首个版本 1.0 发布。应用到线上重要的项目。。。</div>
+    </div>
+  </li>
+  <li class="layui-timeline-item">
+    <i class="layui-icon layui-timeline-axis"></i>
+    <div class="layui-timeline-content layui-text-sm">
+      <div class="layui-timeline-title">2016年3月，Gene 孵化。</div>
+    </div>
+  </li>
+  <li class="layui-timeline-item">
+    <i class="layui-icon layui-anim layui-anim-rotate layui-anim-loop layui-timeline-axis"></i>
+    <div class="layui-timeline-content layui-text-sm">
+      <div class="layui-timeline-title">许久前的轮子时代，使用了Colaphp、Ci、Thinkphp、Lavaral、Yaf等框架。</div>
+    </div>
+  </li>
+</ul>
+        </div>
 </div>
