@@ -36,10 +36,10 @@
     
     <ul class="layui-nav fly-nav-user">
       <li class="layui-nav-item">
-        <a href=""><i class="layui-icon layui-icon-friends"></i></a>
+        <a href=""><i class="layui-icon layui-icon-console"></i></a>
       </li>
       <li class="layui-nav-item">
-        <a href="/admin.html">后台管理(开发者账号:develop 演示账号:guest 密码:123456)</a>
+        <a href="/admin.html">控制台（开发者账号:develop 演示账号:guest 密码:123456）</a>
       </li>
     </ul>
   </div>
