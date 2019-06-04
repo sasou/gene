@@ -1,11 +1,9 @@
 # php-gene-for-php7
 
-    Simple, high performance,C extension framework for php7！
-	
-    版本：3.0.2  
-    
+    Simple, high performance,C extension framework for php7！简单、高性能、优雅的php c扩展框架！    
 
-简单、高性能、优雅的php c扩展框架！  
+>   最新版本：3.0.2    
+>   官方网站：Gene框架 http://www.php-gene.com/
 
 框架核心能力：
 * 高性能：极简架构，超过yaf、Phalcon等同类型C扩展框架的功能及性能；
@@ -18,7 +16,7 @@
 * 数据库：封装高性能orm类库；
 * 配置：配置缓存到进程，修改自动更新；
 * 长连接：按进程保持的长连接，支持Mysql/Redis/Memcached；持久连接断开自动检测；
-* 视图：方式一、使用编译模板引擎，支持模板标签，支持模板缓存；方式二、使用原生PHP做模板引擎；两种方式均支持布局、属性赋值、对象应用等；
+* 视图：方式一、使用编译模板引擎，支持模板标签，支持模板缓存；方式二、使用原生PHP做模板引擎；两种方式均支持布局、属性赋值、对象引用等；
 * 命令行：封装了命令行开发基础设施，可快速开发控制台程序、守护进程；
 * 缓存：支持两种缓存，一是方法级定时缓存；二是实时版本缓存（创新功能：高效的实时缓存方案，轻松解决复杂缓存的更新，比如分页数据的缓存）； 
 * 自动加载：基于 PSR-4；
@@ -33,7 +31,7 @@
 	    ->load("config.ini.php")
 	    ->run();
 
-框架的基础是一个高性能的进程级缓存模块，基于缓存模块，实现了一个高性能的强大路由解析以及配置缓存；
+框架的基础是基于进程级缓存模块实现了一个高性能的强大路由解析以及配置缓存；
 路由强大灵活，支持回调、rest、http请求方式（get,post,put,patch,delete,trace,connect,options,head）等：
 
 	<?php
@@ -142,17 +140,6 @@ DEMO：
 	index.php 启动文件
 	config.ini.php 配置文件
 	router.inc.php 路由文件
-	
-测试：
-
-	测试网站：http://php-gene.com/
-    
-	测试路由示例：
-	http://php-gene.com/demo/admin
-	http://php-gene.com/demo/admin.html
-	http://php-gene.com/demo/admin/demo.jpg
-	http://php-gene.com/demo/admin/ajax.js
-	http://php-gene.com/demo/admin/blog/test/baidu
 
 案例一：
         湖北省教育用户认证中心(全省几百万学生、教育用户的登录入口)
