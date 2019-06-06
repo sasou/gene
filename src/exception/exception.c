@@ -40,6 +40,10 @@ ZEND_BEGIN_ARG_INFO_EX(gene_exception_exception, 0, 0, 0)
 	ZEND_ARG_INFO(0, callback)
 ZEND_END_ARG_INFO()
 
+ZEND_BEGIN_ARG_INFO_EX(gene_exception_do_exception, 0, 0, 1)
+	ZEND_ARG_INFO(0, ex)
+ZEND_END_ARG_INFO()
+
 ZEND_BEGIN_ARG_INFO_EX(gene_exception_do_error, 0, 0, 2)
 	ZEND_ARG_INFO(0, code)
     ZEND_ARG_INFO(0, msg)
@@ -190,7 +194,18 @@ PHP_METHOD(gene_exception, doError) {
 		RETURN_NULL();
 	}
 	gene_trigger_error(code, "%s", ZSTR_VAL(msg));
-	RETURN_TRUE;
+}
+/* }}} */
+
+/*
+ * {{{ gene_exception::doException
+ */
+PHP_METHOD(gene_exception, doException) {
+	zval *ex = NULL;
+	if (zend_parse_parameters(ZEND_NUM_ARGS()TSRMLS_CC, "z", &ex) == FAILURE) {
+		RETURN_NULL();
+	}
+	gene_view_display("error" TSRMLS_CC);
 }
 /* }}} */
 
@@ -200,6 +215,7 @@ PHP_METHOD(gene_exception, doError) {
 zend_function_entry gene_exception_methods[] = {
 	PHP_ME(gene_exception, setErrorHandler, gene_exception_error, ZEND_ACC_PUBLIC|ZEND_ACC_STATIC)
 	PHP_ME(gene_exception, setExceptionHandler, gene_exception_exception, ZEND_ACC_PUBLIC|ZEND_ACC_STATIC)
+	PHP_ME(gene_exception, doException, gene_exception_do_exception, ZEND_ACC_PUBLIC|ZEND_ACC_STATIC)
 	PHP_ME(gene_exception, doError, gene_exception_do_error, ZEND_ACC_PUBLIC|ZEND_ACC_STATIC)
 #if ((PHP_MAJOR_VERSION == 5) && (PHP_MINOR_VERSION < 3)) || (PHP_MAJOR_VERSION < 5)
 	PHP_ME(gene_exception, __construct, NULL, ZEND_ACC_PUBLIC|ZEND_ACC_CTOR)
