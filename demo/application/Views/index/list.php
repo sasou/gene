@@ -23,7 +23,7 @@
 * 高性能：极简架构，超过yaf、Phalcon等同类型C扩展框架的功能及性能；</br>
 * MVCS：瘦MC模式，业务逻辑封装到service；</br>
 * 路由：完整支持HTTP REST请求；底层采用二叉树查找算法，性能强劲；</br>
-* 钩子：路由支持全局、局部钩子支持；
+* 钩子：路由支持全局、局部钩子支持；</br>
 * 依赖注入：参考 Java Spring 的 Bean 设计思想，实现了简易好用的 IoC；全局注入，局部控制反转等；</br>
 * 中间件：AOP (面向切面编程)，配置文件注册对象，调用方便且解耦；</br>
 * 工厂：提供全局工厂单例支持；</br>
@@ -64,7 +64,7 @@
   <li class="layui-timeline-item">
     <i class="layui-icon layui-timeline-axis"></i>
     <div class="layui-timeline-content layui-text">
-      <div class="layui-timeline-title">2019年6月，Gene 3.0.2 发布。趋近完美。。。</div>
+      <div class="layui-timeline-title">2019年6月，Gene 3.0.2 发布。实时版本缓存，性能提升。。。</div>
     </div>
   </li>
   <li class="layui-timeline-item">
