@@ -43,7 +43,6 @@ void gene_cache_get(zval *object, zval *key, zval *retval) /*{{{*/
     zval_ptr_dtor(&function_name);
 }/*}}}*/
 
-
 void gene_cache_set(zval *object, zval *key, zval *value, zval *ttl, zval *retval) /*{{{*/
 {
     zval function_name;
@@ -68,6 +67,34 @@ void gene_cache_del(zval *object, zval *key, zval *retval) /*{{{*/
     ZVAL_STRING(&function_name, "delete");
 	zval params[] = { *key };
     call_user_function(NULL, object, &function_name, retval, 1, params);
+    zval_ptr_dtor(&function_name);
+}/*}}}*/
+
+void gene_apcu_store(zval *key, zval *value, zval *ttl, zval *retval) /*{{{*/
+{
+    zval function_name;
+    ZVAL_STRING(&function_name, "apcu_store");
+    zval params[] = { *key, *value, *ttl };
+    call_user_function(NULL, NULL, &function_name, retval, 3, params);
+    zval_ptr_dtor(&function_name);
+}/*}}}*/
+
+
+void gene_apcu_fetch(zval *key, zval *retval) /*{{{*/
+{
+    zval function_name;
+    ZVAL_STRING(&function_name, "apcu_fetch");
+    zval params[] = { *key };
+    call_user_function(NULL, NULL, &function_name, retval, 1, params);
+    zval_ptr_dtor(&function_name);
+}/*}}}*/
+
+void gene_apcu_del(zval *key, zval *retval) /*{{{*/
+{
+    zval function_name;
+    ZVAL_STRING(&function_name, "apcu_delete");
+	zval params[] = { *key };
+    call_user_function(NULL, NULL, &function_name, retval, 1, params);
     zval_ptr_dtor(&function_name);
 }/*}}}*/
 
@@ -270,9 +297,8 @@ PHP_METHOD(gene_cache, cached)
 		return;
 	}
 	config =  zend_read_property(gene_cache_ce, self, ZEND_STRL(GENE_CACHE_CONFIG), 1, NULL);
-	hookName = zend_hash_str_find(Z_ARRVAL_P(config), ZEND_STRL("hook"));
 	sign = zend_hash_str_find(Z_ARRVAL_P(config), ZEND_STRL("sign"));
-
+	hookName = zend_hash_str_find(Z_ARRVAL_P(config), ZEND_STRL("hook"));
 	hook = gene_di_get(Z_STR_P(hookName));
 
 	zval key, ret;
@@ -283,6 +309,34 @@ PHP_METHOD(gene_cache, cached)
 		gene_cache_call(obj, args, &data);
 		hook = gene_di_get(Z_STR_P(hookName));
 		hook_cache_set(hook, &key, &data, ttl);
+		zval_ptr_dtor(&key);
+		zval_ptr_dtor(&ret);
+		RETURN_ZVAL(&data, 1, 1);
+	}
+	zval_ptr_dtor(&key);
+	RETURN_ZVAL(&ret, 1, 1);
+}
+/* }}} */
+
+/*
+ * {{{ public gene_cache::localCached($key)
+ */
+PHP_METHOD(gene_cache, localCached)
+{
+	zval *self = getThis(), *config = NULL, *hook = NULL, *hookName = NULL,*sign = NULL,*obj = NULL, *args = NULL, *ttl = NULL;
+	if (zend_parse_parameters(ZEND_NUM_ARGS() TSRMLS_CC, "zz|z", &obj, &args, &ttl) == FAILURE) {
+		return;
+	}
+	config =  zend_read_property(gene_cache_ce, self, ZEND_STRL(GENE_CACHE_CONFIG), 1, NULL);
+	sign = zend_hash_str_find(Z_ARRVAL_P(config), ZEND_STRL("sign"));
+
+	zval key, ret;
+	gene_cache_key(sign, 1, &key);
+	gene_apcu_fetch(&key, &ret);
+	if (Z_TYPE(ret) == IS_FALSE) {
+		zval data;
+		gene_cache_call(obj, args, &data);
+		gene_apcu_store(&key, &data, ttl, &ret);
 		zval_ptr_dtor(&key);
 		zval_ptr_dtor(&ret);
 		RETURN_ZVAL(&data, 1, 1);
@@ -304,12 +358,31 @@ PHP_METHOD(gene_cache, unsetCached)
 	config =  zend_read_property(gene_cache_ce, self, ZEND_STRL(GENE_CACHE_CONFIG), 1, NULL);
 	hookName = zend_hash_str_find(Z_ARRVAL_P(config), ZEND_STRL("hook"));
 	sign = zend_hash_str_find(Z_ARRVAL_P(config), ZEND_STRL("sign"));
-
 	hook = gene_di_get(Z_STR_P(hookName));
 
 	zval key, ret;
 	gene_cache_key(sign, 1, &key);
 	gene_cache_del(hook, &key, &ret);
+	zval_ptr_dtor(&key);
+	RETURN_ZVAL(&ret, 1, 1);
+}
+/* }}} */
+
+/*
+ * {{{ public gene_cache::unsetLocalCached($key)
+ */
+PHP_METHOD(gene_cache, unsetLocalCached)
+{
+	zval *self = getThis(), *config = NULL, *hook = NULL, *hookName = NULL,*sign = NULL,*obj = NULL, *args = NULL, *ttl = NULL;
+	if (zend_parse_parameters(ZEND_NUM_ARGS() TSRMLS_CC, "zz|z", &obj, &args, &ttl) == FAILURE) {
+		return;
+	}
+	config =  zend_read_property(gene_cache_ce, self, ZEND_STRL(GENE_CACHE_CONFIG), 1, NULL);
+	sign = zend_hash_str_find(Z_ARRVAL_P(config), ZEND_STRL("sign"));
+
+	zval key, ret;
+	gene_cache_key(sign, 1, &key);
+	gene_apcu_del(&key, &ret);
 	zval_ptr_dtor(&key);
 	RETURN_ZVAL(&ret, 1, 1);
 }
@@ -385,6 +458,73 @@ PHP_METHOD(gene_cache, cachedVersion)
 /* }}} */
 
 /*
+ * {{{ public gene_cache::localCachedVersion($key)
+ */
+PHP_METHOD(gene_cache, localCachedVersion)
+{
+	zval *self = getThis(), *config = NULL, *hook = NULL, *hookName = NULL,*sign = NULL,*versionSign = NULL, *obj = NULL, *args = NULL,*versionField = NULL, *ttl = NULL;
+	if (zend_parse_parameters(ZEND_NUM_ARGS() TSRMLS_CC, "zzz|z", &obj, &args, &versionField, &ttl) == FAILURE) {
+		return;
+	}
+	config =  zend_read_property(gene_cache_ce, self, ZEND_STRL(GENE_CACHE_CONFIG), 1, NULL);
+	hookName = zend_hash_str_find(Z_ARRVAL_P(config), ZEND_STRL("hook"));
+	sign = zend_hash_str_find(Z_ARRVAL_P(config), ZEND_STRL("sign"));
+	versionSign = zend_hash_str_find(Z_ARRVAL_P(config), ZEND_STRL("versionSign"));
+	hook = gene_di_get(Z_STR_P(hookName));
+
+	zval key, cache, cache_key, cur_version;
+	gene_cache_key(sign, 0, &key);
+	gene_apcu_fetch(&key, &cache);
+	gene_cache_get_version_arr(versionSign, versionField, &cache_key, NULL);
+	gene_cache_get(hook, &cache_key, &cur_version);
+
+	if (Z_TYPE(cache) == IS_ARRAY) {
+		zval *cacheData = NULL,*cacheVersion = NULL;
+		cacheData = zend_hash_str_find(Z_ARRVAL(cache), ZEND_STRL("data"));
+		cacheVersion = zend_hash_str_find(Z_ARRVAL(cache), ZEND_STRL("version"));
+		if (cacheVersion == NULL || checkVersion(cacheVersion, &cur_version) == 0) {
+			zval data_new,cur_data;
+			gene_cache_call(obj, args, &cur_data);
+			array_init(&data_new);
+			Z_TRY_ADDREF(cur_data);
+			add_assoc_zval_ex(&data_new, ZEND_STRL("data"), &cur_data);
+			add_assoc_zval_ex(&data_new, ZEND_STRL("version"), &cur_version);
+			zval ret;
+			gene_apcu_store(&key, &data_new, ttl, &ret);
+			zval_ptr_dtor(&ret);
+			zval_ptr_dtor(&key);
+			zval_ptr_dtor(&data_new);
+			zval_ptr_dtor(&cache_key);
+			zval_ptr_dtor(&cache);
+			RETURN_ZVAL(&cur_data, 1, 1);
+		}
+		Z_TRY_ADDREF_P(cacheData);
+		zval_ptr_dtor(&key);
+		zval_ptr_dtor(&cache);
+		zval_ptr_dtor(&cache_key);
+		zval_ptr_dtor(&cur_version);
+		RETURN_ZVAL(cacheData, 1, 1);
+	} else {
+		zval data_new,cur_data;
+		gene_cache_call(obj, args, &cur_data);
+		array_init(&data_new);
+		Z_TRY_ADDREF(cur_data);
+		add_assoc_zval_ex(&data_new, ZEND_STRL("data"), &cur_data);
+		add_assoc_zval_ex(&data_new, ZEND_STRL("version"), &cur_version);
+		zval ret;
+		gene_apcu_store(&key, &data_new, ttl, &ret);
+		zval_ptr_dtor(&ret);
+		zval_ptr_dtor(&key);
+		zval_ptr_dtor(&data_new);
+		zval_ptr_dtor(&cache_key);
+		zval_ptr_dtor(&cache);
+		RETURN_ZVAL(&cur_data, 1, 1);
+	}
+	RETURN_NULL();
+}
+/* }}} */
+
+/*
  * {{{ public gene_cache::getVersion($key)
  */
 PHP_METHOD(gene_cache, getVersion)
@@ -432,8 +572,11 @@ PHP_METHOD(gene_cache, updateVersion)
  */
 zend_function_entry gene_cache_methods[] = {
 		PHP_ME(gene_cache, cached, NULL, ZEND_ACC_PUBLIC)
+		PHP_ME(gene_cache, localCached, NULL, ZEND_ACC_PUBLIC)
 		PHP_ME(gene_cache, unsetCached, NULL, ZEND_ACC_PUBLIC)
+		PHP_ME(gene_cache, unsetLocalCached, NULL, ZEND_ACC_PUBLIC)
 		PHP_ME(gene_cache, cachedVersion, NULL, ZEND_ACC_PUBLIC)
+		PHP_ME(gene_cache, localCachedVersion, NULL, ZEND_ACC_PUBLIC)
 		PHP_ME(gene_cache, getVersion, NULL, ZEND_ACC_PUBLIC)
 		PHP_ME(gene_cache, updateVersion, NULL, ZEND_ACC_PUBLIC)
 		PHP_ME(gene_cache, __construct, NULL, ZEND_ACC_PUBLIC|ZEND_ACC_CTOR)
