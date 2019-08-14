@@ -241,12 +241,17 @@ void curVersion(zval *versionField, zval *cache, zval *retval) {
 }
 
 
-int checkVersion(zval *oldVersion, zval *newVersion) {
+int checkVersion(zval *oldVersion, zval *newVersion, zval *mode) {
 	if (Z_TYPE_P(oldVersion) != IS_ARRAY || Z_TYPE_P(newVersion) != IS_ARRAY) {
 		return 0;
 	}
-	if (zend_hash_num_elements(Z_ARRVAL_P(newVersion)) != zend_hash_num_elements(Z_ARRVAL_P(oldVersion))) {
-		return 0;
+	if (mode && Z_TYPE_P(mode) == IS_TRUE) {
+		if (zend_hash_num_elements(Z_ARRVAL_P(newVersion)) != zend_hash_num_elements(Z_ARRVAL_P(oldVersion))) {
+			return 0;
+		}
+		if (zend_hash_num_elements(Z_ARRVAL_P(newVersion)) == 0) {
+			return 0;
+		}
 	}
 	zval *element;
 	zend_string *id;
@@ -393,8 +398,8 @@ PHP_METHOD(gene_cache, unsetLocalCached)
  */
 PHP_METHOD(gene_cache, cachedVersion)
 {
-	zval *self = getThis(), *config = NULL, *hook = NULL, *hookName = NULL,*sign = NULL,*versionSign = NULL, *obj = NULL, *args = NULL,*versionField = NULL, *ttl = NULL;
-	if (zend_parse_parameters(ZEND_NUM_ARGS() TSRMLS_CC, "zzz|z", &obj, &args, &versionField, &ttl) == FAILURE) {
+	zval *self = getThis(), *config = NULL, *hook = NULL, *hookName = NULL,*sign = NULL,*versionSign = NULL, *obj = NULL, *args = NULL,*versionField = NULL, *ttl = NULL, *mode = NULL;
+	if (zend_parse_parameters(ZEND_NUM_ARGS() TSRMLS_CC, "zzz|zz", &obj, &args, &versionField, &ttl, &mode) == FAILURE) {
 		return;
 	}
 	config =  zend_read_property(gene_cache_ce, self, ZEND_STRL(GENE_CACHE_CONFIG), 1, NULL);
@@ -416,7 +421,7 @@ PHP_METHOD(gene_cache, cachedVersion)
 			cacheVersion = zend_hash_str_find(Z_ARRVAL_P(data), ZEND_STRL("version"));
 			zval cur_version;
 			curVersion(&cache_key, &cache, &cur_version);
-			if (cacheVersion == NULL || checkVersion(cacheVersion, &cur_version) == 0) {
+			if (cacheVersion == NULL || checkVersion(cacheVersion, &cur_version, mode) == 0) {
 				zval data_new,cur_data;
 				gene_cache_call(obj, args, &cur_data);
 				array_init(&data_new);
@@ -462,27 +467,27 @@ PHP_METHOD(gene_cache, cachedVersion)
  */
 PHP_METHOD(gene_cache, localCachedVersion)
 {
-	zval *self = getThis(), *config = NULL, *hook = NULL, *hookName = NULL,*sign = NULL,*versionSign = NULL, *obj = NULL, *args = NULL,*versionField = NULL, *ttl = NULL;
-	if (zend_parse_parameters(ZEND_NUM_ARGS() TSRMLS_CC, "zzz|z", &obj, &args, &versionField, &ttl) == FAILURE) {
+	zval *self = getThis(), *config = NULL, *hook = NULL, *hookName = NULL,*sign = NULL,*versionSign = NULL, *obj = NULL, *args = NULL,*versionField = NULL, *ttl = NULL, *mode = NULL;
+	if (zend_parse_parameters(ZEND_NUM_ARGS() TSRMLS_CC, "zzz|zz", &obj, &args, &versionField, &ttl, &mode) == FAILURE) {
 		return;
 	}
 	config =  zend_read_property(gene_cache_ce, self, ZEND_STRL(GENE_CACHE_CONFIG), 1, NULL);
 	hookName = zend_hash_str_find(Z_ARRVAL_P(config), ZEND_STRL("hook"));
 	sign = zend_hash_str_find(Z_ARRVAL_P(config), ZEND_STRL("sign"));
 	versionSign = zend_hash_str_find(Z_ARRVAL_P(config), ZEND_STRL("versionSign"));
-	hook = gene_di_get(Z_STR_P(hookName));
 
 	zval key, cache, cache_key, cur_version;
 	gene_cache_key(sign, 0, &key);
 	gene_apcu_fetch(&key, &cache);
 	gene_cache_get_version_arr(versionSign, versionField, &cache_key, NULL);
+	hook = gene_di_get(Z_STR_P(hookName));
 	gene_cache_get(hook, &cache_key, &cur_version);
 
 	if (Z_TYPE(cache) == IS_ARRAY) {
 		zval *cacheData = NULL,*cacheVersion = NULL;
 		cacheData = zend_hash_str_find(Z_ARRVAL(cache), ZEND_STRL("data"));
 		cacheVersion = zend_hash_str_find(Z_ARRVAL(cache), ZEND_STRL("version"));
-		if (cacheVersion == NULL || checkVersion(cacheVersion, &cur_version) == 0) {
+		if (cacheVersion == NULL || checkVersion(cacheVersion, &cur_version, mode) == 0) {
 			zval data_new,cur_data;
 			gene_cache_call(obj, args, &cur_data);
 			array_init(&data_new);
@@ -520,7 +525,6 @@ PHP_METHOD(gene_cache, localCachedVersion)
 		zval_ptr_dtor(&cache);
 		RETURN_ZVAL(&cur_data, 1, 1);
 	}
-	RETURN_NULL();
 }
 /* }}} */
 
