@@ -259,8 +259,11 @@ int checkVersion(zval *oldVersion, zval *newVersion, zval *mode) {
 	{
 		zval *val = zend_hash_find(Z_ARRVAL_P(oldVersion), id);
 		if (val) {
-			if (Z_TYPE_P(element) != IS_LONG || Z_TYPE_P(val) != IS_LONG) {
-				return 0;
+			if (Z_TYPE_P(element) != IS_LONG) {
+				convert_to_long(element);
+			}
+			if (Z_TYPE_P(val) != IS_LONG) {
+				convert_to_long(val);
 			}
 			if (Z_LVAL_P(val) != Z_LVAL_P(element)) {
 				return 0;
