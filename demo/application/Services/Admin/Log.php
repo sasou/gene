@@ -42,7 +42,7 @@ class Log extends \Gene\Service
      */
     function getUserLastLoginInfo($user_id)
     {
-        return $this->cache->cached(["\Models\Admin\Log", "getUserLastLoginInfo"], [$user_id], 100);
+        return $this->cache->cached(["\Models\Admin\Log", "getUserLastLoginInfo"], [$user_id], 3600);
     } 
 
     /**
