@@ -136,15 +136,13 @@ PHP_METHOD(gene_response, alert) {
 PHP_METHOD(gene_response, success) {
 	zend_string *text;
 	zend_long code = 2000;
-	zval ret;
 
 	if (zend_parse_parameters(ZEND_NUM_ARGS()TSRMLS_CC, "S|l", &text, &code) == FAILURE) {
 		return;
 	}
-	array_init(&ret);
-	add_assoc_long_ex(&ret, ZEND_STRL(GENE_RESPONSE_CODE), code);
-	add_assoc_str_ex(&ret, ZEND_STRL(GENE_RESPONSE_MSG), text);
-	RETURN_ZVAL(&ret, 1, 1);
+	array_init(return_value);
+	add_assoc_long_ex(return_value, ZEND_STRL(GENE_RESPONSE_CODE), code);
+	add_assoc_str_ex(return_value, ZEND_STRL(GENE_RESPONSE_MSG), text);
 }
 /* }}} */
 
@@ -154,15 +152,13 @@ PHP_METHOD(gene_response, success) {
 PHP_METHOD(gene_response, error) {
 	zend_string *text;
 	zend_long code = 4000;
-	zval ret;
 
 	if (zend_parse_parameters(ZEND_NUM_ARGS()TSRMLS_CC, "S|l", &text, &code) == FAILURE) {
 		return;
 	}
-	array_init(&ret);
-	add_assoc_long_ex(&ret, ZEND_STRL(GENE_RESPONSE_CODE), code);
-	add_assoc_str_ex(&ret, ZEND_STRL(GENE_RESPONSE_MSG), text);
-	RETURN_ZVAL(&ret, 1, 1);
+	array_init(return_value);
+	add_assoc_long_ex(return_value, ZEND_STRL(GENE_RESPONSE_CODE), code);
+	add_assoc_str_ex(return_value, ZEND_STRL(GENE_RESPONSE_MSG), text);
 }
 /* }}} */
 
@@ -173,22 +169,20 @@ PHP_METHOD(gene_response, data) {
 	zend_long count = -1;
 	zend_string *text = NULL;
 	zend_long code = 2000;
-	zval ret;
 
 	if (zend_parse_parameters(ZEND_NUM_ARGS()TSRMLS_CC, "z|lSl", &data, &count, &text, &code) == FAILURE) {
 		return;
 	}
-	array_init(&ret);
-	add_assoc_long_ex(&ret, ZEND_STRL(GENE_RESPONSE_CODE), code);
+	array_init(return_value);
+	add_assoc_long_ex(return_value, ZEND_STRL(GENE_RESPONSE_CODE), code);
 	if (text) {
-		add_assoc_str_ex(&ret, ZEND_STRL(GENE_RESPONSE_MSG), text);
+		add_assoc_str_ex(return_value, ZEND_STRL(GENE_RESPONSE_MSG), text);
 	}
-	add_assoc_zval_ex(&ret, ZEND_STRL(GENE_RESPONSE_DATA), data);
 	Z_TRY_ADDREF_P(data);
+	add_assoc_zval_ex(return_value, ZEND_STRL(GENE_RESPONSE_DATA), data);
 	if (count >= 0) {
-		add_assoc_long_ex(&ret, ZEND_STRL(GENE_RESPONSE_COUNT), count);
+		add_assoc_long_ex(return_value, ZEND_STRL(GENE_RESPONSE_COUNT), count);
 	}
-	RETURN_ZVAL(&ret, 1, 1);
 }
 /* }}} */
 
