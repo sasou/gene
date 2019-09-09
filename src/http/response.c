@@ -218,9 +218,9 @@ PHP_METHOD(gene_response, json) {
 }
 /* }}} */
 
-/** {{{ proto public gene_response::setHeader(array $json, int $code)
+/** {{{ proto public gene_response::header(array $json, int $code)
  */
-PHP_METHOD(gene_response, setHeader) {
+PHP_METHOD(gene_response, header) {
 	char *key, *value;
 	zend_long key_len = 0, value_len = 0;
 
@@ -259,7 +259,7 @@ zend_function_entry gene_response_methods[] = {
 	PHP_ME(gene_response, error, gene_response_arg_se, ZEND_ACC_PUBLIC|ZEND_ACC_STATIC)
 	PHP_ME(gene_response, data, gene_response_arg_se_data, ZEND_ACC_PUBLIC|ZEND_ACC_STATIC)
 	PHP_ME(gene_response, json, gene_response_arg_se_json, ZEND_ACC_PUBLIC|ZEND_ACC_STATIC)
-	PHP_ME(gene_response, setHeader, gene_response_arg_header, ZEND_ACC_PUBLIC|ZEND_ACC_STATIC)
+	PHP_ME(gene_response, header, gene_response_arg_header, ZEND_ACC_PUBLIC|ZEND_ACC_STATIC)
 	PHP_ME(gene_response, setJsonHeader, NULL, ZEND_ACC_PUBLIC|ZEND_ACC_STATIC)
 	PHP_ME(gene_response, setHtmlHeader, NULL, ZEND_ACC_PUBLIC|ZEND_ACC_STATIC)
 	PHP_ME(gene_response, __construct, NULL, ZEND_ACC_PUBLIC|ZEND_ACC_CTOR)

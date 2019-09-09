@@ -4,7 +4,7 @@ namespace Ext;
 /**
  * Captcha
  */
-class Captcha
+class Captcha extends \Gene\Service
 {
 
     private $charset = 'abcdefghkmnprstuvwxyzABCDEFGHKMNPRSTUVWXYZ23456789'; //随机因子  
@@ -22,21 +22,6 @@ class Captcha
     public function __construct()
     {
         $this->font = dirname(__FILE__) . '/fonts/elephant.ttf'; //注意字体路径要写对，否则显示不了图片  
-    }
-
-    /**
-     * get static class
-     * @return self
-     * @deprecated 2.1
-     */
-    public static function getInstance()
-    {
-        $regName = get_called_class();
-        if (!$class = \Gene\Di::get($regName)) {
-            $class = new $regName();
-            \Gene\Di::set($regName, $class);
-        }
-        return $class;
     }
     
     //生成随机码  
@@ -85,7 +70,7 @@ class Captcha
     //输出  
     private function outPut()
     {
-        header('Content-type:image/png');
+        $this->response->header('Content-type', "image/png");
         imagepng($this->img);
         imagedestroy($this->img);
     }
