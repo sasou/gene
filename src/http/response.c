@@ -65,6 +65,11 @@ ZEND_BEGIN_ARG_INFO_EX(gene_response_arg_header, 0, 0, 2)
     ZEND_ARG_INFO(0, value)
 ZEND_END_ARG_INFO()
 
+ZEND_BEGIN_ARG_INFO_EX(gene_response_arg_cookie, 0, 0, 2)
+    ZEND_ARG_INFO(0, key)
+    ZEND_ARG_INFO(0, value)
+ZEND_END_ARG_INFO()
+
 /** {{{ void gene_response_set_redirect(char *url, zend_long code TSRMLS_DC)
  */
 void gene_response_set_redirect(char *url, zend_long code TSRMLS_DC) {
@@ -88,6 +93,41 @@ void gene_response_set_header(char *key, char *value TSRMLS_DC) {
 	efree(ctr.line);
 }
 /* }}} */
+
+void gene_response_cookie(zval *name, zval *value, zval *expires, zval *path, zval *domain,zval *secure, zval *httponly, zval *retval) /*{{{*/
+{
+    zval function_name;
+    ZVAL_STRING(&function_name, "setcookie");
+    zval params[7];
+    int num = 1;
+    params[0] = *name;
+    if (value) {
+    	num = 2;
+        params[1] = *value;
+    }
+    if (expires) {
+    	num = 3;
+        params[2] = *expires;
+    }
+    if (expires) {
+    	num = 4;
+        params[3] = *path;
+    }
+    if (expires) {
+    	num = 5;
+        params[4] = *domain;
+    }
+    if (expires) {
+    	num = 6;
+        params[5] = *secure;
+    }
+    if (expires) {
+    	num = 7;
+        params[6] = *httponly;
+    }
+    call_user_function(NULL, NULL, &function_name, retval, num, params);
+    zval_ptr_dtor(&function_name);
+}/*}}}*/
 
 /*
  * {{{ gene_response
@@ -233,6 +273,17 @@ PHP_METHOD(gene_response, header) {
 }
 /* }}} */
 
+/** {{{ proto public gene_response::cookie(array $json, int $code)
+ */
+PHP_METHOD(gene_response, cookie) {
+	zval *name, *value, *expires, *path, *domain, *secure, *httponly;
+	if (zend_parse_parameters(ZEND_NUM_ARGS()TSRMLS_CC, "z|zzzzzz", &name, &value, &expires, &path, &domain, &secure, &httponly) == FAILURE) {
+		return;
+	}
+	gene_response_cookie(name, value, expires, path, domain, secure, httponly, return_value);
+}
+/* }}} */
+
 /** {{{ proto public gene_response::setJsonHeader()
  */
 PHP_METHOD(gene_response, setJsonHeader) {
@@ -260,6 +311,7 @@ zend_function_entry gene_response_methods[] = {
 	PHP_ME(gene_response, data, gene_response_arg_se_data, ZEND_ACC_PUBLIC|ZEND_ACC_STATIC)
 	PHP_ME(gene_response, json, gene_response_arg_se_json, ZEND_ACC_PUBLIC|ZEND_ACC_STATIC)
 	PHP_ME(gene_response, header, gene_response_arg_header, ZEND_ACC_PUBLIC|ZEND_ACC_STATIC)
+	PHP_ME(gene_response, cookie, gene_response_arg_cookie, ZEND_ACC_PUBLIC|ZEND_ACC_STATIC)
 	PHP_ME(gene_response, setJsonHeader, NULL, ZEND_ACC_PUBLIC|ZEND_ACC_STATIC)
 	PHP_ME(gene_response, setHtmlHeader, NULL, ZEND_ACC_PUBLIC|ZEND_ACC_STATIC)
 	PHP_ME(gene_response, __construct, NULL, ZEND_ACC_PUBLIC|ZEND_ACC_CTOR)
