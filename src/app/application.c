@@ -362,6 +362,30 @@ PHP_METHOD(gene_application, getEnvironment) {
 
 
 /*
+ * {{{ public gene_application::params($key)
+ */
+PHP_METHOD(gene_application, params) {
+	char *name = NULL;
+	zend_long name_len = 0;
+	zval *params = NULL;
+	if (zend_parse_parameters(ZEND_NUM_ARGS()TSRMLS_CC, "|s", &name, &name_len) == FAILURE) {
+		return;
+	}
+
+	params = GENE_G(path_params);
+	if (name_len == 0) {
+		RETURN_ZVAL(GENE_G(path_params), 1, 0);
+	} else {
+		zval *val = zend_symtable_str_find(Z_ARRVAL_P(params), name, name_len);
+		if (val) {
+			RETURN_ZVAL(val, 1, 0);
+		}
+		RETURN_NULL();
+	}
+}
+/* }}} */
+
+/*
  * {{{ public gene_application::setEnvironment($type)
  */
 PHP_METHOD(gene_application, setEnvironment) {
@@ -525,7 +549,7 @@ PHP_METHOD(gene_application, run) {
 	if (pathin && ZSTR_LEN(pathin)) {
 		pin = ZSTR_VAL(pathin);
 	}
-	init();
+
 	get_router_content_run(min, pin, &safe TSRMLS_CC);
 	zval_ptr_dtor(&safe);
 	RETURN_ZVAL(self, 1, 0);
@@ -604,6 +628,7 @@ zend_function_entry gene_application_methods[] = {
 	PHP_ME(gene_application, setEnvironment, gene_application_set_environment, ZEND_ACC_PUBLIC|ZEND_ACC_STATIC)
 	PHP_ME(gene_application, getEnvironment, gene_application_get_environment, ZEND_ACC_PUBLIC|ZEND_ACC_STATIC)
 	PHP_ME(gene_application, config, gene_application_config, ZEND_ACC_PUBLIC|ZEND_ACC_STATIC)
+	PHP_ME(gene_application, params, gene_application_config, ZEND_ACC_PUBLIC|ZEND_ACC_STATIC)
 	PHP_ME(gene_application, __get, gene_application_get, ZEND_ACC_PUBLIC)
 	PHP_ME(gene_application, __set, gene_application_set, ZEND_ACC_PUBLIC)
 	{ NULL, NULL, NULL }
