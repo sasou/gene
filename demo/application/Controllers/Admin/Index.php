@@ -77,7 +77,7 @@ class Index extends \Gene\Controller
      */
     function captcha()
     {
-        $captcha = new \Ext\Captcha();
+        $captcha = \Ext\Captcha::getInstance();
         \gene\session::set('login-captcha', $captcha->getCode());
         $captcha->create();
     }
