@@ -45,11 +45,11 @@ $router->clear()
     // 后台验证钩子
     ->hook("adminAuth", function() {
         if(!isset($this->user['user_id'])) {
-            \Gene\Response::redirect('/login.html', 301);
+            $this->response->redirect('/login.html', 301);
         }
         $id = \Services\Admin\Module::getInstance()->initPath(\Gene\Application::getRouterUri());
         if (!$id || strpos(",{$this->user['purview']},", ",{$id},") === false) {
-            \Gene\Response::json(\Gene\Response::error("操作未授权"));
+            $this->response->json(\Gene\Response::error("操作未授权"));
             return false;
         }
     })
@@ -60,6 +60,6 @@ $router->clear()
     })
     // 全局后置钩子
     ->hook("after", function($params) {
-        $callback = \Gene\Request::get("callback");
-        \gene\response::json($params, $callback);
+        $callback = $this->request->get("callback");
+        $this->response->json($params, $callback);
     });

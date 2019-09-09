@@ -7,6 +7,16 @@ $config->set("view", [
     'class' => '\Gene\View'
 ]);
 
+//http请求类注入配置
+$config->set("request", [
+    'class' => '\Gene\Request'
+]);
+
+//http响应类注入配置
+$config->set("response", [
+    'class' => '\Gene\Response'
+]);
+
 //数据库类注入配置
 $config->set("db", [
     'class' => '\Gene\Db\Mysql',
