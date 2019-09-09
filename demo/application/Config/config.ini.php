@@ -17,6 +17,14 @@ $config->set("response", [
     'class' => '\Gene\Response'
 ]);
 
+//http响应类注入配置
+$config->set("session", [
+    'class' => '\Ext\Session',
+    'params' => [[
+    'driver' => "memcache"
+        ]],
+]);
+
 //数据库类注入配置
 $config->set("db", [
     'class' => '\Gene\Db\Mysql',
