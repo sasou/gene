@@ -200,20 +200,26 @@ PHP_METHOD(gene_controller, getMethod) {
 /* }}} */
 
 /*
- * {{{ public gene_controller::urlParams()
+ * {{{ public gene_controller::params($name)
  */
-PHP_METHOD(gene_controller, urlParams) {
-	zval *cache = NULL;
-	zend_string *keyString = NULL;
-	if (zend_parse_parameters(ZEND_NUM_ARGS()TSRMLS_CC, "|S", &keyString) == FAILURE) {
+PHP_METHOD(gene_controller, params) {
+	char *name = NULL;
+	zend_long name_len = 0;
+	zval *params = NULL;
+	if (zend_parse_parameters(ZEND_NUM_ARGS()TSRMLS_CC, "|s", &name, &name_len) == FAILURE) {
 		return;
 	}
-	cache = gene_memory_get_by_config(PHP_GENE_URL_PARAMS, strlen(PHP_GENE_URL_PARAMS), ZSTR_VAL(keyString) TSRMLS_CC);
-	if (cache) {
-		ZVAL_COPY_VALUE(return_value, cache);
-		return;
+
+	params = GENE_G(path_params);
+	if (name_len == 0) {
+		RETURN_ZVAL(GENE_G(path_params), 1, 0);
+	} else {
+		zval *val = zend_symtable_str_find(Z_ARRVAL_P(params), name, name_len);
+		if (val) {
+			RETURN_ZVAL(val, 1, 0);
+		}
+		RETURN_NULL();
 	}
-	RETURN_NULL();
 }
 /* }}} */
 
@@ -440,7 +446,7 @@ zend_function_entry gene_controller_methods[] = {
 	PHP_ME(gene_controller, server, gene_controller_param_get, ZEND_ACC_PUBLIC|ZEND_ACC_STATIC)
 	PHP_ME(gene_controller, env, gene_controller_param_get, ZEND_ACC_PUBLIC|ZEND_ACC_STATIC)
 	PHP_ME(gene_controller, isAjax, gene_controller_void_arginfo, ZEND_ACC_PUBLIC|ZEND_ACC_STATIC)
-	PHP_ME(gene_controller, urlParams, gene_controller_url_param, ZEND_ACC_PUBLIC|ZEND_ACC_STATIC)
+	PHP_ME(gene_controller, params, gene_controller_url_param, ZEND_ACC_PUBLIC|ZEND_ACC_STATIC)
 	PHP_ME(gene_controller, getMethod, gene_controller_void_arginfo, ZEND_ACC_PUBLIC|ZEND_ACC_STATIC)
 	PHP_ME(gene_controller, isGet, gene_controller_void_arginfo, ZEND_ACC_PUBLIC|ZEND_ACC_STATIC)
 	PHP_ME(gene_controller, isPost, gene_controller_void_arginfo, ZEND_ACC_PUBLIC|ZEND_ACC_STATIC)

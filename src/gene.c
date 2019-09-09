@@ -79,6 +79,7 @@ static void php_gene_init_globals() {
 	GENE_G(app_key) = NULL;
 	GENE_G(auto_load_fun) = NULL;
 	GENE_G(child_views) = NULL;
+	GENE_G(path_params) = NULL;
 	GENE_G(cache) = NULL;
 	GENE_G(cache_easy) = NULL;
 	gene_memory_init(TSRMLS_CC);
@@ -140,6 +141,11 @@ static void php_gene_close_globals() {
 		efree(GENE_G(app_key));
 		GENE_G(app_key) = NULL;
 	}
+	if (GENE_G(path_params)) {
+		efree(GENE_G(path_params));
+		GENE_G(path_params) = NULL;
+	}
+
 }
 /* }}} */
 
@@ -211,6 +217,10 @@ PHP_MSHUTDOWN_FUNCTION(gene) {
  * {{{ PHP_RINIT_FUNCTION
  */
 PHP_RINIT_FUNCTION(gene) {
+	if (!GENE_G(path_params)) {
+		GENE_G(path_params) =  (zval*) pemalloc(sizeof(zval), 0);
+		array_init(GENE_G(path_params));
+	}
 	return SUCCESS; // @suppress("Symbol is not resolved")
 }
 /* }}} */
@@ -240,44 +250,6 @@ PHP_MINFO_FUNCTION(gene) {
 /* }}} */
 
 /*
- * {{{ gene_load()
- */
-PHP_FUNCTION(gene_call) {
-	char *class = NULL, *action = NULL;
-	zend_long class_len = 0, action_len = 0;
-	zval *params = NULL, classObject, ret;
-	if (zend_parse_parameters(ZEND_NUM_ARGS()TSRMLS_CC, "ssz", &class, &class_len, &action, &action_len, &params) == FAILURE) {
-		return;
-	}
-	if (GENE_G(module) != NULL) {
-		class = strreplace2(class, ":m", GENE_G(module));
-	}
-	if (GENE_G(controller) != NULL) {
-		class = strreplace2(class, ":c", GENE_G(controller));
-	}
-
-	if (gene_factory(class, strlen(class), NULL, &classObject)) {
-		if (GENE_G(action) != NULL) {
-			action = strreplace2(action, ":a", GENE_G(action));
-		}
-		strtolower(action);
-		if (Z_TYPE(classObject) == IS_OBJECT
-				&& zend_hash_str_exists(&(Z_OBJCE(classObject)->function_table), action, strlen(action))) {
-			gene_factory_call_1(&classObject, action, params, &ret);
-			RETURN_ZVAL(&ret, 1, 0);
-		} else {
-			php_error_docref(NULL, E_WARNING, "Unable to call method '%s' in class '%s'." , action, class);
-		}
-		RETURN_NULL();
-
-	} else {
-		php_error_docref(NULL, E_WARNING, "Unable to init calss '%s'." , class);
-	}
-	RETURN_NULL();
-}
-/* }}} */
-
-/*
  * {{{ gene_version()
  */
 PHP_FUNCTION(gene_version) {
@@ -290,7 +262,6 @@ PHP_FUNCTION(gene_version) {
  * Every user visible function must have an entry in gene_functions[].
  */
 zend_function_entry gene_functions[] = {
-	PHP_FE(gene_call,NULL)
 	PHP_FE(gene_version,NULL)
 	PHP_FE_END
 };

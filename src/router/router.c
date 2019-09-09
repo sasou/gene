@@ -28,6 +28,7 @@
 #include "ext/pcre/php_pcre.h"
 
 #include "../gene.h"
+#include "../factory/factory.h"
 #include "../router/router.h"
 #include "../cache/memory.h"
 #include "../common/common.h"
@@ -67,22 +68,13 @@ ZEND_END_ARG_INFO()
 ZEND_BEGIN_ARG_INFO_EX(gene_router_read_file, 0, 0, 1)
 ZEND_ARG_INFO(0, file)
 ZEND_END_ARG_INFO()
-/* }}} */
 
-/** {{{ int init()
- */
-void init() {
-	zval *params = NULL;
-	// param reset
-	params = zend_hash_str_find(&EG(symbol_table), "params", 6);
-	if (params == NULL) {
-		zval sval;
-		array_init(&sval);
-		zend_hash_str_add(&EG(symbol_table), "params", 6, &sval);
-	}
-}
+ZEND_BEGIN_ARG_INFO_EX(gene_router_dispatch, 0, 0, 3)
+ZEND_ARG_INFO(0, class)
+ZEND_ARG_INFO(0, action)
+ZEND_ARG_INFO(0, params)
+ZEND_END_ARG_INFO()
 /* }}} */
-
 
 /** {{{ int setMca(zend_string *key TSRMLS_DC)
  */
@@ -103,8 +95,8 @@ int setMca(zend_string *key, char *val TSRMLS_DC) {
 			break;
 		}
 	} else {
-		params = zend_hash_str_find(&EG(symbol_table), "params", 6);
-		if (params) {
+		params = GENE_G(path_params);
+		if (params != NULL) {
 			ZVAL_STRING(&sval, val);
 			zend_symtable_update(params->value.arr, key, &sval);
 		}
@@ -626,7 +618,7 @@ PHP_METHOD(gene_router, run) {
 	if (pathin && ZSTR_LEN(pathin)) {
 		pin = ZSTR_VAL(pathin);
 	}
-	init();
+
 	get_router_content_run(min, pin, &safein TSRMLS_CC);
 	zval_ptr_dtor(&safein);
 	RETURN_NULL();
@@ -1061,15 +1053,13 @@ PHP_METHOD(gene_router, readFile) {
 	int fileNameLen = 0;
 	if (zend_parse_parameters(ZEND_NUM_ARGS()TSRMLS_CC, "S", &fileName)
 			== FAILURE) {
-		RETURN_NULL()
-		;
+		RETURN_NULL();
 	}
 	rec = readfilecontent(ZSTR_VAL(fileName));
 	if (rec != NULL) {
 		RETURN_STRING(rec);
 	}
-	RETURN_NULL()
-	;
+	RETURN_NULL();
 }
 /* }}} */
 
@@ -1131,6 +1121,67 @@ PHP_METHOD(gene_router, displayExt) {
 /* }}} */
 
 
+/** {{{ public gene_router::dispatch(string $class, string $action, zval $params)
+ */
+PHP_METHOD(gene_router, dispatch) {
+	char *class = NULL, *action = NULL;
+	zend_long class_len = 0, action_len = 0;
+	zval *params = NULL, classObject, ret;
+	if (zend_parse_parameters(ZEND_NUM_ARGS()TSRMLS_CC, "ssz", &class, &class_len, &action, &action_len, &params) == FAILURE) {
+		return;
+	}
+	if (GENE_G(module) != NULL) {
+		class = strreplace2(class, ":m", GENE_G(module));
+	}
+	if (GENE_G(controller) != NULL) {
+		class = strreplace2(class, ":c", GENE_G(controller));
+	}
+
+	if (gene_factory(class, strlen(class), NULL, &classObject)) {
+		if (GENE_G(action) != NULL) {
+			action = strreplace2(action, ":a", GENE_G(action));
+		}
+		strtolower(action);
+		if (Z_TYPE(classObject) == IS_OBJECT
+				&& zend_hash_str_exists(&(Z_OBJCE(classObject)->function_table), action, strlen(action))) {
+			gene_factory_call_1(&classObject, action, params, &ret);
+			RETURN_ZVAL(&ret, 1, 0);
+		} else {
+			php_error_docref(NULL, E_WARNING, "Unable to call method '%s' in class '%s'." , action, class);
+		}
+		RETURN_NULL();
+
+	} else {
+		php_error_docref(NULL, E_WARNING, "Unable to init calss '%s'." , class);
+	}
+	RETURN_NULL();
+}
+/* }}} */
+
+/*
+ * {{{ public gene_router::params()
+ */
+PHP_METHOD(gene_router, params) {
+	char *name = NULL;
+	zend_long name_len = 0;
+	zval *params = NULL;
+	if (zend_parse_parameters(ZEND_NUM_ARGS()TSRMLS_CC, "|s", &name, &name_len) == FAILURE) {
+		return;
+	}
+
+	params = GENE_G(path_params);
+	if (name_len == 0) {
+		RETURN_ZVAL(GENE_G(path_params), 1, 0);
+	} else {
+		zval *val = zend_symtable_str_find(Z_ARRVAL_P(params), name, name_len);
+		if (val) {
+			RETURN_ZVAL(val, 1, 0);
+		}
+		RETURN_NULL();
+	}
+}
+/* }}} */
+
 /*
  * {{{ gene_router_methods
  */
@@ -1148,6 +1199,8 @@ zend_function_entry gene_router_methods[] = {
 	PHP_ME(gene_router, runError, gene_router_run_error, ZEND_ACC_PUBLIC|ZEND_ACC_STATIC)
 	PHP_ME(gene_router, run, gene_router_run, ZEND_ACC_PUBLIC)
 	PHP_ME(gene_router, readFile, gene_router_read_file, ZEND_ACC_PUBLIC)
+	PHP_ME(gene_router, dispatch, gene_router_dispatch, ZEND_ACC_PUBLIC|ZEND_ACC_STATIC)
+	PHP_ME(gene_router, params, NULL, ZEND_ACC_PUBLIC|ZEND_ACC_STATIC)
 	PHP_ME(gene_router, __call, gene_router_call_arginfo, ZEND_ACC_PUBLIC)
 	{ NULL, NULL, NULL }
 };
