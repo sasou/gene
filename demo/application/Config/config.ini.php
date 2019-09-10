@@ -51,7 +51,7 @@ $config->set("redis", [
     'class' => '\Gene\Cache\Redis',
     'params' => [[
     'persistent' => true,
-    'host' => '192.168.27.101',
+    'host' => '10.5.5.13',
     'port' => 6379,
     'timeout' => 3,
     'ttl' => 0,
@@ -74,7 +74,7 @@ $config->set("cache", [
 $config->set("httpsqs", [
     'class' => '\Ext\Queue\Httpsqs',
     'params' => [[
-    'host' => '127.0.0.1', 
+    'host' => '10.5.5.14', 
     'port' => 1212,
     'name' => 'email'
         ]],
@@ -85,7 +85,7 @@ $config->set("httpsqs", [
 $config->set("redisQueue", [
     'class' => '\Ext\Queue\Redis',
     'params' => [[
-    'host' => '127.0.0.1', 
+    'host' => '10.5.5.13', 
     'port' => 6379,
     'name' => 'email'
         ]],
