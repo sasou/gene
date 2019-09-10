@@ -44,8 +44,7 @@ class Index extends \Gene\Controller
      */
     function loginPost()
     {
-        $data = $this->request->post();
-        var_dump($data, $this->session->get('login-captcha'));
+        $data = $this->request->post;
         if (!isset($data['captcha']) || strlen($data['captcha']) != 4) {
             return $this->error("请输入正确的验证码");
         }

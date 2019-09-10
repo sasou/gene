@@ -8,7 +8,7 @@ class Captcha extends \Gene\Service
 {
 
     private $charset = 'abcdefghkmnprstuvwxyzABCDEFGHKMNPRSTUVWXYZ23456789'; //随机因子  
-    private $code; //验证码  
+    private $code = ""; //验证码  
     private $codelen = 4; //验证码长度  
     private $width = 120; //宽度  
     private $height = 36; //高度  
@@ -46,7 +46,7 @@ class Captcha extends \Gene\Service
     private function createFont()
     {
         $_x = $this->width / $this->codelen;
-        $code = $this->getCode();
+        $code = $this->code == "" ? $this->getCode() : $this->code;
         for ($i = 0; $i < $this->codelen; $i++) {
             $this->fontcolor = imagecolorallocate($this->img, mt_rand(0, 156), mt_rand(0, 156), mt_rand(0, 156));
             imagettftext($this->img, $this->fontsize, mt_rand(-30, 30), $_x * $i + mt_rand(1, 5), $this->height / 1.4, $this->fontcolor, $this->font, $code[$i]);
