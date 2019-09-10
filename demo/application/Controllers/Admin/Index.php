@@ -44,12 +44,11 @@ class Index extends \Gene\Controller
      */
     function loginPost()
     {
-        $data = $this->post();
+        $data = $this->request->post;
         if (!isset($data['captcha']) || strlen($data['captcha']) != 4) {
             return $this->error("请输入正确的验证码");
         }
-
-        if (\Gene\Session::get('login-captcha') != $data['captcha']) {
+        if ($this->session->get('login-captcha') != $data['captcha']) {
             return $this->error("验证码错误");
         }
         return \Services\Admin\User::getInstance()->checkUser($data['username'], $data['password']);
@@ -65,7 +64,7 @@ class Index extends \Gene\Controller
     {
         $this->user;
         \Services\Admin\Log::getInstance()->log("后台退出", "用户名:" . $this->user['user_name'], $this->user['user_id']);
-        \gene\session::del('admin');
+        $this->session->del('admin');
         return $this->success("退出成功");
     }
     

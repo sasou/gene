@@ -16,9 +16,12 @@
 
 #ifndef GENE_REQUEST_H
 #define GENE_REQUEST_H
+#define GENE_REQUEST_PROPERTY_ATTR "_attr"
 
 extern zend_class_entry *gene_request_ce;
 zval * request_query(int type, char * name, int len TSRMLS_DC);
+void setVal(int type, zval *value);
+zval *getVal(int type, char *name, int len);
 
 #define GENE_REQUEST_IS_METHOD(ce, x) \
 PHP_METHOD(ce, is##x) {\
@@ -37,26 +40,20 @@ PHP_METHOD(ce, is##x) {\
 
 #define GENE_REQUEST_METHOD(ce, x, type) \
 PHP_METHOD(ce, x) { \
-	zend_string *name; \
-    zval *ret; \
-	zval *def = NULL; \
-	if (ZEND_NUM_ARGS() == 0) { \
-		ret = request_query(type, NULL, 0 TSRMLS_CC); \
-	} else if (zend_parse_parameters(ZEND_NUM_ARGS() TSRMLS_CC, "S|z", &name, &def) == FAILURE) { \
+	char *name = NULL; \
+	zend_long name_len = 0;  \
+    zval *ret = NULL, *def = NULL; \
+	if (zend_parse_parameters(ZEND_NUM_ARGS() TSRMLS_CC, "|sz", &name, &name_len, &def) == FAILURE) { \
 		return; \
-	} else { \
-		ret = request_query(type, ZSTR_VAL(name), ZSTR_LEN(name) TSRMLS_CC); \
-		if (ret == NULL) { \
-			if (def != NULL) { \
-				RETURN_ZVAL(def, 1, 0); \
-			} \
-		} \
+	} \
+	ret = getVal(type, name, name_len); \
+	if (ret == NULL && def != NULL) { \
+		RETURN_ZVAL(def, 1, 0); \
 	} \
 	if (ret) { \
-	    RETURN_ZVAL(ret, 1, 0); \
-	} else { \
-		RETURN_NULL(); \
+		RETURN_ZVAL(ret, 1, 0); \
 	} \
+	RETURN_NULL();\
 }
 
 GENE_MINIT_FUNCTION (request);
