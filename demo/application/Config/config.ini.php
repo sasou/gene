@@ -40,7 +40,7 @@ $config->set("db", [
 $config->set("memcache", [
     'class' => '\Gene\Cache\Memcached',
     'params' => [[
-    'servers' => [['host' => '10.5.5.13', 'port' => 11211]],
+    'servers' => [['host' => '127.0.0.1', 'port' => 11211]],
     'persistent' => true,
         ]],
     'instance' => true
