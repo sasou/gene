@@ -50,19 +50,19 @@
 	<tbody>
 		<tr>
 			<th width="30%">服务器软件</th>
-			<td><span id="lbServerName"><?php echo $_SERVER['SERVER_SOFTWARE']?></span></td>
+			<td><span id="lbServerName"><?php echo $this->request->server('SERVER_SOFTWARE')?></span></td>
 		</tr>
 		<tr>
 			<td>服务器IP地址</td>
-			<td><?php echo $_SERVER['SERVER_ADDR']?></td>
+			<td><?php echo $this->request->server('SERVER_ADDR')?></td>
 		</tr>
 		<tr>
 			<td>服务器域名</td>
-			<td><?php echo $_SERVER['HTTP_HOST']?></td>
+			<td><?php echo $this->request->server('HTTP_HOST')?></td>
 		</tr>
 		<tr>
 			<td>服务器端口 </td>
-			<td><?php echo $_SERVER['SERVER_PORT']?></td>
+			<td><?php echo $this->request->server('SERVER_PORT')?></td>
 		</tr>
 		<tr>
 			<td>服务器当前时间 </td>
