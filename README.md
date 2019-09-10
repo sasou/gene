@@ -2,7 +2,7 @@
 
     Simple, high performance,C extension framework for php7！简单、高性能、优雅的php c扩展框架！    
 
->   最新版本：3.0.2    
+>   最新版本：3.0.4    
 >   官方网站：Gene框架 http://www.php-gene.com/
 
 框架核心能力：
@@ -21,6 +21,7 @@
 * 缓存：支持两种缓存，一是方法级定时缓存；二是实时版本缓存（创新功能：高效的实时缓存方案，轻松解决复杂缓存的更新，比如分页数据的缓存）； 
 * 自动加载：基于 PSR-4；
 * 其他：redis、memcached类库二次封装；
+* 完美支持swoole；
 
 框架的入口是gene_application类，加载配置文件并启动：
 

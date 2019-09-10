@@ -44,6 +44,25 @@ ZEND_END_ARG_INFO()
 ZEND_BEGIN_ARG_INFO_EX(geme_request_url_param, 0, 0, 0)
     ZEND_ARG_INFO(0, key)
 ZEND_END_ARG_INFO()
+
+ZEND_BEGIN_ARG_INFO_EX(gene_request_init_arginfo, 0, 0, 0)
+	ZEND_ARG_INFO(0, get)
+	ZEND_ARG_INFO(0, post)
+	ZEND_ARG_INFO(0, cookie)
+	ZEND_ARG_INFO(0, server)
+	ZEND_ARG_INFO(0, env)
+	ZEND_ARG_INFO(0, files)
+	ZEND_ARG_INFO(0, request)
+ZEND_END_ARG_INFO()
+
+ZEND_BEGIN_ARG_INFO_EX(gene_request_get_arginfo, 0, 0, 1)
+	ZEND_ARG_INFO(0, name)
+ZEND_END_ARG_INFO()
+
+ZEND_BEGIN_ARG_INFO_EX(gene_request_set_arginfo, 0, 0, 2)
+	ZEND_ARG_INFO(0, name)
+	ZEND_ARG_INFO(0, value)
+ZEND_END_ARG_INFO()
 /* }}} */
 
 zval * request_query(int type, char * name, int len TSRMLS_DC) {
@@ -98,6 +117,52 @@ zval * request_query(int type, char * name, int len TSRMLS_DC) {
 		return NULL;
 	}
 	return ret;
+}
+
+void setVal(int type, zval *value) {
+	zval *attr = zend_read_static_property(gene_request_ce, GENE_REQUEST_PROPERTY_ATTR, strlen(GENE_REQUEST_PROPERTY_ATTR), 1);
+    zval *val = NULL;
+
+    if (Z_TYPE_P(attr) == IS_NULL) {
+    	zval tmp;
+    	array_init(&tmp);
+    	zend_update_static_property(gene_request_ce, GENE_REQUEST_PROPERTY_ATTR, strlen(GENE_REQUEST_PROPERTY_ATTR), &tmp);
+    	zval_ptr_dtor(&tmp);
+    	attr = zend_read_static_property(gene_request_ce, GENE_REQUEST_PROPERTY_ATTR, strlen(GENE_REQUEST_PROPERTY_ATTR), 1);
+    }
+
+	if (Z_TYPE_P(attr) ==  IS_ARRAY) {
+		val =  zend_hash_index_find(Z_ARRVAL_P(attr), type);
+		if (val == NULL) {
+			zend_hash_index_update(Z_ARRVAL_P(attr), type, value);
+		}
+	}
+}
+
+zval *getVal(int type, char *name, int len) {
+	zval *attr = zend_read_static_property(gene_request_ce, GENE_REQUEST_PROPERTY_ATTR, strlen(GENE_REQUEST_PROPERTY_ATTR), 1);
+    zval *val = NULL;
+
+    if (Z_TYPE_P(attr) == IS_NULL) {
+    	zval tmp;
+    	array_init(&tmp);
+    	zend_update_static_property(gene_request_ce, GENE_REQUEST_PROPERTY_ATTR, strlen(GENE_REQUEST_PROPERTY_ATTR), &tmp);
+    	zval_ptr_dtor(&tmp);
+    	attr = zend_read_static_property(gene_request_ce, GENE_REQUEST_PROPERTY_ATTR, strlen(GENE_REQUEST_PROPERTY_ATTR), 1);
+    }
+
+	if (Z_TYPE_P(attr) ==  IS_ARRAY) {
+		val =  zend_hash_index_find(Z_ARRVAL_P(attr), type);
+		if (val == NULL) {
+			val = request_query(type, NULL, 0 TSRMLS_CC);
+			zend_hash_index_update(Z_ARRVAL_P(attr), type, val);
+		}
+		if (len == 0) {
+			return val;
+		}
+		return zend_hash_str_find(Z_ARRVAL_P(val), name, len);
+	}
+    return NULL;
 }
 
 /*
@@ -185,7 +250,7 @@ GENE_REQUEST_IS_METHOD(gene_request, Cli);
 /** {{{ public gene_request::isAjax()
  */
 PHP_METHOD(gene_request, isAjax) {
-	zval *header = request_query(TRACK_VARS_SERVER, ZEND_STRL("HTTP_X_REQUESTED_WITH") TSRMLS_CC);
+	zval *header = getVal(TRACK_VARS_SERVER, ZEND_STRL("HTTP_X_REQUESTED_WITH"));
 	if (header && Z_TYPE_P(header) == IS_STRING && strncasecmp("XMLHttpRequest", Z_STRVAL_P(header), Z_STRLEN_P(header)) == 0) {
 		RETURN_TRUE;
 	}
@@ -229,6 +294,92 @@ PHP_METHOD(gene_request, params) {
 /* }}} */
 
 /*
+ * {{{ public gene_request::init($get, $post, $cookie, $server, $env, $files, $request)
+ */
+PHP_METHOD(gene_request, init) {
+	zval *get = NULL, *post = NULL, *cookie = NULL, *server = NULL, *env = NULL, *files = NULL, *request = NULL;
+	if (zend_parse_parameters(ZEND_NUM_ARGS()TSRMLS_CC, "|zzzzzzz", &get, &post, &cookie, &server, &env, &files, &request) == FAILURE) {
+		return;
+	}
+	if (post && Z_TYPE_P(post) == IS_ARRAY) {
+		setVal(0, post);
+	}
+	if (get && Z_TYPE_P(get) == IS_ARRAY) {
+		setVal(1, get);
+	}
+	if (cookie && Z_TYPE_P(cookie) == IS_ARRAY) {
+		setVal(2, cookie);
+	}
+	if (server && Z_TYPE_P(server) == IS_ARRAY) {
+		setVal(3, server);
+	}
+	if (env && Z_TYPE_P(env) == IS_ARRAY) {
+		setVal(4, env);
+	}
+	if (files && Z_TYPE_P(files) == IS_ARRAY) {
+		setVal(5, files);
+	}
+	if (request && Z_TYPE_P(request) == IS_ARRAY) {
+		setVal(6, request);
+	}
+	RETURN_TRUE;
+}
+/* }}} */
+
+/*
+ *  {{{ public static gene_request::get($name)
+ */
+PHP_METHOD(gene_request, _get) {
+	char *name = NULL;
+	zend_long name_len = 0;
+	zval *ret = NULL;
+	int i = 0;
+	const char *valType[7] = { "post", "get", "cookie", "server", "env", "files",
+			"request"};
+
+	if (zend_parse_parameters(ZEND_NUM_ARGS()TSRMLS_CC, "s", &name, &name_len) == FAILURE) {
+		RETURN_NULL();
+	}
+
+	for (i = 0; i < 7; i++) {
+		if (strcmp(valType[i], name) == 0) {
+			ret = getVal(i, NULL, 0);
+			break;
+		}
+	}
+	if (ret) {
+		RETURN_ZVAL(ret, 1, 0);
+	}
+	RETURN_NULL();
+}
+/* }}} */
+
+/*
+ *  {{{ public static gene_request::set($name, $value)
+ */
+PHP_METHOD(gene_request, _set) {
+	char *name = NULL;
+	zend_long name_len = 0;
+	zval *value = NULL;
+	int i = 0;
+	const char *valType[7] = { "post", "get", "cookie", "server", "env", "files",
+			"request"};
+	if (zend_parse_parameters(ZEND_NUM_ARGS()TSRMLS_CC, "sz", &name, &name_len, &value) == FAILURE) {
+		RETURN_NULL();
+	}
+
+	for (i = 0; i < 7; i++) {
+		if (strcmp(valType[i], name) == 0) {
+			setVal(i, value);
+			break;
+		}
+	}
+	RETURN_TRUE;
+}
+/* }}} */
+
+
+/*
  * {{{ gene_request_methods
  */
 zend_function_entry gene_request_methods[] = {
@@ -249,6 +400,9 @@ zend_function_entry gene_request_methods[] = {
 	PHP_ME(gene_request, isHead, geme_request_void_arginfo, ZEND_ACC_PUBLIC|ZEND_ACC_STATIC)
 	PHP_ME(gene_request, isOptions, geme_request_void_arginfo, ZEND_ACC_PUBLIC|ZEND_ACC_STATIC)
 	PHP_ME(gene_request, isCli, geme_request_void_arginfo, ZEND_ACC_PUBLIC|ZEND_ACC_STATIC)
+	PHP_ME(gene_request, init, gene_request_init_arginfo, ZEND_ACC_PUBLIC|ZEND_ACC_STATIC)
+	PHP_MALIAS(gene_request, __set, _set, gene_request_set_arginfo, ZEND_ACC_PUBLIC)
+	PHP_MALIAS(gene_request, __get, _get, gene_request_get_arginfo, ZEND_ACC_PUBLIC)
 	{ NULL, NULL, NULL }
 };
 /* }}} */
@@ -261,6 +415,7 @@ GENE_MINIT_FUNCTION(request) {
 	GENE_INIT_CLASS_ENTRY(gene_request, "Gene_Request", "Gene\\Request", gene_request_methods);
 	gene_request_ce = zend_register_internal_class(&gene_request TSRMLS_CC);
 
+	zend_declare_property_null(gene_request_ce, GENE_REQUEST_PROPERTY_ATTR, strlen(GENE_REQUEST_PROPERTY_ATTR), ZEND_ACC_PROTECTED | ZEND_ACC_STATIC);
 	//
 	return SUCCESS; // @suppress("Symbol is not resolved")
 }
