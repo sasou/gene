@@ -12,6 +12,11 @@ $config->set("request", [
     'class' => '\Gene\Request'
 ]);
 
+//http请求类注入配置
+$config->set("response", [
+    'class' => '\Gene\Response'
+]);
+
 //http响应类注入配置
 $config->set("session", [
     'class' => '\Ext\Session',

@@ -129,10 +129,10 @@ class Session extends \Gene\Service
      * @param    string  $key
      * @return   boolean
      */
-    public function delete(string $key) {
+    public function del(string $key) {
         if($this->has($key)) {
             unset($this->session[$key]);
-            return true;
+            return $this->save();
         }
         return false;      
     }
