@@ -81,22 +81,6 @@ void gene_factory_call(zval *object, char *action, zval *param, zval *retval) /*
     zval_ptr_dtor(&function_name);
 }/*}}}*/
 
-void gene_factory_call_1(zval *object, char *action, zval *param, zval *retval) /*{{{*/
-{
-    zval function_name;
-    uint param_count = 0;
-
-    ZVAL_STRING(&function_name, action);
-    if (param && Z_TYPE_P(param) == IS_ARRAY) {
-    	zval params[1];
-    	params[0] = *param;
-        call_user_function(NULL, object, &function_name, retval, 1, params);
-    } else {
-    	call_user_function(NULL, object, &function_name, retval, 0, NULL);
-    }
-    zval_ptr_dtor(&function_name);
-}/*}}}*/
-
 zend_bool gene_factory(char *className, int tmp_len, zval *params, zval *classObject) {
 	zend_string *c_key = NULL;
 	zend_class_entry *pdo_ptr = NULL;
@@ -117,6 +101,22 @@ zend_bool gene_factory(char *className, int tmp_len, zval *params, zval *classOb
 	}
 	return 0;
 }
+
+void gene_factory_call_1(zval *object, char *action, zval *param, zval *retval) /*{{{*/
+{
+    zval function_name;
+    uint param_count = 0;
+
+    ZVAL_STRING(&function_name, action);
+    if (param && Z_TYPE_P(param) == IS_ARRAY) {
+    	zval params[1];
+    	params[0] = *param;
+        call_user_function(NULL, object, &function_name, retval, 1, params);
+    } else {
+    	call_user_function(NULL, object, &function_name, retval, 0, NULL);
+    }
+    zval_ptr_dtor(&function_name);
+}/*}}}*/
 
 
 /*

@@ -20,7 +20,7 @@ class Session extends \Gene\Service
      * $session_id sessio_id
      * @var string
      */
-    protected $session_id;
+    protected $session_id = NULL;
     /**
      * $cookie_key cookie的session的key
      * @var string
@@ -74,16 +74,11 @@ class Session extends \Gene\Service
      * @return bool
      */
     public function save() {
-        if(!$this->isStart || $this->readonly) {
-            return true;
-        }
-        //设置为Session关闭状态
-        $this->isStart = false;
         // 如果没有设置SESSION,则不保存,防止覆盖
         if(empty($this->_SESSION)) {
             return false;
         }
-        return $this->driver->set($this->session_id, $this->session_lifetime, serialize($this->_SESSION));
+        return $this->driver->set($this->session_id, serialize($this->_SESSION), $this->session_lifetime);
     }
     
     /**
@@ -102,8 +97,7 @@ class Session extends \Gene\Service
     public function set(string $key, $data) {
         if(is_string($key) && isset($data)) {
             $this->_SESSION[$key] = $data;
-            $this->save();
-            return true;
+            return $this->save();
         }
         return false;
     }
