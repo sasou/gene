@@ -303,24 +303,31 @@ PHP_METHOD(gene_request, init) {
 	}
 	if (post && Z_TYPE_P(post) == IS_ARRAY) {
 		setVal(0, post);
+		Z_TRY_ADDREF_P(post);
 	}
 	if (get && Z_TYPE_P(get) == IS_ARRAY) {
 		setVal(1, get);
+		Z_TRY_ADDREF_P(get);
 	}
 	if (cookie && Z_TYPE_P(cookie) == IS_ARRAY) {
 		setVal(2, cookie);
+		Z_TRY_ADDREF_P(cookie);
 	}
 	if (server && Z_TYPE_P(server) == IS_ARRAY) {
 		setVal(3, server);
+		Z_TRY_ADDREF_P(server);
 	}
 	if (env && Z_TYPE_P(env) == IS_ARRAY) {
 		setVal(4, env);
+		Z_TRY_ADDREF_P(env);
 	}
 	if (files && Z_TYPE_P(files) == IS_ARRAY) {
 		setVal(5, files);
+		Z_TRY_ADDREF_P(files);
 	}
 	if (request && Z_TYPE_P(request) == IS_ARRAY) {
 		setVal(6, request);
+		Z_TRY_ADDREF_P(request);
 	}
 	RETURN_TRUE;
 }
