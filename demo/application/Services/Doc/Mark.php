@@ -60,7 +60,7 @@ class Mark extends \Gene\Service
      */
     function add($data)
     {
-        $data['user_id'] = isset($_SESSION['admin']['user_id']) ? $_SESSION['admin']['user_id'] : 0;
+        $data['user_id'] = isset($this->session->get('admin')['user_id']) ? $this->session->get('admin')['user_id'] : 0;
         $data['addtime'] = time();
         $data['status'] = isset($data['status']) && $data['status'] == 'on' ? 1 : 0;
         return \Models\Doc\Mark::getInstance()->add($data);

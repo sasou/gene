@@ -44,10 +44,12 @@ class Index extends \Gene\Controller
      */
     function loginPost()
     {
-        $data = $this->request->post;
+        $data = $this->request->post();
+        var_dump($data, $this->session->get('login-captcha'));
         if (!isset($data['captcha']) || strlen($data['captcha']) != 4) {
             return $this->error("请输入正确的验证码");
         }
+
         if ($this->session->get('login-captcha') != $data['captcha']) {
             return $this->error("验证码错误");
         }
