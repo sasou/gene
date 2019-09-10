@@ -132,10 +132,7 @@ void setVal(int type, zval *value) {
     }
 
 	if (Z_TYPE_P(attr) ==  IS_ARRAY) {
-		val =  zend_hash_index_find(Z_ARRVAL_P(attr), type);
-		if (val == NULL) {
-			zend_hash_index_update(Z_ARRVAL_P(attr), type, value);
-		}
+		zend_hash_index_update(Z_ARRVAL_P(attr), type, value);
 	}
 }
 
