@@ -20,8 +20,8 @@
 
 extern zend_class_entry *gene_request_ce;
 zval * request_query(int type, char * name, int len TSRMLS_DC);
-void setVal(int type, zval *value);
-zval *getVal(int type, char *name, int len);
+void setVal(zend_ulong type, zval *value);
+zval *getVal(zend_ulong type, char *name, int len);
 
 #define GENE_REQUEST_IS_METHOD(ce, x) \
 PHP_METHOD(ce, is##x) {\

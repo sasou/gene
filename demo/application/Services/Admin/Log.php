@@ -99,9 +99,8 @@ class Log extends \Gene\Service
      */
     public function log($title, $log_data, $user_id)
     {
-		$ip = new \Ext\Ip\File();
-        var_dump($this->request->server);return;
-		$log_ip_area = $ip->btreeSearch($this->request->server["REMOTE_ADDR"]);
+	$ip = new \Ext\Ip\File();
+	$log_ip_area = $ip->btreeSearch($this->request->server["REMOTE_ADDR"]);
         $data = array(
             'log_title' => $title,
             'log_data' => $log_data,

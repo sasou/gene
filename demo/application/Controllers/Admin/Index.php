@@ -48,7 +48,6 @@ class Index extends \Gene\Controller
         if (!isset($data['captcha']) || strlen($data['captcha']) != 4) {
             return $this->error("请输入正确的验证码");
         }
-var_dump($data, $this->session->get('login-captcha'));
         if ($this->session->get('login-captcha') != $data['captcha']) {
             return $this->error("验证码错误");
         }
