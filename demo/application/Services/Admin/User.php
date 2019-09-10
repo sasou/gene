@@ -40,8 +40,7 @@ class User extends \Gene\Service
         //删掉一些字段
         unset($result['user_salt']);
         unset($result['user_pass']);
-        isset($_SESSION) || session_start();
-        \gene\session::set('admin', $result);
+        $this->session->set('admin', $result);
         \Services\Admin\Log::getInstance()->log("后台登录", "用户名:" . $result['user_name'], $result['user_id']);
         return $this->success("登录成功!");
     }
