@@ -26,7 +26,7 @@
                     <strong>原生代码测试</strong>
                     <p>ab -n10000 -c100 127.0.0.1/test.php</p>
                     <br/>
-                    <?php highlight_file("static/test/test.php"); ?>
+                    <?php highlight_file(APP_ROOT . "/../public/static/test/test.php"); ?>
                   </div>
             </div>
             <div class="layui-col-md6">
@@ -35,7 +35,7 @@
                     <strong>Gene框架代码测试</strong>
                     <p>ab -n10000 -c100 127.0.0.1/test</p>
                     <br/>
-                    <?php highlight_file("static/test/gene.php"); ?>
+                    <?php highlight_file(APP_ROOT . "/../public/static/test/gene.php"); ?>
                   </div>
             </div>
           </div>

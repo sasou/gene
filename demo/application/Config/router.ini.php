@@ -12,7 +12,7 @@ $router->clear()
     ->get("/login.html", "Controllers\Admin\Index@login", "@clearAfter")
     ->post("/login.action", "Controllers\Admin\Index@loginPost", "@")
     ->get("/exit.action", "Controllers\Admin\Index@exits", "adminAuth@") 
-    ->get("/captcha.action", "Controllers\Admin\Index@captcha") 
+    ->get("/captcha.action", "Controllers\Admin\Index@captcha", "@clearAfter") 
     ->get("/welcome.html", "Controllers\Admin\Index@welcome", "adminAuth@clearAfter")
     ->get("/set.html", "Controllers\Admin\User@set", "adminAuth@clearAfter")
     ->post("/save.html", "Controllers\Admin\User@save", "adminAuth@")
@@ -49,17 +49,17 @@ $router->clear()
         }
         $id = \Services\Admin\Module::getInstance()->initPath(\Gene\Application::getRouterUri());
         if (!$id || strpos(",{$this->user['purview']},", ",{$id},") === false) {
-            $this->response->json(\Gene\Response::error("操作未授权"));
+            \Gene\Response::json(\Gene\Response::error("操作未授权"));
             return false;
         }
     })
     // 全局前置钩子
     ->hook("before", function() {
-        $user = \Gene\Session::get('admin');
+        $user = $this->session->get('admin');
         \Gene\Di::set('user', $user); 
     })
     // 全局后置钩子
     ->hook("after", function($params) {
         $callback = $this->request->get("callback");
-        $this->response->json($params, $callback);
+        \Gene\Response::json($params, $callback);
     });
