@@ -45,7 +45,7 @@ $router->clear()
     // 后台验证钩子
     ->hook("adminAuth", function() {
         if(!isset($this->user['user_id'])) {
-            $this->response->redirect('/login.html', 301);
+            $this->response->redirect('/login.html');
         }
         $id = \Services\Admin\Module::getInstance()->initPath(\Gene\Application::getRouterUri());
         if (!$id || strpos(",{$this->user['purview']},", ",{$id},") === false) {
