@@ -15,7 +15,7 @@ class Session extends \Gene\Service
      * $session 寄存session的数据
      * @var array
      */
-    private $session = [];
+    private $session_data = [];
     /**
      * $session_id sessio_id
      * @var string
@@ -47,7 +47,7 @@ class Session extends \Gene\Service
                 $this->response->cookie($this->cookie_key, $sess_id, time() + $this->cookie_lifetime, $this->cookie_path, $this->cookie_domain, false, false);
                 $this->session_id = $sess_id;
             }
-            $this->session = $this->load($this->session_id);
+            $this->session_data = $this->load($this->session_id);
         }
     }
     
@@ -75,10 +75,10 @@ class Session extends \Gene\Service
      */
     public function save() {
         // 如果没有设置SESSION,则不保存,防止覆盖
-        if(empty($this->session)) {
+        if(empty($this->session_data)) {
             return false;
         }
-        return $this->driver->set($this->session_id, serialize($this->session), $this->session_lifetime);
+        return $this->driver->set($this->session_id, serialize($this->session_data), $this->session_lifetime);
     }
     
     /**
@@ -96,7 +96,7 @@ class Session extends \Gene\Service
      */
     public function set(string $key, $data) {
         if(is_string($key) && isset($data)) {
-            $this->session[$key] = $data;
+            $this->session_data[$key] = $data;
             return $this->save();
         }
         return false;
@@ -108,9 +108,9 @@ class Session extends \Gene\Service
      */
     public function get(string $key = null) {
         if(is_null($key)) {
-            return $this->session;
+            return $this->session_data;
         }
-        return $this->session[$key] ?? null;
+        return $this->session_data[$key] ?? null;
     }
     /**
      * has 是否存在某个key
@@ -121,7 +121,7 @@ class Session extends \Gene\Service
         if(!$key) {
             return false;
         }
-        return isset($this->session[$key]);
+        return isset($this->session_data[$key]);
     }
 
     /**
@@ -131,7 +131,7 @@ class Session extends \Gene\Service
      */
     public function del(string $key) {
         if($this->has($key)) {
-            unset($this->session[$key]);
+            unset($this->session_data[$key]);
             return $this->save();
         }
         return false;      
@@ -141,8 +141,8 @@ class Session extends \Gene\Service
      * @return  boolean
      */
     public function destroy() {
-        if(!empty($this->session)) {
-            $this->session = [];
+        if(!empty($this->session_data)) {
+            $this->session_data = [];
             // 使cookie失效
             $this->response->cookie($this->cookie_key, $this->session_id, time() - 600, $this->cookie_path, $this->cookie_domain);
             // redis中完全删除session_key
