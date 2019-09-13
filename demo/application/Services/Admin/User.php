@@ -30,9 +30,9 @@ class User extends \Gene\Service
         if (!$result['status']) {
             return $this->error('您的账号平台审核中，请耐心等待。。。');
         }
-        $password = $this->generatePasswordHash($password, $result['user_salt']);
-        if ($password != $result['user_pass']) {
-            return $this->error('密码错误');
+        $password_encode = $this->generatePasswordHash($password, $result['user_salt']);
+        if ($password_encode != $result['user_pass']) {
+            return $this->error('密码错误!');
         }
         //设置权限
         $result['purview'] = \Services\Admin\Purview::getInstance()->getPurviewStr($result['group_id']);
