@@ -46,6 +46,7 @@ $router->clear()
     ->hook("adminAuth", function() {
         if(!isset($this->user['user_id'])) {
             $this->response->redirect('/login.html');
+            return false;
         }
         $id = \Services\Admin\Module::getInstance()->initPath(\Gene\Application::getRouterUri());
         if (!$id || strpos(",{$this->user['purview']},", ",{$id},") === false) {
@@ -61,5 +62,5 @@ $router->clear()
     // 全局后置钩子
     ->hook("after", function($params) {
         $callback = $this->request->get("callback");
-        \Gene\Response::json($params, $callback);
+        is_array($params) && \Gene\Response::json($params, $callback);
     });
