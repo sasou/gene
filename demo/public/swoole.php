@@ -2,7 +2,7 @@
 header("Content-type: text/html; charset=UTF-8");
 define('APP_ROOT', dirname(__dir__) . '/application');
 
-$http = new swoole_http_server("192.168.27.101", 9501);
+$http = new swoole_http_server("192.168.27.101", 9501, SWOOLE_PROCESS);
 
 //配置
 $http->set([
