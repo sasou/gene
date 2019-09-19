@@ -22,11 +22,6 @@ $http->on("request", function ($request, $response) {
     $url = $request->server['request_uri'] ?? "/";
     \Gene\Request::init($request->get, $request->post, $request->cookie, $request->server, null, $request->files);
     \Gene\Di::set("response", $response);
-
-    if ($url == '/favicon.ico') {
-        $response->status(404);
-        $response->end();
-    }
     
     ob_start();
     $app = \Gene\Application::getInstance();
@@ -38,8 +33,7 @@ $http->on("request", function ($request, $response) {
     
     $out = ob_get_contents();
     ob_end_clean();
-    is_string($out) && $response->write($out);
-    $response->end();
+    $out && $response->end($out);
 });
 
 $http->start();
