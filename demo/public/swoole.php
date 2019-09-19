@@ -6,6 +6,9 @@ $http = new swoole_http_server("192.168.27.101", 9501);
 
 //配置
 $http->set([
+    'worker_num' => 2, 
+    'max_request' => 10000,
+    'dispatch_mode'=>2,
     'enable_static_handler'=>true,
     'document_root'=> dirname(__dir__) . "/public/",
 ]);
