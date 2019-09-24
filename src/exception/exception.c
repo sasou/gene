@@ -52,6 +52,140 @@ ZEND_BEGIN_ARG_INFO_EX(gene_exception_do_error, 0, 0, 2)
     ZEND_ARG_INFO(0, params)
 ZEND_END_ARG_INFO()
 
+
+void gene_exception_getCode(zval *object, zval *retval) /*{{{*/
+{
+    zval function_name;
+    ZVAL_STRING(&function_name, "getCode");
+    call_user_function(NULL, object, &function_name, retval, 0, NULL);
+    zval_ptr_dtor(&function_name);
+}/*}}}*/
+
+void gene_exception_getLine(zval *object, zval *retval) /*{{{*/
+{
+    zval function_name;
+    ZVAL_STRING(&function_name, "getLine");
+    call_user_function(NULL, object, &function_name, retval, 0, NULL);
+    zval_ptr_dtor(&function_name);
+}/*}}}*/
+
+void gene_exception_getFile(zval *object, zval *retval) /*{{{*/
+{
+    zval function_name;
+    ZVAL_STRING(&function_name, "getFile");
+    call_user_function(NULL, object, &function_name, retval, 0, NULL);
+    zval_ptr_dtor(&function_name);
+}/*}}}*/
+
+void gene_exception_getMessage(zval *object, zval *retval) /*{{{*/
+{
+    zval function_name;
+    ZVAL_STRING(&function_name, "getMessage");
+    call_user_function(NULL, object, &function_name, retval, 0, NULL);
+    zval_ptr_dtor(&function_name);
+}/*}}}*/
+
+void gene_exception_getTrace(zval *object, zval *retval) /*{{{*/
+{
+    zval function_name;
+    ZVAL_STRING(&function_name, "getTrace");
+    call_user_function(NULL, object, &function_name, retval, 0, NULL);
+    zval_ptr_dtor(&function_name);
+}/*}}}*/
+
+void gene_file_codes(zval *file, zval *retval) /*{{{*/
+{
+    zval function_name;
+    ZVAL_STRING(&function_name, "file");
+    zval params[] = { *file };
+    call_user_function(NULL, NULL, &function_name, retval, 1, params);
+    zval_ptr_dtor(&function_name);
+}/*}}}*/
+
+void gene_file_gettype(zval *var, zval *retval) /*{{{*/
+{
+    zval function_name;
+    ZVAL_STRING(&function_name, "gettype");
+    zval params[] = { *var };
+    call_user_function(NULL, NULL, &function_name, retval, 1, params);
+    zval_ptr_dtor(&function_name);
+}/*}}}*/
+
+void gene_file_var_export(zval *var, zval *retval) /*{{{*/
+{
+    zval function_name, arg;
+    ZVAL_STRING(&function_name, "var_export");
+    ZVAL_TRUE(&arg);
+    zval params[] = { *var, arg };
+    call_user_function(NULL, NULL, &function_name, retval, 2, params);
+    zval_ptr_dtor(&function_name);
+    zval_ptr_dtor(&arg);
+}/*}}}*/
+
+#define HTML_EXCEPTION_HEADER  \
+	"<!DOCTYPE html>\n" \
+	"<head>\n" \
+	"<meta charset=\"utf-8\">\n" \
+	"<meta http-equiv=\"X-UA-Compatible\" content=\"IE=edge,chrome=1\" />\n" \
+	"<title>Gene Exception</title>\n" \
+	"<style>\n" \
+	"   body{padding: 0;margin: 0;}\n" \
+	"   .content {width: 80%;margin: 0 auto;padding:5px 10px;}\n" \
+	"   h1{font-weight: bolder;color: #cc7a94;padding: 5px;}\n" \
+	"   h2{font-weight: normal;color: #AF7C8C;background-color: #e9f4f5;padding: 5px;}\n" \
+	"   ul.code {font-size: 13px;line-height: 20px;color: #68777d;background-color: #f2f9fc;border: 1px solid #c9e6f2;}\n" \
+	"   ul.code li {width : 100%;margin:0px;white-space: pre ;list-style-type:none;font-family : monospace;}\n" \
+	"   ul.code li.line {color : red;}\n" \
+	"   table.trace {width : 100%;font-size: 13px;line-height: 20px;color: #247696;background-color: #c9e6f2;}\n" \
+	"   table.trace thead tr {background-color: #90a9b3;color: white;}\n" \
+	"   table.trace tr {background-color: #f2f9fc;}\n" \
+	"   table.trace td {padding : 5px;}\n" \
+	"   .foot {line-height: 20px;color: #cc7a94;margin:10px;}\n" \
+	"</style>\n" \
+	"</head>\n" \
+	"<body>\n" \
+	"<div class=\"content\">\n" \
+	"<center><h1>Gene Exception</h1></center>\n" \
+	"<h2>What's happened:</h2>\n"
+
+#define HTML_EXCEPTION_MSG  \
+	"<code>%s</code>\n" \
+	"<h2>Where's happened:</h2>\n"
+
+#define HTML_EXCEPTION_FILE  \
+    "<code>File:<font color=\"red\">%s</font> Line:<font color=\"red\">%d</font></code>\n" \
+	"<ul class=\"code\">\n"
+
+#define HTML_EXCEPTION_CODE_LINE  \
+    "<li class=\"line\">%s</li>\n"
+
+#define HTML_EXCEPTION_CODE  \
+    "<li>%s</li>\n"
+
+#define HTML_EXCEPTION_TABLE_HEADER  \
+    "</ul>\n" \
+    "<h2>Stack trace:</h2>\n" \
+    "<table class=\"trace\">\n" \
+    "<thead><tr><td width=\"480px\">File</td><td width=\"30px\">Line</td><td width=\"200px\">Class</td><td width=\"150px\">Function</td><td>Arguments</td></tr></thead>\n" \
+    "<tbody>\n"
+
+#define HTML_EXCEPTION_TABLE_TD_STR  \
+    "<td>%s</td>\n"
+
+#define HTML_EXCEPTION_TABLE_TD_INT  \
+    "<td>%d</td>\n"
+
+#define HTML_EXCEPTION_TABLE_TD_SPAN  \
+    "<span title=\"%s\">%s</span>\n"
+
+#define HTML_EXCEPTION_FOOTER  \
+	"</tbody>\n" \
+	"</table>\n" \
+	"<center class=\"foot\">Gene %s</center>\n" \
+	"</div>\n" \
+	"</body>\n" \
+	"</html>\n"
+
 /** {{{ int gene_exception_error_register(zval *callback,zval *error_type TSRMLS_DC)
  */
 int gene_exception_error_register(zval *callback, zval *error_type TSRMLS_DC) {
@@ -197,6 +331,87 @@ PHP_METHOD(gene_exception, doError) {
 }
 /* }}} */
 
+void showCode(zval *file, zval *line) {
+	char *out = NULL;
+	zval codes;
+	int length = 0;
+	gene_file_codes(file, &codes);
+	if (Z_TYPE(codes) == IS_ARRAY) {
+		int size = zend_hash_num_elements(Z_ARRVAL(codes));
+		int start, end;
+		zval *ele = NULL;
+		start = line->value.lval - 8;
+		end = line->value.lval + 8;
+		start = start < 0 ? 0 : start;
+		end = end > size ? size : end;
+		for(int i = start; i < end; i++) {
+			ele = zend_hash_index_find(Z_ARRVAL(codes), i);
+			if (i + 1 == line->value.lval) {
+				length = spprintf(&out, 0, HTML_EXCEPTION_CODE_LINE, ele->value.str->val);
+			} else {
+				length = spprintf(&out, 0, HTML_EXCEPTION_CODE, ele->value.str->val);
+			}
+			PHPWRITE(out, length);
+			efree(out);
+			out = NULL;
+		}
+	}
+	zval_ptr_dtor(&codes);
+}
+
+void showTrace(zval *ex) {
+	char *out = NULL;
+	zval trace;
+	zval *element = NULL, *file = NULL, *line = NULL, *class = NULL, *func = NULL, *args = NULL, *arg = NULL;
+	int length = 0;
+	gene_exception_getTrace(ex, &trace);
+	if (Z_TYPE(trace) == IS_ARRAY) {
+		ZEND_HASH_FOREACH_VAL(Z_ARRVAL(trace), element)
+		{
+			class = zend_hash_str_find(Z_ARRVAL_P(element), "class", 5);
+			if (class != NULL) {
+				file = zend_hash_str_find(Z_ARRVAL_P(element), "file", 4);
+				line = zend_hash_str_find(Z_ARRVAL_P(element), "line", 4);
+				func = zend_hash_str_find(Z_ARRVAL_P(element), "function", 8);
+				args = zend_hash_str_find(Z_ARRVAL_P(element), "args", 4);
+				PHPWRITE("<tr>\n", 6);
+				length = spprintf(&out, 0, HTML_EXCEPTION_TABLE_TD_STR, file != NULL ? file->value.str->val : "");
+				PHPWRITE(out, length);
+				efree(out);
+				out = NULL;
+				length = spprintf(&out, 0, HTML_EXCEPTION_TABLE_TD_INT, line != NULL ? line->value.lval : 0);
+				PHPWRITE(out, length);
+				efree(out);
+				out = NULL;
+				length = spprintf(&out, 0, HTML_EXCEPTION_TABLE_TD_STR, class != NULL ? class->value.str->val : "");
+				PHPWRITE(out, length);
+				efree(out);
+				out = NULL;
+				length = spprintf(&out, 0, HTML_EXCEPTION_TABLE_TD_STR, func != NULL ? func->value.str->val : "");
+				PHPWRITE(out, length);
+				efree(out);
+				out = NULL;
+				PHPWRITE("<td>", 4);
+				if (args != NULL && Z_TYPE_P(args) == IS_ARRAY) {
+					ZEND_HASH_FOREACH_VAL(Z_ARRVAL_P(args), arg) {
+						zval export,type;
+						gene_file_gettype(arg, &type);
+						gene_file_var_export(arg, &export);
+						length = spprintf(&out, 0, HTML_EXCEPTION_TABLE_TD_SPAN, Z_TYPE(export) == IS_STRING ? export.value.str->val : "", Z_TYPE(type) == IS_STRING ? type.value.str->val : "");
+						PHPWRITE(out, length);
+						efree(out);
+						out = NULL;
+						zval_ptr_dtor(&export);
+						zval_ptr_dtor(&type);
+					}ZEND_HASH_FOREACH_END();
+				}
+				PHPWRITE("</td>", 5);
+				PHPWRITE("</tr>\n", 7);
+			}
+		}ZEND_HASH_FOREACH_END();
+	}
+	zval_ptr_dtor(&trace);
+}
 /*
  * {{{ gene_exception::doException
  */
@@ -205,7 +420,39 @@ PHP_METHOD(gene_exception, doException) {
 	if (zend_parse_parameters(ZEND_NUM_ARGS()TSRMLS_CC, "z", &ex) == FAILURE) {
 		RETURN_NULL();
 	}
-	gene_view_display("error" TSRMLS_CC);
+	char *out = NULL;
+	int length = 0;
+
+	zval msg;
+	gene_exception_getMessage(ex, &msg);
+	PHPWRITE(HTML_EXCEPTION_HEADER, sizeof(HTML_EXCEPTION_HEADER) - 1);
+
+	length = spprintf(&out, 0, HTML_EXCEPTION_MSG, msg.value.str->val);
+	zval_ptr_dtor(&msg);
+	PHPWRITE(out, length);
+	efree(out);
+	out = NULL;
+
+	zval file, line;
+	gene_exception_getFile(ex, &file);
+	gene_exception_getLine(ex, &line);
+	length = spprintf(&out, 0, HTML_EXCEPTION_FILE, file.value.str->val, line.value.lval);
+	PHPWRITE(out, length);
+	efree(out);
+	out = NULL;
+
+	showCode(&file, &line);
+	zval_ptr_dtor(&file);
+	zval_ptr_dtor(&line);
+
+	PHPWRITE(HTML_EXCEPTION_TABLE_HEADER, sizeof(HTML_EXCEPTION_TABLE_HEADER) - 1);
+
+	showTrace(ex);
+
+	length = spprintf(&out, 0, HTML_EXCEPTION_FOOTER, PHP_GENE_VERSION);
+	PHPWRITE(out, length);
+	efree(out);
+	out = NULL;
 }
 /* }}} */
 
@@ -230,18 +477,12 @@ zend_function_entry gene_exception_methods[] = {
  */
 GENE_MINIT_FUNCTION(exception) {
 	zend_class_entry gene_exception;
-	GENE_INIT_CLASS_ENTRY(gene_exception, "Gene_Exception", "Gene\\Exception",
-			gene_exception_methods);
-	gene_exception_ce = zend_register_internal_class_ex(&gene_exception,
-			gene_get_exception_base(0));
+	GENE_INIT_CLASS_ENTRY(gene_exception, "Gene_Exception", "Gene\\Exception", gene_exception_methods);
+	gene_exception_ce = zend_register_internal_class_ex(&gene_exception, gene_get_exception_base(0));
 
-	zend_declare_property_null(gene_exception_ce, ZEND_STRL("message"),
-	ZEND_ACC_PROTECTED);
-	zend_declare_property_long(gene_exception_ce, ZEND_STRL("code"), 0,
-	ZEND_ACC_PROTECTED);
-	zend_declare_property_null(gene_exception_ce, ZEND_STRL("previous"),
-	ZEND_ACC_PROTECTED);
-
+	zend_declare_property_null(gene_exception_ce, ZEND_STRL("message"), ZEND_ACC_PROTECTED);
+	zend_declare_property_long(gene_exception_ce, ZEND_STRL("code"), 0, ZEND_ACC_PROTECTED);
+	zend_declare_property_null(gene_exception_ce, ZEND_STRL("previous"), ZEND_ACC_PROTECTED);
 	//
 	return SUCCESS; // @suppress("Symbol is not resolved")
 }
