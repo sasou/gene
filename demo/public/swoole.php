@@ -29,7 +29,6 @@ $http->on("request", function ($request, $response) {
     ->autoload(APP_ROOT)
     ->load("router.ini.php")
     ->load("config.ini.php")
-    ->setMode(1, 1)
     ->run($type, $url);
     
     $out = ob_get_contents();
