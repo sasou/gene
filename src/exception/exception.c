@@ -344,9 +344,9 @@ void showCode(zval *file, zval *line) {
 		end = line->value.lval + 8;
 		start = start < 0 ? 0 : start;
 		end = end > size ? size : end;
-		for(int i = start; i < end; i++) {
-			ele = zend_hash_index_find(Z_ARRVAL(codes), i);
-			if (i + 1 == line->value.lval) {
+		for(start; start < end; start++) {
+			ele = zend_hash_index_find(Z_ARRVAL(codes), start);
+			if (start + 1 == line->value.lval) {
 				length = spprintf(&out, 0, HTML_EXCEPTION_CODE_LINE, ele->value.str->val);
 			} else {
 				length = spprintf(&out, 0, HTML_EXCEPTION_CODE, ele->value.str->val);
