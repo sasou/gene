@@ -17,9 +17,9 @@
 #ifndef GENE_EXCEPTION_H
 #define GENE_EXCEPTION_H
 #define GENE_ERROR_FUNC_NAME 		"Gene_Exception::doError"
-#define GENE_EXCEPTION_FUNC_NAME 	"geneHandler"
+#define GENE_EXCEPTION_FUNC_NAME 	"Gene_Exception::doException"
 #define GENE_ERROR_FUNC_NAME_NS 	"Gene\\Exception::doError"
-#define GENE_EXCEPTION_FUNC_NAME_NS "geneHandler"
+#define GENE_EXCEPTION_FUNC_NAME_NS "Gene\\Exception::doException"
 
 extern zend_class_entry *gene_exception_ce;
 int gene_exception_error_register(zval *callback,zval *error_type TSRMLS_DC);
