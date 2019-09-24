@@ -14,7 +14,6 @@ class Index extends \Gene\Controller
     public function index()
     {
         $this->title = "首页";
-        echo $abc;
         $this->display('index/list', 'common');
     }
     

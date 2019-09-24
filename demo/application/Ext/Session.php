@@ -20,7 +20,7 @@ class Session extends \Gene\Service
      * $session_id sessio_id
      * @var string
      */
-    protected $session_id = NULL;
+    protected $session_id = null;
     /**
      * $cookie_key cookie的session的key
      * @var string
@@ -40,15 +40,27 @@ class Session extends \Gene\Service
     {
         if (isset($config['driver'])) {
             $this->driver = \Gene\Di::get($config['driver']);
+        }
+    }
+    
+    
+    /**
+     * init
+     */
+    public function init(string $sess_id = "") {
+        if($sess_id != "") {
+            $this->session_id = $sess_id;
+        } else {
             $cookie_session_id = isset($this->request->cookie[$this->cookie_key]) ? $this->request->cookie[$this->cookie_key] : null;
-            $this->session_id = $cookie_session_id;
             if(empty($cookie_session_id)) {
                 $sess_id = md5(uniqid(microtime(true),true));
                 $this->response->cookie($this->cookie_key, $sess_id, time() + $this->cookie_lifetime, $this->cookie_path, $this->cookie_domain, false, false);
                 $this->session_id = $sess_id;
+            } else {
+                $this->session_id = $cookie_session_id;
             }
-            $this->session_data = $this->load($this->session_id);
         }
+        $this->session_data = $this->load();
     }
     
     /**
@@ -56,12 +68,8 @@ class Session extends \Gene\Service
      * @param    string  $sess_id
      * @return   array
      */
-    protected function load(string $sess_id) {
-        if(!$this->session_id) {
-            $this->session_id = $sess_id;
-        }
-        $data = $this->driver->get($sess_id);
-        //先读数据，如果没有，就初始化一个
+    protected function load() {
+        $data = $this->driver->get($this->session_id);
         if (!empty($data)) {
             return unserialize($data);
         }else {
