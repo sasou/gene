@@ -56,6 +56,7 @@ $router->clear()
     })
     // 全局前置钩子
     ->hook("before", function() {
+        $this->session->init();
         $user = $this->session->get('admin');
         \Gene\Di::set('user', $user); 
     })
