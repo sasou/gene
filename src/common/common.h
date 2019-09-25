@@ -45,7 +45,15 @@ void gene_json_decode(zval *value, zval *options, zval *retval);
 void gene_func_get_args(zval *retval);
 void gene_func_num_args(zval *retval);
 void gene_serialize(zval *value, zval *retval);
+void gene_unserialize(zval *value, zval *retval);
+void gene_igbinary_serialize(zval *value, zval *retval);
+void gene_igbinary_unserialize(zval *value, zval *retval);
 void gene_md5(zval *value, zval *retval);
 void gene_class_name(zval *retval);
+int is_json(zval *str);
+int is_serialize(zval *str);
+int is_igbinary(zval *str);
+int serialize(zval *arr, zval *string, zval *serializer_handler);
+int unserialize(zval *string, zval *arr, zval *serializer_handler);
 
 #endif
