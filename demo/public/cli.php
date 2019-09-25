@@ -1,11 +1,6 @@
 <?php
 define('APP_ROOT', dirname(__dir__) . '/application');
 
-function geneHandler($e)
-{
-    \Gene\Router::display('error');
-}
-
 $path = '';
 if (isset($_SERVER['argv'][1])) {
     $path = $_SERVER['argv'][1];

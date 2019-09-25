@@ -18,6 +18,7 @@
 #define GENE_MEMCACHED_H
 #define GENE_MEM_CONFIG "config"
 #define GENE_MEM_OBJ "obj"
+#define GENE_MEM_SERIALIZE "handler"
 
 extern zend_class_entry *gene_memcached_ce;
 

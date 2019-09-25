@@ -42,6 +42,7 @@ $config->set("memcache", [
     'params' => [[
     'servers' => [['host' => '10.5.5.13', 'port' => 11211]],
     'persistent' => true,
+    'serializer' => 2
         ]],
     'instance' => true
 ]);
@@ -55,6 +56,7 @@ $config->set("redis", [
     'port' => 6379,
     'timeout' => 3,
     'ttl' => 0,
+    'serializer' => 1
         ]],
     'instance' => false
 ]);
@@ -64,7 +66,7 @@ $config->set("cache", [
     'class' => '\Gene\Cache\Cache',
     'params' => [[
     'hook' => 'memcache',
-    'sign' => 'web:',
+    'sign' => 'demo:',
     'versionSign' => 'database:',
         ]],
     'instance' => false

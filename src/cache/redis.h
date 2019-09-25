@@ -18,7 +18,7 @@
 #define GENE_REDIS_H
 #define GENE_REDIS_CONFIG "config"
 #define GENE_REDIS_OBJ "obj"
-#define GENE_REDIS_JSON "is_json"
+#define GENE_REDIS_SERIALIZE "handler"
 
 extern zend_class_entry *gene_redis_ce;
 

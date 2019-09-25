@@ -70,9 +70,9 @@ class Session extends \Gene\Service
      */
     protected function load() {
         $data = $this->driver->get($this->session_id);
-        if (!empty($data)) {
-            return unserialize($data);
-        }else {
+        if (is_array($data)) {
+            return $data;
+        } else {
             return [];
         }
     }
@@ -86,7 +86,7 @@ class Session extends \Gene\Service
         if(empty($this->session_data)) {
             return false;
         }
-        return $this->driver->set($this->session_id, serialize($this->session_data), $this->session_lifetime);
+        return $this->driver->set($this->session_id, $this->session_data, $this->session_lifetime);
     }
     
     /**
