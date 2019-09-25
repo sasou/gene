@@ -26,6 +26,7 @@
 
 
 #include "../gene.h"
+#include "../common/common.h"
 #include "../cache/memcached.h"
 #include "../factory/factory.h"
 
@@ -199,7 +200,7 @@ void gene_memcached_setOptions(zval *object, zval *options) /*{{{*/
 
 
 zend_bool initObj (zval * self, zval *config) {
-	zval  *servers = NULL, *persistent = NULL, *options = NULL;
+	zval  *servers = NULL, *persistent = NULL, *options = NULL, *serializer = NULL;
 	zval serverList, obj_object;
 
 	if (config == NULL) {
@@ -215,6 +216,11 @@ zend_bool initObj (zval * self, zval *config) {
 
 	if (servers == NULL || Z_TYPE_P(servers) != IS_ARRAY) {
 		 php_error_docref(NULL, E_ERROR, "param servers must a array.");
+	}
+
+	serializer = zend_hash_str_find(Z_ARRVAL_P(config), ZEND_STRL("serializer"));
+	if (serializer && Z_TYPE_P(serializer) == IS_LONG) {
+		zend_update_property(gene_memcached_ce, self, ZEND_STRL(GENE_MEM_SERIALIZE), serializer);
 	}
 
 	persistent = zend_hash_str_find(Z_ARRVAL_P(config), ZEND_STRL("persistent"));
@@ -235,7 +241,7 @@ zend_bool initObj (zval * self, zval *config) {
 }
 
 zend_bool initObjWin (zval * self, zval *config) {
-	zval  *servers = NULL, *element = NULL;
+	zval  *servers = NULL, *element = NULL, *serializer = NULL;
 	zval obj_object;
 
 	if (config == NULL) {
@@ -251,6 +257,11 @@ zend_bool initObjWin (zval * self, zval *config) {
 
 	if (servers == NULL || Z_TYPE_P(servers) != IS_ARRAY) {
 		 php_error_docref(NULL, E_ERROR, "param servers must a array.");
+	}
+
+	serializer = zend_hash_str_find(Z_ARRVAL_P(config), ZEND_STRL("serializer"));
+	if (serializer && Z_TYPE_P(serializer) == IS_LONG) {
+		zend_update_property(gene_memcached_ce, self, ZEND_STRL(GENE_MEM_SERIALIZE), serializer);
 	}
 
 	ZEND_HASH_FOREACH_VAL(Z_ARRVAL_P(servers), element)
@@ -300,7 +311,7 @@ PHP_METHOD(gene_memcached, __construct)
  * {{{ public gene_memcached::get()
  */
 PHP_METHOD(gene_memcached, get) {
-	zval *self = getThis(), *object = NULL, *key = NULL;
+	zval *self = getThis(), *object = NULL, *key = NULL, *serializer_handler = NULL;
 	if (zend_parse_parameters(ZEND_NUM_ARGS() TSRMLS_CC, "z", &key) == FAILURE) {
 		RETURN_NULL();
 	}
@@ -312,6 +323,37 @@ PHP_METHOD(gene_memcached, get) {
 		#else
 			memcached_get(object, key, &ret);
 		#endif
+
+		serializer_handler = zend_read_property(gene_memcached_ce, self, ZEND_STRL(GENE_MEM_SERIALIZE), 1, NULL);
+		if(serializer_handler && Z_TYPE_P(serializer_handler) == IS_LONG) {
+			if (Z_TYPE_P(key) == IS_ARRAY) {
+				zval arr, tmp_arr[10], *element;
+				array_init(&arr);
+				zend_long id;
+				zend_string *key = NULL;
+				int i = 0;
+				ZEND_HASH_FOREACH_KEY_VAL(Z_ARRVAL(ret), id, key, element) {
+					if (key) {
+						if (unserialize(element, &tmp_arr[i], serializer_handler)) {
+							add_assoc_zval_ex(&arr, ZSTR_VAL(key), ZSTR_LEN(key), &tmp_arr[i]);
+						} else {
+							Z_TRY_ADDREF_P(element);
+							add_assoc_zval_ex(&arr, ZSTR_VAL(key), ZSTR_LEN(key), element);
+						}
+					}
+					i = i + 1;
+				}ZEND_HASH_FOREACH_END();
+				zval_ptr_dtor(&ret);
+				RETURN_ZVAL(&arr, 1, 1);
+			} else {
+				zval arr;
+				if (unserialize(&ret, &arr, serializer_handler)) {
+					zval_ptr_dtor(&ret);
+					RETURN_ZVAL(&arr, 1, 1);
+				}
+				RETURN_ZVAL(&ret, 1, 1);
+			}
+		}
 		RETURN_ZVAL(&ret, 1, 1);
 	}
 	RETURN_NULL();
@@ -322,7 +364,7 @@ PHP_METHOD(gene_memcached, get) {
  */
 PHP_METHOD(gene_memcached, set)
 {
-	zval *self = getThis(),  *object = NULL, *key = NULL, *value = NULL, *ttl = NULL, *flag = NULL, *config = NULL;
+	zval *self = getThis(),  *object = NULL, *key = NULL, *value = NULL, *ttl = NULL, *flag = NULL, *config = NULL, *serializer_handler = NULL;
 	zval ret;
 
 	if (zend_parse_parameters(ZEND_NUM_ARGS() TSRMLS_CC, "zz|zz", &key, &value, &ttl, &flag) == FAILURE) {
@@ -335,11 +377,24 @@ PHP_METHOD(gene_memcached, set)
 	}
 
 	object = zend_read_property(gene_memcached_ce, self, ZEND_STRL(GENE_MEM_OBJ), 1, NULL);
-	#ifdef PHP_WIN32
-		gene_memcache_set (object, key, value, ttl, flag, &ret);
-	#else
-		gene_memcached_set (object, key, value, ttl, &ret);
-	#endif
+	if (Z_TYPE_P(value) == IS_ARRAY || Z_TYPE_P(value) == IS_OBJECT) {
+		serializer_handler = zend_read_property(gene_memcached_ce, self, ZEND_STRL(GENE_MEM_SERIALIZE), 1, NULL);
+		zval ret_string;
+		if (serialize(value, &ret_string, serializer_handler) > 0) {
+			#ifdef PHP_WIN32
+				gene_memcache_set (object, key, &ret_string, ttl, flag, &ret);
+			#else
+				gene_memcached_set (object, key, &ret_string, ttl, &ret);
+			#endif
+			zval_ptr_dtor(&ret_string);
+		}
+	} else {
+		#ifdef PHP_WIN32
+			gene_memcache_set (object, key, value, ttl, flag, &ret);
+		#else
+			gene_memcached_set (object, key, value, ttl, &ret);
+		#endif
+	}
 
 	RETURN_ZVAL(&ret, 1, 1);
 }
@@ -459,6 +514,7 @@ GENE_MINIT_FUNCTION(memcached)
 
     zend_declare_property_null(gene_memcached_ce, ZEND_STRL(GENE_MEM_CONFIG), ZEND_ACC_PUBLIC TSRMLS_CC);
 	zend_declare_property_null(gene_memcached_ce, ZEND_STRL(GENE_MEM_OBJ), ZEND_ACC_PUBLIC TSRMLS_CC);
+	zend_declare_property_long(gene_memcached_ce, ZEND_STRL(GENE_MEM_SERIALIZE), 0, ZEND_ACC_PUBLIC TSRMLS_CC);
     //
 	return SUCCESS; // @suppress("Symbol is not resolved")
 }

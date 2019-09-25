@@ -646,6 +646,33 @@ void gene_serialize(zval *value, zval *retval) /*{{{*/
     zval_ptr_dtor(&function_name);
 }/*}}}*/
 
+void gene_unserialize(zval *value, zval *retval) /*{{{*/
+{
+    zval function_name;
+    ZVAL_STRING(&function_name, "unserialize");
+    zval params[] = { *value };
+    call_user_function(NULL, NULL, &function_name, retval, 1, params);
+    zval_ptr_dtor(&function_name);
+}/*}}}*/
+
+void gene_igbinary_serialize(zval *value, zval *retval) /*{{{*/
+{
+    zval function_name;
+    ZVAL_STRING(&function_name, "igbinary_serialize");
+    zval params[] = { *value };
+    call_user_function(NULL, NULL, &function_name, retval, 1, params);
+    zval_ptr_dtor(&function_name);
+}/*}}}*/
+
+void gene_igbinary_unserialize(zval *value, zval *retval) /*{{{*/
+{
+    zval function_name;
+    ZVAL_STRING(&function_name, "igbinary_unserialize");
+    zval params[] = { *value };
+    call_user_function(NULL, NULL, &function_name, retval, 1, params);
+    zval_ptr_dtor(&function_name);
+}/*}}}*/
+
 void gene_md5(zval *value, zval *retval) /*{{{*/
 {
     zval function_name;
@@ -662,6 +689,110 @@ void gene_class_name(zval *retval) /*{{{*/
     call_user_function(NULL, NULL, &function_name, retval, 0, NULL);
     zval_ptr_dtor(&function_name);
 }/*}}}*/
+
+int is_json(zval *str) {
+	int length = ZSTR_LEN(Z_STR_P(str));
+	if (length > 1) {
+		char *ch = ZSTR_VAL(Z_STR_P(str));
+		if ((ch[0] == '{' && ch[length -1] == '}') || (ch[0] == '[' && ch[length -1] == ']')) {
+			return 1;
+		}
+	}
+	return 0;
+}
+
+int is_serialize(zval *str) {
+	int length = ZSTR_LEN(Z_STR_P(str));
+	if (length > 1) {
+		char *ch = ZSTR_VAL(Z_STR_P(str));
+		if (ch[1] == ':' && ch[length -1] == '}') {
+			return 1;
+		}
+	}
+	return 0;
+}
+
+int is_igbinary(zval *str) {
+	int length = ZSTR_LEN(Z_STR_P(str));
+	if (length > 16) {
+		char *ch = ZSTR_VAL(Z_STR_P(str));
+		if (strncmp(ch, "\x00\x00\x00\x02", 16) == 0 || strncmp(ch, "\x00\x00\x00\x01", 16) == 0) {
+			return 1;
+		}
+	}
+	return 0;
+}
+
+int serialize(zval *arr, zval *string, zval *serializer_handler) {
+	if (Z_TYPE_P(arr) == IS_ARRAY || Z_TYPE_P(arr) == IS_OBJECT) {
+		long type = Z_LVAL_P(serializer_handler);
+		switch(type) {
+		case 1:
+			zval options;
+			ZVAL_LONG(&options, 256);
+			gene_json_encode(arr, &options, string);
+			zval_ptr_dtor(&options);
+			break;
+		case 2:
+			gene_igbinary_serialize(arr, string);
+			break;
+		default:
+			gene_serialize(arr, string);
+			break;
+		}
+
+		if (Z_TYPE_P(string) == IS_NULL) {
+			zval_ptr_dtor(string);
+			return 0;
+		}
+		return 1;
+	}
+	return 0;
+}
+
+
+int unserialize(zval *string, zval *arr, zval *serializer_handler) {
+	if (Z_TYPE_P(string) == IS_STRING) {
+		long type = Z_LVAL_P(serializer_handler);
+		switch(type) {
+		case 1:
+			if(is_json(string) == 0) {
+				return 0;
+			}
+			zval assoc;
+			ZVAL_BOOL(&assoc, 1);
+			gene_json_decode(string, &assoc, arr);
+			zval_ptr_dtor(&assoc);
+			if (Z_TYPE_P(arr) == IS_NULL) {
+				zval_ptr_dtor(arr);
+				return 0;
+			}
+			break;
+		case 2:
+			if(is_igbinary(string) == 0) {
+				return 0;
+			}
+			gene_igbinary_unserialize(string, arr);
+			if (Z_TYPE_P(arr) == IS_NULL) {
+				zval_ptr_dtor(arr);
+				return 0;
+			}
+			break;
+		default:
+			if(is_serialize(string) == 0) {
+				return 0;
+			}
+			gene_unserialize(string, arr);
+			if (Z_TYPE_P(arr) == IS_FALSE) {
+				zval_ptr_dtor(arr);
+				return 0;
+			}
+			break;
+		}
+		return 1;
+	}
+	return 0;
+}
 
 /*
  * Local variables:
