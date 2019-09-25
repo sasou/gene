@@ -152,8 +152,8 @@ zend_bool initRObj (zval * self, zval *config) {
 	}
 
 	serializer = zend_hash_str_find(Z_ARRVAL_P(config), ZEND_STRL("serializer"));
-	if (serializer && Z_TYPE_P(serializer) == IS_LONG) {
-		zend_update_property(gene_redis_ce, self, ZEND_STRL(GENE_REDIS_SERIALIZE), serializer);
+	if (serializer) {
+		zend_update_property_long(gene_redis_ce, self, ZEND_STRL(GENE_REDIS_SERIALIZE), Z_LVAL_P(serializer));
 	}
 	persistent = zend_hash_str_find(Z_ARRVAL_P(config), ZEND_STRL("persistent"));
 	options = zend_hash_str_find(Z_ARRVAL_P(config), ZEND_STRL("options"));
@@ -214,7 +214,7 @@ PHP_METHOD(gene_redis, __construct)
     	if (EG(exception)) {
     		if (checkError(EG(exception))) {
     			EG(exception) = NULL;
-    			initRObj (self, config);
+    			initRObj(self, config);
     		}
     	}
     }
