@@ -368,11 +368,10 @@ PHP_METHOD(gene_cache, unsetCached)
 	sign = zend_hash_str_find(Z_ARRVAL_P(config), ZEND_STRL("sign"));
 	hook = gene_di_get(Z_STR_P(hookName));
 
-	zval key, ret;
+	zval key;
 	gene_cache_key(sign, 1, &key);
-	gene_cache_del(hook, &key, &ret);
+	gene_cache_del(hook, &key, return_value);
 	zval_ptr_dtor(&key);
-	RETURN_ZVAL(&ret, 1, 1);
 }
 /* }}} */
 
@@ -388,11 +387,10 @@ PHP_METHOD(gene_cache, unsetLocalCached)
 	config =  zend_read_property(gene_cache_ce, self, ZEND_STRL(GENE_CACHE_CONFIG), 1, NULL);
 	sign = zend_hash_str_find(Z_ARRVAL_P(config), ZEND_STRL("sign"));
 
-	zval key, ret;
+	zval key;
 	gene_cache_key(sign, 1, &key);
-	gene_apcu_del(&key, &ret);
+	gene_apcu_del(&key, return_value);
 	zval_ptr_dtor(&key);
-	RETURN_ZVAL(&ret, 1, 1);
 }
 /* }}} */
 
