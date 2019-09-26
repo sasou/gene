@@ -52,12 +52,12 @@ void gene_cache_set(zval *object, zval *key, zval *value, zval *ttl, zval *retva
     zval_ptr_dtor(&function_name);
 }/*}}}*/
 
-void gene_cache_incr(zval *object, zval *key, zval *retval) /*{{{*/
+void gene_cache_incr(zval *object, zval *key, zval *val, zval *retval) /*{{{*/
 {
     zval function_name;
     ZVAL_STRING(&function_name, "incr");
-	zval params[] = { *key };
-    call_user_function(NULL, object, &function_name, retval, 1, params);
+	zval params[] = { *key, *val };
+    call_user_function(NULL, object, &function_name, retval, 2, params);
     zval_ptr_dtor(&function_name);
 }/*}}}*/
 
@@ -203,9 +203,11 @@ void gene_cache_update_version(zval *versionSign, zval *versionField, zval *obje
 	ZEND_HASH_FOREACH_STR_KEY_VAL(Z_ARRVAL_P(versionField), key, value)
 	{
 		makeKey(versionSign, key, value, &tmp_arr[i]);
-		zval ret;
-		gene_cache_incr(object, &tmp_arr[i], &ret);
+		zval ret, value;
+		ZVAL_STRING(&value, "1");
+		gene_cache_incr(object, &tmp_arr[i], &value, &ret);
 		zval_ptr_dtor(&ret);
+		zval_ptr_dtor(&value);
 		zval_ptr_dtor(&tmp_arr[i]);
 		i++;
 	}ZEND_HASH_FOREACH_END();
