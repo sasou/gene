@@ -133,7 +133,7 @@ void gene_file_var_export(zval *var, zval *retval) /*{{{*/
 	"   .content {width: 80%;margin: 0 auto;padding:5px 10px;}\n" \
 	"   h1{font-weight: bolder;color: #cc7a94;padding: 5px;}\n" \
 	"   h2{font-weight: normal;color: #AF7C8C;background-color: #e9f4f5;padding: 5px;}\n" \
-	"   ul.code {font-size: 13px;line-height: 20px;color: #68777d;background-color: #f2f9fc;border: 1px solid #c9e6f2;}\n" \
+	"   ul.code {font-size: 13px;line-height: 20px;color: #68777d;background-color: #f2f9fc;border: 1px solid #c9e6f2;min-height: 30px;}\n" \
 	"   ul.code li {width : 100%;margin:0px;white-space: pre ;list-style-type:none;font-family : monospace;}\n" \
 	"   ul.code li.line {color : red;}\n" \
 	"   table.trace {width : 100%;font-size: 13px;line-height: 20px;color: #247696;background-color: #c9e6f2;}\n" \
@@ -335,28 +335,30 @@ void showCode(zval *file, zval *line) {
 	char *out = NULL;
 	zval codes;
 	int length = 0;
-	gene_file_codes(file, &codes);
-	if (Z_TYPE(codes) == IS_ARRAY) {
-		int size = zend_hash_num_elements(Z_ARRVAL(codes));
-		int start, end;
-		zval *ele = NULL;
-		start = line->value.lval - 8;
-		end = line->value.lval + 8;
-		start = start < 0 ? 0 : start;
-		end = end > size ? size : end;
-		for(start; start < end; start++) {
-			ele = zend_hash_index_find(Z_ARRVAL(codes), start);
-			if (start + 1 == line->value.lval) {
-				length = spprintf(&out, 0, HTML_EXCEPTION_CODE_LINE, ele->value.str->val);
-			} else {
-				length = spprintf(&out, 0, HTML_EXCEPTION_CODE, ele->value.str->val);
+	if (ZSTR_LEN(Z_STR_P(file)) > 0) {
+		gene_file_codes(file, &codes);
+		if (Z_TYPE(codes) == IS_ARRAY) {
+			int size = zend_hash_num_elements(Z_ARRVAL(codes));
+			int start, end;
+			zval *ele = NULL;
+			start = line->value.lval - 8;
+			end = line->value.lval + 8;
+			start = start < 0 ? 0 : start;
+			end = end > size ? size : end;
+			for(start; start < end; start++) {
+				ele = zend_hash_index_find(Z_ARRVAL(codes), start);
+				if (start + 1 == line->value.lval) {
+					length = spprintf(&out, 0, HTML_EXCEPTION_CODE_LINE, ele->value.str->val);
+				} else {
+					length = spprintf(&out, 0, HTML_EXCEPTION_CODE, ele->value.str->val);
+				}
+				PHPWRITE(out, length);
+				efree(out);
+				out = NULL;
 			}
-			PHPWRITE(out, length);
-			efree(out);
-			out = NULL;
 		}
+		zval_ptr_dtor(&codes);
 	}
-	zval_ptr_dtor(&codes);
 }
 
 void showTrace(zval *ex) {
