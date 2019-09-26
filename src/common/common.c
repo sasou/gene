@@ -725,29 +725,26 @@ int is_igbinary(zval *str) {
 
 int serialize(zval *arr, zval *string, zval *serializer_handler) {
 	zval options;
-	if (Z_TYPE_P(arr) == IS_ARRAY || Z_TYPE_P(arr) == IS_OBJECT) {
-		long type = Z_LVAL_P(serializer_handler);
-		switch(type) {
-		case 1:
-			ZVAL_LONG(&options, 256);
-			gene_json_encode(arr, &options, string);
-			zval_ptr_dtor(&options);
-			break;
-		case 2:
-			gene_igbinary_serialize(arr, string);
-			break;
-		default:
-			gene_serialize(arr, string);
-			break;
-		}
-
-		if (Z_TYPE_P(string) == IS_NULL) {
-			zval_ptr_dtor(string);
-			return 0;
-		}
-		return 1;
+	long type = Z_LVAL_P(serializer_handler);
+	switch(type) {
+	case 1:
+		ZVAL_LONG(&options, 256);
+		gene_json_encode(arr, &options, string);
+		zval_ptr_dtor(&options);
+		break;
+	case 2:
+		gene_igbinary_serialize(arr, string);
+		break;
+	default:
+		gene_serialize(arr, string);
+		break;
 	}
-	return 0;
+
+	if (Z_TYPE_P(string) != IS_STRING) {
+		zval_ptr_dtor(string);
+		return 0;
+	}
+	return 1;
 }
 
 
