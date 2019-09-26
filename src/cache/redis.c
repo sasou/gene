@@ -152,7 +152,7 @@ zend_bool initRObj (zval * self, zval *config) {
 	}
 
 	serializer = zend_hash_str_find(Z_ARRVAL_P(config), ZEND_STRL("serializer"));
-	if (serializer) {
+	if (serializer && Z_TYPE_P(serializer) == IS_LONG) {
 		zend_update_property_long(gene_redis_ce, self, ZEND_STRL(GENE_REDIS_SERIALIZE), Z_LVAL_P(serializer));
 	}
 	persistent = zend_hash_str_find(Z_ARRVAL_P(config), ZEND_STRL("persistent"));
@@ -242,7 +242,7 @@ PHP_METHOD(gene_redis, get) {
     			redis_get(object, key, &ret);
     		}
     	}
-		if(serializer_handler && Z_TYPE_P(serializer_handler) == IS_LONG) {
+		if(serializer_handler) {
 			if (Z_TYPE_P(key) == IS_ARRAY) {
 				zval *element,*value;
 				zval arr;
@@ -285,7 +285,6 @@ PHP_METHOD(gene_redis, get) {
  */
 PHP_METHOD(gene_redis, set) {
 	zval *self = getThis(),  *object = NULL, *serializer_handler = NULL, *key = NULL, *value = NULL, *ttl = NULL, *config = NULL;
-	zval ret;
 	if (zend_parse_parameters(ZEND_NUM_ARGS() TSRMLS_CC, "zz|z", &key, &value, &ttl) == FAILURE) {
 		return;
 	}
@@ -296,31 +295,22 @@ PHP_METHOD(gene_redis, set) {
 	}
 	object = zend_read_property(gene_redis_ce, self, ZEND_STRL(GENE_REDIS_OBJ), 1, NULL);
 	if (object) {
-		if (Z_TYPE_P(value) == IS_ARRAY || Z_TYPE_P(value) == IS_OBJECT) {
-			serializer_handler = zend_read_property(gene_redis_ce, self, ZEND_STRL(GENE_REDIS_SERIALIZE), 1, NULL);
+		serializer_handler = zend_read_property(gene_redis_ce, self, ZEND_STRL(GENE_REDIS_SERIALIZE), 1, NULL);
+		if (serializer_handler) {
 			zval ret_string;
 			if (serialize(value, &ret_string, serializer_handler) > 0) {
-				redis_set(object, key, ttl, &ret_string, &ret);
+				redis_set(object, key, ttl, &ret_string, return_value);
 				if (EG(exception)) {
 					if (checkError(EG(exception))) {
 						EG(exception) = NULL;
 						initRObj (self, NULL);
-						redis_set(object, key, ttl, &ret_string, &ret);
+						redis_set(object, key, ttl, &ret_string, return_value);
 					}
 				}
 				zval_ptr_dtor(&ret_string);
 			}
-		} else {
-			redis_set(object, key, ttl, value, &ret);
-	    	if (EG(exception)) {
-	    		if (checkError(EG(exception))) {
-	    			EG(exception) = NULL;
-	    			initRObj (self, NULL);
-	    			redis_set(object, key, ttl, value, &ret);
-	    		}
-	    	}
+			return;
 		}
-		RETURN_ZVAL(&ret, 1, 1);
 	}
 	RETURN_NULL();
 }
