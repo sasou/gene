@@ -308,6 +308,8 @@ PHP_METHOD(gene_redis, set) {
 					}
 				}
 				zval_ptr_dtor(&ret_string);
+			} else {
+				redis_set(object, key, ttl, value, return_value);
 			}
 			return;
 		}

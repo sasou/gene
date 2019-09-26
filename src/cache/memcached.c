@@ -386,8 +386,14 @@ PHP_METHOD(gene_memcached, set)
 					gene_memcached_set (object, key, &ret_string, ttl, return_value);
 				#endif
 				zval_ptr_dtor(&ret_string);
-				return;
+			} else {
+				#ifdef PHP_WIN32
+					gene_memcache_set (object, key, value, ttl, flag, return_value);
+				#else
+					gene_memcached_set (object, key, value, ttl, return_value);
+				#endif
 			}
+			return;
 		}
 	}
 	RETURN_NULL();
