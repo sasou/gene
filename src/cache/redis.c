@@ -295,22 +295,25 @@ PHP_METHOD(gene_redis, set) {
 	}
 	object = zend_read_property(gene_redis_ce, self, ZEND_STRL(GENE_REDIS_OBJ), 1, NULL);
 	if (object) {
-		serializer_handler = zend_read_property(gene_redis_ce, self, ZEND_STRL(GENE_REDIS_SERIALIZE), 1, NULL);
-		if (serializer_handler) {
-			zval ret_string;
-			if (serialize(value, &ret_string, serializer_handler) > 0) {
-				redis_set(object, key, ttl, &ret_string, return_value);
-				if (EG(exception)) {
-					if (checkError(EG(exception))) {
-						EG(exception) = NULL;
-						initRObj (self, NULL);
-						redis_set(object, key, ttl, &ret_string, return_value);
+		if (Z_TYPE_P(value) == IS_ARRAY || Z_TYPE_P(value) == IS_OBJECT) {
+			serializer_handler = zend_read_property(gene_redis_ce, self, ZEND_STRL(GENE_REDIS_SERIALIZE), 1, NULL);
+			if (serializer_handler) {
+				zval ret_string;
+				if (serialize(value, &ret_string, serializer_handler) > 0) {
+					redis_set(object, key, ttl, &ret_string, return_value);
+					if (EG(exception)) {
+						if (checkError(EG(exception))) {
+							EG(exception) = NULL;
+							initRObj (self, NULL);
+							redis_set(object, key, ttl, &ret_string, return_value);
+						}
 					}
+					zval_ptr_dtor(&ret_string);
 				}
-				zval_ptr_dtor(&ret_string);
-			} else {
-				redis_set(object, key, ttl, value, return_value);
+				return;
 			}
+		} else {
+			redis_set(object, key, ttl, value, return_value);
 			return;
 		}
 	}
