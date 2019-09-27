@@ -714,9 +714,9 @@ int is_serialize(zval *str) {
 
 int is_igbinary(zval *str) {
 	int length = ZSTR_LEN(Z_STR_P(str));
-	if (length > 16) {
+	if (length >= 4) {
 		char *ch = ZSTR_VAL(Z_STR_P(str));
-		if (strncmp(ch, "\x00\x00\x00\x02", 16) == 0 || strncmp(ch, "\x00\x00\x00\x01", 16) == 0) {
+		if (strncmp(ch, "\x00\x00\x00\x02", 4) == 0 || strncmp(ch, "\x00\x00\x00\x01", 4) == 0) {
 			return 1;
 		}
 	}
@@ -760,31 +760,23 @@ int unserialize(zval *string, zval *arr, zval *serializer_handler) {
 			ZVAL_BOOL(&assoc, 1);
 			gene_json_decode(string, &assoc, arr);
 			zval_ptr_dtor(&assoc);
-			if (Z_TYPE_P(arr) == IS_NULL) {
-				zval_ptr_dtor(arr);
-				return 0;
-			}
 			break;
 		case 2:
 			if(is_igbinary(string) == 0) {
 				return 0;
 			}
 			gene_igbinary_unserialize(string, arr);
-			if (Z_TYPE_P(arr) == IS_NULL) {
-				zval_ptr_dtor(arr);
-				return 0;
-			}
 			break;
 		default:
 			if(is_serialize(string) == 0) {
 				return 0;
 			}
 			gene_unserialize(string, arr);
-			if (Z_TYPE_P(arr) == IS_FALSE) {
-				zval_ptr_dtor(arr);
-				return 0;
-			}
 			break;
+		}
+		if (Z_TYPE_P(arr) == IS_NULL) {
+			zval_ptr_dtor(arr);
+			return 0;
 		}
 		return 1;
 	}
