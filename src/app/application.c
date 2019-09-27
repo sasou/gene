@@ -458,7 +458,7 @@ PHP_METHOD(gene_application, autoload) {
 PHP_METHOD(gene_application, error) {
 	zval *callback = NULL, *error_type = NULL, *self = getThis();
 	long type = 0;
-	if (zend_parse_parameters(ZEND_NUM_ARGS()TSRMLS_CC, "lzz", &type, &callback, &error_type) == FAILURE) {
+	if (zend_parse_parameters(ZEND_NUM_ARGS()TSRMLS_CC, "l|zz", &type, &callback, &error_type) == FAILURE) {
 		return;
 	}
 	if (type > 0) {
@@ -473,7 +473,7 @@ PHP_METHOD(gene_application, error) {
 PHP_METHOD(gene_application, exception) {
 	zval *callback = NULL, *error_type = NULL, *self = getThis();
 	long type = 0;
-	if (zend_parse_parameters(ZEND_NUM_ARGS()TSRMLS_CC, "lz", &type, &callback) == FAILURE) {
+	if (zend_parse_parameters(ZEND_NUM_ARGS()TSRMLS_CC, "l|z", &type, &callback) == FAILURE) {
 		return;
 	}
 	if (type > 0) {
@@ -489,14 +489,15 @@ PHP_METHOD(gene_application, exception) {
 PHP_METHOD(gene_application, setMode) {
 	zval *self = getThis();
 	long error_type = 0, exception_type = 0;
-	if (zend_parse_parameters(ZEND_NUM_ARGS()TSRMLS_CC, "|ll", &error_type, &exception_type) == FAILURE) {
+	zval *error_callback = NULL, *ex_callback = NULL;
+	if (zend_parse_parameters(ZEND_NUM_ARGS()TSRMLS_CC, "|llzz", &error_type, &exception_type, &ex_callback, &error_callback) == FAILURE) {
 		return;
 	}
 	if (error_type > 0) {
-		gene_exception_error_register(NULL, NULL TSRMLS_CC);
+		gene_exception_error_register(error_callback, NULL TSRMLS_CC);
 	}
 	if (exception_type > 0) {
-		gene_exception_register(NULL TSRMLS_CC);
+		gene_exception_register(ex_callback TSRMLS_CC);
 	}
 	RETURN_ZVAL(self, 1, 0);
 }

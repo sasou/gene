@@ -297,7 +297,7 @@ PHP_METHOD(gene_redis, set) {
 	if (object) {
 		if (Z_TYPE_P(value) == IS_ARRAY || Z_TYPE_P(value) == IS_OBJECT) {
 			serializer_handler = zend_read_property(gene_redis_ce, self, ZEND_STRL(GENE_REDIS_SERIALIZE), 1, NULL);
-			if (serializer_handler) {
+			if (serializer_handler && Z_LVAL_P(serializer_handler) > 0) {
 				zval ret_string;
 				if (serialize(value, &ret_string, serializer_handler) > 0) {
 					redis_set(object, key, ttl, &ret_string, return_value);
@@ -309,13 +309,20 @@ PHP_METHOD(gene_redis, set) {
 						}
 					}
 					zval_ptr_dtor(&ret_string);
+					return;
 				}
-				return;
 			}
-		} else {
-			redis_set(object, key, ttl, value, return_value);
-			return;
 		}
+
+		redis_set(object, key, ttl, value, return_value);
+		if (EG(exception)) {
+			if (checkError(EG(exception))) {
+				EG(exception) = NULL;
+				initRObj (self, NULL);
+				redis_set(object, key, ttl, value, return_value);
+			}
+		}
+		return;
 	}
 	RETURN_NULL();
 }
@@ -369,7 +376,7 @@ GENE_MINIT_FUNCTION(redis)
 
     zend_declare_property_null(gene_redis_ce, ZEND_STRL(GENE_REDIS_CONFIG), ZEND_ACC_PUBLIC TSRMLS_CC);
 	zend_declare_property_null(gene_redis_ce, ZEND_STRL(GENE_REDIS_OBJ), ZEND_ACC_PUBLIC TSRMLS_CC);
-	zend_declare_property_long(gene_redis_ce, ZEND_STRL(GENE_REDIS_SERIALIZE), 0, ZEND_ACC_PUBLIC TSRMLS_CC);
+	zend_declare_property_long(gene_redis_ce, ZEND_STRL(GENE_REDIS_SERIALIZE), 1, ZEND_ACC_PUBLIC TSRMLS_CC);
     //
 	return SUCCESS; // @suppress("Symbol is not resolved")
 }
