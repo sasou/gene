@@ -8,10 +8,14 @@ if (isset($_SERVER['argv'][1])) {
     exit('This script is run as CLI with no path?');
 }
 
+function doException($e) {
+    echo $e->getMessage();
+}
+
 $app = \Gene\Application::getInstance();
 $app
     ->autoload(APP_ROOT)
     ->load("router.ini.php")
     ->load("config.ini.php")
-    ->setMode(1, 1)
+    ->setMode(1, 1, "doException")
     ->run('get', $path);
