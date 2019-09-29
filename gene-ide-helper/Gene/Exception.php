@@ -5,7 +5,7 @@ namespace Gene;
  * Exception
  * 
  * @author  sasou<admin@php-gene.com>
- * @version  3.0.2
+ * @version  3.0.5
  */
  
 class Exception
@@ -34,6 +34,16 @@ class Exception
      * @return mixed
      */
     public static function setExceptionHandler($callback) {
+
+    }
+
+    /**
+     * doException
+     * 
+     * @param mixed $ex ex
+     * @return mixed
+     */
+    public static function doException($ex) {
 
     }
 

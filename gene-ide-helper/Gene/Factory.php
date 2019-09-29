@@ -5,7 +5,7 @@ namespace Gene;
  * Factory
  * 
  * @author  sasou<admin@php-gene.com>
- * @version  3.0.2
+ * @version  3.0.5
  */
  
 class Factory

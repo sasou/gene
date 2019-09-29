@@ -5,7 +5,7 @@ namespace Gene;
  * Response
  * 
  * @author  sasou<admin@php-gene.com>
- * @version  3.0.2
+ * @version  3.0.5
  */
  
 class Response
@@ -81,13 +81,24 @@ class Response
     }
 
     /**
-     * setHeader
+     * header
      * 
      * @param mixed $key key
      * @param mixed $value value
      * @return mixed
      */
-    public static function setHeader($key, $value) {
+    public static function header($key, $value) {
+
+    }
+
+    /**
+     * cookie
+     * 
+     * @param mixed $key key
+     * @param mixed $value value
+     * @return mixed
+     */
+    public static function cookie($key, $value) {
 
     }
 
