@@ -11,7 +11,7 @@ namespace Gene;
  * @property \Ext\Services\Rest $rest
  * 
  * @author  sasou<admin@php-gene.com>
- * @version  3.0.2
+ * @version  3.0.5
  */
  
 class Application
@@ -197,6 +197,16 @@ class Application
      * @return mixed
      */
     public static function config($key) {
+
+    }
+
+    /**
+     * params
+     * 
+     * @param mixed $key key
+     * @return mixed
+     */
+    public static function params($key) {
 
     }
 

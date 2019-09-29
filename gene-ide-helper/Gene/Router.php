@@ -11,7 +11,7 @@ namespace Gene;
  * @property \Ext\Services\Rest $rest
  * 
  * @author  sasou<admin@php-gene.com>
- * @version  3.0.2
+ * @version  3.0.5
  */
  
 class Router
@@ -142,6 +142,27 @@ class Router
      * @return mixed
      */
     public function readFile($file) {
+
+    }
+
+    /**
+     * dispatch
+     * 
+     * @param mixed $class class
+     * @param mixed $action action
+     * @param mixed $params params
+     * @return mixed
+     */
+    public static function dispatch($class, $action, $params) {
+
+    }
+
+    /**
+     * params
+     * 
+     * @return mixed
+     */
+    public static function params() {
 
     }
 

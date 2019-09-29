@@ -5,7 +5,7 @@ namespace Gene;
  * Di
  * 
  * @author  sasou<admin@php-gene.com>
- * @version  3.0.2
+ * @version  3.0.5
  */
  
 class Di
@@ -37,7 +37,7 @@ class Di
      * @return mixed
      */
     public static function getInstance() {
-
+        return new static();
     }
 
     /**

@@ -11,7 +11,7 @@ namespace Gene;
  * @property \Ext\Services\Rest $rest
  * 
  * @author  sasou<admin@php-gene.com>
- * @version  3.0.2
+ * @version  3.0.5
  */
  
 class Model

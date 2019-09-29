@@ -5,11 +5,12 @@ namespace Gene;
  * Request
  * 
  * @author  sasou<admin@php-gene.com>
- * @version  3.0.2
+ * @version  3.0.5
  */
  
 class Request
 {
+    protected static $_attr;
 
     /**
      * __construct
@@ -107,12 +108,12 @@ class Request
     }
 
     /**
-     * urlParams
+     * params
      * 
      * @param mixed $key key
      * @return mixed
      */
-    public static function urlParams($key) {
+    public static function params($key) {
 
     }
 
@@ -176,6 +177,43 @@ class Request
      * @return mixed
      */
     public static function isCli() {
+
+    }
+
+    /**
+     * init
+     * 
+     * @param mixed $get get
+     * @param mixed $post post
+     * @param mixed $cookie cookie
+     * @param mixed $server server
+     * @param mixed $env env
+     * @param mixed $files files
+     * @param mixed $request request
+     * @return mixed
+     */
+    public static function init($get, $post, $cookie, $server, $env, $files, $request) {
+
+    }
+
+    /**
+     * __set
+     * 
+     * @param mixed $name name
+     * @param mixed $value value
+     * @return mixed
+     */
+    public function __set($name, $value) {
+
+    }
+
+    /**
+     * __get
+     * 
+     * @param mixed $name name
+     * @return mixed
+     */
+    public function __get($name) {
 
     }
 

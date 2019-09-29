@@ -5,7 +5,7 @@ namespace Gene\Cache;
  * Cache
  * 
  * @author  sasou<admin@php-gene.com>
- * @version  3.0.2
+ * @version  3.0.5
  */
  
 class Cache
@@ -22,6 +22,15 @@ class Cache
     }
 
     /**
+     * localCached
+     * 
+     * @return mixed
+     */
+    public function localCached() {
+
+    }
+
+    /**
      * unsetCached
      * 
      * @return mixed
@@ -31,11 +40,29 @@ class Cache
     }
 
     /**
+     * unsetLocalCached
+     * 
+     * @return mixed
+     */
+    public function unsetLocalCached() {
+
+    }
+
+    /**
      * cachedVersion
      * 
      * @return mixed
      */
     public function cachedVersion() {
+
+    }
+
+    /**
+     * localCachedVersion
+     * 
+     * @return mixed
+     */
+    public function localCachedVersion() {
 
     }
 
