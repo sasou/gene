@@ -11,7 +11,7 @@ namespace Gene;
  * @property \Ext\Services\Rest $rest
  * 
  * @author  sasou<admin@php-gene.com>
- * @version  3.0.2
+ * @version  3.0.5
  */
  
 class Controller
@@ -113,12 +113,12 @@ class Controller
     }
 
     /**
-     * urlParams
+     * params
      * 
      * @param mixed $key key
      * @return mixed
      */
-    public static function urlParams($key) {
+    public static function params($key) {
 
     }
 
