@@ -34,6 +34,7 @@
 * 命令行：封装了命令行开发基础设施，可快速开发控制台程序、守护进程；</br>
 * 缓存：支持两种缓存，一是方法级定时缓存；二是实时版本缓存（创新功能：高效的实时缓存方案，轻松解决复杂缓存的更新，比如分页数据的缓存）； </br>
 * 自动加载：基于 PSR-4；</br>
+* 完美支持swoole（低内存占用，无内存泄露）；</br>
 * 其他：redis、memcached类库二次封装；</br>
   </blockquote>
   <ul class="site-idea">
@@ -64,6 +65,12 @@
   <li class="layui-timeline-item">
     <i class="layui-icon layui-timeline-axis"></i>
     <div class="layui-timeline-content layui-text">
+      <div class="layui-timeline-title">2019年9月，Gene 3.0.5 发布。完美支持swoole。。。</div>
+    </div>
+  </li>
+  <li class="layui-timeline-item">
+    <i class="layui-icon layui-timeline-axis"></i>
+    <div class="layui-timeline-content layui-sm">
       <div class="layui-timeline-title">2019年6月，Gene 3.0.2 发布。实时版本缓存，性能提升。。。</div>
     </div>
   </li>

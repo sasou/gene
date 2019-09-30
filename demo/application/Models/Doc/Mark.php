@@ -27,7 +27,7 @@ class Mark extends \Gene\Model
         $list = $this->db
                      ->select("app_mark", "mark_id,mark_type,mark_title,user_id,status")
                      ->where($params)
-                     ->order("mark_id desc")
+                     ->order("`order` asc")
                      ->limit($start, $limit)
                      ->all();
 
@@ -45,7 +45,7 @@ class Mark extends \Gene\Model
         return $this->db
                      ->select("app_mark", "mark_id,mark_type,mark_title")
                      ->where("status = 1 and mark_type=?", $type)
-                     ->order("`order` desc,mark_id asc")
+                     ->order("`order` asc")
                      ->limit(30)
                      ->all();
     }
