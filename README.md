@@ -7,7 +7,7 @@
 
 框架核心特性：
 * 优雅：优雅微架构，提供松耦合的、有一定的有界上下文的面向服务架构，按需组合，适应DDD领域驱动设计；
-* 简单：十分钟demo入门，优雅而简单；
+* 简单：一分钟demo入门，优雅而简单；
 * 极速：PHP-FPM模式下运行速度最快的框架；
 * 场景：胜任WEB应用、微服务、常驻进程等场景；
 * 灵活：支持传统MVC模式；同时支持MVCS模式：瘦MC模式，通过增加service层更好的实现模块封装；
@@ -45,13 +45,17 @@
     <?php
     $router = new \Gene\Router();
     $router->clear()
+    
     //定义get
     ->get("/", "\Controllers\Index@run")
+    
     ->get("/test", "\Controllers\Index@test", "@clearAll")
+    
     //定义post
     ->post("/",function(){
             echo "index post";
-        })    
+    })    
+        
     //分组模式
     ->group("/admin")
         ->get("/:name/",function($params){
@@ -61,23 +65,28 @@
             var_dump($params);
         },"auth@clearAll")
     ->group()
+    
     //定义静态页面
     ->get("/index.html",function(){
         echo 'index';
     }, "@clearAfter")
+    
     //定义404
     ->error(404,function(){
         echo " 404 ";
     })
+    
     //定义自定义钩子
     ->hook("auth",function(){
         echo " auth hook ";
         return true; // 返回false中断请求
     })
+    
     //全局前置钩子
     ->hook("before", function(){
         echo " before hook ";
     })
+    
     //全局后置钩子
     ->hook("after", function($params){
         echo " after hook ";
