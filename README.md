@@ -237,7 +237,7 @@
     <?php
     echo 'test';
     
-而Gene应用包含了入口文件、路由文件、配置文件、控制器等至少4个文件，但测试数据只是略低，所以确定Gene框架没有产生格外的性能损失，这是不可思议的。证明gene框架是运行速度最快的框架：Nginx+PHP-FPM模式、swoole模式下均是最快，没有之一；测试demo下载：http://www.php-gene.com/static/test/demo.zip（欢迎测试验证。
+而Gene应用包含了入口文件、路由文件、配置文件、控制器等至少4个文件，但测试数据只是略低，所以确定Gene框架没有产生格外的性能损失，这是不可思议的。证明gene框架是运行速度最快的框架：Nginx+PHP-FPM模式、swoole模式下均是最快，没有之一；测试demo下载：http://www.php-gene.com/static/test/demo.zip（欢迎测试验证）。
     
 ## 五、快速安装
     
