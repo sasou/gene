@@ -30,67 +30,68 @@
 ### 第一步：应用入口index.php
 
    加载配置文件并启动：
-	<?php
-	$app = \Gene\Application::getInstance();
+   
+    <?php
+    $app = \Gene\Application::getInstance();
     $app
       ->load("router.ini.php")
       ->load("config.ini.php")
       ->run();  
 
-### 第二步：路由文件router.ini.php
+### 第二步：路由文件router.ini.php   
 
-   配置REST路由或者回调路由配置；
-	<?php
-	$router = new \Gene\Router();
-	$router->clear()
-		//定义get
-		->get("/", "\Controllers\Index@run")
-		//定义post
-		->post("/",function(){
-				echo "index post";
-			})	
-		//分组模式
-		->group("/admin")
-			->get("/:name/",function($params){
-				var_dump($params);
-			})
-			->get("/:name.:ext",function($params){
-				var_dump($params);
-			})
-			->get("/:name/sasoud",function($params){
-				var_dump($params);
-			})
-			->get("/blog/:ext/baidu",function($params){
-				echo 'baidu';
-				return array('return'=>1);
-			},"auth@clearAll")
-		->group()
-		
-		->get("/index.html",function(){
-			echo 'index';
-		})
-		//定义404
-		->error(404,function(){
-			echo " 404 ";
-		})
-		//定义自定义钩子
-		->hook("auth",function(){
-			echo " auth hook ";
-		})
-		//全局前置钩子
-		->hook("before", function(){
-			echo " before hook ";
-		})
-		//全局后置钩子
-		->hook("after", function($params){
-			echo " after hook ";
-			if(is_array($params))var_dump($params);
-		});
+   配置REST路由或者回调路由配置；   
+   
+    <?php
+    $router = new \Gene\Router();
+    $router->clear()
+    //定义get
+    ->get("/", "\Controllers\Index@run")
+    //定义post
+    ->post("/",function(){
+            echo "index post";
+        })    
+    //分组模式
+    ->group("/admin")
+        ->get("/:name/",function($params){
+            var_dump($params);
+        })
+        ->get("/:name.:ext",function($params){
+            var_dump($params);
+        })
+        ->get("/:name/sasoud",function($params){
+            var_dump($params);
+        })
+        ->get("/blog/:ext/baidu",function($params){
+            echo 'baidu';
+            return array('return'=>1);
+        },"auth@clearAll")
+    ->group()
+    ->get("/index.html",function(){
+        echo 'index';
+    })
+    //定义404
+    ->error(404,function(){
+        echo " 404 ";
+    })
+    //定义自定义钩子
+    ->hook("auth",function(){
+        echo " auth hook ";
+    })
+    //全局前置钩子
+    ->hook("before", function(){
+        echo " before hook ";
+    })
+    //全局后置钩子
+    ->hook("after", function($params){
+        echo " after hook ";
+        if(is_array($params))var_dump($params);
+    });
 
 ### 第三步：配置文件config.ini.php
 
     配置应用变量或者对象；
-	<?php
+    <?php
     $config = new \Gene\Config();
     $config->clear();
     
@@ -130,7 +131,7 @@
             ]],
         'instance' => true
     ]);
-	
+    
 ### 第四步：控制器文件\Controllers\Index:  
 
     namespace Controllers;
@@ -146,19 +147,19 @@
     }
 
 ### 第五步：运行：在浏览器输入项目地址，比如：http://localhost/
-	
+    
 ## 快速安装
-	
-	phpize
-	./configure --enable-gene=shared
-	make
-	make install
-	
+    
+    phpize
+    ./configure --enable-gene=shared
+    make
+    make install
+    
 ### DEMO：
-	
-	index.php 启动文件
-	config.ini.php 配置文件
-	router.inc.php 路由文件
+    
+    index.php 启动文件
+    config.ini.php 配置文件
+    router.inc.php 路由文件
     
 ### 案例 
     一：湖北省教育用户认证中心(全省几百万学生、教育用户的登录入口) ：http://open.e21.cn/
