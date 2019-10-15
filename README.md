@@ -1,47 +1,50 @@
-# php-gene-for-php7
+# gene for php7
 
-    Simple, high performance,C extension framework for php7！简单、高性能、优雅的php c扩展框架！    
+    Grace, fastest, simple PHP extension framework！优雅、极速、简单的PHP扩展框架！   
 
 >   最新版本：3.0.5    
 >   官方网站：Gene框架 http://www.php-gene.com/
 
-框架核心能力：
-* 高性能：极简架构，超过yaf、Phalcon等同类型C扩展框架的功能及性能；
-* MVCS：瘦MC模式，业务逻辑封装到service；
+框架核心特性：
+* 优雅：优雅微架构，提供松耦合的、有一定的有界上下文的面向服务架构，按需组合，适应DDD领域驱动设计；
+* 简单：十分钟demo入门，优雅而简单；
+* 极速：PHP-FPM模式下运行速度最快的框架；
+* 场景：胜任WEB应用、微服务、常驻进程等场景；
+* 灵活：支持传统MVC模式；同时支持MVCS模式：瘦MC模式，通过增加service层更好的实现模块封装；
 * 路由：完整支持HTTP REST请求；底层采用二叉树查找算法，性能强劲；
-* 钩子：路由支持全局、局部钩子支持；
-* 依赖注入：参考 Java Spring 的 Bean 设计思想，实现了简易好用的 IoC；全局注入，局部控制反转等；
+* 钩子：路由支持全局前置、后置钩子；支持自定义前置钩子；
+* 依赖注入：参考 Java Spring 的 Bean 设计思想，实现了简易好用的IoC；支持全局注入，局部控制反转等；
 * 中间件：AOP (面向切面编程)，配置文件注册对象，调用方便且解耦；
-* 工厂：提供全局工厂单例支持；
-* 数据库：封装高性能orm类库；
+* 工厂：提供工厂单例支持；
+* 数据库：封装高性能PDO ORM类库；
 * 配置：配置缓存到进程，修改自动更新；
-* 长连接：按进程保持的长连接，支持Mysql/Redis/Memcached；持久连接断开自动检测；
 * 视图：方式一、使用编译模板引擎，支持模板标签，支持模板缓存；方式二、使用原生PHP做模板引擎；两种方式均支持布局、属性赋值、对象引用等；
+* 长连接：按进程保持的长连接，支持Mysql/Redis/Memcached；持久连接断开自动检测；
 * 命令行：封装了命令行开发基础设施，可快速开发控制台程序、守护进程；
 * 缓存：支持两种缓存，一是方法级定时缓存；二是实时版本缓存（创新功能：高效的实时缓存方案，轻松解决复杂缓存的更新，比如分页数据的缓存）； 
 * 自动加载：基于 PSR-4；
 * 完美支持swoole（低内存占用，无内存泄露）；
 * 其他：redis、memcached类库二次封装；
 
-框架的入口是gene_application类，加载配置文件并启动：
+## 简单应用  
+### 第一步：应用入口index.php
 
-    简单运行：
+   加载配置文件并启动：
 	<?php
-	$app = new \Gene\Aplication();
-	$app->load("router.ini.php")
-	    ->load("config.ini.php")
-	    ->run();
+	$app = \Gene\Application::getInstance();
+    $app
+      ->load("router.ini.php")
+      ->load("config.ini.php")
+      ->run();  
 
-框架的基础是基于进程级缓存模块实现了一个高性能的强大路由解析以及配置缓存；
-路由强大灵活，支持回调、rest、http请求方式（get,post,put,patch,delete,trace,connect,options,head）等：
+### 第二步：路由文件router.ini.php
 
+   配置REST路由或者回调路由配置；
 	<?php
 	$router = new \Gene\Router();
 	$router->clear()
 		//定义get
-		->get("/",function(){
-				echo "index get";
-			})
+		->get("/", "\Controllers\Index@run")
 		//定义post
 		->post("/",function(){
 				echo "index post";
@@ -63,7 +66,7 @@
 			},"auth@clearAll")
 		->group()
 		
-		->get("/index",function(){
+		->get("/index.html",function(){
 			echo 'index';
 		})
 		//定义404
@@ -84,77 +87,88 @@
 			if(is_array($params))var_dump($params);
 		});
 
-配置类支持bool、int、long、string、array、常量等数据类型：
+### 第三步：配置文件config.ini.php
 
+    配置应用变量或者对象；
 	<?php
-	$config = new \Gene\Config();
-	$config->clear();
-	$config>set("dsfsdfsd",array('_url'=>array('sd'=>'sdfsdf222','sds'=>'sdfsf678'),'port'=>3307));
-	支持快捷存与取（.分隔）：
-	$config->set("dsfsdfsd.port",'test');
-	$config->get("dsfsdfsd.port");
-	
-数据库支持orm操作：
+    $config = new \Gene\Config();
+    $config->clear();
+    
+    //视图类注入配置
+    $config->set("view", [
+        'class' => '\Gene\View'
+    ]);
 
-    <?php
-    $config = array (
-            'dsn' => 'mysql:dbname=test;host=127.0.0.1;port=3306;charset=utf8',
-            'username' => 'root',
-            'password' => '',
-            'options' => array(PDO::ATTR_PERSISTENT => true)
-    );
+    //http请求类注入配置
+    $config->set("request", [
+        'class' => '\Gene\Request'
+    ]);
+
+    //http请求类注入配置
+    $config->set("response", [
+        'class' => '\Gene\Response'
+    ]);
     
-	$abc = new Gene\Db\Mysql($config);
-    // 查询全部
-	var_dump($abc->select('user', ["id", "name","time"])->order("id desc")->limit(0, 1)->all());
-    // 原生查询
-	var_dump($abc->select('user', ["id", "name","time"])->limit(0, 1)->execute()->fetch());
-    // 条件查询
-	var_dump($abc->select('user', ["id", "name","time"])->where("id=:id and name=:name",[":name"=>"wuya1", ":id"=>5])->row());
-    // 简单插入
-	var_dump($abc->insert('user', ["name"=>"wuya","time"=>"2018-12-21"])->lastId());
-    // 批量插入
-	var_dump($abc->batchInsert('user', [["name"=>"wuya1","time"=>"2018-12-21"],["name"=>"wuya2","time"=>"2018-12-22"]])->affectedRows());
-    // 简单更新
-	var_dump($abc->update('user', ["name"=>"wuya55","time"=>"2018-12-24"])->where("id=?", [4])->affectedRows());
-	// 删除操作
-	var_dump($abc->delete('user')->where("id=?", 4)->affectedRows());
-    // in条件更新
-	var_dump($abc->update('user', ["name"=>"wuya55","time"=>"2018-12-24"])->where("id=?", [3])->in(" and id in(?)", [3,4])->affectedRows());
-    // in 查询
-	var_dump($abc->select('user', ["id", "name","time"])->where("id=?", [3])->in(" and id in(?)", [3,4])->row());
-    // sql执行
-    var_dump($abc->sql("select * from user where id=?", [3])->in(" and id in(?)", [3,4])->order("id desc")->limit(0, 1)->row());
-    
-    
-其他类：\Gene\Controller、\Gene\Db、\Gene\View、\Gene\Request、\Gene\Response、\Gene\Session、\Gene\Reg、\Gene\Load、\Gene\Exception等，详见文档；
+    //数据库类注入配置
+    $config->set("db", [
+        'class' => '\Gene\Db\Mysql',
+        'params' => [[
+        'dsn' => 'mysql:dbname=gene_web;host=127.0.0.1;port=3306;charset=utf8',
+        'username' => 'root',
+        'password' => '',
+        'options' => [PDO::ATTR_PERSISTENT => true]
+            ]],
+        'instance' => true
+    ]);
+
+    //缓存类注入配置
+    $config->set("memcache", [
+        'class' => '\Gene\Cache\Memcached',
+        'params' => [[
+        'servers' => [['host' => '127.0.0.1', 'port' => 11211]],
+        'persistent' => true,
+            ]],
+        'instance' => true
+    ]);
 	
-安装：
+### 第四步：控制器文件\Controllers\Index:  
+
+    namespace Controllers;
+    class Index extends \Gene\Controller
+    {
+        /**
+         * run
+         */
+        public function run()
+        {
+            echo 'hello world!';
+        }
+    }
+
+### 第五步：运行：在浏览器输入项目地址，比如：http://localhost/
+	
+## 快速安装
 	
 	phpize
 	./configure --enable-gene=shared
 	make
 	make install
 	
-DEMO：
+### DEMO：
 	
 	index.php 启动文件
 	config.ini.php 配置文件
 	router.inc.php 路由文件
+    
+### 案例 
+    一：湖北省教育用户认证中心(全省几百万学生、教育用户的登录入口) ：http://open.e21.cn/
+            
+    二：尚动电子商务平台
 
-案例一：
-        湖北省教育用户认证中心(全省几百万学生、教育用户的登录入口)
-        http://open.e21.cn/
-        
-案例二：
-        尚动电子商务平台
-
-案例三：
-        生材网
-	https://www.materialw.com/
+    三：生材网 https://www.materialw.com/
 
 
-php5的版本 ：https://github.com/sasou/php-gene
+php5的版本 ：https://github.com/sasou/php-gene （最新版本：2.1.0）
 
 windows版本：https://github.com/sasou/php-gene-for-windows
 
