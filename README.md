@@ -1,6 +1,6 @@
 # gene for php7
 
-    Grace, fastest, simple PHP extension framework！优雅、极速、简单的PHP扩展框架！   
+    Grace, fastest, flexibility, simple PHP extension framework！优雅、极速、灵活、简单的PHP扩展框架！     
 
 >   最新版本：3.0.5    
 >   官方网站：Gene框架 http://www.php-gene.com/
@@ -40,7 +40,7 @@
 
 ### 第二步：路由文件router.ini.php   
 
-   配置REST路由或者回调路由配置；   
+   配置REST路由：支持指定类方法或者回调闭包函数；   
    
     <?php
     $router = new \Gene\Router();
@@ -105,7 +105,7 @@
         'class' => '\Gene\Request'
     ]);
 
-    //http请求类注入配置
+    //http响应类注入配置
     $config->set("response", [
         'class' => '\Gene\Response'
     ]);
@@ -144,6 +144,17 @@
         {
             echo 'hello world!';
         }
+        
+        /**
+         * test
+         */
+        public function test()
+        {
+            // 模板赋值：配置文件里面配置view，调用$this->view自动注入到当前类空间 
+            $this->view->title = "文档";
+            // 调用父子模板
+            $this->view->display('index', 'common');
+        }    
     }
 
 ### 第五步：运行：在浏览器输入项目地址，比如：http://localhost/
