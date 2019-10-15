@@ -26,7 +26,7 @@
 * 完美支持swoole（低内存占用，无内存泄露）；
 * 其他：redis、memcached类库二次封装；
 
-## 简单应用  
+## 简单应用（1分钟入门）  
 ### 第一步：应用入口index.php
 
    加载配置文件并启动：
@@ -166,13 +166,8 @@
     make
     make install
     
-### DEMO：
-    
-    index.php 启动文件
-    config.ini.php 配置文件
-    router.inc.php 路由文件
-    
-### 案例 
+
+## 案例 
     一：湖北省教育用户认证中心(全省几百万学生、教育用户的登录入口) ：http://open.e21.cn/
             
     二：尚动电子商务平台
