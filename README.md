@@ -61,6 +61,7 @@
             var_dump($params);
         },"auth@clearAll")
     ->group()
+    //定义静态页面
     ->get("/index.html",function(){
         echo 'index';
     }, "@clearAfter")
