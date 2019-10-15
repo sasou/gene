@@ -8,7 +8,7 @@
 框架核心特性：
 * 优雅：优雅微架构，提供松耦合的、有一定的有界上下文的面向服务架构，按需组合，适应DDD领域驱动设计；
 * 简单：一分钟demo入门，优雅而简单；
-* 极速：PHP-FPM模式下运行速度最快的框架；
+* 极速：运行速度最快的框架：Nginx+PHP-FPM模式、swoole模式下均是最快，没有之一；
 * 场景：胜任WEB应用、微服务、常驻进程等场景；
 * 灵活：支持传统MVC模式；同时支持MVCS模式：瘦MC模式，通过增加service层更好的实现模块封装；
 * 路由：完整支持HTTP REST请求；底层采用二叉树查找算法，性能强劲；
@@ -26,8 +26,8 @@
 * 完美支持swoole（低内存占用，无内存泄露）；
 * 其他：redis、memcached类库二次封装；
 
-## 简单应用（一分钟入门）  
-### 第一步：应用入口index.php
+## 一、简单应用（一分钟入门）  
+### 第1步：应用入口index.php
 
    加载配置文件并启动：
    
@@ -38,7 +38,7 @@
       ->load("config.ini.php")
       ->run();  
 
-### 第二步：路由文件router.ini.php   
+### 第2步：路由文件router.ini.php   
 
    配置REST路由：支持指定类方法或者回调闭包函数；   
    
@@ -92,7 +92,7 @@
         echo " after hook ";
     });
 
-### 第三步：配置文件config.ini.php
+### 第3步：配置文件config.ini.php
 
     配置应用变量或者对象；
     <?php
@@ -136,7 +136,7 @@
         'instance' => true
     ]);
     
-### 第四步：控制器文件\Controllers\Index:  
+### 第4步：控制器文件\Controllers\Index:  
 
     namespace Controllers;
     class Index extends \Gene\Controller
@@ -161,9 +161,85 @@
         }    
     }
 
-### 第五步：运行：在浏览器输入项目地址，比如：http://localhost/
+### 第5步：运行：在浏览器输入项目地址，比如：http://localhost/
     
-## 快速安装
+## 二、命令行程序 
+    <?php
+    define('APP_ROOT', __dir__ . '/app/');
+
+    $path = '';
+    if (isset($_SERVER['argv'][1])) {
+        $path = $_SERVER['argv'][1];
+    } else {
+        exit('This script is run as CLI');
+    }
+
+    $app = new Gene\Application();
+    $app
+        ->autoload(APP_ROOT)
+        ->load("router.ini.php")
+        ->load("config.ini.php")
+        ->run('get', $path);
+    
+
+
+## 三、Swoole入口
+
+    框架支持常驻进程，经过完整的内存泄露测试，完美适配swoole4.X版本；
+    <?php
+    define('APP_ROOT', dirname(__dir__) . '/app');
+
+    $http = new swoole_http_server("127.0.0.1", 9501, SWOOLE_PROCESS);
+
+    //配置
+    $http->set([
+        'worker_num' => 1, 
+        'max_request' => 10000,
+        'dispatch_mode'=> 2,
+    ]);
+
+    $http->on("start", function ($server) {
+        echo "Swoole http server is started";
+    });
+
+    $http->on("request", function ($request, $response) {
+        $type = $request->server['request_method'] ?? "get";
+        $url = $request->server['request_uri'] ?? "/";
+        \Gene\Request::init($request->get, $request->post, $request->cookie, $request->server, null, $request->files);
+        \Gene\Di::set("response", $response);
+        
+        ob_start();
+        $app = \Gene\Application::getInstance();
+        $app
+        ->autoload(APP_ROOT)
+        ->load("router.ini.php")
+        ->load("config.ini.php")
+        ->run($type, $url);
+        
+        $out = ob_get_contents();
+        ob_end_clean();
+        $out && $response->end($out);
+    });
+
+    $http->start();
+    
+## 四、性能测试
+### docker运行环境(php-fpm+nginx): Gene应用,访问地址：/test
+   ![docker_php_nginx_gene](doc/docker_php_nginx_gene.png)
+### docker运行环境(php-fpm+nginx): 原生php,访问地址：/test.php
+   ![docker_php_nginx_php](doc/docker_php_nginx_php.png)
+### swoole运行环境: Gene应用,访问地址：/test 
+   ![swoole_gene](doc/swoole_gene.png)
+### swoole运行环境:  原生php,访问地址：/test.php
+   ![swoole_php](doc/swoole_php.png)
+    
+    上述测试中，原生php文件test.php的内容：
+    <?php
+    echo 'test';
+    
+而Gene应用包含了入口文件、路由文件、配置文件、控制器等至少4个文件，但测试数据只是略低，所以确定Gene框架没有产生格外的性能损失，这是不可思议的。证明gene框架是运行速度最快的框架：Nginx+PHP-FPM模式、swoole模式下均是最快，没有之一；测试demo下载：http://www.php-gene.com/static/test/demo.zip（欢迎测试验证。
+    
+## 五、快速安装
     
     phpize
     ./configure --enable-gene=shared
@@ -171,16 +247,16 @@
     make install
     
 
-## 案例 
+## 六、案例 
     一：湖北省教育用户认证中心(全省几百万学生、教育用户的登录入口) ：http://open.e21.cn/
             
     二：尚动电子商务平台
 
     三：生材网 https://www.materialw.com/
 
+## 七、其他 
+php5的版本 ：https://github.com/sasou/php-gene （最新版本：2.1.0，还在使用php5的朋友使用）
 
-php5的版本 ：https://github.com/sasou/php-gene （最新版本：2.1.0）
-
-windows版本：https://github.com/sasou/php-gene-for-windows
+windows版本：https://github.com/sasou/php-gene-for-windows（已编译x86平台下的NTS版本）
 
 <a href="https://info.flagcounter.com/AEYx"><img src="https://s11.flagcounter.com/count2/AEYx/bg_FFFFFF/txt_000000/border_CCCCCC/columns_2/maxflags_10/viewers_0/labels_1/pageviews_1/flags_0/percent_0/" alt="Flag Counter" border="0"></a>
