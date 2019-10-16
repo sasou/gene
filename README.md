@@ -1,6 +1,7 @@
-# gene for php7
-
+# Gene 简单编码，愉悦生活！  
     Grace, fastest, flexibility, simple PHP extension framework！优雅、极速、灵活、简单的PHP扩展框架！     
+
+欢迎来到 Gene 框架， 一种崭新的 PHP 扩展框架。开源、全功能栈、使用 C 编写、极致优化的高性能框架。身处在框架社区的繁荣之下，我们都在有意或无意地追逐，简单而不简单。极简而具有扩展性的架构设计、围绕常驻内存的方式而开发，提供了命令行、容器注入、钩子、路由、缓存等开发所需的众多开箱即用的组件，可以开发高性能的web应用或者常驻内存应用，让开发者不再为框架烦恼，不再为性能忧愁，写最少的代码，做最靓的仔！   
 
 >   最新版本：3.0.5    
 >   官方网站：Gene框架 http://www.php-gene.com/
@@ -257,6 +258,6 @@
 ## 七、其他 
 php5的版本 ：https://github.com/sasou/php-gene （最新版本：2.1.0，还在使用php5的朋友使用）
 
-windows版本：https://github.com/sasou/php-gene-for-windows（已编译x86平台下的NTS版本）
+windows版本：https://github.com/sasou/php-gene-for-windows （已编译x86平台下的NTS版本）
 
 <a href="https://info.flagcounter.com/AEYx"><img src="https://s11.flagcounter.com/count2/AEYx/bg_FFFFFF/txt_000000/border_CCCCCC/columns_2/maxflags_10/viewers_0/labels_1/pageviews_1/flags_0/percent_0/" alt="Flag Counter" border="0"></a>
