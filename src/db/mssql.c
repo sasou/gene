@@ -29,94 +29,94 @@
 #include "../common/common.h"
 #include "../cache/memory.h"
 #include "../db/pdo.h"
-#include "../db/mysql.h"
+#include "../db/mssql.h"
 #include "../tool/benchmark.h"
 
-zend_class_entry * gene_db_mysql_ce;
+zend_class_entry * gene_db_mssql_ce;
 
 struct timeval db_start, db_end;
-long db_mysql_memory_start = 0, db_mysql_memory_end = 0;
+long db_mssql_memory_start = 0, db_mssql_memory_end = 0;
 
-ZEND_BEGIN_ARG_INFO_EX(gene_db_mysql_construct, 0, 0, 1)
+ZEND_BEGIN_ARG_INFO_EX(gene_db_mssql_construct, 0, 0, 1)
 	ZEND_ARG_INFO(0, config)
 ZEND_END_ARG_INFO()
 
-ZEND_BEGIN_ARG_INFO_EX(gene_db_mysql_select, 0, 0, 1)
+ZEND_BEGIN_ARG_INFO_EX(gene_db_mssql_select, 0, 0, 1)
 	ZEND_ARG_INFO(0, table)
     ZEND_ARG_INFO(0, fields)
 ZEND_END_ARG_INFO()
 
-ZEND_BEGIN_ARG_INFO_EX(gene_db_mysql_count, 0, 0, 1)
+ZEND_BEGIN_ARG_INFO_EX(gene_db_mssql_count, 0, 0, 1)
 	ZEND_ARG_INFO(0, table)
     ZEND_ARG_INFO(0, fields)
 ZEND_END_ARG_INFO()
 
-ZEND_BEGIN_ARG_INFO_EX(gene_db_mysql_insert, 0, 0, 2)
+ZEND_BEGIN_ARG_INFO_EX(gene_db_mssql_insert, 0, 0, 2)
 	ZEND_ARG_INFO(0, table)
     ZEND_ARG_INFO(0, fields)
 ZEND_END_ARG_INFO()
 
-ZEND_BEGIN_ARG_INFO_EX(gene_db_mysql_batch_insert, 0, 0, 2)
+ZEND_BEGIN_ARG_INFO_EX(gene_db_mssql_batch_insert, 0, 0, 2)
 	ZEND_ARG_INFO(0, table)
     ZEND_ARG_INFO(0, fields)
 ZEND_END_ARG_INFO()
 
-ZEND_BEGIN_ARG_INFO_EX(gene_db_mysql_update, 0, 0, 2)
+ZEND_BEGIN_ARG_INFO_EX(gene_db_mssql_update, 0, 0, 2)
 	ZEND_ARG_INFO(0, table)
     ZEND_ARG_INFO(0, fields)
 ZEND_END_ARG_INFO()
 
-ZEND_BEGIN_ARG_INFO_EX(gene_db_mysql_delete, 0, 0, 1)
+ZEND_BEGIN_ARG_INFO_EX(gene_db_mssql_delete, 0, 0, 1)
 	ZEND_ARG_INFO(0, table)
 ZEND_END_ARG_INFO()
 
-ZEND_BEGIN_ARG_INFO_EX(gene_db_mysql_where, 0, 0, 1)
+ZEND_BEGIN_ARG_INFO_EX(gene_db_mssql_where, 0, 0, 1)
 	ZEND_ARG_INFO(0, where)
 	ZEND_ARG_INFO(0, fields)
 ZEND_END_ARG_INFO()
 
-ZEND_BEGIN_ARG_INFO_EX(gene_db_mysql_in, 0, 0, 1)
+ZEND_BEGIN_ARG_INFO_EX(gene_db_mssql_in, 0, 0, 1)
 	ZEND_ARG_INFO(0, in)
 	ZEND_ARG_INFO(0, fields)
 ZEND_END_ARG_INFO()
 
-ZEND_BEGIN_ARG_INFO_EX(gene_db_mysql_sql, 0, 0, 1)
+ZEND_BEGIN_ARG_INFO_EX(gene_db_mssql_sql, 0, 0, 1)
 	ZEND_ARG_INFO(0, sql)
 	ZEND_ARG_INFO(0, fields)
 ZEND_END_ARG_INFO()
 
-ZEND_BEGIN_ARG_INFO_EX(gene_db_mysql_group, 0, 0, 1)
+ZEND_BEGIN_ARG_INFO_EX(gene_db_mssql_group, 0, 0, 1)
 	ZEND_ARG_INFO(0, group)
 ZEND_END_ARG_INFO()
 
-ZEND_BEGIN_ARG_INFO_EX(gene_db_mysql_having, 0, 0, 1)
+ZEND_BEGIN_ARG_INFO_EX(gene_db_mssql_having, 0, 0, 1)
 	ZEND_ARG_INFO(0, having)
 ZEND_END_ARG_INFO()
 
-ZEND_BEGIN_ARG_INFO_EX(gene_db_mysql_order, 0, 0, 1)
+ZEND_BEGIN_ARG_INFO_EX(gene_db_mssql_order, 0, 0, 1)
 	ZEND_ARG_INFO(0, order)
 ZEND_END_ARG_INFO()
 
-ZEND_BEGIN_ARG_INFO_EX(gene_db_mysql_limit, 0, 0, 1)
+ZEND_BEGIN_ARG_INFO_EX(gene_db_mssql_limit, 0, 0, 1)
 	ZEND_ARG_INFO(0, limit)
 ZEND_END_ARG_INFO()
 
-void mysql_reset_sql_params(zval *self)
+void mssql_reset_sql_params(zval *self)
 {
-	zend_update_property_null(gene_db_mysql_ce, self, ZEND_STRL(GENE_DB_MYSQL_SQL));
-	zend_update_property_null(gene_db_mysql_ce, self, ZEND_STRL(GENE_DB_MYSQL_WHERE));
-	zend_update_property_null(gene_db_mysql_ce, self, ZEND_STRL(GENE_DB_MYSQL_GROUP));
-	zend_update_property_null(gene_db_mysql_ce, self, ZEND_STRL(GENE_DB_MYSQL_HAVING));
-	zend_update_property_null(gene_db_mysql_ce, self, ZEND_STRL(GENE_DB_MYSQL_ORDER));
-	zend_update_property_null(gene_db_mysql_ce, self, ZEND_STRL(GENE_DB_MYSQL_LIMIT));
-    zend_update_property_null(gene_db_mysql_ce, self, ZEND_STRL(GENE_DB_MYSQL_DATA));
+	zend_update_property_null(gene_db_mssql_ce, self, ZEND_STRL(GENE_DB_MSSQL_SQL));
+	zend_update_property_null(gene_db_mssql_ce, self, ZEND_STRL(GENE_DB_MSSQL_WHERE));
+	zend_update_property_null(gene_db_mssql_ce, self, ZEND_STRL(GENE_DB_MSSQL_GROUP));
+	zend_update_property_null(gene_db_mssql_ce, self, ZEND_STRL(GENE_DB_MSSQL_HAVING));
+	zend_update_property_null(gene_db_mssql_ce, self, ZEND_STRL(GENE_DB_MSSQL_ORDER));
+	zend_update_property_null(gene_db_mssql_ce, self, ZEND_STRL(GENE_DB_MSSQL_LIMIT));
+    zend_update_property_null(gene_db_mssql_ce, self, ZEND_STRL(GENE_DB_MSSQL_DATA));
 }
 
-void mysqlSaveHistory(smart_str *sql, zval *param) {
+void mssqlSaveHistory(smart_str *sql, zval *param) {
 	zval *history = NULL;
 	zval params, z_row, z_sql, z_data, z_time, z_memory;
 	char *char_t,*char_m;
-	history = zend_read_static_property(gene_db_mysql_ce, ZEND_STRL(GENE_DB_MYSQL_HISTORY), 1);
+	history = zend_read_static_property(gene_db_mssql_ce, ZEND_STRL(GENE_DB_MSSQL_HISTORY), 1);
 
 	ZVAL_STRING(&z_sql, ZSTR_VAL(sql->s));
 
@@ -126,7 +126,7 @@ void mysqlSaveHistory(smart_str *sql, zval *param) {
 	ZVAL_STRING(&z_time, char_t);
 	efree(char_t);
 
-    getBenchMemory(&db_mysql_memory_start, &db_mysql_memory_end, &char_m, 1);
+    getBenchMemory(&db_mssql_memory_start, &db_mssql_memory_end, &char_m, 1);
 	ZVAL_STRING(&z_memory, char_m);
 	efree(char_m);
 
@@ -143,12 +143,12 @@ void mysqlSaveHistory(smart_str *sql, zval *param) {
     	array_init(&params);
     	add_next_index_zval(&params, &z_row);
     	Z_TRY_ADDREF_P(&z_row);
-    	zend_update_static_property(gene_db_mysql_ce, ZEND_STRL(GENE_DB_MYSQL_HISTORY), &params);
+    	zend_update_static_property(gene_db_mssql_ce, ZEND_STRL(GENE_DB_MSSQL_HISTORY), &params);
     	zval_ptr_dtor(&params);
 	}
 }
 
-zend_bool mysqlCheckPdoError (zend_object *ex) {
+zend_bool mssqlCheckPdoError (zend_object *ex) {
 	zval *msg;
 	zend_class_entry *ce;
 	zval zv, rv;
@@ -169,12 +169,12 @@ zend_bool mysqlCheckPdoError (zend_object *ex) {
 	return 0;
 }
 
-zend_bool mysqlInitPdo (zval * self, zval *config) {
+zend_bool mssqlInitPdo (zval * self, zval *config) {
 	zval  *dsn = NULL, *user = NULL, *pass = NULL, *options = NULL;
 	zval pdo_object, option;
 
 	if (config == NULL) {
-		config =  zend_read_property(gene_db_mysql_ce, self, ZEND_STRL(GENE_DB_MYSQL_CONFIG), 1, NULL);
+		config =  zend_read_property(gene_db_mssql_ce, self, ZEND_STRL(GENE_DB_MSSQL_CONFIG), 1, NULL);
 	}
 
 	zend_string *c_key = zend_string_init(ZEND_STRL("PDO"), 0);
@@ -206,28 +206,28 @@ zend_bool mysqlInitPdo (zval * self, zval *config) {
     }
 
 	if (EG(exception)) {
-		if (mysqlCheckPdoError(EG(exception))) {
+		if (mssqlCheckPdoError(EG(exception))) {
 			EG(exception) = NULL;
 		}
 	}
-    zend_update_property(gene_db_mysql_ce, self, ZEND_STRL(GENE_DB_MYSQL_PDO), &pdo_object);
+    zend_update_property(gene_db_mssql_ce, self, ZEND_STRL(GENE_DB_MSSQL_PDO), &pdo_object);
     zval_ptr_dtor(&pdo_object);
 	return 0;
 }
 
-zend_bool gene_mysql_pdo_execute (zval *self, zval *statement)
+zend_bool gene_mssql_pdo_execute (zval *self, zval *statement)
 {
 	zval *pdo_object = NULL, *params = NULL, *pdo_sql = NULL, *pdo_where = NULL, *pdo_group = NULL,*pdo_having = NULL,*pdo_order = NULL, *pdo_limit = NULL;
 	zval retval;
 	smart_str sql = {0};
 
-	pdo_object = zend_read_property(gene_db_mysql_ce, self, ZEND_STRL(GENE_DB_MYSQL_PDO), 1, NULL);
-	pdo_sql = zend_read_property(gene_db_mysql_ce, self, ZEND_STRL(GENE_DB_MYSQL_SQL), 1, NULL);
-	pdo_where = zend_read_property(gene_db_mysql_ce, self, ZEND_STRL(GENE_DB_MYSQL_WHERE), 1, NULL);
-	pdo_group = zend_read_property(gene_db_mysql_ce, self, ZEND_STRL(GENE_DB_MYSQL_GROUP), 1, NULL);
-	pdo_having = zend_read_property(gene_db_mysql_ce, self, ZEND_STRL(GENE_DB_MYSQL_HAVING), 1, NULL);
-	pdo_order = zend_read_property(gene_db_mysql_ce, self, ZEND_STRL(GENE_DB_MYSQL_ORDER), 1, NULL);
-	pdo_limit = zend_read_property(gene_db_mysql_ce, self, ZEND_STRL(GENE_DB_MYSQL_LIMIT), 1, NULL);
+	pdo_object = zend_read_property(gene_db_mssql_ce, self, ZEND_STRL(GENE_DB_MSSQL_PDO), 1, NULL);
+	pdo_sql = zend_read_property(gene_db_mssql_ce, self, ZEND_STRL(GENE_DB_MSSQL_SQL), 1, NULL);
+	pdo_where = zend_read_property(gene_db_mssql_ce, self, ZEND_STRL(GENE_DB_MSSQL_WHERE), 1, NULL);
+	pdo_group = zend_read_property(gene_db_mssql_ce, self, ZEND_STRL(GENE_DB_MSSQL_GROUP), 1, NULL);
+	pdo_having = zend_read_property(gene_db_mssql_ce, self, ZEND_STRL(GENE_DB_MSSQL_HAVING), 1, NULL);
+	pdo_order = zend_read_property(gene_db_mssql_ce, self, ZEND_STRL(GENE_DB_MSSQL_ORDER), 1, NULL);
+	pdo_limit = zend_read_property(gene_db_mssql_ce, self, ZEND_STRL(GENE_DB_MSSQL_LIMIT), 1, NULL);
 
 	if (Z_TYPE_P(pdo_sql) == IS_STRING) {
 		smart_str_appends(&sql, Z_STRVAL_P(pdo_sql));
@@ -249,28 +249,28 @@ zend_bool gene_mysql_pdo_execute (zval *self, zval *statement)
 	}
 	smart_str_0(&sql);
 	if (!GENE_G(run_environment)) {
-		markStart(&db_start, &db_mysql_memory_start);
+		markStart(&db_start, &db_mssql_memory_start);
 	}
 
 	gene_pdo_prepare(pdo_object, ZSTR_VAL(sql.s), statement);
 	if (Z_TYPE_P(statement) == IS_OBJECT) {
-		params = zend_read_property(gene_db_mysql_ce, self, ZEND_STRL(GENE_DB_MYSQL_DATA), 1, NULL);
+		params = zend_read_property(gene_db_mssql_ce, self, ZEND_STRL(GENE_DB_MSSQL_DATA), 1, NULL);
 		//execute
 		ZVAL_NULL(&retval);
 		gene_pdo_statement_execute(statement, params, &retval);
 
     	if (EG(exception)) {
-    		if (mysqlCheckPdoError(EG(exception))) {
+    		if (mssqlCheckPdoError(EG(exception))) {
     			EG(exception) = NULL;
-    			mysqlInitPdo (self, NULL);
+    			mssqlInitPdo (self, NULL);
     			gene_pdo_prepare(pdo_object, ZSTR_VAL(sql.s), statement);
     			ZVAL_NULL(&retval);
     			gene_pdo_statement_execute(statement, params, &retval);
     		}
     	}
 		if (!GENE_G(run_environment)) {
-			markEnd(&db_end, &db_mysql_memory_end);
-			mysqlSaveHistory(&sql, params);
+			markEnd(&db_end, &db_mssql_memory_end);
+			mssqlSaveHistory(&sql, params);
 		}
 		smart_str_free(&sql);
 		return Z_TYPE(retval) == 3 ? 1 : 0;
@@ -282,7 +282,7 @@ zend_bool gene_mysql_pdo_execute (zval *self, zval *statement)
 /*
  * {{{ gene_db
  */
-PHP_METHOD(gene_db_mysql, __construct)
+PHP_METHOD(gene_db_mssql, __construct)
 {
 	zval *config = NULL, *self = getThis();
     if (zend_parse_parameters(ZEND_NUM_ARGS() TSRMLS_CC,"z", &config) == FAILURE)
@@ -290,11 +290,11 @@ PHP_METHOD(gene_db_mysql, __construct)
         return;
     }
 
-    zend_update_static_property_null(gene_db_mysql_ce, ZEND_STRL(GENE_DB_MYSQL_HISTORY));
+    zend_update_static_property_null(gene_db_mssql_ce, ZEND_STRL(GENE_DB_MSSQL_HISTORY));
 
     if (config) {
-    	zend_update_property(gene_db_mysql_ce, self, ZEND_STRL(GENE_DB_MYSQL_CONFIG), config);
-    	mysqlInitPdo (self, config);
+    	zend_update_property(gene_db_mssql_ce, self, ZEND_STRL(GENE_DB_MSSQL_CONFIG), config);
+    	mssqlInitPdo (self, config);
     }
     RETURN_ZVAL(self, 1, 0);
 }
@@ -304,10 +304,10 @@ PHP_METHOD(gene_db_mysql, __construct)
 /*
  * {{{ public gene_db::getPdo()
  */
-PHP_METHOD(gene_db_mysql, getPdo)
+PHP_METHOD(gene_db_mssql, getPdo)
 {
 	zval *self = getThis();
-	zval *pdo_object = zend_read_property(gene_db_mysql_ce, self, ZEND_STRL(GENE_DB_MYSQL_PDO), 1, NULL);
+	zval *pdo_object = zend_read_property(gene_db_mssql_ce, self, ZEND_STRL(GENE_DB_MSSQL_PDO), 1, NULL);
 	RETURN_ZVAL(pdo_object, 1, 0);
 }
 /* }}} */
@@ -316,7 +316,7 @@ PHP_METHOD(gene_db_mysql, getPdo)
 /*
  * {{{ public gene_model::select($key)
  */
-PHP_METHOD(gene_db_mysql, select)
+PHP_METHOD(gene_db_mssql, select)
 {
 	zval *self = getThis(),*fields = NULL;
 	char *table = NULL,*select = NULL, *sql = NULL;
@@ -324,7 +324,7 @@ PHP_METHOD(gene_db_mysql, select)
 	if (zend_parse_parameters(ZEND_NUM_ARGS() TSRMLS_CC, "s|z", &table, &table_len, &fields) == FAILURE) {
 		return;
 	}
-	mysql_reset_sql_params (self);
+	mssql_reset_sql_params (self);
     if (fields) {
     	switch(Z_TYPE_P(fields)) {
     	case IS_ARRAY:
@@ -343,7 +343,7 @@ PHP_METHOD(gene_db_mysql, select)
     } else {
     	spprintf(&sql, 0, "SELECT * FROM `%s`", table);
     }
-    zend_update_property_string(gene_db_mysql_ce, self, ZEND_STRL(GENE_DB_MYSQL_SQL), sql);
+    zend_update_property_string(gene_db_mssql_ce, self, ZEND_STRL(GENE_DB_MSSQL_SQL), sql);
     efree(sql);
 	RETURN_ZVAL(self, 1, 0);
 }
@@ -352,7 +352,7 @@ PHP_METHOD(gene_db_mysql, select)
 /*
  * {{{ public gene_model::count($key)
  */
-PHP_METHOD(gene_db_mysql, count)
+PHP_METHOD(gene_db_mssql, count)
 {
 	zval *self = getThis();
 	char *sql = NULL;
@@ -360,22 +360,23 @@ PHP_METHOD(gene_db_mysql, count)
 	if (zend_parse_parameters(ZEND_NUM_ARGS() TSRMLS_CC, "S|S", &table, &fields) == FAILURE) {
 		return;
 	}
-	mysql_reset_sql_params(self);
+	mssql_reset_sql_params(self);
     if (fields) {
     	spprintf(&sql, 0, "SELECT count(%s) AS count FROM `%s`", ZSTR_VAL(fields), ZSTR_VAL(table));
     } else {
     	spprintf(&sql, 0, "SELECT count(1) AS count FROM `%s`", ZSTR_VAL(table));
     }
-    zend_update_property_string(gene_db_mysql_ce, self, ZEND_STRL(GENE_DB_MYSQL_SQL), sql);
+    zend_update_property_string(gene_db_mssql_ce, self, ZEND_STRL(GENE_DB_MSSQL_SQL), sql);
     efree(sql);
 	RETURN_ZVAL(self, 1, 0);
 }
 /* }}} */
 
+
 /*
  * {{{ public gene_db::insert($key)
  */
-PHP_METHOD(gene_db_mysql, insert)
+PHP_METHOD(gene_db_mssql, insert)
 {
 	zval *self = getThis(),*fields = NULL;
 	char *table = NULL,*select = NULL, *sql = NULL;
@@ -385,13 +386,13 @@ PHP_METHOD(gene_db_mysql, insert)
 	if (zend_parse_parameters(ZEND_NUM_ARGS() TSRMLS_CC, "s|z", &table, &table_len, &fields) == FAILURE) {
 		return;
 	}
-	mysql_reset_sql_params(self);
+	mssql_reset_sql_params(self);
 	ZVAL_NULL(&field_value);
 	smart_str_appends(&field_str, "");
 	smart_str_appends(&value_str, "");
     if (fields && Z_TYPE_P(fields) == IS_ARRAY) {
     	gene_insert_field_value (fields, &field_str, &value_str, &field_value);
-    	zend_update_property(gene_db_mysql_ce, self, ZEND_STRL(GENE_DB_MYSQL_DATA), &field_value);
+    	zend_update_property(gene_db_mssql_ce, self, ZEND_STRL(GENE_DB_MSSQL_DATA), &field_value);
     	zval_ptr_dtor(&field_value);
     } else {
     	php_error_docref(NULL, E_ERROR, "Data Parameter can only be array.");
@@ -399,7 +400,7 @@ PHP_METHOD(gene_db_mysql, insert)
 	smart_str_0(&field_str);
 	smart_str_0(&value_str);
     spprintf(&sql, 0, "INSERT INTO `%s`(%s) VALUES(%s)", table, field_str.s->val, value_str.s->val);
-    zend_update_property_string(gene_db_mysql_ce, self, ZEND_STRL(GENE_DB_MYSQL_SQL), sql);
+    zend_update_property_string(gene_db_mssql_ce, self, ZEND_STRL(GENE_DB_MSSQL_SQL), sql);
     efree(sql);
     smart_str_free(&field_str);
     smart_str_free(&value_str);
@@ -410,7 +411,7 @@ PHP_METHOD(gene_db_mysql, insert)
 /*
  * {{{ public gene_db::batchInsert($key)
  */
-PHP_METHOD(gene_db_mysql, batchInsert)
+PHP_METHOD(gene_db_mssql, batchInsert)
 {
 	zval *self = getThis(),*fields = NULL, *row = NULL;
 	char *table = NULL,*select = NULL, *sql = NULL;
@@ -421,7 +422,7 @@ PHP_METHOD(gene_db_mysql, batchInsert)
 	if (zend_parse_parameters(ZEND_NUM_ARGS() TSRMLS_CC, "s|z", &table, &table_len, &fields) == FAILURE) {
 		return;
 	}
-	mysql_reset_sql_params(self);
+	mssql_reset_sql_params(self);
 	ZVAL_NULL(&field_value);
 	smart_str_appends(&field_str, "");
 	smart_str_appends(&value_str, "");
@@ -435,7 +436,7 @@ PHP_METHOD(gene_db_mysql, batchInsert)
         		pre = 1;
         	}
         } ZEND_HASH_FOREACH_END();
-    	zend_update_property(gene_db_mysql_ce, self, ZEND_STRL(GENE_DB_MYSQL_DATA), &field_value);
+    	zend_update_property(gene_db_mssql_ce, self, ZEND_STRL(GENE_DB_MSSQL_DATA), &field_value);
     	zval_ptr_dtor(&field_value);
     } else {
     	php_error_docref(NULL, E_ERROR, "Data Parameter can only be array.");
@@ -443,7 +444,7 @@ PHP_METHOD(gene_db_mysql, batchInsert)
 	smart_str_0(&field_str);
 	smart_str_0(&value_str);
     spprintf(&sql, 0, "INSERT INTO `%s`(%s) VALUES %s", table, field_str.s->val, value_str.s->val);
-    zend_update_property_string(gene_db_mysql_ce, self, ZEND_STRL(GENE_DB_MYSQL_SQL), sql);
+    zend_update_property_string(gene_db_mssql_ce, self, ZEND_STRL(GENE_DB_MSSQL_SQL), sql);
     efree(sql);
     smart_str_free(&field_str);
     smart_str_free(&value_str);
@@ -454,7 +455,7 @@ PHP_METHOD(gene_db_mysql, batchInsert)
 /*
  * {{{ public gene_db::update($key)
  */
-PHP_METHOD(gene_db_mysql, update)
+PHP_METHOD(gene_db_mssql, update)
 {
 	zval *self = getThis(),*fields = NULL;
 	char *table = NULL,*select = NULL, *sql = NULL;
@@ -464,19 +465,19 @@ PHP_METHOD(gene_db_mysql, update)
 	if (zend_parse_parameters(ZEND_NUM_ARGS() TSRMLS_CC, "s|z", &table, &table_len, &fields) == FAILURE) {
 		return;
 	}
-	mysql_reset_sql_params(self);
+	mssql_reset_sql_params(self);
 	ZVAL_NULL(&field_value);
 	smart_str_appends(&field_str, "");
     if (fields && Z_TYPE_P(fields) == IS_ARRAY) {
     	gene_update_field_value (fields, &field_str, &field_value);
-    	zend_update_property(gene_db_mysql_ce, self, ZEND_STRL(GENE_DB_MYSQL_DATA), &field_value);
+    	zend_update_property(gene_db_mssql_ce, self, ZEND_STRL(GENE_DB_MSSQL_DATA), &field_value);
     	zval_ptr_dtor(&field_value);
     } else {
     	php_error_docref(NULL, E_ERROR, "Data Parameter can only be array.");
     }
 	smart_str_0(&field_str);
     spprintf(&sql, 0, "UPDATE `%s` SET %s", table, field_str.s->val);
-    zend_update_property_string(gene_db_mysql_ce, self, ZEND_STRL(GENE_DB_MYSQL_SQL), sql);
+    zend_update_property_string(gene_db_mssql_ce, self, ZEND_STRL(GENE_DB_MSSQL_SQL), sql);
     efree(sql);
     smart_str_free(&field_str);
 	RETURN_ZVAL(self, 1, 0);
@@ -487,7 +488,7 @@ PHP_METHOD(gene_db_mysql, update)
 /*
  * {{{ public gene_db::delete($key)
  */
-PHP_METHOD(gene_db_mysql, delete)
+PHP_METHOD(gene_db_mssql, delete)
 {
 	zval *self = getThis();
 	char *table = NULL, *sql = NULL;
@@ -495,17 +496,17 @@ PHP_METHOD(gene_db_mysql, delete)
 	if (zend_parse_parameters(ZEND_NUM_ARGS() TSRMLS_CC, "s", &table, &table_len) == FAILURE) {
 		return;
 	}
-	mysql_reset_sql_params(self);
+	mssql_reset_sql_params(self);
     spprintf(&sql, 0, "DELETE FROM `%s`", table);
-    zend_update_property_string(gene_db_mysql_ce, self, ZEND_STRL(GENE_DB_MYSQL_SQL), sql);
+    zend_update_property_string(gene_db_mssql_ce, self, ZEND_STRL(GENE_DB_MSSQL_SQL), sql);
     efree(sql);
 	RETURN_ZVAL(self, 1, 0);
 }
 /* }}} */
 
-void mysql_init_where(zval *self, smart_str *where_str) {
+void mssql_init_where(zval *self, smart_str *where_str) {
 	zval *pdo_where = NULL;
-	pdo_where = zend_read_property(gene_db_mysql_ce, self, ZEND_STRL(GENE_DB_MYSQL_WHERE), 1, NULL);
+	pdo_where = zend_read_property(gene_db_mssql_ce, self, ZEND_STRL(GENE_DB_MSSQL_WHERE), 1, NULL);
 	if (pdo_where) {
 		if (Z_TYPE_P(pdo_where) == IS_STRING) {
 			smart_str_appends(where_str, Z_STRVAL_P(pdo_where));
@@ -518,7 +519,7 @@ void mysql_init_where(zval *self, smart_str *where_str) {
 /*
  * {{{ public gene_db::where($key)
  */
-PHP_METHOD(gene_db_mysql, where)
+PHP_METHOD(gene_db_mssql, where)
 {
 	zval *self = getThis(), *where = NULL, *fields = NULL, *data = NULL, *value = NULL;
 	char  *sql_where = NULL;
@@ -529,17 +530,17 @@ PHP_METHOD(gene_db_mysql, where)
 		return;
 	}
 
-	mysql_init_where(self, &where_str);
+	mssql_init_where(self, &where_str);
 
 	switch(Z_TYPE_P(where)) {
 	case IS_ARRAY:
-        data = zend_read_property(gene_db_mysql_ce, self, ZEND_STRL(GENE_DB_MYSQL_DATA), 1, NULL);
+        data = zend_read_property(gene_db_mssql_ce, self, ZEND_STRL(GENE_DB_MSSQL_DATA), 1, NULL);
         if (Z_TYPE_P(data) == IS_ARRAY) {
             makeWhere(self, &where_str, where, data);
         } else {
             array_init(&params);
             makeWhere(self, &where_str, where, &params);
-            zend_update_property(gene_db_mysql_ce, self, ZEND_STRL(GENE_DB_MYSQL_DATA), &params);
+            zend_update_property(gene_db_mssql_ce, self, ZEND_STRL(GENE_DB_MSSQL_DATA), &params);
             zval_ptr_dtor(&params);
         }
 		break;
@@ -551,7 +552,7 @@ PHP_METHOD(gene_db_mysql, where)
 			smart_str_appends(&where_str, Z_STRVAL_P(where));
 		}
 	    if (fields) {
-	    	data = zend_read_property(gene_db_mysql_ce, self, ZEND_STRL(GENE_DB_MYSQL_DATA), 1, NULL);
+	    	data = zend_read_property(gene_db_mssql_ce, self, ZEND_STRL(GENE_DB_MSSQL_DATA), 1, NULL);
 	    	switch(Z_TYPE_P(fields)) {
 	    	case IS_ARRAY:
 	    		if (Z_TYPE_P(data) == IS_ARRAY) {
@@ -561,7 +562,7 @@ PHP_METHOD(gene_db_mysql, where)
 	    			} ZEND_HASH_FOREACH_END();
 	    		} else {
 	    			gene_memory_zval_local(&params, fields);
-	    			zend_update_property(gene_db_mysql_ce, self, ZEND_STRL(GENE_DB_MYSQL_DATA), &params);
+	    			zend_update_property(gene_db_mssql_ce, self, ZEND_STRL(GENE_DB_MSSQL_DATA), &params);
 	    			zval_ptr_dtor(&params);
 	    		}
 	    		break;
@@ -578,7 +579,7 @@ PHP_METHOD(gene_db_mysql, where)
 	            	array_init(&params);
 	            	add_next_index_zval(&params, fields);
 	            	Z_TRY_ADDREF_P(fields);
-	            	zend_update_property(gene_db_mysql_ce, self, ZEND_STRL(GENE_DB_MYSQL_DATA), &params);
+	            	zend_update_property(gene_db_mssql_ce, self, ZEND_STRL(GENE_DB_MSSQL_DATA), &params);
 	            	zval_ptr_dtor(&params);
 	    		}
 	    		break;
@@ -594,7 +595,7 @@ PHP_METHOD(gene_db_mysql, where)
 	}
 
     smart_str_0(&where_str);
-    zend_update_property_string(gene_db_mysql_ce, self, ZEND_STRL(GENE_DB_MYSQL_WHERE), ZSTR_VAL(where_str.s));
+    zend_update_property_string(gene_db_mssql_ce, self, ZEND_STRL(GENE_DB_MSSQL_WHERE), ZSTR_VAL(where_str.s));
     smart_str_free(&where_str);
 	RETURN_ZVAL(self, 1, 0);
 }
@@ -603,7 +604,7 @@ PHP_METHOD(gene_db_mysql, where)
 /*
  * {{{ public gene_db::in($key)
  */
-PHP_METHOD(gene_db_mysql, in)
+PHP_METHOD(gene_db_mssql, in)
 {
 	zval *self = getThis(), *fields = NULL, *data = NULL, *value = NULL;
 	char *in = NULL, *sql_in = NULL, *seg = NULL, *ptr = NULL, *in_tmp = NULL;
@@ -615,7 +616,7 @@ PHP_METHOD(gene_db_mysql, in)
 		return;
 	}
 
-	mysql_init_where(self, &where_str);
+	mssql_init_where(self, &where_str);
 
 	if (in_len) {
 		if (ZSTR_LEN(where_str.s) == 0) {
@@ -624,7 +625,7 @@ PHP_METHOD(gene_db_mysql, in)
 		spprintf(&in_tmp, 0, "%s", in, in_len);
 	}
     if (fields) {
-    	data = zend_read_property(gene_db_mysql_ce, self, ZEND_STRL(GENE_DB_MYSQL_DATA), 1, NULL);
+    	data = zend_read_property(gene_db_mssql_ce, self, ZEND_STRL(GENE_DB_MSSQL_DATA), 1, NULL);
     	switch(Z_TYPE_P(fields)) {
     	case IS_ARRAY:
     		ReplaceStr(in_tmp, "in(?)", "$");
@@ -652,7 +653,7 @@ PHP_METHOD(gene_db_mysql, in)
     					pre = 1;
     				}
     			} ZEND_HASH_FOREACH_END();
-    			zend_update_property(gene_db_mysql_ce, self, ZEND_STRL(GENE_DB_MYSQL_DATA), fields);
+    			zend_update_property(gene_db_mssql_ce, self, ZEND_STRL(GENE_DB_MSSQL_DATA), fields);
     		}
     		smart_str_appends(&value_str, ")");
     		smart_str_0(&value_str);
@@ -676,7 +677,7 @@ PHP_METHOD(gene_db_mysql, in)
             	array_init(&params);
             	add_next_index_zval(&params, fields);
             	Z_TRY_ADDREF_P(fields);
-            	zend_update_property(gene_db_mysql_ce, self, ZEND_STRL(GENE_DB_MYSQL_DATA), &params);
+            	zend_update_property(gene_db_mssql_ce, self, ZEND_STRL(GENE_DB_MSSQL_DATA), &params);
             	zval_ptr_dtor(&params);
     		}
     		break;
@@ -690,7 +691,7 @@ PHP_METHOD(gene_db_mysql, in)
     	efree(in_tmp);
     }
     smart_str_0(&where_str);
-    zend_update_property_string(gene_db_mysql_ce, self, ZEND_STRL(GENE_DB_MYSQL_WHERE), ZSTR_VAL(where_str.s));
+    zend_update_property_string(gene_db_mssql_ce, self, ZEND_STRL(GENE_DB_MSSQL_WHERE), ZSTR_VAL(where_str.s));
     smart_str_free(&where_str);
 	RETURN_ZVAL(self, 1, 0);
 }
@@ -699,7 +700,7 @@ PHP_METHOD(gene_db_mysql, in)
 /*
  * {{{ public gene_db::sql($key)
  */
-PHP_METHOD(gene_db_mysql, sql)
+PHP_METHOD(gene_db_mssql, sql)
 {
 	zval *self = getThis(), *fields = NULL, *data = NULL, *value = NULL;
 	char *sql = NULL, *pdo_sql = NULL;
@@ -708,14 +709,14 @@ PHP_METHOD(gene_db_mysql, sql)
 	if (zend_parse_parameters(ZEND_NUM_ARGS() TSRMLS_CC, "s|z", &sql, &sql_len, &fields) == FAILURE) {
 		return;
 	}
-	mysql_reset_sql_params(self);
+	mssql_reset_sql_params(self);
     if (sql_len) {
         spprintf(&pdo_sql, 0, "%s", sql);
-        zend_update_property_string(gene_db_mysql_ce, self, ZEND_STRL(GENE_DB_MYSQL_SQL), pdo_sql);
+        zend_update_property_string(gene_db_mssql_ce, self, ZEND_STRL(GENE_DB_MSSQL_SQL), pdo_sql);
         efree(pdo_sql);
     }
     if (fields) {
-    	data = zend_read_property(gene_db_mysql_ce, self, ZEND_STRL(GENE_DB_MYSQL_DATA), 1, NULL);
+    	data = zend_read_property(gene_db_mssql_ce, self, ZEND_STRL(GENE_DB_MSSQL_DATA), 1, NULL);
     	switch(Z_TYPE_P(fields)) {
     	case IS_ARRAY:
     		if (Z_TYPE_P(data) == IS_ARRAY) {
@@ -725,7 +726,7 @@ PHP_METHOD(gene_db_mysql, sql)
     			} ZEND_HASH_FOREACH_END();
     		} else {
     			gene_memory_zval_local(&params, fields);
-    			zend_update_property(gene_db_mysql_ce, self, ZEND_STRL(GENE_DB_MYSQL_DATA), &params);
+    			zend_update_property(gene_db_mssql_ce, self, ZEND_STRL(GENE_DB_MSSQL_DATA), &params);
     			zval_ptr_dtor(&params);
     		}
     		break;
@@ -742,7 +743,7 @@ PHP_METHOD(gene_db_mysql, sql)
             	array_init(&params);
             	add_next_index_zval(&params, fields);
             	Z_TRY_ADDREF_P(fields);
-            	zend_update_property(gene_db_mysql_ce, self, ZEND_STRL(GENE_DB_MYSQL_DATA), &params);
+            	zend_update_property(gene_db_mssql_ce, self, ZEND_STRL(GENE_DB_MSSQL_DATA), &params);
             	zval_ptr_dtor(&params);
     		}
     		break;
@@ -759,11 +760,11 @@ PHP_METHOD(gene_db_mysql, sql)
 /*
  * {{{ public gene_db::execute()
  */
-PHP_METHOD(gene_db_mysql, execute)
+PHP_METHOD(gene_db_mssql, execute)
 {
 	zval *self = getThis();
 	zval statement;
-	gene_mysql_pdo_execute(self, &statement);
+	gene_mssql_pdo_execute(self, &statement);
 	RETURN_ZVAL(&statement, 1, 1);
 }
 /* }}} */
@@ -771,7 +772,7 @@ PHP_METHOD(gene_db_mysql, execute)
 /*
  * {{{ public gene_db::group()
  */
-PHP_METHOD(gene_db_mysql, group)
+PHP_METHOD(gene_db_mssql, group)
 {
 	zval *self = getThis();
 	char *group = NULL;
@@ -782,7 +783,7 @@ PHP_METHOD(gene_db_mysql, group)
 	}
 	if (group_len) {
 		spprintf(&group_tmp, 0, " GROUP BY %s", group);
-		zend_update_property_string(gene_db_mysql_ce, self, ZEND_STRL(GENE_DB_MYSQL_GROUP), group_tmp);
+		zend_update_property_string(gene_db_mssql_ce, self, ZEND_STRL(GENE_DB_MSSQL_GROUP), group_tmp);
 		efree(group_tmp);
 	}
 	RETURN_ZVAL(self, 1, 0);
@@ -793,7 +794,7 @@ PHP_METHOD(gene_db_mysql, group)
 /*
  * {{{ public gene_db::having()
  */
-PHP_METHOD(gene_db_mysql, having)
+PHP_METHOD(gene_db_mssql, having)
 {
 	zval *self = getThis();
 	char *having = NULL;
@@ -804,7 +805,7 @@ PHP_METHOD(gene_db_mysql, having)
 	}
 	if (having_len) {
 		spprintf(&having_tmp, 0, " HAVING %s", having);
-		zend_update_property_string(gene_db_mysql_ce, self, ZEND_STRL(GENE_DB_MYSQL_HAVING), having_tmp);
+		zend_update_property_string(gene_db_mssql_ce, self, ZEND_STRL(GENE_DB_MSSQL_HAVING), having_tmp);
 		efree(having_tmp);
 	}
 	RETURN_ZVAL(self, 1, 0);
@@ -815,7 +816,7 @@ PHP_METHOD(gene_db_mysql, having)
 /*
  * {{{ public gene_db::order()
  */
-PHP_METHOD(gene_db_mysql, order)
+PHP_METHOD(gene_db_mssql, order)
 {
 	zval *self = getThis();
 	char *order = NULL;
@@ -826,7 +827,7 @@ PHP_METHOD(gene_db_mysql, order)
 	}
 	if (order_len) {
 		spprintf(&order_tmp, 0, " ORDER BY %s", order);
-		zend_update_property_string(gene_db_mysql_ce, self, ZEND_STRL(GENE_DB_MYSQL_ORDER), order_tmp);
+		zend_update_property_string(gene_db_mssql_ce, self, ZEND_STRL(GENE_DB_MSSQL_ORDER), order_tmp);
 		efree(order_tmp);
 	}
 	RETURN_ZVAL(self, 1, 0);
@@ -837,7 +838,7 @@ PHP_METHOD(gene_db_mysql, order)
 /*
  * {{{ public gene_db::limit()
  */
-PHP_METHOD(gene_db_mysql, limit)
+PHP_METHOD(gene_db_mssql, limit)
 {
 	zval *self = getThis();
 	zend_long *num, *offset = NULL;
@@ -850,7 +851,7 @@ PHP_METHOD(gene_db_mysql, limit)
 	} else {
 		spprintf(&limit, 0, " LIMIT %d", num);
 	}
-	zend_update_property_string(gene_db_mysql_ce, self, ZEND_STRL(GENE_DB_MYSQL_LIMIT), limit);
+	zend_update_property_string(gene_db_mssql_ce, self, ZEND_STRL(GENE_DB_MSSQL_LIMIT), limit);
 	efree(limit);
 	RETURN_ZVAL(self, 1, 0);
 }
@@ -860,11 +861,11 @@ PHP_METHOD(gene_db_mysql, limit)
 /*
  * {{{ public gene_db::all()
  */
-PHP_METHOD(gene_db_mysql, all)
+PHP_METHOD(gene_db_mssql, all)
 {
 	zval *self = getThis();
 	zval statement;
-	if (gene_mysql_pdo_execute(self, &statement)) {
+	if (gene_mssql_pdo_execute(self, &statement)) {
 		gene_pdo_statement_fetch_all(&statement, return_value);
 		zval_ptr_dtor(&statement);
 		return;
@@ -877,11 +878,11 @@ PHP_METHOD(gene_db_mysql, all)
 /*
  * {{{ public gene_db::row()
  */
-PHP_METHOD(gene_db_mysql, row)
+PHP_METHOD(gene_db_mssql, row)
 {
 	zval *self = getThis();
 	zval statement;
-	if (gene_mysql_pdo_execute(self, &statement)) {
+	if (gene_mssql_pdo_execute(self, &statement)) {
 		gene_pdo_statement_fetch(&statement, return_value);
 		zval_ptr_dtor(&statement);
 		return;
@@ -894,11 +895,11 @@ PHP_METHOD(gene_db_mysql, row)
 /*
  * {{{ public gene_db::cell()
  */
-PHP_METHOD(gene_db_mysql, cell)
+PHP_METHOD(gene_db_mssql, cell)
 {
 	zval *self = getThis();
 	zval statement;
-	if (gene_mysql_pdo_execute(self, &statement)) {
+	if (gene_mssql_pdo_execute(self, &statement)) {
 		gene_pdo_statement_fetch_column(&statement, return_value);
 		zval_ptr_dtor(&statement);
 		return;
@@ -911,12 +912,12 @@ PHP_METHOD(gene_db_mysql, cell)
 /*
  * {{{ public gene_db::lastId()
  */
-PHP_METHOD(gene_db_mysql, lastId)
+PHP_METHOD(gene_db_mssql, lastId)
 {
 	zval *self = getThis(), *pdo_object = NULL;
 	zval statement;
-	pdo_object = zend_read_property(gene_db_mysql_ce, self, ZEND_STRL(GENE_DB_MYSQL_PDO), 1, NULL);
-	if (gene_mysql_pdo_execute(self, &statement)) {
+	pdo_object = zend_read_property(gene_db_mssql_ce, self, ZEND_STRL(GENE_DB_MSSQL_PDO), 1, NULL);
+	if (gene_mssql_pdo_execute(self, &statement)) {
 		gene_pdo_last_insert_id(pdo_object, NULL, return_value);
 		zval_ptr_dtor(&statement);
 		return;
@@ -928,11 +929,11 @@ PHP_METHOD(gene_db_mysql, lastId)
 /*
  * {{{ public gene_db::affectedRows($key)
  */
-PHP_METHOD(gene_db_mysql, affectedRows)
+PHP_METHOD(gene_db_mssql, affectedRows)
 {
 	zval *self = getThis();
 	zval statement;
-	if (gene_mysql_pdo_execute(self, &statement)) {
+	if (gene_mssql_pdo_execute(self, &statement)) {
 		gene_pdo_statement_row_count(&statement, return_value);
 		zval_ptr_dtor(&statement);
 		return;
@@ -944,17 +945,17 @@ PHP_METHOD(gene_db_mysql, affectedRows)
 /*
  * {{{ public gene_db::print($key)
  */
-PHP_METHOD(gene_db_mysql, print)
+PHP_METHOD(gene_db_mssql, print)
 {
 	zval *self = getThis(),*pdo_object = NULL, *pdo_sql = NULL, *pdo_where = NULL, *pdo_order = NULL,*pdo_group = NULL,*pdo_having = NULL, *pdo_limit = NULL;
 	smart_str sql = {0};
-	pdo_object = zend_read_property(gene_db_mysql_ce, self, ZEND_STRL(GENE_DB_MYSQL_PDO), 1, NULL);
-	pdo_sql = zend_read_property(gene_db_mysql_ce, self, ZEND_STRL(GENE_DB_MYSQL_SQL), 1, NULL);
-	pdo_where = zend_read_property(gene_db_mysql_ce, self, ZEND_STRL(GENE_DB_MYSQL_WHERE), 1, NULL);
-	pdo_group = zend_read_property(gene_db_mysql_ce, self, ZEND_STRL(GENE_DB_MYSQL_GROUP), 1, NULL);
-	pdo_having = zend_read_property(gene_db_mysql_ce, self, ZEND_STRL(GENE_DB_MYSQL_HAVING), 1, NULL);
-	pdo_order = zend_read_property(gene_db_mysql_ce, self, ZEND_STRL(GENE_DB_MYSQL_ORDER), 1, NULL);
-	pdo_limit = zend_read_property(gene_db_mysql_ce, self, ZEND_STRL(GENE_DB_MYSQL_LIMIT), 1, NULL);
+	pdo_object = zend_read_property(gene_db_mssql_ce, self, ZEND_STRL(GENE_DB_MSSQL_PDO), 1, NULL);
+	pdo_sql = zend_read_property(gene_db_mssql_ce, self, ZEND_STRL(GENE_DB_MSSQL_SQL), 1, NULL);
+	pdo_where = zend_read_property(gene_db_mssql_ce, self, ZEND_STRL(GENE_DB_MSSQL_WHERE), 1, NULL);
+	pdo_group = zend_read_property(gene_db_mssql_ce, self, ZEND_STRL(GENE_DB_MSSQL_GROUP), 1, NULL);
+	pdo_having = zend_read_property(gene_db_mssql_ce, self, ZEND_STRL(GENE_DB_MSSQL_HAVING), 1, NULL);
+	pdo_order = zend_read_property(gene_db_mssql_ce, self, ZEND_STRL(GENE_DB_MSSQL_ORDER), 1, NULL);
+	pdo_limit = zend_read_property(gene_db_mssql_ce, self, ZEND_STRL(GENE_DB_MSSQL_LIMIT), 1, NULL);
 
 	if (Z_TYPE_P(pdo_sql) == IS_STRING) {
 		smart_str_appends(&sql, Z_STRVAL_P(pdo_sql));
@@ -984,10 +985,10 @@ PHP_METHOD(gene_db_mysql, print)
 /*
  * {{{ public gene_db::beginTransaction()
  */
-PHP_METHOD(gene_db_mysql, beginTransaction)
+PHP_METHOD(gene_db_mssql, beginTransaction)
 {
 	zval *self = getThis(), *pdo_object = NULL;
-	pdo_object = zend_read_property(gene_db_mysql_ce, self, ZEND_STRL(GENE_DB_MYSQL_PDO), 1, NULL);
+	pdo_object = zend_read_property(gene_db_mssql_ce, self, ZEND_STRL(GENE_DB_MSSQL_PDO), 1, NULL);
 	gene_pdo_begin_transaction(pdo_object, return_value);
 }
 /* }}} */
@@ -995,10 +996,10 @@ PHP_METHOD(gene_db_mysql, beginTransaction)
 /*
  * {{{ public gene_db::inTransaction()
  */
-PHP_METHOD(gene_db_mysql, inTransaction)
+PHP_METHOD(gene_db_mssql, inTransaction)
 {
 	zval *self = getThis(), *pdo_object = NULL;
-	pdo_object = zend_read_property(gene_db_mysql_ce, self, ZEND_STRL(GENE_DB_MYSQL_PDO), 1, NULL);
+	pdo_object = zend_read_property(gene_db_mssql_ce, self, ZEND_STRL(GENE_DB_MSSQL_PDO), 1, NULL);
 	gene_pdo_in_transaction(pdo_object, return_value);
 }
 /* }}} */
@@ -1006,10 +1007,10 @@ PHP_METHOD(gene_db_mysql, inTransaction)
 /*
  * {{{ public gene_db::rollBack()
  */
-PHP_METHOD(gene_db_mysql, rollBack)
+PHP_METHOD(gene_db_mssql, rollBack)
 {
 	zval *self = getThis(), *pdo_object = NULL;
-	pdo_object = zend_read_property(gene_db_mysql_ce, self, ZEND_STRL(GENE_DB_MYSQL_PDO), 1, NULL);
+	pdo_object = zend_read_property(gene_db_mssql_ce, self, ZEND_STRL(GENE_DB_MSSQL_PDO), 1, NULL);
 	gene_pdo_rollback(pdo_object, return_value);
 }
 /* }}} */
@@ -1018,10 +1019,10 @@ PHP_METHOD(gene_db_mysql, rollBack)
 /*
  * {{{ public gene_db::commit()
  */
-PHP_METHOD(gene_db_mysql, commit)
+PHP_METHOD(gene_db_mssql, commit)
 {
 	zval *self = getThis(), *pdo_object = NULL;
-	pdo_object = zend_read_property(gene_db_mysql_ce, self, ZEND_STRL(GENE_DB_MYSQL_PDO), 1, NULL);
+	pdo_object = zend_read_property(gene_db_mssql_ce, self, ZEND_STRL(GENE_DB_MSSQL_PDO), 1, NULL);
 	gene_pdo_commit(pdo_object, return_value);
 }
 /* }}} */
@@ -1029,10 +1030,10 @@ PHP_METHOD(gene_db_mysql, commit)
 /*
  * {{{ public gene_db::free()
  */
-PHP_METHOD(gene_db_mysql, free)
+PHP_METHOD(gene_db_mssql, free)
 {
 	zval *self = getThis();
-	zend_update_property_null(gene_db_mysql_ce, self, ZEND_STRL(GENE_DB_MYSQL_PDO));
+	zend_update_property_null(gene_db_mssql_ce, self, ZEND_STRL(GENE_DB_MSSQL_PDO));
 	RETURN_NULL();
 }
 /* }}} */
@@ -1040,46 +1041,46 @@ PHP_METHOD(gene_db_mysql, free)
 /*
  * {{{ public gene_db::history()
  */
-PHP_METHOD(gene_db_mysql, history)
+PHP_METHOD(gene_db_mssql, history)
 {
 	zval *history = NULL;
-	history = zend_read_static_property(gene_db_mysql_ce, ZEND_STRL(GENE_DB_MYSQL_HISTORY), 1);
+	history = zend_read_static_property(gene_db_mssql_ce, ZEND_STRL(GENE_DB_MSSQL_HISTORY), 1);
 	RETURN_ZVAL(history, 1, 0);
 }
 /* }}} */
 
 /*
- * {{{ gene_db_mysql_methods
+ * {{{ gene_db_mssql_methods
  */
-zend_function_entry gene_db_mysql_methods[] = {
-		PHP_ME(gene_db_mysql, __construct, gene_db_mysql_construct, ZEND_ACC_PUBLIC|ZEND_ACC_CTOR)
-		PHP_ME(gene_db_mysql, getPdo, NULL, ZEND_ACC_PUBLIC)
-		PHP_ME(gene_db_mysql, select, gene_db_mysql_select, ZEND_ACC_PUBLIC)
-		PHP_ME(gene_db_mysql, count, gene_db_mysql_count, ZEND_ACC_PUBLIC)
-		PHP_ME(gene_db_mysql, insert, gene_db_mysql_insert, ZEND_ACC_PUBLIC)
-		PHP_ME(gene_db_mysql, batchInsert, gene_db_mysql_batch_insert, ZEND_ACC_PUBLIC)
-		PHP_ME(gene_db_mysql, update, gene_db_mysql_update, ZEND_ACC_PUBLIC)
-		PHP_ME(gene_db_mysql, delete, gene_db_mysql_delete, ZEND_ACC_PUBLIC)
-		PHP_ME(gene_db_mysql, where, gene_db_mysql_where, ZEND_ACC_PUBLIC)
-		PHP_ME(gene_db_mysql, in, gene_db_mysql_in, ZEND_ACC_PUBLIC)
-		PHP_ME(gene_db_mysql, sql, gene_db_mysql_sql, ZEND_ACC_PUBLIC)
-		PHP_ME(gene_db_mysql, limit, gene_db_mysql_limit, ZEND_ACC_PUBLIC)
-		PHP_ME(gene_db_mysql, order, gene_db_mysql_order, ZEND_ACC_PUBLIC)
-		PHP_ME(gene_db_mysql, group, gene_db_mysql_group, ZEND_ACC_PUBLIC)
-		PHP_ME(gene_db_mysql, having, gene_db_mysql_having, ZEND_ACC_PUBLIC)
-		PHP_ME(gene_db_mysql, execute, NULL, ZEND_ACC_PUBLIC)
-		PHP_ME(gene_db_mysql, all, NULL, ZEND_ACC_PUBLIC)
-		PHP_ME(gene_db_mysql, row, NULL, ZEND_ACC_PUBLIC)
-		PHP_ME(gene_db_mysql, cell, NULL, ZEND_ACC_PUBLIC)
-		PHP_ME(gene_db_mysql, lastId, NULL, ZEND_ACC_PUBLIC)
-		PHP_ME(gene_db_mysql, affectedRows, NULL, ZEND_ACC_PUBLIC)
-		PHP_ME(gene_db_mysql, print, NULL, ZEND_ACC_PUBLIC)
-		PHP_ME(gene_db_mysql, beginTransaction, NULL, ZEND_ACC_PUBLIC)
-		PHP_ME(gene_db_mysql, inTransaction, NULL, ZEND_ACC_PUBLIC)
-		PHP_ME(gene_db_mysql, rollBack, NULL, ZEND_ACC_PUBLIC)
-		PHP_ME(gene_db_mysql, commit, NULL, ZEND_ACC_PUBLIC)
-		PHP_ME(gene_db_mysql, free, NULL, ZEND_ACC_PUBLIC)
-		PHP_ME(gene_db_mysql, history, NULL, ZEND_ACC_PUBLIC)
+zend_function_entry gene_db_mssql_methods[] = {
+		PHP_ME(gene_db_mssql, __construct, gene_db_mssql_construct, ZEND_ACC_PUBLIC|ZEND_ACC_CTOR)
+		PHP_ME(gene_db_mssql, getPdo, NULL, ZEND_ACC_PUBLIC)
+		PHP_ME(gene_db_mssql, select, gene_db_mssql_select, ZEND_ACC_PUBLIC)
+		PHP_ME(gene_db_mssql, count, gene_db_mssql_count, ZEND_ACC_PUBLIC)
+		PHP_ME(gene_db_mssql, insert, gene_db_mssql_insert, ZEND_ACC_PUBLIC)
+		PHP_ME(gene_db_mssql, batchInsert, gene_db_mssql_batch_insert, ZEND_ACC_PUBLIC)
+		PHP_ME(gene_db_mssql, update, gene_db_mssql_update, ZEND_ACC_PUBLIC)
+		PHP_ME(gene_db_mssql, delete, gene_db_mssql_delete, ZEND_ACC_PUBLIC)
+		PHP_ME(gene_db_mssql, where, gene_db_mssql_where, ZEND_ACC_PUBLIC)
+		PHP_ME(gene_db_mssql, in, gene_db_mssql_in, ZEND_ACC_PUBLIC)
+		PHP_ME(gene_db_mssql, sql, gene_db_mssql_sql, ZEND_ACC_PUBLIC)
+		PHP_ME(gene_db_mssql, limit, gene_db_mssql_limit, ZEND_ACC_PUBLIC)
+		PHP_ME(gene_db_mssql, order, gene_db_mssql_order, ZEND_ACC_PUBLIC)
+		PHP_ME(gene_db_mssql, group, gene_db_mssql_group, ZEND_ACC_PUBLIC)
+		PHP_ME(gene_db_mssql, having, gene_db_mssql_having, ZEND_ACC_PUBLIC)
+		PHP_ME(gene_db_mssql, execute, NULL, ZEND_ACC_PUBLIC)
+		PHP_ME(gene_db_mssql, all, NULL, ZEND_ACC_PUBLIC)
+		PHP_ME(gene_db_mssql, row, NULL, ZEND_ACC_PUBLIC)
+		PHP_ME(gene_db_mssql, cell, NULL, ZEND_ACC_PUBLIC)
+		PHP_ME(gene_db_mssql, lastId, NULL, ZEND_ACC_PUBLIC)
+		PHP_ME(gene_db_mssql, affectedRows, NULL, ZEND_ACC_PUBLIC)
+		PHP_ME(gene_db_mssql, print, NULL, ZEND_ACC_PUBLIC)
+		PHP_ME(gene_db_mssql, beginTransaction, NULL, ZEND_ACC_PUBLIC)
+		PHP_ME(gene_db_mssql, inTransaction, NULL, ZEND_ACC_PUBLIC)
+		PHP_ME(gene_db_mssql, rollBack, NULL, ZEND_ACC_PUBLIC)
+		PHP_ME(gene_db_mssql, commit, NULL, ZEND_ACC_PUBLIC)
+		PHP_ME(gene_db_mssql, free, NULL, ZEND_ACC_PUBLIC)
+		PHP_ME(gene_db_mssql, history, NULL, ZEND_ACC_PUBLIC)
 		{NULL, NULL, NULL}
 };
 /* }}} */
@@ -1088,24 +1089,24 @@ zend_function_entry gene_db_mysql_methods[] = {
 /*
  * {{{ GENE_MINIT_FUNCTION
  */
-GENE_MINIT_FUNCTION(db_mysql)
+GENE_MINIT_FUNCTION(db_mssql)
 {
-    zend_class_entry gene_db_mysql;
-	GENE_INIT_CLASS_ENTRY(gene_db_mysql, "Gene_Db_Mysql", "Gene\\Db\\Mysql", gene_db_mysql_methods);
-	gene_db_mysql_ce = zend_register_internal_class_ex(&gene_db_mysql, NULL);
-	gene_db_mysql_ce->ce_flags |= ZEND_ACC_FINAL;
+    zend_class_entry gene_db_mssql;
+	GENE_INIT_CLASS_ENTRY(gene_db_mssql, "Gene_Db_Mssql", "Gene\\Db\\Mssql", gene_db_mssql_methods);
+	gene_db_mssql_ce = zend_register_internal_class_ex(&gene_db_mssql, NULL);
+	gene_db_mssql_ce->ce_flags |= ZEND_ACC_FINAL;
 
 	//pdo
-    zend_declare_property_null(gene_db_mysql_ce, ZEND_STRL(GENE_DB_MYSQL_CONFIG), ZEND_ACC_PUBLIC TSRMLS_CC);
-	zend_declare_property_null(gene_db_mysql_ce, ZEND_STRL(GENE_DB_MYSQL_PDO), ZEND_ACC_PUBLIC TSRMLS_CC);
-    zend_declare_property_null(gene_db_mysql_ce, ZEND_STRL(GENE_DB_MYSQL_SQL), ZEND_ACC_PUBLIC TSRMLS_CC);
-    zend_declare_property_null(gene_db_mysql_ce, ZEND_STRL(GENE_DB_MYSQL_WHERE), ZEND_ACC_PUBLIC TSRMLS_CC);
-    zend_declare_property_null(gene_db_mysql_ce, ZEND_STRL(GENE_DB_MYSQL_GROUP), ZEND_ACC_PUBLIC TSRMLS_CC);
-    zend_declare_property_null(gene_db_mysql_ce, ZEND_STRL(GENE_DB_MYSQL_HAVING), ZEND_ACC_PUBLIC TSRMLS_CC);
-    zend_declare_property_null(gene_db_mysql_ce, ZEND_STRL(GENE_DB_MYSQL_ORDER), ZEND_ACC_PUBLIC TSRMLS_CC);
-    zend_declare_property_null(gene_db_mysql_ce, ZEND_STRL(GENE_DB_MYSQL_LIMIT), ZEND_ACC_PUBLIC TSRMLS_CC);
-    zend_declare_property_null(gene_db_mysql_ce, ZEND_STRL(GENE_DB_MYSQL_DATA), ZEND_ACC_PUBLIC TSRMLS_CC);
-    zend_declare_property_null(gene_db_mysql_ce, ZEND_STRL(GENE_DB_MYSQL_HISTORY), ZEND_ACC_PROTECTED | ZEND_ACC_STATIC TSRMLS_CC);
+    zend_declare_property_null(gene_db_mssql_ce, ZEND_STRL(GENE_DB_MSSQL_CONFIG), ZEND_ACC_PUBLIC TSRMLS_CC);
+	zend_declare_property_null(gene_db_mssql_ce, ZEND_STRL(GENE_DB_MSSQL_PDO), ZEND_ACC_PUBLIC TSRMLS_CC);
+    zend_declare_property_null(gene_db_mssql_ce, ZEND_STRL(GENE_DB_MSSQL_SQL), ZEND_ACC_PUBLIC TSRMLS_CC);
+    zend_declare_property_null(gene_db_mssql_ce, ZEND_STRL(GENE_DB_MSSQL_WHERE), ZEND_ACC_PUBLIC TSRMLS_CC);
+    zend_declare_property_null(gene_db_mssql_ce, ZEND_STRL(GENE_DB_MSSQL_GROUP), ZEND_ACC_PUBLIC TSRMLS_CC);
+    zend_declare_property_null(gene_db_mssql_ce, ZEND_STRL(GENE_DB_MSSQL_HAVING), ZEND_ACC_PUBLIC TSRMLS_CC);
+    zend_declare_property_null(gene_db_mssql_ce, ZEND_STRL(GENE_DB_MSSQL_ORDER), ZEND_ACC_PUBLIC TSRMLS_CC);
+    zend_declare_property_null(gene_db_mssql_ce, ZEND_STRL(GENE_DB_MSSQL_LIMIT), ZEND_ACC_PUBLIC TSRMLS_CC);
+    zend_declare_property_null(gene_db_mssql_ce, ZEND_STRL(GENE_DB_MSSQL_DATA), ZEND_ACC_PUBLIC TSRMLS_CC);
+    zend_declare_property_null(gene_db_mssql_ce, ZEND_STRL(GENE_DB_MSSQL_HISTORY), ZEND_ACC_PROTECTED | ZEND_ACC_STATIC TSRMLS_CC);
 
 	return SUCCESS;// @suppress("Symbol is not resolved")
 }
