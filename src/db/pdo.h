@@ -18,6 +18,7 @@
 #define GENE_DB_PDO_H
 
 void array_to_string(zval *array, char **result);
+void mssql_array_to_string(zval *array, char **result);
 void gene_pdo_construct(zval *pdo_object, zval *dsn, zval *user, zval *pass, zval *options);
 void gene_pdo_begin_transaction(zval *pdo_object, zval *retval);
 void gene_pdo_commit(zval *pdo_object, zval *retval);
@@ -37,6 +38,10 @@ void gene_pdo_statement_fetch_object(zval *pdostatement_obj, zval *retval);
 void gene_pdo_statement_row_count(zval *pdostatement_obj, zval *retval);
 void gene_pdo_statement_set_fetch_mode(zval *pdostatement_obj, int fetch_style, zval *retval);
 void jsonEncode(zval *data, zval *param);
+void gene_mssql_insert_field_value (zval *fields, smart_str *field_str, smart_str *value_str,zval *field_value);
+void gene_mssql_insert_field_value_batch (zval *fields, smart_str *field_str, smart_str *value_str, zval *field_value);
+void gene_mssql_update_field_value (zval *fields, smart_str *field_str, zval *field_value);
+void mssqlMakeWhere(zval *self, smart_str *where_str, zval *where, zval *field_value);
 void gene_insert_field_value (zval *fields, smart_str *field_str, smart_str *value_str,zval *field_value);
 void gene_insert_field_value_batch (zval *fields, smart_str *field_str, smart_str *value_str, zval *field_value);
 void gene_insert_field_value_batch_other (zval *fields, smart_str *value_str, zval *field_value);
