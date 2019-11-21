@@ -851,9 +851,9 @@ PHP_METHOD(gene_db_mssql, limit)
 		return;
 	}
 	if (offset) {
-		spprintf(&limit, 0, " offset %d rows fetch next %d rows only", num, offset);
+		spprintf(&limit, 0, " offset %d rows fetch next %d rows only", offset, num);
 	} else {
-		spprintf(&limit, 0, " offset 0 rows fetch next %d rows only", num, offset);
+		spprintf(&limit, 0, " offset 0 rows fetch next %d rows only", num);
 	}
 	zend_update_property_string(gene_db_mssql_ce, self, ZEND_STRL(GENE_DB_MSSQL_LIMIT), limit);
 	efree(limit);
