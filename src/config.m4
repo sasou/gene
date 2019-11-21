@@ -62,6 +62,7 @@ if test "$PHP_GENE" != "no"; then
 	  db/pdo.c \
 	  db/mysql.c \
 	  db/mssql.c \
+	  db/pgsql.c \
 	  mvc/model.c \
 	  service/service.c \
 	  factory/factory.c \
