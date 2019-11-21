@@ -11,7 +11,7 @@ if (PHP_GENE != "no") {
 	ADD_SOURCES(configure_module_dirname + "/tool", "benchmark.c execute.c", "gene");
 	ADD_SOURCES(configure_module_dirname + "/common", "common.c", "gene");
 	ADD_SOURCES(configure_module_dirname + "/config", "configs.c", "gene");
-	ADD_SOURCES(configure_module_dirname + "/db", "pdo.c mysql.c mssql.c pgsql.c", "gene");
+	ADD_SOURCES(configure_module_dirname + "/db", "pdo.c mysql.c mssql.c pgsql.c sqlite.c", "gene");
 	ADD_SOURCES(configure_module_dirname + "/di", "di.c", "gene");
 	ADD_SOURCES(configure_module_dirname + "/exception", "exception.c", "gene");
 	ADD_SOURCES(configure_module_dirname + "/factory", "factory.c load.c", "gene");

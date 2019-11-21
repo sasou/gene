@@ -712,6 +712,28 @@ void makeWhere(zval *self, smart_str *where_str, zval *where, zval *field_value)
     smart_str_0(where_str);
 }
 
+
+zend_bool checkPdoError(zend_object *ex) {
+	zval *msg;
+	zend_class_entry *ce;
+	zval zv, rv;
+	int i;
+	const char *pdoErrorStr[9] = { "server has gone away", "no connection to the server", "Lost connection",
+			"is dead or not enabled", "Error while sending", "server closed the connection unexpectedly",
+			"Error writing data to the connection", "Resource deadlock avoided", "failed with errno" };
+
+	ZVAL_OBJ(&zv, ex);
+	ce = Z_OBJCE(zv);
+
+	msg = zend_read_property(ce, &zv, ZEND_STRL("message"), 0, &rv);
+	for (i = 0; i < 9; i++) {
+		if (strstr(Z_STRVAL_P(msg), pdoErrorStr[i]) != NULL) {
+			return 1;
+		}
+	}
+	return 0;
+}
+
 /*
  * Local variables:
  * tab-width: 4

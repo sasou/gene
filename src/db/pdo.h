@@ -47,5 +47,6 @@ void gene_insert_field_value_batch (zval *fields, smart_str *field_str, smart_st
 void gene_insert_field_value_batch_other (zval *fields, smart_str *value_str, zval *field_value);
 void gene_update_field_value (zval *fields, smart_str *field_str, zval *field_value);
 void makeWhere(zval *self, smart_str *where_str, zval *where, zval *field_value);
+zend_bool checkPdoError(zend_object *ex);
 
 #endif
