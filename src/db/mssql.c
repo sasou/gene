@@ -148,27 +148,6 @@ void mssqlSaveHistory(smart_str *sql, zval *param) {
 	}
 }
 
-zend_bool mssqlCheckPdoError (zend_object *ex) {
-	zval *msg;
-	zend_class_entry *ce;
-	zval zv, rv;
-	int i;
-	const char *pdoErrorStr[9] = { "server has gone away", "no connection to the server", "Lost connection",
-			"is dead or not enabled", "Error while sending", "server closed the connection unexpectedly",
-			"Error writing data to the connection", "Resource deadlock avoided", "failed with errno" };
-
-	ZVAL_OBJ(&zv, ex);
-	ce = Z_OBJCE(zv);
-
-	msg = zend_read_property(ce, &zv, ZEND_STRL("message"), 0, &rv);
-	for (i = 0; i < 9; i++) {
-		if (strstr(Z_STRVAL_P(msg), pdoErrorStr[i]) != NULL) {
-			return 1;
-		}
-	}
-	return 0;
-}
-
 zend_bool mssqlInitPdo (zval * self, zval *config) {
 	zval  *dsn = NULL, *user = NULL, *pass = NULL, *options = NULL;
 	zval pdo_object, option;
@@ -210,7 +189,7 @@ zend_bool mssqlInitPdo (zval * self, zval *config) {
     }
 
 	if (EG(exception)) {
-		if (mssqlCheckPdoError(EG(exception))) {
+		if (checkPdoError(EG(exception))) {
 			EG(exception) = NULL;
 		}
 	}
@@ -264,7 +243,7 @@ zend_bool gene_mssql_pdo_execute (zval *self, zval *statement)
 		gene_pdo_statement_execute(statement, params, &retval);
 
     	if (EG(exception)) {
-    		if (mssqlCheckPdoError(EG(exception))) {
+    		if (checkPdoError(EG(exception))) {
     			EG(exception) = NULL;
     			mssqlInitPdo (self, NULL);
     			gene_pdo_prepare(pdo_object, ZSTR_VAL(sql.s), statement);
@@ -281,6 +260,18 @@ zend_bool gene_mssql_pdo_execute (zval *self, zval *statement)
 	}
 	smart_str_free(&sql);
     return 0;
+}
+
+void mssql_init_where(zval *self, smart_str *where_str) {
+	zval *pdo_where = NULL;
+	pdo_where = zend_read_property(gene_db_mssql_ce, self, ZEND_STRL(GENE_DB_MSSQL_WHERE), 1, NULL);
+	if (pdo_where) {
+		if (Z_TYPE_P(pdo_where) == IS_STRING) {
+			smart_str_appends(where_str, Z_STRVAL_P(pdo_where));
+		} else {
+			smart_str_appends(where_str, "");
+		}
+	}
 }
 
 /*
@@ -507,18 +498,6 @@ PHP_METHOD(gene_db_mssql, delete)
 	RETURN_ZVAL(self, 1, 0);
 }
 /* }}} */
-
-void mssql_init_where(zval *self, smart_str *where_str) {
-	zval *pdo_where = NULL;
-	pdo_where = zend_read_property(gene_db_mssql_ce, self, ZEND_STRL(GENE_DB_MSSQL_WHERE), 1, NULL);
-	if (pdo_where) {
-		if (Z_TYPE_P(pdo_where) == IS_STRING) {
-			smart_str_appends(where_str, Z_STRVAL_P(pdo_where));
-		} else {
-			smart_str_appends(where_str, "");
-		}
-	}
-}
 
 /*
  * {{{ public gene_db::where($key)
@@ -851,7 +830,7 @@ PHP_METHOD(gene_db_mssql, limit)
 		return;
 	}
 	if (offset) {
-		spprintf(&limit, 0, " offset %d rows fetch next %d rows only", offset, num);
+		spprintf(&limit, 0, " offset %d rows fetch next %d rows only", num, offset);
 	} else {
 		spprintf(&limit, 0, " offset 0 rows fetch next %d rows only", num);
 	}
