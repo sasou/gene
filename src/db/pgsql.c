@@ -188,15 +188,11 @@ zend_bool pgsqlInitPdo (zval * self, zval *config) {
     	array_init(&option);
     	add_index_long(&option, 3, 2);
     	add_index_long(&option, 19, 2);
-    	add_index_long(&option, 11, 2);
-    	add_index_long(&option, 8, 2);
     	gene_pdo_construct(&pdo_object, dsn, user, pass, &option);
     	zval_ptr_dtor(&option);
     } else {
     	add_index_long(options, 3, 2);
     	add_index_long(options, 19, 2);
-    	add_index_long(&option, 11, 2);
-    	add_index_long(&option, 8, 2);
     	gene_pdo_construct(&pdo_object, dsn, user, pass, options);
     }
 
