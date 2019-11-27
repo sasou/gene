@@ -56,6 +56,7 @@ if test "$PHP_GENE" != "no"; then
 	  session/session.c \
 	  http/request.c \
 	  http/response.c \
+	  http/validate.c \
 	  mvc/view.c \
 	  exception/exception.c \
 	  tool/benchmark.c \

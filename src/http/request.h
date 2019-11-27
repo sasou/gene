@@ -19,7 +19,7 @@
 #define GENE_REQUEST_PROPERTY_ATTR "_attr"
 
 extern zend_class_entry *gene_request_ce;
-zval * request_query(int type, char * name, int len TSRMLS_DC);
+zval * request_query(zend_ulong type, char * name, int len TSRMLS_DC);
 void setVal(zend_ulong type, zval *value);
 zval *getVal(zend_ulong type, char *name, int len);
 
