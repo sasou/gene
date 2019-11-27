@@ -65,7 +65,7 @@ ZEND_BEGIN_ARG_INFO_EX(gene_request_set_arginfo, 0, 0, 2)
 ZEND_END_ARG_INFO()
 /* }}} */
 
-zval * request_query(int type, char * name, int len TSRMLS_DC) {
+zval * request_query(zend_ulong type, char * name, int len TSRMLS_DC) {
 	zval *carrier = NULL, *ret;
 	zend_bool jit_initialization = PG(auto_globals_jit);
 

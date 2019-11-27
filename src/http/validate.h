@@ -14,20 +14,20 @@
   +----------------------------------------------------------------------+
 */
 
-#ifndef GENE_FACTORY_H
-#define GENE_FACTORY_H
+#ifndef GENE_VALIDATE_H
+#define GENE_VALIDATE_H
+#define GENE_VALIDATE_DATA "data"
+#define GENE_VALIDATE_KEY  "key"
+#define GENE_VALIDATE_FIELD  "field"
+#define GENE_VALIDATE_METHOD  "method"
+#define GENE_VALIDATE_CONFIG  "config"
+#define GENE_VALIDATE_VALUE  "value"
+#define GENE_VALIDATE_ERROR  "error"
+#define GENE_VALIDATE_CLOSURE  "closure"
+
+extern zend_class_entry *gene_validate_ce;
 
 
-extern zend_class_entry *gene_factory_ce;
-
-
-GENE_MINIT_FUNCTION(factory);
-
-
-zend_bool gene_factory(char *className, int tmp_len, zval *params, zval *classObject);
-void gene_factory_call(zval *object, char *action, zval *param, zval *retval);
-void gene_factory_call_1(zval *object, char *action, zval *param, zval *retval);
-void gene_factory_function_call(char *action, zval *param_key, zval *param_arr, zval *retval);
-zend_bool gene_factory_load_class(char *className, int tmp_len, zval *classObject);
+GENE_MINIT_FUNCTION(validate);
 
 #endif

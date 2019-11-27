@@ -36,6 +36,7 @@
 #include "mvc/controller.h"
 #include "http/request.h"
 #include "http/response.h"
+#include "http/validate.h"
 #include "session/session.h"
 #include "mvc/view.h"
 #include "exception/exception.h"
@@ -181,6 +182,7 @@ PHP_MINIT_FUNCTION(gene) {
 	GENE_STARTUP(controller);
 	GENE_STARTUP(request);
 	GENE_STARTUP(response);
+	GENE_STARTUP(validate);
 	GENE_STARTUP(session);
 	GENE_STARTUP(view);
 	GENE_STARTUP(benchmark);

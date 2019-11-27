@@ -15,7 +15,7 @@ if (PHP_GENE != "no") {
 	ADD_SOURCES(configure_module_dirname + "/di", "di.c", "gene");
 	ADD_SOURCES(configure_module_dirname + "/exception", "exception.c", "gene");
 	ADD_SOURCES(configure_module_dirname + "/factory", "factory.c load.c", "gene");
-	ADD_SOURCES(configure_module_dirname + "/http", "request.c response.c", "gene");
+	ADD_SOURCES(configure_module_dirname + "/http", "request.c response.c validate.c", "gene");
 	ADD_SOURCES(configure_module_dirname + "/mvc", "controller.c model.c view.c", "gene");
 	ADD_SOURCES(configure_module_dirname + "/router", "router.c", "gene");
 	ADD_SOURCES(configure_module_dirname + "/service", "service.c", "gene");
