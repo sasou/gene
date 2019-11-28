@@ -107,6 +107,33 @@ void gene_factory_function_call(char *action, zval *param_key, zval *param_arr, 
     zval_ptr_dtor(&function_name);
 }/*}}}*/
 
+void gene_factory_function_call_1(zval *function_name, zval *param_key, zval *param_arr, zval *retval) /*{{{*/
+{
+    uint param_count = 0;
+	zval *element;
+	zend_string *key = NULL;
+	zend_long id;
+	uint num = 1;
+    if (param_key) {
+        zval params[10];
+        params[0] = *param_key;
+        if (param_arr && Z_TYPE_P(param_arr) == IS_ARRAY) {
+        	param_count = zend_hash_num_elements(Z_ARRVAL_P(param_arr));
+        	if (param_count > 0) {
+            	ZEND_HASH_FOREACH_KEY_VAL(Z_ARRVAL_P(param_arr), id, key, element)
+            	{
+            		params[num] = *element;
+            		num++;
+            	}ZEND_HASH_FOREACH_END();
+        	}
+        }
+        call_user_function(NULL, NULL, function_name, retval, num, params);
+    } else {
+    	call_user_function(NULL, NULL, function_name, retval, 0, NULL);
+    }
+}/*}}}*/
+
+
 zend_bool gene_factory(char *className, int tmp_len, zval *params, zval *classObject) {
 	zend_string *c_key = NULL;
 	zend_class_entry *pdo_ptr = NULL;

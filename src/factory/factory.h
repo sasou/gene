@@ -28,6 +28,7 @@ zend_bool gene_factory(char *className, int tmp_len, zval *params, zval *classOb
 void gene_factory_call(zval *object, char *action, zval *param, zval *retval);
 void gene_factory_call_1(zval *object, char *action, zval *param, zval *retval);
 void gene_factory_function_call(char *action, zval *param_key, zval *param_arr, zval *retval);
+void gene_factory_function_call_1(zval *function_name, zval *param_key, zval *param_arr, zval *retval);
 zend_bool gene_factory_load_class(char *className, int tmp_len, zval *classObject);
 
 #endif

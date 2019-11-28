@@ -77,11 +77,80 @@ void reset_params(zval *self)
 	zend_update_property_null(gene_validate_ce, self, ZEND_STRL(GENE_VALIDATE_KEY));
 	zend_update_property_null(gene_validate_ce, self, ZEND_STRL(GENE_VALIDATE_FIELD));
 	zend_update_property_null(gene_validate_ce, self, ZEND_STRL(GENE_VALIDATE_METHOD));
-	zend_update_property_null(gene_validate_ce, self, ZEND_STRL(GENE_VALIDATE_CONFIG));
-	zend_update_property_null(gene_validate_ce, self, ZEND_STRL(GENE_VALIDATE_VALUE));
-	zend_update_property_null(gene_validate_ce, self, ZEND_STRL(GENE_VALIDATE_ERROR));
-    zend_update_property_null(gene_validate_ce, self, ZEND_STRL(GENE_VALIDATE_CLOSURE));
+
+	zval config_tmp;
+	array_init(&config_tmp);
+	Z_TRY_ADDREF(config_tmp);
+	zend_update_property(gene_validate_ce, self, ZEND_STRL(GENE_VALIDATE_CONFIG), &config_tmp);
+	zval_ptr_dtor(&config_tmp);
+
+	zval value_tmp;
+	array_init(&value_tmp);
+	Z_TRY_ADDREF(value_tmp);
+	zend_update_property(gene_validate_ce, self, ZEND_STRL(GENE_VALIDATE_VALUE), &value_tmp);
+	zval_ptr_dtor(&value_tmp);
+
+	zval error_tmp;
+	array_init(&error_tmp);
+	Z_TRY_ADDREF(error_tmp);
+	zend_update_property(gene_validate_ce, self, ZEND_STRL(GENE_VALIDATE_ERROR), &error_tmp);
+	zval_ptr_dtor(&error_tmp);
+
+	zval closure_tmp;
+	array_init(&closure_tmp);
+	Z_TRY_ADDREF(closure_tmp);
+	zend_update_property(gene_validate_ce, self, ZEND_STRL(GENE_VALIDATE_CLOSURE), &closure_tmp);
+	zval_ptr_dtor(&closure_tmp);
 }
+
+void gene_explode(char const *separator_str, char *string_str, zval *retval) /*{{{*/
+{
+    zval function_name, separator, string;
+    ZVAL_STRING(&function_name, "explode");
+    ZVAL_STRING(&separator, separator_str);
+    ZVAL_STRING(&string, string_str);
+	zval params[] = { separator, string };
+    call_user_function(NULL, NULL, &function_name, retval, 2, params);
+    zval_ptr_dtor(&function_name);
+    zval_ptr_dtor(&separator);
+    zval_ptr_dtor(&string);
+}/*}}}*/
+
+
+int required (zval *self){
+	zval *field = NULL, *data = NULL, *val = NULL;
+	field = zend_read_property(gene_validate_ce, self, ZEND_STRL(GENE_VALIDATE_FIELD), 1, NULL);
+	if (field && Z_TYPE_P(field) == IS_NULL) {
+		php_error_docref(NULL, E_ERROR, "Please call the name method in the first place!");
+	}
+	data = zend_read_property(gene_validate_ce, self, ZEND_STRL(GENE_VALIDATE_DATA), 1, NULL);
+	if (data && Z_TYPE_P(data) != IS_ARRAY) {
+		return 0;
+	}
+
+	if ((val = zend_hash_str_find(Z_ARRVAL_P(data), Z_STRVAL_P(field), Z_STRLEN_P(field))) == NULL) {
+		return 0;
+	}
+	if (val) {
+		switch(Z_TYPE_P(val)) {
+		case IS_NULL:
+			return 0;
+			break;
+		case IS_STRING:
+			if (Z_STRLEN_P(val) == 0) {
+				return 0;
+			}
+			break;
+		case IS_ARRAY:
+			if (zend_hash_num_elements(Z_ARRVAL_P(val)) == 0) {
+				return 0;
+			}
+			break;
+		}
+	}
+	return 1;
+}
+
 
 /*
  * {{{ gene_validate
@@ -148,14 +217,6 @@ PHP_METHOD(gene_validate, skipOnEmpty)
 	}
 
 	config = zend_read_property(gene_validate_ce, self, ZEND_STRL(GENE_VALIDATE_CONFIG), 1, NULL);
-	if (config && Z_TYPE_P(config) == IS_NULL) {
-		zval config_tmp;
-		array_init(&config_tmp);
-		Z_TRY_ADDREF(config_tmp);
-		zend_update_property(gene_validate_ce, self, ZEND_STRL(GENE_VALIDATE_CONFIG), &config_tmp);
-		zval_ptr_dtor(&config_tmp);
-		config = zend_read_property(gene_validate_ce, self, ZEND_STRL(GENE_VALIDATE_CONFIG), 1, NULL);
-	}
 
 	if ((keyArr = zend_hash_str_find(Z_ARRVAL_P(config), Z_STRVAL_P(key), Z_STRLEN_P(key))) == NULL) {
 		zval keyArr_tmp;
@@ -183,7 +244,7 @@ PHP_METHOD(gene_validate, skipOnEmpty)
  */
 PHP_METHOD(gene_validate, filter)
 {
-	zval *self = getThis(), *key = NULL, *data = NULL, *val = NULL, *args = NULL;
+	zval *self = getThis(), *key = NULL, *data = NULL, *args = NULL;
 	char *method = NULL;
 	int method_len = 0;
 	if (zend_parse_parameters(ZEND_NUM_ARGS() TSRMLS_CC, "s|z", &method, &method_len, &args) == FAILURE) {
@@ -195,16 +256,25 @@ PHP_METHOD(gene_validate, filter)
 		php_error_docref(NULL, E_ERROR, "Please call the name method in the first place!");
 	}
 
-	data = zend_read_property(gene_validate_ce, self, ZEND_STRL(GENE_VALIDATE_DATA), 1, NULL);
-	if (data && Z_TYPE_P(data) != IS_NULL) {
-		if ((val = zend_hash_str_find(Z_ARRVAL_P(data), Z_STRVAL_P(key), Z_STRLEN_P(key))) != NULL) {
-			zval ret;
-			gene_factory_function_call(method, val, args, &ret);
-			Z_TRY_ADDREF(ret);
-			zend_hash_str_update(Z_ARRVAL_P(data),  Z_STRVAL_P(key), Z_STRLEN_P(key), &ret);
-			zval_ptr_dtor(&ret);
+	zval fieldArr;
+	gene_explode(",", Z_STRVAL_P(key), &fieldArr);
+	if (Z_TYPE(fieldArr) == IS_ARRAY) {
+		zval *val = NULL, *key_one = NULL;
+		data = zend_read_property(gene_validate_ce, self, ZEND_STRL(GENE_VALIDATE_DATA), 1, NULL);
+		if (data && Z_TYPE_P(data) == IS_ARRAY) {
+			ZEND_HASH_FOREACH_VAL(Z_ARRVAL(fieldArr), key_one) {
+				if ((val = zend_hash_str_find(Z_ARRVAL_P(data), Z_STRVAL_P(key_one), Z_STRLEN_P(key_one))) != NULL) {
+					zval ret;
+					gene_factory_function_call(method, val, args, &ret);
+					Z_TRY_ADDREF(ret);
+					zend_hash_str_update(Z_ARRVAL_P(data),  Z_STRVAL_P(key_one), Z_STRLEN_P(key_one), &ret);
+					zval_ptr_dtor(&ret);
+				}
+			}ZEND_HASH_FOREACH_END();
 		}
 	}
+	zval_ptr_dtor(&fieldArr);
+
 	RETURN_ZVAL(self, 1, 0);
 }
 /* }}} */
@@ -224,14 +294,6 @@ PHP_METHOD(gene_validate, addValidator)
 	}
 
 	closure = zend_read_property(gene_validate_ce, self, ZEND_STRL(GENE_VALIDATE_CLOSURE), 1, NULL);
-	if (closure && Z_TYPE_P(closure) == IS_NULL) {
-		zval closure_tmp;
-		array_init(&closure_tmp);
-		Z_TRY_ADDREF(closure_tmp);
-		zend_update_property(gene_validate_ce, self, ZEND_STRL(GENE_VALIDATE_CLOSURE), &closure_tmp);
-		zval_ptr_dtor(&closure_tmp);
-		closure = zend_read_property(gene_validate_ce, self, ZEND_STRL(GENE_VALIDATE_CLOSURE), 1, NULL);
-	}
 
 	if ((val = zend_hash_str_find(Z_ARRVAL_P(closure), name, name_len)) == NULL) {
 		zval val_tmp;
@@ -268,14 +330,6 @@ PHP_METHOD(gene_validate, __call) {
 	}
 
 	config = zend_read_property(gene_validate_ce, self, ZEND_STRL(GENE_VALIDATE_CONFIG), 1, NULL);
-	if (config && Z_TYPE_P(config) == IS_NULL) {
-		zval config_tmp;
-		array_init(&config_tmp);
-		Z_TRY_ADDREF(config_tmp);
-		zend_update_property(gene_validate_ce, self, ZEND_STRL(GENE_VALIDATE_CONFIG), &config_tmp);
-		zval_ptr_dtor(&config_tmp);
-		config = zend_read_property(gene_validate_ce, self, ZEND_STRL(GENE_VALIDATE_CONFIG), 1, NULL);
-	}
 
 	if ((keyArr = zend_hash_str_find(Z_ARRVAL_P(config), Z_STRVAL_P(key), Z_STRLEN_P(key))) == NULL) {
 		zval keyArr_tmp;
@@ -327,14 +381,6 @@ PHP_METHOD(gene_validate, msg)
 	}
 
 	config = zend_read_property(gene_validate_ce, self, ZEND_STRL(GENE_VALIDATE_CONFIG), 1, NULL);
-	if (config && Z_TYPE_P(config) == IS_NULL) {
-		zval config_tmp;
-		array_init(&config_tmp);
-		Z_TRY_ADDREF(config_tmp);
-		zend_update_property(gene_validate_ce, self, ZEND_STRL(GENE_VALIDATE_CONFIG), &config_tmp);
-		zval_ptr_dtor(&config_tmp);
-		config = zend_read_property(gene_validate_ce, self, ZEND_STRL(GENE_VALIDATE_CONFIG), 1, NULL);
-	}
 
 	if ((keyArr = zend_hash_str_find(Z_ARRVAL_P(config), Z_STRVAL_P(key), Z_STRLEN_P(key))) == NULL) {
 		zval keyArr_tmp;
@@ -381,24 +427,121 @@ PHP_METHOD(gene_validate, msg)
 }
 /* }}} */
 
-int required (char *name){
-
-	return 1;
+char *getErrorMsg(char *method) {
+    char* names[]={"required","match","min","max","range","length","size","in","url","email","ip","mobile","date","datetime","int","number","digit","string","equal"};
+    char* descs[]={"This field is required","Value is not in conformity with the regular expression","Please enter a value greater than %s","Please enter a value less than %s",
+    		"Please input more than %s, less than the value of %s","The length of the string of mistakes","The array size error",
+    		"The field value is not allowed within the input range","Please input the correct url","Please enter the correct email address",
+			"Please input the correct IP address","Please enter the correct phone number","Please input the correct date","Please input the correct time",
+			"Please enter an integer","Please enter the Numbers","Please enter a string Numbers","Please enter a string","Please enter the same value as %s"};
+	int i = 0;
+    for (i = 0; i < 19; i++) {
+		if (strcmp(names[i], method) == 0) {
+			break;
+		}
+	}
+    return descs[i];
 }
 
-void gene_explode(char const *separator_str, char *string_str, zval *retval) /*{{{*/
-{
-    zval function_name, separator, string;
-    ZVAL_STRING(&function_name, "explode");
-    ZVAL_STRING(&separator, separator_str);
-    ZVAL_STRING(&string, string_str);
-	zval params[] = { separator, string };
-    call_user_function(NULL, NULL, &function_name, retval, 2, params);
-    zval_ptr_dtor(&function_name);
-    zval_ptr_dtor(&separator);
-    zval_ptr_dtor(&string);
-}/*}}}*/
+int validCheck(zval *self, zval *date_field, zval *rules, int is_group) {
+	int isValid = 1;
+	zval *list = NULL;
+	list = zend_hash_str_find(Z_ARRVAL_P(rules), "list", 4);
+	if (list && Z_TYPE_P(list) == IS_ARRAY) {
+		zval *value = NULL, *closure = NULL, *closure_arr = NULL, *data = NULL, *date_field_val = NULL, *values = NULL, *errors = NULL, *args = NULL;
+		zend_string *method = NULL;
+		closure = zend_read_property(gene_validate_ce, self, ZEND_STRL(GENE_VALIDATE_CLOSURE), 1, NULL);
+		data = zend_read_property(gene_validate_ce, self, ZEND_STRL(GENE_VALIDATE_DATA), 1, NULL);
+		if (data && Z_TYPE_P(data) == IS_ARRAY) {
+			date_field_val = zend_hash_str_find(Z_ARRVAL_P(data), Z_STRVAL_P(date_field), Z_STRLEN_P(date_field));
 
+			values = zend_read_property(gene_validate_ce, self, ZEND_STRL(GENE_VALIDATE_VALUE), 1, NULL);
+			errors = zend_read_property(gene_validate_ce, self, ZEND_STRL(GENE_VALIDATE_ERROR), 1, NULL);
+
+			ZEND_HASH_FOREACH_STR_KEY_VAL_IND(Z_ARRVAL_P(list), method, value) {
+				args = zend_hash_str_find(Z_ARRVAL_P(value), "args", 4);
+
+				if (closure && Z_TYPE_P(closure) == IS_ARRAY) {
+					closure_arr = zend_hash_str_find(Z_ARRVAL_P(closure), ZSTR_VAL(method), ZSTR_LEN(method));
+				}
+
+				if (closure_arr && Z_TYPE_P(closure_arr) == IS_ARRAY) {
+					zval *func = NULL, *msg = NULL;
+					func = zend_hash_str_find(Z_ARRVAL_P(closure_arr), "func", 4);
+					if (func) {
+						zval ret;
+						if (date_field_val) {
+							gene_factory_function_call_1(func, date_field_val, NULL, &ret);
+						} else {
+							gene_factory_function_call_1(func, NULL, NULL, &ret);
+						}
+						if (Z_TYPE(ret) == IS_FALSE) {
+							zend_hash_str_del(Z_ARRVAL_P(values), Z_STRVAL_P(date_field), Z_STRLEN_P(date_field));
+							msg = zend_hash_str_find(Z_ARRVAL_P(value), "msg", 3);
+							if (msg == NULL) {
+								msg = zend_hash_str_find(Z_ARRVAL_P(rules), "msg", 3);
+							}
+							if (msg == NULL) {
+								msg = zend_hash_str_find(Z_ARRVAL_P(closure_arr), "msg", 3);
+							}
+							if (msg) {
+								zend_hash_str_update(Z_ARRVAL_P(errors), Z_STRVAL_P(date_field), Z_STRLEN_P(date_field), msg);
+							}
+							isValid = 0;
+							if (is_group == 0) {
+								zval_ptr_dtor(&ret);
+								return isValid;
+							}
+						} else {
+							Z_TRY_ADDREF_P(date_field_val);
+							zend_hash_str_update(Z_ARRVAL_P(values), Z_STRVAL_P(date_field), Z_STRLEN_P(date_field), date_field_val);
+						}
+						zval_ptr_dtor(&ret);
+					}
+				} else {
+					char *name = NULL;
+					size_t name_len = 0;
+					name_len = spprintf(&name, 0, "rule_%s", ZSTR_VAL(method));
+					if (zend_hash_str_exists(&(Z_OBJCE_P(self)->function_table), name, name_len)) {
+						zval ret, *msg = NULL;
+						gene_factory_call(self, name, args, &ret);
+						if (Z_TYPE(ret) == IS_FALSE) {
+							zend_hash_str_del(Z_ARRVAL_P(values), Z_STRVAL_P(date_field), Z_STRLEN_P(date_field));
+							msg = zend_hash_str_find(Z_ARRVAL_P(value), "msg", 3);
+							if (msg == NULL) {
+								msg = zend_hash_str_find(Z_ARRVAL_P(rules), "msg", 3);
+							}
+							if (msg == NULL) {
+								zval tmp_msg;
+								ZVAL_STRING(&tmp_msg, getErrorMsg(ZSTR_VAL(method)));
+								Z_TRY_ADDREF(tmp_msg);
+								zend_hash_str_update(Z_ARRVAL_P(errors), Z_STRVAL_P(date_field), Z_STRLEN_P(date_field), &tmp_msg);
+								zval_ptr_dtor(&tmp_msg);
+							} else {
+								zend_hash_str_update(Z_ARRVAL_P(errors), Z_STRVAL_P(date_field), Z_STRLEN_P(date_field), msg);
+							}
+							isValid = 0;
+							if (is_group == 0) {
+								zval_ptr_dtor(&ret);
+								efree(name);
+								return isValid;
+							}
+						} else {
+							Z_TRY_ADDREF_P(date_field_val);
+							zend_hash_str_update(Z_ARRVAL_P(values), Z_STRVAL_P(date_field), Z_STRLEN_P(date_field), date_field_val);
+						}
+						zval_ptr_dtor(&ret);
+						efree(name);
+					} else {
+						efree(name);
+						php_error_docref(NULL, E_ERROR, "Executed method does not exist!");
+					}
+				}
+			}ZEND_HASH_FOREACH_END();
+		}
+	}
+	return isValid;
+}
 /*
  * {{{ public gene_validate::valid()
  */
@@ -408,21 +551,24 @@ PHP_METHOD(gene_validate, valid)
 
 	config = zend_read_property(gene_validate_ce, self, ZEND_STRL(GENE_VALIDATE_CONFIG), 1, NULL);
 	if (config && Z_TYPE_P(config) == IS_ARRAY) {
-		zval *element = NULL, *skip = NULL;
+		zval *rules = NULL, *skip = NULL;
 		zend_string *key = NULL;
 
-		ZEND_HASH_FOREACH_STR_KEY_VAL_IND(Z_ARRVAL_P(config), key, element) {
+		ZEND_HASH_FOREACH_STR_KEY_VAL_IND(Z_ARRVAL_P(config), key, rules) {
 			zval fieldArr;
 			gene_explode(",", ZSTR_VAL(key), &fieldArr);
 			if (Z_TYPE(fieldArr) == IS_ARRAY) {
 				zval *v = NULL;
 				ZEND_HASH_FOREACH_VAL(Z_ARRVAL(fieldArr), v) {
 					zend_update_property_string(gene_validate_ce, self, ZEND_STRL(GENE_VALIDATE_FIELD), Z_STRVAL_P(v));
-					skip = zend_hash_str_find(Z_ARRVAL_P(element), "skip", 4);
-					if (skip && Z_TYPE_P(skip) == IS_TRUE) {
+					skip = zend_hash_str_find(Z_ARRVAL_P(rules), "skip", 4);
+					if (skip && Z_TYPE_P(skip) == IS_TRUE && required (self) == 0) {
 						continue;
 					}
-
+					if (validCheck(self, v, rules, 0) == 0) {
+						zval_ptr_dtor(&fieldArr);
+						RETURN_FALSE;
+					}
 				}ZEND_HASH_FOREACH_END();
 			}
 			zval_ptr_dtor(&fieldArr);
@@ -430,7 +576,7 @@ PHP_METHOD(gene_validate, valid)
 		}ZEND_HASH_FOREACH_END();
 	}
 
-	RETURN_ZVAL(self, 1, 0);
+	RETURN_TRUE;
 }
 /* }}} */
 
@@ -441,13 +587,37 @@ PHP_METHOD(gene_validate, valid)
 PHP_METHOD(gene_validate, groupValid)
 {
 	zval *self = getThis(), *config = NULL, *field = NULL, *field_value = NULL;
-
+	int isValid = 1;
 	config = zend_read_property(gene_validate_ce, self, ZEND_STRL(GENE_VALIDATE_CONFIG), 1, NULL);
-	if (config && Z_TYPE_P(config) == IS_NULL) {
+	if (config && Z_TYPE_P(config) == IS_ARRAY) {
+		zval *rules = NULL, *skip = NULL;
+		zend_string *key = NULL;
 
+		ZEND_HASH_FOREACH_STR_KEY_VAL_IND(Z_ARRVAL_P(config), key, rules) {
+			zval fieldArr;
+			gene_explode(",", ZSTR_VAL(key), &fieldArr);
+			if (Z_TYPE(fieldArr) == IS_ARRAY) {
+				zval *v = NULL;
+				ZEND_HASH_FOREACH_VAL(Z_ARRVAL(fieldArr), v) {
+					zend_update_property_string(gene_validate_ce, self, ZEND_STRL(GENE_VALIDATE_FIELD), Z_STRVAL_P(v));
+					skip = zend_hash_str_find(Z_ARRVAL_P(rules), "skip", 4);
+					if (skip && Z_TYPE_P(skip) == IS_TRUE && required (self) == 0) {
+						continue;
+					}
+					if (validCheck(self, v, rules, 1) == 0) {
+						isValid = 0;
+					}
+				}ZEND_HASH_FOREACH_END();
+			}
+			zval_ptr_dtor(&fieldArr);
+
+		}ZEND_HASH_FOREACH_END();
 	}
 
-	RETURN_TRUE;
+	if (isValid) {
+		RETURN_TRUE;
+	}
+	RETURN_FALSE;
 }
 /* }}} */
 
@@ -500,6 +670,19 @@ PHP_METHOD(gene_validate, getError)
 /* }}} */
 
 /*
+ * {{{ public gene_validate::rule_required()
+ */
+PHP_METHOD(gene_validate, rule_required)
+{
+	zval *self = getThis();
+	if (required (self)) {
+		RETURN_TRUE;
+	}
+	RETURN_FALSE;
+}
+/* }}} */
+
+/*
  * {{{ gene_validate_methods
  */
 zend_function_entry gene_validate_methods[] = {
@@ -513,6 +696,7 @@ zend_function_entry gene_validate_methods[] = {
 		PHP_ME(gene_validate, groupValid, NULL, ZEND_ACC_PUBLIC)
 		PHP_ME(gene_validate, getValue, gene_validate_get_value, ZEND_ACC_PUBLIC)
 		PHP_ME(gene_validate, getError, gene_validate_get_error, ZEND_ACC_PUBLIC)
+		PHP_ME(gene_validate, rule_required, NULL, ZEND_ACC_PUBLIC)
 		PHP_ME(gene_validate, __construct, gene_validate_construct, ZEND_ACC_PUBLIC|ZEND_ACC_CTOR)
 		PHP_ME(gene_validate, __call, gene_validate_call_arginfo, ZEND_ACC_PUBLIC)
 		{NULL, NULL, NULL}
