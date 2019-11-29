@@ -66,6 +66,49 @@ ZEND_BEGIN_ARG_INFO_EX(gene_validate_get_error, 0, 0, 1)
 ZEND_ARG_INFO(0, field)
 ZEND_END_ARG_INFO()
 
+ZEND_BEGIN_ARG_INFO_EX(gene_validate_rule_match, 0, 0, 1)
+ZEND_ARG_INFO(0, regex)
+ZEND_END_ARG_INFO()
+
+ZEND_BEGIN_ARG_INFO_EX(gene_validate_rule_max, 0, 0, 1)
+ZEND_ARG_INFO(0, max)
+ZEND_END_ARG_INFO()
+
+ZEND_BEGIN_ARG_INFO_EX(gene_validate_rule_min, 0, 0, 1)
+ZEND_ARG_INFO(0, min)
+ZEND_END_ARG_INFO()
+
+ZEND_BEGIN_ARG_INFO_EX(gene_validate_rule_range, 0, 0, 2)
+ZEND_ARG_INFO(0, min)
+ZEND_ARG_INFO(0, max)
+ZEND_END_ARG_INFO()
+
+ZEND_BEGIN_ARG_INFO_EX(gene_validate_rule_length, 0, 0, 2)
+ZEND_ARG_INFO(0, min)
+ZEND_ARG_INFO(0, max)
+ZEND_END_ARG_INFO()
+
+ZEND_BEGIN_ARG_INFO_EX(gene_validate_rule_size, 0, 0, 2)
+ZEND_ARG_INFO(0, min)
+ZEND_ARG_INFO(0, max)
+ZEND_END_ARG_INFO()
+
+ZEND_BEGIN_ARG_INFO_EX(gene_validate_rule_in, 0, 0, 1)
+ZEND_ARG_INFO(0, list)
+ZEND_END_ARG_INFO()
+
+ZEND_BEGIN_ARG_INFO_EX(gene_validate_rule_url, 0, 0, 1)
+ZEND_ARG_INFO(0, flags)
+ZEND_END_ARG_INFO()
+
+ZEND_BEGIN_ARG_INFO_EX(gene_validate_rule_datetime, 0, 0, 1)
+ZEND_ARG_INFO(0, format)
+ZEND_END_ARG_INFO()
+
+ZEND_BEGIN_ARG_INFO_EX(gene_validate_rule_equal, 0, 0, 1)
+ZEND_ARG_INFO(0, name)
+ZEND_END_ARG_INFO()
+
 ZEND_BEGIN_ARG_INFO_EX(gene_validate_call_arginfo, 0, 0, 2)
 	ZEND_ARG_INFO(0, method)
 	ZEND_ARG_INFO(0, params)
@@ -116,6 +159,45 @@ void gene_explode(char const *separator_str, char *string_str, zval *retval) /*{
     zval_ptr_dtor(&string);
 }/*}}}*/
 
+void gene_vsprintf(char *msg, zval *args, zval *retval) /*{{{*/
+{
+    zval function_name, strings;
+    ZVAL_STRING(&function_name, "vsprintf");
+    ZVAL_STRING(&strings, msg);
+	zval params[] = { strings, *args };
+    call_user_function(NULL, NULL, &function_name, retval, 2, params);
+    zval_ptr_dtor(&function_name);
+    zval_ptr_dtor(&strings);
+}/*}}}*/
+
+void gene_preg_match(zval *regex, zval *val, zval *retval) /*{{{*/
+{
+	zval function_name;
+	ZVAL_STRING(&function_name, "preg_match");
+	zval params[] = { *regex, *val };
+	call_user_function(NULL, NULL, &function_name, retval, 2, params);
+	zval_ptr_dtor(&function_name);
+}/*}}}*/
+
+void gene_mb_strlen(zval *val, char *bm, zval *retval) /*{{{*/
+{
+	zval function_name,bm_z;
+	ZVAL_STRING(&function_name, "mb_strlen");
+	ZVAL_STRING(&bm_z, bm);
+	zval params[] = { *val, bm_z };
+	call_user_function(NULL, NULL, &function_name, retval, 2, params);
+	zval_ptr_dtor(&function_name);
+	zval_ptr_dtor(&bm_z);
+}/*}}}*/
+
+void gene_in_array(zval *in, zval *array, zval *retval) /*{{{*/
+{
+	zval function_name;
+	ZVAL_STRING(&function_name, "in_array");
+	zval params[] = { *in, *array };
+	call_user_function(NULL, NULL, &function_name, retval, 2, params);
+	zval_ptr_dtor(&function_name);
+}/*}}}*/
 
 int required (zval *self){
 	zval *field = NULL, *data = NULL, *val = NULL;
@@ -151,6 +233,77 @@ int required (zval *self){
 	return 1;
 }
 
+int CompareSizeMax(zval *val, long max) {
+	switch(Z_TYPE_P(val)) {
+	case IS_LONG:
+		if (Z_LVAL_P(val) <= max) {
+			return 1;
+		}
+		break;
+	case IS_TRUE:
+		if (1 <= max) {
+			return 1;
+		}
+		break;
+	case IS_FALSE:
+		if (0 <= max) {
+			return 1;
+		}
+		break;
+	case IS_STRING:
+		zval a_new;
+		ZVAL_STRING(&a_new, Z_STRVAL_P(val));
+		convert_to_long(&a_new);
+		if (Z_LVAL(a_new) <= max) {
+			zval_ptr_dtor(&a_new);
+			return 1;
+		}
+		zval_ptr_dtor(&a_new);
+		break;
+	default:
+		if (0 <= max) {
+			return 1;
+		}
+		break;
+	}
+	return 0;
+}
+
+int CompareSizeMin(zval *val, long min) {
+	switch(Z_TYPE_P(val)) {
+	case IS_LONG:
+		if (Z_LVAL_P(val) >= min) {
+			return 1;
+		}
+		break;
+	case IS_TRUE:
+		if (1 >= min) {
+			return 1;
+		}
+		break;
+	case IS_FALSE:
+		if (0 >= min) {
+			return 1;
+		}
+		break;
+	case IS_STRING:
+		zval a_new;
+		ZVAL_STRING(&a_new, Z_STRVAL_P(val));
+		convert_to_long(&a_new);
+		if (Z_LVAL(a_new) >= min) {
+			zval_ptr_dtor(&a_new);
+			return 1;
+		}
+		zval_ptr_dtor(&a_new);
+		break;
+	default:
+		if (0 >= min) {
+			return 1;
+		}
+		break;
+	}
+	return 0;
+}
 
 /*
  * {{{ gene_validate
@@ -430,7 +583,7 @@ PHP_METHOD(gene_validate, msg)
 char *getErrorMsg(char *method) {
     char* names[]={"required","match","min","max","range","length","size","in","url","email","ip","mobile","date","datetime","int","number","digit","string","equal"};
     char* descs[]={"This field is required","Value is not in conformity with the regular expression","Please enter a value greater than %s","Please enter a value less than %s",
-    		"Please input more than %s, less than the value of %s","The length of the string of mistakes","The array size error",
+    		"Please input greater than %s, less than the value of %s","The length of the string of mistakes","The array size error",
     		"The field value is not allowed within the input range","Please input the correct url","Please enter the correct email address",
 			"Please input the correct IP address","Please enter the correct phone number","Please input the correct date","Please input the correct time",
 			"Please enter an integer","Please enter the Numbers","Please enter a string Numbers","Please enter a string","Please enter the same value as %s"};
@@ -493,8 +646,10 @@ int validCheck(zval *self, zval *date_field, zval *rules, int is_group) {
 								return isValid;
 							}
 						} else {
-							Z_TRY_ADDREF_P(date_field_val);
-							zend_hash_str_update(Z_ARRVAL_P(values), Z_STRVAL_P(date_field), Z_STRLEN_P(date_field), date_field_val);
+							if (zend_hash_str_exists(Z_ARRVAL_P(errors), Z_STRVAL_P(date_field), Z_STRLEN_P(date_field)) == 0) {
+								Z_TRY_ADDREF_P(date_field_val);
+								zend_hash_str_update(Z_ARRVAL_P(values), Z_STRVAL_P(date_field), Z_STRLEN_P(date_field), date_field_val);
+							}
 						}
 						zval_ptr_dtor(&ret);
 					}
@@ -513,7 +668,7 @@ int validCheck(zval *self, zval *date_field, zval *rules, int is_group) {
 							}
 							if (msg == NULL) {
 								zval tmp_msg;
-								ZVAL_STRING(&tmp_msg, getErrorMsg(ZSTR_VAL(method)));
+								gene_vsprintf(getErrorMsg(ZSTR_VAL(method)), args, &tmp_msg);
 								Z_TRY_ADDREF(tmp_msg);
 								zend_hash_str_update(Z_ARRVAL_P(errors), Z_STRVAL_P(date_field), Z_STRLEN_P(date_field), &tmp_msg);
 								zval_ptr_dtor(&tmp_msg);
@@ -527,8 +682,10 @@ int validCheck(zval *self, zval *date_field, zval *rules, int is_group) {
 								return isValid;
 							}
 						} else {
-							Z_TRY_ADDREF_P(date_field_val);
-							zend_hash_str_update(Z_ARRVAL_P(values), Z_STRVAL_P(date_field), Z_STRLEN_P(date_field), date_field_val);
+							if (zend_hash_str_exists(Z_ARRVAL_P(errors), Z_STRVAL_P(date_field), Z_STRLEN_P(date_field)) == 0) {
+								Z_TRY_ADDREF_P(date_field_val);
+								zend_hash_str_update(Z_ARRVAL_P(values), Z_STRVAL_P(date_field), Z_STRLEN_P(date_field), date_field_val);
+							}
 						}
 						zval_ptr_dtor(&ret);
 						efree(name);
@@ -682,6 +839,397 @@ PHP_METHOD(gene_validate, rule_required)
 }
 /* }}} */
 
+zval *getFieldVal(zval *self) {
+	zval * field = NULL, *data = NULL, *val = NULL;
+	field = zend_read_property(gene_validate_ce, self, ZEND_STRL(GENE_VALIDATE_FIELD), 1, NULL);
+
+	if (field && Z_TYPE_P(field) == IS_NULL) {
+		php_error_docref(NULL, E_ERROR, "Please call the name method in the first place!");
+	}
+
+	data = zend_read_property(gene_validate_ce, self, ZEND_STRL(GENE_VALIDATE_DATA), 1, NULL);
+	if (data && Z_TYPE_P(data) != IS_ARRAY) {
+		return NULL;
+	}
+	return zend_hash_str_find(Z_ARRVAL_P(data), Z_STRVAL_P(field), Z_STRLEN_P(field));
+}
+
+/*
+ * {{{ public gene_validate::rule_match($regex)
+ */
+PHP_METHOD(gene_validate, rule_match)
+{
+	zval *self = getThis(), *regex = NULL, *val = NULL;
+	if (zend_parse_parameters(ZEND_NUM_ARGS() TSRMLS_CC, "z", &regex) == FAILURE) {
+		return;
+	}
+
+	if ((val = getFieldVal(self)) == NULL) {
+		RETURN_FALSE;
+	}
+	zval retval;
+	gene_preg_match(regex, val, &retval);
+	if (Z_TYPE(retval) == IS_LONG && Z_LVAL(retval) > 0) {
+		RETURN_TRUE;
+	}
+	RETURN_FALSE;
+}
+/* }}} */
+
+/*
+ * {{{ public gene_validate::rule_max($max)
+ */
+PHP_METHOD(gene_validate, rule_max)
+{
+	zval *self = getThis(), *val = NULL;
+	long max = 0;
+	if (zend_parse_parameters(ZEND_NUM_ARGS() TSRMLS_CC, "l", &max) == FAILURE) {
+		return;
+	}
+
+	if ((val = getFieldVal(self)) == NULL) {
+		RETURN_FALSE;
+	}
+
+	if (CompareSizeMax(val, max)) {
+		RETURN_TRUE;
+	}
+	RETURN_FALSE;
+}
+/* }}} */
+
+/*
+ * {{{ public gene_validate::rule_min($min)
+ */
+PHP_METHOD(gene_validate, rule_min)
+{
+	zval *self = getThis(), *val = NULL;
+	long min = 0;
+	if (zend_parse_parameters(ZEND_NUM_ARGS() TSRMLS_CC, "l", &min) == FAILURE) {
+		return;
+	}
+
+	if ((val = getFieldVal(self)) == NULL) {
+		RETURN_FALSE;
+	}
+
+	if (CompareSizeMin(val, min)) {
+		RETURN_TRUE;
+	}
+	RETURN_FALSE;
+}
+/* }}} */
+
+/*
+ * {{{ public gene_validate::rule_range($min, $max)
+ */
+PHP_METHOD(gene_validate, rule_range)
+{
+	zval *self = getThis(), *val = NULL;
+	long min = 0, max = 0;
+	if (zend_parse_parameters(ZEND_NUM_ARGS() TSRMLS_CC, "ll", &min, &max) == FAILURE) {
+		return;
+	}
+
+	if ((val = getFieldVal(self)) == NULL) {
+		RETURN_FALSE;
+	}
+
+	if (CompareSizeMin(val, min) && CompareSizeMax(val, max)) {
+		RETURN_TRUE;
+	}
+	RETURN_FALSE;
+}
+/* }}} */
+
+
+/*
+ * {{{ public gene_validate::rule_length($min, $max)
+ */
+PHP_METHOD(gene_validate, rule_length)
+{
+	zval *self = getThis(), *val = NULL;
+	long min = 0, max = 0;
+	if (zend_parse_parameters(ZEND_NUM_ARGS() TSRMLS_CC, "ll", &min, &max) == FAILURE) {
+		return;
+	}
+
+	if ((val = getFieldVal(self)) == NULL) {
+		RETURN_FALSE;
+	}
+
+	if (Z_TYPE_P(val) != IS_STRING) {
+		RETURN_FALSE;
+	}
+
+	zval ret;
+	gene_mb_strlen(val, "UTF8", &ret);
+	if (Z_TYPE(ret) == IS_LONG && Z_LVAL(ret) >= min && Z_LVAL(ret) <= max) {
+		zval_ptr_dtor(&ret);
+		RETURN_TRUE;
+	}
+	zval_ptr_dtor(&ret);
+	RETURN_FALSE;
+}
+/* }}} */
+
+/*
+ * {{{ public gene_validate::rule_size($min, $max)
+ */
+PHP_METHOD(gene_validate, rule_size)
+{
+	zval *self = getThis(), *val = NULL;
+	long min = 0, max = 0;
+	if (zend_parse_parameters(ZEND_NUM_ARGS() TSRMLS_CC, "ll", &min, &max) == FAILURE) {
+		return;
+	}
+
+	if ((val = getFieldVal(self)) == NULL) {
+		RETURN_FALSE;
+	}
+
+	if (Z_TYPE_P(val) != IS_ARRAY) {
+		RETURN_FALSE;
+	}
+
+	int num = zend_hash_num_elements(Z_ARRVAL_P(val));
+	if (num >= min && num <= max) {
+		RETURN_TRUE;
+	}
+	RETURN_FALSE;
+}
+/* }}} */
+
+/*
+ * {{{ public gene_validate::rule_in()
+ */
+PHP_METHOD(gene_validate, rule_in)
+{
+	zval *self = getThis(), *list = NULL, *val = NULL;
+	if (zend_parse_parameters(ZEND_NUM_ARGS() TSRMLS_CC, "z", &list) == FAILURE) {
+		return;
+	}
+
+	if ((val = getFieldVal(self)) == NULL) {
+		RETURN_FALSE;
+	}
+
+	if (Z_TYPE_P(list) != IS_ARRAY) {
+		RETURN_FALSE;
+	}
+
+	zval ret;
+	gene_in_array(val, list, &ret);
+	if (Z_TYPE(ret) == IS_TRUE) {
+		zval_ptr_dtor(&ret);
+		RETURN_TRUE;
+	}
+	zval_ptr_dtor(&ret);
+	RETURN_FALSE;
+}
+/* }}} */
+
+/*
+ * {{{ public gene_validate::rule_url($flags)
+ */
+PHP_METHOD(gene_validate, rule_url)
+{
+	zval *self = getThis(), *flags = NULL, *val = NULL;
+	if (zend_parse_parameters(ZEND_NUM_ARGS() TSRMLS_CC, "z", &flags) == FAILURE) {
+		return;
+	}
+
+	if ((val = getFieldVal(self)) == NULL) {
+		RETURN_FALSE;
+	}
+
+	RETURN_FALSE;
+}
+/* }}} */
+
+/*
+ * {{{ public gene_validate::rule_email()
+ */
+PHP_METHOD(gene_validate, rule_email)
+{
+	zval *self = getThis(), *val = NULL;
+
+	if ((val = getFieldVal(self)) == NULL) {
+		RETURN_FALSE;
+	}
+
+	RETURN_FALSE;
+}
+/* }}} */
+
+/*
+ * {{{ public gene_validate::rule_ip()
+ */
+PHP_METHOD(gene_validate, rule_ip)
+{
+	zval *self = getThis(), *val = NULL;
+
+	if ((val = getFieldVal(self)) == NULL) {
+		RETURN_FALSE;
+	}
+
+	RETURN_FALSE;
+}
+/* }}} */
+
+/*
+ * {{{ public gene_validate::rule_mobile()
+ */
+PHP_METHOD(gene_validate, rule_mobile)
+{
+	zval *self = getThis(), *val = NULL;
+
+	if ((val = getFieldVal(self)) == NULL) {
+		RETURN_FALSE;
+	}
+
+
+	RETURN_FALSE;
+}
+/* }}} */
+
+/*
+ * {{{ public gene_validate::rule_date()
+ */
+PHP_METHOD(gene_validate, rule_date)
+{
+	zval *self = getThis(), *val = NULL;
+
+	if ((val = getFieldVal(self)) == NULL) {
+		RETURN_FALSE;
+	}
+
+
+	RETURN_FALSE;
+}
+/* }}} */
+
+/*
+ * {{{ public gene_validate::rule_datetime()
+ */
+PHP_METHOD(gene_validate, rule_datetime)
+{
+	zval *self = getThis(), *val = NULL;
+
+	if ((val = getFieldVal(self)) == NULL) {
+		RETURN_FALSE;
+	}
+
+
+	RETURN_FALSE;
+}
+/* }}} */
+
+/*
+ * {{{ public gene_validate::rule_number()
+ */
+PHP_METHOD(gene_validate, rule_number)
+{
+	zval *self = getThis(), *val = NULL;
+
+	if ((val = getFieldVal(self)) == NULL) {
+		RETURN_FALSE;
+	}
+
+	zval ret;
+	gene_factory_call_2("is_numeric", val, &ret);
+	if (Z_TYPE(ret) == IS_TRUE) {
+		zval_ptr_dtor(&ret);
+		RETURN_TRUE;
+	}
+	zval_ptr_dtor(&ret);
+	RETURN_FALSE;
+}
+/* }}} */
+
+/*
+ * {{{ public gene_validate::rule_int()
+ */
+PHP_METHOD(gene_validate, rule_int)
+{
+	zval *self = getThis(), *val = NULL;
+
+	if ((val = getFieldVal(self)) == NULL) {
+		RETURN_FALSE;
+	}
+
+	zval ret;
+	gene_factory_call_2("is_int", val, &ret);
+	if (Z_TYPE(ret) == IS_TRUE) {
+		zval_ptr_dtor(&ret);
+		RETURN_TRUE;
+	}
+	zval_ptr_dtor(&ret);
+	RETURN_FALSE;
+}
+/* }}} */
+
+/*
+ * {{{ public gene_validate::rule_digit()
+ */
+PHP_METHOD(gene_validate, rule_digit)
+{
+	zval *self = getThis(), *val = NULL;
+
+	if ((val = getFieldVal(self)) == NULL) {
+		RETURN_FALSE;
+	}
+	zval ret1,ret2;
+	gene_factory_call_2("is_int", val, &ret1);
+	gene_factory_call_2("ctype_digit", val, &ret2);
+	if (Z_TYPE(ret1) == IS_TRUE && Z_TYPE(ret2) == IS_TRUE) {
+		zval_ptr_dtor(&ret1);
+		zval_ptr_dtor(&ret2);
+		RETURN_TRUE;
+	}
+	zval_ptr_dtor(&ret1);
+	zval_ptr_dtor(&ret2);
+	RETURN_FALSE;
+}
+/* }}} */
+
+/*
+ * {{{ public gene_validate::rule_string()
+ */
+PHP_METHOD(gene_validate, rule_string)
+{
+	zval *self = getThis(), *val = NULL;
+
+	if ((val = getFieldVal(self)) == NULL) {
+		RETURN_FALSE;
+	}
+	zval ret;
+	gene_factory_call_2("is_string", val, &ret);
+	if (Z_TYPE(ret) == IS_TRUE) {
+		zval_ptr_dtor(&ret);
+		RETURN_TRUE;
+	}
+	zval_ptr_dtor(&ret);
+	RETURN_FALSE;
+}
+/* }}} */
+
+/*
+ * {{{ public gene_validate::rule_equal()
+ */
+PHP_METHOD(gene_validate, rule_equal)
+{
+	zval *self = getThis(), *val = NULL;
+
+	if ((val = getFieldVal(self)) == NULL) {
+		RETURN_FALSE;
+	}
+
+
+	RETURN_FALSE;
+}
+/* }}} */
+
 /*
  * {{{ gene_validate_methods
  */
@@ -697,6 +1245,24 @@ zend_function_entry gene_validate_methods[] = {
 		PHP_ME(gene_validate, getValue, gene_validate_get_value, ZEND_ACC_PUBLIC)
 		PHP_ME(gene_validate, getError, gene_validate_get_error, ZEND_ACC_PUBLIC)
 		PHP_ME(gene_validate, rule_required, NULL, ZEND_ACC_PUBLIC)
+		PHP_ME(gene_validate, rule_match, gene_validate_rule_match, ZEND_ACC_PUBLIC)
+		PHP_ME(gene_validate, rule_max, gene_validate_rule_max, ZEND_ACC_PUBLIC)
+		PHP_ME(gene_validate, rule_min, gene_validate_rule_min, ZEND_ACC_PUBLIC)
+		PHP_ME(gene_validate, rule_range, gene_validate_rule_range, ZEND_ACC_PUBLIC)
+		PHP_ME(gene_validate, rule_length, gene_validate_rule_length, ZEND_ACC_PUBLIC)
+		PHP_ME(gene_validate, rule_size, gene_validate_rule_size, ZEND_ACC_PUBLIC)
+		PHP_ME(gene_validate, rule_in, gene_validate_rule_in, ZEND_ACC_PUBLIC)
+		PHP_ME(gene_validate, rule_url, gene_validate_rule_url, ZEND_ACC_PUBLIC)
+		PHP_ME(gene_validate, rule_email, NULL, ZEND_ACC_PUBLIC)
+		PHP_ME(gene_validate, rule_ip, NULL, ZEND_ACC_PUBLIC)
+		PHP_ME(gene_validate, rule_mobile, NULL, ZEND_ACC_PUBLIC)
+		PHP_ME(gene_validate, rule_date, NULL, ZEND_ACC_PUBLIC)
+		PHP_ME(gene_validate, rule_datetime, gene_validate_rule_datetime, ZEND_ACC_PUBLIC)
+		PHP_ME(gene_validate, rule_number, NULL, ZEND_ACC_PUBLIC)
+		PHP_ME(gene_validate, rule_int, NULL, ZEND_ACC_PUBLIC)
+		PHP_ME(gene_validate, rule_digit, NULL, ZEND_ACC_PUBLIC)
+		PHP_ME(gene_validate, rule_string, NULL, ZEND_ACC_PUBLIC)
+		PHP_ME(gene_validate, rule_equal, gene_validate_rule_equal, ZEND_ACC_PUBLIC)
 		PHP_ME(gene_validate, __construct, gene_validate_construct, ZEND_ACC_PUBLIC|ZEND_ACC_CTOR)
 		PHP_ME(gene_validate, __call, gene_validate_call_arginfo, ZEND_ACC_PUBLIC)
 		{NULL, NULL, NULL}

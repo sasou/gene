@@ -158,8 +158,6 @@ zend_bool gene_factory(char *className, int tmp_len, zval *params, zval *classOb
 void gene_factory_call_1(zval *object, char *action, zval *param, zval *retval) /*{{{*/
 {
     zval function_name;
-    uint param_count = 0;
-
     ZVAL_STRING(&function_name, action);
     if (param && Z_TYPE_P(param) == IS_ARRAY) {
     	zval params[1];
@@ -171,6 +169,19 @@ void gene_factory_call_1(zval *object, char *action, zval *param, zval *retval) 
     zval_ptr_dtor(&function_name);
 }/*}}}*/
 
+void gene_factory_call_2(char *method, zval *key, zval *retval) /*{{{*/
+{
+    zval function_name;
+    ZVAL_STRING(&function_name, method);
+    if (key) {
+    	zval params[1];
+    	params[0] = *key;
+        call_user_function(NULL, NULL, &function_name, retval, 1, params);
+    } else {
+    	call_user_function(NULL, NULL, &function_name, retval, 0, NULL);
+    }
+    zval_ptr_dtor(&function_name);
+}/*}}}*/
 
 /*
  * {{{ gene_factory
