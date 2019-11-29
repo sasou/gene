@@ -41,7 +41,7 @@ PHP_METHOD(ce, is##x) {\
 #define GENE_REQUEST_METHOD(ce, x, type) \
 PHP_METHOD(ce, x) { \
 	char *name = NULL; \
-	zend_long name_len = 0;  \
+	int name_len = 0;  \
     zval *ret = NULL, *def = NULL; \
 	if (zend_parse_parameters(ZEND_NUM_ARGS() TSRMLS_CC, "|sz", &name, &name_len, &def) == FAILURE) { \
 		return; \
