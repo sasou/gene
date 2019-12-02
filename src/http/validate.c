@@ -423,7 +423,7 @@ PHP_METHOD(gene_validate, skipOnEmpty)
 
 	if ((skip = zend_hash_str_find(Z_ARRVAL_P(keyArr), "skip", 4)) == NULL) {
 		zval val;
-		ZVAL_BOOL(&val , TRUE);
+		ZVAL_BOOL(&val , 1);
 		Z_TRY_ADDREF(val);
 		zend_hash_str_update(Z_ARRVAL_P(keyArr), "skip", 4, &val);
 		zval_ptr_dtor(&val);
