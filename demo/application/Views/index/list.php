@@ -65,37 +65,49 @@
   <li class="layui-timeline-item">
     <i class="layui-icon layui-timeline-axis"></i>
     <div class="layui-timeline-content layui-text">
-      <div class="layui-timeline-title">2019年9月，Gene 3.0.5 发布。完美支持swoole。。。</div>
+      <div class="layui-timeline-title">2019年12月，Gene 3.2.0 发布。增加万能验证类。。。</div>
     </div>
   </li>
   <li class="layui-timeline-item">
     <i class="layui-icon layui-timeline-axis"></i>
     <div class="layui-timeline-content layui-sm">
-      <div class="layui-timeline-title">2019年6月，Gene 3.0.2 发布。实时版本缓存，性能提升。。。</div>
+      <div class="layui-timeline-title">2019年11月，Gene 3.1.0 发布。支持多数据库（mysql、postgresql、sqlserver、sqlite）。。。</div>
+    </div>
+  </li>
+  <li class="layui-timeline-item">
+    <i class="layui-icon layui-timeline-axis"></i>
+    <div class="layui-timeline-content layui-sm">
+      <div class="layui-timeline-title">2019年09月，Gene 3.0.5 发布。完美支持swoole。。。</div>
+    </div>
+  </li>
+  <li class="layui-timeline-item">
+    <i class="layui-icon layui-timeline-axis"></i>
+    <div class="layui-timeline-content layui-sm">
+      <div class="layui-timeline-title">2019年06月，Gene 3.0.2 发布。实时版本缓存，性能提升。。。</div>
     </div>
   </li>
   <li class="layui-timeline-item">
     <i class="layui-icon layui-timeline-axis"></i>
     <div class="layui-timeline-content layui-text-sm">
-      <div class="layui-timeline-title">2018年7月，Gene 2.2.0 发布。陆续被多个大型商业项目使用。。。</div>
+      <div class="layui-timeline-title">2018年07月，Gene 2.2.0 发布。陆续被多个大型商业项目使用。。。</div>
     </div>
   </li>
   <li class="layui-timeline-item">
     <i class="layui-icon layui-timeline-axis"></i>
     <div class="layui-timeline-content layui-text-sm">
-      <div class="layui-timeline-title">2017年6月，Gene 里程碑版本 1.2.3 发布，完善了框架的基本元素。。。</div>
+      <div class="layui-timeline-title">2017年06月，Gene 里程碑版本 1.2.3 发布，完善了框架的基本元素。。。</div>
     </div>
   </li>
   <li class="layui-timeline-item">
     <i class="layui-icon layui-timeline-axis"></i>
     <div class="layui-timeline-content layui-text-sm">
-      <div class="layui-timeline-title">2016年5月，Gene 首个版本 1.0 发布。应用到线上重要的项目。。。</div>
+      <div class="layui-timeline-title">2016年05月，Gene 首个版本 1.0 发布。应用到线上重要的项目。。。</div>
     </div>
   </li>
   <li class="layui-timeline-item">
     <i class="layui-icon layui-timeline-axis"></i>
     <div class="layui-timeline-content layui-text-sm">
-      <div class="layui-timeline-title">2016年3月，Gene 孵化。</div>
+      <div class="layui-timeline-title">2016年03月，Gene 孵化。</div>
     </div>
   </li>
   <li class="layui-timeline-item">
@@ -105,5 +117,5 @@
     </div>
   </li>
 </ul>
-        </div>
+  </div>
 </div>

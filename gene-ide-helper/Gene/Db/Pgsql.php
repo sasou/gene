@@ -4,7 +4,7 @@ namespace Gene\Db;
 /**
  * Service
  * 
- * @property \Gene\Db\Mysql $mydb
+ * @property \Gene\Db\Pgsql $pgdb
  * @property \Gene\Cache\Memcache $memcache
  * @property \Gene\Cache\Redis $redis
  * @property \Gene\Cache\Cache $cache
@@ -14,7 +14,7 @@ namespace Gene\Db;
  * @version  3.2.0
  */
  
-class Mysql
+class Pgsql
 {
     public $config;
     public $pdo;
