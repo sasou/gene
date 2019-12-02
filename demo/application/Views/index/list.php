@@ -3,7 +3,7 @@
   <a href="#">
     <p class="fly-case-banner layui-text"> Simple, high performance,C extension framework for php！ </p>
   </a>
-  <p class="fly-case-version">最新版本：V<?php echo gene_version();?> （May 25, 2019 更新）</p>
+  <p class="fly-case-version">最新版本：V<?php echo gene_version();?> （Dec 12, 2019 更新）</p>
   <div class="fly-case-btn">
     <a href="https://github.com/sasou/php-gene-for-php7" target="_blank" class="layui-btn layui-btn-big fly-case-active">获取Linux版本</a>
     <a href="https://github.com/sasou/php-gene-for-windows" target="_blank" class="layui-btn layui-btn-primary layui-btn-big">获取windows版本</a>
