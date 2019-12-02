@@ -65,7 +65,7 @@ ZEND_BEGIN_ARG_INFO_EX(gene_request_set_arginfo, 0, 0, 2)
 ZEND_END_ARG_INFO()
 /* }}} */
 
-zval * request_query(zend_ulong type, char * name, int len TSRMLS_DC) {
+zval * request_query(zend_ulong type, char * name, size_t len TSRMLS_DC) {
 	zval *carrier = NULL, *ret;
 	zend_bool jit_initialization = PG(auto_globals_jit);
 
@@ -136,7 +136,7 @@ void setVal(zend_ulong type, zval *value) {
 	}
 }
 
-zval *getVal(zend_ulong type, char *name, int len) {
+zval *getVal(zend_ulong type, char *name, size_t len) {
 	zval *attr = zend_read_static_property(gene_request_ce, GENE_REQUEST_PROPERTY_ATTR, strlen(GENE_REQUEST_PROPERTY_ATTR), 1);
     zval *val = NULL;
 
