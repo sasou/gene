@@ -37,7 +37,6 @@ $router->clear()
     ->post("/:a", "Controllers\Doc\Mark@:a", "adminAuth@")
     ->group()
         
-        
     ->error(404, function() {
         echo 404;
     })
