@@ -274,7 +274,8 @@ int required (zval *self){
 	return 1;
 }
 
-int CompareSizeMax(zval *val, long max) {
+int compareSizeMax(zval *val, long max) {
+	zval a_new;
 	switch(Z_TYPE_P(val)) {
 	case IS_LONG:
 		if (Z_LVAL_P(val) <= max) {
@@ -292,7 +293,6 @@ int CompareSizeMax(zval *val, long max) {
 		}
 		break;
 	case IS_STRING:
-		zval a_new;
 		ZVAL_STRING(&a_new, Z_STRVAL_P(val));
 		convert_to_long(&a_new);
 		if (Z_LVAL(a_new) <= max) {
@@ -310,7 +310,8 @@ int CompareSizeMax(zval *val, long max) {
 	return 0;
 }
 
-int CompareSizeMin(zval *val, long min) {
+int compareSizeMin(zval *val, long min) {
+	zval a_new;
 	switch(Z_TYPE_P(val)) {
 	case IS_LONG:
 		if (Z_LVAL_P(val) >= min) {
@@ -328,7 +329,6 @@ int CompareSizeMin(zval *val, long min) {
 		}
 		break;
 	case IS_STRING:
-		zval a_new;
 		ZVAL_STRING(&a_new, Z_STRVAL_P(val));
 		convert_to_long(&a_new);
 		if (Z_LVAL(a_new) >= min) {
@@ -942,7 +942,7 @@ PHP_METHOD(gene_validate, rule_max)
 		RETURN_FALSE;
 	}
 
-	if (CompareSizeMax(val, max)) {
+	if (compareSizeMax(val, max)) {
 		RETURN_TRUE;
 	}
 	RETURN_FALSE;
@@ -964,7 +964,7 @@ PHP_METHOD(gene_validate, rule_min)
 		RETURN_FALSE;
 	}
 
-	if (CompareSizeMin(val, min)) {
+	if (compareSizeMin(val, min)) {
 		RETURN_TRUE;
 	}
 	RETURN_FALSE;
@@ -986,7 +986,7 @@ PHP_METHOD(gene_validate, rule_range)
 		RETURN_FALSE;
 	}
 
-	if (CompareSizeMin(val, min) && CompareSizeMax(val, max)) {
+	if (compareSizeMin(val, min) && compareSizeMax(val, max)) {
 		RETURN_TRUE;
 	}
 	RETURN_FALSE;
