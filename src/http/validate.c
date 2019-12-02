@@ -199,6 +199,47 @@ void gene_in_array(zval *in, zval *array, zval *retval) /*{{{*/
 	zval_ptr_dtor(&function_name);
 }/*}}}*/
 
+void gene_preg_match_str(char *regexStr, zval *val, zval *retval) /*{{{*/
+{
+	zval function_name, regex;
+	ZVAL_STRING(&function_name, "preg_match");
+	ZVAL_STRING(&regex, regexStr);
+	zval params[] = { regex, *val };
+	call_user_function(NULL, NULL, &function_name, retval, 2, params);
+	zval_ptr_dtor(&function_name);
+	zval_ptr_dtor(&regex);
+}/*}}}*/
+
+void gene_date(zval *format, zval *time, zval *retval) /*{{{*/
+{
+	zval function_name;
+	ZVAL_STRING(&function_name, "date");
+	zval params[] = { *format, *time };
+	call_user_function(NULL, NULL, &function_name, retval, 2, params);
+	zval_ptr_dtor(&function_name);
+}/*}}}*/
+
+
+void gene_filter(zval *value, zend_long filter_l, zend_long options_l, zval *retval) /*{{{*/
+{
+	zval function_name, filter;
+	ZVAL_STRING(&function_name, "filter_var");
+	ZVAL_LONG(&filter, filter_l);
+	if (options_l > 0) {
+		zval options;
+		ZVAL_LONG(&options, options_l);
+		zval params[] = { *value, filter, options };
+		call_user_function(NULL, NULL, &function_name, retval, 3, params);
+		zval_ptr_dtor(&options);
+	} else {
+		zval params[] = { *value, filter };
+		call_user_function(NULL, NULL, &function_name, retval, 2, params);
+	}
+	zval_ptr_dtor(&function_name);
+	zval_ptr_dtor(&filter);
+}/*}}}*/
+
+
 int required (zval *self){
 	zval *field = NULL, *data = NULL, *val = NULL;
 	field = zend_read_property(gene_validate_ce, self, ZEND_STRL(GENE_VALIDATE_FIELD), 1, NULL);
@@ -840,7 +881,7 @@ PHP_METHOD(gene_validate, rule_required)
 /* }}} */
 
 zval *getFieldVal(zval *self) {
-	zval * field = NULL, *data = NULL, *val = NULL;
+	zval * field = NULL, *data = NULL;
 	field = zend_read_property(gene_validate_ce, self, ZEND_STRL(GENE_VALIDATE_FIELD), 1, NULL);
 
 	if (field && Z_TYPE_P(field) == IS_NULL) {
@@ -848,6 +889,16 @@ zval *getFieldVal(zval *self) {
 	}
 
 	data = zend_read_property(gene_validate_ce, self, ZEND_STRL(GENE_VALIDATE_DATA), 1, NULL);
+	if (data && Z_TYPE_P(data) != IS_ARRAY) {
+		return NULL;
+	}
+	return zend_hash_str_find(Z_ARRVAL_P(data), Z_STRVAL_P(field), Z_STRLEN_P(field));
+}
+
+zval *getFieldVal_1(zval *self, zval *field) {
+	zval *data = NULL;
+	data = zend_read_property(gene_validate_ce, self, ZEND_STRL(GENE_VALIDATE_DATA), 1, NULL);
+
 	if (data && Z_TYPE_P(data) != IS_ARRAY) {
 		return NULL;
 	}
@@ -1034,8 +1085,9 @@ PHP_METHOD(gene_validate, rule_in)
  */
 PHP_METHOD(gene_validate, rule_url)
 {
-	zval *self = getThis(), *flags = NULL, *val = NULL;
-	if (zend_parse_parameters(ZEND_NUM_ARGS() TSRMLS_CC, "z", &flags) == FAILURE) {
+	zval *self = getThis(), *val = NULL;
+	zend_long flags_l = 0;
+	if (zend_parse_parameters(ZEND_NUM_ARGS() TSRMLS_CC, "|l", &flags_l) == FAILURE) {
 		return;
 	}
 
@@ -1043,7 +1095,18 @@ PHP_METHOD(gene_validate, rule_url)
 		RETURN_FALSE;
 	}
 
-	RETURN_FALSE;
+	zval retval;
+	if (flags_l > 0) {
+		gene_filter(val, 273, flags_l, &retval);
+	} else {
+		gene_filter(val, 273, 131072, &retval);
+	}
+	if (Z_TYPE(retval) == IS_FALSE) {
+		zval_ptr_dtor(&retval);
+		RETURN_FALSE;
+	}
+	zval_ptr_dtor(&retval);
+	RETURN_TRUE;
 }
 /* }}} */
 
@@ -1058,7 +1121,14 @@ PHP_METHOD(gene_validate, rule_email)
 		RETURN_FALSE;
 	}
 
-	RETURN_FALSE;
+	zval retval;
+	gene_filter(val, 274, 0, &retval);
+	if (Z_TYPE(retval) == IS_FALSE) {
+		zval_ptr_dtor(&retval);
+		RETURN_FALSE;
+	}
+	zval_ptr_dtor(&retval);
+	RETURN_TRUE;
 }
 /* }}} */
 
@@ -1073,6 +1143,32 @@ PHP_METHOD(gene_validate, rule_ip)
 		RETURN_FALSE;
 	}
 
+	if (Z_TYPE_P(val) != IS_STRING) {
+		RETURN_FALSE;
+	}
+
+	zval ipint;
+	gene_factory_call_2("ip2long", val, &ipint);
+	if (Z_TYPE(ipint) != IS_LONG) {
+		zval_ptr_dtor(&ipint);
+		RETURN_FALSE;
+	}
+
+	zval ipstr;
+	gene_factory_call_2("long2ip", &ipint, &ipstr);
+	if (Z_TYPE(ipstr) != IS_STRING) {
+		zval_ptr_dtor(&ipstr);
+		zval_ptr_dtor(&ipint);
+		RETURN_FALSE;
+	}
+
+	if (strcmp(Z_STRVAL_P(val), Z_STRVAL(ipstr)) == 0) {;
+		zval_ptr_dtor(&ipstr);
+		zval_ptr_dtor(&ipint);
+		RETURN_TRUE;
+	}
+	zval_ptr_dtor(&ipstr);
+	zval_ptr_dtor(&ipint);
 	RETURN_FALSE;
 }
 /* }}} */
@@ -1088,7 +1184,11 @@ PHP_METHOD(gene_validate, rule_mobile)
 		RETURN_FALSE;
 	}
 
-
+	zval retval;
+	gene_preg_match_str(GENE_VALIDATE_MOBILE, val, &retval);
+	if (Z_TYPE(retval) == IS_LONG && Z_LVAL(retval) > 0) {
+		RETURN_TRUE;
+	}
 	RETURN_FALSE;
 }
 /* }}} */
@@ -1104,7 +1204,11 @@ PHP_METHOD(gene_validate, rule_date)
 		RETURN_FALSE;
 	}
 
-
+	zval retval;
+	gene_preg_match_str(GENE_VALIDATE_DATE, val, &retval);
+	if (Z_TYPE(retval) == IS_LONG && Z_LVAL(retval) > 0) {
+		RETURN_TRUE;
+	}
 	RETURN_FALSE;
 }
 /* }}} */
@@ -1115,12 +1219,44 @@ PHP_METHOD(gene_validate, rule_date)
 PHP_METHOD(gene_validate, rule_datetime)
 {
 	zval *self = getThis(), *val = NULL;
+	char *format_str = NULL;
+	int format_str_len = 0;
+	if (zend_parse_parameters(ZEND_NUM_ARGS() TSRMLS_CC, "|s", &format_str, &format_str_len) == FAILURE) {
+		return;
+	}
 
 	if ((val = getFieldVal(self)) == NULL) {
 		RETURN_FALSE;
 	}
 
+	if (Z_TYPE_P(val) != IS_STRING) {
+		RETURN_FALSE;
+	}
 
+	zval time;
+	gene_factory_call_2("strtotime", val, &time);
+	if (Z_TYPE(time) != IS_LONG) {
+		zval_ptr_dtor(&time);
+		RETURN_FALSE;
+	}
+
+	zval format;
+	if (format_str_len > 0) {
+		ZVAL_STRING(&format, format_str);
+	} else {
+		ZVAL_STRING(&format, "Y-m-d H:i:s");
+	}
+	zval datetime;
+	gene_date(&format, &time, &datetime);
+	if (strcmp(Z_STRVAL_P(val), Z_STRVAL(datetime)) == 0) {
+		zval_ptr_dtor(&datetime);
+		zval_ptr_dtor(&format);
+		zval_ptr_dtor(&time);
+		RETURN_TRUE
+	}
+	zval_ptr_dtor(&datetime);
+	zval_ptr_dtor(&format);
+	zval_ptr_dtor(&time);
 	RETURN_FALSE;
 }
 /* }}} */
@@ -1182,7 +1318,7 @@ PHP_METHOD(gene_validate, rule_digit)
 	zval ret1,ret2;
 	gene_factory_call_2("is_int", val, &ret1);
 	gene_factory_call_2("ctype_digit", val, &ret2);
-	if (Z_TYPE(ret1) == IS_TRUE && Z_TYPE(ret2) == IS_TRUE) {
+	if (Z_TYPE(ret1) == IS_TRUE || Z_TYPE(ret2) == IS_TRUE) {
 		zval_ptr_dtor(&ret1);
 		zval_ptr_dtor(&ret2);
 		RETURN_TRUE;
@@ -1219,13 +1355,50 @@ PHP_METHOD(gene_validate, rule_string)
  */
 PHP_METHOD(gene_validate, rule_equal)
 {
-	zval *self = getThis(), *val = NULL;
+	zval *self = getThis(), *val = NULL, *name = NULL;
+	if (zend_parse_parameters(ZEND_NUM_ARGS() TSRMLS_CC, "z", &name) == FAILURE) {
+		return;
+	}
 
 	if ((val = getFieldVal(self)) == NULL) {
 		RETURN_FALSE;
 	}
 
+	zval *nameVal = NULL;
+	if ((nameVal = getFieldVal_1(self, name)) == NULL) {
+		RETURN_FALSE;
+	}
 
+	if (Z_TYPE_P(val) != Z_TYPE_P(nameVal)) {
+		RETURN_FALSE;
+	}
+
+	switch(Z_TYPE_P(val)) {
+	case IS_NULL:
+		RETURN_TRUE;
+		break;
+	case IS_TRUE:
+		RETURN_TRUE;
+		break;
+	case IS_FALSE:
+		RETURN_TRUE;
+		break;
+	case IS_LONG:
+		if (Z_LVAL_P(val) == Z_LVAL_P(nameVal)) {
+			RETURN_TRUE;
+		}
+		break;
+	case IS_DOUBLE:
+		if (Z_DVAL_P(val) == Z_DVAL_P(nameVal)) {
+			RETURN_TRUE;
+		}
+		break;
+	case IS_STRING:
+		if (strcmp(Z_STRVAL_P(val), Z_STRVAL_P(nameVal)) == 0) {
+			RETURN_TRUE
+		}
+		break;
+	}
 	RETURN_FALSE;
 }
 /* }}} */
