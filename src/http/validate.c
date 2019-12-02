@@ -844,6 +844,28 @@ PHP_METHOD(gene_validate, getValue)
 /* }}} */
 
 /*
+ * {{{ public gene_validate::error()
+ */
+PHP_METHOD(gene_validate, error)
+{
+	zval *self = getThis(), *error = NULL;
+
+	error = zend_read_property(gene_validate_ce, self, ZEND_STRL(GENE_VALIDATE_ERROR), 1, NULL);
+	if (error && Z_TYPE_P(error) != IS_ARRAY) {
+		RETURN_NULL();
+	}
+
+	zval *v = NULL;
+	ZEND_HASH_FOREACH_VAL(Z_ARRVAL_P(error), v) {
+		RETURN_ZVAL(v, 1, 0);
+		break;
+	}ZEND_HASH_FOREACH_END();
+
+	RETURN_NULL();
+}
+/* }}} */
+
+/*
  * {{{ public gene_validate::getError($field)
  */
 PHP_METHOD(gene_validate, getError)
@@ -1415,6 +1437,7 @@ zend_function_entry gene_validate_methods[] = {
 		PHP_ME(gene_validate, msg, gene_validate_msg, ZEND_ACC_PUBLIC)
 		PHP_ME(gene_validate, valid, NULL, ZEND_ACC_PUBLIC)
 		PHP_ME(gene_validate, groupValid, NULL, ZEND_ACC_PUBLIC)
+		PHP_ME(gene_validate, error, NULL, ZEND_ACC_PUBLIC)
 		PHP_ME(gene_validate, getValue, gene_validate_get_value, ZEND_ACC_PUBLIC)
 		PHP_ME(gene_validate, getError, gene_validate_get_error, ZEND_ACC_PUBLIC)
 		PHP_ME(gene_validate, rule_required, NULL, ZEND_ACC_PUBLIC)
