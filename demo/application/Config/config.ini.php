@@ -17,6 +17,11 @@ $config->set("response", [
     'class' => '\Gene\Response'
 ]);
 
+//http验证类注入配置
+$config->set("validate", [
+    'class' => '\Gene\Validate'
+]);
+
 //http响应类注入配置
 $config->set("session", [
     'class' => '\Ext\Session',

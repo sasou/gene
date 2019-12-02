@@ -49,7 +49,7 @@ class Mark extends \Gene\Service
     function row($id)
     {
         // 方法级定时缓存一分钟
-        return $this->cache->cached(["\Models\Doc\Mark", "row"], [$id], 60);
+        return $this->cache->cached(["\Models\Doc\Mark", "row"], [$id], 3);
     }
     
     /**

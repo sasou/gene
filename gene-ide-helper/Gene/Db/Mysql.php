@@ -4,14 +4,14 @@ namespace Gene\Db;
 /**
  * Service
  * 
- * @property \Gene\Db\Mysql $db
+ * @property \Gene\Db\Mysql $mydb
  * @property \Gene\Cache\Memcache $memcache
  * @property \Gene\Cache\Redis $redis
  * @property \Gene\Cache\Cache $cache
  * @property \Ext\Services\Rest $rest
  * 
  * @author  sasou<admin@php-gene.com>
- * @version  3.0.5
+ * @version  3.2.0
  */
  
 class Mysql
@@ -43,7 +43,7 @@ class Mysql
      * @return mixed
      */
     public function getPdo() {
-
+        return self;
     }
 
     /**

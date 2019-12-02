@@ -45,12 +45,17 @@ class Index extends \Gene\Controller
     function loginPost()
     {
         $data = $this->request->post;
-        if (!isset($data['captcha']) || strlen($data['captcha']) != 4) {
-            return $this->error("请输入正确的验证码");
+        $data['captcha_system'] = $this->session->get('login-captcha');
+        $this->validate->init($data)
+             ->name('username')->required()->msg("请输入用户名")
+             ->name('password')->required()->msg("请输入密码")
+             ->name('captcha')->required()->length(4, 4)->msg("验证码格式不正确")
+             ->equal("captcha_system")->msg("验证码校验错误");
+        
+        if (!$this->validate->valid()) {
+            return $this->error($this->validate->error());
         }
-        if ($this->session->get('login-captcha') != $data['captcha']) {
-            return $this->error("验证码错误");
-        }
+
         return \Services\Admin\User::getInstance()->checkUser($data['username'], $data['password']);
     }
     
