@@ -308,7 +308,7 @@ void jsonEncode(zval *data, zval *param) {
 	zval_ptr_dtor(&ret);
 }
 
-void gene_mssql_insert_field_value (zval *fields, smart_str *field_str, smart_str *value_str,zval *field_value) {
+void gene_mssql_insert_field_value(zval *fields, smart_str *field_str, smart_str *value_str, zval *field_value){
 	zval *value = NULL;
 	zend_bool pre = 0;
 	zend_string *key = NULL;
@@ -334,7 +334,7 @@ void gene_mssql_insert_field_value (zval *fields, smart_str *field_str, smart_st
     smart_str_0(value_str);
 }
 
-void gene_insert_field_value (zval *fields, smart_str *field_str, smart_str *value_str,zval *field_value) {
+void gene_insert_field_value(zval *fields, smart_str *field_str, smart_str *value_str,zval *field_value) {
 	zval *value = NULL;
 	zend_bool pre = 0;
 	zend_string *key = NULL;
@@ -362,7 +362,7 @@ void gene_insert_field_value (zval *fields, smart_str *field_str, smart_str *val
     smart_str_0(value_str);
 }
 
-void gene_mssql_insert_field_value_batch (zval *fields, smart_str *field_str, smart_str *value_str, zval *field_value) {
+void gene_mssql_insert_field_value_batch(zval *fields, smart_str *field_str, smart_str *value_str, zval *field_value) {
 	zval *value = NULL;
 	zend_bool pre = 0;
 	zend_string *key = NULL;
@@ -390,7 +390,7 @@ void gene_mssql_insert_field_value_batch (zval *fields, smart_str *field_str, sm
     smart_str_0(value_str);
 }
 
-void gene_insert_field_value_batch (zval *fields, smart_str *field_str, smart_str *value_str, zval *field_value) {
+void gene_insert_field_value_batch(zval *fields, smart_str *field_str, smart_str *value_str, zval *field_value) {
 	zval *value = NULL;
 	zend_bool pre = 0;
 	zend_string *key = NULL;
@@ -420,7 +420,7 @@ void gene_insert_field_value_batch (zval *fields, smart_str *field_str, smart_st
     smart_str_0(value_str);
 }
 
-void gene_insert_field_value_batch_other (zval *fields, smart_str *value_str, zval *field_value) {
+void gene_insert_field_value_batch_other(zval *fields, smart_str *value_str, zval *field_value) {
 	zval *value = NULL;
 	zend_bool pre = 0;
 	ZEND_HASH_FOREACH_VAL(Z_ARRVAL_P(fields), value) {
@@ -438,7 +438,7 @@ void gene_insert_field_value_batch_other (zval *fields, smart_str *value_str, zv
     smart_str_0(value_str);
 }
 
-void gene_mssql_update_field_value (zval *fields, smart_str *field_str, zval *field_value) {
+void gene_mssql_update_field_value(zval *fields, smart_str *field_str, zval *field_value) {
 	zval *value = NULL;
 	zend_bool pre = 0;
 	zend_string *key = NULL;
@@ -462,7 +462,7 @@ void gene_mssql_update_field_value (zval *fields, smart_str *field_str, zval *fi
     smart_str_0(field_str);
 }
 
-void gene_update_field_value (zval *fields, smart_str *field_str, zval *field_value) {
+void gene_update_field_value(zval *fields, smart_str *field_str, zval *field_value) {
 	zval *value = NULL;
 	zend_bool pre = 0;
 	zend_string *key = NULL;
