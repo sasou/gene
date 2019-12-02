@@ -39,7 +39,6 @@
 extern zend_class_entry *gene_router_ce;
 
 void init();
-zval * request_query(int type, char * name, int len TSRMLS_DC);
 void get_router_content_run(char *methodin,char *pathin,zval *safe TSRMLS_DC);
 
 GENE_MINIT_FUNCTION (router);
