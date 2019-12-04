@@ -384,16 +384,13 @@ PHP_METHOD(gene_validate, init)
 PHP_METHOD(gene_validate, name)
 {
 	zval *self = getThis();
-	char *php_script;
-	int php_script_len = 0;
-	if (zend_parse_parameters(ZEND_NUM_ARGS() TSRMLS_CC, "s", &php_script, &php_script_len) == FAILURE) {
+	zend_string *name = NULL;
+	if (zend_parse_parameters(ZEND_NUM_ARGS() TSRMLS_CC, "S", &name) == FAILURE) {
 		return;
 	}
 
-	if (php_script_len) {
-		zend_update_property_null(gene_validate_ce, self, ZEND_STRL(GENE_VALIDATE_METHOD));
-		zend_update_property_string(gene_validate_ce, self, ZEND_STRL(GENE_VALIDATE_KEY), php_script);
-	}
+	zend_update_property_null(gene_validate_ce, self, ZEND_STRL(GENE_VALIDATE_METHOD));
+	zend_update_property_str(gene_validate_ce, self, ZEND_STRL(GENE_VALIDATE_KEY), name);
 	RETURN_ZVAL(self, 1, 0);
 }
 /* }}} */
@@ -439,9 +436,8 @@ PHP_METHOD(gene_validate, skipOnEmpty)
 PHP_METHOD(gene_validate, filter)
 {
 	zval *self = getThis(), *key = NULL, *data = NULL, *args = NULL;
-	char *method = NULL;
-	int method_len = 0;
-	if (zend_parse_parameters(ZEND_NUM_ARGS() TSRMLS_CC, "s|z", &method, &method_len, &args) == FAILURE) {
+	zend_string *method = NULL;
+	if (zend_parse_parameters(ZEND_NUM_ARGS() TSRMLS_CC, "S|z", &method, &args) == FAILURE) {
 		return;
 	}
 
@@ -459,7 +455,7 @@ PHP_METHOD(gene_validate, filter)
 			ZEND_HASH_FOREACH_VAL(Z_ARRVAL(fieldArr), key_one) {
 				if ((val = zend_hash_str_find(Z_ARRVAL_P(data), Z_STRVAL_P(key_one), Z_STRLEN_P(key_one))) != NULL) {
 					zval ret;
-					gene_factory_function_call(method, val, args, &ret);
+					gene_factory_function_call(ZSTR_VAL(method), val, args, &ret);
 					Z_TRY_ADDREF(ret);
 					zend_hash_str_update(Z_ARRVAL_P(data),  Z_STRVAL_P(key_one), Z_STRLEN_P(key_one), &ret);
 					zval_ptr_dtor(&ret);
@@ -479,17 +475,16 @@ PHP_METHOD(gene_validate, filter)
 PHP_METHOD(gene_validate, addValidator)
 {
 	zval *self = getThis(), *closure = NULL, *val = NULL, *msg = NULL;
-	char *name = NULL;
-	int name_len = 0;
+	zend_string *name = NULL;
 	zend_fcall_info callback;
 	zend_fcall_info_cache fci_cache = empty_fcall_info_cache;
-	if (zend_parse_parameters(ZEND_NUM_ARGS() TSRMLS_CC, "sfz", &name, &name_len, &callback, &fci_cache, &msg) == FAILURE) {
+	if (zend_parse_parameters(ZEND_NUM_ARGS() TSRMLS_CC, "Sfz", &name, &callback, &fci_cache, &msg) == FAILURE) {
 		return;
 	}
 
 	closure = zend_read_property(gene_validate_ce, self, ZEND_STRL(GENE_VALIDATE_CLOSURE), 1, NULL);
 
-	if ((val = zend_hash_str_find(Z_ARRVAL_P(closure), name, name_len)) == NULL) {
+	if ((val = zend_hash_find(Z_ARRVAL_P(closure), name)) == NULL) {
 		zval val_tmp;
 		array_init(&val_tmp);
 		Z_TRY_ADDREF(callback.function_name);
@@ -497,7 +492,7 @@ PHP_METHOD(gene_validate, addValidator)
 		Z_TRY_ADDREF_P(msg);
 		add_assoc_zval_ex(&val_tmp, "msg", 3, msg);
 		Z_TRY_ADDREF(val_tmp);
-		zend_hash_str_update(Z_ARRVAL_P(closure), name, name_len, &val_tmp);
+		zend_hash_update(Z_ARRVAL_P(closure), name, &val_tmp);
 		zval_ptr_dtor(&val_tmp);
 	}
 
@@ -510,14 +505,13 @@ PHP_METHOD(gene_validate, addValidator)
  */
 PHP_METHOD(gene_validate, __call) {
 	zval *self = getThis(), *val = NULL, *key = NULL, *config = NULL, *keyArr = NULL, *listArr = NULL, *methodArr = NULL;
-	int methodlen = 0;
-	char *method = NULL;
+	zend_string *method = NULL;
 
-	if (zend_parse_parameters(ZEND_NUM_ARGS()TSRMLS_CC, "sz", &method, &methodlen, &val) == FAILURE) {
+	if (zend_parse_parameters(ZEND_NUM_ARGS()TSRMLS_CC, "Sz", &method, &val) == FAILURE) {
 		return;
 	}
 
-	zend_update_property_string(gene_validate_ce, self, ZEND_STRL(GENE_VALIDATE_METHOD), method);
+	zend_update_property_str(gene_validate_ce, self, ZEND_STRL(GENE_VALIDATE_METHOD), method);
 	key = zend_read_property(gene_validate_ce, self, ZEND_STRL(GENE_VALIDATE_KEY), 1, NULL);
 	if (key && Z_TYPE_P(key) == IS_NULL) {
 		php_error_docref(NULL, E_ERROR, "Please call the name method in the first place!");
@@ -543,13 +537,13 @@ PHP_METHOD(gene_validate, __call) {
 		listArr = zend_hash_str_find(Z_ARRVAL_P(keyArr), "list", 4);
 	}
 
-	if ((methodArr = zend_hash_str_find(Z_ARRVAL_P(listArr), method, methodlen)) == NULL) {
+	if ((methodArr = zend_hash_find(Z_ARRVAL_P(listArr), method)) == NULL) {
 		zval methodArr_tmp;
 		array_init(&methodArr_tmp);
 		Z_TRY_ADDREF_P(val);
 		add_assoc_zval_ex(&methodArr_tmp, "args", 4, val);
 		Z_TRY_ADDREF(methodArr_tmp);
-		zend_hash_str_update(Z_ARRVAL_P(listArr),  method, methodlen, &methodArr_tmp);
+		zend_hash_update(Z_ARRVAL_P(listArr),  method, &methodArr_tmp);
 		zval_ptr_dtor(&methodArr_tmp);
 	}
 
