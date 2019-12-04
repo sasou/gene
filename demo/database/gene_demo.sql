@@ -1,16 +1,16 @@
 /*
 Navicat MySQL Data Transfer
 
-Source Server         : 10.5.5.11 dev root
-Source Server Version : 50505
-Source Host           : 10.5.5.11:3306
-Source Database       : gene_demo
+Source Server         : localhost
+Source Server Version : 50556
+Source Host           : localhost:3306
+Source Database       : gene_web
 
 Target Server Type    : MYSQL
-Target Server Version : 50505
+Target Server Version : 50556
 File Encoding         : 65001
 
-Date: 2019-12-02 16:26:20
+Date: 2019-12-04 13:48:02
 */
 
 SET FOREIGN_KEY_CHECKS=0;
@@ -21,14 +21,14 @@ SET FOREIGN_KEY_CHECKS=0;
 DROP TABLE IF EXISTS `app_mark`;
 CREATE TABLE `app_mark` (
   `mark_id` int(11) unsigned NOT NULL AUTO_INCREMENT COMMENT 'id',
-  `mark_type` tinyint(1) DEFAULT 0 COMMENT '类型',
+  `mark_type` tinyint(1) DEFAULT '0' COMMENT '类型',
   `mark_title` varchar(50) NOT NULL DEFAULT '' COMMENT '文档名称',
   `app_description` text NOT NULL COMMENT '文档内容',
   `user_id` int(11) NOT NULL COMMENT '上传者ID',
-  `order` int(11) NOT NULL DEFAULT 0 COMMENT '排序',
-  `status` tinyint(1) NOT NULL DEFAULT 0 COMMENT '应用状态：0不可用、1可用',
-  `addtime` int(11) NOT NULL DEFAULT 0 COMMENT '添加时间',
-  `updatetime` int(11) NOT NULL DEFAULT 0 COMMENT '修改时间',
+  `order` int(11) NOT NULL DEFAULT '0' COMMENT '排序',
+  `status` tinyint(1) NOT NULL DEFAULT '0' COMMENT '应用状态：0不可用、1可用',
+  `addtime` int(11) NOT NULL DEFAULT '0' COMMENT '添加时间',
+  `updatetime` int(11) NOT NULL DEFAULT '0' COMMENT '修改时间',
   PRIMARY KEY (`mark_id`)
 ) ENGINE=InnoDB AUTO_INCREMENT=33 DEFAULT CHARSET=utf8 COMMENT='mark信息表';
 
@@ -55,9 +55,6 @@ INSERT INTO `app_mark` VALUES ('19', '2', 'Mysql数据库 Gene\\Db\\Mysql', '#My
 INSERT INTO `app_mark` VALUES ('20', '1', '依赖注入(IOC)', '# 依赖注入(IOC) #\n\n* ## 介绍  ##\n    依赖注入(Dependency Injection)是Gene框架作为现代框架的核心功能，采用注入动态、灵活的方式来管理各种对象。对象与对象之间的具体实现互\n相透明。。\n具体含义是:当某个角色(可能是一个Php实例，调用者)需要另一个角色(另一个php实例，被调用者)的协助时，\n在传统的程序设计过程中，通常由调用者来创建被调用者的实例。但在Gene里，创建被调用者的工作不再由调用者来完成，\n因此;创建被调用者实例的工作通常由Gene工厂容器来完成，然后注入调用者，因此称为依赖注入。。\n\n* ## demo  ##\n     gene框架推荐用注入方式调用类，而不是以硬编码的方式耦合在一起。\n    \n    ### 参数: ###\n    无 \n    \n    > *返回值*： 空。\n\n    ### 实例: ###\n    ``` \n    //数据库类注入配置\n    $config->set(\"db\", [\n        \'class\' => \'\\Gene\\Db\',\n        \'params\' => [[\n        \'dsn\' => \'mysql:dbname=gene_admin;host=127.0.0.1;port=3306;charset=utf8\',\n        \'username\' => \'root\',\n        \'password\' => \'\',\n        \'options\' => [PDO::ATTR_PERSISTENT => true]\n            ]],\n        \'instance\' => true\n    ]);\n    \n    // models、services、Controllers 里调用db\n    $this->db;\n    \n    // 控制反转\n    $this->db = Gene\\Factiory::create(\"\\Gene\\Db\", $config);\n    \n    \n', '43', '104', '1', '1529484483', '1530409346');
 INSERT INTO `app_mark` VALUES ('21', '1', '自动加载', '# 自动加载 #\n\n* ## 介绍  ##\n    Gene框架提供了自动加载支持；\n\n* ## autoload  ##\n     应用启动前运行autoload指定加载目录。\n    \n    ### 参数: ###\n    参数 | 类型 | 是否必填 | 注释 \n    ---|---|--- |--- \n    dir | string  | 是 | 应用加载目录。 \n    \n    > *返回值*： 空。\n\n    ### 实例: ###\n    ``` \n    define(\'APP_ROOT\', dirname(__dir__) . \'/application/\');\n    \n    $app = \\Gene\\Application::getInstance();\n    $app\n        ->autoload(APP_ROOT)\n        ->run();\n    \n* ## 配置公共类库加载目录  ##\n     可以通过配置php.ini，指定公共类库的加载目录。\n\n    ### 实例: ###\n    ``` \n    [gene]\n    gene.use_library=1\n    gene.library_root=\"/data/webapp/www/gene_ext/\"\n    ', '2', '102', '1', '1530409459', '0');
 INSERT INTO `app_mark` VALUES ('22', '1', '命令行程序', '# 命令行程序 #\n\n* ## 介绍  ##\n    Gene支持命令行方式运行，方便编写定时运行任务；\n\n* ## Cli  ##\n     Cli需要在运行前指定加载目录，同时获取Cli参数传递给运行函数。\n     参数一：路由类型传递get；\n     参数二：URI传递获取的命令行参数；  \n\n    ### 实例: ###\n    ``` \n    <?php\n    define(\'APP_ROOT\', dirname(__dir__) . \'/application/\');\n    \n    $uri = \'\';  \n    if (isset($_SERVER[\'argv\'][1])) {\n        $uri = $_SERVER[\'argv\'][1];\n    } else {\n        exit(\'This script is run as CLI with no path?\');\n    }\n    \n    $app = \\Gene\\Application::getInstance();\n    $app\n        ->autoload(APP_ROOT)\n        ->load(\"router.ini.php\")\n        ->load(\"config.ini.php\")\n        ->run(\'get\', $uri);\n    ', '2', '103', '1', '1530409474', '1569736468');
-INSERT INTO `app_mark` VALUES ('23', '1', '分支管理的策略', '# 分支管理的策略：   \n\n## 一、常设分支：Master和Develop  \n> Master和Develop。前者用于正式发布，后者用于日常开发。其实，常设分支只需要这两条就够了，不需要其它了。  \n\n1.1 主分支Master\n\n首先，代码库应该有一个、且仅有一个主分支。所有提供给用户使用的正式版本，都在这个主分支上发布。\n\n1.2 开发分支Develop\n\n主分支只用来发布重大版本，日常开发应该在另一条分支上完成。我们把开发用的分支，叫做Develop。\n\n这个分支可以用来生成代码的最新隔夜版本（nightly）。如果想正式对外发布，就在Master分支上，对Develop分支进行\"合并\"（merge）。\n\n## 二、临时分支:修补bug（fixbug）分支、功能（feature）分支、预发布（release）分支  \n> 这三种分支都属于临时性需要，使用完以后，应该删除，使得代码库的常设分支始终只有Master和Develop。  \n    \n2.1 修补bug分支：\n\n软件正式发布以后，难免会出现bug。这时就需要创建一个分支，进行bug修补。\n\n修补bug分支是从Master分支上面分出来的。修补结束以后，再合并进Master和Develop分支。它的命名，可以采用fixbug-*的形式。\n        \n2.2 功能分支：\n\n它是为了开发某种特定功能，从Develop分支上面分出来的。开发完成后，要再并入Develop。\n功能分支的名字，可以采用feature-*的形式命名。\n开发完成后，将功能分支合并到develop分支：\n\n2.2 预发布分支：\n\n它是指发布正式版本之前（即合并到Master分支之前），我们可能需要有一个预发布的版本进行测试。\n\n预发布分支是从Develop分支上面分出来的，预发布结束以后，必须合并进Develop和Master分支。它的命名，可以采用release-*的形式。\n', '1', '105', '1', '1534748508', '0');
-INSERT INTO `app_mark` VALUES ('24', '1', 'PHP代码开发规范', '# PHP代码开发规范\n\n## 文件\n* 所有文件以UTF-8无BOM编码格式保存\n\n* 对于只包含PHP代码的文件，结尾的 `php?>` 应该去掉\n\n* 关于缩进，所有的代码缩进由四个空格组成，禁止使用制表符TAB进行缩进\n\n* 类文件首字母大写\n\n## 命名约定\n\n* 函数、方法、变量采用驼峰命名方式，并建议使用长命名，函数名赢长到足以说明函数的意图和行为。可接受的函数名例子： `filterInput()`、`getElementById()`、`widgetFactory()`\n\n## 常量\n* 常量名的所有字母必须大写，常量中的单词必须已下划线分割\n\n* 建议声明使用 `const` 关键字申明为类的成员，不建议使用 `define` 定义常量\n\n## 字符串\n* 当字符串是文字（不包含变量），应当用单引号 `\'` 括起来：`$str = \'some strings\'`\n\n* 当字符串中包含变量时，应该使用 `\"` 括起来: `$str = \"some ${name} strings\"`\n\n## 数组\n* 数组的key值使用下划线命名方式，以 _ 进行单词分割\n\n* 数组使用短声明方式，即\n```\n    $arr = [];\n```\n\n* 关联数组应使用多行\n```\n    $arr = [\n        \'firstKey\' => \'firstValue\',\n        \'secondKey\' => \'secondValue\'\n    ];\n```\n\n## 类\n* 每个类必须有一个符合 PHPDocumentor 标准的文档块\n```\n<?php\n/**\n * 这里是类的说明文档\n */\nclass A\n```\n\n* 每个PHP文件中应只有一个类\n\n* 类定义、函数定义的开括号 { 必须另起一行\n\n```\n    class A\n    {\n        public function foo()\n        {\n\n        }\n    }\n```\n\n## 代码结构\n* if 、 foreach 等语句的 括号 必须空格，开括号 { 必须在同一行\n\n```\n    if () {\n\n    } elseif () {\n\n    } else {\n\n    }\n\n    foreach () {\n\n    }\n\n    switch () {\n        case 1:\n            break;\n        \n        case 2:\n            break;\n\n        default:\n            break;\n    }\n```\n\n* 函数的参数应当使用逗号和紧接着的空格分开 `threeArguments(1, 2, 3)`\n\n* 代码中的常用关键字 true 、 false 、 null 全部使用小写字母\n\n* controller 中如果要输出信息，必须使用 $this->_response->setBody()\n\n* 任何时候，任何地方避免使用die 和 exit方法结束当前php执行\n\n* 代码注释，所有的函数、类必须要使用规范注释，如下图\n\n```\n    /**\n    * 这个类是干什么的\n	* \n    * @author sasou <admin@php-gene.com>\n    */\n    class A\n    {\n        /**\n        * 这个函数是干什么的\n        *\n        * @category 分类信息\n        *\n        * @param string $a 变量含义\n        * @param int $b 变化含义\n        *\n        * @return array\n        *\n        * @example 实例\n        */\n        public function foo($a, $b)\n        {\n\n        }\n    }\n```\n\n参考信息:\n\n[PHP-FIG中文版](https://github.com/PizzaLiu/PHP-FIG)', '2', '106', '1', '1538213705', '1569463106');
-INSERT INTO `app_mark` VALUES ('25', '1', '数据库规范', '## 关于数据库规范\n[数据库规范文档](https://doc.dev.materialw.com/doc/%E7%BC%96%E7%A0%81%E4%B8%8E%E6%8A%80%E6%9C%AF%E8%A7%84%E8%8C%83/MySQL%E6%95%B0%E6%8D%AE%E5%BA%93%E8%A7%84%E8%8C%83.pdf)\n\n* 数据库字段全部小写以\"_\"分割单词\n* 所有表名和字段名必须有注释\n* 在开发过程中不允许使用外键关联表\n* 程序中不允许使用连表查询\n* 数据库字段时间类型使用int字段\n* 对于通用的数据库字段采用统一命名\n    创建时间(create_time)、创建人(create_user)、最后更新时间(update_time)、最后更新人(update_user)、状态（status）、排序（order）\n* 数据库字符编码使用 utf8mb4 -- UTF-8 Unicode\n* 在程序开发过程中如果对数据库进行了修改，则需要将数据库变更的SQL语句保存在项目目录下的 /database/update.sql文件下，并注释说明该SQL语句修改对应的是哪个功能,修改时间等详细信息', '2', '107', '1', '1538213866', '1568108326');
 INSERT INTO `app_mark` VALUES ('26', '2', '缓存类 Gene\\Cache\\Cache', '# 缓存类 Gene\\Cache\\Cache #\n\n* ## 介绍  ##\n    **Gene\\Cache\\Cache** 是gene框架的缓存操作类，支持方法级缓存、实时版本缓存更新等。实时版本缓存提出了缓存的实时更新解决方案；可以有效应对各类场景下的实时缓存问题。\n\n    ### 注入配置实例: ###  \n    ``` \n    //框架方法级缓存模块注入配置  \n    $config->set(\"cache\", [  \n        \'class\' => \'\\Gene\\Cache\\Cache\',  // 缓存类\n        \'params\' => [[  \n        \'hook\' => \'memcache\',            //存储插件\n        \'sign\' => \'demo:\',               //方法级缓存key前缀\n        \'versionSign\' => \'database:\',    //版本缓存key前缀\n            ]],  \n        \'instance\' => false              //是否单例\n    ]);  \n    \n\n* ## cached  ## \n     定时方法级缓存，支持memcached、redis存储。  \n    \n    ### 参数: ###\n    参数 | 类型 | 是否必填 | 注释 \n    ---|---|--- |--- \n    object | array  | 是 | 调用对象  \n    args | array  | 是 | 对象调用传参  \n    ttl | int  | 否 | 缓存过期时间  \n\n     > *返回值*：  缓存数据。 \n\n    ### 实例: ###  \n    ``` \n	$data = $this->cache->cached([\"\\Models\\Admin\\User\", \"getList\"], [1, 10], 3600);  \n	\n	\n* ## localCached  ## \n     本地定时方法级缓存，支持apcu存储。  \n    \n    ### 参数: ###\n    参数 | 类型 | 是否必填 | 注释 \n    ---|---|--- |--- \n    object | array  | 是 | 调用对象  \n    args | array  | 是 | 对象调用传参  \n    ttl | int  | 否 | 缓存过期时间  \n\n     > *返回值*：  缓存数据。 \n\n    ### 实例: ###  \n    ``` \n	$data = $this->cache->localCached([\"\\Models\\Admin\\User\", \"getList\"], [1, 10], 3600);  \n	\n	\n* ## unsetCached  ## \n     定时方法级缓存数据过期，调用后将删除缓存数据。  \n    \n    ### 参数: ###\n    参数 | 类型 | 是否必填 | 注释 \n    ---|---|--- |--- \n    object | array  | 是 | 调用对象  \n    args | array  | 是 | 对象调用传参  \n    ttl | int  | 否 | 缓存过期时间  \n\n     > *返回值*：  null\n\n    ### 实例: ###  \n    ``` \n	$this->cache->unsetCached([\"\\Models\\Admin\\User\", \"getList\"], [1, 10], 3600);  \n	\n\n* ## unsetLocalCached  ## \n     本地定时方法级缓存数据过期，调用后将删除缓存数据。  \n    \n    ### 参数: ###\n    参数 | 类型 | 是否必填 | 注释 \n    ---|---|--- |--- \n    object | array  | 是 | 调用对象  \n    args | array  | 是 | 对象调用传参  \n    ttl | int  | 否 | 缓存过期时间  \n\n     > *返回值*：  null\n\n    ### 实例: ###  \n    ``` \n	$this->cache->unsetLocalCached([\"\\Models\\Admin\\User\", \"getList\"], [1, 10], 3600);  \n	\n* ## cachedVersion  ## \n    方法级实时版本缓存方法，支持memcached、redis存储；更新缓存有两种方法：一是程序更新版本号；二是使用syncClient数据实时同步中间件异步更新（https://github.com/sasou/syncClient）；\n    \n    ### 参数: ###\n    参数 | 类型 | 是否必填 | 注释 \n    ---|---|--- |--- \n    object | array  | 是 | 调用对象  \n    args | array  | 是 | 对象调用传参  \n    versionField | array  | 是 | 版本缓存标志  \n    ttl | int  | 否 | 缓存过期时间  \n    \n    > *返回值*：  缓存数据。\n\n    ### 实例: ###   \n\n    ``` \n    // 方法级实时版本缓存\n    $data = $this->cache->cachedVersion([\"\\Models\\Admin\\Purview\",\'lists\'], [$group_id], [\'db.sys_purview\' => null], 3600);  \n    \n    方法级实时缓存版本key更新  \n    $this->cache->updateVersion([\'db.sys_purview\' => null]);  \n	\n* ## localCachedVersion  ## \n    本地方法级实时版本缓存方法，支持apcu存储；更新缓存有两种方法：一是程序更新版本号；二是使用syncClient数据实时同步中间件异步更新（https://github.com/sasou/syncClient）；\n    \n    ### 参数: ###\n    参数 | 类型 | 是否必填 | 注释 \n    ---|---|--- |--- \n    object | array  | 是 | 调用对象  \n    args | array  | 是 | 对象调用传参  \n    versionField | array  | 是 | 版本缓存标志  \n    ttl | int  | 否 | 缓存过期时间  \n    mode | boolean  | 否 | 是否严格模式\n\n    严格模式下，缓存key的不一致会触发缓存更新，有一定的缓存击穿风险；非严格模式可以抵御缓存击穿； \n    \n    > *返回值*：  缓存数据。\n\n    ### 实例: ###   \n\n    ``` \n    // 方法级实时版本缓存\n    $data = $this->cache->localCachedVersion([\"\\Models\\Admin\\Purview\",\'lists\'], [$group_id], [\'db.sys_purview\' => null], 3600);  \n    \n    方法级实时缓存版本key更新  \n    $this->cache->updateVersion([\'db.sys_purview\' => null]);  \n	\n	\n* ## updateVersion  ## \n     更新缓存key。通常在数据更新时调用，执行后，相关key数据查询的缓存自动更新；\n    \n    ### 参数: ###\n    参数 | 类型 | 是否必填 | 注释 \n    ---|---|--- |--- \n    versionField | array  | 是 | 缓存key数组  \n\n     > *返回值*：  boolean\n\n    ### 实例: ###  \n    ``` \n	$this->cache->updateVersion([\'db.sys_purview\' => null]);  \n	', '1', '15', '1', '1569832370', '1575267743');
 INSERT INTO `app_mark` VALUES ('27', '2', '缓存类 Gene\\Cache\\Redis', '# 缓存类 Gene\\Cache\\Redis #\n\n* ## 介绍  ##\n    **Gene\\Cache\\Redis** \n    redis缓存类二次封装了redis扩展，简化了框架调用。\n\n    ### 注入配置实例: ###  \n    ``` \n    //缓存类注入配置\n    $config->set(\"redis\", [\n        \'class\' => \'\\Gene\\Cache\\Redis\',     // 缓存类\n        \'params\' => [[\n        \'persistent\' => true,               // 是否开启持久连接\n        \'host\' => \'10.5.5.13\',              // redis服务器地址\n        \'port\' => 6379,                     // redis服务器端口\n        \'timeout\' => 3,                     // 连接超时\n        \'ttl\' => 0,                         // 默认过期时间\n        \'serializer\' => 1                   // 序列化方法：默认1\n            ]],\n        \'instance\' => false                 // 是否单例\n    ]);\n        \n    //序列化方式\n    0 不开启，用对应扩展只带序列化方法；1 json；2 igbinary；3 serializ；\n\n* ## set  ## \n     保存缓存数据。  \n    \n    ### 参数: ###\n    参数 | 类型 | 是否必填 | 注释 \n    ---|---|--- |--- \n    key | string  | 是 | 缓存key\n    value | mixed  | 是 | 缓存值  \n    ttl | int  | 否 | 缓存过期时间  \n    flag | int  | 否 | 缓存flag \n\n     > *返回值*：boolean。 \n\n    ### 实例: ###  \n    ``` \n	$this->redis->set(\"name\", \"abc\");  \n	\n* ## get  ## \n     获取缓存数据。  \n    \n    ### 参数: ###\n    参数 | 类型 | 是否必填 | 注释 \n    ---|---|--- |--- \n    key | string  | 是 | 缓存key，支持批量查询\n\n     > *返回值*：boolean。 \n\n    ### 实例: ###  \n    ``` \n	$this->redis->get(\"name\");  \n	\n* ## incr  ## \n     缓存值自增。  \n    \n    ### 参数: ###\n    参数 | 类型 | 是否必填 | 注释 \n    ---|---|--- |--- \n    key | string  | 是 | 缓存key\n    value | int  | 否 | 增加值\n\n     > *返回值*：int。 \n\n    ### 实例: ###  \n    ``` \n	$this->redis->incr(\"name\", 1);  \n	\n* ## decr  ## \n     缓存值自减。  \n    \n    ### 参数: ###\n    参数 | 类型 | 是否必填 | 注释 \n    ---|---|--- |--- \n    key | string  | 是 | 缓存key\n    value | int  | 否 | 减去值\n\n     > *返回值*：int。 \n\n    ### 实例: ###  \n    ``` \n	$this->redis->decr(\"name\", 1);  ', '1', '16', '1', '1569832396', '1575267750');
 INSERT INTO `app_mark` VALUES ('28', '2', '缓存类 Gene\\Cache\\Memcached', '# 缓存类 Gene\\Cache\\Memcached #\n\n* ## 介绍  ##\n    **Gene\\Cache\\Memcached** \n    memcached缓存类对windows下的memcache、linux下的memached做了兼容处理，同时支持两者环境。\n\n    ### 注入配置实例: ###  \n    ``` \n    //缓存类注入配置\n    $config->set(\"memcache\", [\n        \'class\' => \'\\Gene\\Cache\\Memcached\',                      //类库\n        \'params\' => [[\n        \'servers\' => [[\'host\' => \'10.5.5.13\', \'port\' => 11211]], //服务器\n        \'persistent\' => true,                                    //是否开启持久连接\n        \'serializer\' => 2                                        //序列化方式:默认0\n            ]],\n        \'instance\' => true                                       //是否单例\n    ]);\n    \n    //序列化方式\n    0 不开启，用对应扩展只带序列化方法；1 json；2 igbinary；3 serializ；\n\n* ## set  ## \n     保存缓存数据。  \n    \n    ### 参数: ###\n    参数 | 类型 | 是否必填 | 注释 \n    ---|---|--- |--- \n    key | string  | 是 | 缓存key\n    value | mixed  | 是 | 缓存值  \n    ttl | int  | 否 | 缓存过期时间  \n    flag | int  | 否 | 缓存flag \n\n     > *返回值*：boolean。 \n\n    ### 实例: ###  \n    ``` \n	$this->memcache->set(\"name\", \"abc\");  \n	\n* ## get  ## \n     获取缓存数据。  \n    \n    ### 参数: ###\n    参数 | 类型 | 是否必填 | 注释 \n    ---|---|--- |--- \n    key | string  | 是 | 缓存key，支持批量查询\n\n     > *返回值*：boolean。 \n\n    ### 实例: ###  \n    ``` \n	$this->memcache->get(\"name\");  \n	\n* ## incr  ## \n     缓存值自增。  \n    \n    ### 参数: ###\n    参数 | 类型 | 是否必填 | 注释 \n    ---|---|--- |--- \n    key | string  | 是 | 缓存key\n    value | int  | 否 | 增加值\n\n     > *返回值*：int。 \n\n    ### 实例: ###  \n    ``` \n	$this->memcache->incr(\"name\", 1);  \n	\n* ## decr  ## \n     缓存值自减。  \n    \n    ### 参数: ###\n    参数 | 类型 | 是否必填 | 注释 \n    ---|---|--- |--- \n    key | string  | 是 | 缓存key\n    value | int  | 否 | 减去值\n\n     > *返回值*：int。 \n\n    ### 实例: ###  \n    ``` \n	$this->memcache->decr(\"name\", 1);  ', '1', '17', '1', '1569832417', '1575267758');
@@ -72,15 +69,15 @@ INSERT INTO `app_mark` VALUES ('32', '2', '验证类 Gene\\Validate', '# 验证�
 DROP TABLE IF EXISTS `sys_group`;
 CREATE TABLE `sys_group` (
   `group_id` int(11) unsigned NOT NULL AUTO_INCREMENT COMMENT '用户组ID',
-  `group_pid` int(11) NOT NULL DEFAULT 0 COMMENT '上级用户组',
-  `group_type` int(11) NOT NULL DEFAULT 0 COMMENT '类型',
+  `group_pid` int(11) NOT NULL DEFAULT '0' COMMENT '上级用户组',
+  `group_type` int(11) NOT NULL DEFAULT '0' COMMENT '类型',
   `group_title` varchar(50) NOT NULL DEFAULT '' COMMENT '用户组名',
   `group_description` varchar(250) NOT NULL DEFAULT '' COMMENT '用户组描述',
-  `gd` int(11) NOT NULL DEFAULT 0 COMMENT '固定',
-  `order` int(11) NOT NULL DEFAULT 0 COMMENT '排序',
-  `status` int(11) NOT NULL DEFAULT 0 COMMENT '是否有效',
-  `addtime` int(11) NOT NULL DEFAULT 0 COMMENT '时间',
-  `updatetime` int(11) NOT NULL DEFAULT 0 COMMENT '修改时间',
+  `gd` int(11) NOT NULL DEFAULT '0' COMMENT '固定',
+  `order` int(11) NOT NULL DEFAULT '0' COMMENT '排序',
+  `status` int(11) NOT NULL DEFAULT '0' COMMENT '是否有效',
+  `addtime` int(11) NOT NULL DEFAULT '0' COMMENT '时间',
+  `updatetime` int(11) NOT NULL DEFAULT '0' COMMENT '修改时间',
   PRIMARY KEY (`group_id`,`status`),
   UNIQUE KEY `group_title` (`group_title`)
 ) ENGINE=InnoDB AUTO_INCREMENT=4 DEFAULT CHARSET=utf8 ROW_FORMAT=COMPACT COMMENT='系统用户组';
@@ -103,14 +100,14 @@ CREATE TABLE `sys_log` (
   `log_url` varchar(30) NOT NULL DEFAULT '' COMMENT '操作',
   `log_ip` varchar(20) NOT NULL DEFAULT '' COMMENT 'IP地址',
   `log_ip_area` varchar(50) NOT NULL DEFAULT '' COMMENT '地点',
-  `user_id` int(11) NOT NULL DEFAULT 0 COMMENT '用户',
-  `order` int(11) NOT NULL DEFAULT 0 COMMENT '排序',
-  `status` int(11) NOT NULL DEFAULT 1 COMMENT '状态',
-  `addtime` int(11) NOT NULL DEFAULT 0 COMMENT '增加时间',
-  `updatetime` int(11) NOT NULL DEFAULT 0 COMMENT '修改时间',
+  `user_id` int(11) NOT NULL DEFAULT '0' COMMENT '用户',
+  `order` int(11) NOT NULL DEFAULT '0' COMMENT '排序',
+  `status` int(11) NOT NULL DEFAULT '1' COMMENT '状态',
+  `addtime` int(11) NOT NULL DEFAULT '0' COMMENT '增加时间',
+  `updatetime` int(11) NOT NULL DEFAULT '0' COMMENT '修改时间',
   PRIMARY KEY (`log_id`),
   KEY `log_user_id` (`user_id`)
-) ENGINE=InnoDB AUTO_INCREMENT=134 DEFAULT CHARSET=utf8 ROW_FORMAT=COMPACT COMMENT='系统日志';
+) ENGINE=InnoDB DEFAULT CHARSET=utf8 ROW_FORMAT=COMPACT COMMENT='系统日志';
 
 -- ----------------------------
 -- Records of sys_log
@@ -122,18 +119,18 @@ CREATE TABLE `sys_log` (
 DROP TABLE IF EXISTS `sys_module`;
 CREATE TABLE `sys_module` (
   `module_id` int(11) unsigned NOT NULL AUTO_INCREMENT COMMENT 'ID',
-  `module_pid` int(11) NOT NULL DEFAULT 0 COMMENT '上级模块',
+  `module_pid` int(11) NOT NULL DEFAULT '0' COMMENT '上级模块',
   `module_path` varchar(30) NOT NULL DEFAULT '' COMMENT 'path',
-  `module_cat` int(11) NOT NULL DEFAULT 0 COMMENT '模块类型',
+  `module_cat` int(11) NOT NULL DEFAULT '0' COMMENT '模块类型',
   `module_title` varchar(50) NOT NULL DEFAULT '' COMMENT '模块名称',
   `module_type` varchar(30) NOT NULL DEFAULT '' COMMENT '操作',
   `module_url` varchar(50) NOT NULL DEFAULT '' COMMENT '路由URL地址',
   `module_icon` varchar(50) NOT NULL DEFAULT '' COMMENT '图标风格',
-  `gd` int(11) NOT NULL DEFAULT 0 COMMENT '固定',
-  `order` int(11) NOT NULL DEFAULT 0 COMMENT '排序',
-  `status` int(11) NOT NULL DEFAULT 0 COMMENT '是否启用',
-  `addtime` int(11) NOT NULL DEFAULT 0 COMMENT '添加时间',
-  `updatetime` int(11) NOT NULL DEFAULT 0 COMMENT '更新时间',
+  `gd` int(11) NOT NULL DEFAULT '0' COMMENT '固定',
+  `order` int(11) NOT NULL DEFAULT '0' COMMENT '排序',
+  `status` int(11) NOT NULL DEFAULT '0' COMMENT '是否启用',
+  `addtime` int(11) NOT NULL DEFAULT '0' COMMENT '添加时间',
+  `updatetime` int(11) NOT NULL DEFAULT '0' COMMENT '更新时间',
   PRIMARY KEY (`module_id`),
   KEY `module_pid` (`module_pid`),
   KEY `module_url` (`module_url`)
@@ -150,7 +147,7 @@ INSERT INTO `sys_module` VALUES ('5', '1', '0,1', '0', '栏目管理', '1', 'mod
 INSERT INTO `sys_module` VALUES ('13', '5', '0,1,5', '0', '增加模块', '1', 'module/add.html', '', '1', '0', '1', '1463015014', '0');
 INSERT INTO `sys_module` VALUES ('14', '5', '0,1,5', '0', '修改模块', '1', 'module/edit/:id.html', '', '1', '0', '1', '1494905366', '0');
 INSERT INTO `sys_module` VALUES ('15', '5', '0,1,5', '0', '查看模块', '1', 'module/info/:id.html', '', '1', '0', '1', '1463015072', '0');
-INSERT INTO `sys_module` VALUES ('16', '2', '0,1,2', '0', '增加用户', '1', 'user/add.html', '', '1', '0', '1', '1463021223', '1568162059');
+INSERT INTO `sys_module` VALUES ('16', '2', '0,1,2', '0', '增加用户', '1', 'user/add.html', '', '1', '0', '1', '1463021224', '0');
 INSERT INTO `sys_module` VALUES ('17', '2', '0,1,2', '0', '修改用户', '1', 'user/edit/:id.html', '', '1', '0', '1', '1463021244', '0');
 INSERT INTO `sys_module` VALUES ('18', '2', '0,1,2', '0', '查看用户', '1', 'user/info/:id.html', '', '1', '0', '1', '1463021267', '0');
 INSERT INTO `sys_module` VALUES ('19', '3', '0,1,3', '0', '增加用户组', '1', 'group/add.html', '', '1', '0', '1', '1463021330', '0');
@@ -160,23 +157,23 @@ INSERT INTO `sys_module` VALUES ('31', '5', '0,1,5', '0', '删除模块', '1', '
 INSERT INTO `sys_module` VALUES ('32', '2', '0,1,2', '0', '删除用户', '1', 'user/del/:id', '', '1', '0', '1', '1463728036', '1528349914');
 INSERT INTO `sys_module` VALUES ('33', '3', '0,1,3', '0', '删除用户组', '1', 'group/del/:id', '', '1', '0', '1', '1463728092', '1528349937');
 INSERT INTO `sys_module` VALUES ('34', '4', '0,1,4', '0', '删除日志', '1', 'log/del/:id', '', '1', '0', '1', '1463728119', '1528349966');
-INSERT INTO `sys_module` VALUES ('43', '0', '0,', '0', '文档管理', '', '', 'layui-icon-auz', '0', '0', '1', '1527062210', '1569395697');
+INSERT INTO `sys_module` VALUES ('43', '0', '0,', '0', '文档管理', '', '', 'layui-icon-auz', '0', '0', '1', '1527062210', '1528885577');
 INSERT INTO `sys_module` VALUES ('44', '43', '0,,43', '0', '文档管理', '', 'mark.html', 'layui-icon-add-circle-fine', '0', '0', '1', '1527062293', '1528885625');
 INSERT INTO `sys_module` VALUES ('45', '44', '0,,43,44', '0', '增加文档', '', 'mark/add.html', '', '0', '0', '1', '1528269074', '1528885697');
 INSERT INTO `sys_module` VALUES ('46', '44', '0,,43,44', '0', '修改文档', '', 'mark/edit/:id.html', '', '0', '0', '1', '1528269262', '1528885681');
 INSERT INTO `sys_module` VALUES ('58', '2', '0,1,2', '0', '批量删除', '', 'user/delall', '', '0', '0', '1', '1528350015', '1528350035');
-INSERT INTO `sys_module` VALUES ('59', '2', '0,1,2', '0', '修改状态', '', 'user/status/:id', '', '0', '0', '1', '1528350086', '1568107024');
+INSERT INTO `sys_module` VALUES ('59', '2', '0,1,2', '0', '修改状态', '', 'user/status/:id', '', '0', '0', '1', '1528350086', '1528350136');
 INSERT INTO `sys_module` VALUES ('60', '2', '0,1,2', '0', '添加保存', '', 'user/addpost', '', '0', '0', '1', '1528350223', '1528350648');
 INSERT INTO `sys_module` VALUES ('61', '2', '0,1,2', '0', '修改保存', '', 'user/editpost', '', '0', '0', '1', '1528350254', '1528350633');
-INSERT INTO `sys_module` VALUES ('62', '5', '0,1,5', '0', '批量删除', '', 'module/delall', '', '0', '0', '1', '1528373334', '1569802403');
+INSERT INTO `sys_module` VALUES ('62', '5', '0,1,5', '0', '批量删除', '', 'module/delall', '', '0', '0', '1', '1528373334', '1528373348');
 INSERT INTO `sys_module` VALUES ('63', '5', '0,1,5', '0', '修改状态', '', 'module/status/:id', '', '0', '0', '1', '1528373382', '0');
 INSERT INTO `sys_module` VALUES ('64', '5', '0,1,5', '0', '添加保存', '', 'module/addpost', '', '0', '0', '1', '1528373426', '0');
 INSERT INTO `sys_module` VALUES ('65', '5', '0,1,5', '0', '修改保存', '', 'module/editpost', '', '0', '0', '1', '1528373477', '1528373510');
 INSERT INTO `sys_module` VALUES ('66', '3', '0,1,3', '0', '批量删除', '', 'group/delall', '', '0', '0', '1', '1528373646', '0');
-INSERT INTO `sys_module` VALUES ('67', '3', '0,1,3', '0', '修改状态', '', 'group/status/:id', '', '0', '0', '0', '1528373724', '0');
+INSERT INTO `sys_module` VALUES ('67', '3', '0,1,3', '0', '修改状态', '', 'group/status/:id', '', '0', '0', '1', '1528373724', '0');
 INSERT INTO `sys_module` VALUES ('68', '3', '0,1,3', '0', '添加保存', '', 'group/addpost', '', '0', '0', '1', '1528373748', '0');
 INSERT INTO `sys_module` VALUES ('69', '3', '0,1,3', '0', '修改保存', '', 'group/editpost', '', '0', '0', '1', '1528373772', '0');
-INSERT INTO `sys_module` VALUES ('97', '44', '0,,43,44', '0', '修改状态', '', 'mark/status/:id', '', '0', '0', '1', '0', '1569479844');
+INSERT INTO `sys_module` VALUES ('97', '44', '0,,43,44', '0', '修改状态', '', 'mark/status/:id', '', '0', '0', '1', '0', '1528885670');
 INSERT INTO `sys_module` VALUES ('98', '44', '0,,43,44', '0', '删除文档', '', 'mark/del/:id', '', '0', '0', '1', '0', '1528885664');
 INSERT INTO `sys_module` VALUES ('99', '44', '0,,43,44', '0', '批量删除', '', 'mark/delall', '', '0', '0', '1', '0', '1528885650');
 INSERT INTO `sys_module` VALUES ('100', '44', '0,,43,44', '0', '添加保存', '', 'mark/addpost', '', '0', '0', '1', '0', '1528885643');
@@ -184,7 +181,7 @@ INSERT INTO `sys_module` VALUES ('101', '44', '0,,43,44', '0', '修改保存', '
 INSERT INTO `sys_module` VALUES ('102', '2', '0,1,2', '0', '退出登录', '', 'exit.action', '', '0', '0', '1', '1528852997', '0');
 INSERT INTO `sys_module` VALUES ('103', '2', '0,1,2', '0', '修改资料', '', 'set.html', '', '0', '0', '1', '1528875990', '0');
 INSERT INTO `sys_module` VALUES ('104', '2', '0,1,2', '0', '修改保存', '', 'save.html', '', '0', '0', '1', '1528876019', '0');
-INSERT INTO `sys_module` VALUES ('105', '0', '0,', '0', '控制台', '', 'admin.html', '', '0', '0', '1', '1528886314', '1569457702');
+INSERT INTO `sys_module` VALUES ('105', '0', '0,', '0', '控制台', '', 'admin.html', '', '0', '0', '1', '1528886314', '1529119001');
 
 -- ----------------------------
 -- Table structure for sys_purview
@@ -192,20 +189,75 @@ INSERT INTO `sys_module` VALUES ('105', '0', '0,', '0', '控制台', '', 'admin.
 DROP TABLE IF EXISTS `sys_purview`;
 CREATE TABLE `sys_purview` (
   `purview_id` int(11) unsigned NOT NULL AUTO_INCREMENT COMMENT '权限ID',
-  `purview_type` tinyint(100) NOT NULL DEFAULT 1 COMMENT '权限类型：1 后台、2 前台',
-  `group_id` int(11) NOT NULL DEFAULT 0 COMMENT '用户组',
-  `obj_id` int(11) NOT NULL DEFAULT 0 COMMENT '权限对象',
-  `order` int(11) NOT NULL DEFAULT 0 COMMENT '排序',
-  `status` int(11) NOT NULL DEFAULT 1 COMMENT '状态',
-  `addtime` int(11) NOT NULL DEFAULT 0 COMMENT '增加时间',
-  `updatetime` int(11) NOT NULL DEFAULT 0 COMMENT '修改时间',
+  `purview_type` tinyint(100) NOT NULL DEFAULT '1' COMMENT '权限类型：1 后台、2 前台',
+  `group_id` int(11) NOT NULL DEFAULT '0' COMMENT '用户组',
+  `obj_id` int(11) NOT NULL DEFAULT '0' COMMENT '权限对象',
+  `order` int(11) NOT NULL DEFAULT '0' COMMENT '排序',
+  `status` int(11) NOT NULL DEFAULT '1' COMMENT '状态',
+  `addtime` int(11) NOT NULL DEFAULT '0' COMMENT '增加时间',
+  `updatetime` int(11) NOT NULL DEFAULT '0' COMMENT '修改时间',
   PRIMARY KEY (`purview_id`),
   UNIQUE KEY `purview_group_obj` (`purview_type`,`group_id`,`obj_id`) USING BTREE
-) ENGINE=InnoDB AUTO_INCREMENT=920 DEFAULT CHARSET=utf8 ROW_FORMAT=COMPACT COMMENT='系统权限';
+) ENGINE=InnoDB AUTO_INCREMENT=853 DEFAULT CHARSET=utf8 ROW_FORMAT=COMPACT COMMENT='系统权限';
 
 -- ----------------------------
 -- Records of sys_purview
 -- ----------------------------
+INSERT INTO `sys_purview` VALUES ('788', '1', '1', '105', '0', '1', '1528886325', '0');
+INSERT INTO `sys_purview` VALUES ('789', '1', '1', '43', '0', '1', '1528886325', '0');
+INSERT INTO `sys_purview` VALUES ('790', '1', '1', '44', '0', '1', '1528886325', '0');
+INSERT INTO `sys_purview` VALUES ('791', '1', '1', '101', '0', '1', '1528886325', '0');
+INSERT INTO `sys_purview` VALUES ('792', '1', '1', '100', '0', '1', '1528886325', '0');
+INSERT INTO `sys_purview` VALUES ('793', '1', '1', '99', '0', '1', '1528886325', '0');
+INSERT INTO `sys_purview` VALUES ('794', '1', '1', '98', '0', '1', '1528886325', '0');
+INSERT INTO `sys_purview` VALUES ('795', '1', '1', '97', '0', '1', '1528886325', '0');
+INSERT INTO `sys_purview` VALUES ('796', '1', '1', '46', '0', '1', '1528886325', '0');
+INSERT INTO `sys_purview` VALUES ('797', '1', '1', '45', '0', '1', '1528886325', '0');
+INSERT INTO `sys_purview` VALUES ('798', '1', '1', '1', '0', '1', '1528886325', '0');
+INSERT INTO `sys_purview` VALUES ('799', '1', '1', '5', '0', '1', '1528886325', '0');
+INSERT INTO `sys_purview` VALUES ('800', '1', '1', '65', '0', '1', '1528886325', '0');
+INSERT INTO `sys_purview` VALUES ('801', '1', '1', '64', '0', '1', '1528886325', '0');
+INSERT INTO `sys_purview` VALUES ('802', '1', '1', '63', '0', '1', '1528886325', '0');
+INSERT INTO `sys_purview` VALUES ('803', '1', '1', '62', '0', '1', '1528886325', '0');
+INSERT INTO `sys_purview` VALUES ('804', '1', '1', '31', '0', '1', '1528886325', '0');
+INSERT INTO `sys_purview` VALUES ('805', '1', '1', '15', '0', '1', '1528886325', '0');
+INSERT INTO `sys_purview` VALUES ('806', '1', '1', '14', '0', '1', '1528886325', '0');
+INSERT INTO `sys_purview` VALUES ('807', '1', '1', '13', '0', '1', '1528886325', '0');
+INSERT INTO `sys_purview` VALUES ('808', '1', '1', '4', '0', '1', '1528886325', '0');
+INSERT INTO `sys_purview` VALUES ('809', '1', '1', '34', '0', '1', '1528886325', '0');
+INSERT INTO `sys_purview` VALUES ('810', '1', '1', '3', '0', '1', '1528886325', '0');
+INSERT INTO `sys_purview` VALUES ('811', '1', '1', '69', '0', '1', '1528886325', '0');
+INSERT INTO `sys_purview` VALUES ('812', '1', '1', '68', '0', '1', '1528886325', '0');
+INSERT INTO `sys_purview` VALUES ('813', '1', '1', '67', '0', '1', '1528886325', '0');
+INSERT INTO `sys_purview` VALUES ('814', '1', '1', '66', '0', '1', '1528886325', '0');
+INSERT INTO `sys_purview` VALUES ('815', '1', '1', '33', '0', '1', '1528886325', '0');
+INSERT INTO `sys_purview` VALUES ('816', '1', '1', '21', '0', '1', '1528886325', '0');
+INSERT INTO `sys_purview` VALUES ('817', '1', '1', '20', '0', '1', '1528886325', '0');
+INSERT INTO `sys_purview` VALUES ('818', '1', '1', '19', '0', '1', '1528886325', '0');
+INSERT INTO `sys_purview` VALUES ('819', '1', '1', '2', '0', '1', '1528886325', '0');
+INSERT INTO `sys_purview` VALUES ('820', '1', '1', '104', '0', '1', '1528886325', '0');
+INSERT INTO `sys_purview` VALUES ('821', '1', '1', '103', '0', '1', '1528886325', '0');
+INSERT INTO `sys_purview` VALUES ('822', '1', '1', '102', '0', '1', '1528886325', '0');
+INSERT INTO `sys_purview` VALUES ('823', '1', '1', '61', '0', '1', '1528886325', '0');
+INSERT INTO `sys_purview` VALUES ('824', '1', '1', '60', '0', '1', '1528886325', '0');
+INSERT INTO `sys_purview` VALUES ('825', '1', '1', '59', '0', '1', '1528886325', '0');
+INSERT INTO `sys_purview` VALUES ('826', '1', '1', '58', '0', '1', '1528886325', '0');
+INSERT INTO `sys_purview` VALUES ('827', '1', '1', '32', '0', '1', '1528886325', '0');
+INSERT INTO `sys_purview` VALUES ('828', '1', '1', '18', '0', '1', '1528886325', '0');
+INSERT INTO `sys_purview` VALUES ('829', '1', '1', '17', '0', '1', '1528886325', '0');
+INSERT INTO `sys_purview` VALUES ('830', '1', '1', '16', '0', '1', '1528886325', '0');
+INSERT INTO `sys_purview` VALUES ('831', '1', '2', '105', '0', '1', '1528886330', '0');
+INSERT INTO `sys_purview` VALUES ('832', '1', '2', '43', '0', '1', '1528886330', '0');
+INSERT INTO `sys_purview` VALUES ('833', '1', '2', '44', '0', '1', '1528886330', '0');
+INSERT INTO `sys_purview` VALUES ('834', '1', '2', '101', '0', '1', '1528886330', '0');
+INSERT INTO `sys_purview` VALUES ('835', '1', '2', '100', '0', '1', '1528886330', '0');
+INSERT INTO `sys_purview` VALUES ('836', '1', '2', '46', '0', '1', '1528886330', '0');
+INSERT INTO `sys_purview` VALUES ('837', '1', '2', '45', '0', '1', '1528886330', '0');
+INSERT INTO `sys_purview` VALUES ('838', '1', '2', '1', '0', '1', '1528886330', '0');
+INSERT INTO `sys_purview` VALUES ('839', '1', '2', '4', '0', '1', '1528886330', '0');
+INSERT INTO `sys_purview` VALUES ('840', '1', '2', '104', '0', '1', '1528886330', '0');
+INSERT INTO `sys_purview` VALUES ('841', '1', '2', '103', '0', '1', '1528886330', '0');
+INSERT INTO `sys_purview` VALUES ('842', '1', '2', '102', '0', '1', '1528886330', '0');
 INSERT INTO `sys_purview` VALUES ('843', '1', '3', '105', '0', '1', '1528886334', '0');
 INSERT INTO `sys_purview` VALUES ('844', '1', '3', '43', '0', '1', '1528886334', '0');
 INSERT INTO `sys_purview` VALUES ('845', '1', '3', '44', '0', '1', '1528886334', '0');
@@ -216,61 +268,6 @@ INSERT INTO `sys_purview` VALUES ('849', '1', '3', '4', '0', '1', '1528886334', 
 INSERT INTO `sys_purview` VALUES ('850', '1', '3', '104', '0', '1', '1528886334', '0');
 INSERT INTO `sys_purview` VALUES ('851', '1', '3', '103', '0', '1', '1528886334', '0');
 INSERT INTO `sys_purview` VALUES ('852', '1', '3', '102', '0', '1', '1528886334', '0');
-INSERT INTO `sys_purview` VALUES ('865', '1', '2', '105', '0', '1', '1569376415', '0');
-INSERT INTO `sys_purview` VALUES ('866', '1', '2', '43', '0', '1', '1569376415', '0');
-INSERT INTO `sys_purview` VALUES ('867', '1', '2', '44', '0', '1', '1569376415', '0');
-INSERT INTO `sys_purview` VALUES ('868', '1', '2', '101', '0', '1', '1569376415', '0');
-INSERT INTO `sys_purview` VALUES ('869', '1', '2', '100', '0', '1', '1569376415', '0');
-INSERT INTO `sys_purview` VALUES ('870', '1', '2', '46', '0', '1', '1569376415', '0');
-INSERT INTO `sys_purview` VALUES ('871', '1', '2', '45', '0', '1', '1569376415', '0');
-INSERT INTO `sys_purview` VALUES ('872', '1', '2', '1', '0', '1', '1569376415', '0');
-INSERT INTO `sys_purview` VALUES ('873', '1', '2', '4', '0', '1', '1569376415', '0');
-INSERT INTO `sys_purview` VALUES ('874', '1', '2', '104', '0', '1', '1569376415', '0');
-INSERT INTO `sys_purview` VALUES ('875', '1', '2', '103', '0', '1', '1569376415', '0');
-INSERT INTO `sys_purview` VALUES ('876', '1', '2', '102', '0', '1', '1569376415', '0');
-INSERT INTO `sys_purview` VALUES ('877', '1', '1', '105', '0', '1', '1569727155', '0');
-INSERT INTO `sys_purview` VALUES ('878', '1', '1', '43', '0', '1', '1569727155', '0');
-INSERT INTO `sys_purview` VALUES ('879', '1', '1', '44', '0', '1', '1569727155', '0');
-INSERT INTO `sys_purview` VALUES ('880', '1', '1', '101', '0', '1', '1569727155', '0');
-INSERT INTO `sys_purview` VALUES ('881', '1', '1', '100', '0', '1', '1569727155', '0');
-INSERT INTO `sys_purview` VALUES ('882', '1', '1', '99', '0', '1', '1569727155', '0');
-INSERT INTO `sys_purview` VALUES ('883', '1', '1', '98', '0', '1', '1569727155', '0');
-INSERT INTO `sys_purview` VALUES ('884', '1', '1', '97', '0', '1', '1569727155', '0');
-INSERT INTO `sys_purview` VALUES ('885', '1', '1', '46', '0', '1', '1569727155', '0');
-INSERT INTO `sys_purview` VALUES ('886', '1', '1', '45', '0', '1', '1569727155', '0');
-INSERT INTO `sys_purview` VALUES ('887', '1', '1', '1', '0', '1', '1569727155', '0');
-INSERT INTO `sys_purview` VALUES ('888', '1', '1', '5', '0', '1', '1569727155', '0');
-INSERT INTO `sys_purview` VALUES ('889', '1', '1', '65', '0', '1', '1569727155', '0');
-INSERT INTO `sys_purview` VALUES ('890', '1', '1', '64', '0', '1', '1569727155', '0');
-INSERT INTO `sys_purview` VALUES ('891', '1', '1', '63', '0', '1', '1569727155', '0');
-INSERT INTO `sys_purview` VALUES ('892', '1', '1', '62', '0', '1', '1569727155', '0');
-INSERT INTO `sys_purview` VALUES ('893', '1', '1', '31', '0', '1', '1569727155', '0');
-INSERT INTO `sys_purview` VALUES ('894', '1', '1', '15', '0', '1', '1569727155', '0');
-INSERT INTO `sys_purview` VALUES ('895', '1', '1', '14', '0', '1', '1569727155', '0');
-INSERT INTO `sys_purview` VALUES ('896', '1', '1', '13', '0', '1', '1569727155', '0');
-INSERT INTO `sys_purview` VALUES ('897', '1', '1', '4', '0', '1', '1569727155', '0');
-INSERT INTO `sys_purview` VALUES ('898', '1', '1', '34', '0', '1', '1569727155', '0');
-INSERT INTO `sys_purview` VALUES ('899', '1', '1', '3', '0', '1', '1569727155', '0');
-INSERT INTO `sys_purview` VALUES ('900', '1', '1', '69', '0', '1', '1569727155', '0');
-INSERT INTO `sys_purview` VALUES ('901', '1', '1', '68', '0', '1', '1569727155', '0');
-INSERT INTO `sys_purview` VALUES ('902', '1', '1', '67', '0', '1', '1569727155', '0');
-INSERT INTO `sys_purview` VALUES ('903', '1', '1', '66', '0', '1', '1569727155', '0');
-INSERT INTO `sys_purview` VALUES ('904', '1', '1', '33', '0', '1', '1569727155', '0');
-INSERT INTO `sys_purview` VALUES ('905', '1', '1', '21', '0', '1', '1569727155', '0');
-INSERT INTO `sys_purview` VALUES ('906', '1', '1', '20', '0', '1', '1569727155', '0');
-INSERT INTO `sys_purview` VALUES ('907', '1', '1', '19', '0', '1', '1569727155', '0');
-INSERT INTO `sys_purview` VALUES ('908', '1', '1', '2', '0', '1', '1569727155', '0');
-INSERT INTO `sys_purview` VALUES ('909', '1', '1', '104', '0', '1', '1569727155', '0');
-INSERT INTO `sys_purview` VALUES ('910', '1', '1', '103', '0', '1', '1569727155', '0');
-INSERT INTO `sys_purview` VALUES ('911', '1', '1', '102', '0', '1', '1569727155', '0');
-INSERT INTO `sys_purview` VALUES ('912', '1', '1', '61', '0', '1', '1569727155', '0');
-INSERT INTO `sys_purview` VALUES ('913', '1', '1', '60', '0', '1', '1569727155', '0');
-INSERT INTO `sys_purview` VALUES ('914', '1', '1', '59', '0', '1', '1569727155', '0');
-INSERT INTO `sys_purview` VALUES ('915', '1', '1', '58', '0', '1', '1569727155', '0');
-INSERT INTO `sys_purview` VALUES ('916', '1', '1', '32', '0', '1', '1569727155', '0');
-INSERT INTO `sys_purview` VALUES ('917', '1', '1', '18', '0', '1', '1569727155', '0');
-INSERT INTO `sys_purview` VALUES ('918', '1', '1', '17', '0', '1', '1569727155', '0');
-INSERT INTO `sys_purview` VALUES ('919', '1', '1', '16', '0', '1', '1569727155', '0');
 
 -- ----------------------------
 -- Table structure for sys_user
@@ -283,21 +280,20 @@ CREATE TABLE `sys_user` (
   `user_pass` varchar(50) NOT NULL DEFAULT '' COMMENT '用户密码',
   `user_realname` varchar(50) NOT NULL DEFAULT '' COMMENT '用户真实姓名',
   `user_icon` varchar(150) NOT NULL DEFAULT '' COMMENT '头像',
-  `group_id` int(11) NOT NULL DEFAULT 0 COMMENT '用户组ID',
-  `gd` int(11) NOT NULL DEFAULT 0 COMMENT '固定',
-  `order` int(11) NOT NULL DEFAULT 0 COMMENT '排序',
-  `status` int(11) NOT NULL DEFAULT 0 COMMENT '状态',
-  `addtime` int(11) NOT NULL DEFAULT 0 COMMENT '增加时间',
-  `updatetime` int(11) NOT NULL DEFAULT 0 COMMENT '修改时间',
+  `group_id` int(11) NOT NULL DEFAULT '0' COMMENT '用户组ID',
+  `gd` int(11) NOT NULL DEFAULT '0' COMMENT '固定',
+  `order` int(11) NOT NULL DEFAULT '0' COMMENT '排序',
+  `status` int(11) NOT NULL DEFAULT '0' COMMENT '状态',
+  `addtime` int(11) NOT NULL DEFAULT '0' COMMENT '增加时间',
+  `updatetime` int(11) NOT NULL DEFAULT '0' COMMENT '修改时间',
   PRIMARY KEY (`user_id`),
   UNIQUE KEY `user_name` (`user_name`),
   KEY `user_group_id` (`group_id`)
-) ENGINE=InnoDB AUTO_INCREMENT=44 DEFAULT CHARSET=utf8 ROW_FORMAT=COMPACT COMMENT='系统用户';
+) ENGINE=InnoDB AUTO_INCREMENT=4 DEFAULT CHARSET=utf8 ROW_FORMAT=COMPACT COMMENT='系统用户';
 
 -- ----------------------------
 -- Records of sys_user
 -- ----------------------------
-INSERT INTO `sys_user` VALUES ('1', 'admin', 'df7c051cd41b5224', '13ebcad70d19c6e79a7aec6146873c06', 'admin', '', '1', '1', '0', '1', '1462935324', '1507941771');
-INSERT INTO `sys_user` VALUES ('2', 'develop', 'eeb10f00dc339499', 'd53b5aabc50121d79659317becfdb7b4', '小耿', '', '2', '0', '0', '1', '1462936074', '1492919698');
-INSERT INTO `sys_user` VALUES ('4', 'guest', '702a6f09da99c5f0', '908b766eb6f3b32837f1f14b5c2f4399', 'guest', '', '3', '0', '0', '1', '1491399061', '1494419512');
-INSERT INTO `sys_user` VALUES ('43', 'gene', 'c146c1d8cb5cf5e2', '6dedade4509e503ab58b5c948e7c3403', '测试', '', '1', '0', '0', '1', '0', '0');
+INSERT INTO `sys_user` VALUES ('1', 'admin', 'df7c051cd41b5224', '13ebcad70d19c6e79a7aec6146873c06', 'admin', 'app/Cache/File/user_icon/20170115_67657472.jpg', '1', '1', '0', '1', '1462935324', '1507941771');
+INSERT INTO `sys_user` VALUES ('2', 'develop', 'eeb10f00dc339499', 'd53b5aabc50121d79659317becfdb7b4', '小耿', 'app/Cache/File/user_icon/20170219_36442465.jpg', '2', '0', '0', '1', '1462936074', '1492919698');
+INSERT INTO `sys_user` VALUES ('3', 'guest', '702a6f09da99c5f0', '908b766eb6f3b32837f1f14b5c2f4399', 'guest', '', '3', '0', '0', '1', '1491399061', '1494419512');
