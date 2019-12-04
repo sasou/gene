@@ -36,8 +36,8 @@ class Mark extends \Gene\Service
      */
     function listAll($type)
     {
-        // 方法级定时缓存一分钟
-        return $this->cache->cached(["\Models\Doc\Mark", "listAll"], [$type], 60);
+        // 方法级实时版本缓存
+        return $this->cache->cachedVersion(["\Models\Doc\Mark", "listAll"], [$type], ['db.app_mark' => null], 3600);
     }
 
     /**
@@ -48,8 +48,8 @@ class Mark extends \Gene\Service
      */
     function row($id)
     {
-        // 方法级定时缓存一分钟
-        return $this->cache->cached(["\Models\Doc\Mark", "row"], [$id], 3);
+        // 方法级实时版本缓存
+        return $this->cache->cachedVersion(["\Models\Doc\Mark", "row"], [$id], ['db.app_mark' => null], 3600);
     }
     
     /**
@@ -63,6 +63,8 @@ class Mark extends \Gene\Service
         $data['user_id'] = isset($this->session->get('admin')['user_id']) ? $this->session->get('admin')['user_id'] : 0;
         $data['addtime'] = time();
         $data['status'] = isset($data['status']) && $data['status'] == 'on' ? 1 : 0;
+        // 方法级实时缓存版本key更新
+        $this->cache->updateVersion(['db.app_mark' => null]);
         return \Models\Doc\Mark::getInstance()->add($data);
     }
 
@@ -77,6 +79,8 @@ class Mark extends \Gene\Service
     {
         $data['updatetime'] = time();
         $data['status'] = isset($data['status']) && $data['status'] == 'on' ? 1 : 0;
+        // 方法级实时缓存版本key更新
+        $this->cache->updateVersion(['db.app_mark' => null]);
         return \Models\Doc\Mark::getInstance()->edit($id, $data);
     }
 
@@ -88,6 +92,8 @@ class Mark extends \Gene\Service
      */
     function status($id)
     {
+        // 方法级实时缓存版本key更新
+        $this->cache->updateVersion(['db.app_mark' => null]);
         return \Models\Doc\Mark::getInstance()->status($id);
     }
     
@@ -99,6 +105,8 @@ class Mark extends \Gene\Service
      */
     function del($id)
     {
+        // 方法级实时缓存版本key更新
+        $this->cache->updateVersion(['db.app_mark' => null]);
         return \Models\Doc\Mark::getInstance()->del($id);
     }
 
@@ -110,6 +118,8 @@ class Mark extends \Gene\Service
      */
     function delAll($id_arr)
     {
+        // 方法级实时缓存版本key更新
+        $this->cache->updateVersion(['db.app_mark' => null]);
         return \Models\Doc\Mark::getInstance()->delAll($id_arr);
     }
     
