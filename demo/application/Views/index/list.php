@@ -1,14 +1,14 @@
 <div class="fly-case-header">
   <p class="fly-case-year">Gene</p>
   <a href="#">
-    <p class="fly-case-banner layui-text"> Simple, high performance,C extension framework for php！ </p>
+    <p class="fly-case-banner layui-text"> Grace, fastest, flexibility, simple PHP extension framework！ <br><br>  简单编码，优雅生活！ </p>
   </a>
-  <p class="fly-case-version">最新版本：<span class="layui-badge">V<?php echo gene_version();?></span> （Dec 12, 2019 更新）</p>
+  <p class="fly-case-version"><br>最新版本：<span class="layui-badge">V<?php echo gene_version();?></span> （Dec 12, 2019 更新）</p>
   <div class="fly-case-btn">
       
 <ul class="layui-row layui-col-space20 layui-layout-center">
 <li class="layui-col-xs2 layui-col-md-offset3">
-  <a lay-href="home/homepage1.html">
+  <a lay-href="#">
     <i class="layui-icon layui-icon-console"></i>
     <cite>获取Linux版本
         <iframe src="https://ghbtns.com/github-btn.html?user=sasou&repo=gene&type=star&count=true" frameborder="0" scrolling="0" width="110px" height="20px"></iframe>
@@ -16,7 +16,7 @@
   </a>
 </li>
 <li class="layui-col-xs2">
-  <a lay-href="home/homepage2.html">
+  <a lay-href="#">
     <i class="layui-icon layui-icon-chart"></i>
     <cite>获取windows版本
         <iframe src="https://ghbtns.com/github-btn.html?user=sasou&repo=gene-for-windows&type=star&count=true" frameborder="0" scrolling="0" width="110px" height="20px"></iframe>
@@ -24,7 +24,7 @@
   </a>
 </li>
 <li class="layui-col-xs2">
-  <a lay-href="component/layer/list.html">
+  <a lay-href="#">
     <i class="layui-icon layui-icon-template-1"></i>
     <cite>windows集成环境
         <iframe src="https://ghbtns.com/github-btn.html?user=sasou&repo=wamp&type=star&count=true" frameborder="0" scrolling="0" width="110px" height="20px"></iframe>
