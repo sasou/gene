@@ -436,7 +436,7 @@ body .fly-user-main{position: relative; min-height: 600px;}
 .fly-list-one .fly-none{min-height: 70px;}
 
 
-.site-idea{margin: 50px 0; font-size: 0; text-align: center; font-weight: 300;}
+.site-idea{margin: 20px 0; font-size: 0; text-align: center; font-weight: 300;}
 .site-idea li{display: inline-block; vertical-align: top; *display: inline; *zoom:1; font-size: 14px; }
 .site-idea li{width: 298px; padding: 30px; line-height: 24px; margin-left: 30px; border: 1px solid #d2d2d2; text-align: left;}
 .site-idea li:first-child{margin-left: 0}
