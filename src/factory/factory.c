@@ -37,7 +37,7 @@ ZEND_BEGIN_ARG_INFO_EX(gene_factory_create, 0, 0, 1)
     ZEND_ARG_INFO(0, type)
 ZEND_END_ARG_INFO()
 
-zend_bool gene_factory_load_class(char *className, int tmp_len, zval *classObject) {
+zend_bool gene_factory_load_class(char *className, size_t tmp_len, zval *classObject) {
 	zend_string *c_key = NULL;
 	zend_class_entry *pdo_ptr = NULL;
 
@@ -55,11 +55,11 @@ zend_bool gene_factory_load_class(char *className, int tmp_len, zval *classObjec
 void gene_factory_call(zval *object, char *action, zval *param, zval *retval) /*{{{*/
 {
     zval function_name;
-    uint param_count = 0;
+    uint32_t param_count = 0;
 	zval *element;
 	zend_string *key = NULL;
 	zend_long id;
-	uint num = 0;
+	uint32_t num = 0;
 
     ZVAL_STRING(&function_name, action);
     if (param && Z_TYPE_P(param) == IS_ARRAY) {
@@ -84,11 +84,11 @@ void gene_factory_call(zval *object, char *action, zval *param, zval *retval) /*
 void gene_factory_function_call(char *action, zval *param_key, zval *param_arr, zval *retval) /*{{{*/
 {
     zval function_name;
-    uint param_count = 0;
+    uint32_t param_count = 0;
 	zval *element;
 	zend_string *key = NULL;
 	zend_long id;
-	uint num = 1;
+	uint32_t num = 1;
 
     ZVAL_STRING(&function_name, action);
     zval params[10];
@@ -109,11 +109,11 @@ void gene_factory_function_call(char *action, zval *param_key, zval *param_arr, 
 
 void gene_factory_function_call_1(zval *function_name, zval *param_key, zval *param_arr, zval *retval) /*{{{*/
 {
-    uint param_count = 0;
+	uint32_t param_count = 0;
 	zval *element;
 	zend_string *key = NULL;
 	zend_long id;
-	uint num = 1;
+	uint32_t num = 1;
     if (param_key) {
         zval params[10];
         params[0] = *param_key;
@@ -134,7 +134,7 @@ void gene_factory_function_call_1(zval *function_name, zval *param_key, zval *pa
 }/*}}}*/
 
 
-zend_bool gene_factory(char *className, int tmp_len, zval *params, zval *classObject) {
+zend_bool gene_factory(char *className, size_t tmp_len, zval *params, zval *classObject) {
 	zend_string *c_key = NULL;
 	zend_class_entry *pdo_ptr = NULL;
 	zval ret;

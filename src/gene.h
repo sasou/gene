@@ -76,7 +76,7 @@ char *auto_load_fun;
 char *child_views;
 zval *path_params;
 zend_bool use_library;
-zend_bool run_environment;
+zend_long run_environment;
 zend_bool use_namespace;
 zend_bool view_compile;
 HashTable *cache;

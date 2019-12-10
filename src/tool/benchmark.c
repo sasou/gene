@@ -35,7 +35,7 @@ zend_class_entry * gene_benchmark_ce;
 PHPAPI int gettimeofday(struct timeval *time_Info, struct timezone *timezone_Info);
 
 struct timeval bench_start, bench_end;
-long bench_memory_start = 0, bench_memory_end = 0;
+zend_long bench_memory_start = 0, bench_memory_end = 0;
 
 ZEND_BEGIN_ARG_INFO_EX(gene_benchmark_start, 0, 0, 0)
 ZEND_END_ARG_INFO()
@@ -53,9 +53,9 @@ ZEND_END_ARG_INFO()
 
 
 /*
- * {{{ void markStart(timeval *start, long *memory_start)
+ * {{{ void markStart(timeval *start, zend_long *memory_start)
  */
-void markStart(struct timeval *start, long *memory_start) {
+void markStart(struct timeval *start, zend_long *memory_start) {
 	zval func, ret;
 	gettimeofday( start, NULL );
 
@@ -73,7 +73,7 @@ void markStart(struct timeval *start, long *memory_start) {
 /*
  * {{{ void markEnd()
  */
-void markEnd(struct timeval *end, long *memory_end) {
+void markEnd(struct timeval *end, zend_long *memory_end) {
 	zval func, ret;
     gettimeofday( end, NULL );
 
@@ -110,8 +110,8 @@ void getBenchTime(struct timeval *start, struct timeval *end, char **ret, zend_b
 	}
 }
 
-void getBenchMemory(long *memory_start, long *memory_end, char **ret, zend_bool type) {
-	double memory;
+void getBenchMemory(zend_long *memory_start, zend_long *memory_end, char **ret, zend_bool type) {
+	zend_long memory;
 	memory = *memory_end - *memory_start;
 
 	if (type) {
