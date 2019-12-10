@@ -66,7 +66,7 @@ zval *gene_di_get(zend_string *name) {
 	}
 
 	char *router_e = NULL;
-	int router_e_len = 0;
+	size_t router_e_len = 0;
 	zend_bool type = 0;
 
 	if (GENE_G(app_key)) {

@@ -82,7 +82,7 @@ void gene_view_contains(char *file, zval *ret TSRMLS_DC) {
  */
 void gene_view_contains_ext(char *file, zend_bool isCompile, zval *ret TSRMLS_DC) {
 	char *path, *compile_path, *cpath;
-	int path_len, compile_path_len, cpath_len;
+	size_t compile_path_len;
 	php_stream *stream = NULL;
 	compile_path_len = spprintf(&compile_path, 0, "%s/Cache/Views/%s.php", GENE_G(app_root), file);
 	if (isCompile || GENE_G(view_compile)) {
@@ -92,7 +92,7 @@ void gene_view_contains_ext(char *file, zend_bool isCompile, zval *ret TSRMLS_DC
 		if (!GENE_G(app_ext)) {
 			GENE_G(app_ext) = estrndup(GENE_VIEW_EXT, strlen(GENE_VIEW_EXT));
 		}
-		path_len = spprintf(&path, 0, "%s/%s/%s%s", GENE_G(app_root), GENE_G(app_view), file, GENE_G(app_ext));
+		spprintf(&path, 0, "%s/%s/%s%s", GENE_G(app_root), GENE_G(app_view), file, GENE_G(app_ext));
 		stream = php_stream_open_wrapper(path, "rb", REPORT_ERRORS, NULL);
 		if (stream == NULL) {
 			zend_error(E_WARNING, "%s does not read able", path);
@@ -100,7 +100,7 @@ void gene_view_contains_ext(char *file, zend_bool isCompile, zval *ret TSRMLS_DC
 		} else {
 			efree(path);
 			cpath = estrndup(compile_path, compile_path_len);
-			cpath_len = php_dirname(cpath, compile_path_len);
+			php_dirname(cpath, compile_path_len);
 			if (check_folder_exists(cpath) == FAILURE) {
 				efree(cpath);
 			}
@@ -119,7 +119,6 @@ void gene_view_contains_ext(char *file, zend_bool isCompile, zval *ret TSRMLS_DC
  */
 int gene_view_display(char *file TSRMLS_DC) {
 	char *path;
-	int path_len;
 	if (GENE_G(app_root)) {
 		if (!GENE_G(app_view)) {
 			GENE_G(app_view) = estrndup(GENE_VIEW_VIEW, strlen(GENE_VIEW_VIEW));
@@ -127,9 +126,9 @@ int gene_view_display(char *file TSRMLS_DC) {
 		if (!GENE_G(app_ext)) {
 			GENE_G(app_ext) = estrndup(GENE_VIEW_EXT, strlen(GENE_VIEW_EXT));
 		}
-		path_len = spprintf(&path, 0, "%s/%s/%s%s", GENE_G(app_root), GENE_G(app_view), file, GENE_G(app_ext));
+		spprintf(&path, 0, "%s/%s/%s%s", GENE_G(app_root), GENE_G(app_view), file, GENE_G(app_ext));
 	} else {
-		path_len = spprintf(&path, 0, "app/%s/%s%s", GENE_VIEW_VIEW, file, GENE_VIEW_EXT);
+		spprintf(&path, 0, "app/%s/%s%s", GENE_VIEW_VIEW, file, GENE_VIEW_EXT);
 	}
 	if(!gene_load_import(path TSRMLS_CC)) {
 		php_error_docref(NULL, E_WARNING, "Unable to load view file %s", path);
@@ -143,7 +142,7 @@ int gene_view_display(char *file TSRMLS_DC) {
  */
 int gene_view_display_ext(char *file, zend_bool isCompile TSRMLS_DC) {
 	char *path, *compile_path, *cpath;
-	int path_len, compile_path_len, cpath_len;
+	size_t compile_path_len;
 	php_stream *stream = NULL;
 	compile_path_len = spprintf(&compile_path, 0, "%s/Cache/Views/%s.php", GENE_G(app_root), file);
 	if (isCompile || GENE_G(view_compile)) {
@@ -153,7 +152,7 @@ int gene_view_display_ext(char *file, zend_bool isCompile TSRMLS_DC) {
 		if (!GENE_G(app_ext)) {
 			GENE_G(app_ext) = estrndup(GENE_VIEW_EXT, strlen(GENE_VIEW_EXT));
 		}
-		path_len = spprintf(&path, 0, "%s/%s/%s%s", GENE_G(app_root), GENE_G(app_view), file, GENE_G(app_ext));
+		spprintf(&path, 0, "%s/%s/%s%s", GENE_G(app_root), GENE_G(app_view), file, GENE_G(app_ext));
 		stream = php_stream_open_wrapper(path, "rb", REPORT_ERRORS, NULL);
 		if (stream == NULL) {
 			zend_error(E_WARNING, "%s does not read able", path);
@@ -162,7 +161,7 @@ int gene_view_display_ext(char *file, zend_bool isCompile TSRMLS_DC) {
 		} else {
 			efree(path);
 			cpath = estrndup(compile_path, compile_path_len);
-			cpath_len = php_dirname(cpath, compile_path_len);
+			php_dirname(cpath, compile_path_len);
 			if (check_folder_exists(cpath) == FAILURE) {
 				efree(cpath);
 				return 0;

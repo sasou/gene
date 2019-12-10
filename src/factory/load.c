@@ -58,7 +58,13 @@ void gene_zend_execute(zend_op_array *op_array, zval *return_value)
  | ZEND_CALL_HAS_SYMBOL_TABLE
 #endif
 			,
-		(zend_function*)op_array, 0, zend_get_called_scope(EG(current_execute_data)), zend_get_this_object(EG(current_execute_data)));
+(zend_function*)op_array, 0,
+#if PHP_VERSION_ID >= 70400
+zend_get_called_scope(EG(current_execute_data))
+#else
+zend_get_called_scope(EG(current_execute_data)), zend_get_this_object(EG(current_execute_data))
+#endif
+	);
 	if (EG(current_execute_data)) {
 		execute_data->symbol_table = zend_rebuild_symbol_table();
 	} else {

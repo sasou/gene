@@ -25,9 +25,9 @@ extern zend_class_entry *gene_benchmark_ce;
 
 GENE_MINIT_FUNCTION (benchmark);
 
-void markStart(struct timeval *start, long *memory_start);
-void markEnd(struct timeval *end, long *memory_end);
+void markStart(struct timeval *start, zend_long *memory_start);
+void markEnd(struct timeval *end, zend_long *memory_end);
 void getBenchTime(struct timeval *start, struct timeval *end, char **ret, zend_bool type);
-void getBenchMemory(long *memory_start, long *memory_end, char **ret, zend_bool type);
+void getBenchMemory(zend_long *memory_start, zend_long *memory_end, char **ret, zend_bool type);
 
 #endif

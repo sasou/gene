@@ -123,11 +123,12 @@ ZEND_BEGIN_ARG_INFO_EX(gene_application_set, 0, 0, 2)
 ZEND_END_ARG_INFO()
 
 /*
- * {{{ void load_file(char *key, int key_len,char *php_script, int validity TSRMLS_DC)
+ * {{{ void load_file(char *key, size_t key_len,char *php_script, int validity TSRMLS_DC)
  */
-void load_file(char *key, int key_len, char *php_script, int validity TSRMLS_DC) {
+void load_file(char *key, size_t key_len, char *php_script, int validity TSRMLS_DC) {
 
-	int import = 0, cur, times = 0;
+	int import = 0;
+	zend_long cur, times = 0;
 	filenode *val;
 	if (key_len) {
 		val = file_cache_get_easy(key, key_len TSRMLS_CC);
@@ -160,7 +161,7 @@ void load_file(char *key, int key_len, char *php_script, int validity TSRMLS_DC)
 
 /** {{{ gene_file_modified
  */
-int gene_file_modified(char *file, long ctime TSRMLS_DC) {
+zend_long gene_file_modified(char *file, long ctime TSRMLS_DC) {
 	zval n_ctime;
 	php_stat(file, strlen(file), 6 /* FS_MTIME */, &n_ctime TSRMLS_CC);
 	if (ctime != Z_LVAL(n_ctime)) {
@@ -257,7 +258,8 @@ PHP_METHOD(gene_application, load) {
 	zval *self = getThis();
 	zend_string *file = NULL, *path = NULL;
 	char *cache_key;
-	int validity = 10, cache_key_len;
+	int validity = 10;
+	size_t cache_key_len;
 	if (zend_parse_parameters(ZEND_NUM_ARGS()TSRMLS_CC, "S|Sl", &file, &path, &validity) == FAILURE) {
 		return;
 	}
@@ -403,7 +405,7 @@ PHP_METHOD(gene_application, setEnvironment) {
  */
 PHP_METHOD(gene_application, config) {
 	zval *cache = NULL;
-	int router_e_len;
+	size_t router_e_len;
 	char *router_e;
 	zend_string *keyString;
 	if (zend_parse_parameters(ZEND_NUM_ARGS()TSRMLS_CC, "S", &keyString) == FAILURE) {
