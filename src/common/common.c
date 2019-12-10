@@ -750,7 +750,7 @@ int serialize(zval *arr, zval *string, zval *serializer_handler) {
 int unserialize(zval *string, zval *arr, zval *serializer_handler) {
 	zval assoc;
 	if (Z_TYPE_P(string) == IS_STRING) {
-		zend_type type = Z_LVAL_P(serializer_handler);
+		zend_long type = Z_LVAL_P(serializer_handler);
 		switch(type) {
 		case 1:
 			if(is_json(string) == 0) {
