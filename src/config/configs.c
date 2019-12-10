@@ -84,7 +84,8 @@ PHP_METHOD(gene_config, __construct) {
  */
 PHP_METHOD(gene_config, set) {
 	char *keyString, *router_e, *path;
-	int keyString_len, validity = 0, router_e_len;
+	int keyString_len, validity = 0;
+	size_t router_e_len;
 	zval *zvalue, *safe;
 	if (zend_parse_parameters(ZEND_NUM_ARGS()TSRMLS_CC, "sz|l", &keyString,
 			&keyString_len, &zvalue, &validity) == FAILURE) {
@@ -115,7 +116,7 @@ PHP_METHOD(gene_config, set) {
  */
 PHP_METHOD(gene_config, get) {
 	zval *self = getThis(), *safe, *cache = NULL;
-	int router_e_len;
+	size_t router_e_len;
 	char *router_e, *path;
 	zend_string *keyString;
 	if (zend_parse_parameters(ZEND_NUM_ARGS()TSRMLS_CC, "S", &keyString)
@@ -148,7 +149,7 @@ PHP_METHOD(gene_config, get) {
  */
 PHP_METHOD(gene_config, del) {
 	zval *self = getThis(), *safe;
-	int router_e_len, ret;
+	size_t router_e_len;
 	char *router_e;
 	safe = zend_read_property(gene_config_ce, self, GENE_CONFIG_SAFE,
 			strlen(GENE_CONFIG_SAFE), 1, NULL);
@@ -158,11 +159,9 @@ PHP_METHOD(gene_config, del) {
 	} else {
 		router_e_len = spprintf(&router_e, 0, "%s", GENE_CONFIG_CACHE);
 	}
-	ret = gene_memory_del(router_e, router_e_len TSRMLS_CC);
-	if (ret) {
+	if (gene_memory_del(router_e, router_e_len TSRMLS_CC)) {
 		efree(router_e);
-		RETURN_TRUE
-		;
+		RETURN_TRUE;
 	}
 	efree(router_e);
 	RETURN_FALSE;
@@ -174,7 +173,7 @@ PHP_METHOD(gene_config, del) {
  */
 PHP_METHOD(gene_config, clear) {
 	zval *self = getThis(), *safe;
-	int router_e_len, ret;
+	size_t router_e_len;
 	char *router_e;
 	safe = zend_read_property(gene_config_ce, self, GENE_CONFIG_SAFE,
 			strlen(GENE_CONFIG_SAFE), 1, NULL);
@@ -184,8 +183,7 @@ PHP_METHOD(gene_config, clear) {
 	} else {
 		router_e_len = spprintf(&router_e, 0, "%s", GENE_CONFIG_CACHE);
 	}
-	ret = gene_memory_del(router_e, router_e_len TSRMLS_CC);
-	if (ret) {
+	if (gene_memory_del(router_e, router_e_len TSRMLS_CC)) {
 		efree(router_e);
 		RETURN_TRUE;
 	}

@@ -61,7 +61,7 @@ void gene_session_start() /*{{{*/
     zval_ptr_dtor(&ret);
 }/*}}}*/
 
-int gene_session_status() /*{{{*/
+zend_long gene_session_status() /*{{{*/
 {
     zval function_name,ret;
     zend_long type = 0;
@@ -114,9 +114,9 @@ zval * gene_session_get_by_path(char *path TSRMLS_DC) {
 }
 /* }}} */
 
-/** {{{ static zval * gene_session_set_val(char *keyString, int keyString_len TSRMLS_DC)
+/** {{{ static zval * gene_session_set_val(char *keyString, size_t keyString_len TSRMLS_DC)
  */
-static zval * gene_session_set_val(zval *val, char *keyString, int keyString_len, zval *zvalue TSRMLS_DC) {
+static zval * gene_session_set_val(zval *val, char *keyString, size_t keyString_len, zval *zvalue TSRMLS_DC) {
 	zval tmp, *copyval;
 	if (val == NULL) {
 		return NULL;

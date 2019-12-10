@@ -105,7 +105,7 @@ static zval* gene_symtable_update(HashTable *ht, zend_string *key, zval *zv) /* 
 }
 /* }}} */
 
-static void gene_hash_init(zval *zv, size_t size) /* {{{ */{
+static void gene_hash_init(zval *zv, uint32_t size) /* {{{ */{
 	HashTable *ht;
 	PALLOC_HASHTABLE(ht);
 	zend_hash_init(ht, size, NULL, gene_memory_zval_dtor, 1);
@@ -142,7 +142,11 @@ void gene_hash_destroy(HashTable *ht) /* {{{ */{
 	zend_string *key;
 	zval *element;
 
-	if (((ht)->u.flags & HASH_FLAG_INITIALIZED)) {
+	if (((ht)->u.flags
+			#if PHP_VERSION_ID < 70400
+			& HASH_FLAG_INITIALIZED
+			#endif
+			)) {
 		ZEND_HASH_FOREACH_STR_KEY_VAL(ht, key, element)
 		{
 			if (key) {
@@ -325,7 +329,7 @@ zval *gene_memory_zval_local(zval *dst, zval *source) /* {{{ */
 
 /** {{{ void gene_memory_set(char *keyString,int keyString_len,zval *zvalue, int validity TSRMLS_DC)
  */
-void gene_memory_set(char *keyString, int keyString_len, zval *zvalue,
+void gene_memory_set(char *keyString, size_t keyString_len, zval *zvalue,
 		int validity TSRMLS_DC) {
 	zval *copyval, ret;
 	zend_string *key;
@@ -343,9 +347,9 @@ void gene_memory_set(char *keyString, int keyString_len, zval *zvalue,
 }
 /* }}} */
 
-/** {{{ void gene_memory_get(char *keyString, int keyString_len TSRMLS_DC)
+/** {{{ void gene_memory_get(char *keyString, size_t keyString_len TSRMLS_DC)
  */
-zval * gene_memory_get(char *keyString, int keyString_len TSRMLS_DC) {
+zval * gene_memory_get(char *keyString, size_t keyString_len TSRMLS_DC) {
 	zval *zvalue;
 	zvalue = zend_symtable_str_find(GENE_G(cache), keyString, keyString_len);
 	return zvalue;
@@ -354,14 +358,14 @@ zval * gene_memory_get(char *keyString, int keyString_len TSRMLS_DC) {
 
 /** {{{ void gene_memory_get_quick(char *keyString, int keyString_len TSRMLS_DC)
  */
-zval * gene_memory_get_quick(char *keyString, int keyString_len TSRMLS_DC) {
+zval * gene_memory_get_quick(char *keyString, size_t keyString_len TSRMLS_DC) {
 	return zend_symtable_str_find(GENE_G(cache), keyString, keyString_len);
 }
 /* }}} */
 
 /** {{{ zval * gene_memory_get_by_config(char *keyString, int keyString_len,char *path TSRMLS_DC)
  */
-zval * gene_memory_get_by_config(char *keyString, int keyString_len, char *path TSRMLS_DC) {
+zval * gene_memory_get_by_config(char *keyString, size_t keyString_len, char *path TSRMLS_DC) {
 	char *ptr = NULL, *seg = NULL;
 	zval *tmp = NULL;
 	zval *ret = NULL;
@@ -396,9 +400,9 @@ filenode * file_cache_get_easy(char *keyString, size_t keyString_len TSRMLS_DC) 
 }
 /* }}} */
 
-/** {{{ void file_cache_set_val(char *val, int keyString_len, int times, int validity TSRMLS_DC)
+/** {{{ void file_cache_set_val(char *val, size_t keyString_len, int times, int validity TSRMLS_DC)
  */
-void file_cache_set_val(char *val, int keyString_len, long times,
+void file_cache_set_val(char *val, size_t keyString_len, zend_long times,
 		int validity TSRMLS_DC) {
 	filenode n;
 	n.stime = time(NULL);
@@ -411,7 +415,7 @@ void file_cache_set_val(char *val, int keyString_len, long times,
 
 /** {{{ static zval * gene_memory_set_val(char *keyString, int keyString_len TSRMLS_DC)
  */
-static zval * gene_memory_set_val(zval *val, char *keyString, int keyString_len, zval *zvalue TSRMLS_DC) {
+static zval * gene_memory_set_val(zval *val, char *keyString, size_t keyString_len, zval *zvalue TSRMLS_DC) {
 	zval tmp, *copyval;
 	zend_string *keyS = NULL;
 	if (val == NULL) {
@@ -448,7 +452,7 @@ static zval * gene_memory_set_val(zval *val, char *keyString, int keyString_len,
 
 /** {{{ void gene_memory_set_by_router(char *keyString, int keyString_len, char *path, zval *zvalue, int validity TSRMLS_DC)
  */
-void gene_memory_set_by_router(char *keyString, int keyString_len, char *path, zval *zvalue, int validity TSRMLS_DC) {
+void gene_memory_set_by_router(char *keyString, size_t keyString_len, char *path, zval *zvalue, int validity TSRMLS_DC) {
 	char *ptr = NULL, *seg = NULL;
 	zval *tmp;
 	zval *copyval = NULL, ret;
@@ -487,7 +491,7 @@ void gene_memory_set_by_router(char *keyString, int keyString_len, char *path, z
 
 /** {{{ void gene_memory_exists(char *keyString, int keyString_len TSRMLS_DC)
  */
-int gene_memory_exists(char *keyString, int keyString_len TSRMLS_DC) {
+int gene_memory_exists(char *keyString, size_t keyString_len TSRMLS_DC) {
 	if (zend_symtable_str_exists(GENE_G(cache), keyString, keyString_len) != 1) {
 		return 0;
 	}
@@ -495,21 +499,21 @@ int gene_memory_exists(char *keyString, int keyString_len TSRMLS_DC) {
 }
 /* }}} */
 
-/** {{{ void gene_memory_getTime(char *keyString, int keyString_len,gene_memory_container **zvalue TSRMLS_DC)
+/** {{{ void gene_memory_getTime(char *keyString, size_t keyString_len,gene_memory_container **zvalue TSRMLS_DC)
  */
-long gene_memory_getTime(char *keyString, int keyString_len TSRMLS_DC) {
-	zval *zvalue;
+zend_long gene_memory_getTime(char *keyString, size_t keyString_len TSRMLS_DC) {
+	zval *zvalue = NULL;
 	zvalue = zend_symtable_str_find(GENE_G(cache), keyString, keyString_len + 1);
-	if (zvalue == NULL) {
-		return 0;
+	if (zvalue && Z_TYPE_P(zvalue) == IS_LONG) {
+		return Z_LVAL_P(zvalue);
 	}
 	return 0;
 }
 /* }}} */
 
-/** {{{ void gene_memory_del(char *keyString, int keyString_len TSRMLS_DC)
+/** {{{ void gene_memory_del(char *keyString, size_t keyString_len TSRMLS_DC)
  */
-int gene_memory_del(char *keyString, int keyString_len TSRMLS_DC) {
+int gene_memory_del(char *keyString, size_t keyString_len TSRMLS_DC) {
 	if (zend_symtable_str_del(GENE_G(cache), keyString, keyString_len) == 0) {
 		return 1;
 	}
@@ -576,7 +580,7 @@ PHP_METHOD(gene_memory, set) {
 PHP_METHOD(gene_memory, get) {
 	zend_string *keyString;
 	char *router_e;
-	int router_e_len;
+	size_t router_e_len;
 	zval *zvalue, *safe;
 	if (zend_parse_parameters(ZEND_NUM_ARGS()TSRMLS_CC, "S", &keyString) == FAILURE) {
 		return;
@@ -604,7 +608,8 @@ PHP_METHOD(gene_memory, get) {
 PHP_METHOD(gene_memory, getTime) {
 	zend_string *keyString;
 	char *router_e;
-	int router_e_len, ret;
+	size_t router_e_len;
+	zend_long ret;
 	zval *safe;
 	if (zend_parse_parameters(ZEND_NUM_ARGS()TSRMLS_CC, "S", &keyString) == FAILURE) {
 		return;
@@ -628,7 +633,8 @@ PHP_METHOD(gene_memory, getTime) {
 PHP_METHOD(gene_memory, exists) {
 	zend_string *keyString;
 	char *router_e;
-	int router_e_len, ret;
+	size_t router_e_len;
+	long ret;
 	zval *safe;
 	if (zend_parse_parameters(ZEND_NUM_ARGS()TSRMLS_CC, "S", &keyString) == FAILURE) {
 		return;
@@ -651,7 +657,8 @@ PHP_METHOD(gene_memory, exists) {
 PHP_METHOD(gene_memory, del) {
 	zend_string *keyString;
 	char *router_e;
-	int router_e_len, ret;
+	size_t router_e_len;
+	long ret;
 	zval *safe;
 	if (zend_parse_parameters(ZEND_NUM_ARGS()TSRMLS_CC, "S", &keyString) == FAILURE) {
 		return;

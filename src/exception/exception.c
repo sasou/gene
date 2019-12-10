@@ -251,7 +251,7 @@ int gene_exception_register(zval *callback TSRMLS_DC) {
 void gene_trigger_error(int type TSRMLS_DC, char *format, ...) {
 	va_list args;
 	char *message;
-	int msg_len;
+	size_t msg_len;
 
 	va_start(args, format);
 	msg_len = vspprintf(&message, 0, format, args);
@@ -334,12 +334,12 @@ PHP_METHOD(gene_exception, doError) {
 void showCode(zval *file, zval *line) {
 	char *out = NULL;
 	zval codes;
-	int length = 0;
+	size_t length = 0;
 	if (ZSTR_LEN(Z_STR_P(file)) > 0) {
 		gene_file_codes(file, &codes);
 		if (Z_TYPE(codes) == IS_ARRAY) {
 			int size = zend_hash_num_elements(Z_ARRVAL(codes));
-			int start, end;
+			zend_long start, end;
 			zval *ele = NULL;
 			start = line->value.lval - 8;
 			end = line->value.lval + 8;
@@ -365,7 +365,7 @@ void showTrace(zval *ex) {
 	char *out = NULL;
 	zval trace;
 	zval *element = NULL, *file = NULL, *line = NULL, *class = NULL, *func = NULL, *args = NULL, *arg = NULL;
-	int length = 0;
+	size_t length = 0;
 	gene_exception_getTrace(ex, &trace);
 	if (Z_TYPE(trace) == IS_ARRAY) {
 		ZEND_HASH_FOREACH_VAL(Z_ARRVAL(trace), element)
@@ -423,7 +423,7 @@ PHP_METHOD(gene_exception, doException) {
 		RETURN_NULL();
 	}
 	char *out = NULL;
-	int length = 0;
+	size_t length = 0;
 
 	zval msg;
 	gene_exception_getMessage(ex, &msg);

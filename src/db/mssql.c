@@ -35,7 +35,7 @@
 zend_class_entry * gene_db_mssql_ce;
 
 struct timeval db_start, db_end;
-long db_mssql_memory_start = 0, db_mssql_memory_end = 0;
+zend_long db_mssql_memory_start = 0, db_mssql_memory_end = 0;
 
 ZEND_BEGIN_ARG_INFO_EX(gene_db_mssql_construct, 0, 0, 1)
 	ZEND_ARG_INFO(0, config)

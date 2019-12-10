@@ -27,7 +27,7 @@
 
 char *str_init(char *s)
 {
-	int s_l = strlen(s);
+	size_t s_l = strlen(s);
 	char *p = (char *) emalloc(s_l + 1);
 	strncpy(p, s, s_l);
 	p[s_l] = 0;
@@ -37,7 +37,7 @@ char *str_init(char *s)
 
 char *str_append(char *s, const char*t)
 {
-    int size = 0;
+	size_t size = 0;
     char *p = NULL;
 	size =  strlen(s) + strlen(t) + 1;
 	p = erealloc(s, size);
@@ -48,8 +48,8 @@ char *str_append(char *s, const char*t)
 
 char *str_concat(char *s, const char *t)
 {
-	int s_l = strlen(s);
-	int t_l = strlen(t);
+	size_t s_l = strlen(s);
+	size_t t_l = strlen(t);
     char *p = NULL,*tmp = NULL;
 	p = (char *) emalloc(s_l + t_l +1);
     tmp = p;
@@ -113,10 +113,10 @@ char *firstToLower(char *str) {
 /*
  * {{{ left(char *dst,char *src, int n)
  */
-void left(char *dst, char *src, int n) {
+void left(char *dst, char *src, size_t n) {
 	char *p = src;
 	char *q = dst;
-	int len = strlen(src);
+	size_t len = strlen(src);
 	if (n > len)
 		n = len;
 	/*p += (len-n);*/
@@ -144,10 +144,10 @@ void leftByChar(char *dst, char *src, char val) {
 /*
  * {{{ mid(char *dst, char *src, int n,int m) n为长度，m为位置
  */
-void mid(char *dst, char *src, int n, int m) {
+void mid(char *dst, char *src, size_t n, size_t m) {
 	char *p = src;
 	char *q = dst;
-	int len = strlen(src);
+	size_t len = strlen(src);
 	if (n > len)
 		n = len - m;
 	if (m < 0)
@@ -164,10 +164,10 @@ void mid(char *dst, char *src, int n, int m) {
 /*
  * {{{ right(char *dst,char *src, int n)
  */
-void right(char *dst, char *src, int n) {
+void right(char *dst, char *src, size_t n) {
 	char *p = src;
 	char *q = dst;
-	int len = strlen(src);
+	size_t len = strlen(src);
 	if (n > len)
 		n = len;
 	p += (len - n);
@@ -242,7 +242,7 @@ void trim(char* s, const char c) {
  * {{{ replace(char originalString[], char key[], char swap[])
  */
 void replace(char originalString[], char key[], char swap[]) {
-	int lengthOfOriginalString, lengthOfKey, lengthOfSwap, i, j, flag;
+	size_t lengthOfOriginalString, lengthOfKey, lengthOfSwap, i, j, flag;
 	char tmp[1000];
 
 	lengthOfOriginalString = strlen(originalString);
@@ -273,7 +273,7 @@ void replace(char originalString[], char key[], char swap[]) {
  * {{{ int findChildCnt(char* str1, char* str2)
  */
 int findChildCnt(char* str1, const char* str2) {
-	int len = strlen(str2);
+	size_t len = strlen(str2);
 	int cnt = 0;
 	while (str1 = strstr(str1, str2)) { // @suppress("Assignment in condition")
 		cnt++;
@@ -315,7 +315,7 @@ int charIfFirst(char *src, const char car) {
  */
 char * replace_string(char * string, char source, const char * destination) {
 	char *sk = NULL, *newstr, *ptr;
-	int size, newsize, num = 0, isFirst;
+	size_t size, newsize, num = 0, isFirst;
 	num = findChildC(string, source);
 	isFirst = charIfFirst(string, ':');
 	if (num == 0)
@@ -350,7 +350,7 @@ char * replace_string(char * string, char source, const char * destination) {
  * {{{ char * replace_string (char * string, const char * source, const char * destination )
  */
 int ReplaceStr(char* sSrc, char* sMatchStr, char* sReplaceStr) {
-	int StringLen;
+	size_t StringLen;
 	char caNewString[500];
 	char* FindPos;
 	FindPos = (char *) strstr(sSrc, sMatchStr);
@@ -378,8 +378,7 @@ int ReplaceStr(char* sSrc, char* sMatchStr, char* sReplaceStr) {
 char * insert_string(char * string, const char * source,
 		const char * destination) {
 	char *sk, *newstr, *retstr;
-	int size;
-	int pos = 0;
+	size_t size,pos = 0;
 	sk = strstr(string, source);
 	if (sk == NULL)
 		return NULL;
@@ -415,10 +414,10 @@ char * insert_string(char * string, const char * source,
 /* }}} */
 
 int fullToHalf(char *sFullStr, char *sHalfStr) {
-	int iFullStrIndex = 0;
-	int iHalfStrIndex = 0;
+	size_t iFullStrIndex = 0;
+	size_t iHalfStrIndex = 0;
 
-	int iFullStrLen = strlen(sFullStr);
+	size_t iFullStrLen = strlen(sFullStr);
 
 	printf("sFullStr[%s]\n", sFullStr);
 
@@ -440,10 +439,10 @@ int fullToHalf(char *sFullStr, char *sHalfStr) {
 }
 
 int halfToFull(char *sFullStr, char *sHalfStr) {
-	int iFullStrIndex = 0;
-	int iHalfStrIndex = 0;
+	size_t iFullStrIndex = 0;
+	size_t iHalfStrIndex = 0;
 
-	int iHalfStrlen = strlen(sHalfStr);
+	size_t iHalfStrlen = strlen(sHalfStr);
 
 	printf("sHalfStr[%s]\n", sHalfStr);
 
@@ -519,9 +518,9 @@ char *readfilecontent(char *file) {
 
 char *strreplace(char *original, char *pattern, char *replacement)
 {
-  int replen = strlen(replacement);
-  int patlen = strlen(pattern);
-  int orilen = strlen(original);
+   size_t replen = strlen(replacement);
+   size_t patlen = strlen(pattern);
+   size_t orilen = strlen(original);
 
   int patcnt = 0;
   char * oriptr;
@@ -535,7 +534,7 @@ char *strreplace(char *original, char *pattern, char *replacement)
 
   {
     // allocate memory for the new string
-	int const retlen = orilen + patcnt * (replen - patlen);
+	size_t const retlen = orilen + patcnt * (replen - patlen);
     char *returned = (char *) ecalloc(retlen + 1,  sizeof(char));
 
     if (returned != NULL)
@@ -545,7 +544,7 @@ char *strreplace(char *original, char *pattern, char *replacement)
       char * retptr = returned;
       for (oriptr = original; (patloc = strstr(oriptr, pattern)); oriptr = patloc + patlen)
       {
-    	int skplen = patloc - oriptr;
+    	size_t skplen = patloc - oriptr;
         // copy the section until the occurence of the pattern
         strncpy(retptr, oriptr, skplen);
         retptr += skplen;
@@ -563,9 +562,9 @@ char *strreplace(char *original, char *pattern, char *replacement)
 
 char *strreplace2(char *src, char *from, char *to)
 {
-   int size    = strlen(src) + 1;
-   int fromlen = strlen(from);
-   int tolen   = strlen(to);
+   size_t size    = strlen(src) + 1;
+   size_t fromlen = strlen(from);
+   size_t tolen   = strlen(to);
    char *value = ecalloc(size, sizeof(char));
    char *dst = value;
    if ( value != NULL )
@@ -575,7 +574,7 @@ char *strreplace2(char *src, char *from, char *to)
          const char *match = strstr(src, from);
          if ( match != NULL )
          {
-        	int count = match - src;
+        	size_t count = match - src;
             char *temp;
             size += tolen - fromlen;
             temp = erealloc(value, size);
@@ -691,7 +690,7 @@ void gene_class_name(zval *retval) /*{{{*/
 }/*}}}*/
 
 int is_json(zval *str) {
-	int length = ZSTR_LEN(Z_STR_P(str));
+	size_t length = ZSTR_LEN(Z_STR_P(str));
 	if (length > 1) {
 		char *ch = ZSTR_VAL(Z_STR_P(str));
 		if ((ch[0] == '{' && ch[length -1] == '}') || (ch[0] == '[' && ch[length -1] == ']')) {
@@ -702,7 +701,7 @@ int is_json(zval *str) {
 }
 
 int is_serialize(zval *str) {
-	int length = ZSTR_LEN(Z_STR_P(str));
+	size_t length = ZSTR_LEN(Z_STR_P(str));
 	if (length > 1) {
 		char *ch = ZSTR_VAL(Z_STR_P(str));
 		if (ch[1] == ':' && ch[length -1] == '}') {
@@ -713,7 +712,7 @@ int is_serialize(zval *str) {
 }
 
 int is_igbinary(zval *str) {
-	int length = ZSTR_LEN(Z_STR_P(str));
+	size_t length = ZSTR_LEN(Z_STR_P(str));
 	if (length >= 4) {
 		char *ch = ZSTR_VAL(Z_STR_P(str));
 		if (strncmp(ch, "\x00\x00\x00\x02", 4) == 0 || strncmp(ch, "\x00\x00\x00\x01", 4) == 0) {
@@ -725,7 +724,7 @@ int is_igbinary(zval *str) {
 
 int serialize(zval *arr, zval *string, zval *serializer_handler) {
 	zval options;
-	long type = Z_LVAL_P(serializer_handler);
+	zend_long type = Z_LVAL_P(serializer_handler);
 	switch(type) {
 	case 1:
 		ZVAL_LONG(&options, 256);
@@ -751,7 +750,7 @@ int serialize(zval *arr, zval *string, zval *serializer_handler) {
 int unserialize(zval *string, zval *arr, zval *serializer_handler) {
 	zval assoc;
 	if (Z_TYPE_P(string) == IS_STRING) {
-		long type = Z_LVAL_P(serializer_handler);
+		zend_type type = Z_LVAL_P(serializer_handler);
 		switch(type) {
 		case 1:
 			if(is_json(string) == 0) {
