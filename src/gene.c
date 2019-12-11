@@ -60,7 +60,7 @@ ZEND_DECLARE_MODULE_GLOBALS(gene);
 /** {{{ PHP_INI
  */
 PHP_INI_BEGIN()
-STD_PHP_INI_BOOLEAN("gene.run_environment", "1", PHP_INI_SYSTEM, OnUpdateBool, run_environment, zend_gene_globals, gene_globals) // @suppress("Symbol is not resolved")
+STD_PHP_INI_ENTRY("gene.run_environment", "1", PHP_INI_SYSTEM, OnUpdateLong, run_environment, zend_gene_globals, gene_globals) // @suppress("Symbol is not resolved")
 STD_PHP_INI_BOOLEAN("gene.use_namespace", "1", PHP_INI_SYSTEM, OnUpdateBool, use_namespace, zend_gene_globals, gene_globals) // @suppress("Symbol is not resolved")
 STD_PHP_INI_BOOLEAN("gene.view_compile", "0", PHP_INI_SYSTEM, OnUpdateBool, view_compile, zend_gene_globals, gene_globals) // @suppress("Symbol is not resolved")
 STD_PHP_INI_BOOLEAN("gene.use_library", "0", PHP_INI_SYSTEM, OnUpdateBool, use_library, zend_gene_globals, gene_globals) // @suppress("Symbol is not resolved")
