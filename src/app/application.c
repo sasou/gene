@@ -358,7 +358,7 @@ PHP_METHOD(gene_application, getRouterUri) {
  * {{{ public gene_application::getEnvironment()
  */
 PHP_METHOD(gene_application, getEnvironment) {
-	RETURN_BOOL(GENE_G(run_environment));
+	RETURN_LONG(GENE_G(run_environment));
 }
 /* }}} */
 
