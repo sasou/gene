@@ -116,13 +116,13 @@ zend_bool checkError (zend_object *ex) {
 	zend_class_entry *ce;
 	zval zv, rv;
 	int i;
-	const char *pdoErrorStr[1] = { "read error on connection" };
+	const char *pdoErrorStr[2] = { "read error on connection", "failed with errno=10054" };
 
 	ZVAL_OBJ(&zv, ex);
 	ce = Z_OBJCE(zv);
 
 	msg = zend_read_property(ce, &zv, ZEND_STRL("message"), 0, &rv);
-	for (i = 0; i < 1; i++) {
+	for (i = 0; i < 2; i++) {
 		if (strstr(Z_STRVAL_P(msg), pdoErrorStr[i]) != NULL) {
 			return 1;
 		}
