@@ -503,7 +503,7 @@ int gene_memory_exists(char *keyString, size_t keyString_len TSRMLS_DC) {
  */
 zend_long gene_memory_getTime(char *keyString, size_t keyString_len TSRMLS_DC) {
 	zval *zvalue = NULL;
-	zvalue = zend_symtable_str_find(GENE_G(cache), keyString, keyString_len + 1);
+	zvalue = zend_symtable_str_find(GENE_G(cache), keyString, keyString_len);
 	if (zvalue && Z_TYPE_P(zvalue) == IS_LONG) {
 		return Z_LVAL_P(zvalue);
 	}
