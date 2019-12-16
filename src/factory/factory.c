@@ -137,7 +137,6 @@ void gene_factory_function_call_1(zval *function_name, zval *param_key, zval *pa
 zend_bool gene_factory(char *className, size_t tmp_len, zval *params, zval *classObject) {
 	zend_string *c_key = NULL;
 	zend_class_entry *pdo_ptr = NULL;
-	zval ret;
 
 	c_key = zend_string_init(className, tmp_len, 0);
 	pdo_ptr = zend_lookup_class(c_key);
@@ -147,9 +146,10 @@ zend_bool gene_factory(char *className, size_t tmp_len, zval *params, zval *clas
 		object_init_ex(classObject, pdo_ptr);
 		if (Z_TYPE_P(classObject) == IS_OBJECT
 						&& zend_hash_str_exists(&(Z_OBJCE_P(classObject)->function_table), ZEND_STRL("__construct"))) {
+			zval ret;
 			gene_factory_call(classObject, "__construct", params, &ret);
+			zval_ptr_dtor(&ret);
 		}
-		zval_ptr_dtor(&ret);
 		return 1;
 	}
 	return 0;
