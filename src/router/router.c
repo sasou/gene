@@ -1121,7 +1121,7 @@ PHP_METHOD(gene_router, displayExt) {
 PHP_METHOD(gene_router, dispatch) {
 	char *class = NULL, *action = NULL;
 	zend_long class_len = 0, action_len = 0;
-	zval *params = NULL, classObject, ret;
+	zval *params = NULL, classObject;
 	if (zend_parse_parameters(ZEND_NUM_ARGS()TSRMLS_CC, "ssz", &class, &class_len, &action, &action_len, &params) == FAILURE) {
 		return;
 	}
@@ -1139,8 +1139,9 @@ PHP_METHOD(gene_router, dispatch) {
 		strtolower(action);
 		if (Z_TYPE(classObject) == IS_OBJECT
 				&& zend_hash_str_exists(&(Z_OBJCE(classObject)->function_table), action, strlen(action))) {
+			zval ret;
 			gene_factory_call_1(&classObject, action, params, &ret);
-			RETURN_ZVAL(&ret, 1, 0);
+			RETURN_ZVAL(&ret, 1, 1);
 		} else {
 			php_error_docref(NULL, E_WARNING, "Unable to call method '%s' in class '%s'." , action, class);
 		}
