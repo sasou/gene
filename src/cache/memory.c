@@ -140,11 +140,7 @@ void gene_hash_destroy(HashTable *ht) /* {{{ */{
 	zend_string *key;
 	zval *element;
 
-	if (((ht)->u.flags
-			#if PHP_VERSION_ID < 70400
-			& HASH_FLAG_INITIALIZED
-			#endif
-			)) {
+	if ((ht)->u.flags & HASH_FLAG_INITIALIZED) {
 		ZEND_HASH_FOREACH_STR_KEY_VAL(ht, key, element)
 		{
 			if (key) {
@@ -164,9 +160,7 @@ void gene_hash_destroy(HashTable *ht) /* {{{ */{
 			}
 			zval_ptr_dtor(element);
 		}ZEND_HASH_FOREACH_END();
-		#if PHP_VERSION_ID < 70400
-			free(HT_GET_DATA_ADDR(ht));
-		#endif
+		free(HT_GET_DATA_ADDR(ht));
 	}
 	free(ht);
 } /* }}} */
