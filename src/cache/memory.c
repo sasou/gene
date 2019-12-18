@@ -40,7 +40,7 @@ ZEND_BEGIN_ARG_INFO_EX(gene_memory_arg_construct, 0, 0, 0)
 	ZEND_ARG_INFO(0, safe)
 ZEND_END_ARG_INFO()
 
-ZEND_BEGIN_ARG_INFO_EX(gene_memory_arg_set, 0, 0, 2)
+ZEND_BEGIN_ARG_INFO_EX(gene_memory_arg_set, 0, 0, 3)
 	ZEND_ARG_INFO(0, key)
     ZEND_ARG_INFO(0, value)
     ZEND_ARG_INFO(0, ttl)
@@ -50,10 +50,8 @@ ZEND_BEGIN_ARG_INFO_EX(gene_memory_arg_get, 0, 0, 1)
 	ZEND_ARG_INFO(0, key)
 ZEND_END_ARG_INFO()
 
-ZEND_BEGIN_ARG_INFO_EX(gene_memory_arg_del, 0, 0, 0)
-ZEND_END_ARG_INFO()
-
-ZEND_BEGIN_ARG_INFO_EX(gene_memory_arg_clear, 0, 0, 0)
+ZEND_BEGIN_ARG_INFO_EX(gene_memory_arg_del, 0, 0, 1)
+	ZEND_ARG_INFO(0, key)
 ZEND_END_ARG_INFO()
 
 /* }}} */
@@ -154,11 +152,11 @@ void gene_hash_destroy(HashTable *ht) /* {{{ */{
 			}
 			switch (Z_TYPE_P(element)) {
 			case IS_PTR:
-#if PHP_VERSION_ID < 70300
-		case IS_CONSTANT:
-#endif
+			#if PHP_VERSION_ID < 70300
+			case IS_CONSTANT:
+			#endif
 			case IS_STRING:
-				free(Z_PTR_P(element));
+				free(Z_STR_P(element));
 				break;
 			case IS_ARRAY:
 				gene_hash_destroy(Z_ARRVAL_P(element));
@@ -166,7 +164,9 @@ void gene_hash_destroy(HashTable *ht) /* {{{ */{
 			}
 			zval_ptr_dtor(element);
 		}ZEND_HASH_FOREACH_END();
-		free(HT_GET_DATA_ADDR(ht));
+		#if PHP_VERSION_ID < 70400
+			free(HT_GET_DATA_ADDR(ht));
+		#endif
 	}
 	free(ht);
 } /* }}} */
@@ -697,8 +697,8 @@ zend_function_entry gene_memory_methods[] = {
 	PHP_ME(gene_memory, get, gene_memory_arg_get, ZEND_ACC_PUBLIC)
 	PHP_ME(gene_memory, getTime, gene_memory_arg_get, ZEND_ACC_PUBLIC)
 	PHP_ME(gene_memory, exists, gene_memory_arg_get, ZEND_ACC_PUBLIC)
-	PHP_ME(gene_memory, del, gene_memory_arg_get, ZEND_ACC_PUBLIC)
-	PHP_ME(gene_memory, clean, gene_memory_arg_clear, ZEND_ACC_PUBLIC)
+	PHP_ME(gene_memory, del, gene_memory_arg_del, ZEND_ACC_PUBLIC)
+	PHP_ME(gene_memory, clean, NULL, ZEND_ACC_PUBLIC)
 	{ NULL, NULL, NULL }
 };
 /* }}} */
