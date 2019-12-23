@@ -62,7 +62,7 @@
 * 缓存：支持两种缓存，一是方法级定时缓存；二是实时版本缓存（创新功能：高效的实时缓存方案，轻松解决复杂缓存的更新，比如分页数据的缓存）； </br>
 * 自动加载：基于 PSR-4，支持自定义扩展类库加载目录；</br>
 * 完美支持Swoole（gene框架严格测试，常驻进程下低内存占用，无内存泄露）；</br>
-* 其他：redis、memcached类库二次封装；</br>
+* 其他：支持使用Composer；</br>
   </blockquote>
   <ul class="site-idea">
     <li>
@@ -92,37 +92,31 @@
   <li class="layui-timeline-item">
     <i class="layui-icon layui-timeline-axis"></i>
     <div class="layui-timeline-content layui-text">
-      <div class="layui-timeline-title">2019年12月，Gene 3.2.1 发布。增加万能验证类，内置常用验证规则，支持灵活自定义规则。。。</div>
+      <div class="layui-timeline-title">2019年12月，Gene 3.2 发布。增加万能验证类；第一时间支持PHP7.4版本。。。</div>
     </div>
   </li>
   <li class="layui-timeline-item">
     <i class="layui-icon layui-timeline-axis"></i>
     <div class="layui-timeline-content layui-sm">
-      <div class="layui-timeline-title">2019年11月，Gene 3.1.0 发布。支持多数据库（mysql、postgresql、sqlserver、sqlite）。。。</div>
+      <div class="layui-timeline-title">2019年11月，Gene 3.1 发布。支持多数据库（mysql、postgresql、sqlserver、sqlite），完美支持Swoole。。。</div>
     </div>
   </li>
   <li class="layui-timeline-item">
     <i class="layui-icon layui-timeline-axis"></i>
     <div class="layui-timeline-content layui-sm">
-      <div class="layui-timeline-title">2019年09月，Gene 3.0.5 发布。完美支持Swoole，一份代码，同时适配Swoole、Php-fpm环境运行。。。</div>
-    </div>
-  </li>
-  <li class="layui-timeline-item">
-    <i class="layui-icon layui-timeline-axis"></i>
-    <div class="layui-timeline-content layui-sm">
-      <div class="layui-timeline-title">2019年06月，Gene 3.0.2 发布。独家推出实时版本缓存功能（缓存的最佳方案），性能提升。。。</div>
+      <div class="layui-timeline-title">2019年06月，Gene 3.0 发布。独家推出实时版本缓存功能（缓存的最佳方案），性能提升。。。</div>
     </div>
   </li>
   <li class="layui-timeline-item">
     <i class="layui-icon layui-timeline-axis"></i>
     <div class="layui-timeline-content layui-text-sm">
-      <div class="layui-timeline-title">2018年07月，Gene 2.2.0 发布，重构框架，快速支持PHP7。陆续被多个大型商业项目使用。。。</div>
+      <div class="layui-timeline-title">2018年07月，Gene 2.2 发布，重构框架，快速支持PHP7.0。陆续被多个大型商业项目使用。。。</div>
     </div>
   </li>
   <li class="layui-timeline-item">
     <i class="layui-icon layui-timeline-axis"></i>
     <div class="layui-timeline-content layui-text-sm">
-      <div class="layui-timeline-title">2017年06月，Gene 里程碑版本 1.2.3 发布，完善了框架的Http、Model、Service。。。</div>
+      <div class="layui-timeline-title">2017年06月，Gene 里程碑版本 2.0 发布，完善了框架的Http、Model、Service。。。</div>
     </div>
   </li>
   <li class="layui-timeline-item">
