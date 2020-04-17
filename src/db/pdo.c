@@ -308,7 +308,7 @@ void jsonEncode(zval *data, zval *param) {
 	zval_ptr_dtor(&ret);
 }
 
-void gene_mssql_insert_field_value(zval *fields, smart_str *field_str, smart_str *value_str, zval *field_value){
+void gene_insert_field_value(zval *fields, smart_str *field_str, smart_str *value_str, zval *field_value){
 	zval *value = NULL;
 	zend_bool pre = 0;
 	zend_string *key = NULL;
@@ -330,62 +330,6 @@ void gene_mssql_insert_field_value(zval *fields, smart_str *field_str, smart_str
     	add_next_index_zval(field_value, value);
     	Z_TRY_ADDREF_P(value);
     } ZEND_HASH_FOREACH_END();
-    smart_str_0(field_str);
-    smart_str_0(value_str);
-}
-
-void gene_insert_field_value(zval *fields, smart_str *field_str, smart_str *value_str,zval *field_value) {
-	zval *value = NULL;
-	zend_bool pre = 0;
-	zend_string *key = NULL;
-	zend_long id;
-	array_init(field_value);
-	ZEND_HASH_FOREACH_KEY_VAL(Z_ARRVAL_P(fields), id, key, value) {
-    	if (pre) {
-    		smart_str_appends(field_str, ",`");
-    		smart_str_appends(value_str, ",");
-    	} else {
-    		smart_str_appendc(field_str, '`');
-    		pre = 1;
-    	}
-        if (key) {
-        	smart_str_append(field_str, key);
-        } else {
-        	smart_str_append_long(field_str, id);
-        }
-        smart_str_appends(value_str, "?");
-        smart_str_appends(field_str, "`");
-    	add_next_index_zval(field_value, value);
-    	Z_TRY_ADDREF_P(value);
-    } ZEND_HASH_FOREACH_END();
-    smart_str_0(field_str);
-    smart_str_0(value_str);
-}
-
-void gene_mssql_insert_field_value_batch(zval *fields, smart_str *field_str, smart_str *value_str, zval *field_value) {
-	zval *value = NULL;
-	zend_bool pre = 0;
-	zend_string *key = NULL;
-	zend_long id;
-	array_init(field_value);
-	ZEND_HASH_FOREACH_KEY_VAL(Z_ARRVAL_P(fields), id, key, value) {
-    	if (pre) {
-    		smart_str_appends(field_str, ",");
-    		smart_str_appends(value_str, ",");
-    	} else {
-    		smart_str_appends(value_str, "(");
-    		pre = 1;
-    	}
-        if (key) {
-        	smart_str_append(field_str, key);
-        } else {
-        	smart_str_append_long(field_str, id);
-        }
-        smart_str_appends(value_str, "?");
-        add_next_index_zval(field_value, value);
-        Z_TRY_ADDREF_P(value);
-    } ZEND_HASH_FOREACH_END();
-    smart_str_appends(value_str, ")");
     smart_str_0(field_str);
     smart_str_0(value_str);
 }
@@ -398,10 +342,9 @@ void gene_insert_field_value_batch(zval *fields, smart_str *field_str, smart_str
 	array_init(field_value);
 	ZEND_HASH_FOREACH_KEY_VAL(Z_ARRVAL_P(fields), id, key, value) {
     	if (pre) {
-    		smart_str_appends(field_str, ",`");
+    		smart_str_appends(field_str, ",");
     		smart_str_appends(value_str, ",");
     	} else {
-    		smart_str_appendc(field_str, '`');
     		smart_str_appends(value_str, "(");
     		pre = 1;
     	}
@@ -411,7 +354,6 @@ void gene_insert_field_value_batch(zval *fields, smart_str *field_str, smart_str
         	smart_str_append_long(field_str, id);
         }
         smart_str_appends(value_str, "?");
-        smart_str_appends(field_str, "`");
         add_next_index_zval(field_value, value);
         Z_TRY_ADDREF_P(value);
     } ZEND_HASH_FOREACH_END();
@@ -438,7 +380,7 @@ void gene_insert_field_value_batch_other(zval *fields, smart_str *value_str, zva
     smart_str_0(value_str);
 }
 
-void gene_mssql_update_field_value(zval *fields, smart_str *field_str, zval *field_value) {
+void gene_update_field_value(zval *fields, smart_str *field_str, zval *field_value) {
 	zval *value = NULL;
 	zend_bool pre = 0;
 	zend_string *key = NULL;
@@ -462,32 +404,7 @@ void gene_mssql_update_field_value(zval *fields, smart_str *field_str, zval *fie
     smart_str_0(field_str);
 }
 
-void gene_update_field_value(zval *fields, smart_str *field_str, zval *field_value) {
-	zval *value = NULL;
-	zend_bool pre = 0;
-	zend_string *key = NULL;
-	zend_long id;
-	array_init(field_value);
-	ZEND_HASH_FOREACH_KEY_VAL(Z_ARRVAL_P(fields), id, key, value) {
-    	if (pre) {
-    		smart_str_appends(field_str, ",`");
-    	} else {
-    		smart_str_appendc(field_str, '`');
-    		pre = 1;
-    	}
-        if (key) {
-        	smart_str_append(field_str, key);
-        } else {
-        	smart_str_append_long(field_str, id);
-        }
-        smart_str_appends(field_str, "`=?");
-    	add_next_index_zval(field_value, value);
-    	Z_TRY_ADDREF_P(value);
-    } ZEND_HASH_FOREACH_END();
-    smart_str_0(field_str);
-}
-
-void mssqlMakeWhere(zval *self, smart_str *where_str, zval *where, zval *field_value) {
+void makeWhere(zval *self, smart_str *where_str, zval *where, zval *field_value) {
 	zval *obj = NULL, *value = NULL,  *ops = NULL, *condition = NULL, *tmp = NULL;
 	zend_bool pre = 0;
 	zend_string *key = NULL;
@@ -581,120 +498,6 @@ void mssqlMakeWhere(zval *self, smart_str *where_str, zval *where, zval *field_v
 		    	}
 	        	smart_str_append(where_str, key);
 		        smart_str_appends(where_str, " = ?");
-		    	add_next_index_zval(field_value, obj);
-		    	Z_TRY_ADDREF_P(obj);
-	        } else {
-	        	if (obj && Z_TYPE_P(obj) == IS_STRING) {
-			    	if (pre) {
-			    		smart_str_appends(where_str, " and ");
-			    	} else {
-			    		pre = 1;
-			    	}
-			    	smart_str_appends(where_str, Z_STRVAL_P(obj));
-	        	}
-	        }
-		}
-    } ZEND_HASH_FOREACH_END();
-    smart_str_0(where_str);
-}
-
-
-void makeWhere(zval *self, smart_str *where_str, zval *where, zval *field_value) {
-	zval *obj = NULL, *value = NULL,  *ops = NULL, *condition = NULL, *tmp = NULL;
-	zend_bool pre = 0;
-	zend_string *key = NULL;
-	zend_long id;
-	if (ZSTR_LEN(where_str->s) == 0 && zend_hash_num_elements(Z_ARRVAL_P(where)) > 0) {
-		smart_str_appends(where_str, " WHERE ");
-	}
-	ZEND_HASH_FOREACH_KEY_VAL(Z_ARRVAL_P(where), id, key, obj) {
-		if (Z_TYPE_P(obj) == IS_ARRAY) {
-			value = zend_hash_index_find(Z_ARRVAL_P(obj), 0);
-			ops = zend_hash_index_find(Z_ARRVAL_P(obj), 1);
-			condition = zend_hash_index_find(Z_ARRVAL_P(obj), 2);
-			if (value == NULL) {
-				return;
-			}
-	        if (key) {
-		    	if (pre) {
-		    		if (condition && Z_TYPE_P(condition) == IS_STRING) {
-		    			smart_str_appends(where_str, " ");
-		    			smart_str_appends(where_str, Z_STRVAL_P(condition));
-		    			smart_str_appends(where_str, " `");
-		    		} else {
-		    			smart_str_appends(where_str, " and `");
-		    		}
-		    	} else {
-		    		smart_str_appendc(where_str, '`');
-		    		pre = 1;
-		    	}
-	        	smart_str_append(where_str, key);
-		        if (ops && Z_TYPE_P(ops) == IS_STRING) {
-		        	if (strcmp("in", Z_STRVAL_P(ops)) == 0) {
-		        		if (Z_TYPE_P(value) == IS_ARRAY) {
-		        			pre = 0;
-		        			smart_str_appends(where_str, "` in(");
-		        			ZEND_HASH_FOREACH_VAL(Z_ARRVAL_P(value), tmp) {
-		        				if (pre) {
-		        					smart_str_appends(where_str, ",?");
-		        				} else {
-		        					smart_str_appends(where_str, "?");
-		        					pre = 1;
-		        				}
-				    	    	add_next_index_zval(field_value, tmp);
-				    	    	Z_TRY_ADDREF_P(tmp);
-		        			} ZEND_HASH_FOREACH_END();
-		            		smart_str_appends(where_str, ")");
-		        		} else {
-		        			smart_str_appends(where_str, "` in(?)");
-			    	    	add_next_index_zval(field_value, value);
-			    	    	Z_TRY_ADDREF_P(value);
-		        		}
-		        	} else {
-		    			smart_str_appends(where_str, "` ");
-		    			smart_str_appends(where_str, Z_STRVAL_P(ops));
-		    			smart_str_appends(where_str, " ?");
-		    	    	add_next_index_zval(field_value, value);
-		    	    	Z_TRY_ADDREF_P(value);
-		        	}
-		        } else {
-		        	smart_str_appends(where_str, "` = ?");
-			    	add_next_index_zval(field_value, value);
-			    	Z_TRY_ADDREF_P(value);
-		        }
-	        } else {
-		    	if (pre) {
-		    		if (condition && Z_TYPE_P(condition) == IS_STRING) {
-		    			smart_str_appends(where_str, " ");
-		    			smart_str_appends(where_str, Z_STRVAL_P(condition));
-		    			smart_str_appends(where_str, " ");
-		    		} else {
-		    			smart_str_appends(where_str, " and ");
-		    		}
-		    	} else {
-		    		pre = 1;
-		    	}
-        		if (Z_TYPE_P(value) == IS_ARRAY) {
-        			ZEND_HASH_FOREACH_VAL(Z_ARRVAL_P(value), tmp) {
-		    	    	add_next_index_zval(field_value, tmp);
-		    	    	Z_TRY_ADDREF_P(tmp);
-        			} ZEND_HASH_FOREACH_END();
-        		} else {
-	    	    	add_next_index_zval(field_value, value);
-	    	    	Z_TRY_ADDREF_P(value);
-        		}
-		    	smart_str_appends(where_str, Z_STRVAL_P(ops));
-	        }
-		} else {
-	        if (key) {
-		    	if (pre) {
-		    		smart_str_appends(where_str, " and `");
-		    	} else {
-		    		smart_str_appendc(where_str, '`');
-		    		pre = 1;
-		    	}
-	        	smart_str_append(where_str, key);
-		        smart_str_appends(where_str, "` = ?");
 		    	add_next_index_zval(field_value, obj);
 		    	Z_TRY_ADDREF_P(obj);
 	        } else {
