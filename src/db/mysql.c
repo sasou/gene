@@ -321,11 +321,11 @@ PHP_METHOD(gene_db_mysql, select)
     	switch(Z_TYPE_P(fields)) {
     	case IS_ARRAY:
     		array_to_string(fields, &select);
-            spprintf(&sql, 0, "SELECT %s FROM `%s`", select, table);
+            spprintf(&sql, 0, "SELECT %s FROM %s", select, table);
             efree(select);
     		break;
     	case IS_STRING:
-    		spprintf(&sql, 0, "SELECT %s FROM `%s`", Z_STRVAL_P(fields), table);
+    		spprintf(&sql, 0, "SELECT %s FROM %s", Z_STRVAL_P(fields), table);
     		break;
     	default:
     		php_error_docref(NULL, E_ERROR, "Parameter can only be array or string.");
@@ -333,7 +333,7 @@ PHP_METHOD(gene_db_mysql, select)
     	}
 
     } else {
-    	spprintf(&sql, 0, "SELECT * FROM `%s`", table);
+    	spprintf(&sql, 0, "SELECT * FROM %s", table);
     }
     zend_update_property_string(gene_db_mysql_ce, self, ZEND_STRL(GENE_DB_MYSQL_SQL), sql);
     efree(sql);
@@ -354,9 +354,9 @@ PHP_METHOD(gene_db_mysql, count)
 	}
 	mysql_reset_sql_params(self);
     if (fields) {
-    	spprintf(&sql, 0, "SELECT count(%s) AS count FROM `%s`", ZSTR_VAL(fields), ZSTR_VAL(table));
+    	spprintf(&sql, 0, "SELECT count(%s) AS count FROM %s", ZSTR_VAL(fields), ZSTR_VAL(table));
     } else {
-    	spprintf(&sql, 0, "SELECT count(1) AS count FROM `%s`", ZSTR_VAL(table));
+    	spprintf(&sql, 0, "SELECT count(1) AS count FROM %s", ZSTR_VAL(table));
     }
     zend_update_property_string(gene_db_mysql_ce, self, ZEND_STRL(GENE_DB_MYSQL_SQL), sql);
     efree(sql);
@@ -390,7 +390,7 @@ PHP_METHOD(gene_db_mysql, insert)
     }
 	smart_str_0(&field_str);
 	smart_str_0(&value_str);
-    spprintf(&sql, 0, "INSERT INTO `%s`(%s) VALUES(%s)", table, field_str.s->val, value_str.s->val);
+    spprintf(&sql, 0, "INSERT INTO %s(%s) VALUES(%s)", table, field_str.s->val, value_str.s->val);
     zend_update_property_string(gene_db_mysql_ce, self, ZEND_STRL(GENE_DB_MYSQL_SQL), sql);
     efree(sql);
     smart_str_free(&field_str);
@@ -434,7 +434,7 @@ PHP_METHOD(gene_db_mysql, batchInsert)
     }
 	smart_str_0(&field_str);
 	smart_str_0(&value_str);
-    spprintf(&sql, 0, "INSERT INTO `%s`(%s) VALUES %s", table, field_str.s->val, value_str.s->val);
+    spprintf(&sql, 0, "INSERT INTO %s(%s) VALUES %s", table, field_str.s->val, value_str.s->val);
     zend_update_property_string(gene_db_mysql_ce, self, ZEND_STRL(GENE_DB_MYSQL_SQL), sql);
     efree(sql);
     smart_str_free(&field_str);
@@ -467,7 +467,7 @@ PHP_METHOD(gene_db_mysql, update)
     	php_error_docref(NULL, E_ERROR, "Data Parameter can only be array.");
     }
 	smart_str_0(&field_str);
-    spprintf(&sql, 0, "UPDATE `%s` SET %s", table, field_str.s->val);
+    spprintf(&sql, 0, "UPDATE %s SET %s", table, field_str.s->val);
     zend_update_property_string(gene_db_mysql_ce, self, ZEND_STRL(GENE_DB_MYSQL_SQL), sql);
     efree(sql);
     smart_str_free(&field_str);
@@ -488,7 +488,7 @@ PHP_METHOD(gene_db_mysql, delete)
 		return;
 	}
 	mysql_reset_sql_params(self);
-    spprintf(&sql, 0, "DELETE FROM `%s`", table);
+    spprintf(&sql, 0, "DELETE FROM %s", table);
     zend_update_property_string(gene_db_mysql_ce, self, ZEND_STRL(GENE_DB_MYSQL_SQL), sql);
     efree(sql);
 	RETURN_ZVAL(self, 1, 0);

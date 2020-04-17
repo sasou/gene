@@ -386,7 +386,7 @@ PHP_METHOD(gene_db_mssql, insert)
 	smart_str_appends(&field_str, "");
 	smart_str_appends(&value_str, "");
     if (fields && Z_TYPE_P(fields) == IS_ARRAY) {
-    	gene_mssql_insert_field_value (fields, &field_str, &value_str, &field_value);
+    	gene_insert_field_value (fields, &field_str, &value_str, &field_value);
     	zend_update_property(gene_db_mssql_ce, self, ZEND_STRL(GENE_DB_MSSQL_DATA), &field_value);
     	zval_ptr_dtor(&field_value);
     } else {
@@ -427,7 +427,7 @@ PHP_METHOD(gene_db_mssql, batchInsert)
         		smart_str_appends(&value_str, ",");
         		gene_insert_field_value_batch_other (row, &value_str, &field_value);
         	} else {
-        		gene_mssql_insert_field_value_batch (row, &field_str, &value_str, &field_value);
+        		gene_insert_field_value_batch (row, &field_str, &value_str, &field_value);
         		pre = 1;
         	}
         } ZEND_HASH_FOREACH_END();
@@ -464,7 +464,7 @@ PHP_METHOD(gene_db_mssql, update)
 	ZVAL_NULL(&field_value);
 	smart_str_appends(&field_str, "");
     if (fields && Z_TYPE_P(fields) == IS_ARRAY) {
-    	gene_mssql_update_field_value (fields, &field_str, &field_value);
+    	gene_update_field_value (fields, &field_str, &field_value);
     	zend_update_property(gene_db_mssql_ce, self, ZEND_STRL(GENE_DB_MSSQL_DATA), &field_value);
     	zval_ptr_dtor(&field_value);
     } else {
@@ -519,10 +519,10 @@ PHP_METHOD(gene_db_mssql, where)
 	case IS_ARRAY:
         data = zend_read_property(gene_db_mssql_ce, self, ZEND_STRL(GENE_DB_MSSQL_DATA), 1, NULL);
         if (Z_TYPE_P(data) == IS_ARRAY) {
-        	mssqlMakeWhere(self, &where_str, where, data);
+        	makeWhere(self, &where_str, where, data);
         } else {
             array_init(&params);
-            mssqlMakeWhere(self, &where_str, where, &params);
+            makeWhere(self, &where_str, where, &params);
             zend_update_property(gene_db_mssql_ce, self, ZEND_STRL(GENE_DB_MSSQL_DATA), &params);
             zval_ptr_dtor(&params);
         }
