@@ -109,6 +109,10 @@ ZEND_BEGIN_ARG_INFO_EX(gene_validate_rule_equal, 0, 0, 1)
 ZEND_ARG_INFO(0, name)
 ZEND_END_ARG_INFO()
 
+ZEND_BEGIN_ARG_INFO_EX(gene_validate_rule_equals, 0, 0, 1)
+ZEND_ARG_INFO(0, value)
+ZEND_END_ARG_INFO()
+
 ZEND_BEGIN_ARG_INFO_EX(gene_validate_call_arginfo, 0, 0, 2)
 	ZEND_ARG_INFO(0, method)
 	ZEND_ARG_INFO(0, params)
@@ -483,19 +487,20 @@ PHP_METHOD(gene_validate, addValidator)
 	}
 
 	closure = zend_read_property(gene_validate_ce, self, ZEND_STRL(GENE_VALIDATE_CLOSURE), 1, NULL);
-
-	if ((val = zend_hash_find(Z_ARRVAL_P(closure), name)) == NULL) {
-		zval val_tmp;
-		array_init(&val_tmp);
-		Z_TRY_ADDREF(callback.function_name);
-		add_assoc_zval_ex(&val_tmp, "func", 4, &callback.function_name);
-		Z_TRY_ADDREF_P(msg);
-		add_assoc_zval_ex(&val_tmp, "msg", 3, msg);
-		Z_TRY_ADDREF(val_tmp);
-		zend_hash_update(Z_ARRVAL_P(closure), name, &val_tmp);
-		zval_ptr_dtor(&val_tmp);
+	if (closure && Z_TYPE_P(closure) == IS_ARRAY) {
+		val = zend_hash_find(Z_ARRVAL_P(closure), name);
+		if (val == NULL) {
+			zval val_tmp;
+			array_init(&val_tmp);
+			Z_TRY_ADDREF(callback.function_name);
+			add_assoc_zval_ex(&val_tmp, "func", 4, &callback.function_name);
+			Z_TRY_ADDREF_P(msg);
+			add_assoc_zval_ex(&val_tmp, "msg", 3, msg);
+			Z_TRY_ADDREF(val_tmp);
+			zend_hash_update(Z_ARRVAL_P(closure), name, &val_tmp);
+			zval_ptr_dtor(&val_tmp);
+		}
 	}
-
 	RETURN_ZVAL(self, 1, 0);
 }
 /* }}} */
@@ -616,12 +621,12 @@ PHP_METHOD(gene_validate, msg)
 /* }}} */
 
 char *getErrorMsg(char *method) {
-    char* names[]={"required","match","min","max","range","length","size","in","url","email","ip","mobile","date","datetime","int","number","digit","string","equal"};
+    char* names[]={"required","match","min","max","range","length","size","in","url","email","ip","mobile","date","datetime","int","number","digit","string","equal","equals"};
     char* descs[]={"This field is required","Value is not in conformity with the regular expression","Please enter a value greater than %s","Please enter a value less than %s",
     		"Please input greater than %s, less than the value of %s","The length of the string of mistakes","The array size error",
     		"The field value is not allowed within the input range","Please input the correct url","Please enter the correct email address",
 			"Please input the correct IP address","Please enter the correct phone number","Please input the correct date","Please input the correct time",
-			"Please enter an integer","Please enter the Numbers","Please enter a string Numbers","Please enter a string","Please enter the same value as %s"};
+			"Please enter an integer","Please enter the Numbers","Please enter a string Numbers","Please enter a string","Please enter the same value as %s","Please enter a same value"};
 	int i = 0;
     for (i = 0; i < 19; i++) {
 		if (strcmp(names[i], method) == 0) {
@@ -1420,6 +1425,54 @@ PHP_METHOD(gene_validate, rule_equal)
 /* }}} */
 
 /*
+ * {{{ public gene_validate::rule_equals()
+ */
+PHP_METHOD(gene_validate, rule_equals)
+{
+	zval *self = getThis(), *val = NULL, *value = NULL;
+	if (zend_parse_parameters(ZEND_NUM_ARGS() TSRMLS_CC, "z", &value) == FAILURE) {
+		return;
+	}
+
+	if ((val = getFieldVal(self)) == NULL) {
+		RETURN_FALSE;
+	}
+
+	if (Z_TYPE_P(val) != Z_TYPE_P(value)) {
+		RETURN_FALSE;
+	}
+
+	switch(Z_TYPE_P(val)) {
+	case IS_NULL:
+		RETURN_TRUE;
+		break;
+	case IS_TRUE:
+		RETURN_TRUE;
+		break;
+	case IS_FALSE:
+		RETURN_TRUE;
+		break;
+	case IS_LONG:
+		if (Z_LVAL_P(val) == Z_LVAL_P(value)) {
+			RETURN_TRUE;
+		}
+		break;
+	case IS_DOUBLE:
+		if (Z_DVAL_P(val) == Z_DVAL_P(value)) {
+			RETURN_TRUE;
+		}
+		break;
+	case IS_STRING:
+		if (strcmp(Z_STRVAL_P(val), Z_STRVAL_P(value)) == 0) {
+			RETURN_TRUE
+		}
+		break;
+	}
+	RETURN_FALSE;
+}
+/* }}} */
+
+/*
  * {{{ gene_validate_methods
  */
 zend_function_entry gene_validate_methods[] = {
@@ -1453,6 +1506,7 @@ zend_function_entry gene_validate_methods[] = {
 		PHP_ME(gene_validate, rule_digit, NULL, ZEND_ACC_PUBLIC)
 		PHP_ME(gene_validate, rule_string, NULL, ZEND_ACC_PUBLIC)
 		PHP_ME(gene_validate, rule_equal, gene_validate_rule_equal, ZEND_ACC_PUBLIC)
+		PHP_ME(gene_validate, rule_equals, gene_validate_rule_equals, ZEND_ACC_PUBLIC)
 		PHP_ME(gene_validate, __construct, gene_validate_construct, ZEND_ACC_PUBLIC|ZEND_ACC_CTOR)
 		PHP_ME(gene_validate, __call, gene_validate_call_arginfo, ZEND_ACC_PUBLIC)
 		{NULL, NULL, NULL}
