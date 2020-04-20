@@ -21,7 +21,7 @@ class Module extends \Gene\Model
         $list = $this->db
                      ->select("sys_module", "module_id,module_pid,module_title,module_url,module_icon")
                      ->where("status=1 and module_icon!='' and find_in_set(module_id,?)", $purview)
-                     ->order("`order` desc")
+                     ->order("sort desc")
                      ->all();
         return $list;
     }
