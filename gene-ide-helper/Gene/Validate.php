@@ -129,189 +129,199 @@ class Validate
     }
 
     /**
-     * rule_required
+     * required
      * 
      * @return mixed
      */
-    public function rule_required() {
+    public function required() {
 
     }
 
     /**
-     * rule_match
+     * match
      * 
      * @param mixed $regex regex
      * @return mixed
      */
-    public function rule_match($regex) {
+    public function match($regex) {
 
     }
 
     /**
-     * rule_max
+     * max
      * 
      * @param mixed $max max
      * @return mixed
      */
-    public function rule_max($max) {
+    public function max($max) {
 
     }
 
     /**
-     * rule_min
+     * min
      * 
      * @param mixed $min min
      * @return mixed
      */
-    public function rule_min($min) {
+    public function min($min) {
 
     }
 
     /**
-     * rule_range
-     * 
-     * @param mixed $min min
-     * @param mixed $max max
-     * @return mixed
-     */
-    public function rule_range($min, $max) {
-
-    }
-
-    /**
-     * rule_length
+     * range
      * 
      * @param mixed $min min
      * @param mixed $max max
      * @return mixed
      */
-    public function rule_length($min, $max) {
+    public function range($min, $max) {
 
     }
 
     /**
-     * rule_size
+     * length
      * 
      * @param mixed $min min
      * @param mixed $max max
      * @return mixed
      */
-    public function rule_size($min, $max) {
+    public function length($min, $max) {
 
     }
 
     /**
-     * rule_in
+     * size
+     * 
+     * @param mixed $min min
+     * @param mixed $max max
+     * @return mixed
+     */
+    public function size($min, $max) {
+
+    }
+
+    /**
+     * in
      * 
      * @param mixed $list list
      * @return mixed
      */
-    public function rule_in($list) {
+    public function in($list) {
 
     }
 
     /**
-     * rule_url
+     * url
      * 
      * @param mixed $flags flags
      * @return mixed
      */
-    public function rule_url($flags) {
+    public function url($flags) {
 
     }
 
     /**
-     * rule_email
+     * email
      * 
      * @return mixed
      */
-    public function rule_email() {
+    public function email() {
 
     }
 
     /**
-     * rule_ip
+     * ip
      * 
      * @return mixed
      */
-    public function rule_ip() {
+    public function ip() {
 
     }
 
     /**
-     * rule_mobile
+     * mobile
      * 
      * @return mixed
      */
-    public function rule_mobile() {
+    public function mobile() {
 
     }
 
     /**
-     * rule_date
+     * date
      * 
      * @return mixed
      */
-    public function rule_date() {
+    public function date() {
 
     }
 
     /**
-     * rule_datetime
+     * datetime
      * 
      * @param mixed $format format
      * @return mixed
      */
-    public function rule_datetime($format) {
+    public function datetime($format) {
 
     }
 
     /**
-     * rule_number
+     * number
      * 
      * @return mixed
      */
-    public function rule_number() {
+    public function number() {
 
     }
 
     /**
-     * rule_int
+     * int
      * 
      * @return mixed
      */
-    public function rule_int() {
+    public function int() {
 
     }
 
     /**
-     * rule_digit
+     * digit
      * 
      * @return mixed
      */
-    public function rule_digit() {
+    public function digit() {
 
     }
 
     /**
-     * rule_string
+     * string
      * 
      * @return mixed
      */
-    public function rule_string() {
+    public function string() {
 
     }
 
     /**
-     * rule_equal
+     * equal
      * 
      * @param mixed $name name
      * @return mixed
      */
-    public function rule_equal($name) {
+    public function equal($name) {
 
     }
+    
+    /**
+     * equals
+     * 
+     * @param mixed $value value
+     * @return mixed
+     */
+    public function equals($value) {
 
+    }
+    
     /**
      * __construct
      * 
