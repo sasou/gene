@@ -408,7 +408,7 @@ PHP_METHOD(gene_validate, skipOnEmpty)
 
 	key = zend_read_property(gene_validate_ce, self, ZEND_STRL(GENE_VALIDATE_KEY), 1, NULL);
 	if (key && Z_TYPE_P(key) == IS_NULL) {
-		php_error_docref(NULL, E_ERROR, "Please call the name method in the first place!");
+		php_error_docref(NULL, E_WARNING, "Please call the name method in the first place.");
 	}
 
 	config = zend_read_property(gene_validate_ce, self, ZEND_STRL(GENE_VALIDATE_CONFIG), 1, NULL);
@@ -447,7 +447,7 @@ PHP_METHOD(gene_validate, filter)
 
 	key = zend_read_property(gene_validate_ce, self, ZEND_STRL(GENE_VALIDATE_KEY), 1, NULL);
 	if (key && Z_TYPE_P(key) == IS_NULL) {
-		php_error_docref(NULL, E_ERROR, "Please call the name method in the first place!");
+		php_error_docref(NULL, E_WARNING, "Please call the name method in the first place.");
 	}
 
 	zval fieldArr;
@@ -519,7 +519,7 @@ PHP_METHOD(gene_validate, __call) {
 	zend_update_property_str(gene_validate_ce, self, ZEND_STRL(GENE_VALIDATE_METHOD), method);
 	key = zend_read_property(gene_validate_ce, self, ZEND_STRL(GENE_VALIDATE_KEY), 1, NULL);
 	if (key && Z_TYPE_P(key) == IS_NULL) {
-		php_error_docref(NULL, E_ERROR, "Please call the name method in the first place!");
+		php_error_docref(NULL, E_WARNING, "Please call the name method in the first place.");
 	}
 
 	config = zend_read_property(gene_validate_ce, self, ZEND_STRL(GENE_VALIDATE_CONFIG), 1, NULL);
@@ -570,7 +570,7 @@ PHP_METHOD(gene_validate, msg)
 
 	key = zend_read_property(gene_validate_ce, self, ZEND_STRL(GENE_VALIDATE_KEY), 1, NULL);
 	if (key && Z_TYPE_P(key) == IS_NULL) {
-		php_error_docref(NULL, E_ERROR, "Please call the name method in the first place!");
+		php_error_docref(NULL, E_WARNING, "Please call the name method in the first place");
 	}
 
 	config = zend_read_property(gene_validate_ce, self, ZEND_STRL(GENE_VALIDATE_CONFIG), 1, NULL);
@@ -730,8 +730,8 @@ int validCheck(zval *self, zval *date_field, zval *rules, int is_group) {
 						zval_ptr_dtor(&ret);
 						efree(name);
 					} else {
+						php_error_docref(NULL, E_WARNING, "Executed method:%s does not exist.", ZSTR_VAL(method));
 						efree(name);
-						php_error_docref(NULL, E_ERROR, "Executed method does not exist!");
 					}
 				}
 			}ZEND_HASH_FOREACH_END();
@@ -906,7 +906,7 @@ zval *getFieldVal(zval *self) {
 	field = zend_read_property(gene_validate_ce, self, ZEND_STRL(GENE_VALIDATE_FIELD), 1, NULL);
 
 	if (field && Z_TYPE_P(field) == IS_NULL) {
-		php_error_docref(NULL, E_ERROR, "Please call the name method in the first place!");
+		php_error_docref(NULL, E_WARNING, "Please call the name method in the first place.");
 	}
 
 	data = zend_read_property(gene_validate_ce, self, ZEND_STRL(GENE_VALIDATE_DATA), 1, NULL);

@@ -50,20 +50,23 @@ ZEND_END_ARG_INFO()
 int gene_load_import(char *path TSRMLS_DC) {
 	zend_file_handle file_handle;
 	zend_op_array *op_array;
-	char *realpath;
+	zend_stat_t sb;
 
-	realpath = (char *) ecalloc(MAXPATHLEN, sizeof(char));
-
-	if (!VCWD_REALPATH(path, realpath)) {
+	if (UNEXPECTED(VCWD_STAT(path, &sb) == -1)) {
 		return 0;
 	}
-	efree(realpath);
 
+#if PHP_VERSION_ID < 70400
 	file_handle.filename = path;
 	file_handle.free_filename = 0;
 	file_handle.type = ZEND_HANDLE_FILENAME;
 	file_handle.opened_path = NULL;
 	file_handle.handle.fp = NULL;
+#else
+	/* setup file-handle */
+	zend_stream_init_filename(&file_handle, path);
+#endif
+
 
 	op_array = zend_compile_file(&file_handle, ZEND_INCLUDE);
 
