@@ -405,7 +405,7 @@ void gene_update_field_value(zval *fields, smart_str *field_str, zval *field_val
 }
 
 void makeWhere(zval *self, smart_str *where_str, zval *where, zval *field_value) {
-	zval *obj = NULL, *value = NULL,  *ops = NULL, *condition = NULL, *tmp = NULL;
+	zval *obj = NULL, *value = NULL,  *ops = NULL, *condition = NULL, *other, *tmp = NULL;
 	zend_bool pre = 0;
 	zend_string *key = NULL;
 	zend_long id;
@@ -417,6 +417,7 @@ void makeWhere(zval *self, smart_str *where_str, zval *where, zval *field_value)
 			value = zend_hash_index_find(Z_ARRVAL_P(obj), 0);
 			ops = zend_hash_index_find(Z_ARRVAL_P(obj), 1);
 			condition = zend_hash_index_find(Z_ARRVAL_P(obj), 2);
+			other = zend_hash_index_find(Z_ARRVAL_P(obj), 3);
 			if (value == NULL) {
 				return;
 			}
@@ -432,6 +433,11 @@ void makeWhere(zval *self, smart_str *where_str, zval *where, zval *field_value)
 		    	} else {
 		    		pre = 1;
 		    	}
+	        	if (other && Z_TYPE_P(other) == IS_STRING) {
+	        		if (strcmp("(", Z_STRVAL_P(other)) == 0) {
+	        			smart_str_appends(where_str, Z_STRVAL_P(other));
+	        		}
+	        	}
 	        	smart_str_append(where_str, key);
 		        if (ops && Z_TYPE_P(ops) == IS_STRING) {
 		        	if (strcmp("in", Z_STRVAL_P(ops)) == 0) {
@@ -478,6 +484,11 @@ void makeWhere(zval *self, smart_str *where_str, zval *where, zval *field_value)
 		    	} else {
 		    		pre = 1;
 		    	}
+	        	if (other && Z_TYPE_P(other) == IS_STRING) {
+	        		if (strcmp("(", Z_STRVAL_P(other)) == 0) {
+	        			smart_str_appends(where_str, Z_STRVAL_P(other));
+	        		}
+	        	}
         		if (Z_TYPE_P(value) == IS_ARRAY) {
         			ZEND_HASH_FOREACH_VAL(Z_ARRVAL_P(value), tmp) {
 		    	    	add_next_index_zval(field_value, tmp);
@@ -489,25 +500,64 @@ void makeWhere(zval *self, smart_str *where_str, zval *where, zval *field_value)
         		}
 		    	smart_str_appends(where_str, Z_STRVAL_P(ops));
 	        }
+        	if (other && Z_TYPE_P(other) == IS_STRING) {
+        		if (strcmp(")", Z_STRVAL_P(other)) == 0) {
+        			smart_str_appends(where_str, Z_STRVAL_P(other));
+        		}
+        	}
 		} else {
 	        if (key) {
-		    	if (pre) {
-		    		smart_str_appends(where_str, " and ");
-		    	} else {
-		    		pre = 1;
-		    	}
-	        	smart_str_append(where_str, key);
-		        smart_str_appends(where_str, " = ?");
-		    	add_next_index_zval(field_value, obj);
-		    	Z_TRY_ADDREF_P(obj);
+	        	if (obj && Z_TYPE_P(obj) == IS_STRING) {
+	        		if (strcmp("(", Z_STRVAL_P(obj)) == 0) {
+				    	if (pre) {
+				    		smart_str_appends(where_str, " and ");
+				    	} else {
+				    		pre = 1;
+				    	}
+	        			smart_str_appends(where_str, Z_STRVAL_P(obj));
+	        		} else if (strcmp(")", Z_STRVAL_P(obj)) == 0) {
+	        			smart_str_appends(where_str, Z_STRVAL_P(obj));
+	        		} else {
+	    		    	if (pre) {
+	    		    		smart_str_appends(where_str, " and ");
+	    		    	} else {
+	    		    		pre = 1;
+	    		    	}
+	    	        	smart_str_append(where_str, key);
+	    		        smart_str_appends(where_str, " = ?");
+	    		    	add_next_index_zval(field_value, obj);
+	    		    	Z_TRY_ADDREF_P(obj);
+	        		}
+	        	} else {
+    		    	if (pre) {
+    		    		smart_str_appends(where_str, " and ");
+    		    	} else {
+    		    		pre = 1;
+    		    	}
+    	        	smart_str_append(where_str, key);
+    		        smart_str_appends(where_str, " = ?");
+    		    	add_next_index_zval(field_value, obj);
+    		    	Z_TRY_ADDREF_P(obj);
+	        	}
 	        } else {
 	        	if (obj && Z_TYPE_P(obj) == IS_STRING) {
-			    	if (pre) {
-			    		smart_str_appends(where_str, " and ");
-			    	} else {
-			    		pre = 1;
-			    	}
-			    	smart_str_appends(where_str, Z_STRVAL_P(obj));
+	        		if (strcmp("(", Z_STRVAL_P(obj)) == 0) {
+				    	if (pre) {
+				    		smart_str_appends(where_str, " and ");
+				    	} else {
+				    		pre = 1;
+				    	}
+	        			smart_str_appends(where_str, Z_STRVAL_P(obj));
+	        		} else if (strcmp(")", Z_STRVAL_P(obj)) == 0) {
+	        			smart_str_appends(where_str, Z_STRVAL_P(obj));
+	        		} else {
+				    	if (pre) {
+				    		smart_str_appends(where_str, " and ");
+				    	} else {
+				    		pre = 1;
+				    	}
+				    	smart_str_appends(where_str, Z_STRVAL_P(obj));
+	        		}
 	        	}
 	        }
 		}
