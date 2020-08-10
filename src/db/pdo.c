@@ -502,12 +502,16 @@ void makeWhere(zval *self, smart_str *where_str, zval *where, zval *field_value)
 		    	Z_TRY_ADDREF_P(obj);
 	        } else {
 	        	if (obj && Z_TYPE_P(obj) == IS_STRING) {
-			    	if (pre) {
-			    		smart_str_appends(where_str, " and ");
-			    	} else {
-			    		pre = 1;
-			    	}
-			    	smart_str_appends(where_str, Z_STRVAL_P(obj));
+	        		if (strcmp("(", Z_STRVAL_P(ops)) == 0 || strcmp(")", Z_STRVAL_P(ops)) == 0) {
+	        			smart_str_appends(where_str, Z_STRVAL_P(obj));
+	        		} else {
+				    	if (pre) {
+				    		smart_str_appends(where_str, " and ");
+				    	} else {
+				    		pre = 1;
+				    	}
+				    	smart_str_appends(where_str, Z_STRVAL_P(obj));
+	        		}
 	        	}
 	        }
 		}
