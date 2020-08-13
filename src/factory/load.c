@@ -48,33 +48,6 @@ ZEND_BEGIN_ARG_INFO_EX(gene_load_arg_autoload, 0, 0, 1)
 ZEND_END_ARG_INFO()
 
 
-int zend_set_local_var_symbol(zend_array* symbol_table) /* {{{ */
-{
-	zend_execute_data *execute_data = EG(current_execute_data);
-
-	while (execute_data && (!execute_data->func || !ZEND_USER_CODE(execute_data->func->common.type))) {
-		execute_data = execute_data->prev_execute_data;
-	}
-
-	if (execute_data) {
-		php_printf("bb");
-		zval *entry;
-		zend_string *var_name;
-		ZEND_HASH_FOREACH_STR_KEY_VAL(execute_data->symbol_table, var_name, entry) {
-			if (var_name == NULL) {
-				continue;
-			}
-			php_printf("symbol key:%s ", var_name->val);
-			if (EXPECTED(zend_hash_add_new(symbol_table, var_name, entry))) {
-				Z_TRY_ADDREF_P(entry);
-			}
-		} ZEND_HASH_FOREACH_END();
-		return 1;
-	}
-	return 0;
-}
-/* }}} */
-
 int exec_by_symbol_table(zval *obj, zend_op_array *op_array, zend_array *symbol_table, zval *result) /* {{{ */ {
 	zend_execute_data *call;
 	uint32_t call_info;
