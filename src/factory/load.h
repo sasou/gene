@@ -54,10 +54,11 @@
 
 extern zend_class_entry *gene_load_ce;
 
-int gene_load_import(char *path TSRMLS_DC);
+int gene_load_import(char *path, zval *obj, zend_array *symbol_table TSRMLS_DC);
 void gene_load_file_by_class_name (char *className);
 zval *gene_load_instance(zval *this_ptr TSRMLS_DC);
 int gene_loader_register(TSRMLS_DC);
+int zend_set_local_var_symbol(zend_array* symbol_table);
 
 GENE_MINIT_FUNCTION (load);
 
