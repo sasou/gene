@@ -1086,9 +1086,9 @@ PHP_METHOD(gene_router, display) {
 			GENE_G(child_views) = NULL;
 		}
 		GENE_G(child_views) = estrndup(ZSTR_VAL(file), ZSTR_LEN(file));
-		gene_view_display(ZSTR_VAL(parent_file) TSRMLS_CC);
+		gene_view_display(ZSTR_VAL(parent_file), NULL, NULL TSRMLS_CC);
 	} else {
-		gene_view_display(ZSTR_VAL(file) TSRMLS_CC);
+		gene_view_display(ZSTR_VAL(file), NULL, NULL TSRMLS_CC);
 	}
 }
 /* }}} */
@@ -1108,9 +1108,9 @@ PHP_METHOD(gene_router, displayExt) {
 			GENE_G(child_views) = NULL;
 		}
 		GENE_G(child_views) = estrndup(ZSTR_VAL(file), ZSTR_LEN(file));
-		gene_view_display_ext(ZSTR_VAL(parent_file), isCompile TSRMLS_CC);
+		gene_view_display_ext(ZSTR_VAL(parent_file), isCompile, NULL, NULL TSRMLS_CC);
 	} else {
-		gene_view_display_ext(ZSTR_VAL(file), isCompile TSRMLS_CC);
+		gene_view_display_ext(ZSTR_VAL(file), isCompile, NULL, NULL TSRMLS_CC);
 	}
 }
 /* }}} */

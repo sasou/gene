@@ -35,6 +35,7 @@
 #include "../router/router.h"
 #include "../mvc/view.h"
 #include "../di/di.h"
+#include "../factory/load.h"
 #include "../common/common.h"
 
 zend_class_entry * gene_controller_ce;
@@ -93,6 +94,13 @@ ZEND_BEGIN_ARG_INFO_EX(gene_controller_se_json, 0, 0, 1)
 	ZEND_ARG_INFO(0, callback)
 	ZEND_ARG_INFO(0, code)
 ZEND_END_ARG_INFO()
+
+
+ZEND_BEGIN_ARG_INFO_EX(gene_controller_se_assign, 0, 0, 1)
+	ZEND_ARG_INFO(0, name)
+	ZEND_ARG_INFO(0, value)
+ZEND_END_ARG_INFO()
+
 
 /*
  * {{{ gene_controller
@@ -241,20 +249,24 @@ PHP_METHOD(gene_controller, redirect) {
  */
 PHP_METHOD(gene_controller, display) {
 	zend_string *file, *parent_file = NULL;
-
 	if (zend_parse_parameters(ZEND_NUM_ARGS()TSRMLS_CC, "S|S", &file, &parent_file) == FAILURE) {
 		return;
 	}
+	zval *self = getThis();
+	zval *vars = gene_view_get_vars();
+	zend_array *table = (Z_TYPE_P(vars) == IS_ARRAY) ? Z_ARRVAL_P(vars) : NULL;
+
 	if (parent_file && ZSTR_LEN(parent_file) > 0) {
 		if (GENE_G(child_views)) {
 			efree(GENE_G(child_views));
 			GENE_G(child_views) = NULL;
 		}
 		GENE_G(child_views) = estrndup(ZSTR_VAL(file), ZSTR_LEN(file));
-		gene_view_display(ZSTR_VAL(parent_file) TSRMLS_CC);
+		gene_view_display(ZSTR_VAL(parent_file), self, table TSRMLS_CC);
 	} else {
-		gene_view_display(ZSTR_VAL(file) TSRMLS_CC);
+		gene_view_display(ZSTR_VAL(file), self, table TSRMLS_CC);
 	}
+	gene_view_clear_vars();
 }
 /* }}} */
 
@@ -263,20 +275,24 @@ PHP_METHOD(gene_controller, display) {
 PHP_METHOD(gene_controller, displayExt) {
 	zend_string *file, *parent_file = NULL;
 	zend_bool isCompile = 0;
-
 	if (zend_parse_parameters(ZEND_NUM_ARGS()TSRMLS_CC, "S|Sb", &file, &parent_file, &isCompile) == FAILURE) {
 		return;
 	}
+	zval *self = getThis();
+	zval *vars = gene_view_get_vars();
+	zend_array *table = (Z_TYPE_P(vars) == IS_ARRAY) ? Z_ARRVAL_P(vars) : NULL;
+
 	if (parent_file && ZSTR_LEN(parent_file) > 0) {
 		if (GENE_G(child_views)) {
 			efree(GENE_G(child_views));
 			GENE_G(child_views) = NULL;
 		}
 		GENE_G(child_views) = estrndup(ZSTR_VAL(file), ZSTR_LEN(file));
-		gene_view_display_ext(ZSTR_VAL(parent_file), isCompile TSRMLS_CC);
+		gene_view_display_ext(ZSTR_VAL(parent_file), isCompile, self, table TSRMLS_CC);
 	} else {
-		gene_view_display_ext(ZSTR_VAL(file), isCompile TSRMLS_CC);
+		gene_view_display_ext(ZSTR_VAL(file), isCompile, self, table TSRMLS_CC);
 	}
+	gene_view_clear_vars();
 }
 /* }}} */
 
@@ -382,6 +398,17 @@ PHP_METHOD(gene_controller, json) {
 }
 /* }}} */
 
+PHP_METHOD(gene_controller, assign) {
+	zval *value;
+	zend_string *name;
+	if (zend_parse_parameters(ZEND_NUM_ARGS(), "Sz", &name, &value) == FAILURE) {
+		return;
+	}
+	gene_view_set_vars(name, value);
+	RETURN_NULL();
+}
+/* }}} */
+
 /*
  * {{{ gene_controller
  */
@@ -464,6 +491,7 @@ zend_function_entry gene_controller_methods[] = {
 	PHP_ME(gene_controller, error, gene_controller_se, ZEND_ACC_PUBLIC|ZEND_ACC_STATIC)
 	PHP_ME(gene_controller, data, gene_controller_se_data, ZEND_ACC_PUBLIC|ZEND_ACC_STATIC)
 	PHP_ME(gene_controller, json, gene_controller_se_json, ZEND_ACC_PUBLIC|ZEND_ACC_STATIC)
+	PHP_ME(gene_controller, assign, gene_controller_se_assign, ZEND_ACC_PUBLIC|ZEND_ACC_STATIC)
 	PHP_ME(gene_controller, __get, gene_controller_get, ZEND_ACC_PUBLIC)
 	PHP_ME(gene_controller, __set, gene_controller_set, ZEND_ACC_PUBLIC)
 	{ NULL, NULL, NULL }
