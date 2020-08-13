@@ -27,6 +27,9 @@
 #include "zend_globals.h"
 #include "zend_virtual_cwd.h"
 #include "zend_smart_str.h"
+#include "main/php_output.h"
+#include "zend_execute.h"
+#include "Zend/zend_interfaces.h" /* for zend_class_serialize_deny */
 
 #include "../gene.h"
 #include "../factory/load.h"
@@ -45,9 +48,69 @@ ZEND_BEGIN_ARG_INFO_EX(gene_load_arg_autoload, 0, 0, 1)
 ZEND_END_ARG_INFO()
 
 
+int zend_set_local_var_symbol(zend_array* symbol_table) /* {{{ */
+{
+	zend_execute_data *execute_data = EG(current_execute_data);
+
+	while (execute_data && (!execute_data->func || !ZEND_USER_CODE(execute_data->func->common.type))) {
+		execute_data = execute_data->prev_execute_data;
+	}
+
+	if (execute_data) {
+		php_printf("bb");
+		zval *entry;
+		zend_string *var_name;
+		ZEND_HASH_FOREACH_STR_KEY_VAL(execute_data->symbol_table, var_name, entry) {
+			if (var_name == NULL) {
+				continue;
+			}
+			php_printf("symbol key:%s ", var_name->val);
+			if (EXPECTED(zend_hash_add_new(symbol_table, var_name, entry))) {
+				Z_TRY_ADDREF_P(entry);
+			}
+		} ZEND_HASH_FOREACH_END();
+		return 1;
+	}
+	return 0;
+}
+/* }}} */
+
+int exec_by_symbol_table(zval *obj, zend_op_array *op_array, zend_array *symbol_table, zval *result) /* {{{ */ {
+	zend_execute_data *call;
+	uint32_t call_info;
+
+	op_array->scope = Z_OBJCE_P(obj);
+
+	zend_function *func = (zend_function *)op_array;
+
+#if PHP_VERSION_ID >= 70400
+	call_info = ZEND_CALL_HAS_THIS | ZEND_CALL_NESTED_CODE | ZEND_CALL_HAS_SYMBOL_TABLE;
+#elif PHP_VERSION_ID >= 70100
+	call_info = ZEND_CALL_NESTED_CODE | ZEND_CALL_HAS_SYMBOL_TABLE;
+#else
+	call_info = ZEND_CALL_NESTED_CODE;
+#endif
+
+#if PHP_VERSION_ID < 70400
+	call = zend_vm_stack_push_call_frame(call_info, func, 0, op_array->scope, Z_OBJ_P(obj));
+#else
+    call = zend_vm_stack_push_call_frame(call_info, func, 0, Z_OBJ_P(obj));
+#endif
+
+	call->symbol_table = symbol_table;
+
+	zend_init_execute_data(call, op_array, result);
+
+	ZEND_ADD_CALL_FLAG(call, ZEND_CALL_TOP);
+	zend_execute_ex(call);
+	zend_vm_stack_free_call_frame(call);
+	return 1;
+}
+/* }}} */
+
 /** {{{ int gene_load_import(char *path TSRMLS_DC)
  */
-int gene_load_import(char *path TSRMLS_DC) {
+int gene_load_import(char *path , zval *obj, zend_array *symbol_table TSRMLS_DC) {
 	zend_file_handle file_handle;
 	zend_op_array *op_array;
 	zend_stat_t sb;
@@ -84,7 +147,11 @@ int gene_load_import(char *path TSRMLS_DC) {
 		zval result;
 
 		ZVAL_UNDEF(&result);
-		zend_execute(op_array, &result);
+		if (obj && symbol_table) {
+			exec_by_symbol_table(obj, op_array, symbol_table, &result);
+		} else {
+			zend_execute(op_array, &result);
+		}
 
 		destroy_op_array(op_array);
 		efree_size(op_array, sizeof(op_array));
@@ -114,11 +181,11 @@ void gene_load_file_by_class_name (char *className) {
 	} else {
 		spprintf(&filePath, 0, "%s.php", fileNmae);
 	}
-	if (!gene_load_import(filePath TSRMLS_CC)) {
+	if (!gene_load_import(filePath, NULL, NULL TSRMLS_CC)) {
 		if (GENE_G(use_library)) {
 			efree(filePath);
 			spprintf(&filePath, 0, "%s/%s.php", GENE_G(library_root), fileNmae);
-			gene_load_import(filePath TSRMLS_CC);
+			gene_load_import(filePath, NULL, NULL TSRMLS_CC);
 		}
 	}
 	efree(filePath);
@@ -219,7 +286,7 @@ PHP_METHOD(gene_load, import) {
 		return;
 	}
 	if (php_script && ZSTR_LEN(php_script)) {
-		if(!gene_load_import(ZSTR_VAL(php_script) TSRMLS_CC)) {
+		if(!gene_load_import(ZSTR_VAL(php_script), NULL, NULL TSRMLS_CC)) {
 			php_error_docref(NULL, E_WARNING, "Unable to load file %s", ZSTR_VAL(php_script));
 		}
 	}
