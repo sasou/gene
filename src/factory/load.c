@@ -118,8 +118,8 @@ int gene_load_import(char *path , zval *obj, zend_array *symbol_table TSRMLS_DC)
 
 	if (op_array) {
 		zval result;
-
 		ZVAL_UNDEF(&result);
+
 		if (obj && symbol_table) {
 			exec_by_symbol_table(obj, op_array, symbol_table, &result);
 		} else {

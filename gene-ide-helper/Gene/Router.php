@@ -90,6 +90,17 @@ class Router
     public function getRouter() {
 
     }
+    
+    /**
+     * assign
+     * 
+     * @param mixed $name
+     * @param mixed $value
+     * @return mixed
+     */
+    public function assign($name, $value) {
+
+    }
 
     /**
      * display
