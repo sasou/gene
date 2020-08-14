@@ -19,6 +19,17 @@ class View
     public function __construct() {
 
     }
+    
+    /**
+     * assign
+     * 
+     * @param mixed $name
+     * @param mixed $value
+     * @return mixed
+     */
+    public function assign($name, $value) {
+
+    }
 
     /**
      * display

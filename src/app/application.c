@@ -151,7 +151,7 @@ void load_file(char *key, size_t key_len, char *php_script, int validity TSRMLS_
 					validity TSRMLS_CC);
 		}
 		if (import) {
-			if(!gene_load_import(php_script TSRMLS_CC)) {
+			if(!gene_load_import(php_script, NULL, NULL TSRMLS_CC)) {
 				php_error_docref(NULL, E_WARNING, "Unable to load config file %s", php_script);
 			}
 		}

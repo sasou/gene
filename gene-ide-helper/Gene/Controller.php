@@ -205,6 +205,17 @@ class Controller
     public function redirect($url, $code) {
 
     }
+    
+    /**
+     * assign
+     * 
+     * @param mixed $name
+     * @param mixed $value
+     * @return mixed
+     */
+    public function assign($name, $value) {
+
+    }
 
     /**
      * display
