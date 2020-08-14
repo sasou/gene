@@ -380,7 +380,9 @@ PHP_METHOD(gene_view, display) {
 	} else {
 		gene_view_display(ZSTR_VAL(file), self, table TSRMLS_CC);
 	}
-	gene_view_clear_vars();
+	if (table) {
+		gene_view_clear_vars();
+	}
 }
 /* }}} */
 
@@ -406,7 +408,9 @@ PHP_METHOD(gene_view, displayExt) {
 	} else {
 		gene_view_display_ext(ZSTR_VAL(file), isCompile, self, table TSRMLS_CC);
 	}
-	gene_view_clear_vars();
+	if (table) {
+		gene_view_clear_vars();
+	}
 }
 /* }}} */
 
