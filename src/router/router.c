@@ -274,15 +274,7 @@ int get_router_info(zval **leaf, zval **cacheHook TSRMLS_DC) {
 		}
 	}
 
-	zend_try{
-		zend_eval_stringl(run, size - 1, NULL, "" TSRMLS_CC);
-	} zend_catch {
-		efree(run);
-		if (hookname) {
-			efree(hookname);
-		}
-		zend_bailout();
-	} zend_end_try();
+	zend_eval_stringl(run, size - 1, NULL, "" TSRMLS_CC);
 
 	efree(run);
 	if (hookname) {
@@ -306,14 +298,9 @@ int get_router_error_run_by_router(zval *cacheHook, char *errorName TSRMLS_DC) {
 			run = (char *) ecalloc(size, sizeof(char));
 			strcat(run, Z_STRVAL_P(error));
 			run[size - 1] = 0;
-			zend_try{
-				zend_eval_stringl(run, strlen(run), NULL, errorName TSRMLS_CC);
-			}zend_catch {
-				efree(router_e);
-				efree(run);
-				run = NULL;
-				zend_bailout();
-			}zend_end_try();
+
+			zend_eval_stringl(run, strlen(run), NULL, errorName TSRMLS_CC);
+
 			efree(router_e);
 			efree(run);
 			run = NULL;
@@ -357,13 +344,9 @@ int get_router_error_run(char *errorName, zval *safe TSRMLS_DC) {
 	} else {
 		return 0;
 	}
-	zend_try{
-		zend_eval_stringl(run, strlen(run), NULL, "" TSRMLS_CC);
-	}zend_catch{
-		efree(run);
-		run = NULL;
-		zend_bailout();
-	}zend_end_try();
+
+	zend_eval_stringl(run, strlen(run), NULL, "" TSRMLS_CC);
+
 	efree(run);
 	run = NULL;
 	return 1;
