@@ -87,7 +87,7 @@ static void php_gene_init_globals() {
 	GENE_G(path_params) = NULL;
 	GENE_G(cache) = NULL;
 	GENE_G(cache_easy) = NULL;
-	gene_memory_init(TSRMLS_CC);
+	gene_memory_init();
 }
 /* }}} */
 

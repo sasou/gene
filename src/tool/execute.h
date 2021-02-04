@@ -20,7 +20,7 @@
 
 extern zend_class_entry *gene_execute_ce;
 
-void *gene_execite_opcodes_run(zend_op_array *op_array TSRMLS_DC);
+void *gene_execite_opcodes_run(zend_op_array *op_array);
 
 GENE_MINIT_FUNCTION (execute);
 
