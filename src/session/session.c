@@ -85,9 +85,9 @@ void gene_session_commit() /*{{{*/
 }/*}}}*/
 
 
-/** {{{ zval * gene_session_get_by_path(char *path TSRMLS_DC)
+/** {{{ zval * gene_session_get_by_path(char *path)
  */
-zval * gene_session_get_by_path(char *path TSRMLS_DC) {
+zval * gene_session_get_by_path(char *path) {
 	char *ptr = NULL, *seg = NULL;
 	zval *tmp = NULL;
 	zval *sess = NULL;
@@ -114,9 +114,9 @@ zval * gene_session_get_by_path(char *path TSRMLS_DC) {
 }
 /* }}} */
 
-/** {{{ static zval * gene_session_set_val(char *keyString, size_t keyString_len TSRMLS_DC)
+/** {{{ static zval * gene_session_set_val(char *keyString, size_t keyString_len)
  */
-static zval * gene_session_set_val(zval *val, char *keyString, size_t keyString_len, zval *zvalue TSRMLS_DC) {
+static zval * gene_session_set_val(zval *val, char *keyString, size_t keyString_len, zval *zvalue) {
 	zval tmp, *copyval;
 	if (val == NULL) {
 		return NULL;
@@ -142,9 +142,9 @@ static zval * gene_session_set_val(zval *val, char *keyString, size_t keyString_
 }
 /* }}} */
 
-/** {{{ void gene_session_set_by_path(char *path, zval *zvalue TSRMLS_DC)
+/** {{{ void gene_session_set_by_path(char *path, zval *zvalue)
  */
-void gene_session_set_by_path(char *path, zval *zvalue TSRMLS_DC) {
+void gene_session_set_by_path(char *path, zval *zvalue) {
 	char *ptr = NULL, *seg = NULL;
 	zval *tmp;
 	zval *sess = NULL, ret;
@@ -181,9 +181,9 @@ void gene_session_set_by_path(char *path, zval *zvalue TSRMLS_DC) {
 }
 /* }}} */
 
-/** {{{ zend_bool gene_session_del_by_path(char *path TSRMLS_DC)
+/** {{{ zend_bool gene_session_del_by_path(char *path)
  */
-zend_bool gene_session_del_by_path(char *path TSRMLS_DC) {
+zend_bool gene_session_del_by_path(char *path) {
 	char *ptr = NULL, *seg = NULL;
 	zval *tmp = NULL;
 	zval *sess = NULL;
@@ -226,7 +226,7 @@ PHP_METHOD(gene_session, get) {
 	zend_string *name = NULL;
 	zval *sess = NULL;
 	char *path = NULL;
-	if (zend_parse_parameters(ZEND_NUM_ARGS()TSRMLS_CC, "|S", &name) == FAILURE) {
+	if (zend_parse_parameters(ZEND_NUM_ARGS(), "|S", &name) == FAILURE) {
 		return;
 	}
 	if (gene_session_status() != 2) {
@@ -237,7 +237,7 @@ PHP_METHOD(gene_session, get) {
 		replaceAll(path, '.', '/');
 	}
 
-	sess = gene_session_get_by_path(path TSRMLS_CC);
+	sess = gene_session_get_by_path(path);
 	if (path) {
 		efree(path);
 	}
@@ -256,7 +256,7 @@ PHP_METHOD(gene_session, set) {
 	zend_string *name;
 	char *path = NULL;
 
-	if (zend_parse_parameters(ZEND_NUM_ARGS()TSRMLS_CC, "Sz", &name, &value) == FAILURE) {
+	if (zend_parse_parameters(ZEND_NUM_ARGS(), "Sz", &name, &value) == FAILURE) {
 		return;
 	}
 	if (gene_session_status() != 2) {
@@ -266,7 +266,7 @@ PHP_METHOD(gene_session, set) {
 		spprintf(&path, 0, "%s", ZSTR_VAL(name));
 		replaceAll(path, '.', '/');
 	}
-	gene_session_set_by_path(path, value TSRMLS_CC);
+	gene_session_set_by_path(path, value);
 	if (path) {
 		efree(path);
 	}
@@ -281,7 +281,7 @@ PHP_METHOD(gene_session, del) {
 	zend_string *name;
 	char *path = NULL;
 	zend_bool ret = 0;
-	if (zend_parse_parameters(ZEND_NUM_ARGS()TSRMLS_CC, "S", &name) == FAILURE) {
+	if (zend_parse_parameters(ZEND_NUM_ARGS(), "S", &name) == FAILURE) {
 		return;
 	}
 	if (gene_session_status() != 2) {
@@ -291,7 +291,7 @@ PHP_METHOD(gene_session, del) {
 		spprintf(&path, 0, "%s", ZSTR_VAL(name));
 		replaceAll(path, '.', '/');
 	}
-	ret = gene_session_del_by_path(path TSRMLS_CC);
+	ret = gene_session_del_by_path(path);
 	if (path) {
 		efree(path);
 	}
@@ -323,7 +323,7 @@ PHP_METHOD(gene_session, has) {
 	zend_bool ret = 0;
 	zval *sess = NULL;
 
-	if (zend_parse_parameters(ZEND_NUM_ARGS()TSRMLS_CC, "S", &name) == FAILURE) {
+	if (zend_parse_parameters(ZEND_NUM_ARGS(), "S", &name) == FAILURE) {
 		return;
 	}
 	if (gene_session_status() != 2) {
@@ -363,10 +363,10 @@ zend_function_entry gene_session_methods[] = {
 GENE_MINIT_FUNCTION(session) {
 	zend_class_entry gene_session;
 	GENE_INIT_CLASS_ENTRY(gene_session, "Gene_Session", "Gene\\Session", gene_session_methods);
-	gene_session_ce = zend_register_internal_class(&gene_session TSRMLS_CC);
+	gene_session_ce = zend_register_internal_class(&gene_session);
 
 	//debug
-	//zend_declare_property_null(gene_application_ce, GENE_EXECUTE_DEBUG, strlen(GENE_EXECUTE_DEBUG), ZEND_ACC_PUBLIC TSRMLS_CC);
+	//zend_declare_property_null(gene_application_ce, GENE_EXECUTE_DEBUG, strlen(GENE_EXECUTE_DEBUG), ZEND_ACC_PUBLIC);
 	//
 	return SUCCESS; // @suppress("Symbol is not resolved")
 }

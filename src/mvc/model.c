@@ -130,7 +130,7 @@ PHP_METHOD(gene_model, success) {
 	zend_string *text;
 	zend_long code = 2000;
 
-	if (zend_parse_parameters(ZEND_NUM_ARGS()TSRMLS_CC, "S|l", &text, &code) == FAILURE) {
+	if (zend_parse_parameters(ZEND_NUM_ARGS(), "S|l", &text, &code) == FAILURE) {
 		return;
 	}
 	array_init(return_value);
@@ -146,7 +146,7 @@ PHP_METHOD(gene_model, error) {
 	zend_string *text;
 	zend_long code = 4000;
 
-	if (zend_parse_parameters(ZEND_NUM_ARGS()TSRMLS_CC, "S|l", &text, &code) == FAILURE) {
+	if (zend_parse_parameters(ZEND_NUM_ARGS(), "S|l", &text, &code) == FAILURE) {
 		return;
 	}
 	array_init(return_value);
@@ -163,7 +163,7 @@ PHP_METHOD(gene_model, data) {
 	zend_string *text = NULL;
 	zend_long code = 2000;
 
-	if (zend_parse_parameters(ZEND_NUM_ARGS()TSRMLS_CC, "z|lSl", &data, &count, &text, &code) == FAILURE) {
+	if (zend_parse_parameters(ZEND_NUM_ARGS(), "z|lSl", &data, &count, &text, &code) == FAILURE) {
 		return;
 	}
 	array_init(return_value);
@@ -185,7 +185,7 @@ PHP_METHOD(gene_model, data) {
 PHP_METHOD(gene_model, getInstance)
 {
 	zval obj, *params = NULL;
-	if (zend_parse_parameters(ZEND_NUM_ARGS()TSRMLS_CC, "|z", &params) == FAILURE) {
+	if (zend_parse_parameters(ZEND_NUM_ARGS(), "|z", &params) == FAILURE) {
 		return;
 	}
 	zval class_name;
