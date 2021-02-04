@@ -19,7 +19,7 @@
 #define GENE_REQUEST_PROPERTY_ATTR "_attr"
 
 extern zend_class_entry *gene_request_ce;
-zval * request_query(zend_ulong type, char * name, size_t len TSRMLS_DC);
+zval * request_query(zend_ulong type, char * name, size_t len);
 void setVal(zend_ulong type, zval *value);
 zval *getVal(zend_ulong type, char *name, size_t len);
 
@@ -43,7 +43,7 @@ PHP_METHOD(ce, x) { \
 	char *name = NULL; \
 	size_t name_len = 0;  \
     zval *ret = NULL, *def = NULL; \
-	if (zend_parse_parameters(ZEND_NUM_ARGS() TSRMLS_CC, "|sz", &name, &name_len, &def) == FAILURE) { \
+	if (zend_parse_parameters(ZEND_NUM_ARGS(), "|sz", &name, &name_len, &def) == FAILURE) { \
 		return; \
 	} \
 	ret = getVal(type, name, name_len); \

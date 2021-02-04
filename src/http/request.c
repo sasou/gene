@@ -65,7 +65,7 @@ ZEND_BEGIN_ARG_INFO_EX(gene_request_set_arginfo, 0, 0, 2)
 ZEND_END_ARG_INFO()
 /* }}} */
 
-zval * request_query(zend_ulong type, char * name, size_t len TSRMLS_DC) {
+zval * request_query(zend_ulong type, char * name, size_t len) {
 	zval *carrier = NULL, *ret;
 	zend_bool jit_initialization = PG(auto_globals_jit);
 
@@ -151,7 +151,7 @@ zval *getVal(zend_ulong type, char *name, size_t len) {
 	if (Z_TYPE_P(attr) ==  IS_ARRAY) {
 		val =  zend_hash_index_find(Z_ARRVAL_P(attr), type);
 		if (val == NULL) {
-			val = request_query(type, NULL, 0 TSRMLS_CC);
+			val = request_query(type, NULL, 0);
 			zend_hash_index_update(Z_ARRVAL_P(attr), type, val);
 		}
 		if (len == 0) {
@@ -167,7 +167,7 @@ zval *getVal(zend_ulong type, char *name, size_t len) {
  */
 PHP_METHOD(gene_request, __construct) {
 	long debug = 0;
-	if (zend_parse_parameters(ZEND_NUM_ARGS()TSRMLS_CC, "|l", &debug) == FAILURE) {
+	if (zend_parse_parameters(ZEND_NUM_ARGS(), "|l", &debug) == FAILURE) {
 		return;
 	}
 	RETURN_NULL();
@@ -273,7 +273,7 @@ PHP_METHOD(gene_request, params) {
 	char *name = NULL;
 	zend_long name_len = 0;
 	zval *params = NULL;
-	if (zend_parse_parameters(ZEND_NUM_ARGS()TSRMLS_CC, "|s", &name, &name_len) == FAILURE) {
+	if (zend_parse_parameters(ZEND_NUM_ARGS(), "|s", &name, &name_len) == FAILURE) {
 		return;
 	}
 
@@ -295,7 +295,7 @@ PHP_METHOD(gene_request, params) {
  */
 PHP_METHOD(gene_request, init) {
 	zval *get = NULL, *post = NULL, *cookie = NULL, *server = NULL, *env = NULL, *files = NULL, *request = NULL;
-	if (zend_parse_parameters(ZEND_NUM_ARGS()TSRMLS_CC, "|zzzzzzz", &get, &post, &cookie, &server, &env, &files, &request) == FAILURE) {
+	if (zend_parse_parameters(ZEND_NUM_ARGS(), "|zzzzzzz", &get, &post, &cookie, &server, &env, &files, &request) == FAILURE) {
 		return;
 	}
 	if (post && Z_TYPE_P(post) == IS_ARRAY) {
@@ -334,7 +334,7 @@ PHP_METHOD(gene_request, _get) {
 	const char *valType[7] = { "post", "get", "cookie", "server", "env", "files",
 			"request"};
 
-	if (zend_parse_parameters(ZEND_NUM_ARGS()TSRMLS_CC, "s", &name, &name_len) == FAILURE) {
+	if (zend_parse_parameters(ZEND_NUM_ARGS(), "s", &name, &name_len) == FAILURE) {
 		RETURN_NULL();
 	}
 
@@ -361,7 +361,7 @@ PHP_METHOD(gene_request, _set) {
 	int i = 0;
 	const char *valType[7] = { "post", "get", "cookie", "server", "env", "files",
 			"request"};
-	if (zend_parse_parameters(ZEND_NUM_ARGS()TSRMLS_CC, "sz", &name, &name_len, &value) == FAILURE) {
+	if (zend_parse_parameters(ZEND_NUM_ARGS(), "sz", &name, &name_len, &value) == FAILURE) {
 		RETURN_NULL();
 	}
 
@@ -410,7 +410,7 @@ zend_function_entry gene_request_methods[] = {
 GENE_MINIT_FUNCTION(request) {
 	zend_class_entry gene_request;
 	GENE_INIT_CLASS_ENTRY(gene_request, "Gene_Request", "Gene\\Request", gene_request_methods);
-	gene_request_ce = zend_register_internal_class(&gene_request TSRMLS_CC);
+	gene_request_ce = zend_register_internal_class(&gene_request);
 
 	zend_declare_property_null(gene_request_ce, GENE_REQUEST_PROPERTY_ATTR, strlen(GENE_REQUEST_PROPERTY_ATTR), ZEND_ACC_PROTECTED | ZEND_ACC_STATIC);
 	//
