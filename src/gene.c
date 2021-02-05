@@ -87,7 +87,7 @@ static void php_gene_init_globals() {
 	GENE_G(path_params) = NULL;
 	GENE_G(cache) = NULL;
 	GENE_G(cache_easy) = NULL;
-	gene_memory_init(TSRMLS_CC);
+	gene_memory_init();
 }
 /* }}} */
 
@@ -202,6 +202,13 @@ PHP_MINIT_FUNCTION(gene) {
 }
 /* }}} */
 
+
+/** {{{ ARG_INFO
+ *  */
+ZEND_BEGIN_ARG_INFO_EX(gene_void_arginfo, 0, 0, 0)
+ZEND_END_ARG_INFO()
+/* }}} */
+
 /*
  * {{{ PHP_MSHUTDOWN_FUNCTION
  */
@@ -271,7 +278,7 @@ PHP_FUNCTION(gene_version) {
  * Every user visible function must have an entry in gene_functions[].
  */
 zend_function_entry gene_functions[] = {
-	PHP_FE(gene_version,NULL)
+	PHP_FE(gene_version, gene_void_arginfo)
 	PHP_FE_END
 };
 /* }}} */

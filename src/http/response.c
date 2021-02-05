@@ -32,30 +32,33 @@
 
 zend_class_entry * gene_response_ce;
 
-ZEND_BEGIN_ARG_INFO_EX(gene_response_arg_se, 0, 0, 1)
+ZEND_BEGIN_ARG_INFO_EX(gene_response_void_arginfo, 0, 0, 0)
+ZEND_END_ARG_INFO()
+
+ZEND_BEGIN_ARG_INFO_EX(gene_response_arg_se, 0, 0, 2)
     ZEND_ARG_INFO(0, msg)
 	ZEND_ARG_INFO(0, code)
 ZEND_END_ARG_INFO()
 
-ZEND_BEGIN_ARG_INFO_EX(gene_response_arg_se_data, 0, 0, 1)
+ZEND_BEGIN_ARG_INFO_EX(gene_response_arg_se_data, 0, 0, 4)
 	ZEND_ARG_INFO(0, data)
 	ZEND_ARG_INFO(0, count)
 	ZEND_ARG_INFO(0, msg)
 	ZEND_ARG_INFO(0, code)
 ZEND_END_ARG_INFO()
 
-ZEND_BEGIN_ARG_INFO_EX(gene_response_arg_se_json, 0, 0, 1)
+ZEND_BEGIN_ARG_INFO_EX(gene_response_arg_se_json, 0, 0, 3)
 	ZEND_ARG_INFO(0, data)
 	ZEND_ARG_INFO(0, callback)
 	ZEND_ARG_INFO(0, code)
 ZEND_END_ARG_INFO()
 
-ZEND_BEGIN_ARG_INFO_EX(gene_response_arg_redirect, 0, 0, 1)
+ZEND_BEGIN_ARG_INFO_EX(gene_response_arg_redirect, 0, 0, 2)
     ZEND_ARG_INFO(0, url)
     ZEND_ARG_INFO(0, code)
 ZEND_END_ARG_INFO()
 
-ZEND_BEGIN_ARG_INFO_EX(gene_response_arg_alert, 0, 0, 1)
+ZEND_BEGIN_ARG_INFO_EX(gene_response_arg_alert, 0, 0, 2)
     ZEND_ARG_INFO(0, text)
     ZEND_ARG_INFO(0, url)
 ZEND_END_ARG_INFO()
@@ -70,27 +73,27 @@ ZEND_BEGIN_ARG_INFO_EX(gene_response_arg_cookie, 0, 0, 2)
     ZEND_ARG_INFO(0, value)
 ZEND_END_ARG_INFO()
 
-/** {{{ void gene_response_set_redirect(char *url, zend_long code TSRMLS_DC)
+/** {{{ void gene_response_set_redirect(char *url, zend_long code)
  */
-void gene_response_set_redirect(char *url, zend_long code TSRMLS_DC) {
+void gene_response_set_redirect(char *url, zend_long code) {
 	sapi_header_line ctr = { 0 };
 
-	ctr.line_len = spprintf(&(ctr.line), 0, "%s %s", "Location:", url);
+	ctr.line_len = spprintf((char**)&(ctr.line), 0, "%s %s", "Location:", url);
 	ctr.response_code = code;
-	sapi_header_op(SAPI_HEADER_REPLACE, &ctr TSRMLS_CC);
-	efree(ctr.line);
+	sapi_header_op(SAPI_HEADER_REPLACE, &ctr);
+	efree((char*)ctr.line);
 }
 /* }}} */
 
-/** {{{ void gene_response_set_header(char *key, char *value TSRMLS_DC)
+/** {{{ void gene_response_set_header(char *key, char *value)
  */
-void gene_response_set_header(char *key, char *value TSRMLS_DC) {
+void gene_response_set_header(char *key, char *value) {
 	sapi_header_line ctr = { 0 };
 
-	ctr.line_len = spprintf(&(ctr.line), 0, "%s:%s", key, value);
+	ctr.line_len = spprintf((char**)&(ctr.line), 0, "%s:%s", key, value);
 	ctr.response_code = 200;
-	sapi_header_op(SAPI_HEADER_REPLACE, &ctr TSRMLS_CC);
-	efree(ctr.line);
+	sapi_header_op(SAPI_HEADER_REPLACE, &ctr);
+	efree((char*)ctr.line);
 }
 /* }}} */
 
@@ -134,7 +137,7 @@ void gene_response_cookie(zval *name, zval *value, zval *expires, zval *path, zv
  */
 PHP_METHOD(gene_response, __construct) {
 	long debug = 0;
-	if (zend_parse_parameters(ZEND_NUM_ARGS()TSRMLS_CC, "|l", &debug) == FAILURE) {
+	if (zend_parse_parameters(ZEND_NUM_ARGS(), "|l", &debug) == FAILURE) {
 		RETURN_NULL();
 	}
 }
@@ -146,11 +149,11 @@ PHP_METHOD(gene_response, redirect) {
 	zend_string *url;
 	zend_long code = 302;
 
-	if (zend_parse_parameters(ZEND_NUM_ARGS()TSRMLS_CC, "S|l", &url, &code) == FAILURE) {
+	if (zend_parse_parameters(ZEND_NUM_ARGS(), "S|l", &url, &code) == FAILURE) {
 		return;
 	}
 
-	gene_response_set_redirect(ZSTR_VAL(url), code TSRMLS_CC);
+	gene_response_set_redirect(ZSTR_VAL(url), code);
 	RETURN_TRUE;
 }
 /* }}} */
@@ -160,7 +163,7 @@ PHP_METHOD(gene_response, redirect) {
 PHP_METHOD(gene_response, alert) {
 	zend_string *text, *url;
 
-	if (zend_parse_parameters(ZEND_NUM_ARGS()TSRMLS_CC, "S|S", &text, &url) == FAILURE) {
+	if (zend_parse_parameters(ZEND_NUM_ARGS(), "S|S", &text, &url) == FAILURE) {
 		return;
 	}
 	php_printf("\n<script type=\"text/javascript\">\nalert(\"%s\");\n", ZSTR_VAL(text));
@@ -177,7 +180,7 @@ PHP_METHOD(gene_response, success) {
 	zend_string *text;
 	zend_long code = 2000;
 
-	if (zend_parse_parameters(ZEND_NUM_ARGS()TSRMLS_CC, "S|l", &text, &code) == FAILURE) {
+	if (zend_parse_parameters(ZEND_NUM_ARGS(), "S|l", &text, &code) == FAILURE) {
 		return;
 	}
 	array_init(return_value);
@@ -193,7 +196,7 @@ PHP_METHOD(gene_response, error) {
 	zend_string *text;
 	zend_long code = 4000;
 
-	if (zend_parse_parameters(ZEND_NUM_ARGS()TSRMLS_CC, "S|l", &text, &code) == FAILURE) {
+	if (zend_parse_parameters(ZEND_NUM_ARGS(), "S|l", &text, &code) == FAILURE) {
 		return;
 	}
 	array_init(return_value);
@@ -210,7 +213,7 @@ PHP_METHOD(gene_response, data) {
 	zend_string *text = NULL;
 	zend_long code = 2000;
 
-	if (zend_parse_parameters(ZEND_NUM_ARGS()TSRMLS_CC, "z|lSl", &data, &count, &text, &code) == FAILURE) {
+	if (zend_parse_parameters(ZEND_NUM_ARGS(), "z|lSl", &data, &count, &text, &code) == FAILURE) {
 		return;
 	}
 	array_init(return_value);
@@ -235,7 +238,7 @@ PHP_METHOD(gene_response, json) {
     zval ret, json_opt;
     zend_long callback_len = 0;
 
-	if (zend_parse_parameters(ZEND_NUM_ARGS()TSRMLS_CC, "z|sl", &data, &callback, &callback_len, &code) == FAILURE) {
+	if (zend_parse_parameters(ZEND_NUM_ARGS(), "z|sl", &data, &callback, &callback_len, &code) == FAILURE) {
 		return;
 	}
 	ZVAL_LONG(&json_opt, code);
@@ -264,7 +267,7 @@ PHP_METHOD(gene_response, header) {
 	char *key, *value;
 	zend_long key_len = 0, value_len = 0;
 
-	if (zend_parse_parameters(ZEND_NUM_ARGS()TSRMLS_CC, "ss", &key, &key_len, &value, &value_len) == FAILURE) {
+	if (zend_parse_parameters(ZEND_NUM_ARGS(), "ss", &key, &key_len, &value, &value_len) == FAILURE) {
 		return;
 	}
 
@@ -277,7 +280,7 @@ PHP_METHOD(gene_response, header) {
  */
 PHP_METHOD(gene_response, cookie) {
 	zval *name, *value, *expires, *path, *domain, *secure, *httponly;
-	if (zend_parse_parameters(ZEND_NUM_ARGS()TSRMLS_CC, "z|zzzzzz", &name, &value, &expires, &path, &domain, &secure, &httponly) == FAILURE) {
+	if (zend_parse_parameters(ZEND_NUM_ARGS(), "z|zzzzzz", &name, &value, &expires, &path, &domain, &secure, &httponly) == FAILURE) {
 		return;
 	}
 	gene_response_cookie(name, value, expires, path, domain, secure, httponly, return_value);
@@ -312,9 +315,9 @@ zend_function_entry gene_response_methods[] = {
 	PHP_ME(gene_response, json, gene_response_arg_se_json, ZEND_ACC_PUBLIC|ZEND_ACC_STATIC)
 	PHP_ME(gene_response, header, gene_response_arg_header, ZEND_ACC_PUBLIC|ZEND_ACC_STATIC)
 	PHP_ME(gene_response, cookie, gene_response_arg_cookie, ZEND_ACC_PUBLIC|ZEND_ACC_STATIC)
-	PHP_ME(gene_response, setJsonHeader, NULL, ZEND_ACC_PUBLIC|ZEND_ACC_STATIC)
-	PHP_ME(gene_response, setHtmlHeader, NULL, ZEND_ACC_PUBLIC|ZEND_ACC_STATIC)
-	PHP_ME(gene_response, __construct, NULL, ZEND_ACC_PUBLIC|ZEND_ACC_CTOR)
+	PHP_ME(gene_response, setJsonHeader, gene_response_void_arginfo, ZEND_ACC_PUBLIC|ZEND_ACC_STATIC)
+	PHP_ME(gene_response, setHtmlHeader, gene_response_void_arginfo, ZEND_ACC_PUBLIC|ZEND_ACC_STATIC)
+	PHP_ME(gene_response, __construct, gene_response_void_arginfo, ZEND_ACC_PUBLIC|ZEND_ACC_CTOR)
 	{ NULL, NULL, NULL }
 };
 /* }}} */
@@ -325,7 +328,7 @@ zend_function_entry gene_response_methods[] = {
 GENE_MINIT_FUNCTION(response) {
 	zend_class_entry gene_response;
 	GENE_INIT_CLASS_ENTRY(gene_response, "Gene_Response", "Gene\\Response", gene_response_methods);
-	gene_response_ce = zend_register_internal_class(&gene_response TSRMLS_CC);
+	gene_response_ce = zend_register_internal_class(&gene_response);
 
 	//
 	return SUCCESS; // @suppress("Symbol is not resolved")

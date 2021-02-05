@@ -41,6 +41,9 @@ ZEND_BEGIN_ARG_INFO_EX(gene_db_sqlite_construct, 0, 0, 1)
 	ZEND_ARG_INFO(0, config)
 ZEND_END_ARG_INFO()
 
+ZEND_BEGIN_ARG_INFO_EX(gene_db_sqlite_void_arginfo, 0, 0, 0)
+ZEND_END_ARG_INFO()
+
 ZEND_BEGIN_ARG_INFO_EX(gene_db_sqlite_select, 0, 0, 1)
 	ZEND_ARG_INFO(0, table)
     ZEND_ARG_INFO(0, fields)
@@ -103,13 +106,13 @@ ZEND_END_ARG_INFO()
 
 void sqlite_reset_sql_params(zval *self)
 {
-	zend_update_property_null(gene_db_sqlite_ce, self, ZEND_STRL(GENE_DB_SQLITE_SQL));
-	zend_update_property_null(gene_db_sqlite_ce, self, ZEND_STRL(GENE_DB_SQLITE_WHERE));
-	zend_update_property_null(gene_db_sqlite_ce, self, ZEND_STRL(GENE_DB_SQLITE_GROUP));
-	zend_update_property_null(gene_db_sqlite_ce, self, ZEND_STRL(GENE_DB_SQLITE_HAVING));
-	zend_update_property_null(gene_db_sqlite_ce, self, ZEND_STRL(GENE_DB_SQLITE_ORDER));
-	zend_update_property_null(gene_db_sqlite_ce, self, ZEND_STRL(GENE_DB_SQLITE_LIMIT));
-    zend_update_property_null(gene_db_sqlite_ce, self, ZEND_STRL(GENE_DB_SQLITE_DATA));
+	zend_update_property_null(gene_db_sqlite_ce, gene_strip_obj(self), ZEND_STRL(GENE_DB_SQLITE_SQL));
+	zend_update_property_null(gene_db_sqlite_ce, gene_strip_obj(self), ZEND_STRL(GENE_DB_SQLITE_WHERE));
+	zend_update_property_null(gene_db_sqlite_ce, gene_strip_obj(self), ZEND_STRL(GENE_DB_SQLITE_GROUP));
+	zend_update_property_null(gene_db_sqlite_ce, gene_strip_obj(self), ZEND_STRL(GENE_DB_SQLITE_HAVING));
+	zend_update_property_null(gene_db_sqlite_ce, gene_strip_obj(self), ZEND_STRL(GENE_DB_SQLITE_ORDER));
+	zend_update_property_null(gene_db_sqlite_ce, gene_strip_obj(self), ZEND_STRL(GENE_DB_SQLITE_LIMIT));
+    zend_update_property_null(gene_db_sqlite_ce, gene_strip_obj(self), ZEND_STRL(GENE_DB_SQLITE_DATA));
 }
 
 void sqliteSaveHistory(smart_str *sql, zval *param) {
@@ -150,7 +153,7 @@ void sqliteSaveHistory(smart_str *sql, zval *param) {
 
 void sqlite_init_where(zval *self, smart_str *where_str) {
 	zval *pdo_where = NULL;
-	pdo_where = zend_read_property(gene_db_sqlite_ce, self, ZEND_STRL(GENE_DB_SQLITE_WHERE), 1, NULL);
+	pdo_where = zend_read_property(gene_db_sqlite_ce, gene_strip_obj(self), ZEND_STRL(GENE_DB_SQLITE_WHERE), 1, NULL);
 	if (pdo_where) {
 		if (Z_TYPE_P(pdo_where) == IS_STRING) {
 			smart_str_appends(where_str, Z_STRVAL_P(pdo_where));
@@ -165,7 +168,7 @@ zend_bool sqliteInitPdo (zval * self, zval *config) {
 	zval pdo_object, option;
 
 	if (config == NULL) {
-		config =  zend_read_property(gene_db_sqlite_ce, self, ZEND_STRL(GENE_DB_SQLITE_CONFIG), 1, NULL);
+		config =  zend_read_property(gene_db_sqlite_ce, gene_strip_obj(self), ZEND_STRL(GENE_DB_SQLITE_CONFIG), 1, NULL);
 	}
 
 	zend_string *c_key = zend_string_init(ZEND_STRL("PDO"), 0);
@@ -201,7 +204,7 @@ zend_bool sqliteInitPdo (zval * self, zval *config) {
 			EG(exception) = NULL;
 		}
 	}
-    zend_update_property(gene_db_sqlite_ce, self, ZEND_STRL(GENE_DB_SQLITE_PDO), &pdo_object);
+    zend_update_property(gene_db_sqlite_ce, gene_strip_obj(self), ZEND_STRL(GENE_DB_SQLITE_PDO), &pdo_object);
     zval_ptr_dtor(&pdo_object);
 	return 0;
 }
@@ -212,13 +215,13 @@ zend_bool gene_sqlite_pdo_execute (zval *self, zval *statement)
 	zval retval;
 	smart_str sql = {0};
 
-	pdo_object = zend_read_property(gene_db_sqlite_ce, self, ZEND_STRL(GENE_DB_SQLITE_PDO), 1, NULL);
-	pdo_sql = zend_read_property(gene_db_sqlite_ce, self, ZEND_STRL(GENE_DB_SQLITE_SQL), 1, NULL);
-	pdo_where = zend_read_property(gene_db_sqlite_ce, self, ZEND_STRL(GENE_DB_SQLITE_WHERE), 1, NULL);
-	pdo_group = zend_read_property(gene_db_sqlite_ce, self, ZEND_STRL(GENE_DB_SQLITE_GROUP), 1, NULL);
-	pdo_having = zend_read_property(gene_db_sqlite_ce, self, ZEND_STRL(GENE_DB_SQLITE_HAVING), 1, NULL);
-	pdo_order = zend_read_property(gene_db_sqlite_ce, self, ZEND_STRL(GENE_DB_SQLITE_ORDER), 1, NULL);
-	pdo_limit = zend_read_property(gene_db_sqlite_ce, self, ZEND_STRL(GENE_DB_SQLITE_LIMIT), 1, NULL);
+	pdo_object = zend_read_property(gene_db_sqlite_ce, gene_strip_obj(self), ZEND_STRL(GENE_DB_SQLITE_PDO), 1, NULL);
+	pdo_sql = zend_read_property(gene_db_sqlite_ce, gene_strip_obj(self), ZEND_STRL(GENE_DB_SQLITE_SQL), 1, NULL);
+	pdo_where = zend_read_property(gene_db_sqlite_ce, gene_strip_obj(self), ZEND_STRL(GENE_DB_SQLITE_WHERE), 1, NULL);
+	pdo_group = zend_read_property(gene_db_sqlite_ce, gene_strip_obj(self), ZEND_STRL(GENE_DB_SQLITE_GROUP), 1, NULL);
+	pdo_having = zend_read_property(gene_db_sqlite_ce, gene_strip_obj(self), ZEND_STRL(GENE_DB_SQLITE_HAVING), 1, NULL);
+	pdo_order = zend_read_property(gene_db_sqlite_ce, gene_strip_obj(self), ZEND_STRL(GENE_DB_SQLITE_ORDER), 1, NULL);
+	pdo_limit = zend_read_property(gene_db_sqlite_ce, gene_strip_obj(self), ZEND_STRL(GENE_DB_SQLITE_LIMIT), 1, NULL);
 
 	if (Z_TYPE_P(pdo_sql) == IS_STRING) {
 		smart_str_appends(&sql, Z_STRVAL_P(pdo_sql));
@@ -245,7 +248,7 @@ zend_bool gene_sqlite_pdo_execute (zval *self, zval *statement)
 
 	gene_pdo_prepare(pdo_object, ZSTR_VAL(sql.s), statement);
 	if (Z_TYPE_P(statement) == IS_OBJECT) {
-		params = zend_read_property(gene_db_sqlite_ce, self, ZEND_STRL(GENE_DB_SQLITE_DATA), 1, NULL);
+		params = zend_read_property(gene_db_sqlite_ce, gene_strip_obj(self), ZEND_STRL(GENE_DB_SQLITE_DATA), 1, NULL);
 		//execute
 		ZVAL_NULL(&retval);
 		gene_pdo_statement_execute(statement, params, &retval);
@@ -276,7 +279,7 @@ zend_bool gene_sqlite_pdo_execute (zval *self, zval *statement)
 PHP_METHOD(gene_db_sqlite, __construct)
 {
 	zval *config = NULL, *self = getThis();
-    if (zend_parse_parameters(ZEND_NUM_ARGS() TSRMLS_CC,"z", &config) == FAILURE)
+    if (zend_parse_parameters(ZEND_NUM_ARGS(),"z", &config) == FAILURE)
     {
         return;
     }
@@ -284,7 +287,7 @@ PHP_METHOD(gene_db_sqlite, __construct)
     zend_update_static_property_null(gene_db_sqlite_ce, ZEND_STRL(GENE_DB_SQLITE_HISTORY));
 
     if (config) {
-    	zend_update_property(gene_db_sqlite_ce, self, ZEND_STRL(GENE_DB_SQLITE_CONFIG), config);
+    	zend_update_property(gene_db_sqlite_ce, gene_strip_obj(self), ZEND_STRL(GENE_DB_SQLITE_CONFIG), config);
     	sqliteInitPdo (self, config);
     }
     RETURN_ZVAL(self, 1, 0);
@@ -298,7 +301,7 @@ PHP_METHOD(gene_db_sqlite, __construct)
 PHP_METHOD(gene_db_sqlite, getPdo)
 {
 	zval *self = getThis();
-	zval *pdo_object = zend_read_property(gene_db_sqlite_ce, self, ZEND_STRL(GENE_DB_SQLITE_PDO), 1, NULL);
+	zval *pdo_object = zend_read_property(gene_db_sqlite_ce, gene_strip_obj(self), ZEND_STRL(GENE_DB_SQLITE_PDO), 1, NULL);
 	RETURN_ZVAL(pdo_object, 1, 0);
 }
 /* }}} */
@@ -312,7 +315,7 @@ PHP_METHOD(gene_db_sqlite, select)
 	zval *self = getThis(),*fields = NULL;
 	char *table = NULL,*select = NULL, *sql = NULL;
 	size_t table_len; // @suppress("Type cannot be resolved")
-	if (zend_parse_parameters(ZEND_NUM_ARGS() TSRMLS_CC, "s|z", &table, &table_len, &fields) == FAILURE) {
+	if (zend_parse_parameters(ZEND_NUM_ARGS(), "s|z", &table, &table_len, &fields) == FAILURE) {
 		return;
 	}
 	sqlite_reset_sql_params (self);
@@ -334,7 +337,7 @@ PHP_METHOD(gene_db_sqlite, select)
     } else {
     	spprintf(&sql, 0, "SELECT * FROM %s", table);
     }
-    zend_update_property_string(gene_db_sqlite_ce, self, ZEND_STRL(GENE_DB_SQLITE_SQL), sql);
+    zend_update_property_string(gene_db_sqlite_ce, gene_strip_obj(self), ZEND_STRL(GENE_DB_SQLITE_SQL), sql);
     efree(sql);
 	RETURN_ZVAL(self, 1, 0);
 }
@@ -348,7 +351,7 @@ PHP_METHOD(gene_db_sqlite, count)
 	zval *self = getThis();
 	char *sql = NULL;
 	zend_string *table = NULL,*fields = NULL;
-	if (zend_parse_parameters(ZEND_NUM_ARGS() TSRMLS_CC, "S|S", &table, &fields) == FAILURE) {
+	if (zend_parse_parameters(ZEND_NUM_ARGS(), "S|S", &table, &fields) == FAILURE) {
 		return;
 	}
 	sqlite_reset_sql_params(self);
@@ -357,7 +360,7 @@ PHP_METHOD(gene_db_sqlite, count)
     } else {
     	spprintf(&sql, 0, "SELECT count(1) AS count FROM %s", ZSTR_VAL(table));
     }
-    zend_update_property_string(gene_db_sqlite_ce, self, ZEND_STRL(GENE_DB_SQLITE_SQL), sql);
+    zend_update_property_string(gene_db_sqlite_ce, gene_strip_obj(self), ZEND_STRL(GENE_DB_SQLITE_SQL), sql);
     efree(sql);
 	RETURN_ZVAL(self, 1, 0);
 }
@@ -374,7 +377,7 @@ PHP_METHOD(gene_db_sqlite, insert)
 	size_t table_len;// @suppress("Type cannot be resolved")
 	smart_str field_str = {0} , value_str = {0};
 	zval field_value;
-	if (zend_parse_parameters(ZEND_NUM_ARGS() TSRMLS_CC, "s|z", &table, &table_len, &fields) == FAILURE) {
+	if (zend_parse_parameters(ZEND_NUM_ARGS(), "s|z", &table, &table_len, &fields) == FAILURE) {
 		return;
 	}
 	sqlite_reset_sql_params(self);
@@ -383,7 +386,7 @@ PHP_METHOD(gene_db_sqlite, insert)
 	smart_str_appends(&value_str, "");
     if (fields && Z_TYPE_P(fields) == IS_ARRAY) {
     	gene_insert_field_value (fields, &field_str, &value_str, &field_value);
-    	zend_update_property(gene_db_sqlite_ce, self, ZEND_STRL(GENE_DB_SQLITE_DATA), &field_value);
+    	zend_update_property(gene_db_sqlite_ce, gene_strip_obj(self), ZEND_STRL(GENE_DB_SQLITE_DATA), &field_value);
     	zval_ptr_dtor(&field_value);
     } else {
     	php_error_docref(NULL, E_ERROR, "Data Parameter can only be array.");
@@ -391,7 +394,7 @@ PHP_METHOD(gene_db_sqlite, insert)
 	smart_str_0(&field_str);
 	smart_str_0(&value_str);
     spprintf(&sql, 0, "INSERT INTO %s(%s) VALUES(%s)", table, field_str.s->val, value_str.s->val);
-    zend_update_property_string(gene_db_sqlite_ce, self, ZEND_STRL(GENE_DB_SQLITE_SQL), sql);
+    zend_update_property_string(gene_db_sqlite_ce, gene_strip_obj(self), ZEND_STRL(GENE_DB_SQLITE_SQL), sql);
     efree(sql);
     smart_str_free(&field_str);
     smart_str_free(&value_str);
@@ -410,7 +413,7 @@ PHP_METHOD(gene_db_sqlite, batchInsert)
 	smart_str field_str = {0} , value_str = {0};
 	zval field_value;
 	zend_bool pre = 0;
-	if (zend_parse_parameters(ZEND_NUM_ARGS() TSRMLS_CC, "s|z", &table, &table_len, &fields) == FAILURE) {
+	if (zend_parse_parameters(ZEND_NUM_ARGS(), "s|z", &table, &table_len, &fields) == FAILURE) {
 		return;
 	}
 	sqlite_reset_sql_params(self);
@@ -427,7 +430,7 @@ PHP_METHOD(gene_db_sqlite, batchInsert)
         		pre = 1;
         	}
         } ZEND_HASH_FOREACH_END();
-    	zend_update_property(gene_db_sqlite_ce, self, ZEND_STRL(GENE_DB_SQLITE_DATA), &field_value);
+    	zend_update_property(gene_db_sqlite_ce, gene_strip_obj(self), ZEND_STRL(GENE_DB_SQLITE_DATA), &field_value);
     	zval_ptr_dtor(&field_value);
     } else {
     	php_error_docref(NULL, E_ERROR, "Data Parameter can only be array.");
@@ -435,7 +438,7 @@ PHP_METHOD(gene_db_sqlite, batchInsert)
 	smart_str_0(&field_str);
 	smart_str_0(&value_str);
     spprintf(&sql, 0, "INSERT INTO %s(%s) VALUES %s", table, field_str.s->val, value_str.s->val);
-    zend_update_property_string(gene_db_sqlite_ce, self, ZEND_STRL(GENE_DB_SQLITE_SQL), sql);
+    zend_update_property_string(gene_db_sqlite_ce, gene_strip_obj(self), ZEND_STRL(GENE_DB_SQLITE_SQL), sql);
     efree(sql);
     smart_str_free(&field_str);
     smart_str_free(&value_str);
@@ -453,7 +456,7 @@ PHP_METHOD(gene_db_sqlite, update)
 	size_t table_len; // @suppress("Type cannot be resolved")
 	smart_str field_str = {0};
 	zval field_value;
-	if (zend_parse_parameters(ZEND_NUM_ARGS() TSRMLS_CC, "s|z", &table, &table_len, &fields) == FAILURE) {
+	if (zend_parse_parameters(ZEND_NUM_ARGS(), "s|z", &table, &table_len, &fields) == FAILURE) {
 		return;
 	}
 	sqlite_reset_sql_params(self);
@@ -461,14 +464,14 @@ PHP_METHOD(gene_db_sqlite, update)
 	smart_str_appends(&field_str, "");
     if (fields && Z_TYPE_P(fields) == IS_ARRAY) {
     	gene_update_field_value (fields, &field_str, &field_value);
-    	zend_update_property(gene_db_sqlite_ce, self, ZEND_STRL(GENE_DB_SQLITE_DATA), &field_value);
+    	zend_update_property(gene_db_sqlite_ce, gene_strip_obj(self), ZEND_STRL(GENE_DB_SQLITE_DATA), &field_value);
     	zval_ptr_dtor(&field_value);
     } else {
     	php_error_docref(NULL, E_ERROR, "Data Parameter can only be array.");
     }
 	smart_str_0(&field_str);
     spprintf(&sql, 0, "UPDATE %s SET %s", table, field_str.s->val);
-    zend_update_property_string(gene_db_sqlite_ce, self, ZEND_STRL(GENE_DB_SQLITE_SQL), sql);
+    zend_update_property_string(gene_db_sqlite_ce, gene_strip_obj(self), ZEND_STRL(GENE_DB_SQLITE_SQL), sql);
     efree(sql);
     smart_str_free(&field_str);
 	RETURN_ZVAL(self, 1, 0);
@@ -484,12 +487,12 @@ PHP_METHOD(gene_db_sqlite, delete)
 	zval *self = getThis();
 	char *table = NULL, *sql = NULL;
 	size_t table_len; // @suppress("Type cannot be resolved")
-	if (zend_parse_parameters(ZEND_NUM_ARGS() TSRMLS_CC, "s", &table, &table_len) == FAILURE) {
+	if (zend_parse_parameters(ZEND_NUM_ARGS(), "s", &table, &table_len) == FAILURE) {
 		return;
 	}
 	sqlite_reset_sql_params(self);
     spprintf(&sql, 0, "DELETE FROM %s", table);
-    zend_update_property_string(gene_db_sqlite_ce, self, ZEND_STRL(GENE_DB_SQLITE_SQL), sql);
+    zend_update_property_string(gene_db_sqlite_ce, gene_strip_obj(self), ZEND_STRL(GENE_DB_SQLITE_SQL), sql);
     efree(sql);
 	RETURN_ZVAL(self, 1, 0);
 }
@@ -506,7 +509,7 @@ PHP_METHOD(gene_db_sqlite, where)
 	zval params;
 	smart_str where_str = {0};
 
-	if (zend_parse_parameters(ZEND_NUM_ARGS() TSRMLS_CC, "z|z", &where, &fields) == FAILURE) {
+	if (zend_parse_parameters(ZEND_NUM_ARGS(), "z|z", &where, &fields) == FAILURE) {
 		return;
 	}
 
@@ -514,13 +517,13 @@ PHP_METHOD(gene_db_sqlite, where)
 
 	switch(Z_TYPE_P(where)) {
 	case IS_ARRAY:
-        data = zend_read_property(gene_db_sqlite_ce, self, ZEND_STRL(GENE_DB_SQLITE_DATA), 1, NULL);
+        data = zend_read_property(gene_db_sqlite_ce, gene_strip_obj(self), ZEND_STRL(GENE_DB_SQLITE_DATA), 1, NULL);
         if (Z_TYPE_P(data) == IS_ARRAY) {
         	makeWhere(self, &where_str, where, data);
         } else {
             array_init(&params);
             makeWhere(self, &where_str, where, &params);
-            zend_update_property(gene_db_sqlite_ce, self, ZEND_STRL(GENE_DB_SQLITE_DATA), &params);
+            zend_update_property(gene_db_sqlite_ce, gene_strip_obj(self), ZEND_STRL(GENE_DB_SQLITE_DATA), &params);
             zval_ptr_dtor(&params);
         }
 		break;
@@ -532,7 +535,7 @@ PHP_METHOD(gene_db_sqlite, where)
 			smart_str_appends(&where_str, Z_STRVAL_P(where));
 		}
 	    if (fields) {
-	    	data = zend_read_property(gene_db_sqlite_ce, self, ZEND_STRL(GENE_DB_SQLITE_DATA), 1, NULL);
+	    	data = zend_read_property(gene_db_sqlite_ce, gene_strip_obj(self), ZEND_STRL(GENE_DB_SQLITE_DATA), 1, NULL);
 	    	switch(Z_TYPE_P(fields)) {
 	    	case IS_ARRAY:
 	    		if (Z_TYPE_P(data) == IS_ARRAY) {
@@ -542,7 +545,7 @@ PHP_METHOD(gene_db_sqlite, where)
 	    			} ZEND_HASH_FOREACH_END();
 	    		} else {
 	    			gene_memory_zval_local(&params, fields);
-	    			zend_update_property(gene_db_sqlite_ce, self, ZEND_STRL(GENE_DB_SQLITE_DATA), &params);
+	    			zend_update_property(gene_db_sqlite_ce, gene_strip_obj(self), ZEND_STRL(GENE_DB_SQLITE_DATA), &params);
 	    			zval_ptr_dtor(&params);
 	    		}
 	    		break;
@@ -559,7 +562,7 @@ PHP_METHOD(gene_db_sqlite, where)
 	            	array_init(&params);
 	            	add_next_index_zval(&params, fields);
 	            	Z_TRY_ADDREF_P(fields);
-	            	zend_update_property(gene_db_sqlite_ce, self, ZEND_STRL(GENE_DB_SQLITE_DATA), &params);
+	            	zend_update_property(gene_db_sqlite_ce, gene_strip_obj(self), ZEND_STRL(GENE_DB_SQLITE_DATA), &params);
 	            	zval_ptr_dtor(&params);
 	    		}
 	    		break;
@@ -575,7 +578,7 @@ PHP_METHOD(gene_db_sqlite, where)
 	}
 
     smart_str_0(&where_str);
-    zend_update_property_string(gene_db_sqlite_ce, self, ZEND_STRL(GENE_DB_SQLITE_WHERE), ZSTR_VAL(where_str.s));
+    zend_update_property_string(gene_db_sqlite_ce, gene_strip_obj(self), ZEND_STRL(GENE_DB_SQLITE_WHERE), ZSTR_VAL(where_str.s));
     smart_str_free(&where_str);
 	RETURN_ZVAL(self, 1, 0);
 }
@@ -592,7 +595,7 @@ PHP_METHOD(gene_db_sqlite, in)
 	zval params;
 	smart_str where_str = {0},value_str = {0};
 	zend_bool pre = 0;
-	if (zend_parse_parameters(ZEND_NUM_ARGS() TSRMLS_CC, "s|z", &in, &in_len, &fields) == FAILURE) {
+	if (zend_parse_parameters(ZEND_NUM_ARGS(), "s|z", &in, &in_len, &fields) == FAILURE) {
 		return;
 	}
 
@@ -605,7 +608,7 @@ PHP_METHOD(gene_db_sqlite, in)
 		spprintf(&in_tmp, 0, "%s", in, in_len);
 	}
     if (fields) {
-    	data = zend_read_property(gene_db_sqlite_ce, self, ZEND_STRL(GENE_DB_SQLITE_DATA), 1, NULL);
+    	data = zend_read_property(gene_db_sqlite_ce, gene_strip_obj(self), ZEND_STRL(GENE_DB_SQLITE_DATA), 1, NULL);
     	switch(Z_TYPE_P(fields)) {
     	case IS_ARRAY:
     		ReplaceStr(in_tmp, "in(?)", "$");
@@ -633,7 +636,7 @@ PHP_METHOD(gene_db_sqlite, in)
     					pre = 1;
     				}
     			} ZEND_HASH_FOREACH_END();
-    			zend_update_property(gene_db_sqlite_ce, self, ZEND_STRL(GENE_DB_SQLITE_DATA), fields);
+    			zend_update_property(gene_db_sqlite_ce, gene_strip_obj(self), ZEND_STRL(GENE_DB_SQLITE_DATA), fields);
     		}
     		smart_str_appends(&value_str, ")");
     		smart_str_0(&value_str);
@@ -657,7 +660,7 @@ PHP_METHOD(gene_db_sqlite, in)
             	array_init(&params);
             	add_next_index_zval(&params, fields);
             	Z_TRY_ADDREF_P(fields);
-            	zend_update_property(gene_db_sqlite_ce, self, ZEND_STRL(GENE_DB_SQLITE_DATA), &params);
+            	zend_update_property(gene_db_sqlite_ce, gene_strip_obj(self), ZEND_STRL(GENE_DB_SQLITE_DATA), &params);
             	zval_ptr_dtor(&params);
     		}
     		break;
@@ -671,7 +674,7 @@ PHP_METHOD(gene_db_sqlite, in)
     	efree(in_tmp);
     }
     smart_str_0(&where_str);
-    zend_update_property_string(gene_db_sqlite_ce, self, ZEND_STRL(GENE_DB_SQLITE_WHERE), ZSTR_VAL(where_str.s));
+    zend_update_property_string(gene_db_sqlite_ce, gene_strip_obj(self), ZEND_STRL(GENE_DB_SQLITE_WHERE), ZSTR_VAL(where_str.s));
     smart_str_free(&where_str);
 	RETURN_ZVAL(self, 1, 0);
 }
@@ -686,17 +689,17 @@ PHP_METHOD(gene_db_sqlite, sql)
 	char *sql = NULL, *pdo_sql = NULL;
 	size_t sql_len;// @suppress("Type cannot be resolved")
 	zval params;
-	if (zend_parse_parameters(ZEND_NUM_ARGS() TSRMLS_CC, "s|z", &sql, &sql_len, &fields) == FAILURE) {
+	if (zend_parse_parameters(ZEND_NUM_ARGS(), "s|z", &sql, &sql_len, &fields) == FAILURE) {
 		return;
 	}
 	sqlite_reset_sql_params(self);
     if (sql_len) {
         spprintf(&pdo_sql, 0, "%s", sql);
-        zend_update_property_string(gene_db_sqlite_ce, self, ZEND_STRL(GENE_DB_SQLITE_SQL), pdo_sql);
+        zend_update_property_string(gene_db_sqlite_ce, gene_strip_obj(self), ZEND_STRL(GENE_DB_SQLITE_SQL), pdo_sql);
         efree(pdo_sql);
     }
     if (fields) {
-    	data = zend_read_property(gene_db_sqlite_ce, self, ZEND_STRL(GENE_DB_SQLITE_DATA), 1, NULL);
+    	data = zend_read_property(gene_db_sqlite_ce, gene_strip_obj(self), ZEND_STRL(GENE_DB_SQLITE_DATA), 1, NULL);
     	switch(Z_TYPE_P(fields)) {
     	case IS_ARRAY:
     		if (Z_TYPE_P(data) == IS_ARRAY) {
@@ -706,7 +709,7 @@ PHP_METHOD(gene_db_sqlite, sql)
     			} ZEND_HASH_FOREACH_END();
     		} else {
     			gene_memory_zval_local(&params, fields);
-    			zend_update_property(gene_db_sqlite_ce, self, ZEND_STRL(GENE_DB_SQLITE_DATA), &params);
+    			zend_update_property(gene_db_sqlite_ce, gene_strip_obj(self), ZEND_STRL(GENE_DB_SQLITE_DATA), &params);
     			zval_ptr_dtor(&params);
     		}
     		break;
@@ -723,7 +726,7 @@ PHP_METHOD(gene_db_sqlite, sql)
             	array_init(&params);
             	add_next_index_zval(&params, fields);
             	Z_TRY_ADDREF_P(fields);
-            	zend_update_property(gene_db_sqlite_ce, self, ZEND_STRL(GENE_DB_SQLITE_DATA), &params);
+            	zend_update_property(gene_db_sqlite_ce, gene_strip_obj(self), ZEND_STRL(GENE_DB_SQLITE_DATA), &params);
             	zval_ptr_dtor(&params);
     		}
     		break;
@@ -758,12 +761,12 @@ PHP_METHOD(gene_db_sqlite, group)
 	char *group = NULL;
 	size_t group_len = 0;// @suppress("Type cannot be resolved")
 	char *group_tmp;
-	if (zend_parse_parameters(ZEND_NUM_ARGS() TSRMLS_CC, "s", &group, &group_len) == FAILURE) {
+	if (zend_parse_parameters(ZEND_NUM_ARGS(), "s", &group, &group_len) == FAILURE) {
 		return;
 	}
 	if (group_len) {
 		spprintf(&group_tmp, 0, " GROUP BY %s", group);
-		zend_update_property_string(gene_db_sqlite_ce, self, ZEND_STRL(GENE_DB_SQLITE_GROUP), group_tmp);
+		zend_update_property_string(gene_db_sqlite_ce, gene_strip_obj(self), ZEND_STRL(GENE_DB_SQLITE_GROUP), group_tmp);
 		efree(group_tmp);
 	}
 	RETURN_ZVAL(self, 1, 0);
@@ -780,12 +783,12 @@ PHP_METHOD(gene_db_sqlite, having)
 	char *having = NULL;
 	size_t having_len = 0;// @suppress("Type cannot be resolved")
 	char *having_tmp;
-	if (zend_parse_parameters(ZEND_NUM_ARGS() TSRMLS_CC, "s", &having, &having_len) == FAILURE) {
+	if (zend_parse_parameters(ZEND_NUM_ARGS(), "s", &having, &having_len) == FAILURE) {
 		return;
 	}
 	if (having_len) {
 		spprintf(&having_tmp, 0, " HAVING %s", having);
-		zend_update_property_string(gene_db_sqlite_ce, self, ZEND_STRL(GENE_DB_SQLITE_HAVING), having_tmp);
+		zend_update_property_string(gene_db_sqlite_ce, gene_strip_obj(self), ZEND_STRL(GENE_DB_SQLITE_HAVING), having_tmp);
 		efree(having_tmp);
 	}
 	RETURN_ZVAL(self, 1, 0);
@@ -802,12 +805,12 @@ PHP_METHOD(gene_db_sqlite, order)
 	char *order = NULL;
 	size_t order_len = 0;// @suppress("Type cannot be resolved")
 	char *order_tmp;
-	if (zend_parse_parameters(ZEND_NUM_ARGS() TSRMLS_CC, "s", &order, &order_len) == FAILURE) {
+	if (zend_parse_parameters(ZEND_NUM_ARGS(), "s", &order, &order_len) == FAILURE) {
 		return;
 	}
 	if (order_len) {
 		spprintf(&order_tmp, 0, " ORDER BY %s", order);
-		zend_update_property_string(gene_db_sqlite_ce, self, ZEND_STRL(GENE_DB_SQLITE_ORDER), order_tmp);
+		zend_update_property_string(gene_db_sqlite_ce, gene_strip_obj(self), ZEND_STRL(GENE_DB_SQLITE_ORDER), order_tmp);
 		efree(order_tmp);
 	}
 	RETURN_ZVAL(self, 1, 0);
@@ -823,7 +826,7 @@ PHP_METHOD(gene_db_sqlite, limit)
 	zval *self = getThis();
 	zend_long *num, *offset = NULL;
 	char *limit;
-	if (zend_parse_parameters(ZEND_NUM_ARGS() TSRMLS_CC, "l|l", &num, &offset) == FAILURE) {
+	if (zend_parse_parameters(ZEND_NUM_ARGS(), "l|l", &num, &offset) == FAILURE) {
 		return;
 	}
 	if (offset) {
@@ -831,7 +834,7 @@ PHP_METHOD(gene_db_sqlite, limit)
 	} else {
 		spprintf(&limit, 0, " limit %d", num);
 	}
-	zend_update_property_string(gene_db_sqlite_ce, self, ZEND_STRL(GENE_DB_SQLITE_LIMIT), limit);
+	zend_update_property_string(gene_db_sqlite_ce, gene_strip_obj(self), ZEND_STRL(GENE_DB_SQLITE_LIMIT), limit);
 	efree(limit);
 	RETURN_ZVAL(self, 1, 0);
 }
@@ -896,7 +899,7 @@ PHP_METHOD(gene_db_sqlite, lastId)
 {
 	zval *self = getThis(), *pdo_object = NULL;
 	zval statement;
-	pdo_object = zend_read_property(gene_db_sqlite_ce, self, ZEND_STRL(GENE_DB_SQLITE_PDO), 1, NULL);
+	pdo_object = zend_read_property(gene_db_sqlite_ce, gene_strip_obj(self), ZEND_STRL(GENE_DB_SQLITE_PDO), 1, NULL);
 	if (gene_sqlite_pdo_execute(self, &statement)) {
 		gene_pdo_last_insert_id(pdo_object, NULL, return_value);
 		zval_ptr_dtor(&statement);
@@ -929,13 +932,13 @@ PHP_METHOD(gene_db_sqlite, print)
 {
 	zval *self = getThis(),*pdo_object = NULL, *pdo_sql = NULL, *pdo_where = NULL, *pdo_order = NULL,*pdo_group = NULL,*pdo_having = NULL, *pdo_limit = NULL;
 	smart_str sql = {0};
-	pdo_object = zend_read_property(gene_db_sqlite_ce, self, ZEND_STRL(GENE_DB_SQLITE_PDO), 1, NULL);
-	pdo_sql = zend_read_property(gene_db_sqlite_ce, self, ZEND_STRL(GENE_DB_SQLITE_SQL), 1, NULL);
-	pdo_where = zend_read_property(gene_db_sqlite_ce, self, ZEND_STRL(GENE_DB_SQLITE_WHERE), 1, NULL);
-	pdo_group = zend_read_property(gene_db_sqlite_ce, self, ZEND_STRL(GENE_DB_SQLITE_GROUP), 1, NULL);
-	pdo_having = zend_read_property(gene_db_sqlite_ce, self, ZEND_STRL(GENE_DB_SQLITE_HAVING), 1, NULL);
-	pdo_order = zend_read_property(gene_db_sqlite_ce, self, ZEND_STRL(GENE_DB_SQLITE_ORDER), 1, NULL);
-	pdo_limit = zend_read_property(gene_db_sqlite_ce, self, ZEND_STRL(GENE_DB_SQLITE_LIMIT), 1, NULL);
+	pdo_object = zend_read_property(gene_db_sqlite_ce, gene_strip_obj(self), ZEND_STRL(GENE_DB_SQLITE_PDO), 1, NULL);
+	pdo_sql = zend_read_property(gene_db_sqlite_ce, gene_strip_obj(self), ZEND_STRL(GENE_DB_SQLITE_SQL), 1, NULL);
+	pdo_where = zend_read_property(gene_db_sqlite_ce, gene_strip_obj(self), ZEND_STRL(GENE_DB_SQLITE_WHERE), 1, NULL);
+	pdo_group = zend_read_property(gene_db_sqlite_ce, gene_strip_obj(self), ZEND_STRL(GENE_DB_SQLITE_GROUP), 1, NULL);
+	pdo_having = zend_read_property(gene_db_sqlite_ce, gene_strip_obj(self), ZEND_STRL(GENE_DB_SQLITE_HAVING), 1, NULL);
+	pdo_order = zend_read_property(gene_db_sqlite_ce, gene_strip_obj(self), ZEND_STRL(GENE_DB_SQLITE_ORDER), 1, NULL);
+	pdo_limit = zend_read_property(gene_db_sqlite_ce, gene_strip_obj(self), ZEND_STRL(GENE_DB_SQLITE_LIMIT), 1, NULL);
 
 	if (Z_TYPE_P(pdo_sql) == IS_STRING) {
 		smart_str_appends(&sql, Z_STRVAL_P(pdo_sql));
@@ -968,7 +971,7 @@ PHP_METHOD(gene_db_sqlite, print)
 PHP_METHOD(gene_db_sqlite, beginTransaction)
 {
 	zval *self = getThis(), *pdo_object = NULL;
-	pdo_object = zend_read_property(gene_db_sqlite_ce, self, ZEND_STRL(GENE_DB_SQLITE_PDO), 1, NULL);
+	pdo_object = zend_read_property(gene_db_sqlite_ce, gene_strip_obj(self), ZEND_STRL(GENE_DB_SQLITE_PDO), 1, NULL);
 	gene_pdo_begin_transaction(pdo_object, return_value);
 }
 /* }}} */
@@ -979,7 +982,7 @@ PHP_METHOD(gene_db_sqlite, beginTransaction)
 PHP_METHOD(gene_db_sqlite, inTransaction)
 {
 	zval *self = getThis(), *pdo_object = NULL;
-	pdo_object = zend_read_property(gene_db_sqlite_ce, self, ZEND_STRL(GENE_DB_SQLITE_PDO), 1, NULL);
+	pdo_object = zend_read_property(gene_db_sqlite_ce, gene_strip_obj(self), ZEND_STRL(GENE_DB_SQLITE_PDO), 1, NULL);
 	gene_pdo_in_transaction(pdo_object, return_value);
 }
 /* }}} */
@@ -990,7 +993,7 @@ PHP_METHOD(gene_db_sqlite, inTransaction)
 PHP_METHOD(gene_db_sqlite, rollBack)
 {
 	zval *self = getThis(), *pdo_object = NULL;
-	pdo_object = zend_read_property(gene_db_sqlite_ce, self, ZEND_STRL(GENE_DB_SQLITE_PDO), 1, NULL);
+	pdo_object = zend_read_property(gene_db_sqlite_ce, gene_strip_obj(self), ZEND_STRL(GENE_DB_SQLITE_PDO), 1, NULL);
 	gene_pdo_rollback(pdo_object, return_value);
 }
 /* }}} */
@@ -1002,7 +1005,7 @@ PHP_METHOD(gene_db_sqlite, rollBack)
 PHP_METHOD(gene_db_sqlite, commit)
 {
 	zval *self = getThis(), *pdo_object = NULL;
-	pdo_object = zend_read_property(gene_db_sqlite_ce, self, ZEND_STRL(GENE_DB_SQLITE_PDO), 1, NULL);
+	pdo_object = zend_read_property(gene_db_sqlite_ce, gene_strip_obj(self), ZEND_STRL(GENE_DB_SQLITE_PDO), 1, NULL);
 	gene_pdo_commit(pdo_object, return_value);
 }
 /* }}} */
@@ -1013,7 +1016,7 @@ PHP_METHOD(gene_db_sqlite, commit)
 PHP_METHOD(gene_db_sqlite, free)
 {
 	zval *self = getThis();
-	zend_update_property_null(gene_db_sqlite_ce, self, ZEND_STRL(GENE_DB_SQLITE_PDO));
+	zend_update_property_null(gene_db_sqlite_ce, gene_strip_obj(self), ZEND_STRL(GENE_DB_SQLITE_PDO));
 	RETURN_NULL();
 }
 /* }}} */
@@ -1034,7 +1037,7 @@ PHP_METHOD(gene_db_sqlite, history)
  */
 zend_function_entry gene_db_sqlite_methods[] = {
 		PHP_ME(gene_db_sqlite, __construct, gene_db_sqlite_construct, ZEND_ACC_PUBLIC|ZEND_ACC_CTOR)
-		PHP_ME(gene_db_sqlite, getPdo, NULL, ZEND_ACC_PUBLIC)
+		PHP_ME(gene_db_sqlite, getPdo, gene_db_sqlite_void_arginfo, ZEND_ACC_PUBLIC)
 		PHP_ME(gene_db_sqlite, select, gene_db_sqlite_select, ZEND_ACC_PUBLIC)
 		PHP_ME(gene_db_sqlite, count, gene_db_sqlite_count, ZEND_ACC_PUBLIC)
 		PHP_ME(gene_db_sqlite, insert, gene_db_sqlite_insert, ZEND_ACC_PUBLIC)
@@ -1048,19 +1051,19 @@ zend_function_entry gene_db_sqlite_methods[] = {
 		PHP_ME(gene_db_sqlite, order, gene_db_sqlite_order, ZEND_ACC_PUBLIC)
 		PHP_ME(gene_db_sqlite, group, gene_db_sqlite_group, ZEND_ACC_PUBLIC)
 		PHP_ME(gene_db_sqlite, having, gene_db_sqlite_having, ZEND_ACC_PUBLIC)
-		PHP_ME(gene_db_sqlite, execute, NULL, ZEND_ACC_PUBLIC)
-		PHP_ME(gene_db_sqlite, all, NULL, ZEND_ACC_PUBLIC)
-		PHP_ME(gene_db_sqlite, row, NULL, ZEND_ACC_PUBLIC)
-		PHP_ME(gene_db_sqlite, cell, NULL, ZEND_ACC_PUBLIC)
-		PHP_ME(gene_db_sqlite, lastId, NULL, ZEND_ACC_PUBLIC)
-		PHP_ME(gene_db_sqlite, affectedRows, NULL, ZEND_ACC_PUBLIC)
-		PHP_ME(gene_db_sqlite, print, NULL, ZEND_ACC_PUBLIC)
-		PHP_ME(gene_db_sqlite, beginTransaction, NULL, ZEND_ACC_PUBLIC)
-		PHP_ME(gene_db_sqlite, inTransaction, NULL, ZEND_ACC_PUBLIC)
-		PHP_ME(gene_db_sqlite, rollBack, NULL, ZEND_ACC_PUBLIC)
-		PHP_ME(gene_db_sqlite, commit, NULL, ZEND_ACC_PUBLIC)
-		PHP_ME(gene_db_sqlite, free, NULL, ZEND_ACC_PUBLIC)
-		PHP_ME(gene_db_sqlite, history, NULL, ZEND_ACC_PUBLIC)
+		PHP_ME(gene_db_sqlite, execute, gene_db_sqlite_void_arginfo, ZEND_ACC_PUBLIC)
+		PHP_ME(gene_db_sqlite, all, gene_db_sqlite_void_arginfo, ZEND_ACC_PUBLIC)
+		PHP_ME(gene_db_sqlite, row, gene_db_sqlite_void_arginfo, ZEND_ACC_PUBLIC)
+		PHP_ME(gene_db_sqlite, cell, gene_db_sqlite_void_arginfo, ZEND_ACC_PUBLIC)
+		PHP_ME(gene_db_sqlite, lastId, gene_db_sqlite_void_arginfo, ZEND_ACC_PUBLIC)
+		PHP_ME(gene_db_sqlite, affectedRows, gene_db_sqlite_void_arginfo, ZEND_ACC_PUBLIC)
+		PHP_ME(gene_db_sqlite, print, gene_db_sqlite_void_arginfo, ZEND_ACC_PUBLIC)
+		PHP_ME(gene_db_sqlite, beginTransaction, gene_db_sqlite_void_arginfo, ZEND_ACC_PUBLIC)
+		PHP_ME(gene_db_sqlite, inTransaction, gene_db_sqlite_void_arginfo, ZEND_ACC_PUBLIC)
+		PHP_ME(gene_db_sqlite, rollBack, gene_db_sqlite_void_arginfo, ZEND_ACC_PUBLIC)
+		PHP_ME(gene_db_sqlite, commit, gene_db_sqlite_void_arginfo, ZEND_ACC_PUBLIC)
+		PHP_ME(gene_db_sqlite, free, gene_db_sqlite_void_arginfo, ZEND_ACC_PUBLIC)
+		PHP_ME(gene_db_sqlite, history, gene_db_sqlite_void_arginfo, ZEND_ACC_PUBLIC)
 		{NULL, NULL, NULL}
 };
 /* }}} */
@@ -1077,16 +1080,16 @@ GENE_MINIT_FUNCTION(db_sqlite)
 	gene_db_sqlite_ce->ce_flags |= ZEND_ACC_FINAL;
 
 	//pdo
-    zend_declare_property_null(gene_db_sqlite_ce, ZEND_STRL(GENE_DB_SQLITE_CONFIG), ZEND_ACC_PUBLIC TSRMLS_CC);
-	zend_declare_property_null(gene_db_sqlite_ce, ZEND_STRL(GENE_DB_SQLITE_PDO), ZEND_ACC_PUBLIC TSRMLS_CC);
-    zend_declare_property_null(gene_db_sqlite_ce, ZEND_STRL(GENE_DB_SQLITE_SQL), ZEND_ACC_PUBLIC TSRMLS_CC);
-    zend_declare_property_null(gene_db_sqlite_ce, ZEND_STRL(GENE_DB_SQLITE_WHERE), ZEND_ACC_PUBLIC TSRMLS_CC);
-    zend_declare_property_null(gene_db_sqlite_ce, ZEND_STRL(GENE_DB_SQLITE_GROUP), ZEND_ACC_PUBLIC TSRMLS_CC);
-    zend_declare_property_null(gene_db_sqlite_ce, ZEND_STRL(GENE_DB_SQLITE_HAVING), ZEND_ACC_PUBLIC TSRMLS_CC);
-    zend_declare_property_null(gene_db_sqlite_ce, ZEND_STRL(GENE_DB_SQLITE_ORDER), ZEND_ACC_PUBLIC TSRMLS_CC);
-    zend_declare_property_null(gene_db_sqlite_ce, ZEND_STRL(GENE_DB_SQLITE_LIMIT), ZEND_ACC_PUBLIC TSRMLS_CC);
-    zend_declare_property_null(gene_db_sqlite_ce, ZEND_STRL(GENE_DB_SQLITE_DATA), ZEND_ACC_PUBLIC TSRMLS_CC);
-    zend_declare_property_null(gene_db_sqlite_ce, ZEND_STRL(GENE_DB_SQLITE_HISTORY), ZEND_ACC_PROTECTED | ZEND_ACC_STATIC TSRMLS_CC);
+    zend_declare_property_null(gene_db_sqlite_ce, ZEND_STRL(GENE_DB_SQLITE_CONFIG), ZEND_ACC_PUBLIC);
+	zend_declare_property_null(gene_db_sqlite_ce, ZEND_STRL(GENE_DB_SQLITE_PDO), ZEND_ACC_PUBLIC);
+    zend_declare_property_null(gene_db_sqlite_ce, ZEND_STRL(GENE_DB_SQLITE_SQL), ZEND_ACC_PUBLIC);
+    zend_declare_property_null(gene_db_sqlite_ce, ZEND_STRL(GENE_DB_SQLITE_WHERE), ZEND_ACC_PUBLIC);
+    zend_declare_property_null(gene_db_sqlite_ce, ZEND_STRL(GENE_DB_SQLITE_GROUP), ZEND_ACC_PUBLIC);
+    zend_declare_property_null(gene_db_sqlite_ce, ZEND_STRL(GENE_DB_SQLITE_HAVING), ZEND_ACC_PUBLIC);
+    zend_declare_property_null(gene_db_sqlite_ce, ZEND_STRL(GENE_DB_SQLITE_ORDER), ZEND_ACC_PUBLIC);
+    zend_declare_property_null(gene_db_sqlite_ce, ZEND_STRL(GENE_DB_SQLITE_LIMIT), ZEND_ACC_PUBLIC);
+    zend_declare_property_null(gene_db_sqlite_ce, ZEND_STRL(GENE_DB_SQLITE_DATA), ZEND_ACC_PUBLIC);
+    zend_declare_property_null(gene_db_sqlite_ce, ZEND_STRL(GENE_DB_SQLITE_HISTORY), ZEND_ACC_PROTECTED | ZEND_ACC_STATIC);
 
 	return SUCCESS;// @suppress("Symbol is not resolved")
 }
