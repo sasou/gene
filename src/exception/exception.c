@@ -186,9 +186,9 @@ void gene_file_var_export(zval *var, zval *retval) /*{{{*/
 	"</body>\n" \
 	"</html>\n"
 
-/** {{{ int gene_exception_error_register(zval *callback,zval *error_type TSRMLS_DC)
+/** {{{ int gene_exception_error_register(zval *callback,zval *error_type)
  */
-int gene_exception_error_register(zval *callback, zval *error_type TSRMLS_DC) {
+int gene_exception_error_register(zval *callback, zval *error_type) {
 	zval ret, bak;
 	zval function;
 	int arg_num = 1;
@@ -207,9 +207,9 @@ int gene_exception_error_register(zval *callback, zval *error_type TSRMLS_DC) {
 		arg_num = 2;
 	}
 	ZVAL_STRING(&function, "set_error_handler");
-	if (call_user_function(EG(function_table), NULL, &function, &ret, arg_num, params TSRMLS_CC) == FAILURE) {
+	if (call_user_function(EG(function_table), NULL, &function, &ret, arg_num, params) == FAILURE) {
 		zval_ptr_dtor(&ret);
-		php_error_docref(NULL TSRMLS_CC, E_WARNING, "Call to set_error_handler failed");
+		php_error_docref(NULL, E_WARNING, "Call to set_error_handler failed");
 		return 0;
 	}
 	zval_ptr_dtor(&function);
@@ -218,9 +218,9 @@ int gene_exception_error_register(zval *callback, zval *error_type TSRMLS_DC) {
 	return 1;
 }
 
-/** {{{ int gene_exception_register(zval *callback TSRMLS_DC)
+/** {{{ int gene_exception_register(zval *callback)
  */
-int gene_exception_register(zval *callback TSRMLS_DC) {
+int gene_exception_register(zval *callback) {
 	zval ret, bak;
 	zval function;
 	int arg_num = 1;
@@ -235,9 +235,9 @@ int gene_exception_register(zval *callback TSRMLS_DC) {
 	}
 	zval params[] = {*callback};
 	ZVAL_STRING(&function, "set_exception_handler");
-	if (call_user_function(EG(function_table), NULL, &function, &ret, arg_num, params TSRMLS_CC) == FAILURE) {
+	if (call_user_function(EG(function_table), NULL, &function, &ret, arg_num, params) == FAILURE) {
 		zval_ptr_dtor(&ret);
-		php_error_docref(NULL TSRMLS_CC, E_WARNING, "Call to set_exception_handler failed");
+		php_error_docref(NULL, E_WARNING, "Call to set_exception_handler failed");
 		return 0;
 	}
 	zval_ptr_dtor(&function);
@@ -246,9 +246,9 @@ int gene_exception_register(zval *callback TSRMLS_DC) {
 	return 1;
 }
 
-/** {{{void gene_trigger_error(int type TSRMLS_DC, char *format, ...)
+/** {{{void gene_trigger_error(int type, char *format, ...)
  */
-void gene_trigger_error(int type TSRMLS_DC, char *format, ...) {
+void gene_trigger_error(int type, char *format, ...) {
 	va_list args;
 	char *message;
 	size_t msg_len;
@@ -257,7 +257,7 @@ void gene_trigger_error(int type TSRMLS_DC, char *format, ...) {
 	msg_len = vspprintf(&message, 0, format, args);
 	va_end(args);
 
-	gene_throw_exception(type, message TSRMLS_CC);
+	gene_throw_exception(type, message);
 	efree(message);
 }
 /* }}} */
@@ -284,12 +284,12 @@ zend_class_entry * gene_get_exception_base(int root) {
 }
 /* }}} */
 
-/** {{{ void gene_throw_exception(long code, char *message TSRMLS_DC)
+/** {{{ void gene_throw_exception(long code, char *message)
  */
-void gene_throw_exception(long code, char *message TSRMLS_DC) {
+void gene_throw_exception(long code, char *message) {
 	zend_class_entry *base_exception = gene_get_exception_base(0);
 
-	zend_throw_exception(base_exception, message, code TSRMLS_CC);
+	zend_throw_exception(base_exception, message, code);
 }
 /* }}} */
 
@@ -297,10 +297,10 @@ void gene_throw_exception(long code, char *message TSRMLS_DC) {
  */
 PHP_METHOD(gene_exception, setErrorHandler) {
 	zval *callback, *error_type = NULL;
-	if (zend_parse_parameters(ZEND_NUM_ARGS()TSRMLS_CC, "z|z", &callback, &error_type) == FAILURE) {
+	if (zend_parse_parameters(ZEND_NUM_ARGS(), "z|z", &callback, &error_type) == FAILURE) {
 		return;
 	}
-	gene_exception_error_register(callback, error_type TSRMLS_CC);
+	gene_exception_error_register(callback, error_type);
 	RETURN_TRUE;
 }
 /* }}} */
@@ -309,10 +309,10 @@ PHP_METHOD(gene_exception, setErrorHandler) {
  */
 PHP_METHOD(gene_exception, setExceptionHandler) {
 	zval *callback = NULL;
-	if (zend_parse_parameters(ZEND_NUM_ARGS()TSRMLS_CC, "|z", &callback) == FAILURE) {
+	if (zend_parse_parameters(ZEND_NUM_ARGS(), "|z", &callback) == FAILURE) {
 		return;
 	}
-	gene_exception_register(callback TSRMLS_CC);
+	gene_exception_register(callback);
 	RETURN_TRUE;
 }
 /* }}} */
@@ -324,7 +324,7 @@ PHP_METHOD(gene_exception, doError) {
 	zend_string *msg, *file;
 	zval *params = NULL;
 	long code = 0, line = 0;
-	if (zend_parse_parameters(ZEND_NUM_ARGS()TSRMLS_CC, "lS|Slz", &code, &msg, &file, &line, &params) == FAILURE) {
+	if (zend_parse_parameters(ZEND_NUM_ARGS(), "lS|Slz", &code, &msg, &file, &line, &params) == FAILURE) {
 		RETURN_NULL();
 	}
 	gene_trigger_error(code, "%s", ZSTR_VAL(msg));
@@ -419,7 +419,7 @@ void showTrace(zval *ex) {
  */
 PHP_METHOD(gene_exception, doException) {
 	zval *ex = NULL;
-	if (zend_parse_parameters(ZEND_NUM_ARGS()TSRMLS_CC, "z", &ex) == FAILURE) {
+	if (zend_parse_parameters(ZEND_NUM_ARGS(), "z", &ex) == FAILURE) {
 		RETURN_NULL();
 	}
 	char *out = NULL;

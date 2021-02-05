@@ -32,6 +32,19 @@
 
 zend_class_entry * gene_redis_ce;
 
+ZEND_BEGIN_ARG_INFO_EX(gene_redis_void_arginfo, 0, 0, 0)
+ZEND_END_ARG_INFO()
+
+ZEND_BEGIN_ARG_INFO_EX(gene_redis_set_arginfo, 0, 0, 2)
+	ZEND_ARG_INFO(0, name)
+	ZEND_ARG_INFO(0, value)
+	ZEND_ARG_INFO(0, ttl)
+ZEND_END_ARG_INFO()
+
+ZEND_BEGIN_ARG_INFO_EX(gene_redis_get_arginfo, 0, 0, 1)
+	ZEND_ARG_INFO(0, name)
+ZEND_END_ARG_INFO()
+
 ZEND_BEGIN_ARG_INFO_EX(gene_redis_call_arginfo, 0, 0, 2)
 	ZEND_ARG_INFO(0, method)
 	ZEND_ARG_INFO(0, params)
@@ -121,7 +134,7 @@ zend_bool checkError (zend_object *ex) {
 	ZVAL_OBJ(&zv, ex);
 	ce = Z_OBJCE(zv);
 
-	msg = zend_read_property(ce, &zv, ZEND_STRL("message"), 0, &rv);
+	msg = zend_read_property(ce, gene_strip_obj(&zv), ZEND_STRL("message"), 0, &rv);
 	for (i = 0; i < 2; i++) {
 		if (strstr(Z_STRVAL_P(msg), pdoErrorStr[i]) != NULL) {
 			return 1;
@@ -135,7 +148,7 @@ zend_bool initRObj (zval * self, zval *config) {
 	zval   obj_object;
 
 	if (config == NULL) {
-		config =  zend_read_property(gene_redis_ce, self, ZEND_STRL(GENE_REDIS_CONFIG), 1, NULL);
+		config =  zend_read_property(gene_redis_ce, gene_strip_obj(self), ZEND_STRL(GENE_REDIS_CONFIG), 1, NULL);
 	}
 	zend_string *c_key = zend_string_init(ZEND_STRL("Redis"), 0);
 	zend_class_entry *obj_ptr = zend_lookup_class(c_key);
@@ -153,7 +166,7 @@ zend_bool initRObj (zval * self, zval *config) {
 
 	serializer = zend_hash_str_find(Z_ARRVAL_P(config), ZEND_STRL("serializer"));
 	if (serializer && Z_TYPE_P(serializer) == IS_LONG) {
-		zend_update_property_long(gene_redis_ce, self, ZEND_STRL(GENE_REDIS_SERIALIZE), Z_LVAL_P(serializer));
+		zend_update_property_long(gene_redis_ce, gene_strip_obj(self), ZEND_STRL(GENE_REDIS_SERIALIZE), Z_LVAL_P(serializer));
 	}
 	persistent = zend_hash_str_find(Z_ARRVAL_P(config), ZEND_STRL("persistent"));
 	options = zend_hash_str_find(Z_ARRVAL_P(config), ZEND_STRL("options"));
@@ -176,7 +189,7 @@ zend_bool initRObj (zval * self, zval *config) {
     		zval_ptr_dtor(&key_v);
     	}ZEND_HASH_FOREACH_END();
     }
-    zend_update_property(gene_redis_ce, self, ZEND_STRL(GENE_REDIS_OBJ), &obj_object);
+    zend_update_property(gene_redis_ce, gene_strip_obj(self), ZEND_STRL(GENE_REDIS_OBJ), &obj_object);
     zval_ptr_dtor(&obj_object);
 	return 1;
 }
@@ -203,13 +216,13 @@ void redis_set(zval *object, zval *key, zval *ttl, zval *value, zval *ret) {
 PHP_METHOD(gene_redis, __construct)
 {
 	zval *config = NULL, *self = getThis();
-    if (zend_parse_parameters(ZEND_NUM_ARGS() TSRMLS_CC,"z", &config) == FAILURE)
+    if (zend_parse_parameters(ZEND_NUM_ARGS(),"z", &config) == FAILURE)
     {
         return;
     }
 
     if (Z_TYPE_P(config) == IS_ARRAY) {
-    	zend_update_property(gene_redis_ce, self, ZEND_STRL(GENE_REDIS_CONFIG), config);
+    	zend_update_property(gene_redis_ce, gene_strip_obj(self), ZEND_STRL(GENE_REDIS_CONFIG), config);
     	initRObj (self, config);
     	if (EG(exception)) {
     		if (checkError(EG(exception))) {
@@ -227,12 +240,12 @@ PHP_METHOD(gene_redis, __construct)
  */
 PHP_METHOD(gene_redis, get) {
 	zval *self = getThis(), *object = NULL, *serializer_handler = NULL, *key = NULL;
-	if (zend_parse_parameters(ZEND_NUM_ARGS() TSRMLS_CC, "z", &key) == FAILURE) {
+	if (zend_parse_parameters(ZEND_NUM_ARGS(), "z", &key) == FAILURE) {
 		RETURN_NULL();
 	}
-	object = zend_read_property(gene_redis_ce, self, ZEND_STRL(GENE_REDIS_OBJ), 1, NULL);
+	object = zend_read_property(gene_redis_ce, gene_strip_obj(self), ZEND_STRL(GENE_REDIS_OBJ), 1, NULL);
 	if (object) {
-		serializer_handler = zend_read_property(gene_redis_ce, self, ZEND_STRL(GENE_REDIS_SERIALIZE), 1, NULL);
+		serializer_handler = zend_read_property(gene_redis_ce, gene_strip_obj(self), ZEND_STRL(GENE_REDIS_SERIALIZE), 1, NULL);
 		zval ret;
 		redis_get(object, key, &ret);
     	if (EG(exception)) {
@@ -285,18 +298,18 @@ PHP_METHOD(gene_redis, get) {
  */
 PHP_METHOD(gene_redis, set) {
 	zval *self = getThis(),  *object = NULL, *serializer_handler = NULL, *key = NULL, *value = NULL, *ttl = NULL, *config = NULL;
-	if (zend_parse_parameters(ZEND_NUM_ARGS() TSRMLS_CC, "zz|z", &key, &value, &ttl) == FAILURE) {
+	if (zend_parse_parameters(ZEND_NUM_ARGS(), "zz|z", &key, &value, &ttl) == FAILURE) {
 		return;
 	}
 
 	if (ttl == NULL) {
-		config =  zend_read_property(gene_redis_ce, self, ZEND_STRL(GENE_REDIS_CONFIG), 1, NULL);
+		config =  zend_read_property(gene_redis_ce, gene_strip_obj(self), ZEND_STRL(GENE_REDIS_CONFIG), 1, NULL);
 		ttl = zend_hash_str_find(Z_ARRVAL_P(config), ZEND_STRL("ttl"));
 	}
-	object = zend_read_property(gene_redis_ce, self, ZEND_STRL(GENE_REDIS_OBJ), 1, NULL);
+	object = zend_read_property(gene_redis_ce, gene_strip_obj(self), ZEND_STRL(GENE_REDIS_OBJ), 1, NULL);
 	if (object) {
 		if (Z_TYPE_P(value) == IS_ARRAY || Z_TYPE_P(value) == IS_OBJECT) {
-			serializer_handler = zend_read_property(gene_redis_ce, self, ZEND_STRL(GENE_REDIS_SERIALIZE), 1, NULL);
+			serializer_handler = zend_read_property(gene_redis_ce, gene_strip_obj(self), ZEND_STRL(GENE_REDIS_SERIALIZE), 1, NULL);
 			if (serializer_handler && Z_LVAL_P(serializer_handler) > 0) {
 				zval ret_string;
 				if (serialize(value, &ret_string, serializer_handler) > 0) {
@@ -334,10 +347,10 @@ PHP_METHOD(gene_redis, __call) {
 	zval *self = getThis(), *object = NULL, *params = NULL, ret;
 	long methodlen;
 	char *method;
-	if (zend_parse_parameters(ZEND_NUM_ARGS() TSRMLS_CC, "sz", &method, &methodlen, &params) == FAILURE) {
+	if (zend_parse_parameters(ZEND_NUM_ARGS(), "sz", &method, &methodlen, &params) == FAILURE) {
 		RETURN_NULL();
 	}
-	object = zend_read_property(gene_redis_ce, self, ZEND_STRL(GENE_REDIS_OBJ), 1, NULL);
+	object = zend_read_property(gene_redis_ce, gene_strip_obj(self), ZEND_STRL(GENE_REDIS_OBJ), 1, NULL);
 	if (object) {
 		gene_factory_call(object, method, params, &ret);
     	if (EG(exception)) {
@@ -356,10 +369,10 @@ PHP_METHOD(gene_redis, __call) {
  * {{{ gene_redis_methods
  */
 zend_function_entry gene_redis_methods[] = {
-		PHP_ME(gene_redis, set, NULL, ZEND_ACC_PUBLIC)
-		PHP_ME(gene_redis, get, NULL, ZEND_ACC_PUBLIC)
+		PHP_ME(gene_redis, set, gene_redis_set_arginfo, ZEND_ACC_PUBLIC)
+		PHP_ME(gene_redis, get, gene_redis_get_arginfo, ZEND_ACC_PUBLIC)
 		PHP_ME(gene_redis, __call, gene_redis_call_arginfo, ZEND_ACC_PUBLIC)
-		PHP_ME(gene_redis, __construct, NULL, ZEND_ACC_PUBLIC|ZEND_ACC_CTOR)
+		PHP_ME(gene_redis, __construct, gene_redis_void_arginfo, ZEND_ACC_PUBLIC|ZEND_ACC_CTOR)
 		{NULL, NULL, NULL}
 };
 /* }}} */
@@ -372,11 +385,11 @@ GENE_MINIT_FUNCTION(redis)
 {
     zend_class_entry gene_redis;
     GENE_INIT_CLASS_ENTRY(gene_redis, "Gene_Cache_Redis", "Gene\\Cache\\Redis", gene_redis_methods);
-    gene_redis_ce = zend_register_internal_class(&gene_redis TSRMLS_CC);
+    gene_redis_ce = zend_register_internal_class(&gene_redis);
 
-    zend_declare_property_null(gene_redis_ce, ZEND_STRL(GENE_REDIS_CONFIG), ZEND_ACC_PUBLIC TSRMLS_CC);
-	zend_declare_property_null(gene_redis_ce, ZEND_STRL(GENE_REDIS_OBJ), ZEND_ACC_PUBLIC TSRMLS_CC);
-	zend_declare_property_long(gene_redis_ce, ZEND_STRL(GENE_REDIS_SERIALIZE), 1, ZEND_ACC_PUBLIC TSRMLS_CC);
+    zend_declare_property_null(gene_redis_ce, ZEND_STRL(GENE_REDIS_CONFIG), ZEND_ACC_PUBLIC);
+	zend_declare_property_null(gene_redis_ce, ZEND_STRL(GENE_REDIS_OBJ), ZEND_ACC_PUBLIC);
+	zend_declare_property_long(gene_redis_ce, ZEND_STRL(GENE_REDIS_SERIALIZE), 1, ZEND_ACC_PUBLIC);
     //
 	return SUCCESS; // @suppress("Symbol is not resolved")
 }

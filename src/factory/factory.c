@@ -31,6 +31,9 @@
 
 zend_class_entry * gene_factory_ce;
 
+ZEND_BEGIN_ARG_INFO_EX(gene_factory_void_arginfo, 0, 0, 0)
+ZEND_END_ARG_INFO()
+
 ZEND_BEGIN_ARG_INFO_EX(gene_factory_create, 0, 0, 1)
 	ZEND_ARG_INFO(0, class)
     ZEND_ARG_INFO(0, params)
@@ -198,17 +201,18 @@ PHP_METHOD(gene_factory, __construct)
  */
 PHP_METHOD(gene_factory, create)
 {
-	zval *params = NULL, *di = NULL, *entrys = NULL, *pzval = NULL, classObject;
+	zval *params = NULL, *entrys = NULL, *pzval = NULL, classObject;
+	zval *di = NULL;
 	char *class;
 	uint32_t class_len = 0;
 	long type = 0;
-	if (zend_parse_parameters(ZEND_NUM_ARGS() TSRMLS_CC, "s|zl", &class, &class_len, &params, &type) == FAILURE) {
+	if (zend_parse_parameters(ZEND_NUM_ARGS(), "s|zl", &class, &class_len, &params, &type) == FAILURE) {
 		return;
 	}
 
 	if (type) {
 		di = gene_di_instance();
-		entrys = zend_read_property(gene_di_ce, di, GENE_DI_PROPERTY_REG, strlen(GENE_DI_PROPERTY_REG), 1, NULL);
+		entrys = zend_read_property(gene_di_ce, gene_strip_obj(di), GENE_DI_PROPERTY_REG, strlen(GENE_DI_PROPERTY_REG), 1, NULL);
 		if ((pzval = zend_hash_str_find(Z_ARRVAL_P(entrys), class, class_len)) != NULL) {
 			Z_TRY_ADDREF_P(pzval);
 			RETURN_ZVAL(pzval, 0, 0);
@@ -233,7 +237,7 @@ PHP_METHOD(gene_factory, create)
  * {{{ gene_factory_methods
  */
 zend_function_entry gene_factory_methods[] = {
-		PHP_ME(gene_factory, __construct, NULL, ZEND_ACC_PUBLIC|ZEND_ACC_CTOR)
+		PHP_ME(gene_factory, __construct, gene_factory_void_arginfo, ZEND_ACC_PUBLIC|ZEND_ACC_CTOR)
 		PHP_ME(gene_factory, create, gene_factory_create, ZEND_ACC_PUBLIC|ZEND_ACC_STATIC)
 		{NULL, NULL, NULL}
 };

@@ -33,6 +33,58 @@
 
 zend_class_entry * gene_cache_ce;
 
+ZEND_BEGIN_ARG_INFO_EX(gene_cache_construct_arginfo, 0, 0, 1)
+	ZEND_ARG_INFO(0, configs)
+ZEND_END_ARG_INFO()
+
+ZEND_BEGIN_ARG_INFO_EX(gene_cache_cached_arginfo, 0, 0, 3)
+	ZEND_ARG_INFO(0, obj)
+	ZEND_ARG_INFO(0, args)
+	ZEND_ARG_INFO(0, ttl)
+ZEND_END_ARG_INFO()
+
+ZEND_BEGIN_ARG_INFO_EX(gene_cache_locaclCached_arginfo, 0, 0, 3)
+	ZEND_ARG_INFO(0, obj)
+	ZEND_ARG_INFO(0, args)
+	ZEND_ARG_INFO(0, ttl)
+ZEND_END_ARG_INFO()
+
+ZEND_BEGIN_ARG_INFO_EX(gene_cache_unsetcached_arginfo, 0, 0, 3)
+	ZEND_ARG_INFO(0, obj)
+	ZEND_ARG_INFO(0, args)
+	ZEND_ARG_INFO(0, ttl)
+ZEND_END_ARG_INFO()
+
+ZEND_BEGIN_ARG_INFO_EX(gene_cache_unsetlocalcached_arginfo, 0, 0, 3)
+	ZEND_ARG_INFO(0, obj)
+	ZEND_ARG_INFO(0, args)
+	ZEND_ARG_INFO(0, ttl)
+ZEND_END_ARG_INFO()
+
+ZEND_BEGIN_ARG_INFO_EX(gene_cache_cachedversion_arginfo, 0, 0, 3)
+	ZEND_ARG_INFO(0, obj)
+	ZEND_ARG_INFO(0, args)
+	ZEND_ARG_INFO(0, version)
+	ZEND_ARG_INFO(0, ttl)
+	ZEND_ARG_INFO(0, mode)
+ZEND_END_ARG_INFO()
+
+ZEND_BEGIN_ARG_INFO_EX(gene_cache_localcachedversion_arginfo, 0, 0, 3)
+	ZEND_ARG_INFO(0, obj)
+	ZEND_ARG_INFO(0, args)
+	ZEND_ARG_INFO(0, version)
+	ZEND_ARG_INFO(0, ttl)
+	ZEND_ARG_INFO(0, mode)
+ZEND_END_ARG_INFO()
+
+ZEND_BEGIN_ARG_INFO_EX(gene_cache_getversion_arginfo, 0, 0, 1)
+	ZEND_ARG_INFO(0, version)
+ZEND_END_ARG_INFO()
+
+ZEND_BEGIN_ARG_INFO_EX(gene_cache_updateversion_arginfo, 0, 0, 1)
+	ZEND_ARG_INFO(0, version)
+ZEND_END_ARG_INFO()
+
 
 void gene_cache_get(zval *object, zval *key, zval *retval) /*{{{*/
 {
@@ -284,13 +336,13 @@ int checkVersion(zval *oldVersion, zval *newVersion, zval *mode) {
 PHP_METHOD(gene_cache, __construct)
 {
 	zval *config = NULL, *self = getThis();
-    if (zend_parse_parameters(ZEND_NUM_ARGS() TSRMLS_CC,"z", &config) == FAILURE)
+    if (zend_parse_parameters(ZEND_NUM_ARGS(),"z", &config) == FAILURE)
     {
         return;
     }
 
     if (Z_TYPE_P(config) == IS_ARRAY) {
-    	zend_update_property(gene_cache_ce, self, ZEND_STRL(GENE_CACHE_CONFIG), config);
+    	zend_update_property(gene_cache_ce, gene_strip_obj(self), ZEND_STRL(GENE_CACHE_CONFIG), config);
     }
     RETURN_ZVAL(self, 1, 0);
 }
@@ -303,10 +355,10 @@ PHP_METHOD(gene_cache, __construct)
 PHP_METHOD(gene_cache, cached)
 {
 	zval *self = getThis(), *config = NULL, *hook = NULL, *hookName = NULL,*sign = NULL,*obj = NULL, *args = NULL, *ttl = NULL;
-	if (zend_parse_parameters(ZEND_NUM_ARGS() TSRMLS_CC, "zz|z", &obj, &args, &ttl) == FAILURE) {
+	if (zend_parse_parameters(ZEND_NUM_ARGS(), "zz|z", &obj, &args, &ttl) == FAILURE) {
 		return;
 	}
-	config =  zend_read_property(gene_cache_ce, self, ZEND_STRL(GENE_CACHE_CONFIG), 1, NULL);
+	config =  zend_read_property(gene_cache_ce, gene_strip_obj(self), ZEND_STRL(GENE_CACHE_CONFIG), 1, NULL);
 	sign = zend_hash_str_find(Z_ARRVAL_P(config), ZEND_STRL("sign"));
 	hookName = zend_hash_str_find(Z_ARRVAL_P(config), ZEND_STRL("hook"));
 	hook = gene_di_get(Z_STR_P(hookName));
@@ -334,10 +386,10 @@ PHP_METHOD(gene_cache, cached)
 PHP_METHOD(gene_cache, localCached)
 {
 	zval *self = getThis(), *config = NULL, *hook = NULL, *hookName = NULL,*sign = NULL,*obj = NULL, *args = NULL, *ttl = NULL;
-	if (zend_parse_parameters(ZEND_NUM_ARGS() TSRMLS_CC, "zz|z", &obj, &args, &ttl) == FAILURE) {
+	if (zend_parse_parameters(ZEND_NUM_ARGS(), "zz|z", &obj, &args, &ttl) == FAILURE) {
 		return;
 	}
-	config =  zend_read_property(gene_cache_ce, self, ZEND_STRL(GENE_CACHE_CONFIG), 1, NULL);
+	config =  zend_read_property(gene_cache_ce, gene_strip_obj(self), ZEND_STRL(GENE_CACHE_CONFIG), 1, NULL);
 	sign = zend_hash_str_find(Z_ARRVAL_P(config), ZEND_STRL("sign"));
 
 	zval key, ret;
@@ -362,10 +414,10 @@ PHP_METHOD(gene_cache, localCached)
 PHP_METHOD(gene_cache, unsetCached)
 {
 	zval *self = getThis(), *config = NULL, *hook = NULL, *hookName = NULL,*sign = NULL,*obj = NULL, *args = NULL, *ttl = NULL;
-	if (zend_parse_parameters(ZEND_NUM_ARGS() TSRMLS_CC, "zz|z", &obj, &args, &ttl) == FAILURE) {
+	if (zend_parse_parameters(ZEND_NUM_ARGS(), "zz|z", &obj, &args, &ttl) == FAILURE) {
 		return;
 	}
-	config =  zend_read_property(gene_cache_ce, self, ZEND_STRL(GENE_CACHE_CONFIG), 1, NULL);
+	config =  zend_read_property(gene_cache_ce, gene_strip_obj(self), ZEND_STRL(GENE_CACHE_CONFIG), 1, NULL);
 	hookName = zend_hash_str_find(Z_ARRVAL_P(config), ZEND_STRL("hook"));
 	sign = zend_hash_str_find(Z_ARRVAL_P(config), ZEND_STRL("sign"));
 	hook = gene_di_get(Z_STR_P(hookName));
@@ -383,10 +435,10 @@ PHP_METHOD(gene_cache, unsetCached)
 PHP_METHOD(gene_cache, unsetLocalCached)
 {
 	zval *self = getThis(), *config = NULL, *hook = NULL, *hookName = NULL,*sign = NULL,*obj = NULL, *args = NULL, *ttl = NULL;
-	if (zend_parse_parameters(ZEND_NUM_ARGS() TSRMLS_CC, "zz|z", &obj, &args, &ttl) == FAILURE) {
+	if (zend_parse_parameters(ZEND_NUM_ARGS(), "zz|z", &obj, &args, &ttl) == FAILURE) {
 		return;
 	}
-	config =  zend_read_property(gene_cache_ce, self, ZEND_STRL(GENE_CACHE_CONFIG), 1, NULL);
+	config =  zend_read_property(gene_cache_ce, gene_strip_obj(self), ZEND_STRL(GENE_CACHE_CONFIG), 1, NULL);
 	sign = zend_hash_str_find(Z_ARRVAL_P(config), ZEND_STRL("sign"));
 
 	zval key;
@@ -402,10 +454,10 @@ PHP_METHOD(gene_cache, unsetLocalCached)
 PHP_METHOD(gene_cache, cachedVersion)
 {
 	zval *self = getThis(), *config = NULL, *hook = NULL, *hookName = NULL,*sign = NULL,*versionSign = NULL, *obj = NULL, *args = NULL,*versionField = NULL, *ttl = NULL, *mode = NULL;
-	if (zend_parse_parameters(ZEND_NUM_ARGS() TSRMLS_CC, "zzz|zz", &obj, &args, &versionField, &ttl, &mode) == FAILURE) {
+	if (zend_parse_parameters(ZEND_NUM_ARGS(), "zzz|zz", &obj, &args, &versionField, &ttl, &mode) == FAILURE) {
 		return;
 	}
-	config =  zend_read_property(gene_cache_ce, self, ZEND_STRL(GENE_CACHE_CONFIG), 1, NULL);
+	config =  zend_read_property(gene_cache_ce, gene_strip_obj(self), ZEND_STRL(GENE_CACHE_CONFIG), 1, NULL);
 	hookName = zend_hash_str_find(Z_ARRVAL_P(config), ZEND_STRL("hook"));
 	sign = zend_hash_str_find(Z_ARRVAL_P(config), ZEND_STRL("sign"));
 	versionSign = zend_hash_str_find(Z_ARRVAL_P(config), ZEND_STRL("versionSign"));
@@ -471,10 +523,10 @@ PHP_METHOD(gene_cache, cachedVersion)
 PHP_METHOD(gene_cache, localCachedVersion)
 {
 	zval *self = getThis(), *config = NULL, *hook = NULL, *hookName = NULL,*sign = NULL,*versionSign = NULL, *obj = NULL, *args = NULL,*versionField = NULL, *ttl = NULL, *mode = NULL;
-	if (zend_parse_parameters(ZEND_NUM_ARGS() TSRMLS_CC, "zzz|zz", &obj, &args, &versionField, &ttl, &mode) == FAILURE) {
+	if (zend_parse_parameters(ZEND_NUM_ARGS(), "zzz|zz", &obj, &args, &versionField, &ttl, &mode) == FAILURE) {
 		return;
 	}
-	config =  zend_read_property(gene_cache_ce, self, ZEND_STRL(GENE_CACHE_CONFIG), 1, NULL);
+	config =  zend_read_property(gene_cache_ce, gene_strip_obj(self), ZEND_STRL(GENE_CACHE_CONFIG), 1, NULL);
 	hookName = zend_hash_str_find(Z_ARRVAL_P(config), ZEND_STRL("hook"));
 	sign = zend_hash_str_find(Z_ARRVAL_P(config), ZEND_STRL("sign"));
 	versionSign = zend_hash_str_find(Z_ARRVAL_P(config), ZEND_STRL("versionSign"));
@@ -537,10 +589,10 @@ PHP_METHOD(gene_cache, localCachedVersion)
 PHP_METHOD(gene_cache, getVersion)
 {
 	zval *self = getThis(), *versionField = NULL, *config = NULL, *hook = NULL, *hookName = NULL,*versionSign = NULL;
-	if (zend_parse_parameters(ZEND_NUM_ARGS() TSRMLS_CC, "z", &versionField) == FAILURE) {
+	if (zend_parse_parameters(ZEND_NUM_ARGS(), "z", &versionField) == FAILURE) {
 		return;
 	}
-	config =  zend_read_property(gene_cache_ce, self, ZEND_STRL(GENE_CACHE_CONFIG), 1, NULL);
+	config =  zend_read_property(gene_cache_ce, gene_strip_obj(self), ZEND_STRL(GENE_CACHE_CONFIG), 1, NULL);
 	hookName = zend_hash_str_find(Z_ARRVAL_P(config), ZEND_STRL("hook"));
 	versionSign = zend_hash_str_find(Z_ARRVAL_P(config), ZEND_STRL("versionSign"));
 
@@ -560,10 +612,10 @@ PHP_METHOD(gene_cache, getVersion)
 PHP_METHOD(gene_cache, updateVersion)
 {
 	zval *self = getThis(), *versionField = NULL, *config = NULL, *hook = NULL, *hookName = NULL,*sign = NULL;
-	if (zend_parse_parameters(ZEND_NUM_ARGS() TSRMLS_CC, "z", &versionField) == FAILURE) {
+	if (zend_parse_parameters(ZEND_NUM_ARGS(), "z", &versionField) == FAILURE) {
 		return;
 	}
-	config =  zend_read_property(gene_cache_ce, self, ZEND_STRL(GENE_CACHE_CONFIG), 1, NULL);
+	config =  zend_read_property(gene_cache_ce, gene_strip_obj(self), ZEND_STRL(GENE_CACHE_CONFIG), 1, NULL);
 	hookName = zend_hash_str_find(Z_ARRVAL_P(config), ZEND_STRL("hook"));
 	sign = zend_hash_str_find(Z_ARRVAL_P(config), ZEND_STRL("versionSign"));
 
@@ -578,15 +630,15 @@ PHP_METHOD(gene_cache, updateVersion)
  * {{{ gene_cache_methods
  */
 zend_function_entry gene_cache_methods[] = {
-		PHP_ME(gene_cache, cached, NULL, ZEND_ACC_PUBLIC)
-		PHP_ME(gene_cache, localCached, NULL, ZEND_ACC_PUBLIC)
-		PHP_ME(gene_cache, unsetCached, NULL, ZEND_ACC_PUBLIC)
-		PHP_ME(gene_cache, unsetLocalCached, NULL, ZEND_ACC_PUBLIC)
-		PHP_ME(gene_cache, cachedVersion, NULL, ZEND_ACC_PUBLIC)
-		PHP_ME(gene_cache, localCachedVersion, NULL, ZEND_ACC_PUBLIC)
-		PHP_ME(gene_cache, getVersion, NULL, ZEND_ACC_PUBLIC)
-		PHP_ME(gene_cache, updateVersion, NULL, ZEND_ACC_PUBLIC)
-		PHP_ME(gene_cache, __construct, NULL, ZEND_ACC_PUBLIC|ZEND_ACC_CTOR)
+		PHP_ME(gene_cache, cached, gene_cache_cached_arginfo, ZEND_ACC_PUBLIC)
+		PHP_ME(gene_cache, localCached, gene_cache_locaclCached_arginfo, ZEND_ACC_PUBLIC)
+		PHP_ME(gene_cache, unsetCached, gene_cache_unsetcached_arginfo, ZEND_ACC_PUBLIC)
+		PHP_ME(gene_cache, unsetLocalCached, gene_cache_unsetlocalcached_arginfo, ZEND_ACC_PUBLIC)
+		PHP_ME(gene_cache, cachedVersion, gene_cache_cachedversion_arginfo, ZEND_ACC_PUBLIC)
+		PHP_ME(gene_cache, localCachedVersion, gene_cache_localcachedversion_arginfo, ZEND_ACC_PUBLIC)
+		PHP_ME(gene_cache, getVersion, gene_cache_getversion_arginfo, ZEND_ACC_PUBLIC)
+		PHP_ME(gene_cache, updateVersion, gene_cache_updateversion_arginfo, ZEND_ACC_PUBLIC)
+		PHP_ME(gene_cache, __construct, gene_cache_construct_arginfo, ZEND_ACC_PUBLIC|ZEND_ACC_CTOR)
 		{NULL, NULL, NULL}
 };
 /* }}} */
@@ -599,9 +651,9 @@ GENE_MINIT_FUNCTION(cache)
 {
     zend_class_entry gene_cache;
     GENE_INIT_CLASS_ENTRY(gene_cache, "Gene_Cache_Cache", "Gene\\Cache\\Cache", gene_cache_methods);
-    gene_cache_ce = zend_register_internal_class(&gene_cache TSRMLS_CC);
+    gene_cache_ce = zend_register_internal_class(&gene_cache);
 
-    zend_declare_property_null(gene_cache_ce, ZEND_STRL(GENE_CACHE_CONFIG), ZEND_ACC_PUBLIC TSRMLS_CC);
+    zend_declare_property_null(gene_cache_ce, ZEND_STRL(GENE_CACHE_CONFIG), ZEND_ACC_PUBLIC);
 	return SUCCESS; // @suppress("Symbol is not resolved")
 }
 /* }}} */

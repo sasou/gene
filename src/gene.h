@@ -20,7 +20,7 @@
 extern zend_module_entry gene_module_entry;
 #define phpext_gene_ptr &gene_module_entry
 
-#define PHP_GENE_VERSION "3.3.3"
+#define PHP_GENE_VERSION "4.0.0"
 
 #ifdef PHP_WIN32
 #	define PHP_GENE_API __declspec(dllexport)
@@ -38,6 +38,22 @@ extern zend_module_entry gene_module_entry;
 #define GENE_G(v) TSRMG(gene_globals_id, zend_gene_globals *, v)
 #else
 #define GENE_G(v) (gene_globals.v)
+#endif
+
+#if PHP_VERSION_ID < 80000
+#define gene_object zval
+#define gene_strip_obj(o) o
+#else
+#define gene_object zend_object
+#define gene_strip_obj(o) Z_OBJ_P(o)
+#endif
+
+#ifndef ZEND_ACC_CTOR
+# define ZEND_ACC_CTOR	0x0
+#endif
+
+#ifndef ZEND_ACC_DTOR
+# define ZEND_ACC_DTOR	0x0
 #endif
 
 #define GENE_INIT_CLASS_ENTRY(ce, common_name, namespace_name, methods) \
