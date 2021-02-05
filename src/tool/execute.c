@@ -29,6 +29,18 @@
 
 zend_class_entry * gene_execute_ce;
 
+ZEND_BEGIN_ARG_INFO_EX(gene_execute_construct_arginfo, 0, 0, 1)
+	ZEND_ARG_INFO(0, debug)
+ZEND_END_ARG_INFO()
+
+ZEND_BEGIN_ARG_INFO_EX(gene_execute_getcode_arginfo, 0, 0, 1)
+	ZEND_ARG_INFO(0, php_script)
+ZEND_END_ARG_INFO()
+
+ZEND_BEGIN_ARG_INFO_EX(gene_execute_stringrun_arginfo, 0, 0, 1)
+	ZEND_ARG_INFO(0, php_script)
+ZEND_END_ARG_INFO()
+
 /*
  * {{{ void * gene_execite_opcodes_run(zend_op_array *op_array)
  */
@@ -52,13 +64,14 @@ void *gene_execite_opcodes_run(zend_op_array *op_array) {
  */
 PHP_METHOD(gene_execute, __construct) {
 	long debug = 0;
+	zval *self = getThis();
 	if (zend_parse_parameters(ZEND_NUM_ARGS(), "|l", &debug) == FAILURE) {
 		RETURN_NULL();
 	}
 	if (debug) {
-		zend_update_property_long(gene_execute_ce, (gene_object*)getThis(), GENE_EXECUTE_DEBUG, strlen(GENE_EXECUTE_DEBUG), debug);
+		zend_update_property_long(gene_execute_ce, gene_strip_obj(self), GENE_EXECUTE_DEBUG, strlen(GENE_EXECUTE_DEBUG), debug);
 	} else {
-		zend_update_property_long(gene_execute_ce, (gene_object*)getThis(), GENE_EXECUTE_DEBUG, strlen(GENE_EXECUTE_DEBUG), 0);
+		zend_update_property_long(gene_execute_ce, gene_strip_obj(self), GENE_EXECUTE_DEBUG, strlen(GENE_EXECUTE_DEBUG), 0);
 	}
 }
 /* }}} */
@@ -69,13 +82,13 @@ PHP_METHOD(gene_execute, __construct) {
 PHP_METHOD(gene_execute, GetOpcodes) {
 	zend_string *php_script;
 	int i;
-	zval zv, opcodes_array, *debug;
+	zval *self = getThis(), zv, opcodes_array, *debug;
 	zend_op_array *op_array;
 	debug = NULL;
 	if (zend_parse_parameters(ZEND_NUM_ARGS(), "S", &php_script) == FAILURE) {
 		return;
 	}
-	debug = zend_read_property(gene_execute_ce, (gene_object*) getThis(), GENE_EXECUTE_DEBUG, strlen(GENE_EXECUTE_DEBUG), 0, NULL);
+	debug = zend_read_property(gene_execute_ce, gene_strip_obj(self), GENE_EXECUTE_DEBUG, strlen(GENE_EXECUTE_DEBUG), 0, NULL);
 	if (debug->value.lval) {
 		php_printf(ZSTR_VAL(php_script));
 	}
@@ -110,10 +123,10 @@ PHP_METHOD(gene_execute, StringRun) {
 	}
 	zend_try {
 		zend_eval_stringl(ZSTR_VAL(php_script), ZSTR_LEN(php_script), NULL, "");
-	}zend_catch
-	{
+	} zend_catch {
 		zend_bailout();
 	}zend_end_try();
+
 	RETURN_TRUE;
 }
 /* }}} */
@@ -122,9 +135,9 @@ PHP_METHOD(gene_execute, StringRun) {
  * {{{ gene_execute_methods
  */
 zend_function_entry gene_execute_methods[] = {
-	PHP_ME(gene_execute, GetOpcodes, NULL, ZEND_ACC_PUBLIC)
-	PHP_ME(gene_execute, StringRun, NULL, ZEND_ACC_PUBLIC)
-	PHP_ME(gene_execute, __construct, NULL, ZEND_ACC_PUBLIC|ZEND_ACC_CTOR)
+	PHP_ME(gene_execute, GetOpcodes, gene_execute_getcode_arginfo, ZEND_ACC_PUBLIC)
+	PHP_ME(gene_execute, StringRun, gene_execute_stringrun_arginfo, ZEND_ACC_PUBLIC)
+	PHP_ME(gene_execute, __construct, gene_execute_construct_arginfo, ZEND_ACC_PUBLIC|ZEND_ACC_CTOR)
 	{ NULL, NULL, NULL }
 };
 /* }}} */

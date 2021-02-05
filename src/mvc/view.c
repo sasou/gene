@@ -38,6 +38,9 @@
 zend_class_entry * gene_view_ce;
 
 
+ZEND_BEGIN_ARG_INFO_EX(gene_view_void_arginfo, 0, 0, 0)
+ZEND_END_ARG_INFO()
+
 ZEND_BEGIN_ARG_INFO_EX(gene_view_arg_get, 0, 0, 1)
     ZEND_ARG_INFO(0, name)
 ZEND_END_ARG_INFO()
@@ -497,12 +500,12 @@ PHP_METHOD(gene_view, __get)
  * {{{ gene_view_methods
  */
 zend_function_entry gene_view_methods[] = {
-	PHP_ME(gene_view, __construct, NULL, ZEND_ACC_PUBLIC|ZEND_ACC_CTOR)
+	PHP_ME(gene_view, __construct, gene_view_void_arginfo, ZEND_ACC_PUBLIC|ZEND_ACC_CTOR)
 	PHP_ME(gene_view, display, gene_view_arg_display, ZEND_ACC_PUBLIC)
 	PHP_ME(gene_view, displayExt, gene_view_arg_display_ext, ZEND_ACC_PUBLIC)
 	PHP_ME(gene_view, assign, gene_view_arg_assign, ZEND_ACC_PUBLIC)
-	PHP_ME(gene_view, contains, NULL, ZEND_ACC_PUBLIC)
-	PHP_ME(gene_view, containsExt, NULL, ZEND_ACC_PUBLIC)
+	PHP_ME(gene_view, contains, gene_view_void_arginfo, ZEND_ACC_PUBLIC)
+	PHP_ME(gene_view, containsExt, gene_view_void_arginfo, ZEND_ACC_PUBLIC)
 	PHP_ME(gene_view, __get, gene_view_arg_get, ZEND_ACC_PUBLIC)
 	PHP_ME(gene_view, __set, gene_view_arg_set, ZEND_ACC_PUBLIC)
 	{ NULL,NULL, NULL }

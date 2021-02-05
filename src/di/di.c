@@ -36,6 +36,9 @@ zend_class_entry *gene_di_ce;
 
 /* {{{ ARG_INFO
  */
+ZEND_BEGIN_ARG_INFO_EX(gene_di_void_arginfo, 0, 0, 0)
+ZEND_END_ARG_INFO()
+
 ZEND_BEGIN_ARG_INFO_EX(gene_di_get_arginfo, 0, 0, 1)
 	ZEND_ARG_INFO(0, name)
 ZEND_END_ARG_INFO()
@@ -330,9 +333,9 @@ PHP_METHOD(gene_di, getInstance) {
  * {{{ gene_di_methods
  */
 zend_function_entry gene_di_methods[] = {
-	PHP_ME(gene_di, __construct, NULL, ZEND_ACC_CTOR|ZEND_ACC_PRIVATE)
-	PHP_ME(gene_di, __clone, NULL, ZEND_ACC_PRIVATE)
-	PHP_ME(gene_di, getInstance, NULL, ZEND_ACC_PUBLIC|ZEND_ACC_STATIC)
+	PHP_ME(gene_di, __construct, gene_di_void_arginfo, ZEND_ACC_CTOR|ZEND_ACC_PRIVATE)
+	PHP_ME(gene_di, __clone, gene_di_void_arginfo, ZEND_ACC_PRIVATE)
+	PHP_ME(gene_di, getInstance, gene_di_void_arginfo, ZEND_ACC_PUBLIC|ZEND_ACC_STATIC)
 	PHP_ME(gene_di, get, gene_di_get_arginfo, ZEND_ACC_PUBLIC|ZEND_ACC_STATIC)
 	PHP_ME(gene_di, has, gene_di_has_arginfo, ZEND_ACC_PUBLIC|ZEND_ACC_STATIC)
 	PHP_ME(gene_di, set, gene_di_set_arginfo, ZEND_ACC_PUBLIC|ZEND_ACC_STATIC)

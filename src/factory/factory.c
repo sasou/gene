@@ -31,6 +31,9 @@
 
 zend_class_entry * gene_factory_ce;
 
+ZEND_BEGIN_ARG_INFO_EX(gene_factory_void_arginfo, 0, 0, 0)
+ZEND_END_ARG_INFO()
+
 ZEND_BEGIN_ARG_INFO_EX(gene_factory_create, 0, 0, 1)
 	ZEND_ARG_INFO(0, class)
     ZEND_ARG_INFO(0, params)
@@ -234,7 +237,7 @@ PHP_METHOD(gene_factory, create)
  * {{{ gene_factory_methods
  */
 zend_function_entry gene_factory_methods[] = {
-		PHP_ME(gene_factory, __construct, NULL, ZEND_ACC_PUBLIC|ZEND_ACC_CTOR)
+		PHP_ME(gene_factory, __construct, gene_factory_void_arginfo, ZEND_ACC_PUBLIC|ZEND_ACC_CTOR)
 		PHP_ME(gene_factory, create, gene_factory_create, ZEND_ACC_PUBLIC|ZEND_ACC_STATIC)
 		{NULL, NULL, NULL}
 };

@@ -37,6 +37,9 @@
 
 zend_class_entry * gene_service_ce;
 
+ZEND_BEGIN_ARG_INFO_EX(gene_service_void_arginfo, 0, 0, 0)
+ZEND_END_ARG_INFO()
+
 ZEND_BEGIN_ARG_INFO_EX(gene_service_arg_se, 0, 0, 1)
     ZEND_ARG_INFO(0, msg)
 	ZEND_ARG_INFO(0, code)
@@ -207,8 +210,8 @@ PHP_METHOD(gene_service, __destruct) {
  * {{{ gene_service_methods
  */
 zend_function_entry gene_service_methods[] = {
-		PHP_ME(gene_service, __construct, NULL, ZEND_ACC_PUBLIC|ZEND_ACC_CTOR)
-		PHP_ME(gene_service, __destruct,	NULL, ZEND_ACC_PUBLIC|ZEND_ACC_DTOR)
+		PHP_ME(gene_service, __construct, gene_service_void_arginfo, ZEND_ACC_PUBLIC|ZEND_ACC_CTOR)
+		PHP_ME(gene_service, __destruct,	gene_service_void_arginfo, ZEND_ACC_PUBLIC|ZEND_ACC_DTOR)
 		PHP_ME(gene_service, __get, gene_service_get, ZEND_ACC_PUBLIC)
 		PHP_ME(gene_service, __set, gene_service_set, ZEND_ACC_PUBLIC)
 		PHP_ME(gene_service, success, gene_service_arg_se, ZEND_ACC_PUBLIC)
