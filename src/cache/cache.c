@@ -33,6 +33,58 @@
 
 zend_class_entry * gene_cache_ce;
 
+ZEND_BEGIN_ARG_INFO_EX(gene_cache_construct_arginfo, 0, 0, 1)
+	ZEND_ARG_INFO(0, configs)
+ZEND_END_ARG_INFO()
+
+ZEND_BEGIN_ARG_INFO_EX(gene_cache_cached_arginfo, 0, 0, 3)
+	ZEND_ARG_INFO(0, obj)
+	ZEND_ARG_INFO(0, args)
+	ZEND_ARG_INFO(0, ttl)
+ZEND_END_ARG_INFO()
+
+ZEND_BEGIN_ARG_INFO_EX(gene_cache_locaclCached_arginfo, 0, 0, 3)
+	ZEND_ARG_INFO(0, obj)
+	ZEND_ARG_INFO(0, args)
+	ZEND_ARG_INFO(0, ttl)
+ZEND_END_ARG_INFO()
+
+ZEND_BEGIN_ARG_INFO_EX(gene_cache_unsetcached_arginfo, 0, 0, 3)
+	ZEND_ARG_INFO(0, obj)
+	ZEND_ARG_INFO(0, args)
+	ZEND_ARG_INFO(0, ttl)
+ZEND_END_ARG_INFO()
+
+ZEND_BEGIN_ARG_INFO_EX(gene_cache_unsetlocalcached_arginfo, 0, 0, 3)
+	ZEND_ARG_INFO(0, obj)
+	ZEND_ARG_INFO(0, args)
+	ZEND_ARG_INFO(0, ttl)
+ZEND_END_ARG_INFO()
+
+ZEND_BEGIN_ARG_INFO_EX(gene_cache_cachedversion_arginfo, 0, 0, 3)
+	ZEND_ARG_INFO(0, obj)
+	ZEND_ARG_INFO(0, args)
+	ZEND_ARG_INFO(0, version)
+	ZEND_ARG_INFO(0, ttl)
+	ZEND_ARG_INFO(0, mode)
+ZEND_END_ARG_INFO()
+
+ZEND_BEGIN_ARG_INFO_EX(gene_cache_localcachedversion_arginfo, 0, 0, 3)
+	ZEND_ARG_INFO(0, obj)
+	ZEND_ARG_INFO(0, args)
+	ZEND_ARG_INFO(0, version)
+	ZEND_ARG_INFO(0, ttl)
+	ZEND_ARG_INFO(0, mode)
+ZEND_END_ARG_INFO()
+
+ZEND_BEGIN_ARG_INFO_EX(gene_cache_getversion_arginfo, 0, 0, 1)
+	ZEND_ARG_INFO(0, version)
+ZEND_END_ARG_INFO()
+
+ZEND_BEGIN_ARG_INFO_EX(gene_cache_updateversion_arginfo, 0, 0, 1)
+	ZEND_ARG_INFO(0, version)
+ZEND_END_ARG_INFO()
+
 
 void gene_cache_get(zval *object, zval *key, zval *retval) /*{{{*/
 {
@@ -578,15 +630,15 @@ PHP_METHOD(gene_cache, updateVersion)
  * {{{ gene_cache_methods
  */
 zend_function_entry gene_cache_methods[] = {
-		PHP_ME(gene_cache, cached, NULL, ZEND_ACC_PUBLIC)
-		PHP_ME(gene_cache, localCached, NULL, ZEND_ACC_PUBLIC)
-		PHP_ME(gene_cache, unsetCached, NULL, ZEND_ACC_PUBLIC)
-		PHP_ME(gene_cache, unsetLocalCached, NULL, ZEND_ACC_PUBLIC)
-		PHP_ME(gene_cache, cachedVersion, NULL, ZEND_ACC_PUBLIC)
-		PHP_ME(gene_cache, localCachedVersion, NULL, ZEND_ACC_PUBLIC)
-		PHP_ME(gene_cache, getVersion, NULL, ZEND_ACC_PUBLIC)
-		PHP_ME(gene_cache, updateVersion, NULL, ZEND_ACC_PUBLIC)
-		PHP_ME(gene_cache, __construct, NULL, ZEND_ACC_PUBLIC|ZEND_ACC_CTOR)
+		PHP_ME(gene_cache, cached, gene_cache_cached_arginfo, ZEND_ACC_PUBLIC)
+		PHP_ME(gene_cache, localCached, gene_cache_locaclCached_arginfo, ZEND_ACC_PUBLIC)
+		PHP_ME(gene_cache, unsetCached, gene_cache_unsetcached_arginfo, ZEND_ACC_PUBLIC)
+		PHP_ME(gene_cache, unsetLocalCached, gene_cache_unsetlocalcached_arginfo, ZEND_ACC_PUBLIC)
+		PHP_ME(gene_cache, cachedVersion, gene_cache_cachedversion_arginfo, ZEND_ACC_PUBLIC)
+		PHP_ME(gene_cache, localCachedVersion, gene_cache_localcachedversion_arginfo, ZEND_ACC_PUBLIC)
+		PHP_ME(gene_cache, getVersion, gene_cache_getversion_arginfo, ZEND_ACC_PUBLIC)
+		PHP_ME(gene_cache, updateVersion, gene_cache_updateversion_arginfo, ZEND_ACC_PUBLIC)
+		PHP_ME(gene_cache, __construct, gene_cache_construct_arginfo, ZEND_ACC_PUBLIC|ZEND_ACC_CTOR)
 		{NULL, NULL, NULL}
 };
 /* }}} */

@@ -32,6 +32,10 @@
 
 zend_class_entry * gene_memory_ce;
 
+
+ZEND_BEGIN_ARG_INFO_EX(gene_memory_void_arginfo, 0, 0, 0)
+ZEND_END_ARG_INFO()
+
 static void gene_memory_hash_copy(HashTable *target, HashTable *source);
 static void gene_memory_zval_persistent(zval *dst, zval *source);
 
@@ -693,7 +697,7 @@ zend_function_entry gene_memory_methods[] = {
 	PHP_ME(gene_memory, getTime, gene_memory_arg_get, ZEND_ACC_PUBLIC)
 	PHP_ME(gene_memory, exists, gene_memory_arg_get, ZEND_ACC_PUBLIC)
 	PHP_ME(gene_memory, del, gene_memory_arg_del, ZEND_ACC_PUBLIC)
-	PHP_ME(gene_memory, clean, NULL, ZEND_ACC_PUBLIC)
+	PHP_ME(gene_memory, clean, gene_memory_void_arginfo, ZEND_ACC_PUBLIC)
 	{ NULL, NULL, NULL }
 };
 /* }}} */
