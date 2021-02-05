@@ -37,6 +37,9 @@ zend_class_entry * gene_db_mysql_ce;
 struct timeval db_start, db_end;
 zend_long db_mysql_memory_start = 0, db_mysql_memory_end = 0;
 
+ZEND_BEGIN_ARG_INFO_EX(gene_db_mysql_void_arginfo, 0, 0, 0)
+ZEND_END_ARG_INFO()
+
 ZEND_BEGIN_ARG_INFO_EX(gene_db_mysql_construct, 0, 0, 1)
 	ZEND_ARG_INFO(0, config)
 ZEND_END_ARG_INFO()
@@ -1033,7 +1036,7 @@ PHP_METHOD(gene_db_mysql, history)
  */
 zend_function_entry gene_db_mysql_methods[] = {
 		PHP_ME(gene_db_mysql, __construct, gene_db_mysql_construct, ZEND_ACC_PUBLIC|ZEND_ACC_CTOR)
-		PHP_ME(gene_db_mysql, getPdo, NULL, ZEND_ACC_PUBLIC)
+		PHP_ME(gene_db_mysql, getPdo, gene_db_mysql_void_arginfo, ZEND_ACC_PUBLIC)
 		PHP_ME(gene_db_mysql, select, gene_db_mysql_select, ZEND_ACC_PUBLIC)
 		PHP_ME(gene_db_mysql, count, gene_db_mysql_count, ZEND_ACC_PUBLIC)
 		PHP_ME(gene_db_mysql, insert, gene_db_mysql_insert, ZEND_ACC_PUBLIC)
@@ -1047,19 +1050,19 @@ zend_function_entry gene_db_mysql_methods[] = {
 		PHP_ME(gene_db_mysql, order, gene_db_mysql_order, ZEND_ACC_PUBLIC)
 		PHP_ME(gene_db_mysql, group, gene_db_mysql_group, ZEND_ACC_PUBLIC)
 		PHP_ME(gene_db_mysql, having, gene_db_mysql_having, ZEND_ACC_PUBLIC)
-		PHP_ME(gene_db_mysql, execute, NULL, ZEND_ACC_PUBLIC)
-		PHP_ME(gene_db_mysql, all, NULL, ZEND_ACC_PUBLIC)
-		PHP_ME(gene_db_mysql, row, NULL, ZEND_ACC_PUBLIC)
-		PHP_ME(gene_db_mysql, cell, NULL, ZEND_ACC_PUBLIC)
-		PHP_ME(gene_db_mysql, lastId, NULL, ZEND_ACC_PUBLIC)
-		PHP_ME(gene_db_mysql, affectedRows, NULL, ZEND_ACC_PUBLIC)
-		PHP_ME(gene_db_mysql, print, NULL, ZEND_ACC_PUBLIC)
-		PHP_ME(gene_db_mysql, beginTransaction, NULL, ZEND_ACC_PUBLIC)
-		PHP_ME(gene_db_mysql, inTransaction, NULL, ZEND_ACC_PUBLIC)
-		PHP_ME(gene_db_mysql, rollBack, NULL, ZEND_ACC_PUBLIC)
-		PHP_ME(gene_db_mysql, commit, NULL, ZEND_ACC_PUBLIC)
-		PHP_ME(gene_db_mysql, free, NULL, ZEND_ACC_PUBLIC)
-		PHP_ME(gene_db_mysql, history, NULL, ZEND_ACC_PUBLIC)
+		PHP_ME(gene_db_mysql, execute, gene_db_mysql_void_arginfo, ZEND_ACC_PUBLIC)
+		PHP_ME(gene_db_mysql, all, gene_db_mysql_void_arginfo, ZEND_ACC_PUBLIC)
+		PHP_ME(gene_db_mysql, row, gene_db_mysql_void_arginfo, ZEND_ACC_PUBLIC)
+		PHP_ME(gene_db_mysql, cell, gene_db_mysql_void_arginfo, ZEND_ACC_PUBLIC)
+		PHP_ME(gene_db_mysql, lastId, gene_db_mysql_void_arginfo, ZEND_ACC_PUBLIC)
+		PHP_ME(gene_db_mysql, affectedRows, gene_db_mysql_void_arginfo, ZEND_ACC_PUBLIC)
+		PHP_ME(gene_db_mysql, print, gene_db_mysql_void_arginfo, ZEND_ACC_PUBLIC)
+		PHP_ME(gene_db_mysql, beginTransaction, gene_db_mysql_void_arginfo, ZEND_ACC_PUBLIC)
+		PHP_ME(gene_db_mysql, inTransaction, gene_db_mysql_void_arginfo, ZEND_ACC_PUBLIC)
+		PHP_ME(gene_db_mysql, rollBack, gene_db_mysql_void_arginfo, ZEND_ACC_PUBLIC)
+		PHP_ME(gene_db_mysql, commit, gene_db_mysql_void_arginfo, ZEND_ACC_PUBLIC)
+		PHP_ME(gene_db_mysql, free, gene_db_mysql_void_arginfo, ZEND_ACC_PUBLIC)
+		PHP_ME(gene_db_mysql, history, gene_db_mysql_void_arginfo, ZEND_ACC_PUBLIC)
 		{NULL, NULL, NULL}
 };
 /* }}} */

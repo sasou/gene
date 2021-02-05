@@ -32,6 +32,19 @@
 
 zend_class_entry * gene_redis_ce;
 
+ZEND_BEGIN_ARG_INFO_EX(gene_redis_void_arginfo, 0, 0, 0)
+ZEND_END_ARG_INFO()
+
+ZEND_BEGIN_ARG_INFO_EX(gene_redis_set_arginfo, 0, 0, 2)
+	ZEND_ARG_INFO(0, name)
+	ZEND_ARG_INFO(0, value)
+	ZEND_ARG_INFO(0, ttl)
+ZEND_END_ARG_INFO()
+
+ZEND_BEGIN_ARG_INFO_EX(gene_redis_get_arginfo, 0, 0, 1)
+	ZEND_ARG_INFO(0, name)
+ZEND_END_ARG_INFO()
+
 ZEND_BEGIN_ARG_INFO_EX(gene_redis_call_arginfo, 0, 0, 2)
 	ZEND_ARG_INFO(0, method)
 	ZEND_ARG_INFO(0, params)
@@ -356,10 +369,10 @@ PHP_METHOD(gene_redis, __call) {
  * {{{ gene_redis_methods
  */
 zend_function_entry gene_redis_methods[] = {
-		PHP_ME(gene_redis, set, NULL, ZEND_ACC_PUBLIC)
-		PHP_ME(gene_redis, get, NULL, ZEND_ACC_PUBLIC)
+		PHP_ME(gene_redis, set, gene_redis_set_arginfo, ZEND_ACC_PUBLIC)
+		PHP_ME(gene_redis, get, gene_redis_get_arginfo, ZEND_ACC_PUBLIC)
 		PHP_ME(gene_redis, __call, gene_redis_call_arginfo, ZEND_ACC_PUBLIC)
-		PHP_ME(gene_redis, __construct, NULL, ZEND_ACC_PUBLIC|ZEND_ACC_CTOR)
+		PHP_ME(gene_redis, __construct, gene_redis_void_arginfo, ZEND_ACC_PUBLIC|ZEND_ACC_CTOR)
 		{NULL, NULL, NULL}
 };
 /* }}} */

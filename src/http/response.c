@@ -32,30 +32,33 @@
 
 zend_class_entry * gene_response_ce;
 
-ZEND_BEGIN_ARG_INFO_EX(gene_response_arg_se, 0, 0, 1)
+ZEND_BEGIN_ARG_INFO_EX(gene_response_void_arginfo, 0, 0, 0)
+ZEND_END_ARG_INFO()
+
+ZEND_BEGIN_ARG_INFO_EX(gene_response_arg_se, 0, 0, 2)
     ZEND_ARG_INFO(0, msg)
 	ZEND_ARG_INFO(0, code)
 ZEND_END_ARG_INFO()
 
-ZEND_BEGIN_ARG_INFO_EX(gene_response_arg_se_data, 0, 0, 1)
+ZEND_BEGIN_ARG_INFO_EX(gene_response_arg_se_data, 0, 0, 4)
 	ZEND_ARG_INFO(0, data)
 	ZEND_ARG_INFO(0, count)
 	ZEND_ARG_INFO(0, msg)
 	ZEND_ARG_INFO(0, code)
 ZEND_END_ARG_INFO()
 
-ZEND_BEGIN_ARG_INFO_EX(gene_response_arg_se_json, 0, 0, 1)
+ZEND_BEGIN_ARG_INFO_EX(gene_response_arg_se_json, 0, 0, 3)
 	ZEND_ARG_INFO(0, data)
 	ZEND_ARG_INFO(0, callback)
 	ZEND_ARG_INFO(0, code)
 ZEND_END_ARG_INFO()
 
-ZEND_BEGIN_ARG_INFO_EX(gene_response_arg_redirect, 0, 0, 1)
+ZEND_BEGIN_ARG_INFO_EX(gene_response_arg_redirect, 0, 0, 2)
     ZEND_ARG_INFO(0, url)
     ZEND_ARG_INFO(0, code)
 ZEND_END_ARG_INFO()
 
-ZEND_BEGIN_ARG_INFO_EX(gene_response_arg_alert, 0, 0, 1)
+ZEND_BEGIN_ARG_INFO_EX(gene_response_arg_alert, 0, 0, 2)
     ZEND_ARG_INFO(0, text)
     ZEND_ARG_INFO(0, url)
 ZEND_END_ARG_INFO()
@@ -312,9 +315,9 @@ zend_function_entry gene_response_methods[] = {
 	PHP_ME(gene_response, json, gene_response_arg_se_json, ZEND_ACC_PUBLIC|ZEND_ACC_STATIC)
 	PHP_ME(gene_response, header, gene_response_arg_header, ZEND_ACC_PUBLIC|ZEND_ACC_STATIC)
 	PHP_ME(gene_response, cookie, gene_response_arg_cookie, ZEND_ACC_PUBLIC|ZEND_ACC_STATIC)
-	PHP_ME(gene_response, setJsonHeader, NULL, ZEND_ACC_PUBLIC|ZEND_ACC_STATIC)
-	PHP_ME(gene_response, setHtmlHeader, NULL, ZEND_ACC_PUBLIC|ZEND_ACC_STATIC)
-	PHP_ME(gene_response, __construct, NULL, ZEND_ACC_PUBLIC|ZEND_ACC_CTOR)
+	PHP_ME(gene_response, setJsonHeader, gene_response_void_arginfo, ZEND_ACC_PUBLIC|ZEND_ACC_STATIC)
+	PHP_ME(gene_response, setHtmlHeader, gene_response_void_arginfo, ZEND_ACC_PUBLIC|ZEND_ACC_STATIC)
+	PHP_ME(gene_response, __construct, gene_response_void_arginfo, ZEND_ACC_PUBLIC|ZEND_ACC_CTOR)
 	{ NULL, NULL, NULL }
 };
 /* }}} */
