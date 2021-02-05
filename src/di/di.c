@@ -36,6 +36,9 @@ zend_class_entry *gene_di_ce;
 
 /* {{{ ARG_INFO
  */
+ZEND_BEGIN_ARG_INFO_EX(gene_di_void_arginfo, 0, 0, 0)
+ZEND_END_ARG_INFO()
+
 ZEND_BEGIN_ARG_INFO_EX(gene_di_get_arginfo, 0, 0, 1)
 	ZEND_ARG_INFO(0, name)
 ZEND_END_ARG_INFO()
@@ -59,7 +62,7 @@ zval *gene_di_get(zend_string *name) {
 	zval  *pzval = NULL,*class = NULL,*params = NULL, *instance = NULL,*cache = NULL, *di = NULL, *entrys = NULL;
 
 	di = gene_di_instance();
-	entrys = zend_read_property(gene_di_ce, di, GENE_DI_PROPERTY_REG, strlen(GENE_DI_PROPERTY_REG), 1, NULL);
+	entrys = zend_read_property(gene_di_ce, gene_strip_obj(di), GENE_DI_PROPERTY_REG, strlen(GENE_DI_PROPERTY_REG), 1, NULL);
 
 	if ((pzval = zend_hash_find(Z_ARRVAL_P(entrys), name)) != NULL) {
 		return pzval;
@@ -75,7 +78,7 @@ zval *gene_di_get(zend_string *name) {
 		router_e_len = spprintf(&router_e, 0, "%s%s", GENE_G(directory), GENE_CONFIG_CACHE);
 	}
 
-	cache = gene_memory_get_by_config(router_e, router_e_len, ZSTR_VAL(name) TSRMLS_CC);
+	cache = gene_memory_get_by_config(router_e, router_e_len, ZSTR_VAL(name));
 	efree(router_e);
 	router_e = NULL;
 
@@ -131,7 +134,7 @@ zval *gene_di_get(zend_string *name) {
 zval *gene_class_instance(zval *obj, zval *class_name, zval *params) {
 	zval *ppzval = NULL, *di, *entrys;
 	di = gene_di_instance();
-	entrys = zend_read_property(gene_di_ce, di, ZEND_STRL(GENE_DI_PROPERTY_REG), 1, NULL);
+	entrys = zend_read_property(gene_di_ce, gene_strip_obj(di), ZEND_STRL(GENE_DI_PROPERTY_REG), 1, NULL);
 	if ((ppzval = zend_hash_str_find(Z_ARRVAL_P(entrys), Z_STRVAL_P(class_name), Z_STRLEN_P(class_name))) != NULL) {
 		return ppzval;
 	}
@@ -159,7 +162,7 @@ zval *gene_di_get_class(zend_string *class_name, zend_string *name) {
 	zval *di, *entrys, *ppzval = NULL;
 
 	di = gene_di_instance();
-	entrys = zend_read_property(gene_di_ce, di, GENE_DI_PROPERTY_REG, strlen(GENE_DI_PROPERTY_REG), 1, NULL);
+	entrys = zend_read_property(gene_di_ce, gene_strip_obj(di), GENE_DI_PROPERTY_REG, strlen(GENE_DI_PROPERTY_REG), 1, NULL);
 
     smart_str class_val = {0};
     smart_str_appendl(&class_val, class_name->val, class_name->len);
@@ -185,7 +188,7 @@ zval *gene_di_get_class(zend_string *class_name, zend_string *name) {
 int gene_di_set_class(zend_string *class_name, zend_string *name, zval *value) {
 	zval *di, *entrys, *ppzval = NULL;
 	di = gene_di_instance();
-	entrys = zend_read_property(gene_di_ce, di, GENE_DI_PROPERTY_REG, strlen(GENE_DI_PROPERTY_REG), 1, NULL);
+	entrys = zend_read_property(gene_di_ce, gene_strip_obj(di), GENE_DI_PROPERTY_REG, strlen(GENE_DI_PROPERTY_REG), 1, NULL);
     smart_str class_val = {0};
     smart_str_appendl(&class_val, class_name->val, class_name->len);
     smart_str_appendc(&class_val, '_');
@@ -223,9 +226,9 @@ PHP_METHOD(gene_di, __clone) {
 /* }}} */
 
 /*
- *  {{{ zval *gene_di_instance(zval *this_ptr TSRMLS_DC)
+ *  {{{ zval *gene_di_instance(zval *this_ptr)
  */
-zval *gene_di_instance() {
+zval* gene_di_instance() {
 	zval *instance = zend_read_static_property(gene_di_ce, GENE_DI_PROPERTY_INSTANCE, strlen(GENE_DI_PROPERTY_INSTANCE), 1);
 
 	if (Z_TYPE_P(instance) != IS_OBJECT) {
@@ -234,7 +237,7 @@ zval *gene_di_instance() {
 		object_init_ex(&this_ptr, gene_di_ce);
 
 		array_init(&regs);
-		zend_update_property(gene_di_ce, &this_ptr, GENE_DI_PROPERTY_REG, strlen(GENE_DI_PROPERTY_REG), &regs);
+		zend_update_property(gene_di_ce, gene_strip_obj(&this_ptr), GENE_DI_PROPERTY_REG, strlen(GENE_DI_PROPERTY_REG), &regs);
 		zend_update_static_property(gene_di_ce, GENE_DI_PROPERTY_INSTANCE, strlen(GENE_DI_PROPERTY_INSTANCE), &this_ptr);
 		zval_ptr_dtor(&regs);
 		zval_ptr_dtor(&this_ptr);
@@ -251,7 +254,7 @@ zval *gene_di_instance() {
 PHP_METHOD(gene_di, get) {
 	zend_string *name;
 	zval *ppzval = NULL;
-	if (zend_parse_parameters(ZEND_NUM_ARGS()TSRMLS_CC, "S", &name) == FAILURE) {
+	if (zend_parse_parameters(ZEND_NUM_ARGS(), "S", &name) == FAILURE) {
 		RETURN_NULL();
 	}
 
@@ -269,11 +272,11 @@ PHP_METHOD(gene_di, get) {
 PHP_METHOD(gene_di, set) {
 	zval *value, *di, *entrys;
 	zend_string *name;
-	if (zend_parse_parameters(ZEND_NUM_ARGS()TSRMLS_CC, "Sz", &name, &value) == FAILURE) {
+	if (zend_parse_parameters(ZEND_NUM_ARGS(), "Sz", &name, &value) == FAILURE) {
 		RETURN_NULL();
 	}
 	di = gene_di_instance();
-	entrys = zend_read_property(gene_di_ce, di, GENE_DI_PROPERTY_REG, strlen(GENE_DI_PROPERTY_REG), 1, NULL);
+	entrys = zend_read_property(gene_di_ce, gene_strip_obj(di), GENE_DI_PROPERTY_REG, strlen(GENE_DI_PROPERTY_REG), 1, NULL);
 	if (zend_hash_update(Z_ARRVAL_P(entrys), name, value) != NULL) {
 		Z_TRY_ADDREF_P(value);
 		RETURN_TRUE;
@@ -288,11 +291,11 @@ PHP_METHOD(gene_di, set) {
 PHP_METHOD(gene_di, del) {
 	zend_string *name;
 	zval *di, *entrys;
-	if (zend_parse_parameters(ZEND_NUM_ARGS()TSRMLS_CC, "S", &name) == FAILURE) {
+	if (zend_parse_parameters(ZEND_NUM_ARGS(), "S", &name) == FAILURE) {
 		RETURN_NULL();
 	}
 	di = gene_di_instance();
-	entrys = zend_read_property(gene_di_ce, di, GENE_DI_PROPERTY_REG, strlen(GENE_DI_PROPERTY_REG), 1, NULL);
+	entrys = zend_read_property(gene_di_ce, gene_strip_obj(di), GENE_DI_PROPERTY_REG, strlen(GENE_DI_PROPERTY_REG), 1, NULL);
 	zend_hash_del(Z_ARRVAL_P(entrys), name);
 	RETURN_TRUE;
 }
@@ -308,7 +311,7 @@ PHP_METHOD(gene_di, has) {
 		RETURN_NULL();
 	}
 	di = gene_di_instance();
-	entrys = zend_read_property(gene_di_ce, di, GENE_DI_PROPERTY_REG, strlen(GENE_DI_PROPERTY_REG), 1, NULL);
+	entrys = zend_read_property(gene_di_ce, gene_strip_obj(di), GENE_DI_PROPERTY_REG, strlen(GENE_DI_PROPERTY_REG), 1, NULL);
 	if (zend_hash_exists(Z_ARRVAL_P(entrys), name) == 1) {
 		RETURN_TRUE;
 	}
@@ -330,9 +333,9 @@ PHP_METHOD(gene_di, getInstance) {
  * {{{ gene_di_methods
  */
 zend_function_entry gene_di_methods[] = {
-	PHP_ME(gene_di, __construct, NULL, ZEND_ACC_CTOR|ZEND_ACC_PRIVATE)
-	PHP_ME(gene_di, __clone, NULL, ZEND_ACC_PRIVATE)
-	PHP_ME(gene_di, getInstance, NULL, ZEND_ACC_PUBLIC|ZEND_ACC_STATIC)
+	PHP_ME(gene_di, __construct, gene_di_void_arginfo, ZEND_ACC_CTOR|ZEND_ACC_PRIVATE)
+	PHP_ME(gene_di, __clone, gene_di_void_arginfo, ZEND_ACC_PRIVATE)
+	PHP_ME(gene_di, getInstance, gene_di_void_arginfo, ZEND_ACC_PUBLIC|ZEND_ACC_STATIC)
 	PHP_ME(gene_di, get, gene_di_get_arginfo, ZEND_ACC_PUBLIC|ZEND_ACC_STATIC)
 	PHP_ME(gene_di, has, gene_di_has_arginfo, ZEND_ACC_PUBLIC|ZEND_ACC_STATIC)
 	PHP_ME(gene_di, set, gene_di_set_arginfo, ZEND_ACC_PUBLIC|ZEND_ACC_STATIC)
