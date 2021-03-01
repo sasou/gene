@@ -385,7 +385,7 @@ PHP_METHOD(gene_db_mysql, insert)
 	smart_str_appends(&field_str, "");
 	smart_str_appends(&value_str, "");
     if (fields && Z_TYPE_P(fields) == IS_ARRAY) {
-    	gene_mysql_insert_field_value (fields, &field_str, &value_str, &field_value);
+    	gene_insert_field_value (fields, &field_str, &value_str, &field_value);
     	zend_update_property(gene_db_mysql_ce, gene_strip_obj(self), ZEND_STRL(GENE_DB_MYSQL_DATA), &field_value);
     	zval_ptr_dtor(&field_value);
     } else {
@@ -426,7 +426,7 @@ PHP_METHOD(gene_db_mysql, batchInsert)
         		smart_str_appends(&value_str, ",");
         		gene_insert_field_value_batch_other (row, &value_str, &field_value);
         	} else {
-        		gene_mysql_insert_field_value_batch (row, &field_str, &value_str, &field_value);
+        		gene_insert_field_value_batch (row, &field_str, &value_str, &field_value);
         		pre = 1;
         	}
         } ZEND_HASH_FOREACH_END();
@@ -463,7 +463,7 @@ PHP_METHOD(gene_db_mysql, update)
 	ZVAL_NULL(&field_value);
 	smart_str_appends(&field_str, "");
     if (fields && Z_TYPE_P(fields) == IS_ARRAY) {
-    	gene_mysql_update_field_value (fields, &field_str, &field_value);
+    	gene_update_field_value (fields, &field_str, &field_value);
     	zend_update_property(gene_db_mysql_ce, gene_strip_obj(self), ZEND_STRL(GENE_DB_MYSQL_DATA), &field_value);
     	zval_ptr_dtor(&field_value);
     } else {
