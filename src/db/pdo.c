@@ -35,16 +35,14 @@ void array_to_string(zval *array, char **result)
     zend_bool pre = 0;
     ZEND_HASH_FOREACH_VAL(Z_ARRVAL_P(array), value) {
     	if (pre) {
-    		smart_str_appends(&field_str, ",`");
+    		smart_str_appends(&field_str, ",");
     	} else {
-    		smart_str_appendc(&field_str, '`');
     		pre = 1;
     	}
         if ( Z_TYPE_P(value) == IS_OBJECT ) convert_to_string(value);
         if ( (Z_TYPE_P(value) == IS_STRING) && isalpha(*(Z_STRVAL_P(value))) ) {
             smart_str_appends(&field_str, Z_STRVAL_P(value));
         }
-        smart_str_appends(&field_str, "`");
     } ZEND_HASH_FOREACH_END();
     smart_str_0(&field_str);
     *result = str_init(ZSTR_VAL(field_str.s));
