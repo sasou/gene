@@ -35,16 +35,14 @@ void array_to_string(zval *array, char **result)
     zend_bool pre = 0;
     ZEND_HASH_FOREACH_VAL(Z_ARRVAL_P(array), value) {
     	if (pre) {
-    		smart_str_appends(&field_str, ",`");
+    		smart_str_appends(&field_str, ",");
     	} else {
-    		smart_str_appendc(&field_str, '`');
     		pre = 1;
     	}
         if ( Z_TYPE_P(value) == IS_OBJECT ) convert_to_string(value);
         if ( (Z_TYPE_P(value) == IS_STRING) && isalpha(*(Z_STRVAL_P(value))) ) {
             smart_str_appends(&field_str, Z_STRVAL_P(value));
         }
-        smart_str_appends(&field_str, "`");
     } ZEND_HASH_FOREACH_END();
     smart_str_0(&field_str);
     *result = str_init(ZSTR_VAL(field_str.s));
@@ -308,107 +306,6 @@ void jsonEncode(zval *data, zval *param) {
 	zval_ptr_dtor(&ret);
 }
 
-void gene_mysql_insert_field_value(zval *fields, smart_str *field_str, smart_str *value_str, zval *field_value){
-	zval *value = NULL;
-	zend_bool pre = 0;
-	zend_string *key = NULL;
-	zend_long id;
-	array_init(field_value);
-	ZEND_HASH_FOREACH_KEY_VAL(Z_ARRVAL_P(fields), id, key, value) {
-    	if (pre) {
-    		smart_str_appends(field_str, ",`");
-    		smart_str_appends(value_str, ",");
-    	} else {
-    		smart_str_appendc(field_str, '`');
-    		pre = 1;
-    	}
-        if (key) {
-        	smart_str_append(field_str, key);
-        } else {
-        	smart_str_append_long(field_str, id);
-        }
-        smart_str_appends(value_str, "?");
-        smart_str_appends(field_str, "`");
-    	add_next_index_zval(field_value, value);
-    	Z_TRY_ADDREF_P(value);
-    } ZEND_HASH_FOREACH_END();
-    smart_str_0(field_str);
-    smart_str_0(value_str);
-}
-
-void gene_mysql_insert_field_value_batch(zval *fields, smart_str *field_str, smart_str *value_str, zval *field_value) {
-	zval *value = NULL;
-	zend_bool pre = 0;
-	zend_string *key = NULL;
-	zend_long id;
-	array_init(field_value);
-	ZEND_HASH_FOREACH_KEY_VAL(Z_ARRVAL_P(fields), id, key, value) {
-    	if (pre) {
-    		smart_str_appends(field_str, ",`");
-    		smart_str_appends(value_str, ",");
-    	} else {
-    		smart_str_appendc(field_str, '`');
-    		smart_str_appends(value_str, "(");
-    		pre = 1;
-    	}
-        if (key) {
-        	smart_str_append(field_str, key);
-        } else {
-        	smart_str_append_long(field_str, id);
-        }
-        smart_str_appends(value_str, "?");
-        smart_str_appends(field_str, "`");
-        add_next_index_zval(field_value, value);
-        Z_TRY_ADDREF_P(value);
-    } ZEND_HASH_FOREACH_END();
-    smart_str_appends(value_str, ")");
-    smart_str_0(field_str);
-    smart_str_0(value_str);
-}
-
-void gene_insert_field_value_batch_other(zval *fields, smart_str *value_str, zval *field_value) {
-	zval *value = NULL;
-	zend_bool pre = 0;
-	ZEND_HASH_FOREACH_VAL(Z_ARRVAL_P(fields), value) {
-    	if (pre) {
-    		smart_str_appends(value_str, ",");
-    	} else {
-    		smart_str_appends(value_str, "(");
-    		pre = 1;
-    	}
-        smart_str_appends(value_str, "?");
-        add_next_index_zval(field_value, value);
-        Z_TRY_ADDREF_P(value);
-    } ZEND_HASH_FOREACH_END();
-    smart_str_appends(value_str, ")");
-    smart_str_0(value_str);
-}
-
-void gene_mysql_update_field_value(zval *fields, smart_str *field_str, zval *field_value) {
-	zval *value = NULL;
-	zend_bool pre = 0;
-	zend_string *key = NULL;
-	zend_long id;
-	array_init(field_value);
-	ZEND_HASH_FOREACH_KEY_VAL(Z_ARRVAL_P(fields), id, key, value) {
-    	if (pre) {
-    		smart_str_appends(field_str, ",`");
-    	} else {
-    		smart_str_appendc(field_str, '`');
-    		pre = 1;
-    	}
-        if (key) {
-        	smart_str_append(field_str, key);
-        } else {
-        	smart_str_append_long(field_str, id);
-        }
-        smart_str_appends(field_str, "`=?");
-    	add_next_index_zval(field_value, value);
-    	Z_TRY_ADDREF_P(value);
-    } ZEND_HASH_FOREACH_END();
-    smart_str_0(field_str);
-}
-
 void gene_insert_field_value(zval *fields, smart_str *field_str, smart_str *value_str, zval *field_value){
 	zval *value = NULL;
 	zend_bool pre = 0;
@@ -460,6 +357,24 @@ void gene_insert_field_value_batch(zval *fields, smart_str *field_str, smart_str
     } ZEND_HASH_FOREACH_END();
     smart_str_appends(value_str, ")");
     smart_str_0(field_str);
+    smart_str_0(value_str);
+}
+
+void gene_insert_field_value_batch_other(zval *fields, smart_str *value_str, zval *field_value) {
+	zval *value = NULL;
+	zend_bool pre = 0;
+	ZEND_HASH_FOREACH_VAL(Z_ARRVAL_P(fields), value) {
+    	if (pre) {
+    		smart_str_appends(value_str, ",");
+    	} else {
+    		smart_str_appends(value_str, "(");
+    		pre = 1;
+    	}
+        smart_str_appends(value_str, "?");
+        add_next_index_zval(field_value, value);
+        Z_TRY_ADDREF_P(value);
+    } ZEND_HASH_FOREACH_END();
+    smart_str_appends(value_str, ")");
     smart_str_0(value_str);
 }
 
