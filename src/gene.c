@@ -256,8 +256,8 @@ PHP_RSHUTDOWN_FUNCTION(gene) {
 PHP_MINFO_FUNCTION(gene) {
 	php_info_print_table_start();
 	php_info_print_table_header(2, "gene support", "enabled");
-	php_info_print_table_row(2, "gene author:", " sasou <admin@php-gene.com>");
-	php_info_print_table_row(2, "gene site:", " http://www.php-gene.com");
+	php_info_print_table_row(2, "gene author:", " sasou <zaipd@qq.com>");
+	php_info_print_table_row(2, "gene site:", " http://www.1xm.net");
 	php_info_print_table_row(2, "gene version:", PHP_GENE_VERSION);
 	php_info_print_table_end();
 
