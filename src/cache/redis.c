@@ -63,12 +63,12 @@ int gene_redis_connect(zval *object, zval *host, zval *port, zval *timeout) /*{{
 }/*}}}*/
 
 
-int gene_redis_pconnect(zval *object, zval *host, zval *port, zval *timeout) /*{{{*/
+int gene_redis_pconnect(zval *object, zval *host, zval *port, zval *timeout, zval *persistent) /*{{{*/
 {
     zval function_name,retval;
     ZVAL_STRING(&function_name, "pconnect");
-	zval params[] = { *host, *port, *timeout };
-    call_user_function(NULL, object, &function_name, &retval, 3, params);
+	zval params[] = { *host, *port, *timeout, *persistent };
+    call_user_function(NULL, object, &function_name, &retval, 4, params);
     int ret =  (Z_TYPE(retval) == IS_TRUE ) ? 1 : 0;
     zval_ptr_dtor(&retval);
     zval_ptr_dtor(&function_name);
@@ -93,6 +93,15 @@ void gene_redis_set(zval *object, zval *key, zval *value, zval *retval) /*{{{*/
     ZVAL_STRING(&function_name, "set");
 	zval params[] = { *key, *value };
     call_user_function(NULL, object, &function_name, retval, 2, params);
+    zval_ptr_dtor(&function_name);
+}/*}}}*/
+
+void gene_redis_auth(zval *object, zval *value, zval *retval) /*{{{*/
+{
+    zval function_name;
+    ZVAL_STRING(&function_name, "auth");
+	zval params[] = { *value };
+    call_user_function(NULL, object, &function_name, retval, 1, params);
     zval_ptr_dtor(&function_name);
 }/*}}}*/
 
@@ -144,7 +153,7 @@ zend_bool checkError (zend_object *ex) {
 }
 
 zend_bool initRObj (zval * self, zval *config) {
-	zval  *host = NULL, *port = NULL, *timeout = NULL, *persistent = NULL, *options = NULL, *serializer = NULL;
+	zval  *host = NULL, *port = NULL, *timeout = NULL, *persistent = NULL, *options = NULL, *serializer = NULL, *password = NULL;
 	zval   obj_object;
 
 	if (config == NULL) {
@@ -172,9 +181,16 @@ zend_bool initRObj (zval * self, zval *config) {
 	options = zend_hash_str_find(Z_ARRVAL_P(config), ZEND_STRL("options"));
 
     if (persistent) {
-    	gene_redis_pconnect(&obj_object, host, port, timeout);
+    	gene_redis_pconnect(&obj_object, host, port, timeout, persistent);
     } else {
     	gene_redis_connect(&obj_object, host, port, timeout);
+    }
+
+	password = zend_hash_str_find(Z_ARRVAL_P(config), ZEND_STRL("password"));
+    if (password) {
+		zval authret;
+    	gene_redis_auth(&obj_object, password, &authret);
+		zval_ptr_dtor(&authret);
     }
 
     if (options && Z_TYPE_P(options) == IS_ARRAY) {
