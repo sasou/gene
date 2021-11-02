@@ -508,6 +508,11 @@ PHP_METHOD(gene_view, scope)
 	if (zend_parse_parameters(ZEND_NUM_ARGS(), "|l", &num) == FAILURE) {
 		return;
 	}
+	if (num == 0) {
+		no = zend_read_static_property(gene_view_ce, GENE_VIEW_VERSION_NO, strlen(GENE_VIEW_VERSION_NO), 1);
+		num = Z_LVAL_P(no);
+		num = num + 1;
+	}
 	zend_update_static_property_long(gene_view_ce, GENE_VIEW_VERSION_NO, strlen(GENE_VIEW_VERSION_NO), num);
 	RETURN_TRUE;
 }
