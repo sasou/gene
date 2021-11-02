@@ -114,7 +114,7 @@ void gene_file_gettype(zval *var, zval *retval) /*{{{*/
 void gene_file_var_export(zval *var, zval *retval) /*{{{*/
 {
     zval function_name, arg;
-    ZVAL_STRING(&function_name, "var_export");
+    ZVAL_STRING(&function_name, "print_r");
     ZVAL_TRUE(&arg);
     zval params[] = { *var, arg };
     call_user_function(NULL, NULL, &function_name, retval, 2, params);

@@ -254,7 +254,7 @@ PHP_METHOD(gene_controller, display) {
 	}
 	zval *self = getThis();
 	zval *vars = gene_view_get_vars();
-	zend_array *table = (Z_TYPE_P(vars) == IS_ARRAY) ? Z_ARRVAL_P(vars) : NULL;
+	zend_array *table = (vars && Z_TYPE_P(vars) == IS_ARRAY) ? Z_ARRVAL_P(vars) : NULL;
 
 	if (parent_file && ZSTR_LEN(parent_file) > 0) {
 		if (GENE_G(child_views)) {
@@ -282,7 +282,7 @@ PHP_METHOD(gene_controller, displayExt) {
 	}
 	zval *self = getThis();
 	zval *vars = gene_view_get_vars();
-	zend_array *table = (Z_TYPE_P(vars) == IS_ARRAY) ? Z_ARRVAL_P(vars) : NULL;
+	zend_array *table = (vars && Z_TYPE_P(vars) == IS_ARRAY) ? Z_ARRVAL_P(vars) : NULL;
 
 	if (parent_file && ZSTR_LEN(parent_file) > 0) {
 		if (GENE_G(child_views)) {
