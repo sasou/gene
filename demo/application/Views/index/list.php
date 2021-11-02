@@ -3,7 +3,7 @@
   <a href="#">
     <p class="fly-case-banner layui-text"> Grace, fastest, flexibility, simple PHP extension framework！ <br><br>  简单编码，优雅生活！ </p>
   </a>
-  <p class="fly-case-version"><br>最新版本：<span class="layui-badge">V<?php echo gene_version();?></span> （Dec 12, 2019 更新）</p>
+  <p class="fly-case-version"><br>最新版本：<span class="layui-badge">V<?php echo gene_version();?></span> （Dec 01, 2021 更新）</p>
   <div class="fly-case-btn">
       
 <ul class="layui-row layui-col-space20 layui-layout-center">
@@ -92,6 +92,24 @@
   <li class="layui-timeline-item">
     <i class="layui-icon layui-timeline-axis"></i>
     <div class="layui-timeline-content layui-text">
+      <div class="layui-timeline-title">2021年11月，Gene 4.1 发布。增加redis权限验证；模板赋值支持上下文。。。</div>
+    </div>
+  </li>
+  <li class="layui-timeline-item">
+    <i class="layui-icon layui-timeline-axis"></i>
+    <div class="layui-timeline-content layui-sm">
+      <div class="layui-timeline-title">2021年05月，Gene 4.0 发布。升级适配php8。。。</div>
+    </div>
+  </li>
+  <li class="layui-timeline-item">
+    <i class="layui-icon layui-timeline-axis"></i>
+    <div class="layui-timeline-content layui-sm">
+      <div class="layui-timeline-title">2020年11月，Gene 3.3 发布。视图类模板赋值方式优化。。。</div>
+    </div>
+  </li>
+  <li class="layui-timeline-item">
+    <i class="layui-icon layui-timeline-axis"></i>
+    <div class="layui-timeline-content layui-sm">
       <div class="layui-timeline-title">2019年12月，Gene 3.2 发布。增加万能验证类；第一时间支持PHP7.4版本。。。</div>
     </div>
   </li>
