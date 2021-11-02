@@ -19,6 +19,7 @@
 #define GENE_VIEW_VIEW	"Views"
 #define GENE_VIEW_EXT ".php"
 #define GENE_VIEW_VARS "vars"
+#define GENE_VIEW_VERSION_NO "no"
 #define PARSER_NUMS 28
 
 extern zend_class_entry *gene_view_ce;
