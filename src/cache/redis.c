@@ -171,7 +171,7 @@ zend_bool initRObj (zval * self, zval *config) {
 	timeout = zend_hash_str_find(Z_ARRVAL_P(config), ZEND_STRL("timeout"));
 
 	if ((host != NULL && port != NULL) || servers != NULL) {
-		 if (Z_TYPE_P(servers) == IS_ARRAY) {
+		 if (servers && Z_TYPE_P(servers) == IS_ARRAY) {
 			uint32_t num = zend_hash_num_elements(Z_ARRVAL_P(servers));
    			srand((int) time(0));   
 		    uint32_t index = rand() % num;
