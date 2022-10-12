@@ -170,8 +170,8 @@ zend_bool initRObj (zval * self, zval *config) {
 	servers = zend_hash_str_find(Z_ARRVAL_P(config), ZEND_STRL("servers"));
 	timeout = zend_hash_str_find(Z_ARRVAL_P(config), ZEND_STRL("timeout"));
 
-	if (host == NULL || port == NULL) {
-		 if (servers != NULL && Z_TYPE_P(servers) == IS_ARRAY) {
+	if (!(host && port)) {
+		 if (servers && Z_TYPE_P(servers) == IS_ARRAY) {
 			uint32_t num = zend_hash_num_elements(Z_ARRVAL_P(servers));
    			srand((int) time(0));   
 		    uint32_t index = rand() % num;
@@ -180,12 +180,12 @@ zend_bool initRObj (zval * self, zval *config) {
 				host = zend_hash_str_find(Z_ARRVAL_P(oneServers), ZEND_STRL("host"));
 				port = zend_hash_str_find(Z_ARRVAL_P(oneServers), ZEND_STRL("port")); 
 			}
+		 } else {
+			php_error_docref(NULL, E_ERROR, "param error.");
 		 }
-	}  else {
-		php_error_docref(NULL, E_ERROR, "param error.");
 	}
 
-	if (timeout == NULL) {
+	if (!timeout) {
 		 php_error_docref(NULL, E_ERROR, "param error.");
 	}
 
