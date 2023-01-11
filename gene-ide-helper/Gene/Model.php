@@ -64,7 +64,7 @@ class Model
      * @param mixed $code code
      * @return mixed
      */
-    public function success($msg, $code) {
+    public function success($msg, $code = null) {
 
     }
 
@@ -75,7 +75,7 @@ class Model
      * @param mixed $code code
      * @return mixed
      */
-    public function error($msg, $code) {
+    public function error($msg, $code = null) {
 
     }
 
@@ -88,7 +88,7 @@ class Model
      * @param mixed $code code
      * @return mixed
      */
-    public function data($data, $count, $msg, $code) {
+    public function data($data, $count = 0, $msg = null, $code = null) {
 
     }
 
@@ -98,7 +98,7 @@ class Model
      * @param mixed $params params
      * @return mixed
      */
-    public static function getInstance($params) {
+    public static function getInstance($params = null) {
         return new static();
     }
 
