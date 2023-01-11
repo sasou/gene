@@ -34,7 +34,7 @@ class Controller
      * @param mixed $value value
      * @return mixed
      */
-    public static function get($key, $value) {
+    public static function get($key, $value = null) {
 
     }
 
@@ -45,7 +45,7 @@ class Controller
      * @param mixed $value value
      * @return mixed
      */
-    public static function request($key, $value) {
+    public static function request($key = null, $value = null) {
 
     }
 
@@ -56,7 +56,7 @@ class Controller
      * @param mixed $value value
      * @return mixed
      */
-    public static function post($key, $value) {
+    public static function post($key = null, $value = null) {
 
     }
 
@@ -67,7 +67,7 @@ class Controller
      * @param mixed $value value
      * @return mixed
      */
-    public static function cookie($key, $value) {
+    public static function cookie($key = null, $value = null) {
 
     }
 
@@ -78,7 +78,7 @@ class Controller
      * @param mixed $value value
      * @return mixed
      */
-    public static function files($key, $value) {
+    public static function files($key = null, $value = null) {
 
     }
 
@@ -89,7 +89,7 @@ class Controller
      * @param mixed $value value
      * @return mixed
      */
-    public static function server($key, $value) {
+    public static function server($key = null, $value = null) {
 
     }
 
@@ -100,7 +100,7 @@ class Controller
      * @param mixed $value value
      * @return mixed
      */
-    public static function env($key, $value) {
+    public static function env($key = null, $value = null) {
 
     }
 
@@ -119,7 +119,7 @@ class Controller
      * @param mixed $key key
      * @return mixed
      */
-    public static function params($key) {
+    public static function params($key = null) {
 
     }
 
@@ -202,7 +202,7 @@ class Controller
      * @param mixed $code code
      * @return mixed
      */
-    public function redirect($url, $code) {
+    public function redirect($url, $code = null) {
 
     }
     
@@ -224,7 +224,7 @@ class Controller
      * @param mixed $parent_file parent_file
      * @return mixed
      */
-    public function display($file, $parent_file) {
+    public function display($file, $parent_file = null) {
 
     }
 
@@ -236,7 +236,7 @@ class Controller
      * @param mixed $isCompile isCompile
      * @return mixed
      */
-    public function displayExt($file, $parent_file, $isCompile) {
+    public function displayExt($file, $parent_file = null, $isCompile = null) {
 
     }
 
@@ -265,7 +265,7 @@ class Controller
      * @param mixed $code code
      * @return mixed
      */
-    public static function success($msg, $code) {
+    public static function success($msg, $code = null) {
 
     }
 
@@ -276,7 +276,7 @@ class Controller
      * @param mixed $code code
      * @return mixed
      */
-    public static function error($msg, $code) {
+    public static function error($msg, $code = null) {
 
     }
 
@@ -289,7 +289,7 @@ class Controller
      * @param mixed $code code
      * @return mixed
      */
-    public static function data($data, $count, $msg, $code) {
+    public static function data($data, $count = 0, $msg = null, $code = null) {
 
     }
 
@@ -301,7 +301,7 @@ class Controller
      * @param mixed $code code
      * @return mixed
      */
-    public static function json($data, $callback, $code) {
+    public static function json($data, $callback = null, $code = null) {
 
     }
 
