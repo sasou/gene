@@ -114,7 +114,7 @@ class Validate
      * @param mixed $field field
      * @return mixed
      */
-    public function getValue($field) {
+    public function getValue($field = null) {
 
     }
 
@@ -124,7 +124,7 @@ class Validate
      * @param mixed $field field
      * @return mixed
      */
-    public function getError($field) {
+    public function getError($field = null) {
 
     }
 
