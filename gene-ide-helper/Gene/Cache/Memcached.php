@@ -55,7 +55,7 @@ class Memcached
      * @param mixed $flag flag
      * @return mixed
      */
-    public function set($key, $value, $ttl, $flag) {
+    public function set($key, $value, $ttl, $flag = null) {
 
     }
 

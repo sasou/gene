@@ -53,7 +53,7 @@ class Mysql
      * @param mixed $fields fields
      * @return mixed
      */
-    public function select($table, $fields) {
+    public function select($table, $fields = null) {
 
     }
 
@@ -64,7 +64,7 @@ class Mysql
      * @param mixed $fields fields
      * @return mixed
      */
-    public function count($table, $fields) {
+    public function count($table, $fields = null) {
 
     }
 
@@ -140,7 +140,7 @@ class Mysql
      * @param mixed $fields fields
      * @return mixed
      */
-    public function sql($sql, $fields) {
+    public function sql($sql, $fields = null) {
 
     }
 
