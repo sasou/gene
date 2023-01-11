@@ -30,7 +30,7 @@ class Config
      * @param mixed $ttl ttl
      * @return mixed
      */
-    public function set($key, $value, $ttl) {
+    public function set($key, $value, $ttl = null) {
 
     }
 

@@ -18,7 +18,7 @@ class Response
      * @param mixed $code code
      * @return mixed
      */
-    public static function redirect($url, $code) {
+    public static function redirect($url, $code = null) {
 
     }
 
@@ -29,7 +29,7 @@ class Response
      * @param mixed $url url
      * @return mixed
      */
-    public static function alert($text, $url) {
+    public static function alert($text, $url = null) {
 
     }
 
@@ -40,7 +40,7 @@ class Response
      * @param mixed $code code
      * @return mixed
      */
-    public static function success($msg, $code) {
+    public static function success($msg, $code = null) {
 
     }
 
@@ -51,7 +51,7 @@ class Response
      * @param mixed $code code
      * @return mixed
      */
-    public static function error($msg, $code) {
+    public static function error($msg, $code = null) {
 
     }
 
@@ -64,7 +64,7 @@ class Response
      * @param mixed $code code
      * @return mixed
      */
-    public static function data($data, $count, $msg, $code) {
+    public static function data($data, $count = 0, $msg = null, $code = null) {
 
     }
 
@@ -76,7 +76,7 @@ class Response
      * @param mixed $code code
      * @return mixed
      */
-    public static function json($data, $callback, $code) {
+    public static function json($data, $callback = null, $code = null) {
 
     }
 
@@ -87,7 +87,7 @@ class Response
      * @param mixed $value value
      * @return mixed
      */
-    public static function header($key, $value) {
+    public static function header($key, $value = null) {
 
     }
 
@@ -98,7 +98,7 @@ class Response
      * @param mixed $value value
      * @return mixed
      */
-    public static function cookie($key, $value) {
+    public static function cookie($key, $value = null) {
 
     }
 
