@@ -18,7 +18,7 @@ class Config
      * @param mixed $safe safe
      * @return mixed
      */
-    public function __construct($safe) {
+    public function __construct($safe = null) {
 
     }
 
