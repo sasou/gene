@@ -24,7 +24,7 @@ class Application
      * @param mixed $safe safe
      * @return mixed
      */
-    public function __construct($safe) {
+    public function __construct($safe = null) {
 
     }
 
@@ -34,7 +34,7 @@ class Application
      * @param mixed $safe safe
      * @return mixed
      */
-    public static function getInstance($safe) {
+    public static function getInstance($safe = null) {
         return new static();
     }
 
