@@ -34,8 +34,8 @@ class Application
      * @param mixed $safe safe
      * @return mixed
      */
-    public static function getInstance($safe) {
-        return new static();
+    public static function getInstance($safe = null) {
+        return new static(null);
     }
 
     /**
@@ -46,7 +46,7 @@ class Application
      * @param mixed $validity validity
      * @return mixed
      */
-    public function load($file, $path, $validity) {
+    public function load($file, $path, $validity = null) {
 
     }
 
