@@ -17,8 +17,8 @@
     <div class="layui-card-header">使用帮助</div>
     <div class="layui-card-body">
     <ul>
-    <?php if(isset($this->help[0])):?>
-    <?php foreach($this->help as $v):?>
+    <?php if(isset($help[0])):?>
+    <?php foreach($help as $v):?>
       <li role="presentation" <?php if($id==$v['mark_id']):?>class="active"<?php endif;?>><a href="/doc/<?php echo $v['mark_id'];?>.html"><?php echo $v['mark_title'];?></a></li>
     <?php endforeach;?>
     <?php endif;?>
@@ -30,8 +30,8 @@
     <div class="layui-card-header">框架类文档</div>
     <div class="layui-card-body">
     <ul>
-    <?php if(isset($this->doc[0])):?>
-    <?php foreach($this->doc as $v):?>
+    <?php if(isset($doc[0])):?>
+    <?php foreach($doc as $v):?>
       <li role="presentation" <?php if($id==$v['mark_id']):?>class="active"<?php endif;?>><a href="/doc/<?php echo $v['mark_id'];?>.html"><?php echo $v['mark_title'];?></a></li>
     <?php endforeach;?>
     <?php endif;?>
@@ -61,13 +61,13 @@ router.inc.php 路由文件<br>
 <strong>测试：</strong><br>
 <br>
 官方网站：<br>
-    http://php-gene.com/<br>
+    http://1xm.net/<br>
 可测试路由实例：<br>
-http://php-gene.com/demo/admin<br>
-http://php-gene.com/demo/admin.html<br>
-http://php-gene.com/demo/admin/demo.jpg<br>
-http://php-gene.com/demo/admin/ajax.js<br>
-http://php-gene.com/demo/admin/blog/test/baidu<br>
+http://1xm.net/demo/admin<br>
+http://1xm.net/demo/admin.html<br>
+http://1xm.net/demo/admin/demo.jpg<br>
+http://1xm.net/demo/admin/ajax.js<br>
+http://1xm.net/demo/admin/blog/test/baidu<br>
 </p>
 <?php endif;?>
 <?php echo $this->text;?>

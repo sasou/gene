@@ -24,7 +24,7 @@ class Application
      * @param mixed $safe safe
      * @return mixed
      */
-    public function __construct($safe) {
+    public function __construct($safe = null) {
 
     }
 
@@ -34,8 +34,8 @@ class Application
      * @param mixed $safe safe
      * @return mixed
      */
-    public static function getInstance($safe) {
-        return new static();
+    public static function getInstance($safe = null) {
+        return new static(null);
     }
 
     /**
@@ -46,7 +46,7 @@ class Application
      * @param mixed $validity validity
      * @return mixed
      */
-    public function load($file, $path, $validity) {
+    public function load($file, $path, $validity = null) {
 
     }
 
@@ -79,7 +79,7 @@ class Application
      * @param mixed $tpl_ext tpl_ext
      * @return mixed
      */
-    public function setView($view, $tpl_ext) {
+    public function setView($view, $tpl_ext = null) {
 
     }
 
@@ -91,7 +91,7 @@ class Application
      * @param mixed $error_type error_type
      * @return mixed
      */
-    public function error($type, $callback, $error_type) {
+    public function error($type, $callback, $error_type = null) {
 
     }
 

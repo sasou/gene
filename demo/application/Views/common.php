@@ -3,7 +3,7 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1">
-  <title>Gene <?php echo $this->title;?></title>
+  <title>Gene <?php echo $title;?></title>
   <meta name="renderer" content="webkit">
   <meta http-equiv="X-UA-Compatible" content="IE=edge,chrome=1">
   <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1">
@@ -48,8 +48,8 @@
 <?php require $this->contains();?>
 
 <div class="fly-footer">
-  <p>Author：Sasou Email：admin#php-gene.com</p>
-  <p><a href="#" target="_blank">@2018 Php Gene V<?php echo gene_version();?></a></p>
+  <p>Author：Sasou Email：zaipd@1xm.net</p>
+  <p><a href="#" target="_blank">@<?php echo date("Y", time());?> Php Gene V<?php echo gene_version();?></a></p>
 </div>
 <script>
 layui.use(['util', 'laydate', 'layer'], function(){

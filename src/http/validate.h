@@ -24,7 +24,7 @@
 #define GENE_VALIDATE_VALUE  "value"
 #define GENE_VALIDATE_ERROR  "error"
 #define GENE_VALIDATE_CLOSURE  "closure"
-#define GENE_VALIDATE_MOBILE "/^(13[0-9]|147|15[0-9]|17[0-9]|18[0-9]|19[0-9])\\d{8}$/"
+#define GENE_VALIDATE_MOBILE "/^(13[0-9]|14[01456879]|15[0-35-9]|16[2567]|17[0-8]|18[0-9]|19[0-35-9])\\d{8}$/"
 #define GENE_VALIDATE_DATE "/^\\d{4}[\\/-]\\d{1,2}[\\/-]\\d{1,2}$/"
 
 extern zend_class_entry *gene_validate_ce;
