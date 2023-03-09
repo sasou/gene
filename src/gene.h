@@ -20,7 +20,7 @@
 extern zend_module_entry gene_module_entry;
 #define phpext_gene_ptr &gene_module_entry
 
-#define PHP_GENE_VERSION "4.0.1"
+#define PHP_GENE_VERSION "4.1.2"
 
 #ifdef PHP_WIN32
 #	define PHP_GENE_API __declspec(dllexport)

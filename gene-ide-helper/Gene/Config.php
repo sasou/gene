@@ -18,7 +18,7 @@ class Config
      * @param mixed $safe safe
      * @return mixed
      */
-    public function __construct($safe) {
+    public function __construct($safe = null) {
 
     }
 
@@ -30,7 +30,7 @@ class Config
      * @param mixed $ttl ttl
      * @return mixed
      */
-    public function set($key, $value, $ttl) {
+    public function set($key, $value, $ttl = null) {
 
     }
 
