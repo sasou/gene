@@ -192,7 +192,7 @@ class Request
      * @param mixed $request request
      * @return mixed
      */
-    public static function init($get, $post, $cookie = null, $server = null, $env = null, $files = null, $request = null) {
+    public static function init($get = null, $post = null, $cookie = null, $server = null, $env = null, $files = null, $request = null) {
 
     }
 
@@ -213,7 +213,7 @@ class Request
      * @param mixed $name name
      * @return mixed
      */
-    public function __get($name) {
+    public function __get($name = null) {
 
     }
 
