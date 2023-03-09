@@ -13,7 +13,7 @@ class Index extends \Gene\Controller
      */
     public function index()
     {
-        $this->title = "首页";
+        $this->assign('title', "首页");
         $this->display('index/list', 'common');
     }
     
@@ -28,15 +28,17 @@ class Index extends \Gene\Controller
         $parsedown = new \Ext\Parsedown();
         
         // 通过模板赋值
-        $this->view->title = "文档";
-        $this->view->css = ['mdediter/md.min'];
-        $this->view->js = ['mdediter/md.min'];
-        $this->view->help = \Services\Doc\Mark::getInstance()->listAll(1);
-        $this->view->doc = \Services\Doc\Mark::getInstance()->listAll(2);
+        $this->assign('id', $id);
+        $this->assign('title', "文档");
+        $this->assign('css', ['mdediter/md.min']);
+        $this->assign('js', ['mdediter/md.min']);
+        $this->assign('help', \Services\Doc\Mark::getInstance()->listAll(1));
+        $this->assign('doc', \Services\Doc\Mark::getInstance()->listAll(2));
+        
         $mark = \Services\Doc\Mark::getInstance()->row($id);
         if ($mark) {
-            $this->view->mark = $mark;
-            $this->view->text = $parsedown->text($this->view->mark['app_description']);
+            $this->assign('mark', $mark);
+            $this->assign('title', $parsedown->text($this->view->mark['app_description']));
         }
         $this->view->display('index/doc', 'common');
     }    
@@ -47,7 +49,8 @@ class Index extends \Gene\Controller
     public function test()
     {
         // 控制器内变量赋值到模板,注意与上述方法的区别
-        $this->title = "性能测试";
+        $title = "性能测试";
+        $this->assign('title', $title);
         $this->display('index/test', 'common');
     }
     

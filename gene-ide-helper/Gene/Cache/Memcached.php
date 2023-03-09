@@ -21,7 +21,7 @@ class Memcached
      * @param mixed $value value
      * @return mixed
      */
-    public function decr($key, $value) {
+    public function decr($key, $value = 1) {
 
     }
 
@@ -32,7 +32,7 @@ class Memcached
      * @param mixed $value value
      * @return mixed
      */
-    public function incr($key, $value) {
+    public function incr($key, $value = 1) {
 
     }
 
@@ -55,7 +55,7 @@ class Memcached
      * @param mixed $flag flag
      * @return mixed
      */
-    public function set($key, $value, $ttl, $flag) {
+    public function set($key, $value, $ttl = 1, $flag = null) {
 
     }
 
