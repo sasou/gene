@@ -28,7 +28,7 @@ class Request
      * @param mixed $value value
      * @return mixed
      */
-    public static function get($key, $value) {
+    public static function get($key, $value = null) {
 
     }
 
@@ -39,7 +39,7 @@ class Request
      * @param mixed $value value
      * @return mixed
      */
-    public static function request($key, $value) {
+    public static function request($key, $value = null) {
 
     }
 
@@ -50,7 +50,7 @@ class Request
      * @param mixed $value value
      * @return mixed
      */
-    public static function post($key, $value) {
+    public static function post($key, $value = null) {
 
     }
 
@@ -61,7 +61,7 @@ class Request
      * @param mixed $value value
      * @return mixed
      */
-    public static function cookie($key, $value) {
+    public static function cookie($key, $value = null) {
 
     }
 
@@ -72,7 +72,7 @@ class Request
      * @param mixed $value value
      * @return mixed
      */
-    public static function files($key, $value) {
+    public static function files($key, $value = null) {
 
     }
 
@@ -83,7 +83,7 @@ class Request
      * @param mixed $value value
      * @return mixed
      */
-    public static function server($key, $value) {
+    public static function server($key, $value = null) {
 
     }
 
@@ -94,7 +94,7 @@ class Request
      * @param mixed $value value
      * @return mixed
      */
-    public static function env($key, $value) {
+    public static function env($key, $value = null) {
 
     }
 
@@ -113,7 +113,7 @@ class Request
      * @param mixed $key key
      * @return mixed
      */
-    public static function params($key) {
+    public static function params($key = null) {
 
     }
 
@@ -192,7 +192,7 @@ class Request
      * @param mixed $request request
      * @return mixed
      */
-    public static function init($get, $post, $cookie, $server, $env, $files, $request) {
+    public static function init($get, $post, $cookie = null, $server = null, $env = null, $files = null, $request = null) {
 
     }
 
