@@ -203,28 +203,27 @@ PHP_METHOD(gene_factory, create)
 {
 	zval *params = NULL, *entrys = NULL, *pzval = NULL, classObject;
 	zval *di = NULL;
-	char *class;
-	uint32_t class_len = 0;
+	zend_string *name;
 	long type = 0;
-	if (zend_parse_parameters(ZEND_NUM_ARGS(), "s|zl", &class, &class_len, &params, &type) == FAILURE) {
+	if (zend_parse_parameters(ZEND_NUM_ARGS(), "S|zl", &name, &params, &type) == FAILURE) {
 		return;
 	}
 
 	if (type) {
 		di = gene_di_instance();
 		entrys = zend_read_property(gene_di_ce, gene_strip_obj(di), GENE_DI_PROPERTY_REG, strlen(GENE_DI_PROPERTY_REG), 1, NULL);
-		if ((pzval = zend_hash_str_find(Z_ARRVAL_P(entrys), class, class_len)) != NULL) {
+		if ((pzval = zend_hash_find(Z_ARRVAL_P(entrys), name)) != NULL) {
 			Z_TRY_ADDREF_P(pzval);
 			RETURN_ZVAL(pzval, 0, 0);
 		}
 	}
 
 
-	if (gene_factory(class, class_len, params, &classObject)) {
+	if (gene_factory(ZSTR_VAL(name), ZSTR_LEN(name), params, &classObject)) {
 		Z_TRY_ADDREF_P(&classObject);
 		if (type) {
 			Z_TRY_ADDREF_P(&classObject);
-			zend_hash_str_update(Z_ARRVAL_P(entrys), class, class_len, &classObject);
+			zend_hash_update(Z_ARRVAL_P(entrys), name, &classObject);
 		}
 		RETURN_ZVAL(&classObject, 0, 0);
 	}
