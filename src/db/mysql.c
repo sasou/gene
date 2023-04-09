@@ -161,7 +161,7 @@ zend_bool mysqlInitPdo (zval * self, zval *config) {
 
 	zend_string *c_key = zend_string_init(ZEND_STRL("PDO"), 0);
 	zend_class_entry *pdo_ptr = zend_lookup_class(c_key);
-	zend_string_free(c_key);
+	zend_string_release(c_key);
 
 	object_init_ex(&pdo_object, pdo_ptr);
 

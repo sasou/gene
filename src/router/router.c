@@ -370,7 +370,7 @@ char * get_function_content(zval *content) {
 		php_error_docref(NULL, E_WARNING, "Unable to start ReflectionFunction");
 		return NULL;
 	}
-	zend_string_free(c_key);
+	zend_string_release(c_key);
 	//get file info
 	object_init_ex(&objEx, reflection_ptr);
 	zend_call_method_with_1_params(gene_strip_obj(&objEx), NULL, NULL, "__construct", NULL,
@@ -392,7 +392,7 @@ char * get_function_content(zval *content) {
 		php_error_docref(NULL, E_WARNING, "Unable to start SplFileObject");
 		return NULL;
 	}
-	zend_string_free(c_key);
+	zend_string_release(c_key);
 	object_init_ex(&objEx, spl_file_ptr);
 
 	zend_call_method_with_1_params(gene_strip_obj(&objEx), NULL, NULL, "__construct", NULL,

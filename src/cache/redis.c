@@ -161,7 +161,7 @@ zend_bool initRObj (zval * self, zval *config) {
 	}
 	zend_string *c_key = zend_string_init(ZEND_STRL("Redis"), 0);
 	zend_class_entry *obj_ptr = zend_lookup_class(c_key);
-	zend_string_free(c_key);
+	zend_string_release(c_key);
 
 	object_init_ex(&obj_object, obj_ptr);
 
