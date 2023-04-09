@@ -335,7 +335,7 @@ void gene_memory_set(char *keyString, size_t keyString_len, zval *zvalue,
 			gene_memory_zval_persistent(&ret, zvalue);
 			key = gene_str_persistent(keyString, keyString_len);
 			gene_symtable_update(GENE_G(cache), key, &ret);
-			zend_string_free(key);
+			zend_string_release(key);
 			return;
 		}
 		gene_memory_zval_edit_persistent(copyval, zvalue);
