@@ -31,10 +31,10 @@ PHP_METHOD(ce, is##x) {\
 	} \
 	me = zend_string_init(GENE_G(method), strlen(GENE_G(method))+1, 0);\
 	if (strncasecmp(#x, ZSTR_VAL(me), ZSTR_LEN(me)) == 0) { \
-		zend_string_free(me);\
+		zend_string_release(me);\
 		RETURN_TRUE; \
 	} \
-	zend_string_free(me);\
+	zend_string_release(me);\
 	RETURN_FALSE; \
 }
 
