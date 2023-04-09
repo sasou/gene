@@ -130,25 +130,41 @@ void reset_params(zval *self)
 
 	zval config_tmp;
 	array_init(&config_tmp);
-	Z_TRY_ADDREF(config_tmp);
+	#if PHP_VERSION_ID < 70300
+		GC_REFCOUNT(Z_ARRVAL_P(&config_tmp)) = 1;
+	#else
+		GC_SET_REFCOUNT(Z_ARRVAL_P(&config_tmp), 1);
+	#endif
 	zend_update_property(gene_validate_ce, gene_strip_obj(self), ZEND_STRL(GENE_VALIDATE_CONFIG), &config_tmp);
 	zval_ptr_dtor(&config_tmp);
 
 	zval value_tmp;
 	array_init(&value_tmp);
-	Z_TRY_ADDREF(value_tmp);
+	#if PHP_VERSION_ID < 70300
+		GC_REFCOUNT(Z_ARRVAL_P(&value_tmp)) = 1;
+	#else
+		GC_SET_REFCOUNT(Z_ARRVAL_P(&value_tmp), 1);
+	#endif
 	zend_update_property(gene_validate_ce, gene_strip_obj(self), ZEND_STRL(GENE_VALIDATE_VALUE), &value_tmp);
 	zval_ptr_dtor(&value_tmp);
 
 	zval error_tmp;
 	array_init(&error_tmp);
-	Z_TRY_ADDREF(error_tmp);
+	#if PHP_VERSION_ID < 70300
+		GC_REFCOUNT(Z_ARRVAL_P(&error_tmp)) = 1;
+	#else
+		GC_SET_REFCOUNT(Z_ARRVAL_P(&error_tmp), 1);
+	#endif
 	zend_update_property(gene_validate_ce, gene_strip_obj(self), ZEND_STRL(GENE_VALIDATE_ERROR), &error_tmp);
 	zval_ptr_dtor(&error_tmp);
 
 	zval closure_tmp;
 	array_init(&closure_tmp);
-	Z_TRY_ADDREF(closure_tmp);
+	#if PHP_VERSION_ID < 70300
+		GC_REFCOUNT(Z_ARRVAL_P(&closure_tmp)) = 1;
+	#else
+		GC_SET_REFCOUNT(Z_ARRVAL_P(&closure_tmp), 1);
+	#endif
 	zend_update_property(gene_validate_ce, gene_strip_obj(self), ZEND_STRL(GENE_VALIDATE_CLOSURE), &closure_tmp);
 	zval_ptr_dtor(&closure_tmp);
 }

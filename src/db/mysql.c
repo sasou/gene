@@ -175,17 +175,21 @@ zend_bool mysqlInitPdo (zval * self, zval *config) {
 		 php_error_docref(NULL, E_ERROR, "PDO need a valid password.");
 	}
 	options = zend_hash_str_find(config->value.arr, ZEND_STRL("options"));
-    if (options == NULL) {
-    	array_init(&option);
-    	add_index_long(&option, 3, 2);
-    	add_index_long(&option, 19, 2);
-    	gene_pdo_construct(&pdo_object, dsn, user, pass, &option);
-    	zval_ptr_dtor(&option);
+    if (options == NULL || Z_TYPE_P(options) == IS_NULL) {
+		array_init(&option);
     } else {
-    	add_index_long(options, 3, 2);
-    	add_index_long(options, 19, 2);
-    	gene_pdo_construct(&pdo_object, dsn, user, pass, options);
+		ZVAL_COPY(&option, options);
     }
+	#if PHP_VERSION_ID < 70300
+		GC_REFCOUNT(Z_ARRVAL_P(&option)) = 1;
+	#else
+		GC_SET_REFCOUNT(Z_ARRVAL_P(&option), 1);
+	#endif
+	
+	add_index_long(&option, 3, 2);
+	add_index_long(&option, 19, 2);
+	gene_pdo_construct(&pdo_object, dsn, user, pass, &option);
+	zval_ptr_dtor(&option);
 
 	if (EG(exception)) {
 		if (checkPdoError(EG(exception))) {

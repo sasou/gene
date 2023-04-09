@@ -156,6 +156,22 @@ PHP_METHOD(gene_response, redirect) {
 	gene_response_set_redirect(ZSTR_VAL(url), code);
 	RETURN_TRUE;
 }
+
+
+/** {{{ proto public gene_response::redirectJs(string $url)
+ */
+PHP_METHOD(gene_response, redirectJs) {
+	zend_string *url;
+
+	if (zend_parse_parameters(ZEND_NUM_ARGS(), "S", &url) == FAILURE) {
+		return;
+	}
+	php_printf("<script type=\"text/javascript\">\n");
+	php_printf("window.location.href=\"%s\";\n", ZSTR_VAL(url));
+	php_printf("</script>\n");
+}
+
+
 /* }}} */
 
 /** {{{ proto public gene_response::alert(string $text, string $url = NULL)
@@ -308,6 +324,7 @@ PHP_METHOD(gene_response, setHtmlHeader) {
  */
 zend_function_entry gene_response_methods[] = {
 	PHP_ME(gene_response, redirect, gene_response_arg_redirect, ZEND_ACC_PUBLIC|ZEND_ACC_STATIC)
+	PHP_ME(gene_response, redirectJs, gene_response_arg_redirect, ZEND_ACC_PUBLIC|ZEND_ACC_STATIC)
 	PHP_ME(gene_response, alert, gene_response_arg_alert, ZEND_ACC_PUBLIC|ZEND_ACC_STATIC)
 	PHP_ME(gene_response, success, gene_response_arg_se, ZEND_ACC_PUBLIC|ZEND_ACC_STATIC)
 	PHP_ME(gene_response, error, gene_response_arg_se, ZEND_ACC_PUBLIC|ZEND_ACC_STATIC)
