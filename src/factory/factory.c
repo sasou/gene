@@ -46,7 +46,7 @@ zend_bool gene_factory_load_class(char *className, size_t tmp_len, zval *classOb
 
 	c_key = zend_string_init(className, tmp_len, 0);
 	pdo_ptr = zend_lookup_class(c_key);
-	zend_string_free(c_key);
+	zend_string_release(c_key);
 
 	if (pdo_ptr) {
 		object_init_ex(classObject, pdo_ptr);
@@ -143,7 +143,7 @@ zend_bool gene_factory(char *className, size_t tmp_len, zval *params, zval *clas
 
 	c_key = zend_string_init(className, tmp_len, 0);
 	pdo_ptr = zend_lookup_class(c_key);
-	zend_string_free(c_key);
+	zend_string_release(c_key);
 
 	if (pdo_ptr) {
 		object_init_ex(classObject, pdo_ptr);

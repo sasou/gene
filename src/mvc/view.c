@@ -283,9 +283,9 @@ static int parser_templates(php_stream **stream, char *compile_path) {
 			efree(result);
 			result = estrndup(ret->val, ret->len);
 			result_len = ret->len;
-			zend_string_free(ret);
+			zend_string_release(ret);
 		}
-		zend_string_free(arg);
+		zend_string_release(arg);
 		zval_ptr_dtor(&replace_val);
 #else
 		zend_string *replace_val;
@@ -294,10 +294,10 @@ static int parser_templates(php_stream **stream, char *compile_path) {
 			efree(result);
 			result = estrndup(ret->val, ret->len);
 			result_len = ret->len;
-			zend_string_free(ret);
+			zend_string_release(ret);
 		}
-		zend_string_free(arg);
-		zend_string_free(replace_val);
+		zend_string_release(arg);
+		zend_string_release(replace_val);
 #endif
 	}
 
