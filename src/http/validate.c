@@ -121,6 +121,14 @@ ZEND_BEGIN_ARG_INFO_EX(gene_validate_call_arginfo, 0, 0, 2)
 	ZEND_ARG_INFO(0, params)
 ZEND_END_ARG_INFO()
 
+void setFefCount(zval *arr) {
+	#if PHP_VERSION_ID < 70300
+		GC_REFCOUNT(Z_ARRVAL_P(arr)) = 1;
+	#else
+		GC_SET_REFCOUNT(Z_ARRVAL_P(arr), 1);
+	#endif
+}
+
 void reset_params(zval *self)
 {
 	zend_update_property_null(gene_validate_ce, gene_strip_obj(self), ZEND_STRL(GENE_VALIDATE_DATA));
@@ -130,41 +138,21 @@ void reset_params(zval *self)
 
 	zval config_tmp;
 	array_init(&config_tmp);
-	#if PHP_VERSION_ID < 70300
-		GC_REFCOUNT(Z_ARRVAL_P(&config_tmp)) = 1;
-	#else
-		GC_SET_REFCOUNT(Z_ARRVAL_P(&config_tmp), 1);
-	#endif
 	zend_update_property(gene_validate_ce, gene_strip_obj(self), ZEND_STRL(GENE_VALIDATE_CONFIG), &config_tmp);
 	zval_ptr_dtor(&config_tmp);
 
 	zval value_tmp;
 	array_init(&value_tmp);
-	#if PHP_VERSION_ID < 70300
-		GC_REFCOUNT(Z_ARRVAL_P(&value_tmp)) = 1;
-	#else
-		GC_SET_REFCOUNT(Z_ARRVAL_P(&value_tmp), 1);
-	#endif
 	zend_update_property(gene_validate_ce, gene_strip_obj(self), ZEND_STRL(GENE_VALIDATE_VALUE), &value_tmp);
 	zval_ptr_dtor(&value_tmp);
 
 	zval error_tmp;
 	array_init(&error_tmp);
-	#if PHP_VERSION_ID < 70300
-		GC_REFCOUNT(Z_ARRVAL_P(&error_tmp)) = 1;
-	#else
-		GC_SET_REFCOUNT(Z_ARRVAL_P(&error_tmp), 1);
-	#endif
 	zend_update_property(gene_validate_ce, gene_strip_obj(self), ZEND_STRL(GENE_VALIDATE_ERROR), &error_tmp);
 	zval_ptr_dtor(&error_tmp);
 
 	zval closure_tmp;
 	array_init(&closure_tmp);
-	#if PHP_VERSION_ID < 70300
-		GC_REFCOUNT(Z_ARRVAL_P(&closure_tmp)) = 1;
-	#else
-		GC_SET_REFCOUNT(Z_ARRVAL_P(&closure_tmp), 1);
-	#endif
 	zend_update_property(gene_validate_ce, gene_strip_obj(self), ZEND_STRL(GENE_VALIDATE_CLOSURE), &closure_tmp);
 	zval_ptr_dtor(&closure_tmp);
 }
@@ -436,6 +424,7 @@ PHP_METHOD(gene_validate, skipOnEmpty)
 		zval keyArr_tmp;
 		array_init(&keyArr_tmp);
 		Z_TRY_ADDREF(keyArr_tmp);
+		setFefCount(config);
 		zend_hash_str_update(Z_ARRVAL_P(config), Z_STRVAL_P(key), Z_STRLEN_P(key), &keyArr_tmp);
 		zval_ptr_dtor(&keyArr_tmp);
 		keyArr = zend_hash_str_find(Z_ARRVAL_P(config), Z_STRVAL_P(key), Z_STRLEN_P(key));
@@ -445,6 +434,7 @@ PHP_METHOD(gene_validate, skipOnEmpty)
 		zval val;
 		ZVAL_BOOL(&val , 1);
 		Z_TRY_ADDREF(val);
+		setFefCount(keyArr);
 		zend_hash_str_update(Z_ARRVAL_P(keyArr), "skip", 4, &val);
 		zval_ptr_dtor(&val);
 	}
@@ -480,6 +470,7 @@ PHP_METHOD(gene_validate, filter)
 					zval ret;
 					gene_factory_function_call(ZSTR_VAL(method), val, args, &ret);
 					Z_TRY_ADDREF(ret);
+					setFefCount(data);
 					zend_hash_str_update(Z_ARRVAL_P(data),  Z_STRVAL_P(key_one), Z_STRLEN_P(key_one), &ret);
 					zval_ptr_dtor(&ret);
 				}
@@ -516,6 +507,7 @@ PHP_METHOD(gene_validate, addValidator)
 			Z_TRY_ADDREF_P(msg);
 			add_assoc_zval_ex(&val_tmp, "msg", 3, msg);
 			Z_TRY_ADDREF(val_tmp);
+			setFefCount(closure);
 			zend_hash_update(Z_ARRVAL_P(closure), name, &val_tmp);
 			zval_ptr_dtor(&val_tmp);
 		}
@@ -547,6 +539,7 @@ PHP_METHOD(gene_validate, __call) {
 		zval keyArr_tmp;
 		array_init(&keyArr_tmp);
 		Z_TRY_ADDREF(keyArr_tmp);
+		setFefCount(config);
 		zend_hash_str_update(Z_ARRVAL_P(config), Z_STRVAL_P(key), Z_STRLEN_P(key), &keyArr_tmp);
 		zval_ptr_dtor(&keyArr_tmp);
 		keyArr = zend_hash_str_find(Z_ARRVAL_P(config), Z_STRVAL_P(key), Z_STRLEN_P(key));
@@ -556,6 +549,7 @@ PHP_METHOD(gene_validate, __call) {
 		zval listArr_tmp;
 		array_init(&listArr_tmp);
 		Z_TRY_ADDREF(listArr_tmp);
+		setFefCount(keyArr);
 		zend_hash_str_update(Z_ARRVAL_P(keyArr), "list", 4, &listArr_tmp);
 		zval_ptr_dtor(&listArr_tmp);
 		listArr = zend_hash_str_find(Z_ARRVAL_P(keyArr), "list", 4);
@@ -567,6 +561,7 @@ PHP_METHOD(gene_validate, __call) {
 		Z_TRY_ADDREF_P(val);
 		add_assoc_zval_ex(&methodArr_tmp, "args", 4, val);
 		Z_TRY_ADDREF(methodArr_tmp);
+		setFefCount(listArr);
 		zend_hash_update(Z_ARRVAL_P(listArr),  method, &methodArr_tmp);
 		zval_ptr_dtor(&methodArr_tmp);
 	}
@@ -598,6 +593,7 @@ PHP_METHOD(gene_validate, msg)
 		zval keyArr_tmp;
 		array_init(&keyArr_tmp);
 		Z_TRY_ADDREF(keyArr_tmp);
+		setFefCount(config);
 		zend_hash_str_update(Z_ARRVAL_P(config), Z_STRVAL_P(key), Z_STRLEN_P(key), &keyArr_tmp);
 		zval_ptr_dtor(&keyArr_tmp);
 		keyArr = zend_hash_str_find(Z_ARRVAL_P(config), Z_STRVAL_P(key), Z_STRLEN_P(key));
@@ -607,6 +603,7 @@ PHP_METHOD(gene_validate, msg)
 	if (method && Z_TYPE_P(method) == IS_NULL) {
 		if (zend_hash_str_exists(Z_ARRVAL_P(keyArr), "msg", 3) == 0) {
 			Z_TRY_ADDREF_P(msg);
+			setFefCount(keyArr);
 			zend_hash_str_update(Z_ARRVAL_P(keyArr), "msg", 3, msg);
 		}
 	} else {
@@ -614,6 +611,7 @@ PHP_METHOD(gene_validate, msg)
 			zval listArr_tmp;
 			array_init(&listArr_tmp);
 			Z_TRY_ADDREF(listArr_tmp);
+			setFefCount(keyArr);
 			zend_hash_str_update(Z_ARRVAL_P(keyArr), "list", 4, &listArr_tmp);
 			zval_ptr_dtor(&listArr_tmp);
 			listArr = zend_hash_str_find(Z_ARRVAL_P(keyArr), "list", 4);
@@ -625,6 +623,7 @@ PHP_METHOD(gene_validate, msg)
 			Z_TRY_ADDREF_P(msg);
 			add_assoc_zval_ex(&methodArr_tmp, "msg", 3, msg);
 			Z_TRY_ADDREF(methodArr_tmp);
+			setFefCount(listArr);
 			zend_hash_str_update(Z_ARRVAL_P(listArr), Z_STRVAL_P(method), Z_STRLEN_P(method), &methodArr_tmp);
 			zval_ptr_dtor(&methodArr_tmp);
 		} else {
@@ -688,6 +687,7 @@ int validCheck(zval *self, zval *date_field, zval *rules, int is_group) {
 							gene_factory_function_call_1(func, NULL, NULL, &ret);
 						}
 						if (Z_TYPE(ret) == IS_FALSE) {
+							setFefCount(values);
 							zend_hash_str_del(Z_ARRVAL_P(values), Z_STRVAL_P(date_field), Z_STRLEN_P(date_field));
 							msg = zend_hash_str_find(Z_ARRVAL_P(value), "msg", 3);
 							if (msg == NULL) {
@@ -697,6 +697,7 @@ int validCheck(zval *self, zval *date_field, zval *rules, int is_group) {
 								msg = zend_hash_str_find(Z_ARRVAL_P(closure_arr), "msg", 3);
 							}
 							if (msg) {
+								setFefCount(errors);
 								zend_hash_str_update(Z_ARRVAL_P(errors), Z_STRVAL_P(date_field), Z_STRLEN_P(date_field), msg);
 							}
 							isValid = 0;
@@ -707,6 +708,7 @@ int validCheck(zval *self, zval *date_field, zval *rules, int is_group) {
 						} else {
 							if (zend_hash_str_exists(Z_ARRVAL_P(errors), Z_STRVAL_P(date_field), Z_STRLEN_P(date_field)) == 0) {
 								Z_TRY_ADDREF_P(date_field_val);
+								setFefCount(values);
 								zend_hash_str_update(Z_ARRVAL_P(values), Z_STRVAL_P(date_field), Z_STRLEN_P(date_field), date_field_val);
 							}
 						}
@@ -720,6 +722,7 @@ int validCheck(zval *self, zval *date_field, zval *rules, int is_group) {
 						zval ret, *msg = NULL;
 						gene_factory_call(self, name, args, &ret);
 						if (Z_TYPE(ret) == IS_FALSE) {
+							setFefCount(values);
 							zend_hash_str_del(Z_ARRVAL_P(values), Z_STRVAL_P(date_field), Z_STRLEN_P(date_field));
 							msg = zend_hash_str_find(Z_ARRVAL_P(value), "msg", 3);
 							if (msg == NULL) {
@@ -729,6 +732,7 @@ int validCheck(zval *self, zval *date_field, zval *rules, int is_group) {
 								zval tmp_msg;
 								gene_vsprintf(getErrorMsg(ZSTR_VAL(method)), args, &tmp_msg);
 								Z_TRY_ADDREF(tmp_msg);
+								setFefCount(errors);
 								zend_hash_str_update(Z_ARRVAL_P(errors), Z_STRVAL_P(date_field), Z_STRLEN_P(date_field), &tmp_msg);
 								zval_ptr_dtor(&tmp_msg);
 							} else {
@@ -743,6 +747,7 @@ int validCheck(zval *self, zval *date_field, zval *rules, int is_group) {
 						} else {
 							if (zend_hash_str_exists(Z_ARRVAL_P(errors), Z_STRVAL_P(date_field), Z_STRLEN_P(date_field)) == 0) {
 								Z_TRY_ADDREF_P(date_field_val);
+								setFefCount(values);
 								zend_hash_str_update(Z_ARRVAL_P(values), Z_STRVAL_P(date_field), Z_STRLEN_P(date_field), date_field_val);
 							}
 						}
