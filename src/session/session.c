@@ -125,6 +125,12 @@ static zval * gene_session_set_val(zval *val, char *keyString, size_t keyString_
 		return NULL;
 	}
 
+	#if PHP_VERSION_ID < 70300
+		GC_REFCOUNT(Z_ARRVAL_P(val)) = 1;
+	#else
+		GC_SET_REFCOUNT(Z_ARRVAL_P(val), 1);
+	#endif
+
 	if (zvalue == NULL) {
 		copyval = zend_symtable_str_find(Z_ARRVAL_P(val), keyString, keyString_len);
 		if (copyval == NULL) {
