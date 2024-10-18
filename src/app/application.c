@@ -162,7 +162,14 @@ void load_file(char *key, size_t key_len, char *php_script, int validity) {
  */
 zend_long gene_file_modified(char *file, long ctime) {
 	zval n_ctime;
-	php_stat(file, strlen(file), 6 /* FS_MTIME */, &n_ctime);
+	#if PHP_VERSION_ID >= 80101
+		zend_string *filename;
+		filename = zend_string_init(file, strlen(file), 0);
+		php_stat(filename, 6 /* FS_MTIME */, &n_ctime);
+		zend_string_release(filename);
+	#else
+	    php_stat(file, strlen(file), 6 /* FS_MTIME */, &n_ctime);
+	#endif
 	if (ctime != Z_LVAL(n_ctime)) {
 		return Z_LVAL(n_ctime);
 	}
