@@ -1360,16 +1360,23 @@ PHP_METHOD(gene_validate, rule_digit)
 	if ((val = getFieldVal(self)) == NULL) {
 		RETURN_FALSE;
 	}
-	zval ret1,ret2;
+	zval ret1;
 	gene_factory_call_2("is_int", val, &ret1);
-	gene_factory_call_2("ctype_digit", val, &ret2);
-	if (Z_TYPE(ret1) == IS_TRUE || Z_TYPE(ret2) == IS_TRUE) {
+	if (Z_TYPE(ret1) == IS_TRUE) {
 		zval_ptr_dtor(&ret1);
-		zval_ptr_dtor(&ret2);
 		RETURN_TRUE;
 	}
 	zval_ptr_dtor(&ret1);
-	zval_ptr_dtor(&ret2);
+
+	if (Z_TYPE_P(val) == IS_STRING) {
+		zval ret2;
+		gene_factory_call_2("ctype_digit", val, &ret2);
+		if (Z_TYPE(ret2) == IS_TRUE) {
+			zval_ptr_dtor(&ret2);
+			RETURN_TRUE;
+		}
+		zval_ptr_dtor(&ret2);
+	}
 	RETURN_FALSE;
 }
 /* }}} */
