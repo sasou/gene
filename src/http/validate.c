@@ -470,7 +470,6 @@ PHP_METHOD(gene_validate, filter)
 					zval ret;
 					gene_factory_function_call(ZSTR_VAL(method), val, args, &ret);
 					Z_TRY_ADDREF(ret);
-					setFefCount(data);
 					zend_hash_str_update(Z_ARRVAL_P(data),  Z_STRVAL_P(key_one), Z_STRLEN_P(key_one), &ret);
 					zval_ptr_dtor(&ret);
 				}
