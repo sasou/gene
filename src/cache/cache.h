@@ -18,6 +18,7 @@
 #define GENE_CACHE_H
 #define GENE_CACHE_CONFIG "config"
 #define GENE_CACHE_TMP "tmp:"
+#define GENE_CACHE_FG ":"
 
 extern zend_class_entry *gene_cache_ce;
 
