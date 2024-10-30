@@ -170,7 +170,7 @@ void gene_hash_destroy(HashTable *ht) /* {{{ */{
 /*
  * {{{ static void * gene_memory_init()
  */
-void gene_memory_init(TSRMLS_DC) {
+void gene_memory_init() {
 	if (!GENE_G(cache)) {
 		PALLOC_HASHTABLE(GENE_G(cache));
 		zend_hash_init(GENE_G(cache), 8, NULL, gene_memory_zval_dtor, 1);
