@@ -221,6 +221,14 @@ void makeArgsArr(zval *arr, smart_str *tmp_s) { /*{{{*/
 	}ZEND_HASH_FOREACH_END();
 }
 /*}}}*/
+void convert_val_to_string(zval *element, smart_str *tmp_s) { /*{{{*/
+	zval tmp;
+	ZVAL_COPY(&tmp, element);
+	convert_to_string(&tmp);
+	smart_str_appendl(tmp_s,  Z_STRVAL(tmp), Z_STRLEN(tmp));
+	zval_ptr_dtor(&tmp);
+}
+/*}}}*/
 void makeArgsKey(zend_ulong indexs, zend_string *id, zval *element, smart_str *tmp_s) { /*{{{*/
 	if (id != NULL) {
 		smart_str_appendl(tmp_s,  ZSTR_VAL(id), ZSTR_LEN(id));
@@ -243,11 +251,7 @@ void makeArgsKey(zend_ulong indexs, zend_string *id, zval *element, smart_str *t
 			case IS_REFERENCE:
 				break;
 			default:
-				zval tmp;
-				ZVAL_COPY(&tmp, element);
-				convert_to_string(&tmp);
-				smart_str_appendl(tmp_s,  Z_STRVAL(tmp), Z_STRLEN(tmp));
-				zval_ptr_dtor(&tmp);
+				convert_val_to_string(element, tmp_s);
 				break;
 		}
 	}
