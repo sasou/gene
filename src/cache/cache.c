@@ -317,12 +317,14 @@ void gene_cache_get_version_arr(zval *versionSign, zval *versionField, zval *ret
 	if (top) {
 		add_next_index_zval(retval, top);
 	}
-	ZEND_HASH_FOREACH_STR_KEY_VAL(Z_ARRVAL_P(versionField), id, element)
-	{
-		makeKey(versionSign, id, element, &tmp_arr[i]);
-		add_next_index_zval(retval, &tmp_arr[i]);
-		i++;
-	}ZEND_HASH_FOREACH_END();
+	if (versionField != NULL && Z_TYPE_P(versionField) == IS_ARRAY) {
+		ZEND_HASH_FOREACH_STR_KEY_VAL(Z_ARRVAL_P(versionField), id, element)
+		{
+			makeKey(versionSign, id, element, &tmp_arr[i]);
+			add_next_index_zval(retval, &tmp_arr[i]);
+			i++;
+		}ZEND_HASH_FOREACH_END();
+	}
 }/*}}}*/
 
 void gene_cache_update_version(zval *versionSign, zval *versionField, zval *object) /*{{{*/
@@ -331,17 +333,19 @@ void gene_cache_update_version(zval *versionSign, zval *versionField, zval *obje
 	zend_string *key = NULL;
 	zval tmp_arr[10];
 	zend_ulong i = 0;
-	ZEND_HASH_FOREACH_STR_KEY_VAL(Z_ARRVAL_P(versionField), key, value)
-	{
-		makeKey(versionSign, key, value, &tmp_arr[i]);
-		zval ret, value;
-		ZVAL_STRING(&value, "1");
-		gene_cache_incr(object, &tmp_arr[i], &value, &ret);
-		zval_ptr_dtor(&ret);
-		zval_ptr_dtor(&value);
-		zval_ptr_dtor(&tmp_arr[i]);
-		i++;
-	}ZEND_HASH_FOREACH_END();
+	if (versionField != NULL && Z_TYPE_P(versionField) == IS_ARRAY) {
+		ZEND_HASH_FOREACH_STR_KEY_VAL(Z_ARRVAL_P(versionField), key, value)
+		{
+			makeKey(versionSign, key, value, &tmp_arr[i]);
+			zval ret, value;
+			ZVAL_STRING(&value, "1");
+			gene_cache_incr(object, &tmp_arr[i], &value, &ret);
+			zval_ptr_dtor(&ret);
+			zval_ptr_dtor(&value);
+			zval_ptr_dtor(&tmp_arr[i]);
+			i++;
+		}ZEND_HASH_FOREACH_END();
+	}
 }/*}}}*/
 
 
@@ -360,22 +364,24 @@ void curVersion(zval *versionField, zval *cache, zval *retval) {
 	array_init(retval);
 	zval *element;
 	zend_ulong i = 0;
-	ZEND_HASH_FOREACH_VAL(Z_ARRVAL_P(versionField), element)
-	{
-		if (i > 0) {
-			zval *val = zend_hash_find(Z_ARRVAL_P(cache), Z_STR_P(element));
-			if (val) {
-				Z_TRY_ADDREF_P(val);
-				add_assoc_zval_ex(retval,Z_STRVAL_P(element), Z_STRLEN_P(element), val);
+	if (versionField != NULL && Z_TYPE_P(versionField) == IS_ARRAY) {
+		ZEND_HASH_FOREACH_VAL(Z_ARRVAL_P(versionField), element)
+		{
+			if (i > 0) {
+				zval *val = zend_hash_find(Z_ARRVAL_P(cache), Z_STR_P(element));
+				if (val) {
+					Z_TRY_ADDREF_P(val);
+					add_assoc_zval_ex(retval,Z_STRVAL_P(element), Z_STRLEN_P(element), val);
+				}
 			}
-		}
-		i++;
-	}ZEND_HASH_FOREACH_END();
+			i++;
+		}ZEND_HASH_FOREACH_END();
+	}
 }
 
 
 int checkVersion(zval *oldVersion, zval *newVersion, zval *mode) {
-	if (Z_TYPE_P(oldVersion) != IS_ARRAY || Z_TYPE_P(newVersion) != IS_ARRAY) {
+	if (oldVersion == NULL || newVersion == NULL || Z_TYPE_P(oldVersion) != IS_ARRAY || Z_TYPE_P(newVersion) != IS_ARRAY) {
 		return 0;
 	}
 	if (mode && Z_TYPE_P(mode) == IS_TRUE) {
