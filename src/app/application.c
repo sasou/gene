@@ -113,6 +113,10 @@ ZEND_BEGIN_ARG_INFO_EX(gene_application_config, 0, 0, 1)
 	ZEND_ARG_INFO(0, key)
 ZEND_END_ARG_INFO()
 
+ZEND_BEGIN_ARG_INFO_EX(gene_application_lang, 0, 0, 1)
+	ZEND_ARG_INFO(0, name)
+ZEND_END_ARG_INFO()
+
 ZEND_BEGIN_ARG_INFO_EX(gene_application_get, 0, 0, 1)
     ZEND_ARG_INFO(0, name)
 ZEND_END_ARG_INFO()
@@ -566,6 +570,22 @@ PHP_METHOD(gene_application, run) {
 /* }}} */
 
 /*
+ * {{{ public gene_application::lang()
+ */
+PHP_METHOD(gene_application, lang) {
+	zend_string *name = NULL;
+	zval *self = getThis();
+	if (zend_parse_parameters(ZEND_NUM_ARGS(), "|S", &name) == FAILURE) {
+		return;
+	}
+	if (name) {
+		GENE_G(langs) = str_init(ZSTR_VAL(name));
+	}
+	RETURN_ZVAL(self, 1, 0);
+}
+/* }}} */
+
+/*
  * {{{ gene_application
  */
 PHP_METHOD(gene_application, __set)
@@ -638,6 +658,7 @@ zend_function_entry gene_application_methods[] = {
 	PHP_ME(gene_application, getEnvironment, gene_application_get_environment, ZEND_ACC_PUBLIC|ZEND_ACC_STATIC)
 	PHP_ME(gene_application, config, gene_application_config, ZEND_ACC_PUBLIC|ZEND_ACC_STATIC)
 	PHP_ME(gene_application, params, gene_application_config, ZEND_ACC_PUBLIC|ZEND_ACC_STATIC)
+	PHP_ME(gene_application, lang, gene_application_lang, ZEND_ACC_PUBLIC)
 	PHP_ME(gene_application, __get, gene_application_get, ZEND_ACC_PUBLIC)
 	PHP_ME(gene_application, __set, gene_application_set, ZEND_ACC_PUBLIC)
 	{ NULL, NULL, NULL }
