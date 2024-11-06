@@ -84,6 +84,7 @@ static void php_gene_init_globals() {
 	GENE_G(app_key) = NULL;
 	GENE_G(auto_load_fun) = NULL;
 	GENE_G(child_views) = NULL;
+	GENE_G(lang) = NULL;
 	GENE_G(path_params) = NULL;
 	GENE_G(cache) = NULL;
 	GENE_G(cache_easy) = NULL;
@@ -141,6 +142,10 @@ static void php_gene_close_globals() {
 	if (GENE_G(child_views)) {
 		efree(GENE_G(child_views));
 		GENE_G(child_views) = NULL;
+	}
+	if (GENE_G(lang)) {
+		efree(GENE_G(lang));
+		GENE_G(lang) = NULL;
 	}
 	if (GENE_G(app_key)) {
 		efree(GENE_G(app_key));
@@ -296,8 +301,6 @@ ZEND_GET_MODULE(gene)
 #if ZEND_MODULE_API_NO >= 20050922
 zend_module_dep gene_deps[] = {
 	ZEND_MOD_REQUIRED("spl")
-	ZEND_MOD_REQUIRED("pcre")
-	ZEND_MOD_OPTIONAL("session")
 	{ NULL, NULL, NULL }
 };
 #endif
