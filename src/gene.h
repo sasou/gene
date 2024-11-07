@@ -90,6 +90,7 @@ char *action;
 char *app_key;
 char *auto_load_fun;
 char *child_views;
+char *lang_list;
 char *lang;
 zval *path_params;
 zend_bool use_library;

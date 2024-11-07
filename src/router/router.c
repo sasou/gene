@@ -91,8 +91,9 @@ ZEND_BEGIN_ARG_INFO_EX(gene_router_prefix, 0, 0, 1)
 	ZEND_ARG_INFO(0, name)
 ZEND_END_ARG_INFO()
 
-ZEND_BEGIN_ARG_INFO_EX(gene_router_lang, 0, 0, 1)
-	ZEND_ARG_INFO(0, name)
+ZEND_BEGIN_ARG_INFO_EX(gene_router_lang, 0, 0, 2)
+	ZEND_ARG_INFO(0, lang)
+	ZEND_ARG_INFO(0, lang_list)
 ZEND_END_ARG_INFO()
 /* }}} */
 
@@ -1187,13 +1188,16 @@ PHP_METHOD(gene_router, prefix) {
  * {{{ public gene_router::lang()
  */
 PHP_METHOD(gene_router, lang) {
-	zend_string *name = NULL;
+	zend_string *lang_tmp = NULL,*lang_list_tmp = NULL;
 	zval *self = getThis();
-	if (zend_parse_parameters(ZEND_NUM_ARGS(), "|S", &name) == FAILURE) {
+	if (zend_parse_parameters(ZEND_NUM_ARGS(), "|SS", &lang_tmp, &lang_list_tmp) == FAILURE) {
 		return;
 	}
-	if (name) {
-		GENE_G(langs) = str_init(ZSTR_VAL(name));
+	if (lang_tmp) {
+		GENE_G(lang) = str_init(ZSTR_VAL(lang_tmp));
+	}
+	if (lang_list_tmp) {
+		GENE_G(lang_list) = str_init(ZSTR_VAL(lang_list_tmp));;
 	}
 	RETURN_ZVAL(self, 1, 0);
 }
