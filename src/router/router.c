@@ -87,11 +87,15 @@ ZEND_BEGIN_ARG_INFO_EX(gene_router_params, 0, 0, 1)
 	ZEND_ARG_INFO(0, name)
 ZEND_END_ARG_INFO()
 
-ZEND_BEGIN_ARG_INFO_EX(gene_router_prefix, 0, 0, 1)
+ZEND_BEGIN_ARG_INFO_EX(gene_router_prefix_arginfo, 0, 0, 1)
 	ZEND_ARG_INFO(0, name)
 ZEND_END_ARG_INFO()
 
-ZEND_BEGIN_ARG_INFO_EX(gene_router_lang, 0, 0, 2)
+ZEND_BEGIN_ARG_INFO_EX(gene_router_group_arginfo, 0, 0, 1)
+	ZEND_ARG_INFO(0, name)
+ZEND_END_ARG_INFO()
+
+ZEND_BEGIN_ARG_INFO_EX(gene_router_lang_arginfo, 0, 0, 2)
 	ZEND_ARG_INFO(0, lang)
 	ZEND_ARG_INFO(0, lang_list)
 ZEND_END_ARG_INFO()
@@ -680,7 +684,7 @@ PHP_METHOD(gene_router, __construct) {
  * {{{ public gene_router::__call($codeString)
  */
 PHP_METHOD(gene_router, __call) {
-	zval *val = NULL, *prefix, *safe, *pathVal = NULL, *contentval = NULL, *hook = NULL, *self = getThis();
+	zval *val = NULL, *group, *safe, *pathVal = NULL, *contentval = NULL, *hook = NULL, *self = getThis();
 	zval content;
 	long methodlen;
 	int i;
@@ -696,8 +700,8 @@ PHP_METHOD(gene_router, __call) {
 	if (IS_ARRAY == Z_TYPE_P(val)) {
 		pathVal = zend_hash_index_find(val->value.arr, 0);
 		if (pathVal != NULL && Z_TYPE_P(pathVal) == IS_STRING) {
-			prefix = zend_read_property(gene_router_ce, gene_strip_obj(self),GENE_ROUTER_PREFIX, strlen(GENE_ROUTER_PREFIX), 1,NULL);
-			spprintf(&path, 0, "%s%s", Z_STRVAL_P(prefix),Z_STRVAL_P(pathVal));
+			group = zend_read_property(gene_router_ce, gene_strip_obj(self),GENE_ROUTER_GROUP, strlen(GENE_ROUTER_GROUP), 1,NULL);
+			spprintf(&path, 0, "%s%s", Z_STRVAL_P(group),Z_STRVAL_P(pathVal));
 		}
 		if (path == NULL) {
 			spprintf(&path, 0, "");
@@ -825,8 +829,7 @@ PHP_METHOD(gene_router, getEvent) {
 	char *router_e;
 	safe = zend_read_property(gene_router_ce, gene_strip_obj(self), GENE_ROUTER_SAFE, strlen(GENE_ROUTER_SAFE), 1, NULL);
 	if (Z_STRLEN_P(safe)) {
-		router_e_len = spprintf(&router_e, 0, "%s%s", Z_STRVAL_P(safe),
-		GENE_ROUTER_ROUTER_EVENT);
+		router_e_len = spprintf(&router_e, 0, "%s%s", Z_STRVAL_P(safe),GENE_ROUTER_ROUTER_EVENT);
 	} else {
 		router_e_len = spprintf(&router_e, 0, "%s", GENE_ROUTER_ROUTER_EVENT);
 	}
@@ -849,8 +852,7 @@ PHP_METHOD(gene_router, getTree) {
 	char *router_e;
 	safe = zend_read_property(gene_router_ce, gene_strip_obj(self), GENE_ROUTER_SAFE, strlen(GENE_ROUTER_SAFE), 1, NULL);
 	if (Z_STRLEN_P(safe)) {
-		router_e_len = spprintf(&router_e, 0, "%s%s", Z_STRVAL_P(safe),
-		GENE_ROUTER_ROUTER_TREE);
+		router_e_len = spprintf(&router_e, 0, "%s%s", Z_STRVAL_P(safe),GENE_ROUTER_ROUTER_TREE);
 	} else {
 		router_e_len = spprintf(&router_e, 0, "%s", GENE_ROUTER_ROUTER_TREE);
 	}
@@ -917,8 +919,7 @@ PHP_METHOD(gene_router, clear) {
 	char *router_e;
 	safe = zend_read_property(gene_router_ce, gene_strip_obj(self), GENE_ROUTER_SAFE, strlen(GENE_ROUTER_SAFE), 1, NULL);
 	if (Z_STRLEN_P(safe)) {
-		router_e_len = spprintf(&router_e, 0, "%s%s", Z_STRVAL_P(safe),
-		GENE_ROUTER_ROUTER_TREE);
+		router_e_len = spprintf(&router_e, 0, "%s%s", Z_STRVAL_P(safe),GENE_ROUTER_ROUTER_TREE);
 	} else {
 		router_e_len = spprintf(&router_e, 0, "%s", GENE_ROUTER_ROUTER_TREE);
 	}
@@ -950,8 +951,7 @@ PHP_METHOD(gene_router, getTime) {
 	char *router_e;
 	safe = zend_read_property(gene_router_ce, gene_strip_obj(self), GENE_ROUTER_SAFE, strlen(GENE_ROUTER_SAFE), 1, NULL);
 	if (Z_STRLEN_P(safe)) {
-		router_e_len = spprintf(&router_e, 0, "%s%s", Z_STRVAL_P(safe),
-		GENE_ROUTER_ROUTER_TREE);
+		router_e_len = spprintf(&router_e, 0, "%s%s", Z_STRVAL_P(safe),GENE_ROUTER_ROUTER_TREE);
 	} else {
 		router_e_len = spprintf(&router_e, 0, "%s", GENE_ROUTER_ROUTER_TREE);
 	}
@@ -1143,18 +1143,18 @@ PHP_METHOD(gene_router, params) {
 PHP_METHOD(gene_router, group) {
 	zend_string *name = NULL;
 	zval *self = getThis();
-	char *prefix = NULL;
+	char *group = NULL;
 	if (zend_parse_parameters(ZEND_NUM_ARGS(), "|S", &name) == FAILURE) {
 		return;
 	}
 
 	if (name == NULL) {
-		zend_update_property_string(gene_router_ce, gene_strip_obj(self), GENE_ROUTER_PREFIX, strlen(GENE_ROUTER_PREFIX), "");
+		zend_update_property_string(gene_router_ce, gene_strip_obj(self), GENE_ROUTER_GROUP, strlen(GENE_ROUTER_GROUP), "");
 	} else {
-		prefix = estrndup(ZSTR_VAL(name), ZSTR_LEN(name));
-		trim(prefix, '/');
-		zend_update_property_string(gene_router_ce, gene_strip_obj(self), GENE_ROUTER_PREFIX, strlen(GENE_ROUTER_PREFIX), prefix);
-		efree(prefix);
+		group = estrndup(ZSTR_VAL(name), ZSTR_LEN(name));
+		trim(group, '/');
+		zend_update_property_string(gene_router_ce, gene_strip_obj(self), GENE_ROUTER_GROUP, strlen(GENE_ROUTER_GROUP), group);
+		efree(group);
 	}
 
 	RETURN_ZVAL(self, 1, 0);
@@ -1166,19 +1166,28 @@ PHP_METHOD(gene_router, group) {
  */
 PHP_METHOD(gene_router, prefix) {
 	zend_string *name = NULL;
-	zval *self = getThis();
-	char *prefix = NULL;
+	zval *safe = NULL,*self = getThis();
+	char *router_e = NULL,*prefix = NULL;
+	size_t router_e_len;
+
 	if (zend_parse_parameters(ZEND_NUM_ARGS(), "|S", &name) == FAILURE) {
 		return;
 	}
 
-	if (name == NULL) {
-		zend_update_property_string(gene_router_ce, gene_strip_obj(self), GENE_ROUTER_PREFIX, strlen(GENE_ROUTER_PREFIX), "");
-	} else {
-		prefix = estrndup(ZSTR_VAL(name), ZSTR_LEN(name));
-		trim(prefix, '/');
-		zend_update_property_string(gene_router_ce, gene_strip_obj(self), GENE_ROUTER_PREFIX, strlen(GENE_ROUTER_PREFIX), prefix);
+	if (name) {
+		safe = zend_read_property(gene_router_ce, gene_strip_obj(self), GENE_ROUTER_SAFE, strlen(GENE_ROUTER_SAFE), 1, NULL);
+		if (Z_STRLEN_P(safe)) {
+			router_e_len = spprintf(&router_e, 0, "%s%s", Z_STRVAL_P(safe), GENE_ROUTER_ROUTER_CONFIG);
+		} else {
+			router_e_len = spprintf(&router_e, 0, "%s", GENE_ROUTER_ROUTER_CONFIG);
+		}
+		spprintf(&prefix, 0, "%s", GENE_ROUTER_PREFIX);
+		zval content;
+		ZVAL_STRING(&content, ZSTR_VAL(name));
+		gene_memory_set_by_router(router_e, router_e_len, prefix, &content, 0);
+		efree(router_e);
 		efree(prefix);
+		zval_ptr_dtor(&content);
 	}
 	RETURN_ZVAL(self, 1, 0);
 }
@@ -1189,16 +1198,37 @@ PHP_METHOD(gene_router, prefix) {
  */
 PHP_METHOD(gene_router, lang) {
 	zend_string *lang_tmp = NULL,*lang_list_tmp = NULL;
-	zval *self = getThis();
+	zval *safe = NULL,*self = getThis();
+	char *router_e = NULL,*lang = NULL,*langs = NULL;
+	size_t router_e_len;
 	if (zend_parse_parameters(ZEND_NUM_ARGS(), "|SS", &lang_tmp, &lang_list_tmp) == FAILURE) {
 		return;
 	}
+
+	safe = zend_read_property(gene_router_ce, gene_strip_obj(self), GENE_ROUTER_SAFE, strlen(GENE_ROUTER_SAFE), 1, NULL);
+	if (Z_STRLEN_P(safe)) {
+		router_e_len = spprintf(&router_e, 0, "%s%s", Z_STRVAL_P(safe), GENE_ROUTER_ROUTER_CONFIG);
+	} else {
+		router_e_len = spprintf(&router_e, 0, "%s", GENE_ROUTER_ROUTER_CONFIG);
+	}
+
 	if (lang_tmp) {
-		GENE_G(lang) = str_init(ZSTR_VAL(lang_tmp));
+		spprintf(&lang, 0, "%s", GENE_ROUTER_LANG);
+		zval content;
+		ZVAL_STRING(&content, ZSTR_VAL(lang_tmp));
+		gene_memory_set_by_router(router_e, router_e_len, lang, &content, 0);
+		efree(lang);
+		zval_ptr_dtor(&content);
 	}
 	if (lang_list_tmp) {
-		GENE_G(lang_list) = str_init(ZSTR_VAL(lang_list_tmp));;
+		spprintf(&langs, 0, "%s", GENE_ROUTER_LANGS);
+		zval content;
+		ZVAL_STRING(&content, ZSTR_VAL(lang_list_tmp));
+		gene_memory_set_by_router(router_e, router_e_len, langs, &content, 0);
+		efree(langs);
+		zval_ptr_dtor(&content);
 	}
+	efree(router_e);
 	RETURN_ZVAL(self, 1, 0);
 }
 /* }}} */
@@ -1223,9 +1253,9 @@ zend_function_entry gene_router_methods[] = {
 	PHP_ME(gene_router, readFile, gene_router_read_file, ZEND_ACC_PUBLIC)
 	PHP_ME(gene_router, dispatch, gene_router_dispatch, ZEND_ACC_PUBLIC|ZEND_ACC_STATIC)
 	PHP_ME(gene_router, params, gene_router_params, ZEND_ACC_PUBLIC|ZEND_ACC_STATIC)
-	PHP_ME(gene_router, prefix, gene_router_prefix, ZEND_ACC_PUBLIC)
-	PHP_ME(gene_router, group, gene_router_prefix, ZEND_ACC_PUBLIC)
-	PHP_ME(gene_router, lang, gene_router_lang, ZEND_ACC_PUBLIC)
+	PHP_ME(gene_router, prefix, gene_router_prefix_arginfo, ZEND_ACC_PUBLIC)
+	PHP_ME(gene_router, group, gene_router_group_arginfo, ZEND_ACC_PUBLIC)
+	PHP_ME(gene_router, lang, gene_router_lang_arginfo, ZEND_ACC_PUBLIC)
 	PHP_ME(gene_router, __call, gene_router_call_arginfo, ZEND_ACC_PUBLIC)
 	{ NULL, NULL, NULL }
 };
@@ -1241,7 +1271,7 @@ GENE_MINIT_FUNCTION(router) {
 
 	//prop
 	zend_declare_property_string(gene_router_ce, GENE_ROUTER_SAFE, strlen(GENE_ROUTER_SAFE), "", ZEND_ACC_PUBLIC);
-	zend_declare_property_string(gene_router_ce, GENE_ROUTER_PREFIX, strlen(GENE_ROUTER_PREFIX), "", ZEND_ACC_PUBLIC);
+	zend_declare_property_string(gene_router_ce, GENE_ROUTER_GROUP, strlen(GENE_ROUTER_GROUP), "", ZEND_ACC_PUBLIC);
 
 	return SUCCESS; // @suppress("Symbol is not resolved")
 }
