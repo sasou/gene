@@ -17,9 +17,13 @@
 #ifndef GENE_ROUTER_H
 #define GENE_ROUTER_H
 #define GENE_ROUTER_SAFE	"safe"
+#define GENE_ROUTER_GROUP	"group"
 #define GENE_ROUTER_PREFIX	"prefix"
+#define GENE_ROUTER_LANG	"lang"
+#define GENE_ROUTER_LANGS	"langs"
 #define GENE_ROUTER_ROUTER_EVENT ":re"
 #define GENE_ROUTER_ROUTER_TREE ":rt"
+#define GENE_ROUTER_ROUTER_CONFIG ":cf"
 #define GENE_ROUTER_LEAF_RUN "%s/leaf/run"
 #define GENE_ROUTER_LEAF_HOOK "%s/leaf/hook"
 #define GENE_ROUTER_LEAF_KEY "%s/leaf/key"

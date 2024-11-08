@@ -84,7 +84,6 @@ static void php_gene_init_globals() {
 	GENE_G(app_key) = NULL;
 	GENE_G(auto_load_fun) = NULL;
 	GENE_G(child_views) = NULL;
-	GENE_G(lang_list) = NULL;
 	GENE_G(lang) = NULL;
 	GENE_G(path_params) = NULL;
 	GENE_G(cache) = NULL;
@@ -143,10 +142,6 @@ static void php_gene_close_globals() {
 	if (GENE_G(child_views)) {
 		efree(GENE_G(child_views));
 		GENE_G(child_views) = NULL;
-	}
-	if (GENE_G(lang_list)) {
-		efree(GENE_G(lang_list));
-		GENE_G(lang_list) = NULL;
 	}
 	if (GENE_G(lang)) {
 		efree(GENE_G(lang));
