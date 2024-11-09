@@ -34,6 +34,27 @@ char *str_init(char *s)
 	return p;
 }
 
+char *str_sub(char *s, size_t s_len)
+{
+	size_t s_l = strlen(s);
+	if (s_len < s_l) {
+		s_l = s_len;
+	}
+	char *p = (char *) emalloc(s_l + 1);
+	strncpy(p, s, s_l);
+	p[s_l] = 0;
+	return p;
+}
+
+char *str_sub_len(char *src, size_t start, int len) {
+   int i;
+   char *dest = (char *) emalloc(len + 1);
+   for (i = 0; i < len && src[start + i] != '\0'; i++) {
+      dest[i] = src[start + i];
+   }
+   dest[i] = 0;
+   return dest;
+}
 
 char *str_append(char *s, const char*t)
 {
