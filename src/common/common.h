@@ -18,6 +18,8 @@
 #define GENE_COMMON_H
 
 char *str_init(char *s);
+char *str_sub(char *s, size_t s_len);
+char *str_sub_len(char *src, size_t start, int len);
 char *str_append(char* s, const char* t);
 char *firstToUpper(char *str);
 char *strtoupper(char *str);

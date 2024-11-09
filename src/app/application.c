@@ -336,6 +336,17 @@ PHP_METHOD(gene_application, getAction) {
 /* }}} */
 
 /*
+ * {{{ public gene_application::getLang()
+ */
+PHP_METHOD(gene_application, getLang) {
+	if (GENE_G(lang)) {
+		RETURN_STRING(GENE_G(lang));
+	}
+	RETURN_NULL();
+}
+/* }}} */
+
+/*
  * {{{ public gene_application::getRouterUri()
  */
 PHP_METHOD(gene_application, getRouterUri) {
@@ -631,6 +642,7 @@ zend_function_entry gene_application_methods[] = {
 	PHP_ME(gene_application, getMethod, gene_application_get_method, ZEND_ACC_PUBLIC|ZEND_ACC_STATIC)
 	PHP_ME(gene_application, getPath, gene_application_get_path, ZEND_ACC_PUBLIC|ZEND_ACC_STATIC)
 	PHP_ME(gene_application, getRouterUri, gene_application_get_uri, ZEND_ACC_PUBLIC|ZEND_ACC_STATIC)
+	PHP_ME(gene_application, getLang, gene_application_get_uri, ZEND_ACC_PUBLIC|ZEND_ACC_STATIC)
 	PHP_ME(gene_application, getModule, gene_application_get_module, ZEND_ACC_PUBLIC|ZEND_ACC_STATIC)
 	PHP_ME(gene_application, getController, gene_application_get_controller, ZEND_ACC_PUBLIC|ZEND_ACC_STATIC)
 	PHP_ME(gene_application, getAction, gene_application_get_action, ZEND_ACC_PUBLIC|ZEND_ACC_STATIC)

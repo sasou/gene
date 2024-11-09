@@ -23,7 +23,7 @@
 #define GENE_ROUTER_LANGS	"langs"
 #define GENE_ROUTER_ROUTER_EVENT ":re"
 #define GENE_ROUTER_ROUTER_TREE ":rt"
-#define GENE_ROUTER_ROUTER_CONFIG ":cf"
+#define GENE_ROUTER_ROUTER_CONF ":cf"
 #define GENE_ROUTER_LEAF_RUN "%s/leaf/run"
 #define GENE_ROUTER_LEAF_HOOK "%s/leaf/hook"
 #define GENE_ROUTER_LEAF_KEY "%s/leaf/key"
