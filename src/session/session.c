@@ -24,6 +24,8 @@
 #include "../gene.h"
 #include "../session/session.h"
 #include "../common/common.h"
+#include "../di/di.h"
+#include "../http/request.h"
 
 zend_class_entry * gene_session_ce;
 
@@ -53,6 +55,16 @@ ZEND_BEGIN_ARG_INFO_EX(gene_session_set_arginfo, 0, 0, 2)
 	ZEND_ARG_INFO(0, value)
 ZEND_END_ARG_INFO()
 /* }}} */
+
+
+void gene_strip_tags(zval *value, zval *retval) /*{{{*/
+{
+    zval function_name;
+    ZVAL_STRING(&function_name, "strip_tags");
+	zval params[] = { *value };
+    call_user_function(NULL, NULL, &function_name, retval, 1, params);
+    zval_ptr_dtor(&function_name);
+}/*}}}*/
 
 
 void gene_session_start() /*{{{*/
@@ -224,7 +236,69 @@ zend_bool gene_session_del_by_path(char *path) {
  * {{{ gene_session
  */
 PHP_METHOD(gene_session, __construct) {
+	zval *config = NULL, *self = getThis(), *val = NULL, *request = NULL, *cookie_id = NULL;
+    if (zend_parse_parameters(ZEND_NUM_ARGS(),"z", &config) == FAILURE)
+    {
+        return;
+    }
 
+    if (config && Z_TYPE_P(config) == IS_ARRAY) {
+		val = zend_hash_str_find(config->value.arr, ZEND_STRL("driver"));
+		if (val && Z_TYPE_P(val) == IS_STRING) {
+			zend_update_property_string(gene_session_ce, gene_strip_obj(self), ZEND_STRL(GENE_SESSION_DRIVER), Z_STRVAL_P(val));
+		}
+		val = zend_hash_str_find(config->value.arr, ZEND_STRL("prefix"));
+		if (val && Z_TYPE_P(val) == IS_STRING) {
+			zend_update_property_string(gene_session_ce, gene_strip_obj(self), ZEND_STRL(GENE_SESSION_PREFIX), Z_STRVAL_P(val));
+		}
+		val = zend_hash_str_find(config->value.arr, ZEND_STRL("name"));
+		if (val && Z_TYPE_P(val) == IS_STRING) {
+			zend_update_property_string(gene_session_ce, gene_strip_obj(self), ZEND_STRL(GENE_SESSION_NAME), Z_STRVAL_P(val));
+		}
+		val = zend_hash_str_find(config->value.arr, ZEND_STRL("domain"));
+		if (val && Z_TYPE_P(val) == IS_STRING) {
+			zend_update_property_string(gene_session_ce, gene_strip_obj(self), ZEND_STRL(GENE_SESSION_COOKIE_DOMAIN), Z_STRVAL_P(val));
+		}
+		val = zend_hash_str_find(config->value.arr, ZEND_STRL("path"));
+		if (val && Z_TYPE_P(val) == IS_STRING) {
+			zend_update_property_string(gene_session_ce, gene_strip_obj(self), ZEND_STRL(GENE_SESSION_COOKIE_PATH), Z_STRVAL_P(val));
+		}
+		val = zend_hash_str_find(config->value.arr, ZEND_STRL("secure"));
+		if (val) {
+			if (Z_TYPE_P(val) == IS_TRUE) {
+				zend_update_property_bool(gene_session_ce, gene_strip_obj(self), ZEND_STRL(GENE_SESSION_SECURE), TRUE);
+			} else {
+				zend_update_property_bool(gene_session_ce, gene_strip_obj(self), ZEND_STRL(GENE_SESSION_SECURE), FALSE);
+			}
+		}
+		val = zend_hash_str_find(config->value.arr, ZEND_STRL("httponly"));
+		if (val) {
+			if (Z_TYPE_P(val) == IS_TRUE) {
+				zend_update_property_bool(gene_session_ce, gene_strip_obj(self), ZEND_STRL(GENE_SESSION_HTTPONLY), TRUE);
+			} else {
+				zend_update_property_bool(gene_session_ce, gene_strip_obj(self), ZEND_STRL(GENE_SESSION_HTTPONLY), FALSE);
+			}
+		}
+	}
+	zval class_name;
+	gene_class_name(&class_name);
+	zend_string *name;
+	name = zend_string_init(ZEND_STRL("request"), 0);
+	request = gene_di_get_class(Z_STR(class_name), name);
+	zval_ptr_dtor(&class_name);
+	zend_string_free(name);
+	if (request) {
+		zval *name = zend_read_property(gene_session_ce, gene_strip_obj(self), ZEND_STRL(GENE_SESSION_NAME), 1, NULL);
+		cookie_id = getVal(TRACK_VARS_COOKIE, Z_STRVAL_P(name), Z_STRLEN_P(name));
+		if (cookie_id && Z_TYPE_P(cookie_id) == IS_STRING) {
+			zval ret;
+			gene_strip_tags(cookie_id, &ret);
+			zend_update_property_string(gene_session_ce, gene_strip_obj(self), ZEND_STRL(GENE_SESSION_COOKIE_PATH), Z_STRVAL(ret));
+			zval_ptr_dtor(&ret);
+		}
+	}
+
+    RETURN_ZVAL(self, 1, 0);
 }
 /* }}} */
 
@@ -374,9 +448,19 @@ GENE_MINIT_FUNCTION(session) {
 	GENE_INIT_CLASS_ENTRY(gene_session, "Gene_Session", "Gene\\Session", gene_session_methods);
 	gene_session_ce = zend_register_internal_class(&gene_session);
 
-	//debug
-	//zend_declare_property_null(gene_application_ce, GENE_EXECUTE_DEBUG, strlen(GENE_EXECUTE_DEBUG), ZEND_ACC_PUBLIC);
-	//
+    zend_declare_property_null(gene_session_ce, ZEND_STRL(GENE_SESSION_DRIVER), ZEND_ACC_PUBLIC);
+    zend_declare_property_null(gene_session_ce, ZEND_STRL(GENE_SESSION_DATA), ZEND_ACC_PUBLIC);
+    zend_declare_property_null(gene_session_ce, ZEND_STRL(GENE_SESSION_ID), ZEND_ACC_PUBLIC);
+    zend_declare_property_string(gene_session_ce, ZEND_STRL(GENE_SESSION_NAME), "SSID", ZEND_ACC_PUBLIC);
+    zend_declare_property_string(gene_session_ce, ZEND_STRL(GENE_SESSION_PREFIX), "", ZEND_ACC_PUBLIC);
+    zend_declare_property_null(gene_session_ce, ZEND_STRL(GENE_SESSION_COOKIE_ID), ZEND_ACC_PUBLIC);
+    zend_declare_property_long(gene_session_ce, ZEND_STRL(GENE_SESSION_COOKIE_LIFTTIME), 86400, ZEND_ACC_PUBLIC);
+	zend_declare_property_long(gene_session_ce, ZEND_STRL(GENE_SESSION_COOKIE_UPTIME), 1800, ZEND_ACC_PUBLIC);
+	zend_declare_property_string(gene_session_ce, ZEND_STRL(GENE_SESSION_COOKIE_DOMAIN), "", ZEND_ACC_PUBLIC);
+	zend_declare_property_string(gene_session_ce, ZEND_STRL(GENE_SESSION_COOKIE_PATH), "/", ZEND_ACC_PUBLIC);
+	zend_declare_property_bool(gene_session_ce, ZEND_STRL(GENE_SESSION_SECURE), FALSE, ZEND_ACC_PUBLIC);
+	zend_declare_property_bool(gene_session_ce, ZEND_STRL(GENE_SESSION_HTTPONLY), TRUE, ZEND_ACC_PUBLIC);
+
 	return SUCCESS; // @suppress("Symbol is not resolved")
 }
 /* }}} */
