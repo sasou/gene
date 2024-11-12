@@ -16,6 +16,18 @@
 
 #ifndef GENE_SESSION_H
 #define GENE_SESSION_H
+#define GENE_SESSION_DRIVER "driver"
+#define GENE_SESSION_DATA  "data"
+#define GENE_SESSION_ID  "session_id"
+#define GENE_SESSION_NAME  "session_name"
+#define GENE_SESSION_PREFIX  "session_prefix"
+#define GENE_SESSION_COOKIE_ID  "cookie_id"
+#define GENE_SESSION_COOKIE_LIFTTIME  "cookie_lifetime"
+#define GENE_SESSION_COOKIE_UPTIME  "cookie_uptime"
+#define GENE_SESSION_COOKIE_DOMAIN  "cookie_domain"
+#define GENE_SESSION_COOKIE_PATH  "cookie_path"
+#define GENE_SESSION_SECURE  "secure"
+#define GENE_SESSION_HTTPONLY  "httponly"
 
 extern zend_class_entry *gene_session_ce;
 
