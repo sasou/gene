@@ -57,5 +57,9 @@ int is_serialize(zval *str);
 int is_igbinary(zval *str);
 int serialize(zval *arr, zval *string, zval *serializer_handler);
 int unserialize(zval *string, zval *arr, zval *serializer_handler);
+void gene_microtime(zval *retval);
+void gene_strip_tags(zval *value, zval *retval);
+void gene_uniqid(zval *value, zval *retval);
+void gene_time(zval *retval);
 
 #endif

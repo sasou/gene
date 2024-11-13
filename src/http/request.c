@@ -168,7 +168,7 @@ zval *getVal(zend_ulong type, char *name, size_t len) {
 PHP_METHOD(gene_request, __construct) {
 	long debug = 0;
 	if (zend_parse_parameters(ZEND_NUM_ARGS(), "|l", &debug) == FAILURE) {
-		return;
+		RETURN_NULL();
 	}
 	RETURN_NULL();
 }
