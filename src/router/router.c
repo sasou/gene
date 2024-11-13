@@ -728,8 +728,7 @@ PHP_METHOD(gene_router, __construct) {
 	zval *safe = NULL;
 	int len = 0;
 	zval *obj = getThis();
-	if (zend_parse_parameters(ZEND_NUM_ARGS(), "|z", &safe)
-			== FAILURE) {
+	if (zend_parse_parameters(ZEND_NUM_ARGS(), "|z", &safe) == FAILURE) {
 		RETURN_NULL();
 	}
 	gene_ini_router();

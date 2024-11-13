@@ -702,6 +702,44 @@ void gene_md5(zval *value, zval *retval) /*{{{*/
     zval_ptr_dtor(&function_name);
 }/*}}}*/
 
+void gene_strip_tags(zval *value, zval *retval) /*{{{*/
+{
+    zval function_name;
+    ZVAL_STRING(&function_name, "strip_tags");
+	zval params[] = { *value };
+    call_user_function(NULL, NULL, &function_name, retval, 1, params);
+    zval_ptr_dtor(&function_name);
+}/*}}}*/
+
+void gene_microtime(zval *retval) /*{{{*/
+{
+    zval function_name;
+    ZVAL_STRING(&function_name, "microtime");
+	zval value;
+	ZVAL_TRUE(&value);
+	zval params[] = { value };
+    call_user_function(NULL, NULL, &function_name, retval, 1, params);
+    zval_ptr_dtor(&function_name);
+	zval_ptr_dtor(&value);
+}/*}}}*/
+
+void gene_time(zval *retval) /*{{{*/
+{
+    zval function_name;
+    ZVAL_STRING(&function_name, "time");
+    call_user_function(NULL, NULL, &function_name, retval, 0, NULL);
+    zval_ptr_dtor(&function_name);
+}/*}}}*/
+
+void gene_uniqid(zval *value, zval *retval) /*{{{*/
+{
+    zval function_name;
+    ZVAL_STRING(&function_name, "uniqid");
+	zval params[] = { *value };
+    call_user_function(NULL, NULL, &function_name, retval, 1, params);
+    zval_ptr_dtor(&function_name);
+}/*}}}*/
+
 void gene_class_name(zval *retval) /*{{{*/
 {
     zval function_name;
