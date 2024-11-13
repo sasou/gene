@@ -305,15 +305,37 @@ PHP_METHOD(gene_session, __construct) {
 /** {{{ public static gene_session::load()
  */
 PHP_METHOD(gene_session, load) {
-	zval *self = getThis(), *cookie_id = NULL;
+	zval *self = getThis(), *session_id = NULL， *driver = NULL, *obj = NULL;
 	char *path = NULL;
 
-	cookie_id = zend_read_property(gene_session_ce, gene_strip_obj(self), ZEND_STRL(GENE_SESSION_COOKIE_ID), 1, NULL);
-	if (cookie_id == NULL) {
-
+	session_id = zend_read_property(gene_session_ce, gene_strip_obj(self), ZEND_STRL(GENE_SESSION_ID), 1, NULL);
+	driver = zend_read_property(gene_session_ce, gene_strip_obj(self), ZEND_STRL(GENE_SESSION_DRIVER), 1, NULL);
+	if (session_id) {
+		zval class_name;
+		gene_class_name(&class_name);
+		obj = gene_di_get_class(Z_STR(class_name), Z_STR_P(driver));
+		zval_ptr_dtor(&class_name);
+		if (obj) {
+			zval params[] = { *session_id };
+			zval function_name,ret;
+			ZVAL_STRING(&function_name, "get");
+			call_user_function(NULL, obj, &function_name, &ret, 1, params);
+			zval_ptr_dtor(&function_name);
+			if (Z_TYPE(ret) == IS_ARRAY) {
+				zend_update_property(gene_session_ce, gene_strip_obj(self), ZEND_STRL(GENE_SESSION_DATA), &ret);
+			} else {
+				zval karr;
+				array_init(&karr);
+				zend_update_property(gene_session_ce, gene_strip_obj(self), ZEND_STRL(GENE_SESSION_DATA), &karr);
+				zval_ptr_dtor(&karr);
+			}
+			zval_ptr_dtor(&ret);
+		} else {
+			php_error_docref(NULL, E_WARNING, "Configure or inject the session storage plug-in");
+		}
 	}
 
-	RETURN_NULL();
+	RETURN_ZVAL(self, 1, 0);
 }
 /* }}} */
 
