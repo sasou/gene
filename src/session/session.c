@@ -211,7 +211,6 @@ static zval * gene_session_set_val(zval *val, char *keyString, size_t keyString_
 			}
 		}
 	} else {
-		php_printf(" bbb ");
 		copyval = zend_symtable_str_update(Z_ARRVAL_P(val), keyString, keyString_len, zvalue);
 	}
 	return copyval;
@@ -224,33 +223,26 @@ void gene_session_set_by_path(zval *obj, char *path, zval *zvalue) {
 	char *ptr = NULL, *seg = NULL;
 	zval *sess = NULL,*sess_data = NULL,*tmp = NULL, ret;
 	sess = zend_read_property(gene_session_ce, gene_strip_obj(obj), ZEND_STRL(GENE_SESSION_DATA), 1, NULL);
-	php_printf("  000  ");
 	if (sess && Z_TYPE_P(sess) == IS_NULL) {
 		data_load(obj);
 		sess = zend_read_property(gene_session_ce, gene_strip_obj(obj), ZEND_STRL(GENE_SESSION_DATA), 1, NULL);
-		php_printf("  111  ");
 	}
 
 	if (Z_TYPE_P(sess) == IS_ARRAY) {
-		php_printf("  222  ");
 		sess_data = zend_hash_str_find(Z_ARRVAL_P(sess), ZEND_STRL(GENE_SESSION_DATA));
 		if (sess_data == NULL) {
-				php_printf("  888  ");
 			zval tmp_data;
 			array_init(&tmp_data);
 			zend_symtable_str_update(Z_ARRVAL_P(sess), ZEND_STRL(GENE_SESSION_DATA), &tmp_data);
 			zval_ptr_dtor(&tmp_data);
 			sess_data = zend_hash_str_find(Z_ARRVAL_P(sess), ZEND_STRL(GENE_SESSION_DATA));
-			php_printf("  333  ");
 		}
 	}
 
 	if (Z_TYPE_P(sess_data) == IS_ARRAY) {
-		php_printf("  444  ");
 		tmp = sess_data;
 		seg = php_strtok_r(path, ".", &ptr);
 		while (seg) {
-			php_printf("  555  ");
 			if (ptr && strlen(ptr) > 0) {
 				tmp = gene_session_set_val(tmp, seg, strlen(seg), NULL);
 			} else {
