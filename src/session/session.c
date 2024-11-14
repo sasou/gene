@@ -83,30 +83,108 @@ void cookie(zval *self, zval *ret) /*{{{*/
 }/*}}}*/
 
 
+void data_load(zval *obj) { /*{{{*/
+	zval *session_id = NULL, *driver = NULL, *hook = NULL;
+
+	session_id = zend_read_property(gene_session_ce, gene_strip_obj(obj), ZEND_STRL(GENE_SESSION_ID), 1, NULL);
+	driver = zend_read_property(gene_session_ce, gene_strip_obj(obj), ZEND_STRL(GENE_SESSION_DRIVER), 1, NULL);
+	if (session_id) {
+		zval class_name;
+		gene_class_name(&class_name);
+		hook = gene_di_get_class(Z_STR(class_name), Z_STR_P(driver));
+		zval_ptr_dtor(&class_name);
+		if (hook) {
+			zval params[] = { *session_id };
+			zval function_name,ret;
+			ZVAL_STRING(&function_name, "get");
+			call_user_function(NULL, hook, &function_name, &ret, 1, params);
+			zval_ptr_dtor(&function_name);
+			if (Z_TYPE(ret) == IS_ARRAY) {
+				zend_update_property(gene_session_ce, gene_strip_obj(obj), ZEND_STRL(GENE_SESSION_DATA), &ret);
+			} else {
+				zval karr;
+				array_init(&karr);
+				zend_update_property(gene_session_ce, gene_strip_obj(obj), ZEND_STRL(GENE_SESSION_DATA), &karr);
+				zval_ptr_dtor(&karr);
+			}
+			zval_ptr_dtor(&ret);
+		} else {
+			php_error_docref(NULL, E_WARNING, "Configure or inject the session storage plug-in");
+		}
+	}
+}/*}}}*/
+
+void data_save(zval *obj) { /*{{{*/
+	zval *session_id = NULL, *driver = NULL, *hook = NULL, *data = NULL, *stime = NULL;
+
+	session_id = zend_read_property(gene_session_ce, gene_strip_obj(obj), ZEND_STRL(GENE_SESSION_ID), 1, NULL);
+	driver = zend_read_property(gene_session_ce, gene_strip_obj(obj), ZEND_STRL(GENE_SESSION_DRIVER), 1, NULL);
+	if (session_id) {
+		data = zend_read_property(gene_session_ce, gene_strip_obj(obj), ZEND_STRL(GENE_SESSION_DATA), 1, NULL);
+		if (data && Z_TYPE_P(data) == IS_ARRAY) {
+			stime = zend_read_property(gene_session_ce, gene_strip_obj(obj), ZEND_STRL(GENE_SESSION_COOKIE_LIFTTIME), 1, NULL);
+			zend_hash_str_update(Z_ARRVAL_P(data), ZEND_STRL("stime"), stime);
+		}
+
+		zval class_name;
+		gene_class_name(&class_name);
+		hook = gene_di_get_class(Z_STR(class_name), Z_STR_P(driver));
+		zval_ptr_dtor(&class_name);
+		if (hook) {
+			zval params[] = { *session_id,*data, };
+			zval function_name,ret;
+			ZVAL_STRING(&function_name, "set");
+			call_user_function(NULL, hook, &function_name, &ret, 2, params);
+			zval_ptr_dtor(&function_name);
+			zend_update_property(gene_session_ce, gene_strip_obj(obj), ZEND_STRL(GENE_SESSION_DATA), data);
+			zval_ptr_dtor(&ret);
+			zval sc;
+			cookie(obj, &sc);
+			zval_ptr_dtor(&sc);
+		} else {
+			php_error_docref(NULL, E_WARNING, "Configure or inject the session storage plug-in");
+		}
+	}
+
+}/*}}}*/
+
 /** {{{ zval * gene_session_get_by_path(char *path)
  */
-zval * gene_session_get_by_path(char *path) {
+zval * gene_session_get_by_path(zval *obj, char *path) {
 	char *ptr = NULL, *seg = NULL;
 	zval *tmp = NULL;
-	zval *sess = NULL;
+	zval *sess = NULL, *data = NULL;
 
-	sess = zend_hash_str_find(&EG(symbol_table), ZEND_STRL("_SESSION"));
-	if (sess) {
-		tmp = Z_REFVAL_P(sess);
-		if (path != NULL) {
-			seg = php_strtok_r(path, "/", &ptr);
-			while (seg) {
-				if (Z_TYPE_P(tmp) != IS_ARRAY) {
-					return NULL;
+	sess = zend_read_property(gene_session_ce, gene_strip_obj(obj), ZEND_STRL(GENE_SESSION_DATA), 1, NULL);
+	if (sess && Z_TYPE_P(sess) == IS_NULL) {
+		data_load(obj);
+		sess = zend_read_property(gene_session_ce, gene_strip_obj(obj), ZEND_STRL(GENE_SESSION_DATA), 1, NULL);
+		php_printf("  aaa  ");
+	}
+
+	if (sess && Z_TYPE_P(sess) == IS_ARRAY) {
+		data = zend_hash_str_find(Z_ARRVAL_P(sess), ZEND_STRL("data"));
+		php_printf("  bbb  ");
+		if (data) {
+					php_printf("  ccc  ");
+			tmp = Z_REFVAL_P(data);
+			if (path != NULL) {
+				php_printf("  ddd  ");
+				seg = php_strtok_r(path, ".", &ptr);
+				while (seg) {
+					if (Z_TYPE_P(tmp) != IS_ARRAY) {
+						php_printf("  fff  ");
+						return NULL;
+					}
+					tmp = zend_symtable_str_find(Z_ARRVAL_P(tmp), seg, strlen(seg));
+					if (tmp == NULL) {
+						return NULL;
+					}
+					seg = php_strtok_r(NULL, ".", &ptr);
 				}
-				tmp = zend_symtable_str_find(Z_ARRVAL_P(tmp), seg, strlen(seg));
-				if (tmp == NULL) {
-					return NULL;
-				}
-				seg = php_strtok_r(NULL, "/", &ptr);
 			}
+			return tmp;
 		}
-		return tmp;
 	}
 	return NULL;
 }
@@ -119,12 +197,6 @@ static zval * gene_session_set_val(zval *val, char *keyString, size_t keyString_
 	if (val == NULL) {
 		return NULL;
 	}
-
-	#if PHP_VERSION_ID < 70300
-		GC_REFCOUNT(Z_ARRVAL_P(val)) = 1;
-	#else
-		GC_SET_REFCOUNT(Z_ARRVAL_P(val), 1);
-	#endif
 
 	if (zvalue == NULL) {
 		copyval = zend_symtable_str_find(Z_ARRVAL_P(val), keyString, keyString_len);
@@ -140,6 +212,8 @@ static zval * gene_session_set_val(zval *val, char *keyString, size_t keyString_
 			}
 		}
 	} else {
+		php_printf(" save  ");
+		Z_TRY_ADDREF_P(zvalue);
 		copyval = zend_symtable_str_update(Z_ARRVAL_P(val), keyString, keyString_len, zvalue);
 	}
 	return copyval;
@@ -148,39 +222,48 @@ static zval * gene_session_set_val(zval *val, char *keyString, size_t keyString_
 
 /** {{{ void gene_session_set_by_path(char *path, zval *zvalue)
  */
-void gene_session_set_by_path(char *path, zval *zvalue) {
+void gene_session_set_by_path(zval *obj, char *path, zval *zvalue) {
 	char *ptr = NULL, *seg = NULL;
-	zval *tmp;
-	zval *sess = NULL, ret;
-	sess = zend_hash_str_find(&EG(symbol_table), ZEND_STRL("_SESSION"));
-	if (sess == NULL) {
-		array_init(&ret);
-		zend_symtable_str_update(GENE_G(cache), ZEND_STRL("_SESSION"), &ret);
-		tmp = &ret;
-		seg = php_strtok_r(path, "/", &ptr);
-		while (seg) {
-			if (ptr && strlen(ptr) > 0) {
-				tmp = gene_session_set_val(tmp, seg, strlen(seg), NULL);
-			} else {
-				tmp = gene_session_set_val(tmp, seg, strlen(seg), zvalue);
-				Z_TRY_ADDREF_P(zvalue);
-			}
-			seg = php_strtok_r(NULL, "/", &ptr);
-		}
-		zval_ptr_dtor(&ret);
-	} else {
-		tmp = Z_REFVAL_P(sess);
-		seg = php_strtok_r(path, "/", &ptr);
-		while (seg) {
-			if (ptr && strlen(ptr) > 0) {
-				tmp = gene_session_set_val(tmp, seg, strlen(seg), NULL);
-			} else {
-				tmp = gene_session_set_val(tmp, seg, strlen(seg), zvalue);
-				Z_TRY_ADDREF_P(zvalue);
-			}
-			seg = php_strtok_r(NULL, "/", &ptr);
+	zval *sess = NULL,*data = NULL,*tmp = NULL, localsess, ret;
+	sess = zend_read_property(gene_session_ce, gene_strip_obj(obj), ZEND_STRL(GENE_SESSION_DATA), 1, NULL);
+	php_printf("  000  ");
+	if (sess && Z_TYPE_P(sess) == IS_NULL) {
+		data_load(obj);
+		sess = zend_read_property(gene_session_ce, gene_strip_obj(obj), ZEND_STRL(GENE_SESSION_DATA), 1, NULL);
+		php_printf("  111  ");
+	}
+	ZVAL_COPY(&localsess, sess);
+
+	if (Z_TYPE(localsess) == IS_ARRAY) {
+		php_printf("  222  ");
+		data = zend_hash_str_find(Z_ARRVAL(localsess), ZEND_STRL("data"));
+		if (data == NULL) {
+			zval tmp_data;
+			array_init(&tmp_data);
+			zend_symtable_str_update(Z_ARRVAL(localsess), ZEND_STRL("data"), &tmp_data);
+			zval_ptr_dtor(&tmp_data);
+			data = zend_hash_str_find(Z_ARRVAL(localsess), ZEND_STRL("data"));
+			php_printf("  333  ");
 		}
 	}
+
+	if (data) {
+		php_printf("  444  ");
+		tmp = data;
+		seg = php_strtok_r(path, ".", &ptr);
+		while (seg) {
+			php_printf("  444  ");
+			if (ptr && strlen(ptr) > 0) {
+				tmp = gene_session_set_val(tmp, seg, strlen(seg), NULL);
+			} else {
+				tmp = gene_session_set_val(tmp, seg, strlen(seg), zvalue);
+			}
+			seg = php_strtok_r(NULL, ".", &ptr);
+		}
+	}
+
+	zend_update_property(gene_session_ce, gene_strip_obj(obj), ZEND_STRL(GENE_SESSION_DATA), &localsess);
+	data_save(obj);
 	return;
 }
 /* }}} */
@@ -305,35 +388,9 @@ PHP_METHOD(gene_session, __construct) {
 /** {{{ public static gene_session::load()
  */
 PHP_METHOD(gene_session, load) {
-	zval *self = getThis(), *session_id = NULL， *driver = NULL, *obj = NULL;
-	char *path = NULL;
+	zval *self = getThis();
 
-	session_id = zend_read_property(gene_session_ce, gene_strip_obj(self), ZEND_STRL(GENE_SESSION_ID), 1, NULL);
-	driver = zend_read_property(gene_session_ce, gene_strip_obj(self), ZEND_STRL(GENE_SESSION_DRIVER), 1, NULL);
-	if (session_id) {
-		zval class_name;
-		gene_class_name(&class_name);
-		obj = gene_di_get_class(Z_STR(class_name), Z_STR_P(driver));
-		zval_ptr_dtor(&class_name);
-		if (obj) {
-			zval params[] = { *session_id };
-			zval function_name,ret;
-			ZVAL_STRING(&function_name, "get");
-			call_user_function(NULL, obj, &function_name, &ret, 1, params);
-			zval_ptr_dtor(&function_name);
-			if (Z_TYPE(ret) == IS_ARRAY) {
-				zend_update_property(gene_session_ce, gene_strip_obj(self), ZEND_STRL(GENE_SESSION_DATA), &ret);
-			} else {
-				zval karr;
-				array_init(&karr);
-				zend_update_property(gene_session_ce, gene_strip_obj(self), ZEND_STRL(GENE_SESSION_DATA), &karr);
-				zval_ptr_dtor(&karr);
-			}
-			zval_ptr_dtor(&ret);
-		} else {
-			php_error_docref(NULL, E_WARNING, "Configure or inject the session storage plug-in");
-		}
-	}
+	data_load(self);
 
 	RETURN_ZVAL(self, 1, 0);
 }
@@ -342,27 +399,11 @@ PHP_METHOD(gene_session, load) {
 /** {{{ public static gene_session::save()
  */
 PHP_METHOD(gene_session, save) {
-	zend_string *name = NULL;
-	zval *sess = NULL;
-	char *path = NULL;
-	if (zend_parse_parameters(ZEND_NUM_ARGS(), "|S", &name) == FAILURE) {
-		return;
-	}
+	zval *self = getThis();
 
-	if (name) {
-		spprintf(&path, 0, "%s", ZSTR_VAL(name));
-		replaceAll(path, '.', '/');
-	}
+	data_save(self);
 
-	sess = gene_session_get_by_path(path);
-	if (path) {
-		efree(path);
-	}
-
-	if (sess) {
-		RETURN_ZVAL(sess, 1, 0);
-	}
-	RETURN_NULL();
+	RETURN_ZVAL(self, 1, 0);
 }
 /* }}} */
 
@@ -370,25 +411,23 @@ PHP_METHOD(gene_session, save) {
  */
 PHP_METHOD(gene_session, get) {
 	zend_string *name = NULL;
-	zval *sess = NULL;
+	zval *self = getThis(),*sess = NULL;
 	char *path = NULL;
 	if (zend_parse_parameters(ZEND_NUM_ARGS(), "|S", &name) == FAILURE) {
-		return;
+		RETURN_NULL();
 	}
-
 	if (name) {
 		spprintf(&path, 0, "%s", ZSTR_VAL(name));
-		replaceAll(path, '.', '/');
 	}
 
-	sess = gene_session_get_by_path(path);
+	sess = gene_session_get_by_path(self, path);
 	if (path) {
 		efree(path);
 	}
-
 	if (sess) {
 		RETURN_ZVAL(sess, 1, 0);
 	}
+
 	RETURN_NULL();
 }
 /* }}} */
@@ -396,22 +435,17 @@ PHP_METHOD(gene_session, get) {
 /** {{{ public static gene_session::set($name, $value)
  */
 PHP_METHOD(gene_session, set) {
-	zval *value;
+	zval *self = getThis(),*value = NULL;
 	zend_string *name;
 	char *path = NULL;
 
 	if (zend_parse_parameters(ZEND_NUM_ARGS(), "Sz", &name, &value) == FAILURE) {
-		return;
+		RETURN_NULL();
 	}
 
-	if (name) {
-		spprintf(&path, 0, "%s", ZSTR_VAL(name));
-		replaceAll(path, '.', '/');
-	}
-	gene_session_set_by_path(path, value);
-	if (path) {
-		efree(path);
-	}
+	spprintf(&path, 0, "%s", ZSTR_VAL(name));
+	gene_session_set_by_path(self, path, value);
+	efree(path);
 
 	RETURN_TRUE;
 }
@@ -480,13 +514,13 @@ PHP_METHOD(gene_session, has) {
  */
 zend_function_entry gene_session_methods[] = {
 	PHP_ME(gene_session, __construct, gene_session_void_arginfo, ZEND_ACC_PUBLIC|ZEND_ACC_CTOR)
-	PHP_ME(gene_session, load, gene_session_void_arginfo, ZEND_ACC_PUBLIC|ZEND_ACC_STATIC)
-	PHP_ME(gene_session, save, gene_session_void_arginfo, ZEND_ACC_PUBLIC|ZEND_ACC_STATIC)
-	PHP_ME(gene_session, get, gene_session_get_arginfo, ZEND_ACC_PUBLIC|ZEND_ACC_STATIC)
-	PHP_ME(gene_session, has, gene_session_has_arginfo, ZEND_ACC_PUBLIC|ZEND_ACC_STATIC)
-	PHP_ME(gene_session, set, gene_session_set_arginfo, ZEND_ACC_PUBLIC|ZEND_ACC_STATIC)
-	PHP_ME(gene_session, del, gene_session_del_arginfo, ZEND_ACC_PUBLIC|ZEND_ACC_STATIC)
-	PHP_ME(gene_session, clear, gene_session_void_arginfo, ZEND_ACC_PUBLIC|ZEND_ACC_STATIC)
+	PHP_ME(gene_session, load, gene_session_void_arginfo, ZEND_ACC_PUBLIC)
+	PHP_ME(gene_session, save, gene_session_void_arginfo, ZEND_ACC_PUBLIC)
+	PHP_ME(gene_session, get, gene_session_get_arginfo, ZEND_ACC_PUBLIC)
+	PHP_ME(gene_session, has, gene_session_has_arginfo, ZEND_ACC_PUBLIC)
+	PHP_ME(gene_session, set, gene_session_set_arginfo, ZEND_ACC_PUBLIC)
+	PHP_ME(gene_session, del, gene_session_del_arginfo, ZEND_ACC_PUBLIC)
+	PHP_ME(gene_session, clear, gene_session_void_arginfo, ZEND_ACC_PUBLIC)
 	PHP_MALIAS(gene_session, __get, get, gene_session_get_arginfo, ZEND_ACC_PUBLIC)
 	PHP_MALIAS(gene_session, __isset, has, gene_session_has_arginfo, ZEND_ACC_PUBLIC)
 	PHP_MALIAS(gene_session, __set, set, gene_session_set_arginfo, ZEND_ACC_PUBLIC)
