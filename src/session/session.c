@@ -114,13 +114,15 @@ void data_load(zval *obj) { /*{{{*/
 	}
 }/*}}}*/
 
-void data_save(zval *obj) { /*{{{*/
-	zval *session_id = NULL, *driver = NULL, *hook = NULL, *data = NULL, *stime = NULL;
+void data_save(zval *obj, zval *data) { /*{{{*/
+	zval *session_id = NULL, *driver = NULL, *hook = NULL, *stime = NULL;
 
 	session_id = zend_read_property(gene_session_ce, gene_strip_obj(obj), ZEND_STRL(GENE_SESSION_ID), 1, NULL);
 	driver = zend_read_property(gene_session_ce, gene_strip_obj(obj), ZEND_STRL(GENE_SESSION_DRIVER), 1, NULL);
 	if (session_id) {
-		data = zend_read_property(gene_session_ce, gene_strip_obj(obj), ZEND_STRL(GENE_SESSION_DATA), 1, NULL);
+		if (data == NULL) {
+			data = zend_read_property(gene_session_ce, gene_strip_obj(obj), ZEND_STRL(GENE_SESSION_DATA), 1, NULL);
+		}
 		if (data && Z_TYPE_P(data) == IS_ARRAY) {
 			stime = zend_read_property(gene_session_ce, gene_strip_obj(obj), ZEND_STRL(GENE_SESSION_COOKIE_LIFTTIME), 1, NULL);
 			zend_hash_str_update(Z_ARRVAL_P(data), ZEND_STRL("stime"), stime);
@@ -159,22 +161,19 @@ zval * gene_session_get_by_path(zval *obj, char *path) {
 	if (sess && Z_TYPE_P(sess) == IS_NULL) {
 		data_load(obj);
 		sess = zend_read_property(gene_session_ce, gene_strip_obj(obj), ZEND_STRL(GENE_SESSION_DATA), 1, NULL);
-		php_printf("  aaa  ");
 	}
 
 	if (sess && Z_TYPE_P(sess) == IS_ARRAY) {
-		data = zend_hash_str_find(Z_ARRVAL_P(sess), ZEND_STRL("data"));
-		php_printf("  bbb  ");
+		data = zend_symtable_str_find(Z_ARRVAL_P(sess), ZEND_STRL("data"));
 		if (data) {
-					php_printf("  ccc  ");
-			tmp = Z_REFVAL_P(data);
+			tmp = data;
 			if (path != NULL) {
-				php_printf("  ddd  ");
 				seg = php_strtok_r(path, ".", &ptr);
 				while (seg) {
-					if (Z_TYPE_P(tmp) != IS_ARRAY) {
-						php_printf("  fff  ");
-						return NULL;
+					if (ptr && strlen(ptr) > 0) {
+						if (Z_TYPE_P(tmp) != IS_ARRAY) {
+							return NULL;
+						}
 					}
 					tmp = zend_symtable_str_find(Z_ARRVAL_P(tmp), seg, strlen(seg));
 					if (tmp == NULL) {
@@ -212,8 +211,7 @@ static zval * gene_session_set_val(zval *val, char *keyString, size_t keyString_
 			}
 		}
 	} else {
-		php_printf(" save  ");
-		Z_TRY_ADDREF_P(zvalue);
+		php_printf(" bbb ");
 		copyval = zend_symtable_str_update(Z_ARRVAL_P(val), keyString, keyString_len, zvalue);
 	}
 	return copyval;
@@ -224,7 +222,7 @@ static zval * gene_session_set_val(zval *val, char *keyString, size_t keyString_
  */
 void gene_session_set_by_path(zval *obj, char *path, zval *zvalue) {
 	char *ptr = NULL, *seg = NULL;
-	zval *sess = NULL,*data = NULL,*tmp = NULL, localsess, ret;
+	zval *sess = NULL,*sess_data = NULL,*tmp = NULL, ret;
 	sess = zend_read_property(gene_session_ce, gene_strip_obj(obj), ZEND_STRL(GENE_SESSION_DATA), 1, NULL);
 	php_printf("  000  ");
 	if (sess && Z_TYPE_P(sess) == IS_NULL) {
@@ -232,27 +230,27 @@ void gene_session_set_by_path(zval *obj, char *path, zval *zvalue) {
 		sess = zend_read_property(gene_session_ce, gene_strip_obj(obj), ZEND_STRL(GENE_SESSION_DATA), 1, NULL);
 		php_printf("  111  ");
 	}
-	ZVAL_COPY(&localsess, sess);
 
-	if (Z_TYPE(localsess) == IS_ARRAY) {
+	if (Z_TYPE_P(sess) == IS_ARRAY) {
 		php_printf("  222  ");
-		data = zend_hash_str_find(Z_ARRVAL(localsess), ZEND_STRL("data"));
-		if (data == NULL) {
+		sess_data = zend_hash_str_find(Z_ARRVAL_P(sess), ZEND_STRL(GENE_SESSION_DATA));
+		if (sess_data == NULL) {
+				php_printf("  888  ");
 			zval tmp_data;
 			array_init(&tmp_data);
-			zend_symtable_str_update(Z_ARRVAL(localsess), ZEND_STRL("data"), &tmp_data);
+			zend_symtable_str_update(Z_ARRVAL_P(sess), ZEND_STRL(GENE_SESSION_DATA), &tmp_data);
 			zval_ptr_dtor(&tmp_data);
-			data = zend_hash_str_find(Z_ARRVAL(localsess), ZEND_STRL("data"));
+			sess_data = zend_hash_str_find(Z_ARRVAL_P(sess), ZEND_STRL(GENE_SESSION_DATA));
 			php_printf("  333  ");
 		}
 	}
 
-	if (data) {
+	if (Z_TYPE_P(sess_data) == IS_ARRAY) {
 		php_printf("  444  ");
-		tmp = data;
+		tmp = sess_data;
 		seg = php_strtok_r(path, ".", &ptr);
 		while (seg) {
-			php_printf("  444  ");
+			php_printf("  555  ");
 			if (ptr && strlen(ptr) > 0) {
 				tmp = gene_session_set_val(tmp, seg, strlen(seg), NULL);
 			} else {
@@ -262,34 +260,43 @@ void gene_session_set_by_path(zval *obj, char *path, zval *zvalue) {
 		}
 	}
 
-	zend_update_property(gene_session_ce, gene_strip_obj(obj), ZEND_STRL(GENE_SESSION_DATA), &localsess);
-	data_save(obj);
+	data_save(obj, NULL);
 	return;
 }
 /* }}} */
 
-/** {{{ zend_bool gene_session_del_by_path(char *path)
+/** {{{ zend_bool gene_session_del_by_path(zval *obj, char *path)
  */
-zend_bool gene_session_del_by_path(char *path) {
+zend_bool gene_session_del_by_path(zval *obj, char *path) {
 	char *ptr = NULL, *seg = NULL;
-	zval *tmp = NULL;
-	zval *sess = NULL;
+	zval *sess = NULL,*data = NULL,*tmp = NULL, ret;
 
-	sess = zend_hash_str_find(&EG(symbol_table), ZEND_STRL("_SESSION"));
-	if (sess) {
-		tmp = Z_REFVAL_P(sess);
+	sess = zend_read_property(gene_session_ce, gene_strip_obj(obj), ZEND_STRL(GENE_SESSION_DATA), 1, NULL);
+	if (sess && Z_TYPE_P(sess) == IS_NULL) {
+		return 0;
+	}
+
+	if (Z_TYPE_P(sess) == IS_ARRAY) {
+		data = zend_hash_str_find(Z_ARRVAL_P(sess), ZEND_STRL("data"));
+		if (data == NULL) {
+			return 0;
+		}
+	}
+
+	if (data) {
+		tmp = data;
 		if (path != NULL) {
-			seg = php_strtok_r(path, "/", &ptr);
+			seg = php_strtok_r(path, ".", &ptr);
 			while (seg) {
-				if (Z_TYPE_P(tmp) != IS_ARRAY) {
-					return 0;
-				}
 				if (ptr && strlen(ptr) > 0) {
 					tmp = zend_symtable_str_find(Z_ARRVAL_P(tmp), seg, strlen(seg));
 				} else {
-					return zend_symtable_str_del(Z_ARRVAL_P(tmp), seg, strlen(seg)) == 0 ? 1 : 0;
+					if (zend_symtable_str_del(Z_ARRVAL_P(tmp), seg, strlen(seg)) == 0) {
+						data_save(obj, sess);
+						return 1;
+					}
 				}
-				seg = php_strtok_r(NULL, "/", &ptr);
+				seg = php_strtok_r(NULL, "0", &ptr);
 			}
 		}
 		return 0;
@@ -401,7 +408,7 @@ PHP_METHOD(gene_session, load) {
 PHP_METHOD(gene_session, save) {
 	zval *self = getThis();
 
-	data_save(self);
+	data_save(self, NULL);
 
 	RETURN_ZVAL(self, 1, 0);
 }
@@ -454,21 +461,18 @@ PHP_METHOD(gene_session, set) {
 /** {{{ public static gene_session::del($name)
  */
 PHP_METHOD(gene_session, del) {
+	zval *self = getThis();
 	zend_string *name;
 	char *path = NULL;
 	zend_bool ret = 0;
+
 	if (zend_parse_parameters(ZEND_NUM_ARGS(), "S", &name) == FAILURE) {
-		return;
+		RETURN_NULL();
 	}
 
-	if (name) {
-		spprintf(&path, 0, "%s", ZSTR_VAL(name));
-		replaceAll(path, '.', '/');
-	}
-	ret = gene_session_del_by_path(path);
-	if (path) {
-		efree(path);
-	}
+	spprintf(&path, 0, "%s", ZSTR_VAL(name));
+	ret = gene_session_del_by_path(self, path);
+	efree(path);
 
 	RETURN_BOOL(ret);
 }
@@ -477,11 +481,12 @@ PHP_METHOD(gene_session, del) {
 /** {{{ public static gene_session::clear()
  */
 PHP_METHOD(gene_session, clear) {
-	zval *sess = NULL;
+	zval *self = getThis(),*sess = NULL;
 
-	sess = zend_hash_str_find(&EG(symbol_table), ZEND_STRL("_SESSION"));
+	sess = zend_read_property(gene_session_ce, gene_strip_obj(self), ZEND_STRL(GENE_SESSION_DATA), 1, NULL);
 	if (sess) {
-		zend_hash_clean(Z_ARRVAL_P(Z_REFVAL_P(sess)));
+		zend_hash_clean(Z_ARRVAL_P(sess));
+		data_save(self, sess);
 	}
 
 	RETURN_TRUE;
@@ -493,19 +498,25 @@ PHP_METHOD(gene_session, clear) {
 PHP_METHOD(gene_session, has) {
 	zend_string *name;
 	zend_bool ret = 0;
-	zval *sess = NULL;
+	zval *self = getThis(),*sess = NULL,*data = NULL;
 
 	if (zend_parse_parameters(ZEND_NUM_ARGS(), "S", &name) == FAILURE) {
-		return;
+		RETURN_NULL();
 	}
 
-	sess = zend_hash_str_find(&EG(symbol_table), ZEND_STRL("_SESSION"));
-	if (sess) {
-		ret = zend_hash_exists(Z_ARRVAL_P(Z_REFVAL_P(sess)), name);
+	sess = zend_read_property(gene_session_ce, gene_strip_obj(self), ZEND_STRL(GENE_SESSION_DATA), 1, NULL);
+	if (Z_TYPE_P(sess) == IS_ARRAY) {
+		data = zend_hash_str_find(Z_ARRVAL_P(sess), ZEND_STRL("data"));
+		if (data == NULL) {
+			RETURN_BOOL(0);
+		}
+	}
+
+	if (data) {
+		ret = zend_hash_exists(Z_ARRVAL_P(data), name);
 	}
 
 	RETURN_BOOL(ret);
-
 }
 /* }}} */
 
