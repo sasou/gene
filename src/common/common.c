@@ -731,6 +731,15 @@ void gene_time(zval *retval) /*{{{*/
     zval_ptr_dtor(&function_name);
 }/*}}}*/
 
+void gene_bcadd(zval *a, zval *b, zval *retval) /*{{{*/
+{
+    zval function_name;
+    ZVAL_STRING(&function_name, "bcadd");
+	zval params[] = { *a,*b };
+    call_user_function(NULL, NULL, &function_name, retval, 2, params);
+    zval_ptr_dtor(&function_name);
+}/*}}}*/
+
 void gene_uniqid(zval *value, zval *retval) /*{{{*/
 {
     zval function_name;
