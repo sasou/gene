@@ -133,11 +133,13 @@ void gene_memcached_increment(zval *object, zval *key, zval *value, zval *retval
 
 void gene_memcached_get(zval *object, zval *key, zval *retval) /*{{{*/
 {
-    zval function_name;
+    zval function_name, callback;
     ZVAL_STRING(&function_name, "get");
-	zval params[] = { *key };
-    call_user_function(NULL, object, &function_name, retval, 1, params);
+	ZVAL_NULL(&callback);
+	zval params[] = { *key , callback};
+    call_user_function(NULL, object, &function_name, retval, 2, params);
     zval_ptr_dtor(&function_name);
+	zval_ptr_dtor(&callback);
 }/*}}}*/
 
 void gene_memcached_getMulti(zval *object, zval *key, zval *retval) /*{{{*/
@@ -299,11 +301,7 @@ PHP_METHOD(gene_memcached, __construct)
 
     if (Z_TYPE_P(config) == IS_ARRAY) {
     	zend_update_property(gene_memcached_ce, gene_strip_obj(self), ZEND_STRL(GENE_MEM_CONFIG), config);
-		#ifdef PHP_WIN32
-			 initObjWin(self, config);
-		#else
-			 initObj(self, config);
-		#endif
+		initObj(self, config);
     }
     RETURN_ZVAL(self, 1, 0);
 }
@@ -320,11 +318,7 @@ PHP_METHOD(gene_memcached, get) {
 	object = zend_read_property(gene_memcached_ce, gene_strip_obj(self), ZEND_STRL(GENE_MEM_OBJ), 1, NULL);
 	if (object) {
 		zval ret;
-		#ifdef PHP_WIN32
-			gene_memcache_get(object, key, &ret);
-		#else
-			memcached_get(object, key, &ret);
-		#endif
+		memcached_get(object, key, &ret);
 
 		serializer_handler = zend_read_property(gene_memcached_ce, gene_strip_obj(self), ZEND_STRL(GENE_MEM_SERIALIZE), 1, NULL);
 		if(serializer_handler && Z_TYPE_P(serializer_handler) == IS_LONG) {
@@ -383,22 +377,14 @@ PHP_METHOD(gene_memcached, set)
 			if(serializer_handler && Z_LVAL_P(serializer_handler) > 0) {
 				zval ret_string;
 				if (serialize(value, &ret_string, serializer_handler)) {
-					#ifdef PHP_WIN32
-						gene_memcache_set (object, key, &ret_string, ttl, flag, return_value);
-					#else
-						gene_memcached_set (object, key, &ret_string, ttl, return_value);
-					#endif
+					gene_memcached_set(object, key, &ret_string, ttl, return_value);
 					zval_ptr_dtor(&ret_string);
 					return;
 				}
 			}
 		}
 
-		#ifdef PHP_WIN32
-			gene_memcache_set (object, key, value, ttl, flag, return_value);
-		#else
-			gene_memcached_set (object, key, value, ttl, return_value);
-		#endif
+		gene_memcached_set(object, key, value, ttl, return_value);
 		return;
 	}
 	RETURN_NULL();
