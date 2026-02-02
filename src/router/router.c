@@ -152,7 +152,7 @@ void gene_router_set_uri(zval **leaf) {
  */
 char *get_path_router_init(zval *conf, char *path) {
 	zval *prefix = NULL, *lang = NULL, *langs = NULL;
-	char *seg = NULL, *ptr = NULL, *path_prefix = NULL,*path_tmp = NULL,*lang_tmp = NULL,*search = NULL;
+	char *seg = NULL, *ptr = NULL, *path_prefix = NULL,*path_tmp = NULL,*lang_tmp = NULL,*search = NULL, *uri = NULL;
 	zend_long path_len = 0;
 	path_len = strlen(path);
 	if (path_len == 0) {
@@ -161,23 +161,26 @@ char *get_path_router_init(zval *conf, char *path) {
 	path_tmp = path;
 	prefix = zend_symtable_str_find(Z_ARRVAL_P(conf), "prefix", 6);
 	if (prefix) {
-		if (Z_STRLEN_P(prefix) > path_len) {
-			return path_tmp;
-		}
-		path_prefix = str_sub(path, Z_STRLEN_P(prefix));
-		if (strcmp(path_prefix, Z_STRVAL_P(prefix)) == 0) {
-			path_tmp = str_sub_len(path, Z_STRLEN_P(prefix), path_len - Z_STRLEN_P(prefix));
-		}
-		trim(path_tmp, '/');
-		efree(path_prefix);
-		if (strlen(path_tmp) < 1) {
-			return path_tmp;
+		if (Z_STRLEN_P(prefix) <= path_len) {
+			path_prefix = str_sub(path, Z_STRLEN_P(prefix));
+			if (strcmp(path_prefix, Z_STRVAL_P(prefix)) == 0) {
+				path_tmp = str_sub_len(path, Z_STRLEN_P(prefix), path_len - Z_STRLEN_P(prefix));
+				trim(path_tmp, '/');
+				efree(path_prefix);
+				if (strlen(path_tmp) < 1) {
+					return path_tmp;
+				}
+			}
 		}
 	}
 	langs = zend_symtable_str_find(Z_ARRVAL_P(conf), "langs", 5);
 	if (langs) {
+        uri = str_init(path_tmp);
 		seg = php_strtok_r(path_tmp, "/", &ptr);
-		if (ptr && strlen(seg) > 0) {
+		if (strlen(seg) > 0) {
+			if (ptr == NULL) {
+				ptr = "";
+			}
 			spprintf(&lang_tmp, 0, ",%s,", seg);
 			search = strstr(Z_STRVAL_P(langs), lang_tmp);
 			efree(lang_tmp);
@@ -187,6 +190,8 @@ char *get_path_router_init(zval *conf, char *path) {
 				if (strlen(path_tmp) > 0) {
 					trim(path_tmp, '/');
 				}
+			} else {
+				path_tmp = uri;
 			}
 		}
 	}
