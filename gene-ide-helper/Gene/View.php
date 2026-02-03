@@ -75,8 +75,9 @@ class View
     /**
      * url
      * 返回带当前语言前缀的 URL，如 url("login.html") => "/en/login.html"
+     * 传入 "/" 也会加上语言前缀，如 url("/") => "/en/"
      *
-     * @param string $path 路径，如 login.html
+     * @param string $path 路径，如 login.html 或 "/"
      * @return string
      */
     public function url($path) {
