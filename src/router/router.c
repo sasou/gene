@@ -158,6 +158,7 @@ char *get_path_router_init(zval *conf, char *path) {
 	if (path_len == 0) {
 		return path;
 	}
+
 	path_tmp = path;
 	prefix = zend_symtable_str_find(Z_ARRVAL_P(conf), "prefix", 6);
 	if (prefix) {
@@ -195,12 +196,7 @@ char *get_path_router_init(zval *conf, char *path) {
 			}
 		}
 	}
-	if (GENE_G(lang) == NULL) {
-		lang = zend_symtable_str_find(Z_ARRVAL_P(conf), "lang", 4);
-		if (lang) {
-			GENE_G(lang) = str_init(Z_STRVAL_P(lang));
-		}
-	}
+
 	return path_tmp;
 }
 /* }}} */
@@ -1313,11 +1309,11 @@ PHP_METHOD(gene_router, prefix) {
  * {{{ public gene_router::lang()
  */
 PHP_METHOD(gene_router, lang) {
-	zend_string *lang_tmp = NULL,*lang_list_tmp = NULL;
+	zend_string *lang_list_tmp = NULL;
 	zval *safe = NULL,*self = getThis();
 	char *router_e = NULL,*lang = NULL,*langs = NULL,*langs_tmp = NULL;
 	size_t router_e_len;
-	if (zend_parse_parameters(ZEND_NUM_ARGS(), "|SS", &lang_tmp, &lang_list_tmp) == FAILURE) {
+	if (zend_parse_parameters(ZEND_NUM_ARGS(), "|S", &lang_list_tmp) == FAILURE) {
 		return;
 	}
 
@@ -1328,14 +1324,6 @@ PHP_METHOD(gene_router, lang) {
 		router_e_len = spprintf(&router_e, 0, "%s", GENE_ROUTER_ROUTER_CONF);
 	}
 
-	if (lang_tmp) {
-		spprintf(&lang, 0, "%s", GENE_ROUTER_LANG);
-		zval content;
-		ZVAL_STRING(&content, ZSTR_VAL(lang_tmp));
-		gene_memory_set_by_router(router_e, router_e_len, lang, &content, 0);
-		efree(lang);
-		zval_ptr_dtor(&content);
-	}
 	if (lang_list_tmp) {
 		spprintf(&langs_tmp, 0, ",%s,", ZSTR_VAL(lang_list_tmp));
 		zval content;
