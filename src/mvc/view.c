@@ -71,6 +71,10 @@ ZEND_BEGIN_ARG_INFO_EX(gene_view_arg_scope, 0, 0, 1)
     ZEND_ARG_INFO(0, num)
 ZEND_END_ARG_INFO()
 
+ZEND_BEGIN_ARG_INFO_EX(gene_view_arg_url, 0, 0, 1)
+    ZEND_ARG_INFO(0, path)
+ZEND_END_ARG_INFO()
+
 /** {{{ gene_view_contains
  */
 void gene_view_contains(char *file, zval *ret) {
@@ -477,6 +481,35 @@ PHP_METHOD(gene_view, containsExt) {
 }
 /* }}} */
 
+/** {{{ public gene_view::url(string $path)
+ *  返回带当前语言前缀的 URL，如 url("login.html") => "/en/login.html"
+ */
+PHP_METHOD(gene_view, url) {
+	zend_string *path_str;
+	char *out = NULL;
+	const char *p;
+	size_t path_len;
+
+	if (zend_parse_parameters(ZEND_NUM_ARGS(), "S", &path_str) == FAILURE) {
+		return;
+	}
+	p = ZSTR_VAL(path_str);
+	path_len = ZSTR_LEN(path_str);
+	/* 跳过 path 前导斜杠 */
+	for (; path_len > 0 && *p == '/'; p++, path_len--) {}
+	if (path_len == 0) {
+		RETURN_STRING("/");
+	}
+	if (GENE_G(lang) && GENE_G(lang)[0] != '\0') {
+		spprintf(&out, 0, "/%s/%.*s", GENE_G(lang), (int)path_len, p);
+	} else {
+		spprintf(&out, 0, "/%.*s", (int)path_len, p);
+	}
+	RETVAL_STRING(out);
+	efree(out);
+}
+/* }}} */
+
 /*
  * {{{ gene_view
  */
@@ -557,6 +590,7 @@ zend_function_entry gene_view_methods[] = {
 	PHP_ME(gene_view, assign, gene_view_arg_assign, ZEND_ACC_PUBLIC)
 	PHP_ME(gene_view, contains, gene_view_void_arginfo, ZEND_ACC_PUBLIC)
 	PHP_ME(gene_view, containsExt, gene_view_void_arginfo, ZEND_ACC_PUBLIC)
+	PHP_ME(gene_view, url, gene_view_arg_url, ZEND_ACC_PUBLIC)
 	PHP_ME(gene_view, scope, gene_view_arg_scope, ZEND_ACC_PUBLIC)
 	PHP_ME(gene_view, __get, gene_view_arg_get, ZEND_ACC_PUBLIC)
 	PHP_ME(gene_view, __set, gene_view_arg_set, ZEND_ACC_PUBLIC)

@@ -14,11 +14,23 @@ class Response
     /**
      * redirect
      * 
-     * @param mixed $url url
-     * @param mixed $code code
+     * @param string $url url
+     * @param int $code code
      * @return mixed
      */
     public static function redirect($url, $code = null) {
+
+    }
+
+    /**
+     * redirectJs
+     * JavaScript 跳转
+     *
+     * @param string $url url
+     * @param int $code code
+     * @return mixed
+     */
+    public static function redirectJs($url, $code = null) {
 
     }
 
@@ -99,6 +111,17 @@ class Response
      * @return mixed
      */
     public static function cookie($key, $value = null) {
+
+    }
+
+    /**
+     * url
+     * 返回带当前语言前缀的 URL，如 url("login.html") => "/en/login.html"
+     *
+     * @param string $path 路径，如 login.html
+     * @return string
+     */
+    public static function url($path) {
 
     }
 
