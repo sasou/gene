@@ -73,6 +73,27 @@ class View
     }
 
     /**
+     * url
+     * 返回带当前语言前缀的 URL，如 url("login.html") => "/en/login.html"
+     *
+     * @param string $path 路径，如 login.html
+     * @return string
+     */
+    public function url($path) {
+
+    }
+
+    /**
+     * scope
+     *
+     * @param int $num
+     * @return bool
+     */
+    public function scope($num = 0) {
+
+    }
+
+    /**
      * __get
      * 
      * @param mixed $name name

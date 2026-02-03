@@ -90,6 +90,34 @@ class Router
     public function getRouter() {
 
     }
+
+    /**
+     * getConf
+     *
+     * @return mixed
+     */
+    public function getConf() {
+
+    }
+
+    /**
+     * delConf
+     *
+     * @return mixed
+     */
+    public function delConf() {
+
+    }
+
+    /**
+     * getLang
+     * 获取当前语言
+     *
+     * @return string|null
+     */
+    public static function getLang() {
+
+    }
     
     /**
      * assign
@@ -174,6 +202,36 @@ class Router
      * @return mixed
      */
     public static function params() {
+
+    }
+
+    /**
+     * prefix
+     *
+     * @param string $prefix
+     * @return $this
+     */
+    public function prefix($prefix) {
+
+    }
+
+    /**
+     * group
+     *
+     * @param mixed $callback
+     * @return mixed
+     */
+    public function group($callback) {
+
+    }
+
+    /**
+     * lang
+     *
+     * @param string $lang
+     * @return $this
+     */
+    public function lang($lang) {
 
     }
 

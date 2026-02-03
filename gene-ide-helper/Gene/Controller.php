@@ -126,9 +126,19 @@ class Controller
     /**
      * getMethod
      * 
-     * @return mixed
+     * @return string|null
      */
     public static function getMethod() {
+
+    }
+
+    /**
+     * getLang
+     * 获取当前语言
+     *
+     * @return string|null
+     */
+    public static function getLang() {
 
     }
 
@@ -255,6 +265,17 @@ class Controller
      * @return mixed
      */
     public static function containsExt() {
+
+    }
+
+    /**
+     * url
+     * 返回带当前语言前缀的 URL，如 url("login.html") => "/en/login.html"
+     *
+     * @param string $path 路径，如 login.html
+     * @return string
+     */
+    public static function url($path) {
 
     }
 
