@@ -73,6 +73,10 @@ ZEND_BEGIN_ARG_INFO_EX(gene_response_arg_cookie, 0, 0, 2)
     ZEND_ARG_INFO(0, value)
 ZEND_END_ARG_INFO()
 
+ZEND_BEGIN_ARG_INFO_EX(gene_response_arg_url, 0, 0, 1)
+    ZEND_ARG_INFO(0, path)
+ZEND_END_ARG_INFO()
+
 /** {{{ void gene_response_set_redirect(char *url, zend_long code)
  */
 void gene_response_set_redirect(char *url, zend_long code) {
@@ -303,6 +307,35 @@ PHP_METHOD(gene_response, cookie) {
 }
 /* }}} */
 
+/** {{{ public gene_response::url(string $path)
+ *  返回带当前语言前缀的 URL，如 url("login.html") => "/en/login.html"
+ */
+PHP_METHOD(gene_response, url) {
+	zend_string *path_str;
+	char *out = NULL;
+	const char *p;
+	size_t path_len;
+
+	if (zend_parse_parameters(ZEND_NUM_ARGS(), "S", &path_str) == FAILURE) {
+		return;
+	}
+	p = ZSTR_VAL(path_str);
+	path_len = ZSTR_LEN(path_str);
+	/* 跳过 path 前导斜杠 */
+	for (; path_len > 0 && *p == '/'; p++, path_len--) {}
+	if (path_len == 0) {
+		RETURN_STRING("/");
+	}
+	if (GENE_G(lang) && GENE_G(lang)[0] != '\0') {
+		spprintf(&out, 0, "/%s/%.*s", GENE_G(lang), (int)path_len, p);
+	} else {
+		spprintf(&out, 0, "/%.*s", (int)path_len, p);
+	}
+	RETVAL_STRING(out);
+	efree(out);
+}
+/* }}} */
+
 /** {{{ proto public gene_response::setJsonHeader()
  */
 PHP_METHOD(gene_response, setJsonHeader) {
@@ -332,6 +365,7 @@ zend_function_entry gene_response_methods[] = {
 	PHP_ME(gene_response, json, gene_response_arg_se_json, ZEND_ACC_PUBLIC|ZEND_ACC_STATIC)
 	PHP_ME(gene_response, header, gene_response_arg_header, ZEND_ACC_PUBLIC|ZEND_ACC_STATIC)
 	PHP_ME(gene_response, cookie, gene_response_arg_cookie, ZEND_ACC_PUBLIC|ZEND_ACC_STATIC)
+	PHP_ME(gene_response, url, gene_response_arg_url, ZEND_ACC_PUBLIC|ZEND_ACC_STATIC)
 	PHP_ME(gene_response, setJsonHeader, gene_response_void_arginfo, ZEND_ACC_PUBLIC|ZEND_ACC_STATIC)
 	PHP_ME(gene_response, setHtmlHeader, gene_response_void_arginfo, ZEND_ACC_PUBLIC|ZEND_ACC_STATIC)
 	PHP_ME(gene_response, __construct, gene_response_void_arginfo, ZEND_ACC_PUBLIC|ZEND_ACC_CTOR)

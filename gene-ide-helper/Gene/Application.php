@@ -138,9 +138,19 @@ class Application
     /**
      * getRouterUri
      * 
-     * @return mixed
+     * @return string|null
      */
     public static function getRouterUri() {
+
+    }
+
+    /**
+     * getLang
+     * 获取当前语言
+     *
+     * @return string|null
+     */
+    public static function getLang() {
 
     }
 

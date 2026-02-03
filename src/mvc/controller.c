@@ -77,6 +77,10 @@ ZEND_BEGIN_ARG_INFO_EX(gene_controller_url_param, 0, 0, 1)
     ZEND_ARG_INFO(0, key)
 ZEND_END_ARG_INFO()
 
+ZEND_BEGIN_ARG_INFO_EX(gene_controller_arg_url, 0, 0, 1)
+    ZEND_ARG_INFO(0, path)
+ZEND_END_ARG_INFO()
+
 ZEND_BEGIN_ARG_INFO_EX(gene_controller_se, 0, 0, 2)
     ZEND_ARG_INFO(0, msg)
 	ZEND_ARG_INFO(0, code)
@@ -207,6 +211,16 @@ PHP_METHOD(gene_controller, getMethod) {
 }
 /* }}} */
 
+/** {{{ public gene_controller::getLang()
+ */
+PHP_METHOD(gene_controller, getLang) {
+	if (GENE_G(lang)) {
+		RETURN_STRING(GENE_G(lang));
+	}
+	RETURN_NULL();
+}
+/* }}} */
+
 /*
  * {{{ public gene_controller::params($name)
  */
@@ -311,6 +325,35 @@ PHP_METHOD(gene_controller, contains) {
  */
 PHP_METHOD(gene_controller, containsExt) {
 	gene_view_contains_ext(GENE_G(child_views), 0, return_value);
+}
+/* }}} */
+
+/** {{{ public gene_controller::url(string $path)
+ *  返回带当前语言前缀的 URL，如 url("login.html") => "/en/login.html"
+ */
+PHP_METHOD(gene_controller, url) {
+	zend_string *path_str;
+	char *out = NULL;
+	const char *p;
+	size_t path_len;
+
+	if (zend_parse_parameters(ZEND_NUM_ARGS(), "S", &path_str) == FAILURE) {
+		return;
+	}
+	p = ZSTR_VAL(path_str);
+	path_len = ZSTR_LEN(path_str);
+	/* 跳过 path 前导斜杠 */
+	for (; path_len > 0 && *p == '/'; p++, path_len--) {}
+	if (path_len == 0) {
+		RETURN_STRING("/");
+	}
+	if (GENE_G(lang) && GENE_G(lang)[0] != '\0') {
+		spprintf(&out, 0, "/%s/%.*s", GENE_G(lang), (int)path_len, p);
+	} else {
+		spprintf(&out, 0, "/%.*s", (int)path_len, p);
+	}
+	RETVAL_STRING(out);
+	efree(out);
 }
 /* }}} */
 
@@ -479,6 +522,7 @@ zend_function_entry gene_controller_methods[] = {
 	PHP_ME(gene_controller, isAjax, gene_controller_void_arginfo, ZEND_ACC_PUBLIC|ZEND_ACC_STATIC)
 	PHP_ME(gene_controller, params, gene_controller_url_param, ZEND_ACC_PUBLIC|ZEND_ACC_STATIC)
 	PHP_ME(gene_controller, getMethod, gene_controller_void_arginfo, ZEND_ACC_PUBLIC|ZEND_ACC_STATIC)
+	PHP_ME(gene_controller, getLang, gene_controller_void_arginfo, ZEND_ACC_PUBLIC|ZEND_ACC_STATIC)
 	PHP_ME(gene_controller, isGet, gene_controller_void_arginfo, ZEND_ACC_PUBLIC|ZEND_ACC_STATIC)
 	PHP_ME(gene_controller, isPost, gene_controller_void_arginfo, ZEND_ACC_PUBLIC|ZEND_ACC_STATIC)
 	PHP_ME(gene_controller, isPut, gene_controller_void_arginfo, ZEND_ACC_PUBLIC|ZEND_ACC_STATIC)
@@ -491,6 +535,7 @@ zend_function_entry gene_controller_methods[] = {
 	PHP_ME(gene_controller, displayExt, gene_controller_display_ext, ZEND_ACC_PUBLIC)
 	PHP_ME(gene_controller, contains, gene_controller_void_arginfo, ZEND_ACC_PUBLIC|ZEND_ACC_STATIC)
 	PHP_ME(gene_controller, containsExt, gene_controller_void_arginfo, ZEND_ACC_PUBLIC|ZEND_ACC_STATIC)
+	PHP_ME(gene_controller, url, gene_controller_arg_url, ZEND_ACC_PUBLIC|ZEND_ACC_STATIC)
 	PHP_ME(gene_controller, success, gene_controller_se, ZEND_ACC_PUBLIC|ZEND_ACC_STATIC)
 	PHP_ME(gene_controller, error, gene_controller_se, ZEND_ACC_PUBLIC|ZEND_ACC_STATIC)
 	PHP_ME(gene_controller, data, gene_controller_se_data, ZEND_ACC_PUBLIC|ZEND_ACC_STATIC)
