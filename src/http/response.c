@@ -1,4 +1,4 @@
-﻿/*
+/*
  +----------------------------------------------------------------------+
  | gene                                                                 |
  +----------------------------------------------------------------------+
@@ -324,7 +324,15 @@ PHP_METHOD(gene_response, url) {
 	/* 跳过 path 前导斜杠 */
 	for (; path_len > 0 && *p == '/'; p++, path_len--) {}
 	if (path_len == 0) {
-		RETURN_STRING("/");
+		/* 如果只有斜杠，也加上语言前缀 */
+		if (GENE_G(lang) && GENE_G(lang)[0] != '\0') {
+			spprintf(&out, 0, "/%s/", GENE_G(lang));
+			RETVAL_STRING(out);
+			efree(out);
+		} else {
+			RETURN_STRING("/");
+		}
+		return;
 	}
 	if (GENE_G(lang) && GENE_G(lang)[0] != '\0') {
 		spprintf(&out, 0, "/%s/%.*s", GENE_G(lang), (int)path_len, p);
