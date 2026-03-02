@@ -60,6 +60,7 @@ if test "$PHP_GENE" != "no"; then
 	  mvc/view.c \
 	  exception/exception.c \
 	  tool/benchmark.c \
+    tool/language.c \
 	  db/pdo.c \
 	  db/mysql.c \
 	  db/mssql.c \
