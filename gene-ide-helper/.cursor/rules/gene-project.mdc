@@ -31,6 +31,27 @@ alwaysApply: false
 
 - `$config->set("key", ['class' => '\Gene\Xxx', 'params' => [[...]], 'instance' => true])`；控制器内通过 `$this->key` 访问注入组件（如 `$this->db`、`$this->cache`、`$this->validate`、`$this->websession`、`$this->memcache`、`$this->redis`、`$this->language`、`$this->adminsession`）
 
+### 语言组件（language）
+
+- 推荐按目录/语言拆分语言文件：`application/Language/{Dir}/{Lang}.php`，文件返回数组，如 `['login_title' => '登录', ...]`
+- 在配置中注入：
+
+  ```php
+  $config->set('language', [
+      'class'   => '\Gene\Language',
+      'params'  => ['web', 'en'], // 默认目录 web、默认语言 en
+      'instance'=> true,
+  ]);
+  ```
+
+- 控制器中使用：
+
+  ```php
+  // 切换到 Language/Web/Zh.php
+  $this->language->web('zh');
+  $title = $this->language->login_title;
+  ```
+
 ## Service 与 Model
 
 - Service 继承 `\Gene\Service`，单例 `Xxx::getInstance()`，内部可 `return $this->error()/success()/data()`，调用 Model 用 `\Models\Im\Xxx::getInstance()->row($id)` 等,封装业务逻辑及缓存
