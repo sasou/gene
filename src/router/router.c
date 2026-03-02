@@ -218,7 +218,8 @@ zval *get_path_router(zval *val, char *paths) {
 			ret = zend_symtable_str_find(Z_ARRVAL_P(val), seg, strlen(seg));
 			if (ret) {
 				leaf = get_path_router(ret, ptr);
-			} else {
+			}
+			if (!leaf) {
 				ret = zend_symtable_str_find(Z_ARRVAL_P(val), "chird", 5);
 				if (ret) {
 					ZEND_HASH_FOREACH_KEY_VAL(Z_ARRVAL_P(ret), idx, key, tmp) {
