@@ -1,4 +1,4 @@
-/*
+﻿/*
  +----------------------------------------------------------------------+
  | gene                                                                 |
  +----------------------------------------------------------------------+
@@ -33,6 +33,7 @@ zend_class_entry *gene_language_ce;
 /* {{{ ARG_INFO */
 ZEND_BEGIN_ARG_INFO_EX(gene_language_construct_arginfo, 0, 0, 1)
     ZEND_ARG_INFO(0, dir)
+    ZEND_ARG_INFO(0, defaultLang)
 ZEND_END_ARG_INFO()
 
 ZEND_BEGIN_ARG_INFO_EX(gene_language_lang_arginfo, 0, 0, 0)
@@ -50,13 +51,14 @@ ZEND_END_ARG_INFO()
 /* }}} */
 
 /*
- * {{{ public Gene\Language::__construct($dir)
+ * {{{ public Gene\Language::__construct($dir, $defaultLang = 'en')
  */
 PHP_METHOD(gene_language, __construct) {
     zval *dir_zv = NULL;
     zval *lang_zv = NULL;
+    zval *default_lang_zv = NULL;
 
-    if (zend_parse_parameters(ZEND_NUM_ARGS(), "z", &dir_zv) == FAILURE) {
+    if (zend_parse_parameters(ZEND_NUM_ARGS(), "z|z", &dir_zv, &default_lang_zv) == FAILURE) {
         RETURN_NULL();
     }
 
@@ -71,10 +73,14 @@ PHP_METHOD(gene_language, __construct) {
     }
 
     if (lang_zv == NULL) {
-        zval tmp;
-        ZVAL_STRING(&tmp, "en");
-        zend_update_static_property(gene_language_ce, ZEND_STRL(GENE_LANGUAGE_LANG), &tmp);
-        zval_ptr_dtor(&tmp);
+        if (default_lang_zv && Z_TYPE_P(default_lang_zv) == IS_STRING && Z_STRLEN_P(default_lang_zv) > 0) {
+            zend_update_static_property(gene_language_ce, ZEND_STRL(GENE_LANGUAGE_LANG), default_lang_zv);
+        } else {
+            zval tmp;
+            ZVAL_STRING(&tmp, "en");
+            zend_update_static_property(gene_language_ce, ZEND_STRL(GENE_LANGUAGE_LANG), &tmp);
+            zval_ptr_dtor(&tmp);
+        }
     } else {
         zend_update_static_property(gene_language_ce, ZEND_STRL(GENE_LANGUAGE_LANG), lang_zv);
     }
