@@ -38,6 +38,15 @@ ZEND_END_ARG_INFO()
 ZEND_BEGIN_ARG_INFO_EX(gene_language_lang_arginfo, 0, 0, 0)
     ZEND_ARG_INFO(0, lang)
 ZEND_END_ARG_INFO()
+
+ZEND_BEGIN_ARG_INFO_EX(gene_language_call_arginfo, 0, 0, 2)
+    ZEND_ARG_INFO(0, name)
+    ZEND_ARG_INFO(0, args)
+ZEND_END_ARG_INFO()
+
+ZEND_BEGIN_ARG_INFO_EX(gene_language_get_arginfo, 0, 0, 1)
+    ZEND_ARG_INFO(0, name)
+ZEND_END_ARG_INFO()
 /* }}} */
 
 /*
@@ -157,6 +166,12 @@ PHP_METHOD(gene_language, __get) {
         return;
     }
 
+    /* app_root 未初始化时不尝试加载语言文件，避免异常 */
+    if (!GENE_G(app_root)) {
+        ZVAL_EMPTY_STRING(return_value);
+        return;
+    }
+
     dir_conf = zend_hash_find(Z_ARRVAL_P(config), Z_STR_P(dir_zv));
 
     if (dir_conf == NULL) {
@@ -168,15 +183,19 @@ PHP_METHOD(gene_language, __get) {
         if (len > 0) {
             zval retval;
             zend_file_handle file_handle;
+            ZVAL_UNDEF(&retval);
             zend_stream_init_filename(&file_handle, file);
-            if (zend_execute_scripts(ZEND_REQUIRE, &retval, 1, &file_handle) == SUCCESS &&
-                Z_TYPE(retval) == IS_ARRAY) {
-                zval tmp;
-                ZVAL_COPY(&tmp, &retval);
-                zend_hash_update(Z_ARRVAL_P(config), Z_STR_P(dir_zv), &tmp);
-                dir_conf = zend_hash_find(Z_ARRVAL_P(config), Z_STR_P(dir_zv));
-                zval_ptr_dtor(&retval);
+            if (zend_execute_scripts(ZEND_REQUIRE, &retval, 1, &file_handle) == SUCCESS) {
+                if (Z_TYPE(retval) == IS_ARRAY) {
+                    zval tmp;
+                    ZVAL_COPY(&tmp, &retval);
+                    zend_hash_update(Z_ARRVAL_P(config), Z_STR_P(dir_zv), &tmp);
+                    dir_conf = zend_hash_find(Z_ARRVAL_P(config), Z_STR_P(dir_zv));
+                }
             } else {
+                php_error_docref(NULL, E_WARNING, "Unable to load language file %s", file);
+            }
+            if (Z_TYPE(retval) != IS_UNDEF) {
                 zval_ptr_dtor(&retval);
             }
             zend_destroy_file_handle(&file_handle);
@@ -201,8 +220,8 @@ PHP_METHOD(gene_language, __get) {
 zend_function_entry gene_language_methods[] = {
     PHP_ME(gene_language, __construct, gene_language_construct_arginfo, ZEND_ACC_PUBLIC | ZEND_ACC_CTOR)
     PHP_ME(gene_language, lang,        gene_language_lang_arginfo,      ZEND_ACC_PUBLIC)
-    PHP_ME(gene_language, __call,      NULL,                            ZEND_ACC_PUBLIC)
-    PHP_ME(gene_language, __get,       NULL,                            ZEND_ACC_PUBLIC)
+    PHP_ME(gene_language, __call,      gene_language_call_arginfo,      ZEND_ACC_PUBLIC)
+    PHP_ME(gene_language, __get,       gene_language_get_arginfo,       ZEND_ACC_PUBLIC)
     {NULL, NULL, NULL}
 };
 /* }}} */
