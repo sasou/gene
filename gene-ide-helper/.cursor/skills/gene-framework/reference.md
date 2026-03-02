@@ -133,6 +133,20 @@
 
 ---
 
+## Gene\Language
+
+语言组件，用于加载 `Language/{Dir}/{Lang}.php` 中返回的数组，并根据当前语言前缀配合 `url()` 使用。
+一般通过配置注入为 `$this->language`，也可单独实例化。
+
+| 方法 | 说明 |
+|------|------|
+| __construct($dir, $defaultLang = 'en') | 构造函数，设置默认语言目录与默认语言 |
+| lang($lang = null) | 设置当前语言代码（如 zh、en、ru），返回自身 |
+| __call($name, $args) | `$language->web('zh')`：设置当前语言目录为 web、语言为 zh，返回自身 |
+| __get($name) | 读取当前目录/语言文件中的语言键值，不存在时返回空字符串 |
+
+---
+
 ## Config
 
 配置读写。含 `$safe` 属性。
