@@ -60,7 +60,7 @@ PHP_METHOD(gene_language, __construct) {
         RETURN_NULL();
     }
 
-    /* self::$lang = \Gene\Di::get('lang') ?? 'zh'; */
+    /* self::$lang = \Gene\Di::get('lang') ?? 'en'; */
     {
         zend_string *name = zend_string_init(ZEND_STRL("lang"), 0);
         zval *val = gene_di_get(name);
@@ -72,7 +72,7 @@ PHP_METHOD(gene_language, __construct) {
 
     if (lang_zv == NULL) {
         zval tmp;
-        ZVAL_STRING(&tmp, "zh");
+        ZVAL_STRING(&tmp, "en");
         zend_update_static_property(gene_language_ce, ZEND_STRL(GENE_LANGUAGE_LANG), &tmp);
         zval_ptr_dtor(&tmp);
     } else {
@@ -237,7 +237,7 @@ GENE_MINIT_FUNCTION(language) {
 
     /* static properties: dir, lang, config */
     zend_declare_property_string(gene_language_ce, GENE_LANGUAGE_DIR,  strlen(GENE_LANGUAGE_DIR), "", ZEND_ACC_PUBLIC | ZEND_ACC_STATIC);
-    zend_declare_property_string(gene_language_ce, GENE_LANGUAGE_LANG, strlen(GENE_LANGUAGE_LANG), "Zh", ZEND_ACC_PUBLIC | ZEND_ACC_STATIC);
+    zend_declare_property_string(gene_language_ce, GENE_LANGUAGE_LANG, strlen(GENE_LANGUAGE_LANG), "en", ZEND_ACC_PUBLIC | ZEND_ACC_STATIC);
     zend_declare_property_null(gene_language_ce,  GENE_LANGUAGE_CONFIG, strlen(GENE_LANGUAGE_CONFIG), ZEND_ACC_PUBLIC | ZEND_ACC_STATIC);
 
     return SUCCESS;
