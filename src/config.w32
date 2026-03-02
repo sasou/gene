@@ -8,7 +8,7 @@ if (PHP_GENE != "no") {
 	ADD_FLAG("CFLAGS_GENE", "/I " + configure_module_dirname);
 	
 	ADD_SOURCES(configure_module_dirname + "/app", "application.c", "gene");
-	ADD_SOURCES(configure_module_dirname + "/tool", "benchmark.c execute.c", "gene");
+	ADD_SOURCES(configure_module_dirname + "/tool", "benchmark.c execute.c language.c", "gene");
 	ADD_SOURCES(configure_module_dirname + "/common", "common.c", "gene");
 	ADD_SOURCES(configure_module_dirname + "/config", "configs.c", "gene");
 	ADD_SOURCES(configure_module_dirname + "/db", "pdo.c mysql.c mssql.c pgsql.c sqlite.c", "gene");

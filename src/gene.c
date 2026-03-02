@@ -31,6 +31,7 @@
 #include "config/configs.h"
 #include "router/router.h"
 #include "tool/execute.h"
+#include "tool/language.h"
 #include "cache/memory.h"
 #include "di/di.h"
 #include "mvc/controller.h"
@@ -183,6 +184,7 @@ PHP_MINIT_FUNCTION(gene) {
 	GENE_STARTUP(config);
 	GENE_STARTUP(router);
 	GENE_STARTUP(execute);
+	GENE_STARTUP(language);
 	GENE_STARTUP(memory);
 	GENE_STARTUP(controller);
 	GENE_STARTUP(request);
@@ -262,7 +264,7 @@ PHP_MINFO_FUNCTION(gene) {
 	php_info_print_table_start();
 	php_info_print_table_header(2, "gene support", "enabled");
 	php_info_print_table_row(2, "gene author:", " sasou <zaipd@qq.com>");
-	php_info_print_table_row(2, "gene site:", " http://www.1xm.net");
+	php_info_print_table_row(2, "gene site:", " https://www.1xm.net");
 	php_info_print_table_row(2, "gene version:", PHP_GENE_VERSION);
 	php_info_print_table_end();
 
