@@ -510,7 +510,42 @@ zend_long gene_memory_getTime(char *keyString, size_t keyString_len) {
 /** {{{ void gene_memory_del(char *keyString, size_t keyString_len)
  */
 int gene_memory_del(char *keyString, size_t keyString_len) {
-	if (zend_symtable_str_del(GENE_G(cache), keyString, keyString_len) == 0) {
+	zend_string *stored_key = NULL;
+	zval *stored_val = NULL;
+	zend_string *iter_key;
+	zval *iter_val;
+	dtor_func_t orig_dtor;
+
+	/* Keys are allocated as persistent interned strings (IS_STR_INTERNED),
+	 * so zend_string_release() is a no-op for them. We must find the stored
+	 * key pointer and free() it manually to avoid a memory leak on each del. */
+	ZEND_HASH_FOREACH_STR_KEY_VAL(GENE_G(cache), iter_key, iter_val) {
+		if (iter_key
+				&& ZSTR_LEN(iter_key) == keyString_len
+				&& memcmp(ZSTR_VAL(iter_key), keyString, keyString_len) == 0) {
+			stored_key = iter_key;
+			stored_val = iter_val;
+			break;
+		}
+	} ZEND_HASH_FOREACH_END();
+
+	if (stored_key) {
+		/* Free the value content first */
+		gene_memory_zval_dtor(stored_val);
+
+		/* Remove the bucket without triggering the destructor again */
+		orig_dtor = GENE_G(cache)->pDestructor;
+		GENE_G(cache)->pDestructor = NULL;
+		zend_symtable_str_del(GENE_G(cache), keyString, keyString_len);
+		GENE_G(cache)->pDestructor = orig_dtor;
+
+		/* Finally free the persistent key memory that PHP would never release */
+		free(stored_key);
+		return 1;
+	}
+
+	/* Fallback for numeric keys (stored by index, no persistent key to free) */
+	if (zend_symtable_str_del(GENE_G(cache), keyString, keyString_len) == SUCCESS) {
 		return 1;
 	}
 	return 0;
