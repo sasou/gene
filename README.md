@@ -40,6 +40,8 @@
     $app
       ->load("router.ini.php")
       ->load("config.ini.php")
+      ->setEnvironment((int)\Gene\Application::config("runtime")["app_env"])
+      ->setRuntimeType(\Gene\Application::config("runtime")["runtime"])
       ->run();  
 
 ### 第2步：路由文件router.ini.php   
@@ -102,6 +104,13 @@
     <?php
     $config = new \Gene\Config();
     $config->clear();
+
+    //运行配置：app_env(开发/测试/生产) + runtime(fpm/swoole/coroutine)
+    $config->set("runtime", [
+        'app_env' => getenv("GENE_APP_ENV") ?: 1,
+        'runtime' => getenv("GENE_RUNTIME") ?: "fpm",
+        'enable_coroutine_hook' => getenv("GENE_ENABLE_COROUTINE_HOOK") ?: false
+    ]);
     
     //视图类注入配置
     $config->set("view", [
@@ -218,6 +227,8 @@
         ->autoload(APP_ROOT)
         ->load("router.ini.php")
         ->load("config.ini.php")
+        ->setEnvironment((int)\Gene\Application::config("runtime")["app_env"])
+        ->setRuntimeType(\Gene\Application::config("runtime")["runtime"])
         ->run($type, $url);
         
         $out = ob_get_contents();
@@ -226,6 +237,24 @@
     });
 
     $http->start();
+
+### 运行环境标记（低成本切换）
+    setEnvironment用于业务环境标识（开发/测试/生产）：
+    - 1: dev
+    - 2: test
+    - 3: prod
+
+    setRuntimeType用于运行时类型标识（新增配置）：
+    - fpm / php-fpm: PHP-FPM请求模型
+    - swoole / resident / daemon: 常驻进程模型
+    - coroutine / co: 协程模型
+    - 配合Swoole协程时，可设置环境变量 GENE_ENABLE_COROUTINE_HOOK=1 开启 runtime hook
+
+    读取当前标识：
+    Gene\Application::getEnvironment();      // 1,2,3
+    Gene\Application::getEnvironmentName();  // dev/test/prod
+    Gene\Application::getRuntimeType();      // 1,2,3
+    Gene\Application::getRuntimeTypeName();  // fpm/swoole/coroutine
     
 ## 四、性能测试
 ### docker运行环境(php-fpm+nginx): Gene应用,访问地址：/test

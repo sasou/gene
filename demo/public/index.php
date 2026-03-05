@@ -7,4 +7,5 @@ $app
     ->load("router.ini.php")
     ->load("config.ini.php")
     ->setMode(1, 1)
+    ->setRuntimeType('fpm')
     ->run();

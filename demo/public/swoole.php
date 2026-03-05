@@ -2,6 +2,10 @@
 header("Content-type: text/html; charset=UTF-8");
 define('APP_ROOT', dirname(__dir__) . '/application');
 
+if (class_exists('\Swoole\Runtime') && (getenv("GENE_ENABLE_COROUTINE_HOOK") ?: "1") === "1") {
+    \Swoole\Runtime::enableCoroutine(true);
+}
+
 $http = new swoole_http_server("192.168.27.101", 9501, SWOOLE_PROCESS);
 
 //配置
@@ -29,6 +33,7 @@ $http->on("request", function ($request, $response) {
     ->autoload(APP_ROOT)
     ->load("router.ini.php")
     ->load("config.ini.php")
+    ->setRuntimeType(2)
     ->run($type, $url);
     
     $out = ob_get_contents();
