@@ -326,17 +326,17 @@ $config->set('websession', [
 ]);
 
 // 使用
-$this->websession->load();          // 从驱动加载数据
-$user = $this->websession->get('user');
-$this->websession->set('user', $data);
-$this->websession->destroy();       // 清除并重新生成 SessionId
+$user = $this->websession->get('user'); // 支持点号路径
+$this->websession->set('user', $data); // 支持点号路径
+$this->websession->del('user.id');    // 支持点号路径
+$this->websession->destroy();       // 全部清除并重新生成 SessionId
 ```
 
 | 方法 | 说明 |
 |------|------|
 | __construct(array $config) | 构造，必须传入配置数组（含 `driver`/`name`/`ttl` 等） |
-| load() | 从存储驱动加载 Session 数据，返回 $this |
-| save() | 持久化数据到存储驱动并刷新 Cookie，返回 $this |
+| load() | 从存储驱动加载 Session 数据，返回 $this，非必须调用 |
+| save() | 持久化数据到存储驱动并刷新 Cookie，返回 $this ，非必须调用|
 | get($name = null) | 获取值（支持点号路径，不传返回全部） |
 | set($name, $value) | 设置值（支持点号路径，自动持久化），返回 bool |
 | del($name) | 删除指定键（支持点号路径），返回 bool |
