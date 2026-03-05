@@ -64,8 +64,16 @@ zval *gene_di_get(zend_string *name) {
 	di = gene_di_instance();
 	entrys = zend_read_property(gene_di_ce, gene_strip_obj(di), GENE_DI_PROPERTY_REG, strlen(GENE_DI_PROPERTY_REG), 1, NULL);
 
-	if ((pzval = zend_hash_find(Z_ARRVAL_P(entrys), name)) != NULL) {
-		return pzval;
+	/* In FPM mode (runtime_type < 2), entrys is effectively per-request since PHP
+	 * static properties reset each request. Return the cached instance directly.
+	 * In Swoole/coroutine mode (runtime_type >= 2), entrys persists across requests.
+	 * Skip this shortcut for instance:false components so each request gets a fresh
+	 * object with clean state (e.g. Mysql query builder). instance:true components
+	 * (stateless like Redis/Memcached) are still retrieved via the class-name key below. */
+	if (GENE_G(runtime_type) < 2) {
+		if ((pzval = zend_hash_find(Z_ARRVAL_P(entrys), name)) != NULL) {
+			return pzval;
+		}
 	}
 
 	char *router_e = NULL;
