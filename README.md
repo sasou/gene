@@ -105,13 +105,6 @@
     $config = new \Gene\Config();
     $config->clear();
 
-    //运行配置：app_env(开发/测试/生产) + runtime(fpm/swoole/coroutine)
-    $config->set("runtime", [
-        'app_env' => getenv("GENE_APP_ENV") ?: 1,
-        'runtime' => getenv("GENE_RUNTIME") ?: "fpm",
-        'enable_coroutine_hook' => getenv("GENE_ENABLE_COROUTINE_HOOK") ?: false
-    ]);
-    
     //视图类注入配置
     $config->set("view", [
         'class' => '\Gene\View'
@@ -248,10 +241,9 @@
     - fpm / php-fpm: PHP-FPM请求模型
     - swoole / resident / daemon: 常驻进程模型
     - coroutine / co: 协程模型
-    - 配合Swoole协程时，可设置环境变量 GENE_ENABLE_COROUTINE_HOOK=1 开启 runtime hook
 
     读取当前标识：
-    Gene\Application::getEnvironment();      // 1,2,3
+    Gene\Application::getEnvironment();      // 0,1,2
     Gene\Application::getEnvironmentName();  // dev/test/prod
     Gene\Application::getRuntimeType();      // 1,2,3
     Gene\Application::getRuntimeTypeName();  // fpm/swoole/coroutine
