@@ -217,7 +217,9 @@ char * replaceAll(char * src, const char oldChar, const char newChar) {
  */
 char * insertAll(char * dest, char * src, char oldChar, char newChar) {
 	int size = 50;
+	char *head;
 	dest = (char *) emalloc(strlen(src) + size + 1);
+	head = dest;
 	while (*src != '\0') {
 		if (*src == oldChar) {
 			*dest = *src;
@@ -230,7 +232,7 @@ char * insertAll(char * dest, char * src, char oldChar, char newChar) {
 		dest++;
 	}
 	*dest = '\0';
-	return dest;
+	return head;
 }
 /* }}} */
 
@@ -388,7 +390,6 @@ int ReplaceStr(char* sSrc, char* sMatchStr, char* sReplaceStr) {
 
 		FindPos = (char *) strstr(sSrc, sMatchStr);
 	}
-	free(FindPos);
 	return 0;
 }
 /* }}} */
@@ -410,7 +411,7 @@ char * insert_string(char * string, const char * source,
 
 	retstr = (char*) emalloc(size);
 	if (retstr == NULL) {
-		free(newstr);
+		efree(newstr);
 		return NULL;
 	}
 
@@ -428,7 +429,7 @@ char * insert_string(char * string, const char * source,
 	pos += strlen(destination);
 	memcpy(retstr + pos, sk, strlen(sk));
 
-	free(newstr);
+	efree(newstr);
 	return retstr;
 
 }
@@ -601,7 +602,7 @@ char *strreplace2(char *src, char *from, char *to)
             temp = erealloc(value, size);
             if ( temp == NULL )
             {
-               free(value);
+               efree(value);
                return NULL;
             }
             dst = temp + (dst - value);

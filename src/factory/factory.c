@@ -68,13 +68,16 @@ void gene_factory_call(zval *object, char *action, zval *param, zval *retval) /*
     if (param && Z_TYPE_P(param) == IS_ARRAY) {
     	param_count = zend_hash_num_elements(Z_ARRVAL_P(param));
     	if (param_count > 0) {
-        	zval params[10];
+        	zval *params = (zval *) safe_emalloc(param_count, sizeof(zval), 0);
         	ZEND_HASH_FOREACH_KEY_VAL(Z_ARRVAL_P(param), id, key, element)
         	{
-        		params[num] = *element;
-        		num++;
+        		if (num < param_count) {
+        			params[num] = *element;
+        			num++;
+        		}
         	}ZEND_HASH_FOREACH_END();
             call_user_function(NULL, object, &function_name, retval, param_count, params);
+            efree(params);
     	} else {
     		call_user_function(NULL, object, &function_name, retval, 0, NULL);
     	}
@@ -92,21 +95,27 @@ void gene_factory_function_call(char *action, zval *param_key, zval *param_arr, 
 	zend_string *key = NULL;
 	zend_long id;
 	uint32_t num = 1;
+	uint32_t total;
+	zval *params;
 
     ZVAL_STRING(&function_name, action);
-    zval params[10];
-    params[0] = *param_key;
     if (param_arr && Z_TYPE_P(param_arr) == IS_ARRAY) {
     	param_count = zend_hash_num_elements(Z_ARRVAL_P(param_arr));
-    	if (param_count > 0) {
-        	ZEND_HASH_FOREACH_KEY_VAL(Z_ARRVAL_P(param_arr), id, key, element)
-        	{
-        		params[num] = *element;
-        		num++;
-        	}ZEND_HASH_FOREACH_END();
-    	}
+    }
+    total = 1 + param_count;
+    params = (zval *) safe_emalloc(total, sizeof(zval), 0);
+    params[0] = *param_key;
+    if (param_count > 0) {
+    	ZEND_HASH_FOREACH_KEY_VAL(Z_ARRVAL_P(param_arr), id, key, element)
+    	{
+    		if (num < total) {
+    			params[num] = *element;
+    			num++;
+    		}
+    	}ZEND_HASH_FOREACH_END();
     }
     call_user_function(NULL, NULL, &function_name, retval, num, params);
+    efree(params);
     zval_ptr_dtor(&function_name);
 }/*}}}*/
 
@@ -117,20 +126,25 @@ void gene_factory_function_call_1(zval *function_name, zval *param_key, zval *pa
 	zend_string *key = NULL;
 	zend_long id;
 	uint32_t num = 1;
+	uint32_t total;
     if (param_key) {
-        zval params[10];
-        params[0] = *param_key;
         if (param_arr && Z_TYPE_P(param_arr) == IS_ARRAY) {
         	param_count = zend_hash_num_elements(Z_ARRVAL_P(param_arr));
-        	if (param_count > 0) {
-            	ZEND_HASH_FOREACH_KEY_VAL(Z_ARRVAL_P(param_arr), id, key, element)
-            	{
-            		params[num] = *element;
-            		num++;
-            	}ZEND_HASH_FOREACH_END();
-        	}
+        }
+        total = 1 + param_count;
+        zval *params = (zval *) safe_emalloc(total, sizeof(zval), 0);
+        params[0] = *param_key;
+        if (param_count > 0) {
+        	ZEND_HASH_FOREACH_KEY_VAL(Z_ARRVAL_P(param_arr), id, key, element)
+        	{
+        		if (num < total) {
+        			params[num] = *element;
+        			num++;
+        		}
+        	}ZEND_HASH_FOREACH_END();
         }
         call_user_function(NULL, NULL, function_name, retval, num, params);
+        efree(params);
     } else {
     	call_user_function(NULL, NULL, function_name, retval, 0, NULL);
     }
