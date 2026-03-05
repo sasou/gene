@@ -1,6 +1,8 @@
 <?php
 header("Content-type: text/html; charset=UTF-8");
 define('APP_ROOT', dirname(__dir__) . '/application');
+define('CONF_DIR', dirname(__dir__) . '/config');
+
 
 // 启用 Swoole 协程 Hook（SWOOLE_HOOK_ALL），将 PDO、Redis、Memcached 等原生阻塞
 // 扩展替换为协程友好实现：I/O 等待时自动挂起当前协程，不阻塞 worker 进程。
@@ -38,8 +40,8 @@ $http->on("request", function ($request, $response) {
     $app = \Gene\Application::getInstance();
     $app
     ->autoload(APP_ROOT)
-    ->load("router.ini.php")
-    ->load("config.ini.php")
+    ->load("router.ini.php", CONF_DIR)
+    ->load("config.ini.php", CONF_DIR)
     ->setRuntimeType(2)
     ->run($type, $url);
     

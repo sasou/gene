@@ -401,10 +401,10 @@ PHP_METHOD(gene_application, getEnvironment) {
 PHP_METHOD(gene_application, getEnvironmentName) {
 	switch (GENE_G(run_environment)) {
 		case 2:
-			RETURN_STRING("test");
-		case 3:
 			RETURN_STRING("prod");
 		case 1:
+			RETURN_STRING("test");
+		case 0:
 		default:
 			RETURN_STRING("dev");
 	}
