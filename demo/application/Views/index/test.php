@@ -1,4 +1,19 @@
-<div class="layui-main"  style="padding-top:10px">
+<div class="layui-main" style="padding-top:10px">
+
+<div class="layui-row" style="margin-bottom:10px;">
+  <div class="layui-card">
+    <div class="layui-card-header"><strong>当前请求 Benchmark（Gene\Benchmark）</strong></div>
+    <div class="layui-card-body" style="padding:10px 15px;">
+      <p>执行时间：<code><?php echo $bench_time; ?> ms</code> &nbsp;&nbsp;
+         内存消耗：<code><?php echo $bench_memory; ?> MB</code> &nbsp;&nbsp;
+         Gene\Memory 进程内命中次数：<code><?php echo $hit_count; ?></code>
+      </p>
+      <blockquote class="layui-elem-quote" style="font-size:12px;">
+        Gene\Benchmark::start() / end() 统计本次请求执行耗时与内存，Gene\Memory 跨请求保存进程内计数。
+      </blockquote>
+    </div>
+  </div>
+</div>
 
     <div class="layui-row">
       <div class="layui-card">
