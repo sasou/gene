@@ -397,7 +397,7 @@ bool gene_session_del_by_path(zval *obj, char *path) {
 						return 1;
 					}
 				}
-				seg = php_strtok_r(NULL, "0", &ptr);
+				seg = php_strtok_r(NULL, ".", &ptr);
 			}
 		}
 		return 0;
