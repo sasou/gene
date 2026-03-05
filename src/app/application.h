@@ -22,7 +22,7 @@
 extern zend_class_entry *gene_application_ce;
 
 void load_file(char *key, size_t key_len,char *php_script, int validity);
-zend_long gene_file_modified(char *file, long ctime);
+zend_long gene_file_modified(char *file, zend_long ctime);
 void gene_ini_router();
 void gene_router_set_uri(zval **leaf);
 

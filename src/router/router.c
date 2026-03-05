@@ -123,7 +123,7 @@ int setMca(zend_string *key, char *val) {
 		params = GENE_G(path_params);
 		if (params != NULL) {
 			ZVAL_STRING(&sval, val);
-			zend_symtable_update(params->value.arr, key, &sval);
+			zend_symtable_update(Z_ARRVAL_P(params), key, &sval);
 		}
 	}
 	return 1;
@@ -134,7 +134,7 @@ int setMca(zend_string *key, char *val) {
  */
 void gene_router_set_uri(zval **leaf) {
 	zval *key = NULL;
-	key = zend_hash_str_find((*leaf)->value.arr, "key", 3);
+	key = zend_hash_str_find(Z_ARRVAL_P(*leaf), "key", 3);
 	if (key) {
 		if (GENE_G(router_path)) {
 			efree(GENE_G(router_path));
@@ -291,7 +291,7 @@ int get_router_info(zval **leaf, zval **cacheHook) {
 
 	gene_router_set_uri(leaf);
 
-	hname = zend_hash_str_find((*leaf)->value.arr, "hook", 4);
+	hname = zend_hash_str_find(Z_ARRVAL_P(*leaf), "hook", 4);
 	if (hname) {
 		spprintf(&hookname, 0, "hook:%s", Z_STRVAL_P(hname));
 	}
@@ -307,7 +307,7 @@ int get_router_info(zval **leaf, zval **cacheHook) {
 		}
 	}
 	if (is == 1) {
-		before = zend_hash_str_find((*cacheHook)->value.arr, "hook:before", 11);
+		before = zend_hash_str_find(Z_ARRVAL_P(*cacheHook), "hook:before", 11);
 		if (before) {
 			size = size + Z_STRLEN_P(before);
 			run = erealloc(run, size);
@@ -317,7 +317,7 @@ int get_router_info(zval **leaf, zval **cacheHook) {
 	}
 	is = 1;
 	if (seg && strlen(seg) > 0) {
-		h = zend_hash_str_find((*cacheHook)->value.arr, seg, strlen(seg));
+		h = zend_hash_str_find(Z_ARRVAL_P(*cacheHook), seg, strlen(seg));
 		if (h) {
 			size = size + Z_STRLEN_P(h);
 			run = erealloc(run, size);
@@ -325,7 +325,7 @@ int get_router_info(zval **leaf, zval **cacheHook) {
 			run[size - 1] = 0;
 		}
 	}
-	m = zend_hash_str_find((*leaf)->value.arr, "run", 3);
+	m = zend_hash_str_find(Z_ARRVAL_P(*leaf), "run", 3);
 	if (m) {
 		size = size + Z_STRLEN_P(m);
 		run = erealloc(run, size);
@@ -338,7 +338,7 @@ int get_router_info(zval **leaf, zval **cacheHook) {
 		}
 	}
 	if (is == 1) {
-		after = zend_hash_str_find((*cacheHook)->value.arr, "hook:after", 10);
+		after = zend_hash_str_find(Z_ARRVAL_P(*cacheHook), "hook:after", 10);
 		if (after) {
 			size = size + Z_STRLEN_P(after);
 			run = erealloc(run, size);
@@ -365,7 +365,7 @@ int get_router_error_run_by_router(zval *cacheHook, char *errorName) {
 	char *run = NULL, *router_e;
 	if (cacheHook) {
 		router_e_len = spprintf(&router_e, 0, "error:%s", errorName);
-		error = zend_hash_str_find(cacheHook->value.arr, router_e, router_e_len);
+		error = zend_hash_str_find(Z_ARRVAL_P(cacheHook), router_e, router_e_len);
 		if (error) {
 			size = Z_STRLEN_P(error) + 1;
 			run = (char *) ecalloc(size, sizeof(char));
@@ -402,7 +402,7 @@ int get_router_error_run(char *errorName, zval *safe) {
 	efree(router_e);
 	if (cacheHook) {
 		router_e_len = spprintf(&router_e, 0, "error:%s", errorName);
-		error = zend_hash_str_find(cacheHook->value.arr, router_e, router_e_len + 1);
+		error = zend_hash_str_find(Z_ARRVAL_P(cacheHook), router_e, router_e_len + 1);
 		if (error) {
 			size = Z_STRLEN_P(error) + 1;
 			run = (char *) ecalloc(size, sizeof(char));
@@ -613,7 +613,7 @@ void get_router_content_run(char *methodin, char *pathin, zval *safe) {
 	efree(router_e);
 
 	if (cache) {
-		temp = zend_symtable_str_find(cache->value.arr, method, strlen(method));
+		temp = zend_symtable_str_find(Z_ARRVAL_P(cache), method, strlen(method));
 		if (temp == NULL) {
 			php_error_docref(NULL, E_WARNING, "Gene Unknown Method Cache:%s", method);
 			efree(method);
@@ -752,7 +752,7 @@ PHP_METHOD(gene_router, __construct) {
 PHP_METHOD(gene_router, __call) {
 	zval *val = NULL, *group, *safe, *pathVal = NULL, *contentval = NULL, *hook = NULL, *self = getThis();
 	zval content;
-	long methodlen;
+	zend_long methodlen;
 	int i;
 	size_t router_e_len;
 	char *method, *path = NULL, *result = NULL, *tmp = NULL, *router_e, *key = NULL;
@@ -764,7 +764,7 @@ PHP_METHOD(gene_router, __call) {
 
 	strtolower(method);
 	if (IS_ARRAY == Z_TYPE_P(val)) {
-		pathVal = zend_hash_index_find(val->value.arr, 0);
+		pathVal = zend_hash_index_find(Z_ARRVAL_P(val), 0);
 		if (pathVal != NULL && Z_TYPE_P(pathVal) == IS_STRING) {
 			group = zend_read_property(gene_router_ce, gene_strip_obj(self),GENE_ROUTER_GROUP, strlen(GENE_ROUTER_GROUP), 1,NULL);
 			spprintf(&path, 0, "%s%s", Z_STRVAL_P(group),Z_STRVAL_P(pathVal));
@@ -772,7 +772,7 @@ PHP_METHOD(gene_router, __call) {
 		if (path == NULL) {
 			spprintf(&path, 0, "");
 		}
-		contentval = zend_hash_index_find(val->value.arr, 1);
+		contentval = zend_hash_index_find(Z_ARRVAL_P(val), 1);
 		if (contentval != NULL) {
 			if (IS_OBJECT == Z_TYPE_P(contentval)) {
 				tmp = get_function_content(contentval);
@@ -792,7 +792,7 @@ PHP_METHOD(gene_router, __call) {
 			ZVAL_STRING(&content, "");
 		}
 
-		hook = zend_hash_index_find(val->value.arr, 2);
+		hook = zend_hash_index_find(Z_ARRVAL_P(val), 2);
 		if (hook != NULL && Z_TYPE_P(hook) != IS_STRING) {
 			hook = NULL;
 		}
@@ -1160,7 +1160,7 @@ PHP_METHOD(gene_router, display) {
  */
 PHP_METHOD(gene_router, displayExt) {
 	zend_string *file, *parent_file = NULL;
-	zend_bool isCompile = 0;
+	bool isCompile = 0;
 	if (zend_parse_parameters(ZEND_NUM_ARGS(), "S|Sb", &file, &parent_file, &isCompile) == FAILURE) {
 		return;
 	}
@@ -1354,8 +1354,8 @@ PHP_METHOD(gene_router, getLang) {
 /*
  * {{{ gene_router_methods
  */
-zend_function_entry gene_router_methods[] = {
-	PHP_ME(gene_router, __construct, gene_router_void_arginfo, ZEND_ACC_PUBLIC|ZEND_ACC_CTOR)
+const zend_function_entry gene_router_methods[] = {
+	PHP_ME(gene_router, __construct, gene_router_void_arginfo, ZEND_ACC_PUBLIC)
 	PHP_ME(gene_router, getEvent, gene_router_void_arginfo, ZEND_ACC_PUBLIC)
 	PHP_ME(gene_router, getTree, gene_router_void_arginfo, ZEND_ACC_PUBLIC)
 	PHP_ME(gene_router, getConf, gene_router_void_arginfo, ZEND_ACC_PUBLIC)

@@ -29,7 +29,7 @@ void gene_pdo_in_transaction(zval *pdo_object, zval *retval);
 void gene_pdo_last_insert_id(zval *pdo_object, char *name, zval *retval);
 void gene_pdo_error_code(zval *pdo_object, zval *retval);
 void gene_pdo_error_info(zval *pdo_object, zval *retval);
-zend_bool show_sql_errors(zval *pdo_object);
+bool show_sql_errors(zval *pdo_object);
 void gene_pdo_prepare(zval *pdo_object, char *sql, zval *retval);
 void gene_pdo_rollback(zval *pdo_object, zval *retval);
 void gene_pdo_statement_execute(zval *pdostatement_obj, zval *bind_parameters, zval *retval);
@@ -46,6 +46,6 @@ void gene_insert_field_value_batch(zval *fields, smart_str *field_str, smart_str
 void gene_insert_field_value_batch_other(zval *fields, smart_str *value_str, zval *field_value);
 void gene_update_field_value(zval *fields, smart_str *field_str, zval *field_value);
 void makeWhere(zval *self, smart_str *where_str, zval *where, zval *field_value);
-zend_bool checkPdoError(zend_object *ex);
+bool checkPdoError(zend_object *ex);
 
 #endif

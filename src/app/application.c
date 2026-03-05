@@ -176,7 +176,7 @@ void load_file(char *key, size_t key_len, char *php_script, int validity) {
 
 /** {{{ gene_file_modified
  */
-zend_long gene_file_modified(char *file, long ctime) {
+zend_long gene_file_modified(char *file, zend_long ctime) {
 	zval n_ctime;
 	#if PHP_VERSION_ID >= 80101
 		zend_string *filename;
@@ -576,7 +576,7 @@ PHP_METHOD(gene_application, autoload) {
  */
 PHP_METHOD(gene_application, error) {
 	zval *callback = NULL, *error_type = NULL, *self = getThis();
-	long type = 0;
+	zend_long type = 0;
 	if (zend_parse_parameters(ZEND_NUM_ARGS(), "l|zz", &type, &callback, &error_type) == FAILURE) {
 		return;
 	}
@@ -591,7 +591,7 @@ PHP_METHOD(gene_application, error) {
  */
 PHP_METHOD(gene_application, exception) {
 	zval *callback = NULL, *error_type = NULL, *self = getThis();
-	long type = 0;
+	zend_long type = 0;
 	if (zend_parse_parameters(ZEND_NUM_ARGS(), "l|z", &type, &callback) == FAILURE) {
 		return;
 	}
@@ -607,7 +607,7 @@ PHP_METHOD(gene_application, exception) {
  */
 PHP_METHOD(gene_application, setMode) {
 	zval *self = getThis();
-	long error_type = 0, exception_type = 0;
+	zend_long error_type = 0, exception_type = 0;
 	zval *error_callback = NULL, *ex_callback = NULL;
 	if (zend_parse_parameters(ZEND_NUM_ARGS(), "|llzz", &error_type, &exception_type, &ex_callback, &error_callback) == FAILURE) {
 		return;
@@ -729,8 +729,8 @@ PHP_METHOD(gene_application, __get)
 /*
  * {{{ gene_application_methods
  */
-zend_function_entry gene_application_methods[] = {
-	PHP_ME(gene_application, __construct, gene_application_construct, ZEND_ACC_PUBLIC|ZEND_ACC_CTOR)
+const zend_function_entry gene_application_methods[] = {
+	PHP_ME(gene_application, __construct, gene_application_construct, ZEND_ACC_PUBLIC)
 	PHP_ME(gene_application, getInstance, gene_application_get_instance, ZEND_ACC_PUBLIC|ZEND_ACC_STATIC)
 	PHP_ME(gene_application, load, gene_application_load, ZEND_ACC_PUBLIC)
 	PHP_ME(gene_application, autoload, gene_application_autoload, ZEND_ACC_PUBLIC)

@@ -97,7 +97,7 @@ void gene_view_contains(char *file, zval *ret) {
 
 /** {{{ gene_view_display_ext
  */
-void gene_view_contains_ext(char *file, zend_bool isCompile, zval *ret) {
+void gene_view_contains_ext(char *file, bool isCompile, zval *ret) {
 	char *path, *compile_path, *cpath;
 	size_t compile_path_len;
 	php_stream *stream = NULL;
@@ -157,7 +157,7 @@ int gene_view_display(char *file, zval *obj, zend_array *symbol_table) {
 
 /** {{{ gene_view_display_ext
  */
-int gene_view_display_ext(char *file, zend_bool isCompile, zval *obj, zend_array *symbol_table) {
+int gene_view_display_ext(char *file, bool isCompile, zval *obj, zend_array *symbol_table) {
 	char *path, *compile_path, *cpath;
 	size_t compile_path_len;
 	php_stream *stream = NULL;
@@ -389,7 +389,7 @@ int gene_view_set_vars(zend_string *name, zval *value) {
  * {{{ gene_view
  */
 PHP_METHOD(gene_view, __construct) {
-	long debug = 0;
+	zend_long debug = 0;
 	if (zend_parse_parameters(ZEND_NUM_ARGS(), "|l", &debug) == FAILURE) {
 		RETURN_NULL();
 	}
@@ -428,7 +428,7 @@ PHP_METHOD(gene_view, display) {
  */
 PHP_METHOD(gene_view, displayExt) {
 	zend_string *file, *parent_file = NULL;
-	zend_bool isCompile = 0;
+	bool isCompile = 0;
 	if (zend_parse_parameters(ZEND_NUM_ARGS(), "S|Sb", &file, &parent_file, &isCompile) == FAILURE) {
 		return;
 	}
@@ -591,8 +591,8 @@ PHP_METHOD(gene_view, __get)
 /*
  * {{{ gene_view_methods
  */
-zend_function_entry gene_view_methods[] = {
-	PHP_ME(gene_view, __construct, gene_view_void_arginfo, ZEND_ACC_PUBLIC|ZEND_ACC_CTOR)
+const zend_function_entry gene_view_methods[] = {
+	PHP_ME(gene_view, __construct, gene_view_void_arginfo, ZEND_ACC_PUBLIC)
 	PHP_ME(gene_view, display, gene_view_arg_display, ZEND_ACC_PUBLIC)
 	PHP_ME(gene_view, displayExt, gene_view_arg_display_ext, ZEND_ACC_PUBLIC)
 	PHP_ME(gene_view, assign, gene_view_arg_assign, ZEND_ACC_PUBLIC)

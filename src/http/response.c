@@ -140,7 +140,7 @@ void gene_response_cookie(zval *name, zval *value, zval *expires, zval *path, zv
  * {{{ gene_response
  */
 PHP_METHOD(gene_response, __construct) {
-	long debug = 0;
+	zend_long debug = 0;
 	if (zend_parse_parameters(ZEND_NUM_ARGS(), "|l", &debug) == FAILURE) {
 		RETURN_NULL();
 	}
@@ -363,7 +363,7 @@ PHP_METHOD(gene_response, setHtmlHeader) {
 /*
  * {{{ gene_response_methods
  */
-zend_function_entry gene_response_methods[] = {
+const zend_function_entry gene_response_methods[] = {
 	PHP_ME(gene_response, redirect, gene_response_arg_redirect, ZEND_ACC_PUBLIC|ZEND_ACC_STATIC)
 	PHP_ME(gene_response, redirectJs, gene_response_arg_redirect, ZEND_ACC_PUBLIC|ZEND_ACC_STATIC)
 	PHP_ME(gene_response, alert, gene_response_arg_alert, ZEND_ACC_PUBLIC|ZEND_ACC_STATIC)
@@ -376,7 +376,7 @@ zend_function_entry gene_response_methods[] = {
 	PHP_ME(gene_response, url, gene_response_arg_url, ZEND_ACC_PUBLIC|ZEND_ACC_STATIC)
 	PHP_ME(gene_response, setJsonHeader, gene_response_void_arginfo, ZEND_ACC_PUBLIC|ZEND_ACC_STATIC)
 	PHP_ME(gene_response, setHtmlHeader, gene_response_void_arginfo, ZEND_ACC_PUBLIC|ZEND_ACC_STATIC)
-	PHP_ME(gene_response, __construct, gene_response_void_arginfo, ZEND_ACC_PUBLIC|ZEND_ACC_CTOR)
+	PHP_ME(gene_response, __construct, gene_response_void_arginfo, ZEND_ACC_PUBLIC)
 	{ NULL, NULL, NULL }
 };
 /* }}} */

@@ -185,8 +185,8 @@ PHP_METHOD(gene_config, clear) {
 /*
  * {{{ gene_config_methods
  */
-zend_function_entry gene_config_methods[] = {
-	PHP_ME(gene_config, __construct, gene_config_construct, ZEND_ACC_PUBLIC|ZEND_ACC_CTOR)
+const zend_function_entry gene_config_methods[] = {
+	PHP_ME(gene_config, __construct, gene_config_construct, ZEND_ACC_PUBLIC)
 	PHP_ME(gene_config, set, gene_config_set, ZEND_ACC_PUBLIC)
 	PHP_ME(gene_config, get, gene_config_get, ZEND_ACC_PUBLIC)
 	PHP_ME(gene_config, del, gene_config_del, ZEND_ACC_PUBLIC)

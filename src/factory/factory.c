@@ -40,7 +40,7 @@ ZEND_BEGIN_ARG_INFO_EX(gene_factory_create, 0, 0, 1)
     ZEND_ARG_INFO(0, type)
 ZEND_END_ARG_INFO()
 
-zend_bool gene_factory_load_class(char *className, size_t tmp_len, zval *classObject) {
+bool gene_factory_load_class(char *className, size_t tmp_len, zval *classObject) {
 	zend_string *c_key = NULL;
 	zend_class_entry *pdo_ptr = NULL;
 
@@ -151,7 +151,7 @@ void gene_factory_function_call_1(zval *function_name, zval *param_key, zval *pa
 }/*}}}*/
 
 
-zend_bool gene_factory(char *className, size_t tmp_len, zval *params, zval *classObject) {
+bool gene_factory(char *className, size_t tmp_len, zval *params, zval *classObject) {
 	zend_string *c_key = NULL;
 	zend_class_entry *pdo_ptr = NULL;
 
@@ -218,7 +218,7 @@ PHP_METHOD(gene_factory, create)
 	zval *params = NULL, *entrys = NULL, *pzval = NULL, classObject;
 	zval *di = NULL;
 	zend_string *name;
-	long type = 0;
+	zend_long type = 0;
 	if (zend_parse_parameters(ZEND_NUM_ARGS(), "S|zl", &name, &params, &type) == FAILURE) {
 		return;
 	}
@@ -249,8 +249,8 @@ PHP_METHOD(gene_factory, create)
 /*
  * {{{ gene_factory_methods
  */
-zend_function_entry gene_factory_methods[] = {
-		PHP_ME(gene_factory, __construct, gene_factory_void_arginfo, ZEND_ACC_PUBLIC|ZEND_ACC_CTOR)
+const zend_function_entry gene_factory_methods[] = {
+		PHP_ME(gene_factory, __construct, gene_factory_void_arginfo, ZEND_ACC_PUBLIC)
 		PHP_ME(gene_factory, create, gene_factory_create, ZEND_ACC_PUBLIC|ZEND_ACC_STATIC)
 		{NULL, NULL, NULL}
 };

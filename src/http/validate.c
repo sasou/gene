@@ -285,7 +285,7 @@ int required (zval *self){
 	return 1;
 }
 
-int compareSizeMax(zval *val, long max) {
+int compareSizeMax(zval *val, zend_long max) {
 	zval a_new;
 	switch(Z_TYPE_P(val)) {
 	case IS_LONG:
@@ -321,7 +321,7 @@ int compareSizeMax(zval *val, long max) {
 	return 0;
 }
 
-int compareSizeMin(zval *val, long min) {
+int compareSizeMin(zval *val, zend_long min) {
 	zval a_new;
 	switch(Z_TYPE_P(val)) {
 	case IS_LONG:
@@ -977,7 +977,7 @@ PHP_METHOD(gene_validate, rule_match)
 PHP_METHOD(gene_validate, rule_max)
 {
 	zval *self = getThis(), *val = NULL;
-	long max = 0;
+	zend_long max = 0;
 	if (zend_parse_parameters(ZEND_NUM_ARGS(), "l", &max) == FAILURE) {
 		return;
 	}
@@ -999,7 +999,7 @@ PHP_METHOD(gene_validate, rule_max)
 PHP_METHOD(gene_validate, rule_min)
 {
 	zval *self = getThis(), *val = NULL;
-	long min = 0;
+	zend_long min = 0;
 	if (zend_parse_parameters(ZEND_NUM_ARGS(), "l", &min) == FAILURE) {
 		return;
 	}
@@ -1021,7 +1021,7 @@ PHP_METHOD(gene_validate, rule_min)
 PHP_METHOD(gene_validate, rule_range)
 {
 	zval *self = getThis(), *val = NULL;
-	long min = 0, max = 0;
+	zend_long min = 0, max = 0;
 	if (zend_parse_parameters(ZEND_NUM_ARGS(), "ll", &min, &max) == FAILURE) {
 		return;
 	}
@@ -1044,7 +1044,7 @@ PHP_METHOD(gene_validate, rule_range)
 PHP_METHOD(gene_validate, rule_length)
 {
 	zval *self = getThis(), *val = NULL;
-	long min = 0, max = 0;
+	zend_long min = 0, max = 0;
 	if (zend_parse_parameters(ZEND_NUM_ARGS(), "ll", &min, &max) == FAILURE) {
 		return;
 	}
@@ -1074,7 +1074,7 @@ PHP_METHOD(gene_validate, rule_length)
 PHP_METHOD(gene_validate, rule_size)
 {
 	zval *self = getThis(), *val = NULL;
-	long min = 0, max = 0;
+	zend_long min = 0, max = 0;
 	if (zend_parse_parameters(ZEND_NUM_ARGS(), "ll", &min, &max) == FAILURE) {
 		return;
 	}
@@ -1505,7 +1505,7 @@ PHP_METHOD(gene_validate, rule_equals)
 /*
  * {{{ gene_validate_methods
  */
-zend_function_entry gene_validate_methods[] = {
+const zend_function_entry gene_validate_methods[] = {
 		PHP_ME(gene_validate, init, gene_validate_init, ZEND_ACC_PUBLIC)
 		PHP_ME(gene_validate, name, gene_validate_name, ZEND_ACC_PUBLIC)
 		PHP_ME(gene_validate, skipOnEmpty, gene_validate_void_arginfo, ZEND_ACC_PUBLIC)
@@ -1537,7 +1537,7 @@ zend_function_entry gene_validate_methods[] = {
 		PHP_ME(gene_validate, rule_string, gene_validate_void_arginfo, ZEND_ACC_PUBLIC)
 		PHP_ME(gene_validate, rule_equal, gene_validate_rule_equal, ZEND_ACC_PUBLIC)
 		PHP_ME(gene_validate, rule_equals, gene_validate_rule_equals, ZEND_ACC_PUBLIC)
-		PHP_ME(gene_validate, __construct, gene_validate_construct, ZEND_ACC_PUBLIC|ZEND_ACC_CTOR)
+		PHP_ME(gene_validate, __construct, gene_validate_construct, ZEND_ACC_PUBLIC)
 		PHP_ME(gene_validate, __call, gene_validate_call_arginfo, ZEND_ACC_PUBLIC)
 		{NULL, NULL, NULL}
 };

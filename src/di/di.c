@@ -78,7 +78,7 @@ zval *gene_di_get(zend_string *name) {
 
 	char *router_e = NULL;
 	size_t router_e_len = 0;
-	zend_bool type = 0;
+	bool type = 0;
 
 	if (GENE_G(app_key)) {
 		router_e_len = spprintf(&router_e, 0, "%s%s", GENE_G(app_key), GENE_CONFIG_CACHE);
@@ -91,17 +91,17 @@ zval *gene_di_get(zend_string *name) {
 	router_e = NULL;
 
 	if (cache && Z_TYPE_P(cache) == IS_ARRAY) {
-    	if ((class = zend_hash_str_find(cache->value.arr, "class", 5)) == NULL) {
+    	if ((class = zend_hash_str_find(Z_ARRVAL_P(cache), "class", 5)) == NULL) {
     		 php_error_docref(NULL, E_ERROR, "Factory need a valid class.");
     		 return NULL;
     	}
-    	if ((params = zend_hash_str_find(cache->value.arr, "params", 6)) != NULL) {
+    	if ((params = zend_hash_str_find(Z_ARRVAL_P(cache), "params", 6)) != NULL) {
     		 if (Z_TYPE_P(params) != IS_ARRAY) {
 	    		 php_error_docref(NULL, E_ERROR, "Factory need a array param.");
 	    		 return NULL;
     		 }
     	}
-    	instance = zend_hash_str_find(cache->value.arr, "instance", 8);
+    	instance = zend_hash_str_find(Z_ARRVAL_P(cache), "instance", 8);
 
     	if (instance && Z_TYPE_P(instance) == IS_TRUE) {
     		type = 1;
@@ -340,8 +340,8 @@ PHP_METHOD(gene_di, getInstance) {
 /*
  * {{{ gene_di_methods
  */
-zend_function_entry gene_di_methods[] = {
-	PHP_ME(gene_di, __construct, gene_di_void_arginfo, ZEND_ACC_CTOR|ZEND_ACC_PRIVATE)
+const zend_function_entry gene_di_methods[] = {
+	PHP_ME(gene_di, __construct, gene_di_void_arginfo, ZEND_ACC_PRIVATE)
 	PHP_ME(gene_di, __clone, gene_di_void_arginfo, ZEND_ACC_PRIVATE)
 	PHP_ME(gene_di, getInstance, gene_di_void_arginfo, ZEND_ACC_PUBLIC|ZEND_ACC_STATIC)
 	PHP_ME(gene_di, get, gene_di_get_arginfo, ZEND_ACC_PUBLIC|ZEND_ACC_STATIC)
