@@ -84,6 +84,15 @@ $config->set("cache", [
     'instance' => false
 ]);
 
+// Gene\Memory 进程级共享内存缓存（跨请求存活，不依赖外部服务）
+// 适合高频读取、低频更新的数据（如配置、权限、路由预热等）
+// 注意：每个 Worker 进程独立内存空间，多 Worker 模式下数据不互通
+$config->set("memory", [
+    'class'    => '\Gene\Memory',
+    'params'   => [['demo']],
+    'instance' => true
+]);
+
 //自定义httpsqs队列类注入配置
 $config->set("httpsqs", [
     'class' => '\Ext\Queue\Httpsqs',

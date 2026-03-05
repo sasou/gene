@@ -118,7 +118,7 @@ class Mssql
      * @param mixed $fields fields
      * @return mixed
      */
-    public function where($where, $fields) {
+    public function where($where, $fields = null) {
 
     }
 
@@ -129,7 +129,7 @@ class Mssql
      * @param mixed $fields fields
      * @return mixed
      */
-    public function in($in, $fields) {
+    public function in($in, $fields = null) {
 
     }
 
@@ -146,11 +146,14 @@ class Mssql
 
     /**
      * limit
-     * 
-     * @param mixed $limit limit
-     * @return mixed
+     *
+     * SQL Server 语法：OFFSET num ROWS FETCH NEXT offset ROWS ONLY
+     *
+     * @param int $num OFFSET 行数
+     * @param int|null $offset FETCH NEXT 行数
+     * @return static
      */
-    public function limit($limit) {
+    public function limit($num, $offset = null) {
 
     }
 

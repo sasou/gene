@@ -45,12 +45,24 @@ class Index extends \Gene\Controller
     
     /**
      * test
+     * 性能测试页面，同时展示 Gene\Benchmark 与 Gene\Memory 的用法
      */
     public function test()
     {
-        // 控制器内变量赋值到模板,注意与上述方法的区别
+        \Gene\Benchmark::start();
+
+        // Gene\Memory 进程级缓存演示：跨请求存活，无需外部依赖
+        $memory = new \Gene\Memory('demo');
+        $hitCount = (int)$memory->get('test_hit') + 1;
+        $memory->set('test_hit', $hitCount);
+
+        \Gene\Benchmark::end();
+
         $title = "性能测试";
         $this->assign('title', $title);
+        $this->assign('bench_time',   \Gene\Benchmark::time());
+        $this->assign('bench_memory', \Gene\Benchmark::memory());
+        $this->assign('hit_count', $hitCount);
         $this->display('index/test', 'common');
     }
     

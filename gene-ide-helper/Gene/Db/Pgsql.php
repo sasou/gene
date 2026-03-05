@@ -118,7 +118,7 @@ class Pgsql
      * @param mixed $fields fields
      * @return mixed
      */
-    public function where($where, $fields) {
+    public function where($where, $fields = null) {
 
     }
 
@@ -129,7 +129,7 @@ class Pgsql
      * @param mixed $fields fields
      * @return mixed
      */
-    public function in($in, $fields) {
+    public function in($in, $fields = null) {
 
     }
 
@@ -146,11 +146,14 @@ class Pgsql
 
     /**
      * limit
-     * 
-     * @param mixed $limit limit
-     * @return mixed
+     *
+     * PostgreSQL 语法：LIMIT offset OFFSET num
+     *
+     * @param int $num 返回行数
+     * @param int|null $offset 偏移量
+     * @return static
      */
-    public function limit($limit) {
+    public function limit($num, $offset = null) {
 
     }
 

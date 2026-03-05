@@ -41,34 +41,36 @@ class Application
     /**
      * load
      * 
-     * @param mixed $file file
-     * @param mixed $path path
-     * @param mixed $validity validity
-     * @return mixed
+     * @param string $file 配置文件名
+     * @param string|null $path 文件所在目录（默认使用 app_root）
+     * @param int $validity 文件变更检测缓存时间（秒，默认10）
+     * @return static
      */
-    public function load($file, $path, $validity = null) {
+    public function load($file, $path = null, $validity = null) {
 
     }
 
     /**
      * autoload
      * 
-     * @param mixed $app_root app_root
-     * @param mixed $auto_function auto_function
-     * @return mixed
+     * @param string|null $app_root 应用根目录
+     * @param callable|null $auto_function 自定义自动加载函数
+     * @return static
      */
-    public function autoload($app_root, $auto_function) {
+    public function autoload($app_root = null, $auto_function = null) {
 
     }
 
     /**
      * setMode
      * 
-     * @param mixed $error_type error_type
-     * @param mixed $exception_type exception_type
-     * @return mixed
+     * @param int|null $error_type 错误处理类型（1=内置HTML，0=自定义）
+     * @param int|null $exception_type 异常处理类型（1=内置HTML，0=自定义）
+     * @param callable|null $ex_callback 自定义异常处理回调
+     * @param callable|null $error_callback 自定义错误处理回调
+     * @return static
      */
-    public function setMode($error_type, $exception_type) {
+    public function setMode($error_type = null, $exception_type = null, $ex_callback = null, $error_callback = null) {
 
     }
 
@@ -109,11 +111,11 @@ class Application
     /**
      * run
      * 
-     * @param mixed $method method
-     * @param mixed $uri uri
-     * @return mixed
+     * @param string|null $method HTTP 请求方法（默认从 $_SERVER 读取）
+     * @param string|null $uri 请求路径（默认从 $_SERVER 读取）
+     * @return static
      */
-    public function run($method, $uri) {
+    public function run($method = null, $uri = null) {
 
     }
 
@@ -250,10 +252,10 @@ class Application
     /**
      * params
      * 
-     * @param mixed $key key
+     * @param string|null $name 路径参数名，不传则返回全部参数数组
      * @return mixed
      */
-    public static function params($key) {
+    public static function params($name = null) {
 
     }
 

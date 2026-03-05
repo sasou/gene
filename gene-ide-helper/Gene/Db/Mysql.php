@@ -113,23 +113,23 @@ class Mysql
 
     /**
      * where
-     * 
-     * @param mixed $where where
-     * @param mixed $fields fields
-     * @return mixed
+     *
+     * @param array|string $where 条件：关联数组（自动解析操作符/IN）或原始 SQL 字符串
+     * @param array|mixed|null $fields 绑定参数
+     * @return static
      */
-    public function where($where, $fields) {
+    public function where($where, $fields = null) {
 
     }
 
     /**
      * in
-     * 
-     * @param mixed $in in
-     * @param mixed $fields fields
-     * @return mixed
+     *
+     * @param string $in 含 in(?) 占位符的 SQL 片段
+     * @param array|mixed|null $fields 值（数组或标量）
+     * @return static
      */
-    public function in($in, $fields) {
+    public function in($in, $fields = null) {
 
     }
 
@@ -146,11 +146,15 @@ class Mysql
 
     /**
      * limit
-     * 
-     * @param mixed $limit limit
-     * @return mixed
+     *
+     * MySQL 语法：LIMIT $num 或 LIMIT $num, $offset
+     * 两参数时等价于 LIMIT $offset OFFSET $num（$num 为起始偏移量，$offset 为返回行数）
+     *
+     * @param int $num 起始偏移行数（单参时为返回行数）
+     * @param int|null $offset 返回行数（双参模式，对应 MySQL LIMIT offset, count 中的 count）
+     * @return static
      */
-    public function limit($limit) {
+    public function limit($num, $offset = null) {
 
     }
 
