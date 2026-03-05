@@ -286,7 +286,7 @@ PHP_FUNCTION(gene_version) {
  *
  * Every user visible function must have an entry in gene_functions[].
  */
-zend_function_entry gene_functions[] = {
+const zend_function_entry gene_functions[] = {
 	PHP_FE(gene_version, gene_void_arginfo)
 	PHP_FE_END
 };
@@ -303,7 +303,7 @@ ZEND_GET_MODULE(gene)
 /** {{{ module depends
  */
 #if ZEND_MODULE_API_NO >= 20050922
-zend_module_dep gene_deps[] = {
+const zend_module_dep gene_deps[] = {
 	ZEND_MOD_REQUIRED("spl")
 	{ NULL, NULL, NULL }
 };

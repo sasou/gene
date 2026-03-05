@@ -62,7 +62,7 @@ void *gene_execite_opcodes_run(zend_op_array *op_array) {
  * {{{ gene_execute_methods
  */
 PHP_METHOD(gene_execute, __construct) {
-	long debug = 0;
+	zend_long debug = 0;
 	zval *self = getThis();
 	if (zend_parse_parameters(ZEND_NUM_ARGS(), "|l", &debug) == FAILURE) {
 		RETURN_NULL();
@@ -133,10 +133,10 @@ PHP_METHOD(gene_execute, StringRun) {
 /*
  * {{{ gene_execute_methods
  */
-zend_function_entry gene_execute_methods[] = {
+const zend_function_entry gene_execute_methods[] = {
 	PHP_ME(gene_execute, GetOpcodes, gene_execute_getcode_arginfo, ZEND_ACC_PUBLIC)
 	PHP_ME(gene_execute, StringRun, gene_execute_stringrun_arginfo, ZEND_ACC_PUBLIC)
-	PHP_ME(gene_execute, __construct, gene_execute_construct_arginfo, ZEND_ACC_PUBLIC|ZEND_ACC_CTOR)
+	PHP_ME(gene_execute, __construct, gene_execute_construct_arginfo, ZEND_ACC_PUBLIC)
 	{ NULL, NULL, NULL }
 };
 /* }}} */

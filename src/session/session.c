@@ -373,9 +373,9 @@ void gene_session_set_by_path(zval *obj, char *path, zval *zvalue) {
 }
 /* }}} */
 
-/** {{{ zend_bool gene_session_del_by_path(zval *obj, char *path)
+/** {{{ bool gene_session_del_by_path(zval *obj, char *path)
  */
-zend_bool gene_session_del_by_path(zval *obj, char *path) {
+bool gene_session_del_by_path(zval *obj, char *path) {
 	char *ptr = NULL, *seg = NULL;
 	zval *sess = NULL,*tmp = NULL, ret;
 
@@ -416,27 +416,27 @@ PHP_METHOD(gene_session, __construct) {
     }
 
     if (config && Z_TYPE_P(config) == IS_ARRAY) {
-		val = zend_hash_str_find(config->value.arr, ZEND_STRL("driver"));
+		val = zend_hash_str_find(Z_ARRVAL_P(config), ZEND_STRL("driver"));
 		if (val && Z_TYPE_P(val) == IS_STRING) {
 			zend_update_property_string(gene_session_ce, gene_strip_obj(self), ZEND_STRL(GENE_SESSION_DRIVER), Z_STRVAL_P(val));
 		}
-		val = zend_hash_str_find(config->value.arr, ZEND_STRL("prefix"));
+		val = zend_hash_str_find(Z_ARRVAL_P(config), ZEND_STRL("prefix"));
 		if (val && Z_TYPE_P(val) == IS_STRING) {
 			zend_update_property_string(gene_session_ce, gene_strip_obj(self), ZEND_STRL(GENE_SESSION_PREFIX), Z_STRVAL_P(val));
 		}
-		val = zend_hash_str_find(config->value.arr, ZEND_STRL("name"));
+		val = zend_hash_str_find(Z_ARRVAL_P(config), ZEND_STRL("name"));
 		if (val && Z_TYPE_P(val) == IS_STRING) {
 			zend_update_property_string(gene_session_ce, gene_strip_obj(self), ZEND_STRL(GENE_SESSION_NAME), Z_STRVAL_P(val));
 		}
-		val = zend_hash_str_find(config->value.arr, ZEND_STRL("domain"));
+		val = zend_hash_str_find(Z_ARRVAL_P(config), ZEND_STRL("domain"));
 		if (val && Z_TYPE_P(val) == IS_STRING) {
 			zend_update_property_string(gene_session_ce, gene_strip_obj(self), ZEND_STRL(GENE_SESSION_COOKIE_DOMAIN), Z_STRVAL_P(val));
 		}
-		val = zend_hash_str_find(config->value.arr, ZEND_STRL("path"));
+		val = zend_hash_str_find(Z_ARRVAL_P(config), ZEND_STRL("path"));
 		if (val && Z_TYPE_P(val) == IS_STRING) {
 			zend_update_property_string(gene_session_ce, gene_strip_obj(self), ZEND_STRL(GENE_SESSION_COOKIE_PATH), Z_STRVAL_P(val));
 		}
-		val = zend_hash_str_find(config->value.arr, ZEND_STRL("secure"));
+		val = zend_hash_str_find(Z_ARRVAL_P(config), ZEND_STRL("secure"));
 		if (val) {
 			if (Z_TYPE_P(val) == IS_TRUE) {
 				zend_update_property_bool(gene_session_ce, gene_strip_obj(self), ZEND_STRL(GENE_SESSION_SECURE), 1);
@@ -444,7 +444,7 @@ PHP_METHOD(gene_session, __construct) {
 				zend_update_property_bool(gene_session_ce, gene_strip_obj(self), ZEND_STRL(GENE_SESSION_SECURE), 0);
 			}
 		}
-		val = zend_hash_str_find(config->value.arr, ZEND_STRL("httponly"));
+		val = zend_hash_str_find(Z_ARRVAL_P(config), ZEND_STRL("httponly"));
 		if (val) {
 			if (Z_TYPE_P(val) == IS_TRUE) {
 				zend_update_property_bool(gene_session_ce, gene_strip_obj(self), ZEND_STRL(GENE_SESSION_HTTPONLY), 1);
@@ -452,11 +452,11 @@ PHP_METHOD(gene_session, __construct) {
 				zend_update_property_bool(gene_session_ce, gene_strip_obj(self), ZEND_STRL(GENE_SESSION_HTTPONLY), 0);
 			}
 		}
-		val = zend_hash_str_find(config->value.arr, ZEND_STRL("ttl"));
+		val = zend_hash_str_find(Z_ARRVAL_P(config), ZEND_STRL("ttl"));
 		if (val && Z_TYPE_P(val) == IS_LONG) {
 			zend_update_property_long(gene_session_ce, gene_strip_obj(self), ZEND_STRL(GENE_SESSION_COOKIE_LIFTTIME), Z_LVAL_P(val));
 		}
-		val = zend_hash_str_find(config->value.arr, ZEND_STRL("uttl"));
+		val = zend_hash_str_find(Z_ARRVAL_P(config), ZEND_STRL("uttl"));
 		if (val && Z_TYPE_P(val) == IS_LONG) {
 			zend_update_property_long(gene_session_ce, gene_strip_obj(self), ZEND_STRL(GENE_SESSION_COOKIE_UPTIME), Z_LVAL_P(val));
 		}
@@ -539,7 +539,7 @@ PHP_METHOD(gene_session, del) {
 	zval *self = getThis();
 	zend_string *name;
 	char *path = NULL;
-	zend_bool ret = 0;
+	bool ret = 0;
 
 	if (zend_parse_parameters(ZEND_NUM_ARGS(), "S", &name) == FAILURE) {
 		RETURN_NULL();
@@ -662,8 +662,8 @@ PHP_METHOD(gene_session, setLifeTime) {
 /*
  * {{{ gene_session_methods
  */
-zend_function_entry gene_session_methods[] = {
-	PHP_ME(gene_session, __construct, gene_session_void_arginfo, ZEND_ACC_PUBLIC|ZEND_ACC_CTOR)
+const zend_function_entry gene_session_methods[] = {
+	PHP_ME(gene_session, __construct, gene_session_void_arginfo, ZEND_ACC_PUBLIC)
 	PHP_ME(gene_session, load, gene_session_void_arginfo, ZEND_ACC_PUBLIC)
 	PHP_ME(gene_session, save, gene_session_void_arginfo, ZEND_ACC_PUBLIC)
 	PHP_ME(gene_session, setSessionId, gene_session_sets_arginfo, ZEND_ACC_PUBLIC)

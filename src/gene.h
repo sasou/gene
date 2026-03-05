@@ -48,13 +48,6 @@ extern zend_module_entry gene_module_entry;
 #define gene_strip_obj(o) Z_OBJ_P(o)
 #endif
 
-#ifndef ZEND_ACC_CTOR
-# define ZEND_ACC_CTOR	0x0
-#endif
-
-#ifndef ZEND_ACC_DTOR
-# define ZEND_ACC_DTOR	0x0
-#endif
 
 #define GENE_INIT_CLASS_ENTRY(ce, common_name, namespace_name, methods) \
 	if(GENE_G(use_namespace)) { \
@@ -92,11 +85,11 @@ char *auto_load_fun;
 char *child_views;
 char *lang;
 zval *path_params;
-zend_bool use_library;
+bool use_library;
 zend_long run_environment;
 zend_long runtime_type;
-zend_bool use_namespace;
-zend_bool view_compile;
+bool use_namespace;
+bool view_compile;
 HashTable *cache;
 HashTable *cache_easy;
 ZEND_END_MODULE_GLOBALS (gene)

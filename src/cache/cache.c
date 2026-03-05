@@ -718,7 +718,7 @@ PHP_METHOD(gene_cache, updateVersion)
 /*
  * {{{ gene_cache_methods
  */
-zend_function_entry gene_cache_methods[] = {
+const zend_function_entry gene_cache_methods[] = {
 		PHP_ME(gene_cache, cached, gene_cache_cached_arginfo, ZEND_ACC_PUBLIC)
 		PHP_ME(gene_cache, localCached, gene_cache_locaclCached_arginfo, ZEND_ACC_PUBLIC)
 		PHP_ME(gene_cache, unsetCached, gene_cache_unsetcached_arginfo, ZEND_ACC_PUBLIC)
@@ -727,7 +727,7 @@ zend_function_entry gene_cache_methods[] = {
 		PHP_ME(gene_cache, localCachedVersion, gene_cache_localcachedversion_arginfo, ZEND_ACC_PUBLIC)
 		PHP_ME(gene_cache, getVersion, gene_cache_getversion_arginfo, ZEND_ACC_PUBLIC)
 		PHP_ME(gene_cache, updateVersion, gene_cache_updateversion_arginfo, ZEND_ACC_PUBLIC)
-		PHP_ME(gene_cache, __construct, gene_cache_construct_arginfo, ZEND_ACC_PUBLIC|ZEND_ACC_CTOR)
+		PHP_ME(gene_cache, __construct, gene_cache_construct_arginfo, ZEND_ACC_PUBLIC)
 		{NULL, NULL, NULL}
 };
 /* }}} */

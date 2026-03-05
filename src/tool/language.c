@@ -223,8 +223,8 @@ PHP_METHOD(gene_language, __get) {
 /*
  * {{{ gene_language_methods
  */
-zend_function_entry gene_language_methods[] = {
-    PHP_ME(gene_language, __construct, gene_language_construct_arginfo, ZEND_ACC_PUBLIC | ZEND_ACC_CTOR)
+const zend_function_entry gene_language_methods[] = {
+    PHP_ME(gene_language, __construct, gene_language_construct_arginfo, ZEND_ACC_PUBLIC)
     PHP_ME(gene_language, lang,        gene_language_lang_arginfo,      ZEND_ACC_PUBLIC)
     PHP_ME(gene_language, __call,      gene_language_call_arginfo,      ZEND_ACC_PUBLIC)
     PHP_ME(gene_language, __get,       gene_language_get_arginfo,       ZEND_ACC_PUBLIC)

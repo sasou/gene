@@ -67,7 +67,7 @@ ZEND_END_ARG_INFO()
 
 zval * request_query(zend_ulong type, char * name, size_t len) {
 	zval *carrier = NULL, *ret;
-	zend_bool jit_initialization = PG(auto_globals_jit);
+	bool jit_initialization = PG(auto_globals_jit);
 
 	switch (type) {
 	case TRACK_VARS_POST:
@@ -166,7 +166,7 @@ zval *getVal(zend_ulong type, char *name, size_t len) {
  * {{{ gene_request
  */
 PHP_METHOD(gene_request, __construct) {
-	long debug = 0;
+	zend_long debug = 0;
 	if (zend_parse_parameters(ZEND_NUM_ARGS(), "|l", &debug) == FAILURE) {
 		RETURN_NULL();
 	}
@@ -379,8 +379,8 @@ PHP_METHOD(gene_request, _set) {
 /*
  * {{{ gene_request_methods
  */
-zend_function_entry gene_request_methods[] = {
-	PHP_ME(gene_request, __construct, geme_request_void_arginfo, ZEND_ACC_PUBLIC|ZEND_ACC_CTOR)
+const zend_function_entry gene_request_methods[] = {
+	PHP_ME(gene_request, __construct, geme_request_void_arginfo, ZEND_ACC_PUBLIC)
 	PHP_ME(gene_request, get, geme_request_get_param_arginfo, ZEND_ACC_PUBLIC|ZEND_ACC_STATIC)
 	PHP_ME(gene_request, request, geme_request_get_param_arginfo, ZEND_ACC_PUBLIC|ZEND_ACC_STATIC)
 	PHP_ME(gene_request, post, geme_request_get_param_arginfo, ZEND_ACC_PUBLIC|ZEND_ACC_STATIC)

@@ -290,7 +290,7 @@ PHP_METHOD(gene_controller, display) {
  */
 PHP_METHOD(gene_controller, displayExt) {
 	zend_string *file, *parent_file = NULL;
-	zend_bool isCompile = 0;
+	bool isCompile = 0;
 	if (zend_parse_parameters(ZEND_NUM_ARGS(), "S|Sb", &file, &parent_file, &isCompile) == FAILURE) {
 		return;
 	}
@@ -518,8 +518,8 @@ PHP_METHOD(gene_controller, __get)
 /*
  * {{{ gene_controller_methods
  */
-zend_function_entry gene_controller_methods[] = {
-	PHP_ME(gene_controller, __construct, gene_controller_void_arginfo, ZEND_ACC_PUBLIC|ZEND_ACC_CTOR)
+const zend_function_entry gene_controller_methods[] = {
+	PHP_ME(gene_controller, __construct, gene_controller_void_arginfo, ZEND_ACC_PUBLIC)
 	PHP_ME(gene_controller, get, gene_controller_param_get, ZEND_ACC_PUBLIC|ZEND_ACC_STATIC)
 	PHP_ME(gene_controller, request, gene_controller_param_get, ZEND_ACC_PUBLIC|ZEND_ACC_STATIC)
 	PHP_ME(gene_controller, post, gene_controller_param_get, ZEND_ACC_PUBLIC|ZEND_ACC_STATIC)

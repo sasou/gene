@@ -99,7 +99,7 @@ double difftimeval(const struct timeval *start, const struct timeval *end)
 	return(timeuse);
 }
 
-void getBenchTime(struct timeval *start, struct timeval *end, char **ret, zend_bool type) {
+void getBenchTime(struct timeval *start, struct timeval *end, char **ret, bool type) {
 	double time;
 	time = difftimeval(start, end);
 
@@ -110,7 +110,7 @@ void getBenchTime(struct timeval *start, struct timeval *end, char **ret, zend_b
 	}
 }
 
-void getBenchMemory(zend_long *memory_start, zend_long *memory_end, char **ret, zend_bool type) {
+void getBenchMemory(zend_long *memory_start, zend_long *memory_end, char **ret, bool type) {
 	zend_long memory;
 	memory = *memory_end - *memory_start;
 
@@ -146,7 +146,7 @@ PHP_METHOD(gene_benchmark, end)
 PHP_METHOD(gene_benchmark, time)
 {
 	char *ret = NULL;
-	zend_bool type = 0;
+	bool type = 0;
 
 	if (zend_parse_parameters(ZEND_NUM_ARGS(), "|b", &type) == FAILURE) {
 		return;
@@ -166,7 +166,7 @@ PHP_METHOD(gene_benchmark, time)
 PHP_METHOD(gene_benchmark, memory)
 {
 	char *ret = NULL;
-	zend_bool type = 0;
+	bool type = 0;
 
 	if (zend_parse_parameters(ZEND_NUM_ARGS(), "|b", &type) == FAILURE) {
 		return;
@@ -186,7 +186,7 @@ PHP_METHOD(gene_benchmark, memory)
 /*
  * {{{ gene_benchmark_methods
  */
-zend_function_entry gene_benchmark_methods[] = {
+const zend_function_entry gene_benchmark_methods[] = {
 		PHP_ME(gene_benchmark, start, gene_benchmark_start, ZEND_ACC_PUBLIC|ZEND_ACC_STATIC)
 		PHP_ME(gene_benchmark, end, gene_benchmark_end, ZEND_ACC_PUBLIC|ZEND_ACC_STATIC)
 		PHP_ME(gene_benchmark, time, gene_benchmark_time, ZEND_ACC_PUBLIC|ZEND_ACC_STATIC)
