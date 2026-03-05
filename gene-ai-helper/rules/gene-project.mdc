@@ -1,0 +1,112 @@
+---
+description: 本仓库 Gene 项目约定：控制器/路由/配置/校验/响应/Service/Model
+globs: "**/*.php"
+alwaysApply: false
+---
+
+# Gene 项目约定（本仓库）
+
+## 控制器与命名空间
+
+- 控制器一律继承 `\Gene\Controller`，命名空间与目录一致：
+  - `Controllers\` → `application/Controllers/`
+  - `Controllers\Admin\`、`Controllers\Api\` 等同理
+- 取参：`$this->request->post`、`$this->request->get()`、`static::request()`（合并）
+- 校验：`$this->validate->init($data)->name('field')->required()->msg('错误')->valid()`，失败时 `return $this->error($this->validate->error())`
+- 统一响应：`return $this->success('消息')`、`return $this->error('消息')`、`return $this->data($data, $count)`；钩子或需裸 JSON 时用 `\Gene\Response::json(\Gene\Response::error('...'))`
+- 控制器方法应保持简短：取参 → 校验 → 调 Service → 响应
+
+## 视图
+
+- 传变量：`$this->assign('name', $value)`
+- 渲染：`$this->display('子目录/视图名', '子目录/layout')`，例如 `admin/list` + `admin/parent`
+- 无 layout 则只传第一个参数
+
+## 路由（config/router.ini.php）
+
+- `$router->get/post(path, "Controllers\Xxx@action", "hook@clearAfter")`；第三项为钩子与输出处理
+  - 输出控制：`@clearAfter`（输出后清空缓冲）、`@clearAll`（仅清空）
+- 分组：`->group("/admin/")` 内用 `Controllers\Admin\:c@:a`，最后 `->group()` 结束
+- 多语言：`->lang('zh,en,ru')` 在分组/路由注册前调用
+- 钩子：`->hook("adminAuth", function() { ... })`，未登录时 `$this->response->redirect(...)` 或 `\Gene\Response::json(\Gene\Response::error(...)); return false;`
+- 错误：`->error(404, function() { echo 404; })`
+
+## 配置（config/config.ini.{env}.php）
+
+- `$config->set("key", ['class' => '\Gene\Xxx', 'params' => [[...]], 'instance' => true])`
+- 控制器/Service 内通过 `$this->key` 访问注入组件
+- `instance: false` → 每次从配置重建（如 db，隔离链式查询状态）
+- `instance: true` → Worker 级单例（如 redis/memcache/memory/session）
+
+### 常用组件名
+
+`view`、`request`、`response`、`validate`、`websession`、`adminsession`、`db`、`memcache`、`redis`、`cache`、`memory`、`language`
+
+### Session 组件
+
+`\Gene\Session` 所有方法均为**实例方法**（非静态），`__construct` 必传 `array $config`：
+
+```php
+$config->set('websession', [
+    'class'  => '\Gene\Session',          // 自定义封装 或 '\Gene\Session'
+    'params' => [['driver' => 'redis', 'name' => 'WSESSID', 'ttl' => 86400]],
+]);
+```
+
+before 钩子中 `$this->websession->load()`，after 钩子中 `$this->websession->save()`。
+
+### Memory 组件（进程级缓存）
+
+```php
+$config->set('memory', [
+    'class'    => '\Gene\Memory',
+    'params'   => [['myapp']],   // 命名空间前缀
+    'instance' => true,
+]);
+// 使用：$this->memory->get('key') / set('key', $val, $ttl) / exists('key')
+```
+
+### Language 组件（多语言）
+
+```php
+$config->set('language', [
+    'class'    => '\Gene\Language',
+    'params'   => ['web', 'en'],  // 默认目录 web、默认语言 en
+    'instance' => true,
+]);
+// 使用：$this->language->web('zh'); $title = $this->language->login_title;
+```
+
+## Service 与 Model
+
+- Service 继承 `\Gene\Service`，单例 `Xxx::getInstance()`，内部可 `return $this->error()/success()/data()`，封装业务逻辑及缓存
+- Model 继承 `\Gene\Model`，用 `$this->db->select/count("表名"[, "字段"])->where(...)->order(...)->limit($start, $count)->row()/all()/cell()`，封装数据访问
+- `limit($start, $count)`：`$start` 为偏移量（行号），`$count` 为返回行数
+
+## 入口
+
+- Web（FPM）：
+
+  ```php
+  \Gene\Application::getInstance()
+      ->autoload(APP_ROOT)
+      ->load("router.ini.php")
+      ->load("config.ini.php")
+      ->setMode(1, 1)
+      ->setRuntimeType(1)
+      ->run();   // 无参，自动读取 $_SERVER
+  ```
+
+- Swoole：
+
+  ```php
+  \Gene\Request::init($request->get, $request->post, $request->cookie, $request->server, null, $request->files);
+  \Gene\Application::getInstance()
+      ->autoload(APP_ROOT)
+      ->load("router.ini.php")
+      ->load("config.ini.php")
+      ->setRuntimeType(2)
+      ->run($type, $url);
+  ```
+
+- CLI：`->run('get', $path)`，`$path` 来自 `$_SERVER['argv'][1]`
