@@ -108,7 +108,11 @@ int gene_load_import(char *path , zval *obj, zend_array *symbol_table) {
 
 	op_array = zend_compile_file(&file_handle, ZEND_INCLUDE);
 
+#if PHP_VERSION_ID < 70400
 	if (op_array && file_handle.handle.stream.handle) {
+#else
+	if (op_array) {
+#endif
 		if (!file_handle.opened_path) {
 			file_handle.opened_path = zend_string_init(path, strlen(path), 0);
 		}
@@ -129,7 +133,7 @@ int gene_load_import(char *path , zval *obj, zend_array *symbol_table) {
 		}
 
 		destroy_op_array(op_array);
-		efree_size(op_array, sizeof(op_array));
+		efree(op_array);
 		if (!EG(exception)) {
 			zval_ptr_dtor(&result);
 		}

@@ -134,8 +134,8 @@ static void php_gene_close_globals() {
 		GENE_G(controller) = NULL;
 	}
 	if (GENE_G(action)) {
-		efree(GENE_G(module));
-		GENE_G(module) = NULL;
+		efree(GENE_G(action));
+		GENE_G(action) = NULL;
 	}
 	if (GENE_G(auto_load_fun)) {
 		efree(GENE_G(auto_load_fun));

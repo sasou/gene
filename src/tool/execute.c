@@ -54,7 +54,6 @@ void *gene_execite_opcodes_run(zend_op_array *op_array) {
 		efree(CG(active_op_array));
 	}
 	CG(active_op_array) = orig_op_array;
-	efree(orig_op_array);
 	return NULL;
 }
 /* }}} */
@@ -89,8 +88,8 @@ PHP_METHOD(gene_execute, GetOpcodes) {
 		return;
 	}
 	debug = zend_read_property(gene_execute_ce, gene_strip_obj(self), GENE_EXECUTE_DEBUG, strlen(GENE_EXECUTE_DEBUG), 0, NULL);
-	if (debug->value.lval) {
-		php_printf(ZSTR_VAL(php_script));
+	if (Z_LVAL_P(debug)) {
+		php_printf("%s", ZSTR_VAL(php_script));
 	}
 	ZVAL_STRINGL(&zv, ZSTR_VAL(php_script), ZSTR_LEN(php_script));
 	array_init(&opcodes_array);
