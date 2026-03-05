@@ -295,8 +295,8 @@ PHP_METHOD(gene_load, getInstance) {
 /*
  * {{{ gene_load_methods
  */
-zend_function_entry gene_load_methods[] = {
-	PHP_ME(gene_load, __construct, gene_load_void_arginfo, ZEND_ACC_PUBLIC|ZEND_ACC_CTOR)
+const zend_function_entry gene_load_methods[] = {
+	PHP_ME(gene_load, __construct, gene_load_void_arginfo, ZEND_ACC_PUBLIC)
 	PHP_ME(gene_load, getInstance, gene_load_void_arginfo, ZEND_ACC_PUBLIC|ZEND_ACC_STATIC)
 	PHP_ME(gene_load, import, gene_load_arg_import, ZEND_ACC_PUBLIC)
 	PHP_ME(gene_load, autoload, gene_load_arg_autoload, ZEND_ACC_PUBLIC|ZEND_ACC_STATIC)

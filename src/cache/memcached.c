@@ -203,7 +203,7 @@ void gene_memcached_setOptions(zval *object, zval *options) /*{{{*/
 
 
 
-zend_bool initObj (zval * self, zval *config) {
+bool initObj (zval * self, zval *config) {
 	zval  *servers = NULL, *persistent = NULL, *options = NULL, *serializer = NULL;
 	zval serverList, obj_object;
 
@@ -244,7 +244,7 @@ zend_bool initObj (zval * self, zval *config) {
 	return 1;
 }
 
-zend_bool initObjWin (zval * self, zval *config) {
+bool initObjWin (zval * self, zval *config) {
 	zval  *servers = NULL, *element = NULL, *serializer = NULL;
 	zval obj_object;
 
@@ -397,7 +397,7 @@ PHP_METHOD(gene_memcached, set)
  */
 PHP_METHOD(gene_memcached, __call) {
 	zval *self = getThis(), *object = NULL, *params = NULL, ret;
-	long methodlen;
+	zend_long methodlen;
 	char *method;
 	if (zend_parse_parameters(ZEND_NUM_ARGS(), "sz", &method, &methodlen, &params) == FAILURE) {
 		RETURN_NULL();
@@ -482,13 +482,13 @@ PHP_METHOD(gene_memcached, decr) {
 /*
  * {{{ gene_memcached_methods
  */
-zend_function_entry gene_memcached_methods[] = {
+const zend_function_entry gene_memcached_methods[] = {
 		PHP_ME(gene_memcached, decr, gene_memcached_decr_arginfo, ZEND_ACC_PUBLIC)
 		PHP_ME(gene_memcached, incr, gene_memcached_incr_arginfo, ZEND_ACC_PUBLIC)
 		PHP_ME(gene_memcached, get, gene_memcached_get_arginfo, ZEND_ACC_PUBLIC)
 		PHP_ME(gene_memcached, set, gene_memcached_set_arginfo, ZEND_ACC_PUBLIC)
 		PHP_ME(gene_memcached, __call, gene_memcached_call_arginfo, ZEND_ACC_PUBLIC)
-		PHP_ME(gene_memcached, __construct, gene_memcached_void_arginfo, ZEND_ACC_PUBLIC|ZEND_ACC_CTOR)
+		PHP_ME(gene_memcached, __construct, gene_memcached_void_arginfo, ZEND_ACC_PUBLIC)
 		{NULL, NULL, NULL}
 };
 /* }}} */

@@ -32,7 +32,7 @@ void array_to_string(zval *array, char **result)
 {
     zval *value;
     smart_str field_str = {0};
-    zend_bool pre = 0;
+    bool pre = 0;
     ZEND_HASH_FOREACH_VAL(Z_ARRVAL_P(array), value) {
     	if (pre) {
     		smart_str_appends(&field_str, ",");
@@ -53,7 +53,7 @@ void mssql_array_to_string(zval *array, char **result)
 {
     zval *value;
     smart_str field_str = {0};
-    zend_bool pre = 0;
+    bool pre = 0;
     ZEND_HASH_FOREACH_VAL(Z_ARRVAL_P(array), value) {
     	if (pre) {
     		smart_str_appends(&field_str, ",");
@@ -170,7 +170,7 @@ void gene_pdo_error_info(zval *pdo_object, zval *retval) /*{{{*/
     zval_ptr_dtor(&function_name);
 }/*}}}*/
 
-zend_bool show_sql_errors(zval *pdo_object)
+bool show_sql_errors(zval *pdo_object)
 {
     zval retval;
     gene_pdo_error_info(pdo_object, &retval);
@@ -308,7 +308,7 @@ void jsonEncode(zval *data, zval *param) {
 
 void gene_insert_field_value(zval *fields, smart_str *field_str, smart_str *value_str, zval *field_value){
 	zval *value = NULL;
-	zend_bool pre = 0;
+	bool pre = 0;
 	zend_string *key = NULL;
 	zend_long id;
 	array_init(field_value);
@@ -334,7 +334,7 @@ void gene_insert_field_value(zval *fields, smart_str *field_str, smart_str *valu
 
 void gene_insert_field_value_batch(zval *fields, smart_str *field_str, smart_str *value_str, zval *field_value) {
 	zval *value = NULL;
-	zend_bool pre = 0;
+	bool pre = 0;
 	zend_string *key = NULL;
 	zend_long id;
 	array_init(field_value);
@@ -362,7 +362,7 @@ void gene_insert_field_value_batch(zval *fields, smart_str *field_str, smart_str
 
 void gene_insert_field_value_batch_other(zval *fields, smart_str *value_str, zval *field_value) {
 	zval *value = NULL;
-	zend_bool pre = 0;
+	bool pre = 0;
 	ZEND_HASH_FOREACH_VAL(Z_ARRVAL_P(fields), value) {
     	if (pre) {
     		smart_str_appends(value_str, ",");
@@ -380,7 +380,7 @@ void gene_insert_field_value_batch_other(zval *fields, smart_str *value_str, zva
 
 void gene_update_field_value(zval *fields, smart_str *field_str, zval *field_value) {
 	zval *value = NULL;
-	zend_bool pre = 0;
+	bool pre = 0;
 	zend_string *key = NULL;
 	zend_long id;
 	array_init(field_value);
@@ -404,7 +404,7 @@ void gene_update_field_value(zval *fields, smart_str *field_str, zval *field_val
 
 void makeWhere(zval *self, smart_str *where_str, zval *where, zval *field_value) {
 	zval *obj = NULL, *value = NULL,  *ops = NULL, *condition = NULL, *other, *tmp = NULL;
-	zend_bool pre = 0;
+	bool pre = 0;
 	zend_string *key = NULL;
 	zend_long id;
 	if (ZSTR_LEN(where_str->s) == 0 && zend_hash_num_elements(Z_ARRVAL_P(where)) > 0) {
@@ -564,7 +564,7 @@ void makeWhere(zval *self, smart_str *where_str, zval *where, zval *field_value)
 }
 
 
-zend_bool checkPdoError(zend_object *ex) {
+bool checkPdoError(zend_object *ex) {
 	zval *msg;
 	zend_class_entry *ce;
 	zval zv, rv;

@@ -582,7 +582,7 @@ PHP_METHOD(gene_memory, __construct) {
  */
 PHP_METHOD(gene_memory, set) {
 	zend_string *keyString = NULL;
-	long validity = 0;
+	zend_long validity = 0;
 	zval *zvalue, *safe;
 	smart_str router_e = {0};
 	if (zend_parse_parameters(ZEND_NUM_ARGS(), "Sz|l", &keyString, &zvalue, &validity) == FAILURE) {
@@ -663,7 +663,7 @@ PHP_METHOD(gene_memory, exists) {
 	zend_string *keyString;
 	char *router_e;
 	size_t router_e_len;
-	long ret;
+	zend_long ret;
 	zval *safe;
 	if (zend_parse_parameters(ZEND_NUM_ARGS(), "S", &keyString) == FAILURE) {
 		return;
@@ -687,7 +687,7 @@ PHP_METHOD(gene_memory, del) {
 	zend_string *keyString;
 	char *router_e;
 	size_t router_e_len;
-	long ret;
+	zend_long ret;
 	zval *safe;
 	if (zend_parse_parameters(ZEND_NUM_ARGS(), "S", &keyString) == FAILURE) {
 		return;
@@ -720,8 +720,8 @@ PHP_METHOD(gene_memory, clean) {
 /*
  * {{{ gene_memory_methods
  */
-zend_function_entry gene_memory_methods[] = {
-	PHP_ME(gene_memory, __construct, gene_memory_arg_construct, ZEND_ACC_PUBLIC|ZEND_ACC_CTOR)
+const zend_function_entry gene_memory_methods[] = {
+	PHP_ME(gene_memory, __construct, gene_memory_arg_construct, ZEND_ACC_PUBLIC)
 	PHP_ME(gene_memory, set, gene_memory_arg_set, ZEND_ACC_PUBLIC)
 	PHP_ME(gene_memory, get, gene_memory_arg_get, ZEND_ACC_PUBLIC)
 	PHP_ME(gene_memory, getTime, gene_memory_arg_get, ZEND_ACC_PUBLIC)

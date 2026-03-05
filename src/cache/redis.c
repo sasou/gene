@@ -133,7 +133,7 @@ void gene_redis_mGet(zval *object, zval *key, zval *retval) /*{{{*/
     zval_ptr_dtor(&function_name);
 }/*}}}*/
 
-zend_bool checkError (zend_object *ex) {
+bool checkError (zend_object *ex) {
 	zval *msg;
 	zend_class_entry *ce;
 	zval zv, rv;
@@ -152,7 +152,7 @@ zend_bool checkError (zend_object *ex) {
 	return 0;
 }
 
-zend_bool initRObj (zval * self, zval *config) {
+bool initRObj (zval * self, zval *config) {
 	zval  *host = NULL, *port = NULL, *servers = NULL,*oneServers = NULL,*timeout = NULL, *persistent = NULL, *options = NULL, *serializer = NULL, *password = NULL;
 	zval   obj_object;
 
@@ -377,7 +377,7 @@ PHP_METHOD(gene_redis, set) {
  */
 PHP_METHOD(gene_redis, __call) {
 	zval *self = getThis(), *object = NULL, *params = NULL, ret;
-	long methodlen;
+	zend_long methodlen;
 	char *method;
 	if (zend_parse_parameters(ZEND_NUM_ARGS(), "sz", &method, &methodlen, &params) == FAILURE) {
 		RETURN_NULL();
@@ -400,11 +400,11 @@ PHP_METHOD(gene_redis, __call) {
 /*
  * {{{ gene_redis_methods
  */
-zend_function_entry gene_redis_methods[] = {
+const zend_function_entry gene_redis_methods[] = {
 		PHP_ME(gene_redis, set, gene_redis_set_arginfo, ZEND_ACC_PUBLIC)
 		PHP_ME(gene_redis, get, gene_redis_get_arginfo, ZEND_ACC_PUBLIC)
 		PHP_ME(gene_redis, __call, gene_redis_call_arginfo, ZEND_ACC_PUBLIC)
-		PHP_ME(gene_redis, __construct, gene_redis_void_arginfo, ZEND_ACC_PUBLIC|ZEND_ACC_CTOR)
+		PHP_ME(gene_redis, __construct, gene_redis_void_arginfo, ZEND_ACC_PUBLIC)
 		{NULL, NULL, NULL}
 };
 /* }}} */

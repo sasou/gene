@@ -151,7 +151,7 @@ void mysqlSaveHistory(smart_str *sql, zval *param) {
 	}
 }
 
-zend_bool mysqlInitPdo (zval * self, zval *config) {
+bool mysqlInitPdo (zval * self, zval *config) {
 	zval  *dsn = NULL, *user = NULL, *pass = NULL, *options = NULL;
 	zval pdo_object, option;
 
@@ -165,16 +165,16 @@ zend_bool mysqlInitPdo (zval * self, zval *config) {
 
 	object_init_ex(&pdo_object, pdo_ptr);
 
-	if ((dsn = zend_hash_str_find(config->value.arr, ZEND_STRL("dsn"))) == NULL) {
+	if ((dsn = zend_hash_str_find(Z_ARRVAL_P(config), ZEND_STRL("dsn"))) == NULL) {
 		 php_error_docref(NULL, E_ERROR, "PDO need a valid dns.");
 	}
-	if ((user = zend_hash_str_find(config->value.arr, ZEND_STRL("username"))) == NULL) {
+	if ((user = zend_hash_str_find(Z_ARRVAL_P(config), ZEND_STRL("username"))) == NULL) {
 		 php_error_docref(NULL, E_ERROR, "PDO need a valid username.");
 	}
-	if ((pass = zend_hash_str_find(config->value.arr, ZEND_STRL("password"))) == NULL) {
+	if ((pass = zend_hash_str_find(Z_ARRVAL_P(config), ZEND_STRL("password"))) == NULL) {
 		 php_error_docref(NULL, E_ERROR, "PDO need a valid password.");
 	}
-	options = zend_hash_str_find(config->value.arr, ZEND_STRL("options"));
+	options = zend_hash_str_find(Z_ARRVAL_P(config), ZEND_STRL("options"));
     if (options == NULL || Z_TYPE_P(options) == IS_NULL) {
 		array_init(&option);
     } else {
@@ -209,7 +209,7 @@ zend_bool mysqlInitPdo (zval * self, zval *config) {
 	return 0;
 }
 
-zend_bool gene_mysql_pdo_execute (zval *self, zval *statement)
+bool gene_mysql_pdo_execute (zval *self, zval *statement)
 {
 	zval *pdo_object = NULL, *params = NULL, *pdo_sql = NULL, *pdo_where = NULL, *pdo_group = NULL,*pdo_having = NULL,*pdo_order = NULL, *pdo_limit = NULL;
 	zval retval;
@@ -424,7 +424,7 @@ PHP_METHOD(gene_db_mysql, batchInsert)
 	size_t table_len;// @suppress("Type cannot be resolved")
 	smart_str field_str = {0} , value_str = {0};
 	zval field_value;
-	zend_bool pre = 0;
+	bool pre = 0;
 	if (zend_parse_parameters(ZEND_NUM_ARGS(), "s|z", &table, &table_len, &fields) == FAILURE) {
 		return;
 	}
@@ -605,7 +605,7 @@ PHP_METHOD(gene_db_mysql, in)
 	size_t in_len;// @suppress("Type cannot be resolved")
 	zval params;
 	smart_str where_str = {0},value_str = {0};
-	zend_bool pre = 0;
+	bool pre = 0;
 	if (zend_parse_parameters(ZEND_NUM_ARGS(), "s|z", &in, &in_len, &fields) == FAILURE) {
 		return;
 	}
@@ -1052,8 +1052,8 @@ PHP_METHOD(gene_db_mysql, history)
 /*
  * {{{ gene_db_mysql_methods
  */
-zend_function_entry gene_db_mysql_methods[] = {
-		PHP_ME(gene_db_mysql, __construct, gene_db_mysql_construct, ZEND_ACC_PUBLIC|ZEND_ACC_CTOR)
+const zend_function_entry gene_db_mysql_methods[] = {
+		PHP_ME(gene_db_mysql, __construct, gene_db_mysql_construct, ZEND_ACC_PUBLIC)
 		PHP_ME(gene_db_mysql, getPdo, gene_db_mysql_void_arginfo, ZEND_ACC_PUBLIC)
 		PHP_ME(gene_db_mysql, select, gene_db_mysql_select, ZEND_ACC_PUBLIC)
 		PHP_ME(gene_db_mysql, count, gene_db_mysql_count, ZEND_ACC_PUBLIC)

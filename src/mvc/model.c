@@ -209,9 +209,9 @@ PHP_METHOD(gene_model, __destruct) {
 /*
  * {{{ gene_model_methods
  */
-zend_function_entry gene_model_methods[] = {
-		PHP_ME(gene_model, __construct, gene_model_void_arginfo, ZEND_ACC_PUBLIC|ZEND_ACC_CTOR)
-		PHP_ME(gene_model, __destruct,	gene_model_void_arginfo, ZEND_ACC_PUBLIC|ZEND_ACC_DTOR)
+const zend_function_entry gene_model_methods[] = {
+		PHP_ME(gene_model, __construct, gene_model_void_arginfo, ZEND_ACC_PUBLIC)
+		PHP_ME(gene_model, __destruct,	gene_model_void_arginfo, ZEND_ACC_PUBLIC)
 		PHP_ME(gene_model, __get, gene_model_get, ZEND_ACC_PUBLIC)
 		PHP_ME(gene_model, __set, gene_model_set, ZEND_ACC_PUBLIC)
 		PHP_ME(gene_model, success, gene_model_se, ZEND_ACC_PUBLIC)

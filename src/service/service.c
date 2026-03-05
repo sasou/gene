@@ -209,9 +209,9 @@ PHP_METHOD(gene_service, __destruct) {
 /*
  * {{{ gene_service_methods
  */
-zend_function_entry gene_service_methods[] = {
-		PHP_ME(gene_service, __construct, gene_service_void_arginfo, ZEND_ACC_PUBLIC|ZEND_ACC_CTOR)
-		PHP_ME(gene_service, __destruct,	gene_service_void_arginfo, ZEND_ACC_PUBLIC|ZEND_ACC_DTOR)
+const zend_function_entry gene_service_methods[] = {
+		PHP_ME(gene_service, __construct, gene_service_void_arginfo, ZEND_ACC_PUBLIC)
+		PHP_ME(gene_service, __destruct,	gene_service_void_arginfo, ZEND_ACC_PUBLIC)
 		PHP_ME(gene_service, __get, gene_service_get, ZEND_ACC_PUBLIC)
 		PHP_ME(gene_service, __set, gene_service_set, ZEND_ACC_PUBLIC)
 		PHP_ME(gene_service, success, gene_service_arg_se, ZEND_ACC_PUBLIC)
