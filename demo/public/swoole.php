@@ -6,12 +6,11 @@ define('CONF_DIR', dirname(__dir__) . '/config');
 
 // 启用 Swoole 协程 Hook（SWOOLE_HOOK_ALL），将 PDO、Redis、Memcached 等原生阻塞
 // 扩展替换为协程友好实现：I/O 等待时自动挂起当前协程，不阻塞 worker 进程。
-// 环境变量 GENE_ENABLE_COROUTINE_HOOK=0 可单独关闭（用于调试或不需要协程的场景）。
 // Gene 框架的 DI 层（runtime_type>=2）已配合此机制做了以下适配：
 //   - instance:false 组件（如 db）每次请求得到新对象，隔离链式查询构建状态
 //   - instance:true  组件（如 redis/memcache）作为 worker 级单例，Hook 保证协程安全
 //   - Gene\Db\Mysql 在 runtime_type>=2 时自动注入 PDO::ATTR_PERSISTENT，复用 TCP 连接
-if (class_exists('\Swoole\Runtime') && (getenv("GENE_ENABLE_COROUTINE_HOOK") ?: "1") === "1") {
+if (class_exists('\Swoole\Runtime')) {
     \Swoole\Runtime::enableCoroutine(true);
 }
 
