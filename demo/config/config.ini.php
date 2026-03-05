@@ -41,7 +41,7 @@ $config->set("db", [
     'username' => 'dev',
     'password' => 'dev123'
         ]],
-    'instance' => false
+    'instance' => true
 ]);
 
 //缓存类注入配置
