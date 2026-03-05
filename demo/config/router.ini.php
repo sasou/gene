@@ -55,12 +55,11 @@ $router->clear()
     })
     // 全局前置钩子
     ->hook("before", function() {
-        $this->session->init();
         $user = $this->session->get('admin');
         \Gene\Di::set('user', $user); 
     })
     // 全局后置钩子
     ->hook("after", function($params) {
-        $callback = $this->request->get("callback");
-        is_array($params) && \Gene\Response::json($params, $callback);
+        $callback = $this->request->get("callback") ?? '';
+        \Gene\Response::json($params, $callback);
     });

@@ -48,13 +48,10 @@ alwaysApply: false
 
 ```php
 $config->set('websession', [
-    'class'  => '\Gene\Session',          // 自定义封装 或 '\Gene\Session'
+    'class'  => '\Gene\Session',     
     'params' => [['driver' => 'redis', 'name' => 'WSESSID', 'ttl' => 86400]],
 ]);
 ```
-
-before 钩子中 `$this->websession->load()`，after 钩子中 `$this->websession->save()`。
-
 ### Memory 组件（进程级缓存）
 
 ```php
@@ -116,7 +113,6 @@ $config->set('language', [
       ->load("router.ini.php")
       ->load("config.ini.php")
       ->setMode(1, 1)
-      ->setRuntimeType(1)
       ->run();   // 无参，自动读取 $_SERVER
   ```
 
