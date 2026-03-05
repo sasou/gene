@@ -83,6 +83,29 @@ $config->set('language', [
 - Model 继承 `\Gene\Model`，用 `$this->db->select/count("表名"[, "字段"])->where(...)->order(...)->limit($start, $count)->row()/all()/cell()`，封装数据访问
 - `limit($start, $count)`：`$start` 为偏移量（行号），`$count` 为返回行数
 
+### Service 层字段级版本缓存约定
+
+- **基础原则**：读方法用 `cachedVersion`，写方法用 `updateVersion`，版本键统一使用「表名 + 字段」的语义键，支持字段级与跨表联合失效。
+- **字段级版本键**：
+  - 单主键行：`$version = ['db.im_user.id' => $id];`
+  - 多条件查询：对每个条件字段都加版本键，例如按 `name` 字段查询：
+    - 读：`$version = ['db.im_chat.name' => $name];`
+    - 写：涉及该字段变动时 `updateVersion(['db.im_chat.name' => $name, 'db.im_chat' => null]);`
+- **跨表字段版本**：
+  - 跨表查询用到其他表的字段时，在读缓存中同时传入多个表的版本键：
+    - 例如：聊天列表依赖用户与群信息：
+      - 读：`$version = ['db.im_chat.name' => $name, 'db.im_user.id' => $userId, 'db.im_group.id' => $groupId];`
+  - 在任一相关表的写操作中，统一更新自己的表级键和相关字段键，保证跨表查询缓存自动失效：
+    - 如编辑用户：`updateVersion(['db.im_user.id' => $id, 'db.im_user' => null]);`
+    - 如编辑群：`updateVersion(['db.im_group.id' => $groupId, 'db.im_group' => null]);`
+- **推荐用法模式**：
+  - 读（Service）：
+    - 组合 `$version`：包含本表主键/查询字段版本键 + 依赖表字段版本键
+    - 调用：`$this->cache->cachedVersion([$target, $method], $args, $version, $ttl);`
+  - 写（Service）：
+    - 保持原有表级失效：`'db.xxx' => null`
+    - 额外加入字段级键和跨表键：`'db.xxx.field' => $val`，`'db.other.field' => $otherVal`
+
 ## 入口
 
 - Web（FPM）：
