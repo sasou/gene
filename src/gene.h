@@ -94,6 +94,7 @@ char *lang;
 zval *path_params;
 zend_bool use_library;
 zend_long run_environment;
+zend_long runtime_type;
 zend_bool use_namespace;
 zend_bool view_compile;
 HashTable *cache;
