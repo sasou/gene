@@ -112,6 +112,19 @@ ZEND_END_ARG_INFO()
 ZEND_BEGIN_ARG_INFO_EX(gene_application_get_environment, 0, 0, 0)
 ZEND_END_ARG_INFO()
 
+ZEND_BEGIN_ARG_INFO_EX(gene_application_get_environment_name, 0, 0, 0)
+ZEND_END_ARG_INFO()
+
+ZEND_BEGIN_ARG_INFO_EX(gene_application_set_runtime_type, 0, 0, 0)
+	ZEND_ARG_INFO(0, type)
+ZEND_END_ARG_INFO()
+
+ZEND_BEGIN_ARG_INFO_EX(gene_application_get_runtime_type, 0, 0, 0)
+ZEND_END_ARG_INFO()
+
+ZEND_BEGIN_ARG_INFO_EX(gene_application_get_runtime_type_name, 0, 0, 0)
+ZEND_END_ARG_INFO()
+
 ZEND_BEGIN_ARG_INFO_EX(gene_application_config, 0, 0, 1)
 	ZEND_ARG_INFO(0, key)
 ZEND_END_ARG_INFO()
@@ -382,6 +395,46 @@ PHP_METHOD(gene_application, getEnvironment) {
 }
 /* }}} */
 
+/*
+ * {{{ public gene_application::getEnvironmentName()
+ */
+PHP_METHOD(gene_application, getEnvironmentName) {
+	switch (GENE_G(run_environment)) {
+		case 2:
+			RETURN_STRING("test");
+		case 3:
+			RETURN_STRING("prod");
+		case 1:
+		default:
+			RETURN_STRING("dev");
+	}
+}
+/* }}} */
+
+/*
+ * {{{ public gene_application::getRuntimeType()
+ */
+PHP_METHOD(gene_application, getRuntimeType) {
+	RETURN_LONG(GENE_G(runtime_type));
+}
+/* }}} */
+
+/*
+ * {{{ public gene_application::getRuntimeTypeName()
+ */
+PHP_METHOD(gene_application, getRuntimeTypeName) {
+	switch (GENE_G(runtime_type)) {
+		case 2:
+			RETURN_STRING("swoole");
+		case 3:
+			RETURN_STRING("coroutine");
+		case 1:
+		default:
+			RETURN_STRING("fpm");
+	}
+}
+/* }}} */
+
 
 /*
  * {{{ public gene_application::params($key)
@@ -416,6 +469,50 @@ PHP_METHOD(gene_application, setEnvironment) {
 		return;
 	}
 	GENE_G(run_environment) = type;
+	RETURN_TRUE;
+}
+/* }}} */
+
+/*
+ * {{{ public gene_application::setRuntimeType($type)
+ */
+PHP_METHOD(gene_application, setRuntimeType) {
+	zval *type = NULL;
+	zend_long runtime = 0;
+	if (zend_parse_parameters(ZEND_NUM_ARGS(), "|z", &type) == FAILURE) {
+		return;
+	}
+	if (type == NULL || Z_TYPE_P(type) == IS_NULL) {
+		RETURN_FALSE;
+	}
+	if (Z_TYPE_P(type) == IS_LONG) {
+		runtime = Z_LVAL_P(type);
+	} else if (Z_TYPE_P(type) == IS_STRING) {
+		char *name = Z_STRVAL_P(type);
+		size_t len = Z_STRLEN_P(type);
+		if ((len == 3 && strncasecmp(name, "fpm", 3) == 0)
+		|| (len == 7 && strncasecmp(name, "php-fpm", 7) == 0)) {
+			runtime = 1;
+		} else if ((len == 6 && strncasecmp(name, "swoole", 6) == 0)
+		|| (len == 8 && strncasecmp(name, "resident", 8) == 0)
+		|| (len == 6 && strncasecmp(name, "daemon", 6) == 0)) {
+			runtime = 2;
+		} else if ((len == 9 && strncasecmp(name, "coroutine", 9) == 0)
+		|| (len == 2 && strncasecmp(name, "co", 2) == 0)) {
+			runtime = 3;
+		} else {
+			php_error_docref(NULL, E_WARNING, "Unknown runtime type '%s', fallback to fpm.", name);
+			runtime = 1;
+		}
+	} else {
+		php_error_docref(NULL, E_WARNING, "setRuntimeType type must be int or string.");
+		RETURN_FALSE;
+	}
+
+	if (runtime < 1) {
+		runtime = 1;
+	}
+	GENE_G(runtime_type) = runtime;
 	RETURN_TRUE;
 }
 /* }}} */
@@ -651,6 +748,10 @@ zend_function_entry gene_application_methods[] = {
 	PHP_ME(gene_application, getAction, gene_application_get_action, ZEND_ACC_PUBLIC|ZEND_ACC_STATIC)
 	PHP_ME(gene_application, setEnvironment, gene_application_set_environment, ZEND_ACC_PUBLIC|ZEND_ACC_STATIC)
 	PHP_ME(gene_application, getEnvironment, gene_application_get_environment, ZEND_ACC_PUBLIC|ZEND_ACC_STATIC)
+	PHP_ME(gene_application, getEnvironmentName, gene_application_get_environment_name, ZEND_ACC_PUBLIC|ZEND_ACC_STATIC)
+	PHP_ME(gene_application, setRuntimeType, gene_application_set_runtime_type, ZEND_ACC_PUBLIC|ZEND_ACC_STATIC)
+	PHP_ME(gene_application, getRuntimeType, gene_application_get_runtime_type, ZEND_ACC_PUBLIC|ZEND_ACC_STATIC)
+	PHP_ME(gene_application, getRuntimeTypeName, gene_application_get_runtime_type_name, ZEND_ACC_PUBLIC|ZEND_ACC_STATIC)
 	PHP_ME(gene_application, config, gene_application_config, ZEND_ACC_PUBLIC|ZEND_ACC_STATIC)
 	PHP_ME(gene_application, params, gene_application_config, ZEND_ACC_PUBLIC|ZEND_ACC_STATIC)
 	PHP_ME(gene_application, __get, gene_application_get, ZEND_ACC_PUBLIC)

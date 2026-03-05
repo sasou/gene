@@ -184,7 +184,7 @@ class Application
     /**
      * setEnvironment
      * 
-     * @param mixed $type type
+     * @param mixed $type type(int): 1-dev, 2-test, 3-prod
      * @return mixed
      */
     public static function setEnvironment($type) {
@@ -197,6 +197,43 @@ class Application
      * @return mixed
      */
     public static function getEnvironment() {
+
+    }
+
+    /**
+     * getEnvironmentName
+     * 
+     * @return string
+     */
+    public static function getEnvironmentName() {
+
+    }
+
+    /**
+     * setRuntimeType
+     * 
+     * @param mixed $type type(int|string): 1/fpm, 2/swoole, 3/coroutine
+     * @return mixed
+     */
+    public static function setRuntimeType($type) {
+
+    }
+
+    /**
+     * getRuntimeType
+     * 
+     * @return mixed
+     */
+    public static function getRuntimeType() {
+
+    }
+
+    /**
+     * getRuntimeTypeName
+     * 
+     * @return string
+     */
+    public static function getRuntimeTypeName() {
 
     }
 
