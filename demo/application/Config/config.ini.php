@@ -31,6 +31,9 @@ $config->set("session", [
 ]);
 
 //数据库类注入配置
+// instance:false — FPM 下同一请求内复用（DI 按名称缓存），Swoole/协程下每次请求
+// 得到全新对象（DI 跳过名称缓存），隔离链式查询构建状态；连接复用由
+// PDO::ATTR_PERSISTENT 实现（框架在 runtime_type>=2 时自动注入）。
 $config->set("db", [
     'class' => '\Gene\Db\Mysql',
     'params' => [[
@@ -38,10 +41,12 @@ $config->set("db", [
     'username' => 'dev',
     'password' => 'dev123'
         ]],
-    'instance' => true
+    'instance' => false
 ]);
 
 //缓存类注入配置
+// instance:true — Memcached 操作单次完整调用、无链式状态，Swoole 协程 Hook
+// 保证底层 socket 按协程隔离，worker 级单例可安全共享，避免重复 pconnect 开销。
 $config->set("memcache", [
     'class' => '\Gene\Cache\Memcached',
     'params' => [[
@@ -53,6 +58,8 @@ $config->set("memcache", [
 ]);
 
 //缓存类注入配置
+// instance:true — Redis 操作单次完整调用、无链式状态，Swoole 协程 Hook
+// 保证底层 socket 按协程隔离，worker 级单例可安全共享，避免重复 pconnect 开销。
 $config->set("redis", [
     'class' => '\Gene\Cache\Redis',
     'params' => [[
@@ -63,7 +70,7 @@ $config->set("redis", [
     'ttl' => 0,
     'serializer' => 1
         ]],
-    'instance' => false
+    'instance' => true
 ]);
 
 //框架方法级缓存模块注入配置
