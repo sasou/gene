@@ -116,19 +116,19 @@ void gene_response_cookie(zval *name, zval *value, zval *expires, zval *path, zv
     	num = 3;
         params[2] = *expires;
     }
-    if (expires) {
+    if (path) {
     	num = 4;
         params[3] = *path;
     }
-    if (expires) {
+    if (domain) {
     	num = 5;
         params[4] = *domain;
     }
-    if (expires) {
+    if (secure) {
     	num = 6;
         params[5] = *secure;
     }
-    if (expires) {
+    if (httponly) {
     	num = 7;
         params[6] = *httponly;
     }
