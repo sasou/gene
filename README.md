@@ -40,8 +40,6 @@
     $app
       ->load("router.ini.php")
       ->load("config.ini.php")
-      ->setEnvironment((int)\Gene\Application::config("runtime")["app_env"])
-      ->setRuntimeType(\Gene\Application::config("runtime")["runtime"])
       ->run();  
 
 ### 第2步：路由文件router.ini.php   
