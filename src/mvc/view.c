@@ -37,6 +37,13 @@
 
 zend_class_entry * gene_view_ce;
 
+static char *gene_view_app_base_path() {
+	if (GENE_G(app_root) && GENE_G(app_root)[0] != '\0') {
+		return GENE_G(app_root);
+	}
+	return NULL;
+}
+
 
 ZEND_BEGIN_ARG_INFO_EX(gene_view_void_arginfo, 0, 0, 0)
 ZEND_END_ARG_INFO()
@@ -78,15 +85,16 @@ ZEND_END_ARG_INFO()
 /** {{{ gene_view_contains
  */
 void gene_view_contains(char *file, zval *ret) {
-	char *path;
-	if (GENE_REQ(controller)) {
+	char *path, *base_path;
+	base_path = gene_view_app_base_path();
+	if (base_path) {
 		if (!GENE_G(app_view)) {
 			GENE_G(app_view) = estrndup(GENE_VIEW_VIEW, strlen(GENE_VIEW_VIEW));
 		}
 		if (!GENE_G(app_ext)) {
 			GENE_G(app_ext) = estrndup(GENE_VIEW_EXT, strlen(GENE_VIEW_EXT));
 		}
-		spprintf(&path, 0, "%s/%s/%s%s", GENE_REQ(controller), GENE_G(app_view), file, GENE_G(app_ext));
+		spprintf(&path, 0, "%s/%s/%s%s", base_path, GENE_G(app_view), file, GENE_G(app_ext));
 	} else {
 		spprintf(&path, 0, "app/%s/%s%s", GENE_VIEW_VIEW, file, GENE_VIEW_EXT);
 	}
@@ -98,10 +106,15 @@ void gene_view_contains(char *file, zval *ret) {
 /** {{{ gene_view_display_ext
  */
 void gene_view_contains_ext(char *file, bool isCompile, zval *ret) {
-	char *path, *compile_path, *cpath;
+	char *path, *compile_path, *cpath, *base_path;
 	size_t compile_path_len;
 	php_stream *stream = NULL;
-	compile_path_len = spprintf(&compile_path, 0, "%s/Cache/Views/%s.php", GENE_REQ(controller), file);
+	base_path = gene_view_app_base_path();
+	if (base_path) {
+		compile_path_len = spprintf(&compile_path, 0, "%s/Cache/Views/%s.php", base_path, file);
+	} else {
+		compile_path_len = spprintf(&compile_path, 0, "app/Cache/Views/%s.php", file);
+	}
 	if (isCompile || GENE_G(view_compile)) {
 		if (!GENE_G(app_view)) {
 			GENE_G(app_view) = estrndup(GENE_VIEW_VIEW, strlen(GENE_VIEW_VIEW));
@@ -109,7 +122,11 @@ void gene_view_contains_ext(char *file, bool isCompile, zval *ret) {
 		if (!GENE_G(app_ext)) {
 			GENE_G(app_ext) = estrndup(GENE_VIEW_EXT, strlen(GENE_VIEW_EXT));
 		}
-		spprintf(&path, 0, "%s/%s/%s%s", GENE_REQ(controller), GENE_G(app_view), file, GENE_G(app_ext));
+		if (base_path) {
+			spprintf(&path, 0, "%s/%s/%s%s", base_path, GENE_G(app_view), file, GENE_G(app_ext));
+		} else {
+			spprintf(&path, 0, "app/%s/%s%s", GENE_VIEW_VIEW, file, GENE_VIEW_EXT);
+		}
 		stream = php_stream_open_wrapper(path, "rb", REPORT_ERRORS, NULL);
 		if (stream == NULL) {
 			zend_error(E_WARNING, "%s does not read able", path);
@@ -135,15 +152,16 @@ void gene_view_contains_ext(char *file, bool isCompile, zval *ret) {
 /** {{{ gene_view_display
  */
 int gene_view_display(char *file, zval *obj, zend_array *symbol_table) {
-	char *path;
-	if (GENE_REQ(controller)) {
+	char *path, *base_path;
+	base_path = gene_view_app_base_path();
+	if (base_path) {
 		if (!GENE_G(app_view)) {
 			GENE_G(app_view) = estrndup(GENE_VIEW_VIEW, strlen(GENE_VIEW_VIEW));
 		}
 		if (!GENE_G(app_ext)) {
 			GENE_G(app_ext) = estrndup(GENE_VIEW_EXT, strlen(GENE_VIEW_EXT));
 		}
-		spprintf(&path, 0, "%s/%s/%s%s", GENE_REQ(controller), GENE_G(app_view), file, GENE_G(app_ext));
+		spprintf(&path, 0, "%s/%s/%s%s", base_path, GENE_G(app_view), file, GENE_G(app_ext));
 	} else {
 		spprintf(&path, 0, "app/%s/%s%s", GENE_VIEW_VIEW, file, GENE_VIEW_EXT);
 	}
@@ -158,10 +176,15 @@ int gene_view_display(char *file, zval *obj, zend_array *symbol_table) {
 /** {{{ gene_view_display_ext
  */
 int gene_view_display_ext(char *file, bool isCompile, zval *obj, zend_array *symbol_table) {
-	char *path, *compile_path, *cpath;
+	char *path, *compile_path, *cpath, *base_path;
 	size_t compile_path_len;
 	php_stream *stream = NULL;
-	compile_path_len = spprintf(&compile_path, 0, "%s/Cache/Views/%s.php", GENE_REQ(controller), file);
+	base_path = gene_view_app_base_path();
+	if (base_path) {
+		compile_path_len = spprintf(&compile_path, 0, "%s/Cache/Views/%s.php", base_path, file);
+	} else {
+		compile_path_len = spprintf(&compile_path, 0, "app/Cache/Views/%s.php", file);
+	}
 	if (isCompile || GENE_G(view_compile)) {
 		if (!GENE_G(app_view)) {
 			GENE_G(app_view) = estrndup(GENE_VIEW_VIEW, strlen(GENE_VIEW_VIEW));
@@ -169,7 +192,11 @@ int gene_view_display_ext(char *file, bool isCompile, zval *obj, zend_array *sym
 		if (!GENE_G(app_ext)) {
 			GENE_G(app_ext) = estrndup(GENE_VIEW_EXT, strlen(GENE_VIEW_EXT));
 		}
-		spprintf(&path, 0, "%s/%s/%s%s", GENE_REQ(controller), GENE_G(app_view), file, GENE_G(app_ext));
+		if (base_path) {
+			spprintf(&path, 0, "%s/%s/%s%s", base_path, GENE_G(app_view), file, GENE_G(app_ext));
+		} else {
+			spprintf(&path, 0, "app/%s/%s%s", GENE_VIEW_VIEW, file, GENE_VIEW_EXT);
+		}
 		stream = php_stream_open_wrapper(path, "rb", REPORT_ERRORS, NULL);
 		if (stream == NULL) {
 			zend_error(E_WARNING, "%s does not read able", path);
