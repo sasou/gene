@@ -49,7 +49,8 @@ $http->on("request", function (\Swoole\Http\Request $request, \Swoole\Http\Respo
         $request->server, null, $request->files
     );
 
-    // 3. 将 Swoole Response 存入 DI，业务层可通过 $this->response 使用
+    // 3. 将 Swoole Response 存入协程上下文（协程安全）及 DI（业务层可通过 $this->response 使用）
+    \Gene\Application::setResponse($response);
     \Gene\Di::set("response", $response);
 
     // 4. 捕获输出并发送响应
