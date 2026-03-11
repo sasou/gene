@@ -79,8 +79,8 @@ ZEND_BEGIN_ARG_INFO_EX(gene_response_arg_url, 0, 0, 1)
     ZEND_ARG_INFO(0, path)
 ZEND_END_ARG_INFO()
 
-/* {{{ gene_swoole_response - get Swoole Response from context or DI (returns NULL if not available) */
-static zval *gene_swoole_response(void) {
+/* {{{ gene_response_context_obj - get response from request context first, then DI fallback */
+zval *gene_response_context_obj(void) {
 	if (GENE_G(runtime_type) >= 2) {
 		gene_request_context *ctx = gene_request_ctx();
 		if (Z_TYPE(ctx->response) == IS_OBJECT) {
@@ -100,7 +100,7 @@ static zval *gene_swoole_response(void) {
 /** {{{ void gene_response_set_redirect(char *url, zend_long code)
  */
 void gene_response_set_redirect(char *url, zend_long code) {
-	zval *swoole_resp = gene_swoole_response();
+	zval *swoole_resp = gene_response_context_obj();
 	if (swoole_resp) {
 		zval method, retval, zurl, zcode;
 		ZVAL_STRING(&zurl, url);
@@ -124,7 +124,7 @@ void gene_response_set_redirect(char *url, zend_long code) {
 /** {{{ void gene_response_set_header(char *key, char *value)
  */
 void gene_response_set_header(char *key, char *value) {
-	zval *swoole_resp = gene_swoole_response();
+	zval *swoole_resp = gene_response_context_obj();
 	if (swoole_resp) {
 		zval method, retval, zkey, zval_v;
 		ZVAL_STRING(&zkey, key);
@@ -148,7 +148,7 @@ void gene_response_set_header(char *key, char *value) {
 
 void gene_response_cookie(zval *name, zval *value, zval *expires, zval *path, zval *domain,zval *secure, zval *httponly, zval *retval) /*{{{*/
 {
-	zval *swoole_resp = gene_swoole_response();
+	zval *swoole_resp = gene_response_context_obj();
 	if (swoole_resp) {
 		zval method;
 		ZVAL_STRING(&method, "cookie");
