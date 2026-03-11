@@ -81,7 +81,9 @@ class Cache
      *
      * @param array $obj 被代理的可调用，格式 [$instance_or_class, 'methodName']
      * @param array $args 传递给被代理方法的参数数组
-     * @param array $versionField 关联的版本字段数组（如 ['user', 'group']）
+     * @param array $versionField 关联的版本字段数组，支持多值：
+     *   - 旧用法：['user' => $id, 'group' => null]
+     *   - 新用法：['user' => [$id1, $id2], 'group' => null]
      * @param int|null $ttl 缓存时间（秒）
      * @param mixed|null $mode 保留参数
      * @return mixed
@@ -94,7 +96,9 @@ class Cache
      *
      * @param array $obj 被代理的可调用，格式 [$instance_or_class, 'methodName']
      * @param array $args 传递给被代理方法的参数数组
-     * @param array $versionField 关联的版本字段数组
+     * @param array $versionField 关联的版本字段数组，支持多值：
+     *   - 旧用法：['user' => $id, 'group' => null]
+     *   - 新用法：['user' => [$id1, $id2], 'group' => null]
      * @param int|null $ttl 缓存时间（秒）
      * @param mixed|null $mode 保留参数
      * @return mixed
@@ -113,6 +117,10 @@ class Cache
     /**
      * updateVersion
      * 对指定版本字段执行 incr，使关联的版本号缓存失效
+     *
+     * 支持两种用法：
+     * 1. 单值：'field' => null|string|int
+     * 2. 多值：'field' => [value1, value2, ...]
      *
      * @param string|array $version 版本字段名或字段名数组
      * @return mixed

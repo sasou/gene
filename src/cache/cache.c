@@ -314,9 +314,7 @@ void makeKey(zval *versionSign, zend_string *id, zval *element, zval *retval) {
 void gene_cache_get_version_arr(zval *versionSign, zval *versionField, zval *retval, zval *top) /*{{{*/
 {
 	zval *element = NULL;
-	zval tmp_arr[10];
 	zend_string *id = NULL;
-	zend_ulong i = 0;
 	array_init(retval);
 	if (top) {
 		add_next_index_zval(retval, top);
@@ -324,9 +322,19 @@ void gene_cache_get_version_arr(zval *versionSign, zval *versionField, zval *ret
 	if (versionField != NULL && Z_TYPE_P(versionField) == IS_ARRAY) {
 		ZEND_HASH_FOREACH_STR_KEY_VAL(Z_ARRVAL_P(versionField), id, element)
 		{
-			makeKey(versionSign, id, element, &tmp_arr[i]);
-			add_next_index_zval(retval, &tmp_arr[i]);
-			i++;
+			if (element != NULL && Z_TYPE_P(element) == IS_ARRAY) {
+				zval *sub_element = NULL;
+				ZEND_HASH_FOREACH_VAL(Z_ARRVAL_P(element), sub_element)
+				{
+					zval tmp_key;
+					makeKey(versionSign, id, sub_element, &tmp_key);
+					add_next_index_zval(retval, &tmp_key);
+				}ZEND_HASH_FOREACH_END();
+			} else {
+				zval tmp_key;
+				makeKey(versionSign, id, element, &tmp_key);
+				add_next_index_zval(retval, &tmp_key);
+			}
 		}ZEND_HASH_FOREACH_END();
 	}
 }/*}}}*/
@@ -335,19 +343,30 @@ void gene_cache_update_version(zval *versionSign, zval *versionField, zval *obje
 {
 	zval *value = NULL;
 	zend_string *key = NULL;
-	zval tmp_arr[10];
-	zend_ulong i = 0;
 	if (versionField != NULL && Z_TYPE_P(versionField) == IS_ARRAY) {
 		ZEND_HASH_FOREACH_STR_KEY_VAL(Z_ARRVAL_P(versionField), key, value)
 		{
-			makeKey(versionSign, key, value, &tmp_arr[i]);
-			zval ret, value;
-			ZVAL_STRING(&value, "1");
-			gene_cache_incr(object, &tmp_arr[i], &value, &ret);
-			zval_ptr_dtor(&ret);
-			zval_ptr_dtor(&value);
-			zval_ptr_dtor(&tmp_arr[i]);
-			i++;
+			if (value != NULL && Z_TYPE_P(value) == IS_ARRAY) {
+				zval *sub_value = NULL;
+				ZEND_HASH_FOREACH_VAL(Z_ARRVAL_P(value), sub_value)
+				{
+					zval tmp_key, ret, incr_val;
+					makeKey(versionSign, key, sub_value, &tmp_key);
+					ZVAL_STRING(&incr_val, "1");
+					gene_cache_incr(object, &tmp_key, &incr_val, &ret);
+					zval_ptr_dtor(&ret);
+					zval_ptr_dtor(&incr_val);
+					zval_ptr_dtor(&tmp_key);
+				}ZEND_HASH_FOREACH_END();
+			} else {
+				zval tmp_key, ret, incr_val;
+				makeKey(versionSign, key, value, &tmp_key);
+				ZVAL_STRING(&incr_val, "1");
+				gene_cache_incr(object, &tmp_key, &incr_val, &ret);
+				zval_ptr_dtor(&ret);
+				zval_ptr_dtor(&incr_val);
+				zval_ptr_dtor(&tmp_key);
+			}
 		}ZEND_HASH_FOREACH_END();
 	}
 }/*}}}*/
