@@ -1552,6 +1552,9 @@ GENE_MINIT_FUNCTION(validate)
     zend_class_entry gene_validate;
     GENE_INIT_CLASS_ENTRY(gene_validate, "Gene_Validate", "Gene\\Validate", gene_validate_methods);
     gene_validate_ce = zend_register_internal_class(&gene_validate);
+#if PHP_VERSION_ID >= 80200
+    gene_validate_ce->ce_flags |= ZEND_ACC_ALLOW_DYNAMIC_PROPERTIES;
+#endif
 
 
     zend_declare_property_null(gene_validate_ce, ZEND_STRL(GENE_VALIDATE_DATA), ZEND_ACC_PUBLIC);

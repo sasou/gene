@@ -375,21 +375,26 @@ PHP_METHOD(gene_application, getLang) {
  * {{{ public gene_application::getRouterUri()
  */
 PHP_METHOD(gene_application, getRouterUri) {
-	zval *ret = NULL;
-	char *path = NULL,*tmp = NULL, *seg = NULL, *ptr = NULL, *seg_c = NULL, *ptr_c = NULL;
+	char *path = NULL, *new_path = NULL;
 	if (!GENE_REQ(router_path)) {
 		RETURN_NULL();
 	}
 
 	path = str_init(GENE_REQ(router_path));
 	if (GENE_REQ(module) != NULL) {
-		path = strreplace2(path, ":m", GENE_REQ(module));
+		new_path = strreplace2(path, ":m", GENE_REQ(module));
+		efree(path);
+		path = new_path;
 	}
 	if (GENE_REQ(controller) != NULL) {
-		path = strreplace2(path, ":c", GENE_REQ(controller));
+		new_path = strreplace2(path, ":c", GENE_REQ(controller));
+		efree(path);
+		path = new_path;
 	}
 	if (GENE_REQ(action) != NULL) {
-		path = strreplace2(path, ":a", GENE_REQ(action));
+		new_path = strreplace2(path, ":a", GENE_REQ(action));
+		efree(path);
+		path = new_path;
 	}
 	strtolower(path);
 	RETVAL_STRING(path);
@@ -598,7 +603,7 @@ PHP_METHOD(gene_application, clearState) {
 	ZVAL_NULL(&null_val);
 	zend_update_static_property(gene_request_ce, GENE_REQUEST_PROPERTY_ATTR, strlen(GENE_REQUEST_PROPERTY_ATTR), &null_val);
 
-	gene_view_clear_vars();
+	gene_view_reset_vars();
 
 	if (self) {
 		RETURN_ZVAL(self, 1, 0);

@@ -33,6 +33,7 @@ static int check_folder_exists(char *fullpath);
 int gene_view_set_vars(zend_string *name, zval *value);
 zval *gene_view_get_vars();
 void gene_view_clear_vars();
+void gene_view_reset_vars();
 
 GENE_MINIT_FUNCTION (view);
 
