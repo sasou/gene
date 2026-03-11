@@ -129,6 +129,10 @@ ZEND_BEGIN_ARG_INFO_EX(gene_application_config, 0, 0, 1)
 	ZEND_ARG_INFO(0, key)
 ZEND_END_ARG_INFO()
 
+ZEND_BEGIN_ARG_INFO_EX(gene_application_set_response, 0, 0, 1)
+    ZEND_ARG_INFO(0, response)
+ZEND_END_ARG_INFO()
+
 ZEND_BEGIN_ARG_INFO_EX(gene_application_get, 0, 0, 1)
     ZEND_ARG_INFO(0, name)
 ZEND_END_ARG_INFO()
@@ -523,6 +527,9 @@ PHP_METHOD(gene_application, setRuntimeType) {
 		runtime = 1;
 	}
 	GENE_G(runtime_type) = runtime;
+	if (runtime >= 2) {
+		gene_init_co_contexts();
+	}
 	if (self) {
 		RETURN_ZVAL(self, 1, 0);
 	}
@@ -573,6 +580,10 @@ static void gene_clear_request_state() {
 	}
 	GENE_REQ(path_params) = (zval*) pemalloc(sizeof(zval), 0);
 	array_init(GENE_REQ(path_params));
+	if (Z_TYPE(GENE_REQ(response)) != IS_UNDEF) {
+		zval_ptr_dtor(&GENE_REQ(response));
+		ZVAL_UNDEF(&GENE_REQ(response));
+	}
 }
 /* }}} */
 
@@ -610,6 +621,23 @@ PHP_METHOD(gene_application, destroyContext) {
 			}
 		}
 	}
+	RETURN_TRUE;
+}
+/* }}} */
+
+/*
+ * {{{ public gene_application::setResponse($response)
+ */
+PHP_METHOD(gene_application, setResponse) {
+	zval *resp;
+	if (zend_parse_parameters(ZEND_NUM_ARGS(), "z", &resp) == FAILURE) {
+		return;
+	}
+	gene_request_context *ctx = gene_request_ctx();
+	if (Z_TYPE(ctx->response) != IS_UNDEF) {
+		zval_ptr_dtor(&ctx->response);
+	}
+	ZVAL_COPY(&ctx->response, resp);
 	RETURN_TRUE;
 }
 /* }}} */
@@ -838,6 +866,7 @@ const zend_function_entry gene_application_methods[] = {
 	PHP_ME(gene_application, run, gene_application_run, ZEND_ACC_PUBLIC)
 	PHP_ME(gene_application, clearState, gene_application_get_method, ZEND_ACC_PUBLIC|ZEND_ACC_STATIC)
 	PHP_ME(gene_application, destroyContext, gene_application_get_method, ZEND_ACC_PUBLIC|ZEND_ACC_STATIC)
+	PHP_ME(gene_application, setResponse, gene_application_set_response, ZEND_ACC_PUBLIC|ZEND_ACC_STATIC)
 	PHP_ME(gene_application, getMethod, gene_application_get_method, ZEND_ACC_PUBLIC|ZEND_ACC_STATIC)
 	PHP_ME(gene_application, getPath, gene_application_get_path, ZEND_ACC_PUBLIC|ZEND_ACC_STATIC)
 	PHP_ME(gene_application, getRouterUri, gene_application_get_uri, ZEND_ACC_PUBLIC|ZEND_ACC_STATIC)

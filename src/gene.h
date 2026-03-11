@@ -98,6 +98,7 @@ typedef struct _gene_request_context {
 	char *child_views;
 	char *lang;
 	zval *path_params;
+	zval response;
 } gene_request_context;
 
 ZEND_BEGIN_MODULE_GLOBALS (gene)
@@ -127,6 +128,7 @@ extern ZEND_DECLARE_MODULE_GLOBALS (gene);
 gene_request_context *gene_request_ctx(void);
 void gene_free_request_context(gene_request_context *ctx);
 zend_long gene_get_coroutine_id(void);
+void gene_init_co_contexts(void);
 
 #define GENE_REQ(v) (gene_request_ctx()->v)
 
