@@ -30,15 +30,28 @@
 
 void gene_quote_identifier(smart_str *dest, const char *name, size_t len, char oq, char cq) /*{{{*/
 {
-	size_t i;
-	smart_str_appendc(dest, oq);
-	for (i = 0; i < len; i++) {
-		if (name[i] == cq) {
-			smart_str_appendc(dest, cq);
+	size_t i, j, start = 0;
+	for (i = 0; i <= len; i++) {
+		if (i == len || name[i] == '.') {
+			size_t part_len = i - start;
+			if (start > 0) {
+				smart_str_appendc(dest, '.');
+			}
+			if (part_len == 1 && name[start] == '*') {
+				smart_str_appendc(dest, '*');
+			} else {
+				smart_str_appendc(dest, oq);
+				for (j = start; j < i; j++) {
+					if (name[j] == cq) {
+						smart_str_appendc(dest, cq);
+					}
+					smart_str_appendc(dest, name[j]);
+				}
+				smart_str_appendc(dest, cq);
+			}
+			start = i + 1;
 		}
-		smart_str_appendc(dest, name[i]);
 	}
-	smart_str_appendc(dest, cq);
 }/*}}}*/
 
 char *gene_quote_table(const char *name, char oq, char cq) /*{{{*/
