@@ -34,6 +34,24 @@
 
 zend_class_entry *gene_di_ce;
 
+static void gene_smart_str_release(smart_str *str) {
+	if (str->s) {
+		zend_string_release(str->s);
+		str->s = NULL;
+	}
+}
+
+zval *gene_di_regs() {
+	gene_request_context *ctx = gene_request_ctx();
+	if (Z_TYPE(ctx->di_regs) == IS_UNDEF || Z_TYPE(ctx->di_regs) == IS_NULL) {
+		if (Z_TYPE(ctx->di_regs) != IS_UNDEF && Z_TYPE(ctx->di_regs) != IS_NULL) {
+			zval_ptr_dtor(&ctx->di_regs);
+		}
+		array_init(&ctx->di_regs);
+	}
+	return &ctx->di_regs;
+}
+
 /* {{{ ARG_INFO
  */
 ZEND_BEGIN_ARG_INFO_EX(gene_di_void_arginfo, 0, 0, 0)
@@ -59,21 +77,11 @@ ZEND_END_ARG_INFO()
 
 
 zval *gene_di_get(zend_string *name) {
-	zval  *pzval = NULL,*class = NULL,*params = NULL, *instance = NULL,*cache = NULL, *di = NULL, *entrys = NULL;
+	zval  *pzval = NULL,*class = NULL,*params = NULL, *instance = NULL,*cache = NULL, *entrys = NULL;
 
-	di = gene_di_instance();
-	entrys = zend_read_property(gene_di_ce, gene_strip_obj(di), GENE_DI_PROPERTY_REG, strlen(GENE_DI_PROPERTY_REG), 1, NULL);
-
-	/* In FPM mode (runtime_type < 2), entrys is effectively per-request since PHP
-	 * static properties reset each request. Return the cached instance directly.
-	 * In Swoole/coroutine mode (runtime_type >= 2), entrys persists across requests.
-	 * Skip this shortcut for instance:false components so each request gets a fresh
-	 * object with clean state (e.g. Mysql query builder). instance:true components
-	 * (stateless like Redis/Memcached) are still retrieved via the class-name key below. */
-	if (GENE_G(runtime_type) < 2) {
-		if ((pzval = zend_hash_find(Z_ARRVAL_P(entrys), name)) != NULL) {
-			return pzval;
-		}
+	entrys = gene_di_regs();
+	if ((pzval = zend_hash_find(Z_ARRVAL_P(entrys), name)) != NULL) {
+		return pzval;
 	}
 
 	char *router_e = NULL;
@@ -140,9 +148,8 @@ zval *gene_di_get(zend_string *name) {
 }
 
 zval *gene_class_instance(zval *obj, zval *class_name, zval *params) {
-	zval *ppzval = NULL, *di, *entrys;
-	di = gene_di_instance();
-	entrys = zend_read_property(gene_di_ce, gene_strip_obj(di), ZEND_STRL(GENE_DI_PROPERTY_REG), 1, NULL);
+	zval *ppzval = NULL, *entrys;
+	entrys = gene_di_regs();
 	if ((ppzval = zend_hash_str_find(Z_ARRVAL_P(entrys), Z_STRVAL_P(class_name), Z_STRLEN_P(class_name))) != NULL) {
 		return ppzval;
 	}
@@ -167,10 +174,9 @@ zval *gene_class_instance(zval *obj, zval *class_name, zval *params) {
  *  {{{ int gene_di_get_class(zend_string class_name, zend_string *name)
  */
 zval *gene_di_get_class(zend_string *class_name, zend_string *name) {
-	zval *di, *entrys, *ppzval = NULL;
+	zval *entrys, *ppzval = NULL;
 
-	di = gene_di_instance();
-	entrys = zend_read_property(gene_di_ce, gene_strip_obj(di), GENE_DI_PROPERTY_REG, strlen(GENE_DI_PROPERTY_REG), 1, NULL);
+	entrys = gene_di_regs();
 
     smart_str class_val = {0};
     smart_str_appendl(&class_val, class_name->val, class_name->len);
@@ -178,15 +184,15 @@ zval *gene_di_get_class(zend_string *class_name, zend_string *name) {
     smart_str_appendl(&class_val, name->val, name->len);
     smart_str_0(&class_val);
 	if ((ppzval = zend_hash_find(Z_ARRVAL_P(entrys), class_val.s)) != NULL) {
-		smart_str_free(&class_val);
+		gene_smart_str_release(&class_val);
 		return ppzval;
 	}
 	ppzval = gene_di_get(name);
 	if (ppzval != NULL) {
-		smart_str_free(&class_val);
+		gene_smart_str_release(&class_val);
 		return ppzval;
 	}
-	smart_str_free(&class_val);
+	gene_smart_str_release(&class_val);
 	return NULL;
 }
 /* }}} */
@@ -196,9 +202,8 @@ zval *gene_di_get_class(zend_string *class_name, zend_string *name) {
  *  {{{ int gene_di_set_class(zend_string class_name, zend_string *name)
  */
 int gene_di_set_class(zend_string *class_name, zend_string *name, zval *value) {
-	zval *di, *entrys, *ppzval = NULL;
-	di = gene_di_instance();
-	entrys = zend_read_property(gene_di_ce, gene_strip_obj(di), GENE_DI_PROPERTY_REG, strlen(GENE_DI_PROPERTY_REG), 1, NULL);
+	zval *entrys;
+	entrys = gene_di_regs();
     smart_str class_val = {0};
     smart_str_appendl(&class_val, class_name->val, class_name->len);
     smart_str_appendc(&class_val, '_');
@@ -206,7 +211,7 @@ int gene_di_set_class(zend_string *class_name, zend_string *name, zval *value) {
     smart_str_0(&class_val);
     Z_TRY_ADDREF_P(value);
     zend_hash_update(Z_ARRVAL_P(entrys), class_val.s, value);
-	smart_str_free(&class_val);
+	gene_smart_str_release(&class_val);
 	return 1;
 }
 /* }}} */
@@ -280,13 +285,12 @@ PHP_METHOD(gene_di, get) {
  *  {{{ public static gene_di::set($name, $value)
  */
 PHP_METHOD(gene_di, set) {
-	zval *value, *di, *entrys;
+	zval *value, *entrys;
 	zend_string *name;
 	if (zend_parse_parameters(ZEND_NUM_ARGS(), "Sz", &name, &value) == FAILURE) {
 		RETURN_NULL();
 	}
-	di = gene_di_instance();
-	entrys = zend_read_property(gene_di_ce, gene_strip_obj(di), GENE_DI_PROPERTY_REG, strlen(GENE_DI_PROPERTY_REG), 1, NULL);
+	entrys = gene_di_regs();
 	if (zend_hash_update(Z_ARRVAL_P(entrys), name, value) != NULL) {
 		Z_TRY_ADDREF_P(value);
 		RETURN_TRUE;
@@ -300,12 +304,11 @@ PHP_METHOD(gene_di, set) {
  */
 PHP_METHOD(gene_di, del) {
 	zend_string *name;
-	zval *di, *entrys;
+	zval *entrys;
 	if (zend_parse_parameters(ZEND_NUM_ARGS(), "S", &name) == FAILURE) {
 		RETURN_NULL();
 	}
-	di = gene_di_instance();
-	entrys = zend_read_property(gene_di_ce, gene_strip_obj(di), GENE_DI_PROPERTY_REG, strlen(GENE_DI_PROPERTY_REG), 1, NULL);
+	entrys = gene_di_regs();
 	zend_hash_del(Z_ARRVAL_P(entrys), name);
 	RETURN_TRUE;
 }
@@ -316,12 +319,11 @@ PHP_METHOD(gene_di, del) {
  */
 PHP_METHOD(gene_di, has) {
 	zend_string *name;
-	zval *di, *entrys;
+	zval *entrys;
 	if (zend_parse_parameters(ZEND_NUM_ARGS(), "S", &name) == FAILURE) {
 		RETURN_NULL();
 	}
-	di = gene_di_instance();
-	entrys = zend_read_property(gene_di_ce, gene_strip_obj(di), GENE_DI_PROPERTY_REG, strlen(GENE_DI_PROPERTY_REG), 1, NULL);
+	entrys = gene_di_regs();
 	if (zend_hash_exists(Z_ARRVAL_P(entrys), name) == 1) {
 		RETURN_TRUE;
 	}

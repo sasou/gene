@@ -24,6 +24,7 @@ extern zend_class_entry *gene_di_ce;
 GENE_MINIT_FUNCTION (di);
 
 zval *gene_di_instance();
+zval *gene_di_regs();
 
 zval *gene_di_get(zend_string *name);
 zval *gene_class_instance(zval *obj, zval *class, zval *params);

@@ -98,6 +98,8 @@ typedef struct _gene_request_context {
 	char *child_views;
 	char *lang;
 	zval *path_params;
+	zval request_attr;
+	zval di_regs;
 	zval response;
 } gene_request_context;
 
