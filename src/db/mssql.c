@@ -34,8 +34,8 @@
 
 zend_class_entry * gene_db_mssql_ce;
 
-struct timeval db_start, db_end;
-zend_long db_mssql_memory_start = 0, db_mssql_memory_end = 0;
+static struct timeval db_start, db_end;
+static zend_long db_mssql_memory_start = 0, db_mssql_memory_end = 0;
 
 ZEND_BEGIN_ARG_INFO_EX(gene_db_mssql_void_arginfo, 0, 0, 0)
 ZEND_END_ARG_INFO()

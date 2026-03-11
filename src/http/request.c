@@ -377,6 +377,16 @@ PHP_METHOD(gene_request, _set) {
 
 
 /*
+ * {{{ public gene_request::clear()
+ */
+PHP_METHOD(gene_request, clear) {
+	zval tmp;
+	ZVAL_NULL(&tmp);
+	zend_update_static_property(gene_request_ce, GENE_REQUEST_PROPERTY_ATTR, strlen(GENE_REQUEST_PROPERTY_ATTR), &tmp);
+}
+/* }}} */
+
+/*
  * {{{ gene_request_methods
  */
 const zend_function_entry gene_request_methods[] = {
@@ -398,6 +408,7 @@ const zend_function_entry gene_request_methods[] = {
 	PHP_ME(gene_request, isOptions, geme_request_void_arginfo, ZEND_ACC_PUBLIC|ZEND_ACC_STATIC)
 	PHP_ME(gene_request, isCli, geme_request_void_arginfo, ZEND_ACC_PUBLIC|ZEND_ACC_STATIC)
 	PHP_ME(gene_request, init, gene_request_init_arginfo, ZEND_ACC_PUBLIC|ZEND_ACC_STATIC)
+	PHP_ME(gene_request, clear, geme_request_void_arginfo, ZEND_ACC_PUBLIC|ZEND_ACC_STATIC)
 	PHP_MALIAS(gene_request, __set, _set, gene_request_set_arginfo, ZEND_ACC_PUBLIC)
 	PHP_MALIAS(gene_request, __get, _get, gene_request_get_arginfo, ZEND_ACC_PUBLIC)
 	{ NULL, NULL, NULL }

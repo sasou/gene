@@ -344,13 +344,21 @@ All fixes below have been applied directly to the source files.
 | 14 | `router/router.c` | Added `efree(uri)` in `get_path_router_init` when language is found (was leaked) |
 | 15 | `config.m4` | Updated minimum PHP version check from 5.2.0 to 8.0.0 |
 
-### Not Fixed (Architectural / Requires Design Decision)
+### Swoole / Coroutine Optimization Fixes (v5.2.2)
+
+| # | File(s) | Fix Description |
+|---|---------|-----------------|
+| 16 | `db/mysql.c`, `db/mssql.c`, `db/pgsql.c`, `db/sqlite.c`, `tool/benchmark.c` | Made timing globals (`struct timeval`, `zend_long`) `static` to prevent linker collision and isolate per-file |
+| 17 | `app/application.c` | Fixed `gene_application_instance` crash: when `this_ptr` is NULL, now uses local zval for `object_init_ex` instead of writing directly into the static property zval |
+| 18 | `app/application.c` | Added `Gene\Application::clearState()` method to reset per-request GENE_G fields (`method`, `path`, `module`, `controller`, `action`, `lang`, `path_params`, `child_views`, `router_path`), clear `Request::$_attr`, and call `gene_view_clear_vars()`. Preserves Application singleton and DI container (worker-level singletons like Redis/Memcached persist across requests) |
+| 19 | `app/application.c` | Fixed `setRuntimeType()` and `setEnvironment()` to return `$this` for method chaining (were returning `TRUE`) and added `ZEND_ACC_STATIC` so they can be called both statically and as instance method |
+| 20 | `http/request.c` | Added `Gene\Request::clear()` static method to reset the static `$_attr` property for Swoole per-request cleanup |
+| 21 | `demo/public/swoole.php` | Optimized Swoole integration: separated one-time init (`workerStart`) from per-request handling, added `clearState()` calls, added try/catch error handling, used `\Swoole\Http\Server` class name, auto CPU worker count, `SWOOLE_HOOK_ALL` |
+
+### Not Fixed (Requires Design Decision)
 
 These issues require broader design decisions and are documented for future consideration:
 
-- **Global timing variables** (`struct timeval db_start, db_end` etc.) in DB modules — need to move to per-object properties or module globals for thread/coroutine safety
-- **`GENE_G()` module globals not coroutine-safe** — per-request state (`method`, `path`, `module`, etc.) shared across coroutines
-- **Static properties shared in coroutine mode** — `Gene\Application::$instance`, `Gene\Di::$instance`, `Gene\View::$vars`, etc.
 - **SQL identifier injection** in DB query builder — table/column names not escaped
-- **`gene_application_instance`** modifies static property zval directly with `object_init_ex`
 - **Persistent cache thread safety** — no locking on `GENE_G(cache)` HashTable modifications
+- **True coroutine isolation (runtime_type=3)** — `GENE_G()` is per-process, not per-coroutine; for full coroutine safety, would need Swoole coroutine-local storage or per-coroutine context objects
