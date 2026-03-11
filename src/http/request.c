@@ -422,6 +422,9 @@ GENE_MINIT_FUNCTION(request) {
 	zend_class_entry gene_request;
 	GENE_INIT_CLASS_ENTRY(gene_request, "Gene_Request", "Gene\\Request", gene_request_methods);
 	gene_request_ce = zend_register_internal_class(&gene_request);
+#if PHP_VERSION_ID >= 80200
+	gene_request_ce->ce_flags |= ZEND_ACC_ALLOW_DYNAMIC_PROPERTIES;
+#endif
 
 	zend_declare_property_null(gene_request_ce, GENE_REQUEST_PROPERTY_ATTR, strlen(GENE_REQUEST_PROPERTY_ATTR), ZEND_ACC_PROTECTED | ZEND_ACC_STATIC);
 	//

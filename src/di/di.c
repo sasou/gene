@@ -178,10 +178,12 @@ zval *gene_di_get_class(zend_string *class_name, zend_string *name) {
     smart_str_appendl(&class_val, name->val, name->len);
     smart_str_0(&class_val);
 	if ((ppzval = zend_hash_find(Z_ARRVAL_P(entrys), class_val.s)) != NULL) {
+		smart_str_free(&class_val);
 		return ppzval;
 	}
 	ppzval = gene_di_get(name);
 	if (ppzval != NULL) {
+		smart_str_free(&class_val);
 		return ppzval;
 	}
 	smart_str_free(&class_val);
@@ -362,6 +364,9 @@ GENE_MINIT_FUNCTION(di) {
 	GENE_INIT_CLASS_ENTRY(gene_di, "gene_di", "Gene\\Di", gene_di_methods);
 	gene_di_ce = zend_register_internal_class_ex(&gene_di, NULL);
 	gene_di_ce->ce_flags |= ZEND_ACC_FINAL;
+#if PHP_VERSION_ID >= 80200
+	gene_di_ce->ce_flags |= ZEND_ACC_ALLOW_DYNAMIC_PROPERTIES;
+#endif
 
 	//static
 	zend_declare_property_null(gene_di_ce, GENE_DI_PROPERTY_INSTANCE, strlen(GENE_DI_PROPERTY_INSTANCE), ZEND_ACC_PROTECTED | ZEND_ACC_STATIC);

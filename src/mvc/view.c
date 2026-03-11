@@ -363,6 +363,17 @@ void gene_view_clear_vars() {
 /* }}} */
 
 /*
+ *  {{{ int gene_view_reset_vars()
+ */
+void gene_view_reset_vars() {
+	zval null_val;
+	ZVAL_NULL(&null_val);
+	zend_update_static_property(gene_view_ce, GENE_VIEW_VARS, strlen(GENE_VIEW_VARS), &null_val);
+	zend_update_static_property_long(gene_view_ce, GENE_VIEW_VERSION_NO, strlen(GENE_VIEW_VERSION_NO), 0);
+}
+/* }}} */
+
+/*
  *  {{{ int gene_view_get_vars()
  */
 zval *gene_view_get_vars() {
@@ -641,6 +652,9 @@ GENE_MINIT_FUNCTION(view) {
 	zend_class_entry gene_view;
 	GENE_INIT_CLASS_ENTRY(gene_view, "Gene_View", "Gene\\View", gene_view_methods);
 	gene_view_ce = zend_register_internal_class(&gene_view);
+#if PHP_VERSION_ID >= 80200
+	gene_view_ce->ce_flags |= ZEND_ACC_ALLOW_DYNAMIC_PROPERTIES;
+#endif
 
 	zend_declare_property_null(gene_view_ce, GENE_VIEW_VARS, strlen(GENE_VIEW_VARS), ZEND_ACC_PROTECTED | ZEND_ACC_STATIC);
 	zend_declare_property_long(gene_view_ce, GENE_VIEW_VERSION_NO, strlen(GENE_VIEW_VERSION_NO), 0, ZEND_ACC_PROTECTED | ZEND_ACC_STATIC);
