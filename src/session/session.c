@@ -734,6 +734,9 @@ GENE_MINIT_FUNCTION(session) {
     zend_class_entry gene_session;
     GENE_INIT_CLASS_ENTRY(gene_session, "Gene_Session", "Gene\\Session", gene_session_methods);
     gene_session_ce = zend_register_internal_class(&gene_session);
+#if PHP_VERSION_ID >= 80200
+    gene_session_ce->ce_flags |= ZEND_ACC_ALLOW_DYNAMIC_PROPERTIES;
+#endif
 
 
     zend_declare_property_null(gene_session_ce, ZEND_STRL(GENE_SESSION_DRIVER), ZEND_ACC_PUBLIC);

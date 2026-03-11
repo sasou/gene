@@ -237,7 +237,7 @@ static void * gene_memory_zval_edit_persistent(zval *dst, zval *source) {
 		case IS_CONSTANT:
 #endif
 	case IS_STRING:
-		free(Z_PTR_P(dst));
+		pefree(Z_PTR_P(dst), 1);
 		break;
 	case IS_ARRAY:
 		gene_hash_destroy(Z_ARRVAL_P(dst));

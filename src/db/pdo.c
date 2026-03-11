@@ -196,15 +196,19 @@ void gene_pdo_error_info(zval *pdo_object, zval *retval) /*{{{*/
 bool show_sql_errors(zval *pdo_object)
 {
     zval retval;
+    zend_string *ok_state;
     gene_pdo_error_info(pdo_object, &retval);
     zval *sql_state = zend_hash_index_find(Z_ARRVAL(retval), 0);
     zval *sql_code = zend_hash_index_find(Z_ARRVAL_P(&retval), 1);
     zval *sql_info = zend_hash_index_find(Z_ARRVAL_P(&retval), 2);
-    if (!zend_string_equals(Z_STR_P(sql_state), strpprintf(0, "00000"))) {
+    ok_state = zend_string_init(ZEND_STRL("00000"), 0);
+    if (!zend_string_equals(Z_STR_P(sql_state), ok_state)) {
+    	zend_string_release(ok_state);
     	php_error_docref(NULL, E_ERROR, "SQL: %d %s", Z_LVAL_P(sql_code), Z_STRVAL_P(sql_info));
     	zval_ptr_dtor(&retval);
         return 1;
     }
+    zend_string_release(ok_state);
     zval_ptr_dtor(&retval);
     return 0;
 }/*}}}*/

@@ -54,6 +54,7 @@ ZEND_END_ARG_INFO()
  * {{{ public Gene\Language::__construct($dir, $defaultLang = 'en')
  */
 PHP_METHOD(gene_language, __construct) {
+    zval *self = getThis();
     zval *dir_zv = NULL;
     zval *lang_zv = NULL;
     zval *default_lang_zv = NULL;
@@ -74,18 +75,18 @@ PHP_METHOD(gene_language, __construct) {
 
     if (lang_zv == NULL) {
         if (default_lang_zv && Z_TYPE_P(default_lang_zv) == IS_STRING && Z_STRLEN_P(default_lang_zv) > 0) {
-            zend_update_static_property(gene_language_ce, ZEND_STRL(GENE_LANGUAGE_LANG), default_lang_zv);
+            zend_update_property(gene_language_ce, gene_strip_obj(self), ZEND_STRL(GENE_LANGUAGE_LANG), default_lang_zv);
         } else {
             zval tmp;
             ZVAL_STRING(&tmp, "en");
-            zend_update_static_property(gene_language_ce, ZEND_STRL(GENE_LANGUAGE_LANG), &tmp);
+            zend_update_property(gene_language_ce, gene_strip_obj(self), ZEND_STRL(GENE_LANGUAGE_LANG), &tmp);
             zval_ptr_dtor(&tmp);
         }
     } else {
-        zend_update_static_property(gene_language_ce, ZEND_STRL(GENE_LANGUAGE_LANG), lang_zv);
+        zend_update_property(gene_language_ce, gene_strip_obj(self), ZEND_STRL(GENE_LANGUAGE_LANG), lang_zv);
     }
 
-    zend_update_static_property(gene_language_ce, ZEND_STRL(GENE_LANGUAGE_DIR), dir_zv);
+    zend_update_property(gene_language_ce, gene_strip_obj(self), ZEND_STRL(GENE_LANGUAGE_DIR), dir_zv);
 
     RETURN_NULL();
 }
@@ -95,6 +96,7 @@ PHP_METHOD(gene_language, __construct) {
  * {{{ public Gene\Language::lang($lang = null)
  */
 PHP_METHOD(gene_language, lang) {
+    zval *self = getThis();
     zval *lang = NULL;
 
     if (zend_parse_parameters(ZEND_NUM_ARGS(), "|z", &lang) == FAILURE) {
@@ -102,10 +104,10 @@ PHP_METHOD(gene_language, lang) {
     }
 
     if (lang && Z_TYPE_P(lang) == IS_STRING && Z_STRLEN_P(lang) > 0) {
-        zend_update_static_property(gene_language_ce, ZEND_STRL(GENE_LANGUAGE_LANG), lang);
+        zend_update_property(gene_language_ce, gene_strip_obj(self), ZEND_STRL(GENE_LANGUAGE_LANG), lang);
     }
 
-    RETURN_ZVAL(getThis(), 1, 0);
+    RETURN_ZVAL(self, 1, 0);
 }
 /* }}} */
 
@@ -113,6 +115,7 @@ PHP_METHOD(gene_language, lang) {
  * {{{ public Gene\Language::__call($name, $args)
  */
 PHP_METHOD(gene_language, __call) {
+    zval *self = getThis();
     zend_string *name = NULL;
     zval *args = NULL;
     zval *first = NULL;
@@ -125,7 +128,7 @@ PHP_METHOD(gene_language, __call) {
     {
         zval dir;
         ZVAL_STR_COPY(&dir, name);
-        zend_update_static_property(gene_language_ce, ZEND_STRL(GENE_LANGUAGE_DIR), &dir);
+        zend_update_property(gene_language_ce, gene_strip_obj(self), ZEND_STRL(GENE_LANGUAGE_DIR), &dir);
         zval_ptr_dtor(&dir);
     }
 
@@ -133,11 +136,11 @@ PHP_METHOD(gene_language, __call) {
     if (args && Z_TYPE_P(args) == IS_ARRAY) {
         first = zend_hash_index_find(Z_ARRVAL_P(args), 0);
         if (first && Z_TYPE_P(first) == IS_STRING && Z_STRLEN_P(first) > 0) {
-            zend_update_static_property(gene_language_ce, ZEND_STRL(GENE_LANGUAGE_LANG), first);
+            zend_update_property(gene_language_ce, gene_strip_obj(self), ZEND_STRL(GENE_LANGUAGE_LANG), first);
         }
     }
 
-    RETURN_ZVAL(getThis(), 1, 0);
+    RETURN_ZVAL(self, 1, 0);
 }
 /* }}} */
 
@@ -146,24 +149,26 @@ PHP_METHOD(gene_language, __call) {
  */
 PHP_METHOD(gene_language, __get) {
     zend_string *name = NULL;
+    zval *self = getThis();
     zval *config, *dir_zv, *lang_zv, *dir_conf, *val;
     char *file = NULL;
+    smart_str cache_key = {0};
 
     if (zend_parse_parameters(ZEND_NUM_ARGS(), "S", &name) == FAILURE) {
         RETURN_NULL();
     }
 
     /* 读取静态 config、dir、lang */
-    config  = zend_read_static_property(gene_language_ce, ZEND_STRL(GENE_LANGUAGE_CONFIG), 1);
-    dir_zv  = zend_read_static_property(gene_language_ce, ZEND_STRL(GENE_LANGUAGE_DIR), 1);
-    lang_zv = zend_read_static_property(gene_language_ce, ZEND_STRL(GENE_LANGUAGE_LANG), 1);
+    config  = zend_read_property(gene_language_ce, gene_strip_obj(self), ZEND_STRL(GENE_LANGUAGE_CONFIG), 1, NULL);
+    dir_zv  = zend_read_property(gene_language_ce, gene_strip_obj(self), ZEND_STRL(GENE_LANGUAGE_DIR), 1, NULL);
+    lang_zv = zend_read_property(gene_language_ce, gene_strip_obj(self), ZEND_STRL(GENE_LANGUAGE_LANG), 1, NULL);
 
     if (Z_TYPE_P(config) != IS_ARRAY) {
         zval tmp;
         array_init(&tmp);
-        zend_update_static_property(gene_language_ce, ZEND_STRL(GENE_LANGUAGE_CONFIG), &tmp);
+        zend_update_property(gene_language_ce, gene_strip_obj(self), ZEND_STRL(GENE_LANGUAGE_CONFIG), &tmp);
         zval_ptr_dtor(&tmp);
-        config = zend_read_static_property(gene_language_ce, ZEND_STRL(GENE_LANGUAGE_CONFIG), 1);
+        config = zend_read_property(gene_language_ce, gene_strip_obj(self), ZEND_STRL(GENE_LANGUAGE_CONFIG), 1, NULL);
     }
 
     if (Z_TYPE_P(dir_zv) != IS_STRING || Z_STRLEN_P(dir_zv) == 0 ||
@@ -195,8 +200,8 @@ PHP_METHOD(gene_language, __get) {
                 if (Z_TYPE(retval) == IS_ARRAY) {
                     zval tmp;
                     ZVAL_COPY(&tmp, &retval);
-                    zend_hash_update(Z_ARRVAL_P(config), Z_STR_P(dir_zv), &tmp);
-                    dir_conf = zend_hash_find(Z_ARRVAL_P(config), Z_STR_P(dir_zv));
+                    zend_hash_update(Z_ARRVAL_P(config), cache_key.s, &tmp);
+                    dir_conf = zend_hash_find(Z_ARRVAL_P(config), cache_key.s);
                 }
             } else {
                 php_error_docref(NULL, E_WARNING, "Unable to load language file %s", file);
@@ -212,10 +217,12 @@ PHP_METHOD(gene_language, __get) {
     if (dir_conf && Z_TYPE_P(dir_conf) == IS_ARRAY) {
         val = zend_hash_find(Z_ARRVAL_P(dir_conf), name);
         if (val) {
+            smart_str_free(&cache_key);
             RETURN_ZVAL(val, 1, 0);
         }
     }
 
+    smart_str_free(&cache_key);
     ZVAL_EMPTY_STRING(return_value);
 }
 /* }}} */
@@ -239,11 +246,13 @@ GENE_MINIT_FUNCTION(language) {
     zend_class_entry gene_language;
     GENE_INIT_CLASS_ENTRY(gene_language, "Gene_Language", "Gene\\Language", gene_language_methods);
     gene_language_ce = zend_register_internal_class(&gene_language);
+#if PHP_VERSION_ID >= 80200
+    gene_language_ce->ce_flags |= ZEND_ACC_ALLOW_DYNAMIC_PROPERTIES;
+#endif
 
-    /* static properties: dir, lang, config */
-    zend_declare_property_string(gene_language_ce, GENE_LANGUAGE_DIR,  strlen(GENE_LANGUAGE_DIR), "", ZEND_ACC_PUBLIC | ZEND_ACC_STATIC);
-    zend_declare_property_string(gene_language_ce, GENE_LANGUAGE_LANG, strlen(GENE_LANGUAGE_LANG), "en", ZEND_ACC_PUBLIC | ZEND_ACC_STATIC);
-    zend_declare_property_null(gene_language_ce,  GENE_LANGUAGE_CONFIG, strlen(GENE_LANGUAGE_CONFIG), ZEND_ACC_PUBLIC | ZEND_ACC_STATIC);
+    zend_declare_property_string(gene_language_ce, GENE_LANGUAGE_DIR,  strlen(GENE_LANGUAGE_DIR), "", ZEND_ACC_PUBLIC);
+    zend_declare_property_string(gene_language_ce, GENE_LANGUAGE_LANG, strlen(GENE_LANGUAGE_LANG), "en", ZEND_ACC_PUBLIC);
+    zend_declare_property_null(gene_language_ce,  GENE_LANGUAGE_CONFIG, strlen(GENE_LANGUAGE_CONFIG), ZEND_ACC_PROTECTED);
 
     return SUCCESS;
 }
