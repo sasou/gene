@@ -324,14 +324,15 @@ PHP_METHOD(gene_memcached, get) {
 		if(serializer_handler && Z_TYPE_P(serializer_handler) == IS_LONG) {
 			if (Z_TYPE_P(key) == IS_ARRAY) {
 				zval arr;
-				zval tmp_arr[10];
 				zval *element;
 				array_init(&arr);
 				zend_string *key = NULL;
 				int i = 0;
 				ZEND_HASH_FOREACH_STR_KEY_VAL_IND(Z_ARRVAL(ret), key, element) {
-					if (unserialize(element, &tmp_arr[i], serializer_handler)) {
-						add_assoc_zval_ex(&arr, ZSTR_VAL(key), ZSTR_LEN(key), &tmp_arr[i]);
+					zval tmp;
+					ZVAL_UNDEF(&tmp);
+					if (unserialize(element, &tmp, serializer_handler)) {
+						add_assoc_zval_ex(&arr, ZSTR_VAL(key), ZSTR_LEN(key), &tmp);
 					} else {
 						Z_TRY_ADDREF_P(element);
 						add_assoc_zval_ex(&arr, ZSTR_VAL(key), ZSTR_LEN(key), element);

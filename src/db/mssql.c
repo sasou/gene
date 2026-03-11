@@ -194,7 +194,7 @@ bool mssqlInitPdo (zval * self, zval *config) {
 
 	if (EG(exception)) {
 		if (checkPdoError(EG(exception))) {
-			EG(exception) = NULL;
+			zend_clear_exception();
 		}
 	}
     zend_update_property(gene_db_mssql_ce, gene_strip_obj(self), ZEND_STRL(GENE_DB_MSSQL_PDO), &pdo_object);
@@ -248,7 +248,7 @@ bool gene_mssql_pdo_execute (zval *self, zval *statement)
 
     	if (EG(exception)) {
     		if (checkPdoError(EG(exception))) {
-    			EG(exception) = NULL;
+    			zend_clear_exception();
     			mssqlInitPdo (self, NULL);
     			gene_pdo_prepare(pdo_object, ZSTR_VAL(sql.s), statement);
     			ZVAL_NULL(&retval);

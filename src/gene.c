@@ -254,6 +254,11 @@ PHP_RINIT_FUNCTION(gene) {
  * {{{ PHP_RSHUTDOWN_FUNCTION
  */
 PHP_RSHUTDOWN_FUNCTION(gene) {
+	if (GENE_G(path_params)) {
+		zval_ptr_dtor(GENE_G(path_params));
+		efree(GENE_G(path_params));
+		GENE_G(path_params) = NULL;
+	}
 	php_gene_close_globals();
 	return SUCCESS; // @suppress("Symbol is not resolved")
 }
