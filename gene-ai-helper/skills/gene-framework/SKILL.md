@@ -125,6 +125,7 @@ $title = $this->language->login_title;  // 读取语言键值
 - **版本键命名约定**：
   - 表级：`'db.table' => null`，例如：`'db.im_user' => null`
   - 字段级：`'db.table.field' => $value`，例如：`'db.im_user.id' => $id`、`'db.im_chat.name' => $name`
+  - 多值字段：`'db.table.field' => [$value1, $value2, ...]`，例如：`'db.im_user.id' => [$id1, $id2]`
   - 跨表：在同一个 `$version` 数组中同时放入多张表的字段键，实现跨表联合失效
 - **常见读写模式示例**：
   - 按主键查询单行：
@@ -137,6 +138,9 @@ $title = $this->language->login_title;  // 读取语言键值
   - 跨表联合查询（如聊天列表依赖用户和群）：
     - 读：`$version = ['db.im_chat.name' => $name, 'db.im_user.id' => $userId, 'db.im_group.id' => $groupId];`
     - 写：涉及用户或群变更时，在各自 Service 中更新对应字段键与表级键。
+  - 多值字段批量查询（如批量用户信息）：
+    - 读：`$version = ['db.im_user.id' => [$id1, $id2, $id3]];`
+    - 写：批量更新时：`$this->cache->updateVersion(['db.im_user.id' => [$id1, $id2, $id3]]);`
 
 ## 常用 API 速查
 
