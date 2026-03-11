@@ -187,6 +187,20 @@ static void php_gene_init_globals() {
 }
 /* }}} */
 
+/* {{{ php_gene_close_request_globals
+ */
+static void php_gene_close_request_globals() {
+	gene_free_request_context(&GENE_G(default_ctx));
+	if (GENE_G(co_contexts)) {
+		zend_hash_destroy(GENE_G(co_contexts));
+		FREE_HASHTABLE(GENE_G(co_contexts));
+		GENE_G(co_contexts) = NULL;
+	}
+	GENE_G(current_ctx) = NULL;
+	GENE_G(current_cid) = -1;
+}
+/* }}} */
+
 /* {{{ php_gene_close_globals
  */
 static void php_gene_close_globals() {
@@ -214,14 +228,7 @@ static void php_gene_close_globals() {
 		efree(GENE_G(app_key));
 		GENE_G(app_key) = NULL;
 	}
-	gene_free_request_context(&GENE_G(default_ctx));
-	if (GENE_G(co_contexts)) {
-		zend_hash_destroy(GENE_G(co_contexts));
-		FREE_HASHTABLE(GENE_G(co_contexts));
-		GENE_G(co_contexts) = NULL;
-	}
-	GENE_G(current_ctx) = NULL;
-	GENE_G(current_cid) = -1;
+	php_gene_close_request_globals();
 }
 /* }}} */
 
@@ -323,7 +330,7 @@ PHP_RINIT_FUNCTION(gene) {
  * {{{ PHP_RSHUTDOWN_FUNCTION
  */
 PHP_RSHUTDOWN_FUNCTION(gene) {
-	php_gene_close_globals();
+	php_gene_close_request_globals();
 	return SUCCESS; // @suppress("Symbol is not resolved")
 }
 /* }}} */
