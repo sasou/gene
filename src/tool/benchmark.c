@@ -34,8 +34,8 @@ zend_class_entry * gene_benchmark_ce;
 
 PHPAPI int gettimeofday(struct timeval *time_Info, struct timezone *timezone_Info);
 
-struct timeval bench_start, bench_end;
-zend_long bench_memory_start = 0, bench_memory_end = 0;
+static struct timeval bench_start, bench_end;
+static zend_long bench_memory_start = 0, bench_memory_end = 0;
 
 ZEND_BEGIN_ARG_INFO_EX(gene_benchmark_start, 0, 0, 0)
 ZEND_END_ARG_INFO()

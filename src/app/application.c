@@ -229,8 +229,14 @@ zval *gene_application_instance(zval *this_ptr, zval *safe) {
 	}
 	if (this_ptr) {
 		instance = this_ptr;
+		zend_update_static_property(gene_application_ce, ZEND_STRL(GENE_APPLICATION_INSTANCE), instance);
 	} else {
-		object_init_ex(instance, gene_application_ce);
+		zval new_instance;
+		object_init_ex(&new_instance, gene_application_ce);
+		zend_update_static_property(gene_application_ce, ZEND_STRL(GENE_APPLICATION_INSTANCE), &new_instance);
+		zval_ptr_dtor(&new_instance);
+		instance = zend_read_static_property(gene_application_ce, ZEND_STRL(GENE_APPLICATION_INSTANCE), 1);
+
 		gene_ini_router();
 		if (safe && !GENE_G(app_key)) {
 			GENE_G(app_key) = estrndup(Z_STRVAL_P(safe), Z_STRLEN_P(safe));
@@ -243,7 +249,6 @@ zval *gene_application_instance(zval *this_ptr, zval *safe) {
 			spprintf(&GENE_G(app_root), 0, "%s/application", GENE_G(directory));
 		}
 	}
-	zend_update_static_property(gene_application_ce, ZEND_STRL(GENE_APPLICATION_INSTANCE), instance);
 	return instance;
 }
 /* }}} */
@@ -465,11 +470,15 @@ PHP_METHOD(gene_application, params) {
  * {{{ public gene_application::setEnvironment($type)
  */
 PHP_METHOD(gene_application, setEnvironment) {
+	zval *self = getThis();
 	zend_long type = 0;
 	if (zend_parse_parameters(ZEND_NUM_ARGS(), "|l", &type) == FAILURE) {
 		return;
 	}
 	GENE_G(run_environment) = type;
+	if (self) {
+		RETURN_ZVAL(self, 1, 0);
+	}
 	RETURN_TRUE;
 }
 /* }}} */
@@ -478,7 +487,7 @@ PHP_METHOD(gene_application, setEnvironment) {
  * {{{ public gene_application::setRuntimeType($type)
  */
 PHP_METHOD(gene_application, setRuntimeType) {
-	zval *type = NULL;
+	zval *self = getThis(), *type = NULL;
 	zend_long runtime = 0;
 	if (zend_parse_parameters(ZEND_NUM_ARGS(), "|z", &type) == FAILURE) {
 		return;
@@ -514,6 +523,75 @@ PHP_METHOD(gene_application, setRuntimeType) {
 		runtime = 1;
 	}
 	GENE_G(runtime_type) = runtime;
+	if (self) {
+		RETURN_ZVAL(self, 1, 0);
+	}
+	RETURN_TRUE;
+}
+/* }}} */
+
+/*
+ * {{{ void gene_clear_request_state()
+ */
+static void gene_clear_request_state() {
+	if (GENE_G(method)) {
+		efree(GENE_G(method));
+		GENE_G(method) = NULL;
+	}
+	if (GENE_G(path)) {
+		efree(GENE_G(path));
+		GENE_G(path) = NULL;
+	}
+	if (GENE_G(router_path)) {
+		efree(GENE_G(router_path));
+		GENE_G(router_path) = NULL;
+	}
+	if (GENE_G(module)) {
+		efree(GENE_G(module));
+		GENE_G(module) = NULL;
+	}
+	if (GENE_G(controller)) {
+		efree(GENE_G(controller));
+		GENE_G(controller) = NULL;
+	}
+	if (GENE_G(action)) {
+		efree(GENE_G(action));
+		GENE_G(action) = NULL;
+	}
+	if (GENE_G(child_views)) {
+		efree(GENE_G(child_views));
+		GENE_G(child_views) = NULL;
+	}
+	if (GENE_G(lang)) {
+		efree(GENE_G(lang));
+		GENE_G(lang) = NULL;
+	}
+	if (GENE_G(path_params)) {
+		zval_ptr_dtor(GENE_G(path_params));
+		efree(GENE_G(path_params));
+		GENE_G(path_params) = NULL;
+	}
+	GENE_G(path_params) = (zval*) pemalloc(sizeof(zval), 0);
+	array_init(GENE_G(path_params));
+}
+/* }}} */
+
+/*
+ * {{{ public gene_application::clearState()
+ */
+PHP_METHOD(gene_application, clearState) {
+	zval *self = getThis();
+	gene_clear_request_state();
+
+	zval null_val;
+	ZVAL_NULL(&null_val);
+	zend_update_static_property(gene_request_ce, GENE_REQUEST_PROPERTY_ATTR, strlen(GENE_REQUEST_PROPERTY_ATTR), &null_val);
+
+	gene_view_clear_vars();
+
+	if (self) {
+		RETURN_ZVAL(self, 1, 0);
+	}
 	RETURN_TRUE;
 }
 /* }}} */
@@ -740,6 +818,7 @@ const zend_function_entry gene_application_methods[] = {
 	PHP_ME(gene_application, error, gene_application_error, ZEND_ACC_PUBLIC)
 	PHP_ME(gene_application, exception, gene_application_exception, ZEND_ACC_PUBLIC)
 	PHP_ME(gene_application, run, gene_application_run, ZEND_ACC_PUBLIC)
+	PHP_ME(gene_application, clearState, gene_application_get_method, ZEND_ACC_PUBLIC|ZEND_ACC_STATIC)
 	PHP_ME(gene_application, getMethod, gene_application_get_method, ZEND_ACC_PUBLIC|ZEND_ACC_STATIC)
 	PHP_ME(gene_application, getPath, gene_application_get_path, ZEND_ACC_PUBLIC|ZEND_ACC_STATIC)
 	PHP_ME(gene_application, getRouterUri, gene_application_get_uri, ZEND_ACC_PUBLIC|ZEND_ACC_STATIC)

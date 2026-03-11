@@ -344,13 +344,21 @@ if test "$gene_php_version" -le "5002000"; then
 | 14 | `router/router.c` | 当找到语言时，在 `get_path_router_init` 中添加 `efree(uri)`（之前泄漏） |
 | 15 | `config.m4` | 将最低 PHP 版本检查从 5.2.0 更新到 8.0.0 |
 
-### 未修复（架构 / 需要设计决策）
+### Swoole / 协程优化修复 (v5.2.2)
+
+| # | 文件 | 修复描述 |
+|---|------|----------|
+| 16 | `db/mysql.c`, `db/mssql.c`, `db/pgsql.c`, `db/sqlite.c`, `tool/benchmark.c` | 将计时全局变量（`struct timeval`、`zend_long`）改为 `static`，防止链接器冲突并实现文件级隔离 |
+| 17 | `app/application.c` | 修复 `gene_application_instance` 崩溃：当 `this_ptr` 为 NULL 时，使用局部 zval 进行 `object_init_ex`，而非直接写入静态属性 zval |
+| 18 | `app/application.c` | 新增 `Gene\Application::clearState()` 方法，重置每请求 GENE_G 字段（`method`、`path`、`module`、`controller`、`action`、`lang`、`path_params`、`child_views`、`router_path`），清除 `Request::$_attr`，调用 `gene_view_clear_vars()`。保留 Application 单例和 DI 容器（Redis/Memcached 等 worker 级单例跨请求持久化） |
+| 19 | `app/application.c` | 修复 `setRuntimeType()` 和 `setEnvironment()` 返回 `$this` 以支持链式调用（原来返回 `TRUE`），并添加 `ZEND_ACC_STATIC` 使其支持静态和实例两种调用方式 |
+| 20 | `http/request.c` | 新增 `Gene\Request::clear()` 静态方法，重置静态 `$_attr` 属性用于 Swoole 每请求清理 |
+| 21 | `demo/public/swoole.php` | 优化 Swoole 集成：将一次性初始化（`workerStart`）与每请求处理分离，添加 `clearState()` 调用，添加 try/catch 错误处理，使用 `\Swoole\Http\Server` 类名，自动 CPU 核数 worker，`SWOOLE_HOOK_ALL` |
+
+### 未修复（需要设计决策）
 
 这些问题需要更广泛的设计决策，并记录供将来考虑：
 
-- **全局计时变量**（`struct timeval db_start, db_end` 等）在 DB 模块中 — 需要移动到每对象属性或模块全局变量以实现线程/协程安全
-- **`GENE_G()` 模块全局变量不是协程安全的** — 每请求状态（`method`、`path`、`module` 等）在协程间共享
-- **协程模式中共享的静态属性** — `Gene\Application::$instance`、`Gene\Di::$instance`、`Gene\View::$vars` 等
 - **DB 查询构建器中的 SQL 标识符注入** — 表/列名未转义
-- **`gene_application_instance`** 直接使用 `object_init_ex` 修改静态属性 zval
 - **持久缓存线程安全** — `GENE_G(cache)` HashTable 修改没有锁定
+- **真正的协程隔离 (runtime_type=3)** — `GENE_G()` 是每进程的，不是每协程的；要实现完全协程安全，需要 Swoole 协程本地存储或每协程上下文对象
