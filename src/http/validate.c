@@ -1550,7 +1550,6 @@ const zend_function_entry gene_validate_methods[] = {
 GENE_MINIT_FUNCTION(validate)
 {
     zend_class_entry gene_validate;
-    INIT_CLASS_ENTRY(gene_validate,"gene_validate",gene_validate_methods);
     GENE_INIT_CLASS_ENTRY(gene_validate, "Gene_Validate", "Gene\\Validate", gene_validate_methods);
     gene_validate_ce = zend_register_internal_class(&gene_validate);
 

@@ -100,12 +100,15 @@ PHP_METHOD(gene_execute, GetOpcodes) {
         op_array = zend_compile_string(Z_STR(zv), "");
 #endif
 	if (!op_array) {
+		zval_ptr_dtor(&zv);
+		zval_ptr_dtor(&opcodes_array);
 		return;
 	}
-	for (i = 0; i < op_array->cache_size; i++) {
+	for (i = 0; i < op_array->last; i++) {
 		zend_op op = op_array->opcodes[i];
 		add_index_long(&opcodes_array, i, op.lineno);
 	}
+	destroy_op_array(op_array);
 	efree(op_array);
 	zval_ptr_dtor(&zv);
 	RETURN_ZVAL(&opcodes_array, 1, 0);

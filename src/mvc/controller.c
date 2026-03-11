@@ -376,7 +376,7 @@ PHP_METHOD(gene_controller, success) {
 	}
 	array_init(return_value);
 	add_assoc_long_ex(return_value, ZEND_STRL(GENE_RESPONSE_CODE), code);
-	add_assoc_str_ex(return_value, ZEND_STRL(GENE_RESPONSE_MSG), text);
+	add_assoc_str_ex(return_value, ZEND_STRL(GENE_RESPONSE_MSG), zend_string_copy(text));
 }
 /* }}} */
 
@@ -392,7 +392,7 @@ PHP_METHOD(gene_controller, error) {
 	}
 	array_init(return_value);
 	add_assoc_long_ex(return_value, ZEND_STRL(GENE_RESPONSE_CODE), code);
-	add_assoc_str_ex(return_value, ZEND_STRL(GENE_RESPONSE_MSG), text);
+	add_assoc_str_ex(return_value, ZEND_STRL(GENE_RESPONSE_MSG), zend_string_copy(text));
 }
 /* }}} */
 
@@ -410,7 +410,7 @@ PHP_METHOD(gene_controller, data) {
 	array_init(return_value);
 	add_assoc_long_ex(return_value, ZEND_STRL(GENE_RESPONSE_CODE), code);
 	if (text) {
-		add_assoc_str_ex(return_value, ZEND_STRL(GENE_RESPONSE_MSG), text);
+		add_assoc_str_ex(return_value, ZEND_STRL(GENE_RESPONSE_MSG), zend_string_copy(text));
 	}
 	Z_TRY_ADDREF_P(data);
 	add_assoc_zval_ex(return_value, ZEND_STRL(GENE_RESPONSE_DATA), data);
