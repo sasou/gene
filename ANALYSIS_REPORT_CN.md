@@ -355,10 +355,18 @@ if test "$gene_php_version" -le "5002000"; then
 | 20 | `http/request.c` | 新增 `Gene\Request::clear()` 静态方法，重置静态 `$_attr` 属性用于 Swoole 每请求清理 |
 | 21 | `demo/public/swoole.php` | 优化 Swoole 集成：将一次性初始化（`workerStart`）与每请求处理分离，添加 `clearState()` 调用，添加 try/catch 错误处理，使用 `\Swoole\Http\Server` 类名，自动 CPU 核数 worker，`SWOOLE_HOOK_ALL` |
 
-### 未修复（需要设计决策）
+### 安全与并发修复 (v5.2.2 续)
 
-这些问题需要更广泛的设计决策，并记录供将来考虑：
-
-- **DB 查询构建器中的 SQL 标识符注入** — 表/列名未转义
-- **持久缓存线程安全** — `GENE_G(cache)` HashTable 修改没有锁定
-- **真正的协程隔离 (runtime_type=3)** — `GENE_G()` 是每进程的，不是每协程的；要实现完全协程安全，需要 Swoole 协程本地存储或每协程上下文对象
+| # | 文件 | 修复描述 |
+|---|------|----------|
+| 22 | `db/pdo.c`, `db/pdo.h` | 新增 `gene_quote_identifier()` 和 `gene_quote_table()` 辅助函数，使用数据库特定的引号字符包裹标识符，并对嵌入的引号字符进行转义，防止 SQL 标识符注入 |
+| 23 | `db/mysql.c` | 对所有查询构建方法（`select`、`count`、`insert`、`batchInsert`、`update`、`delete`）的表名和列名应用反引号（`` ` ``）标识符转义 |
+| 24 | `db/mssql.c` | 对所有查询构建方法的表名和列名应用方括号（`[`/`]`）标识符转义 |
+| 25 | `db/pgsql.c` | 对所有查询构建方法的表名和列名应用双引号（`"`）标识符转义 |
+| 26 | `db/sqlite.c` | 对所有查询构建方法的表名和列名应用反引号（`` ` ``）标识符转义 |
+| 27 | `gene.h` | 新增跨平台 `gene_rwlock_t` 类型和宏（`gene_rwlock_init/rdlock/wrlock/destroy`），Windows 使用 `SRWLOCK`，POSIX 使用 `pthread_rwlock_t` |
+| 28 | `cache/memory.h`, `cache/memory.c` | 新增 `GENE_CACHE_RDLOCK/WRUNLOCK` 宏；对 `GENE_G(cache)` 和 `GENE_G(cache_easy)` 的所有读写操作（`gene_memory_set`、`gene_memory_get`、`gene_memory_get_quick`、`gene_memory_get_by_config`、`gene_memory_exists`、`gene_memory_getTime`、`gene_memory_del`、`gene_memory_set_by_router`、`file_cache_get_easy`、`file_cache_set_val`、`clean`）添加读写锁保护，确保线程安全 |
+| 29 | `gene.h`, `gene.c` | 引入 `gene_request_context` 结构体，包含每请求字段（`method`、`path`、`router_path`、`module`、`controller`、`action`、`child_views`、`lang`、`path_params`）。新增以 Swoole 协程 ID 为键的 `co_contexts` HashTable，带有 `current_cid`/`current_ctx` 缓存以加速重复访问。`gene_request_ctx()` 在 FPM 模式下返回 `&default_ctx`（零开销），在 Swoole 模式下查找/创建每协程上下文 |
+| 30 | 所有使用每请求全局变量的源文件 | 将所有 `GENE_G(method)`、`GENE_G(path)`、`GENE_G(module)` 等替换为 `GENE_REQ(field)` 宏，涉及 `application.c`、`router.c`、`controller.c`、`view.c`、`request.c`、`response.c`、`request.h` |
+| 31 | `app/application.c` | 新增 `Gene\Application::destroyContext()` 静态方法，从 `co_contexts` 中释放当前协程的请求上下文，防止长运行 Swoole worker 中的内存泄漏 |
+| 32 | `demo/public/swoole.php` | 在请求处理的 `finally` 块中添加 `destroyContext()` 调用，实现协程上下文的自动清理 |

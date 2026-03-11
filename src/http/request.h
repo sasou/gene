@@ -26,10 +26,10 @@ zval *getVal(zend_ulong type, char *name, size_t len);
 #define GENE_REQUEST_IS_METHOD(ce, x) \
 PHP_METHOD(ce, is##x) {\
 	zend_string *me;\
-	if (!GENE_G(method)) { \
+	if (!GENE_REQ(method)) { \
 		RETURN_FALSE; \
 	} \
-	me = zend_string_init(GENE_G(method), strlen(GENE_G(method))+1, 0);\
+	me = zend_string_init(GENE_REQ(method), strlen(GENE_REQ(method))+1, 0);\
 	if (strncasecmp(#x, ZSTR_VAL(me), ZSTR_LEN(me)) == 0) { \
 		zend_string_release(me);\
 		RETURN_TRUE; \
