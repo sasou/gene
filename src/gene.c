@@ -102,6 +102,10 @@ void gene_free_request_context(gene_request_context *ctx) {
 		efree(ctx->path_params);
 		ctx->path_params = NULL;
 	}
+	if (Z_TYPE(ctx->response) != IS_UNDEF) {
+		zval_ptr_dtor(&ctx->response);
+		ZVAL_UNDEF(&ctx->response);
+	}
 }
 /* }}} */
 
@@ -115,13 +119,23 @@ static void gene_co_context_dtor(zval *zv) {
 }
 /* }}} */
 
+/* {{{ gene_init_co_contexts */
+void gene_init_co_contexts(void) {
+	if (!GENE_G(co_contexts)) {
+		ALLOC_HASHTABLE(GENE_G(co_contexts));
+		zend_hash_init(GENE_G(co_contexts), 8, NULL, gene_co_context_dtor, 0);
+	}
+}
+/* }}} */
+
 /* {{{ gene_request_ctx */
 gene_request_context *gene_request_ctx(void) {
 	gene_request_context *ctx;
 	zend_long cid;
-	if (GENE_G(runtime_type) < 2 || !GENE_G(co_contexts)) {
+	if (GENE_G(runtime_type) < 2) {
 		return &GENE_G(default_ctx);
 	}
+	gene_init_co_contexts();
 	cid = gene_get_coroutine_id();
 	if (cid < 0) {
 		return &GENE_G(default_ctx);

@@ -30,6 +30,7 @@
 #include "../gene.h"
 #include "../http/response.h"
 #include "../cache/memory.h"
+#include "../di/di.h"
 
 zend_class_entry * gene_response_ce;
 
@@ -78,11 +79,41 @@ ZEND_BEGIN_ARG_INFO_EX(gene_response_arg_url, 0, 0, 1)
     ZEND_ARG_INFO(0, path)
 ZEND_END_ARG_INFO()
 
+/* {{{ gene_swoole_response - get Swoole Response from context or DI (returns NULL if not available) */
+static zval *gene_swoole_response(void) {
+	if (GENE_G(runtime_type) >= 2) {
+		gene_request_context *ctx = gene_request_ctx();
+		if (Z_TYPE(ctx->response) == IS_OBJECT) {
+			return &ctx->response;
+		}
+		zend_string *key = zend_string_init("response", sizeof("response") - 1, 0);
+		zval *resp = gene_di_get(key);
+		zend_string_release(key);
+		if (resp && Z_TYPE_P(resp) == IS_OBJECT) {
+			return resp;
+		}
+	}
+	return NULL;
+}
+/* }}} */
+
 /** {{{ void gene_response_set_redirect(char *url, zend_long code)
  */
 void gene_response_set_redirect(char *url, zend_long code) {
+	zval *swoole_resp = gene_swoole_response();
+	if (swoole_resp) {
+		zval method, retval, zurl, zcode;
+		ZVAL_STRING(&zurl, url);
+		ZVAL_LONG(&zcode, code);
+		ZVAL_STRING(&method, "redirect");
+		zval params[] = { zurl, zcode };
+		call_user_function(NULL, swoole_resp, &method, &retval, 2, params);
+		zval_ptr_dtor(&method);
+		zval_ptr_dtor(&zurl);
+		zval_ptr_dtor(&retval);
+		return;
+	}
 	sapi_header_line ctr = { 0 };
-
 	ctr.line_len = spprintf((char**)&(ctr.line), 0, "%s %s", "Location:", url);
 	ctr.response_code = code;
 	sapi_header_op(SAPI_HEADER_REPLACE, &ctr);
@@ -93,8 +124,21 @@ void gene_response_set_redirect(char *url, zend_long code) {
 /** {{{ void gene_response_set_header(char *key, char *value)
  */
 void gene_response_set_header(char *key, char *value) {
+	zval *swoole_resp = gene_swoole_response();
+	if (swoole_resp) {
+		zval method, retval, zkey, zval_v;
+		ZVAL_STRING(&zkey, key);
+		ZVAL_STRING(&zval_v, value);
+		ZVAL_STRING(&method, "header");
+		zval params[] = { zkey, zval_v };
+		call_user_function(NULL, swoole_resp, &method, &retval, 2, params);
+		zval_ptr_dtor(&method);
+		zval_ptr_dtor(&zkey);
+		zval_ptr_dtor(&zval_v);
+		zval_ptr_dtor(&retval);
+		return;
+	}
 	sapi_header_line ctr = { 0 };
-
 	ctr.line_len = spprintf((char**)&(ctr.line), 0, "%s:%s", key, value);
 	ctr.response_code = 200;
 	sapi_header_op(SAPI_HEADER_REPLACE, &ctr);
@@ -104,6 +148,23 @@ void gene_response_set_header(char *key, char *value) {
 
 void gene_response_cookie(zval *name, zval *value, zval *expires, zval *path, zval *domain,zval *secure, zval *httponly, zval *retval) /*{{{*/
 {
+	zval *swoole_resp = gene_swoole_response();
+	if (swoole_resp) {
+		zval method;
+		ZVAL_STRING(&method, "cookie");
+		zval params[7];
+		int num = 1;
+		params[0] = *name;
+		if (value) { num = 2; params[1] = *value; }
+		if (expires) { num = 3; params[2] = *expires; }
+		if (path) { num = 4; params[3] = *path; }
+		if (domain) { num = 5; params[4] = *domain; }
+		if (secure) { num = 6; params[5] = *secure; }
+		if (httponly) { num = 7; params[6] = *httponly; }
+		call_user_function(NULL, swoole_resp, &method, retval, num, params);
+		zval_ptr_dtor(&method);
+		return;
+	}
     zval function_name;
     ZVAL_STRING(&function_name, "setcookie");
     zval params[7];
