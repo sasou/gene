@@ -262,6 +262,7 @@ class XxxModel extends \Gene\Model
 **命名约定：**
 - 表级：`'db.im_user' => null`
 - 字段级：`'db.im_user.id' => $id`
+- 多值字段：`'db.im_user.id' => [$id1, $id2, $id3]`
 
 **读：**
 
@@ -270,8 +271,20 @@ public function getUserById($id)
 {
     $version = ['db.im_user.id' => $id];
     return $this->cache->cachedVersion(
-        ['\Models\Im\User', 'row'],
+        ['\Models\User', 'row'],
         [$id],
+        $version,
+        3600
+    );
+}
+
+// 批量查询示例
+public function getUsersByIds(array $ids)
+{
+    $version = ['db.im_user.id' => $ids];
+    return $this->cache->cachedVersion(
+        ['\Models\User', 'batch'],
+        [$ids],
         $version,
         3600
     );
@@ -283,9 +296,7 @@ public function getUserById($id)
 ```php
 public function updateUser($id, array $data)
 {
-    $result = $this->db->update('im_user', $data)
-        ->where(['id' => $id])
-        ->affectedRows();
+    $result =\Models\User::getInstance()->update($id, $data);
 
     $this->cache->updateVersion([
         'db.im_user.id' => $id,
@@ -294,10 +305,24 @@ public function updateUser($id, array $data)
 
     return $result;
 }
+
+// 批量更新示例
+public function updateUsers(array $ids, array $data)
+{
+    $result =\Models\User::getInstance()->update($ids, $data);;
+
+    $this->cache->updateVersion([
+        'db.im_user.id' => $ids,  // 多值批量更新
+        'db.im_user'    => null,
+    ]);
+
+    return $result;
+}
 ```
 
-**AI 约定**：  
-涉及读写分离和列表/详情缓存时，**务必维护对应版本键**，避免脏读。
+**AI 约定：**  
+- 涉及读写分离和列表/详情缓存时，**务必维护对应版本键**，避免脏读。
+- 批量操作时，优先使用多值数组形式 `['field' => [$val1, $val2]]` 进行批量版本更新，提高效率。
 
 ---
 
