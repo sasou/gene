@@ -258,7 +258,7 @@ PHP_METHOD(gene_redis, __construct)
     	initRObj (self, config);
     	if (EG(exception)) {
     		if (checkError(EG(exception))) {
-    			EG(exception) = NULL;
+    			zend_clear_exception();
     			initRObj(self, config);
     		}
     	}
@@ -282,7 +282,7 @@ PHP_METHOD(gene_redis, get) {
 		redis_get(object, key, &ret);
     	if (EG(exception)) {
     		if (checkError(EG(exception))) {
-    			EG(exception) = NULL;
+    			zend_clear_exception();
     			initRObj (self, NULL);
     			redis_get(object, key, &ret);
     		}
@@ -293,14 +293,15 @@ PHP_METHOD(gene_redis, get) {
 				zval arr;
 				array_init(&arr);
 				zend_long i = 0;
-				zval tmp_arr[10];
 				ZEND_HASH_FOREACH_VAL(Z_ARRVAL_P(key), element)
 		    	{
 		    		value = zend_hash_index_find(Z_ARRVAL(ret), i);
 		    		if (Z_TYPE_P(value) != IS_FALSE) {
 			    		if (Z_TYPE_P(element) == IS_STRING) {
-							if (unserialize(value, &tmp_arr[i], serializer_handler)) {
-								add_assoc_zval_ex(&arr, Z_STRVAL_P(element), Z_STRLEN_P(element), &tmp_arr[i]);
+							zval tmp;
+							ZVAL_UNDEF(&tmp);
+							if (unserialize(value, &tmp, serializer_handler)) {
+								add_assoc_zval_ex(&arr, Z_STRVAL_P(element), Z_STRLEN_P(element), &tmp);
 							} else {
 								Z_TRY_ADDREF_P(value);
 								add_assoc_zval_ex(&arr, Z_STRVAL_P(element), Z_STRLEN_P(element), value);
@@ -348,7 +349,7 @@ PHP_METHOD(gene_redis, set) {
 					redis_set(object, key, ttl, &ret_string, return_value);
 					if (EG(exception)) {
 						if (checkError(EG(exception))) {
-							EG(exception) = NULL;
+							zend_clear_exception();
 							initRObj (self, NULL);
 							redis_set(object, key, ttl, &ret_string, return_value);
 						}
@@ -362,7 +363,7 @@ PHP_METHOD(gene_redis, set) {
 		redis_set(object, key, ttl, value, return_value);
 		if (EG(exception)) {
 			if (checkError(EG(exception))) {
-				EG(exception) = NULL;
+				zend_clear_exception();
 				initRObj (self, NULL);
 				redis_set(object, key, ttl, value, return_value);
 			}
@@ -387,7 +388,7 @@ PHP_METHOD(gene_redis, __call) {
 		gene_factory_call(object, method, params, &ret);
     	if (EG(exception)) {
     		if (checkError(EG(exception))) {
-    			EG(exception) = NULL;
+    			zend_clear_exception();
     			initRObj (self, NULL);
     			gene_factory_call(object, method, params, &ret);
     		}
