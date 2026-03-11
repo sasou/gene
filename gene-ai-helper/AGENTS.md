@@ -306,13 +306,12 @@ public function updateUser($id, array $data)
     return $result;
 }
 
-// 批量更新示例
 public function updateUsers(array $ids, array $data)
 {
     $result =\Models\User::getInstance()->update($ids, $data);;
 
     $this->cache->updateVersion([
-        'db.im_user.id' => $ids,  // 多值批量更新
+        'db.im_user.id' => $ids,
         'db.im_user'    => null,
     ]);
 
