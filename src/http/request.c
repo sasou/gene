@@ -31,6 +31,17 @@
 
 zend_class_entry * gene_request_ce;
 
+static zval *gene_request_attr(void) {
+	gene_request_context *ctx = gene_request_ctx();
+	if (Z_TYPE(ctx->request_attr) == IS_UNDEF || Z_TYPE(ctx->request_attr) == IS_NULL) {
+		if (Z_TYPE(ctx->request_attr) != IS_UNDEF && Z_TYPE(ctx->request_attr) != IS_NULL) {
+			zval_ptr_dtor(&ctx->request_attr);
+		}
+		array_init(&ctx->request_attr);
+	}
+	return &ctx->request_attr;
+}
+
 /** {{{ ARG_INFO
  */
 ZEND_BEGIN_ARG_INFO_EX(geme_request_void_arginfo, 0, 0, 0)
@@ -119,16 +130,7 @@ zval * request_query(zend_ulong type, char * name, size_t len) {
 }
 
 void setVal(zend_ulong type, zval *value) {
-	zval *attr = zend_read_static_property(gene_request_ce, GENE_REQUEST_PROPERTY_ATTR, strlen(GENE_REQUEST_PROPERTY_ATTR), 1);
-    zval *val = NULL;
-
-    if (Z_TYPE_P(attr) == IS_NULL) {
-    	zval tmp;
-    	array_init(&tmp);
-    	zend_update_static_property(gene_request_ce, GENE_REQUEST_PROPERTY_ATTR, strlen(GENE_REQUEST_PROPERTY_ATTR), &tmp);
-    	zval_ptr_dtor(&tmp);
-    	attr = zend_read_static_property(gene_request_ce, GENE_REQUEST_PROPERTY_ATTR, strlen(GENE_REQUEST_PROPERTY_ATTR), 1);
-    }
+	zval *attr = gene_request_attr();
 
 	if (Z_TYPE_P(attr) ==  IS_ARRAY) {
 		Z_TRY_ADDREF_P(value);
@@ -137,27 +139,26 @@ void setVal(zend_ulong type, zval *value) {
 }
 
 zval *getVal(zend_ulong type, char *name, size_t len) {
-	zval *attr = zend_read_static_property(gene_request_ce, GENE_REQUEST_PROPERTY_ATTR, strlen(GENE_REQUEST_PROPERTY_ATTR), 1);
+	zval *attr = gene_request_attr();
     zval *val = NULL;
-
-    if (Z_TYPE_P(attr) == IS_NULL) {
-    	zval tmp;
-    	array_init(&tmp);
-    	zend_update_static_property(gene_request_ce, GENE_REQUEST_PROPERTY_ATTR, strlen(GENE_REQUEST_PROPERTY_ATTR), &tmp);
-    	zval_ptr_dtor(&tmp);
-    	attr = zend_read_static_property(gene_request_ce, GENE_REQUEST_PROPERTY_ATTR, strlen(GENE_REQUEST_PROPERTY_ATTR), 1);
-    }
 
 	if (Z_TYPE_P(attr) ==  IS_ARRAY) {
 		val =  zend_hash_index_find(Z_ARRVAL_P(attr), type);
 		if (val == NULL) {
 			val = request_query(type, NULL, 0);
-			zend_hash_index_update(Z_ARRVAL_P(attr), type, val);
+			if (val) {
+				Z_TRY_ADDREF_P(val);
+				zend_hash_index_update(Z_ARRVAL_P(attr), type, val);
+			}
+			val = zend_hash_index_find(Z_ARRVAL_P(attr), type);
 		}
 		if (len == 0) {
 			return val;
 		}
-		return zend_hash_str_find(Z_ARRVAL_P(val), name, len);
+		if (val && Z_TYPE_P(val) == IS_ARRAY) {
+			return zend_hash_str_find(Z_ARRVAL_P(val), name, len);
+		}
+		return NULL;
 	}
     return NULL;
 }
@@ -380,9 +381,12 @@ PHP_METHOD(gene_request, _set) {
  * {{{ public gene_request::clear()
  */
 PHP_METHOD(gene_request, clear) {
-	zval tmp;
-	ZVAL_NULL(&tmp);
-	zend_update_static_property(gene_request_ce, GENE_REQUEST_PROPERTY_ATTR, strlen(GENE_REQUEST_PROPERTY_ATTR), &tmp);
+	gene_request_context *ctx = gene_request_ctx();
+	if (Z_TYPE(ctx->request_attr) != IS_UNDEF) {
+		zval_ptr_dtor(&ctx->request_attr);
+	}
+	ZVAL_UNDEF(&ctx->request_attr);
+	RETURN_TRUE;
 }
 /* }}} */
 

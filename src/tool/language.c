@@ -30,6 +30,13 @@
 
 zend_class_entry *gene_language_ce;
 
+static void gene_language_smart_str_release(smart_str *str) {
+    if (str->s) {
+        zend_string_release(str->s);
+        str->s = NULL;
+    }
+}
+
 /* {{{ ARG_INFO */
 ZEND_BEGIN_ARG_INFO_EX(gene_language_construct_arginfo, 0, 0, 1)
     ZEND_ARG_INFO(0, dir)
@@ -217,12 +224,12 @@ PHP_METHOD(gene_language, __get) {
     if (dir_conf && Z_TYPE_P(dir_conf) == IS_ARRAY) {
         val = zend_hash_find(Z_ARRVAL_P(dir_conf), name);
         if (val) {
-            smart_str_free(&cache_key);
+            gene_language_smart_str_release(&cache_key);
             RETURN_ZVAL(val, 1, 0);
         }
     }
 
-    smart_str_free(&cache_key);
+    gene_language_smart_str_release(&cache_key);
     ZVAL_EMPTY_STRING(return_value);
 }
 /* }}} */
