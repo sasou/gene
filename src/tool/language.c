@@ -237,7 +237,6 @@ const zend_function_entry gene_language_methods[] = {
  */
 GENE_MINIT_FUNCTION(language) {
     zend_class_entry gene_language;
-    INIT_CLASS_ENTRY(gene_language,"Gene_Language",gene_language_methods);
     GENE_INIT_CLASS_ENTRY(gene_language, "Gene_Language", "Gene\\Language", gene_language_methods);
     gene_language_ce = zend_register_internal_class(&gene_language);
 

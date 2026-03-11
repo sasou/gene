@@ -306,11 +306,12 @@ static int parser_templates(php_stream **stream, char *compile_path) {
 	}
 
 	CacheStream = php_stream_open_wrapper(compile_path, "wb", REPORT_ERRORS, NULL);
-	php_stream_write_string(CacheStream, result);
-	if (stream == NULL) {
-		zend_error(E_WARNING, "%s does not read able", compile_path);
+	if (CacheStream == NULL) {
+		zend_error(E_WARNING, "%s does not write able", compile_path);
+		if (result != NULL) efree(result);
 		return 1;
 	}
+	php_stream_write_string(CacheStream, result);
 	php_stream_close(CacheStream);
 
 	if (result != NULL)

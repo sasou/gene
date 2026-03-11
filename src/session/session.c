@@ -79,7 +79,7 @@ void gene_cookie(zval *self) /*{{{*/
 	httponly = zend_read_property(gene_session_ce, gene_strip_obj(self), ZEND_STRL(GENE_SESSION_HTTPONLY), 1, NULL);
 
 	zval times,curtime;
-	int jg;
+	zend_long jg;
 	gene_time(&curtime);
 	if (Z_TYPE_P(lifetime) == IS_LONG) {
 		jg = Z_LVAL(curtime) + Z_LVAL_P(lifetime);
@@ -688,7 +688,6 @@ const zend_function_entry gene_session_methods[] = {
  */
 GENE_MINIT_FUNCTION(session) {
     zend_class_entry gene_session;
-    INIT_CLASS_ENTRY(gene_session,"Gene_Session",gene_session_methods);
     GENE_INIT_CLASS_ENTRY(gene_session, "Gene_Session", "Gene\\Session", gene_session_methods);
     gene_session_ce = zend_register_internal_class(&gene_session);
 

@@ -25,6 +25,7 @@
 #include "zend_exceptions.h"
 #include "Zend/zend_smart_str.h"
 #include "Zend/zend_interfaces.h"
+#include "ext/standard/php_string.h"
 
 #include "../gene.h"
 #include "../http/response.h"
@@ -170,9 +171,11 @@ PHP_METHOD(gene_response, redirectJs) {
 	if (zend_parse_parameters(ZEND_NUM_ARGS(), "S", &url) == FAILURE) {
 		return;
 	}
+	zend_string *escaped_url = php_addslashes(url);
 	php_printf("<script type=\"text/javascript\">\n");
-	php_printf("window.location.href=\"%s\";\n", ZSTR_VAL(url));
+	php_printf("window.location.href=\"%s\";\n", ZSTR_VAL(escaped_url));
 	php_printf("</script>\n");
+	zend_string_release(escaped_url);
 }
 
 
@@ -181,14 +184,18 @@ PHP_METHOD(gene_response, redirectJs) {
 /** {{{ proto public gene_response::alert(string $text, string $url = NULL)
  */
 PHP_METHOD(gene_response, alert) {
-	zend_string *text, *url;
+	zend_string *text, *url = NULL;
 
 	if (zend_parse_parameters(ZEND_NUM_ARGS(), "S|S", &text, &url) == FAILURE) {
 		return;
 	}
-	php_printf("\n<script type=\"text/javascript\">\nalert(\"%s\");\n", ZSTR_VAL(text));
+	zend_string *escaped_text = php_addslashes(text);
+	php_printf("\n<script type=\"text/javascript\">\nalert(\"%s\");\n", ZSTR_VAL(escaped_text));
+	zend_string_release(escaped_text);
 	if (url && ZSTR_LEN(url)) {
-		php_printf("window.location.href=\"%s\";\n", ZSTR_VAL(url));
+		zend_string *escaped_url = php_addslashes(url);
+		php_printf("window.location.href=\"%s\";\n", ZSTR_VAL(escaped_url));
+		zend_string_release(escaped_url);
 	}
 	php_printf("</script>\n");
 }
@@ -205,7 +212,7 @@ PHP_METHOD(gene_response, success) {
 	}
 	array_init(return_value);
 	add_assoc_long_ex(return_value, ZEND_STRL(GENE_RESPONSE_CODE), code);
-	add_assoc_str_ex(return_value, ZEND_STRL(GENE_RESPONSE_MSG), text);
+	add_assoc_str_ex(return_value, ZEND_STRL(GENE_RESPONSE_MSG), zend_string_copy(text));
 }
 /* }}} */
 
@@ -221,7 +228,7 @@ PHP_METHOD(gene_response, error) {
 	}
 	array_init(return_value);
 	add_assoc_long_ex(return_value, ZEND_STRL(GENE_RESPONSE_CODE), code);
-	add_assoc_str_ex(return_value, ZEND_STRL(GENE_RESPONSE_MSG), text);
+	add_assoc_str_ex(return_value, ZEND_STRL(GENE_RESPONSE_MSG), zend_string_copy(text));
 }
 /* }}} */
 
@@ -239,7 +246,7 @@ PHP_METHOD(gene_response, data) {
 	array_init(return_value);
 	add_assoc_long_ex(return_value, ZEND_STRL(GENE_RESPONSE_CODE), code);
 	if (text) {
-		add_assoc_str_ex(return_value, ZEND_STRL(GENE_RESPONSE_MSG), text);
+		add_assoc_str_ex(return_value, ZEND_STRL(GENE_RESPONSE_MSG), zend_string_copy(text));
 	}
 	Z_TRY_ADDREF_P(data);
 	add_assoc_zval_ex(return_value, ZEND_STRL(GENE_RESPONSE_DATA), data);

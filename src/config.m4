@@ -36,8 +36,8 @@ if test "$PHP_GENE" != "no"; then
   IFS=$ac_IFS
   gene_php_version=`expr [$]1 \* 1000000 + [$]2 \* 1000 + [$]3`
 
-  if test "$gene_php_version" -le "5002000"; then
-    AC_MSG_ERROR([You need at least PHP 5.2.0 to be able to use this version of Gene. PHP $php_version found])
+  if test "$gene_php_version" -le "8000000"; then
+    AC_MSG_ERROR([You need at least PHP 8.0.0 to be able to use this version of Gene. PHP $php_version found])
   else
     AC_MSG_RESULT([$php_version, ok])
   fi
