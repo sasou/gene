@@ -28,7 +28,30 @@
 #include "../gene.h"
 #include "../common/common.h"
 
-void array_to_string(zval *array, char **result)
+void gene_quote_identifier(smart_str *dest, const char *name, size_t len, char oq, char cq) /*{{{*/
+{
+	size_t i;
+	smart_str_appendc(dest, oq);
+	for (i = 0; i < len; i++) {
+		if (name[i] == cq) {
+			smart_str_appendc(dest, cq);
+		}
+		smart_str_appendc(dest, name[i]);
+	}
+	smart_str_appendc(dest, cq);
+}/*}}}*/
+
+char *gene_quote_table(const char *name, char oq, char cq) /*{{{*/
+{
+	smart_str buf = {0};
+	gene_quote_identifier(&buf, name, strlen(name), oq, cq);
+	smart_str_0(&buf);
+	char *result = str_init(ZSTR_VAL(buf.s));
+	smart_str_free(&buf);
+	return result;
+}/*}}}*/
+
+void array_to_string(zval *array, char **result, char oq, char cq)
 {
     zval *value;
     smart_str field_str = {0};
@@ -41,7 +64,7 @@ void array_to_string(zval *array, char **result)
     	}
         if ( Z_TYPE_P(value) == IS_OBJECT ) convert_to_string(value);
         if ( (Z_TYPE_P(value) == IS_STRING) && isalpha(*(Z_STRVAL_P(value))) ) {
-            smart_str_appends(&field_str, Z_STRVAL_P(value));
+            gene_quote_identifier(&field_str, Z_STRVAL_P(value), Z_STRLEN_P(value), oq, cq);
         }
     } ZEND_HASH_FOREACH_END();
     smart_str_0(&field_str);
@@ -49,7 +72,7 @@ void array_to_string(zval *array, char **result)
     smart_str_free(&field_str);
 }/*}}}*/
 
-void mssql_array_to_string(zval *array, char **result)
+void mssql_array_to_string(zval *array, char **result, char oq, char cq)
 {
     zval *value;
     smart_str field_str = {0};
@@ -62,7 +85,7 @@ void mssql_array_to_string(zval *array, char **result)
     	}
         if ( Z_TYPE_P(value) == IS_OBJECT ) convert_to_string(value);
         if ( (Z_TYPE_P(value) == IS_STRING) && isalpha(*(Z_STRVAL_P(value))) ) {
-            smart_str_appends(&field_str, Z_STRVAL_P(value));
+            gene_quote_identifier(&field_str, Z_STRVAL_P(value), Z_STRLEN_P(value), oq, cq);
         }
     } ZEND_HASH_FOREACH_END();
     smart_str_0(&field_str);
@@ -306,7 +329,7 @@ void jsonEncode(zval *data, zval *param) {
 	zval_ptr_dtor(&ret);
 }
 
-void gene_insert_field_value(zval *fields, smart_str *field_str, smart_str *value_str, zval *field_value){
+void gene_insert_field_value(zval *fields, smart_str *field_str, smart_str *value_str, zval *field_value, char oq, char cq){
 	zval *value = NULL;
 	bool pre = 0;
 	zend_string *key = NULL;
@@ -320,7 +343,7 @@ void gene_insert_field_value(zval *fields, smart_str *field_str, smart_str *valu
     		pre = 1;
     	}
         if (key) {
-        	smart_str_append(field_str, key);
+        	gene_quote_identifier(field_str, ZSTR_VAL(key), ZSTR_LEN(key), oq, cq);
         } else {
         	smart_str_append_long(field_str, id);
         }
@@ -332,7 +355,7 @@ void gene_insert_field_value(zval *fields, smart_str *field_str, smart_str *valu
     smart_str_0(value_str);
 }
 
-void gene_insert_field_value_batch(zval *fields, smart_str *field_str, smart_str *value_str, zval *field_value) {
+void gene_insert_field_value_batch(zval *fields, smart_str *field_str, smart_str *value_str, zval *field_value, char oq, char cq) {
 	zval *value = NULL;
 	bool pre = 0;
 	zend_string *key = NULL;
@@ -347,7 +370,7 @@ void gene_insert_field_value_batch(zval *fields, smart_str *field_str, smart_str
     		pre = 1;
     	}
         if (key) {
-        	smart_str_append(field_str, key);
+        	gene_quote_identifier(field_str, ZSTR_VAL(key), ZSTR_LEN(key), oq, cq);
         } else {
         	smart_str_append_long(field_str, id);
         }
@@ -378,7 +401,7 @@ void gene_insert_field_value_batch_other(zval *fields, smart_str *value_str, zva
     smart_str_0(value_str);
 }
 
-void gene_update_field_value(zval *fields, smart_str *field_str, zval *field_value) {
+void gene_update_field_value(zval *fields, smart_str *field_str, zval *field_value, char oq, char cq) {
 	zval *value = NULL;
 	bool pre = 0;
 	zend_string *key = NULL;
@@ -391,7 +414,7 @@ void gene_update_field_value(zval *fields, smart_str *field_str, zval *field_val
     		pre = 1;
     	}
         if (key) {
-        	smart_str_append(field_str, key);
+        	gene_quote_identifier(field_str, ZSTR_VAL(key), ZSTR_LEN(key), oq, cq);
         } else {
         	smart_str_append_long(field_str, id);
         }

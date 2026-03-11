@@ -325,12 +325,20 @@ PHP_METHOD(gene_db_mssql, select)
     if (fields) {
     	switch(Z_TYPE_P(fields)) {
     	case IS_ARRAY:
-    		mssql_array_to_string(fields, &select);
-            spprintf(&sql, 0, "SELECT %s FROM [%s]", select, table);
+    		mssql_array_to_string(fields, &select, '[', ']');
+    		{
+    			char *qt = gene_quote_table(table, '[', ']');
+    			spprintf(&sql, 0, "SELECT %s FROM %s", select, qt);
+    			efree(qt);
+    		}
             efree(select);
     		break;
     	case IS_STRING:
-    		spprintf(&sql, 0, "SELECT %s FROM [%s]", Z_STRVAL_P(fields), table);
+    		{
+    			char *qt = gene_quote_table(table, '[', ']');
+    			spprintf(&sql, 0, "SELECT %s FROM %s", Z_STRVAL_P(fields), qt);
+    			efree(qt);
+    		}
     		break;
     	default:
     		php_error_docref(NULL, E_ERROR, "Parameter can only be array or string.");
@@ -338,7 +346,9 @@ PHP_METHOD(gene_db_mssql, select)
     	}
 
     } else {
-    	spprintf(&sql, 0, "SELECT * FROM [%s]", table);
+    	char *qt = gene_quote_table(table, '[', ']');
+    	spprintf(&sql, 0, "SELECT * FROM %s", qt);
+    	efree(qt);
     }
     zend_update_property_string(gene_db_mssql_ce, gene_strip_obj(self), ZEND_STRL(GENE_DB_MSSQL_SQL), sql);
     efree(sql);
@@ -358,10 +368,16 @@ PHP_METHOD(gene_db_mssql, count)
 		return;
 	}
 	mssql_reset_sql_params(self);
-    if (fields) {
-    	spprintf(&sql, 0, "SELECT count(%s) AS count FROM [%s]", ZSTR_VAL(fields), ZSTR_VAL(table));
-    } else {
-    	spprintf(&sql, 0, "SELECT count(1) AS count FROM [%s]", ZSTR_VAL(table));
+    {
+    	char *qt = gene_quote_table(ZSTR_VAL(table), '[', ']');
+    	if (fields) {
+    		char *qf = gene_quote_table(ZSTR_VAL(fields), '[', ']');
+    		spprintf(&sql, 0, "SELECT count(%s) AS count FROM %s", qf, qt);
+    		efree(qf);
+    	} else {
+    		spprintf(&sql, 0, "SELECT count(1) AS count FROM %s", qt);
+    	}
+    	efree(qt);
     }
     zend_update_property_string(gene_db_mssql_ce, gene_strip_obj(self), ZEND_STRL(GENE_DB_MSSQL_SQL), sql);
     efree(sql);
@@ -388,7 +404,7 @@ PHP_METHOD(gene_db_mssql, insert)
 	smart_str_appends(&field_str, "");
 	smart_str_appends(&value_str, "");
     if (fields && Z_TYPE_P(fields) == IS_ARRAY) {
-    	gene_insert_field_value (fields, &field_str, &value_str, &field_value);
+    	gene_insert_field_value (fields, &field_str, &value_str, &field_value, '[', ']');
     	zend_update_property(gene_db_mssql_ce, gene_strip_obj(self), ZEND_STRL(GENE_DB_MSSQL_DATA), &field_value);
     	zval_ptr_dtor(&field_value);
     } else {
@@ -396,7 +412,11 @@ PHP_METHOD(gene_db_mssql, insert)
     }
 	smart_str_0(&field_str);
 	smart_str_0(&value_str);
-    spprintf(&sql, 0, "INSERT INTO [%s](%s) VALUES(%s)", table, field_str.s->val, value_str.s->val);
+    {
+    	char *qt = gene_quote_table(table, '[', ']');
+    	spprintf(&sql, 0, "INSERT INTO %s(%s) VALUES(%s)", qt, field_str.s->val, value_str.s->val);
+    	efree(qt);
+    }
     zend_update_property_string(gene_db_mssql_ce, gene_strip_obj(self), ZEND_STRL(GENE_DB_MSSQL_SQL), sql);
     efree(sql);
     smart_str_free(&field_str);
@@ -429,7 +449,7 @@ PHP_METHOD(gene_db_mssql, batchInsert)
         		smart_str_appends(&value_str, ",");
         		gene_insert_field_value_batch_other (row, &value_str, &field_value);
         	} else {
-        		gene_insert_field_value_batch (row, &field_str, &value_str, &field_value);
+        		gene_insert_field_value_batch (row, &field_str, &value_str, &field_value, '[', ']');
         		pre = 1;
         	}
         } ZEND_HASH_FOREACH_END();
@@ -440,7 +460,11 @@ PHP_METHOD(gene_db_mssql, batchInsert)
     }
 	smart_str_0(&field_str);
 	smart_str_0(&value_str);
-    spprintf(&sql, 0, "INSERT INTO [%s](%s) VALUES %s", table, field_str.s->val, value_str.s->val);
+    {
+    	char *qt = gene_quote_table(table, '[', ']');
+    	spprintf(&sql, 0, "INSERT INTO %s(%s) VALUES %s", qt, field_str.s->val, value_str.s->val);
+    	efree(qt);
+    }
     zend_update_property_string(gene_db_mssql_ce, gene_strip_obj(self), ZEND_STRL(GENE_DB_MSSQL_SQL), sql);
     efree(sql);
     smart_str_free(&field_str);
@@ -466,14 +490,18 @@ PHP_METHOD(gene_db_mssql, update)
 	ZVAL_NULL(&field_value);
 	smart_str_appends(&field_str, "");
     if (fields && Z_TYPE_P(fields) == IS_ARRAY) {
-    	gene_update_field_value (fields, &field_str, &field_value);
+    	gene_update_field_value (fields, &field_str, &field_value, '[', ']');
     	zend_update_property(gene_db_mssql_ce, gene_strip_obj(self), ZEND_STRL(GENE_DB_MSSQL_DATA), &field_value);
     	zval_ptr_dtor(&field_value);
     } else {
     	php_error_docref(NULL, E_ERROR, "Data Parameter can only be array.");
     }
 	smart_str_0(&field_str);
-    spprintf(&sql, 0, "UPDATE [%s] SET %s", table, field_str.s->val);
+    {
+    	char *qt = gene_quote_table(table, '[', ']');
+    	spprintf(&sql, 0, "UPDATE %s SET %s", qt, field_str.s->val);
+    	efree(qt);
+    }
     zend_update_property_string(gene_db_mssql_ce, gene_strip_obj(self), ZEND_STRL(GENE_DB_MSSQL_SQL), sql);
     efree(sql);
     smart_str_free(&field_str);
@@ -494,7 +522,11 @@ PHP_METHOD(gene_db_mssql, delete)
 		return;
 	}
 	mssql_reset_sql_params(self);
-    spprintf(&sql, 0, "DELETE FROM [%s]", table);
+    {
+    	char *qt = gene_quote_table(table, '[', ']');
+    	spprintf(&sql, 0, "DELETE FROM %s", qt);
+    	efree(qt);
+    }
     zend_update_property_string(gene_db_mssql_ce, gene_strip_obj(self), ZEND_STRL(GENE_DB_MSSQL_SQL), sql);
     efree(sql);
 	RETURN_ZVAL(self, 1, 0);

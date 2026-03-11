@@ -20,7 +20,7 @@
 extern zend_module_entry gene_module_entry;
 #define phpext_gene_ptr &gene_module_entry
 
-#define PHP_GENE_VERSION "5.2.2"
+#define PHP_GENE_VERSION "5.3.0"
 
 #ifdef PHP_WIN32
 #	define PHP_GENE_API __declspec(dllexport)
@@ -32,6 +32,26 @@ extern zend_module_entry gene_module_entry;
 
 #ifdef ZTS
 #include "TSRM.h"
+#endif
+
+#ifdef PHP_WIN32
+#include <synchapi.h>
+typedef SRWLOCK gene_rwlock_t;
+#define gene_rwlock_init(lock)    InitializeSRWLock(lock)
+#define gene_rwlock_rdlock(lock)  AcquireSRWLockShared(lock)
+#define gene_rwlock_rdunlock(lock) ReleaseSRWLockShared(lock)
+#define gene_rwlock_wrlock(lock)  AcquireSRWLockExclusive(lock)
+#define gene_rwlock_wrunlock(lock) ReleaseSRWLockExclusive(lock)
+#define gene_rwlock_destroy(lock)
+#else
+#include <pthread.h>
+typedef pthread_rwlock_t gene_rwlock_t;
+#define gene_rwlock_init(lock)    pthread_rwlock_init(lock, NULL)
+#define gene_rwlock_rdlock(lock)  pthread_rwlock_rdlock(lock)
+#define gene_rwlock_rdunlock(lock) pthread_rwlock_unlock(lock)
+#define gene_rwlock_wrlock(lock)  pthread_rwlock_wrlock(lock)
+#define gene_rwlock_wrunlock(lock) pthread_rwlock_unlock(lock)
+#define gene_rwlock_destroy(lock) pthread_rwlock_destroy(lock)
 #endif
 
 #ifdef ZTS
@@ -68,23 +88,26 @@ PHP_RINIT_FUNCTION (gene);
 PHP_RSHUTDOWN_FUNCTION (gene);
 PHP_MINFO_FUNCTION (gene);
 
+typedef struct _gene_request_context {
+	char *method;
+	char *path;
+	char *router_path;
+	char *module;
+	char *controller;
+	char *action;
+	char *child_views;
+	char *lang;
+	zval *path_params;
+} gene_request_context;
+
 ZEND_BEGIN_MODULE_GLOBALS (gene)
 char *directory;
 char *app_root;
 char *library_root;
 char *app_view;
 char *app_ext;
-char *method;
-char *path;
-char *router_path;
-char *module;
-char *controller;
-char *action;
 char *app_key;
 char *auto_load_fun;
-char *child_views;
-char *lang;
-zval *path_params;
 bool use_library;
 zend_long run_environment;
 zend_long runtime_type;
@@ -92,9 +115,20 @@ bool use_namespace;
 bool view_compile;
 HashTable *cache;
 HashTable *cache_easy;
+gene_rwlock_t cache_lock;
+gene_request_context default_ctx;
+HashTable *co_contexts;
+gene_request_context *current_ctx;
+zend_long current_cid;
 ZEND_END_MODULE_GLOBALS (gene)
 
 extern ZEND_DECLARE_MODULE_GLOBALS (gene);
+
+gene_request_context *gene_request_ctx(void);
+void gene_free_request_context(gene_request_context *ctx);
+zend_long gene_get_coroutine_id(void);
+
+#define GENE_REQ(v) (gene_request_ctx()->v)
 
 #endif	/* PHP_GENE_H */
 

@@ -197,19 +197,19 @@ zend_long gene_file_modified(char *file, zend_long ctime) {
  */
 void gene_ini_router() {
 	zval *server = NULL, *temp = NULL;
-	if (!GENE_G(method) && !GENE_G(path) && !GENE_G(directory)) {
+	if (!GENE_REQ(method) && !GENE_REQ(path) && !GENE_G(directory)) {
 		server = request_query(TRACK_VARS_SERVER, NULL, 0);
 		if (server) {
 			if ((temp = zend_hash_str_find(HASH_OF(server), ZEND_STRL("DOCUMENT_ROOT"))) != NULL) {
 				GENE_G(directory) = estrndup(Z_STRVAL_P(temp), Z_STRLEN_P(temp));
 			}
 			if ((temp = zend_hash_str_find(HASH_OF(server), ZEND_STRL("REQUEST_METHOD"))) != NULL) {
-				GENE_G(method) = estrndup(Z_STRVAL_P(temp), Z_STRLEN_P(temp));
-				strtolower(GENE_G(method));
+				GENE_REQ(method) = estrndup(Z_STRVAL_P(temp), Z_STRLEN_P(temp));
+				strtolower(GENE_REQ(method));
 			}
 			if ((temp = zend_hash_str_find(HASH_OF(server), ZEND_STRL("REQUEST_URI"))) != NULL) {
-				GENE_G(path) = ecalloc(Z_STRLEN_P(temp)+1, sizeof(char));
-				leftByChar(GENE_G(path), Z_STRVAL_P(temp), '?');
+				GENE_REQ(path) = ecalloc(Z_STRLEN_P(temp)+1, sizeof(char));
+				leftByChar(GENE_REQ(path), Z_STRVAL_P(temp), '?');
 			}
 		}
 		server = NULL;
@@ -305,8 +305,8 @@ PHP_METHOD(gene_application, load) {
  * {{{ public gene_application::getMethod()
  */
 PHP_METHOD(gene_application, getMethod) {
-	if (GENE_G(method)) {
-		RETURN_STRING(GENE_G(method));
+	if (GENE_REQ(method)) {
+		RETURN_STRING(GENE_REQ(method));
 	}
 	RETURN_NULL();
 }
@@ -316,8 +316,8 @@ PHP_METHOD(gene_application, getMethod) {
  * {{{ public gene_application::getPath()
  */
 PHP_METHOD(gene_application, getPath) {
-	if (GENE_G(path)) {
-		RETURN_STRING(GENE_G(path));
+	if (GENE_REQ(path)) {
+		RETURN_STRING(GENE_REQ(path));
 	}
 	RETURN_NULL();
 }
@@ -327,8 +327,8 @@ PHP_METHOD(gene_application, getPath) {
  * {{{ public gene_application::getModule()
  */
 PHP_METHOD(gene_application, getModule) {
-	if (GENE_G(module)) {
-		RETURN_STRING(GENE_G(module));
+	if (GENE_REQ(module)) {
+		RETURN_STRING(GENE_REQ(module));
 	}
 	RETURN_NULL();
 }
@@ -338,8 +338,8 @@ PHP_METHOD(gene_application, getModule) {
  * {{{ public gene_application::getController()
  */
 PHP_METHOD(gene_application, getController) {
-	if (GENE_G(controller)) {
-		RETURN_STRING(GENE_G(controller));
+	if (GENE_REQ(controller)) {
+		RETURN_STRING(GENE_REQ(controller));
 	}
 	RETURN_NULL();
 }
@@ -349,8 +349,8 @@ PHP_METHOD(gene_application, getController) {
  * {{{ public gene_application::getAction()
  */
 PHP_METHOD(gene_application, getAction) {
-	if (GENE_G(action)) {
-		RETURN_STRING(GENE_G(action));
+	if (GENE_REQ(action)) {
+		RETURN_STRING(GENE_REQ(action));
 	}
 	RETURN_NULL();
 }
@@ -360,8 +360,8 @@ PHP_METHOD(gene_application, getAction) {
  * {{{ public gene_application::getLang()
  */
 PHP_METHOD(gene_application, getLang) {
-	if (GENE_G(lang)) {
-		RETURN_STRING(GENE_G(lang));
+	if (GENE_REQ(lang)) {
+		RETURN_STRING(GENE_REQ(lang));
 	}
 	RETURN_NULL();
 }
@@ -373,19 +373,19 @@ PHP_METHOD(gene_application, getLang) {
 PHP_METHOD(gene_application, getRouterUri) {
 	zval *ret = NULL;
 	char *path = NULL,*tmp = NULL, *seg = NULL, *ptr = NULL, *seg_c = NULL, *ptr_c = NULL;
-	if (!GENE_G(router_path)) {
+	if (!GENE_REQ(router_path)) {
 		RETURN_NULL();
 	}
 
-	path = str_init(GENE_G(router_path));
-	if (GENE_G(module) != NULL) {
-		path = strreplace2(path, ":m", GENE_G(module));
+	path = str_init(GENE_REQ(router_path));
+	if (GENE_REQ(module) != NULL) {
+		path = strreplace2(path, ":m", GENE_REQ(module));
 	}
-	if (GENE_G(controller) != NULL) {
-		path = strreplace2(path, ":c", GENE_G(controller));
+	if (GENE_REQ(controller) != NULL) {
+		path = strreplace2(path, ":c", GENE_REQ(controller));
 	}
-	if (GENE_G(action) != NULL) {
-		path = strreplace2(path, ":a", GENE_G(action));
+	if (GENE_REQ(action) != NULL) {
+		path = strreplace2(path, ":a", GENE_REQ(action));
 	}
 	strtolower(path);
 	RETVAL_STRING(path);
@@ -453,9 +453,9 @@ PHP_METHOD(gene_application, params) {
 		return;
 	}
 
-	params = GENE_G(path_params);
+	params = GENE_REQ(path_params);
 	if (name_len == 0) {
-		RETURN_ZVAL(GENE_G(path_params), 1, 0);
+		RETURN_ZVAL(GENE_REQ(path_params), 1, 0);
 	} else {
 		zval *val = zend_symtable_str_find(Z_ARRVAL_P(params), name, name_len);
 		if (val) {
@@ -534,45 +534,45 @@ PHP_METHOD(gene_application, setRuntimeType) {
  * {{{ void gene_clear_request_state()
  */
 static void gene_clear_request_state() {
-	if (GENE_G(method)) {
-		efree(GENE_G(method));
-		GENE_G(method) = NULL;
+	if (GENE_REQ(method)) {
+		efree(GENE_REQ(method));
+		GENE_REQ(method) = NULL;
 	}
-	if (GENE_G(path)) {
-		efree(GENE_G(path));
-		GENE_G(path) = NULL;
+	if (GENE_REQ(path)) {
+		efree(GENE_REQ(path));
+		GENE_REQ(path) = NULL;
 	}
-	if (GENE_G(router_path)) {
-		efree(GENE_G(router_path));
-		GENE_G(router_path) = NULL;
+	if (GENE_REQ(router_path)) {
+		efree(GENE_REQ(router_path));
+		GENE_REQ(router_path) = NULL;
 	}
-	if (GENE_G(module)) {
-		efree(GENE_G(module));
-		GENE_G(module) = NULL;
+	if (GENE_REQ(module)) {
+		efree(GENE_REQ(module));
+		GENE_REQ(module) = NULL;
 	}
-	if (GENE_G(controller)) {
-		efree(GENE_G(controller));
-		GENE_G(controller) = NULL;
+	if (GENE_REQ(controller)) {
+		efree(GENE_REQ(controller));
+		GENE_REQ(controller) = NULL;
 	}
-	if (GENE_G(action)) {
-		efree(GENE_G(action));
-		GENE_G(action) = NULL;
+	if (GENE_REQ(action)) {
+		efree(GENE_REQ(action));
+		GENE_REQ(action) = NULL;
 	}
-	if (GENE_G(child_views)) {
-		efree(GENE_G(child_views));
-		GENE_G(child_views) = NULL;
+	if (GENE_REQ(child_views)) {
+		efree(GENE_REQ(child_views));
+		GENE_REQ(child_views) = NULL;
 	}
-	if (GENE_G(lang)) {
-		efree(GENE_G(lang));
-		GENE_G(lang) = NULL;
+	if (GENE_REQ(lang)) {
+		efree(GENE_REQ(lang));
+		GENE_REQ(lang) = NULL;
 	}
-	if (GENE_G(path_params)) {
-		zval_ptr_dtor(GENE_G(path_params));
-		efree(GENE_G(path_params));
-		GENE_G(path_params) = NULL;
+	if (GENE_REQ(path_params)) {
+		zval_ptr_dtor(GENE_REQ(path_params));
+		efree(GENE_REQ(path_params));
+		GENE_REQ(path_params) = NULL;
 	}
-	GENE_G(path_params) = (zval*) pemalloc(sizeof(zval), 0);
-	array_init(GENE_G(path_params));
+	GENE_REQ(path_params) = (zval*) pemalloc(sizeof(zval), 0);
+	array_init(GENE_REQ(path_params));
 }
 /* }}} */
 
@@ -591,6 +591,24 @@ PHP_METHOD(gene_application, clearState) {
 
 	if (self) {
 		RETURN_ZVAL(self, 1, 0);
+	}
+	RETURN_TRUE;
+}
+/* }}} */
+
+/*
+ * {{{ public gene_application::destroyContext()
+ */
+PHP_METHOD(gene_application, destroyContext) {
+	if (GENE_G(runtime_type) >= 2 && GENE_G(co_contexts)) {
+		zend_long cid = gene_get_coroutine_id();
+		if (cid >= 0) {
+			zend_hash_index_del(GENE_G(co_contexts), (zend_ulong)cid);
+			if (GENE_G(current_cid) == cid) {
+				GENE_G(current_ctx) = NULL;
+				GENE_G(current_cid) = -1;
+			}
+		}
 	}
 	RETURN_TRUE;
 }
@@ -819,6 +837,7 @@ const zend_function_entry gene_application_methods[] = {
 	PHP_ME(gene_application, exception, gene_application_exception, ZEND_ACC_PUBLIC)
 	PHP_ME(gene_application, run, gene_application_run, ZEND_ACC_PUBLIC)
 	PHP_ME(gene_application, clearState, gene_application_get_method, ZEND_ACC_PUBLIC|ZEND_ACC_STATIC)
+	PHP_ME(gene_application, destroyContext, gene_application_get_method, ZEND_ACC_PUBLIC|ZEND_ACC_STATIC)
 	PHP_ME(gene_application, getMethod, gene_application_get_method, ZEND_ACC_PUBLIC|ZEND_ACC_STATIC)
 	PHP_ME(gene_application, getPath, gene_application_get_path, ZEND_ACC_PUBLIC|ZEND_ACC_STATIC)
 	PHP_ME(gene_application, getRouterUri, gene_application_get_uri, ZEND_ACC_PUBLIC|ZEND_ACC_STATIC)

@@ -18,6 +18,11 @@
 #define GENE_MEMORY_H
 #define GENE_MEMORY_SAFE	"safe"
 #define PHP_GENE_URL_PARAMS ":gene_url"
+#define GENE_CACHE_RDLOCK()    gene_rwlock_rdlock(&GENE_G(cache_lock))
+#define GENE_CACHE_RDUNLOCK()  gene_rwlock_rdunlock(&GENE_G(cache_lock))
+#define GENE_CACHE_WRLOCK()    gene_rwlock_wrlock(&GENE_G(cache_lock))
+#define GENE_CACHE_WRUNLOCK()  gene_rwlock_wrunlock(&GENE_G(cache_lock))
+
 #define PALLOC_HASHTABLE(ht)   do {                                                       \
 	(ht) = (HashTable*) pemalloc(sizeof(HashTable), 1);                                    \
 	if ((ht) == NULL) {                                                                   \
