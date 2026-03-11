@@ -27,6 +27,7 @@
 #include "../common/common.h"
 #include "../di/di.h"
 #include "../http/request.h"
+#include "../http/response.h"
 
 zend_class_entry * gene_session_ce;
 
@@ -90,15 +91,7 @@ void gene_cookie(zval *self) /*{{{*/
 	zval_ptr_dtor(&curtime);
 
 	if (GENE_G(runtime_type) >= 2) {
-		zval *swoole_resp = NULL;
-		gene_request_context *ctx = gene_request_ctx();
-		if (Z_TYPE(ctx->response) == IS_OBJECT) {
-			swoole_resp = &ctx->response;
-		} else {
-			zend_string *di_key = zend_string_init("response", sizeof("response") - 1, 0);
-			swoole_resp = gene_di_get(di_key);
-			zend_string_release(di_key);
-		}
+		zval *swoole_resp = gene_response_context_obj();
 		if (swoole_resp && Z_TYPE_P(swoole_resp) == IS_OBJECT) {
 			zval method, ret;
 			ZVAL_STRING(&method, "cookie");
@@ -129,15 +122,7 @@ void gene_set_cookie(zval *self, zval *name, zval *value, zval *time) /*{{{*/
 	httponly = zend_read_property(gene_session_ce, gene_strip_obj(self), ZEND_STRL(GENE_SESSION_HTTPONLY), 1, NULL);
 
 	if (GENE_G(runtime_type) >= 2) {
-		zval *swoole_resp = NULL;
-		gene_request_context *ctx = gene_request_ctx();
-		if (Z_TYPE(ctx->response) == IS_OBJECT) {
-			swoole_resp = &ctx->response;
-		} else {
-			zend_string *di_key = zend_string_init("response", sizeof("response") - 1, 0);
-			swoole_resp = gene_di_get(di_key);
-			zend_string_release(di_key);
-		}
+		zval *swoole_resp = gene_response_context_obj();
 		if (swoole_resp && Z_TYPE_P(swoole_resp) == IS_OBJECT) {
 			zval method, ret;
 			ZVAL_STRING(&method, "cookie");
