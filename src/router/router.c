@@ -191,6 +191,7 @@ char *get_path_router_init(zval *conf, char *path) {
 				if (strlen(path_tmp) > 0) {
 					trim(path_tmp, '/');
 				}
+				efree(uri);
 			} else {
 				path_tmp = uri;
 			}

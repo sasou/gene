@@ -384,6 +384,7 @@ PHP_METHOD(gene_application, getRouterUri) {
 	}
 	strtolower(path);
 	RETVAL_STRING(path);
+	efree(path);
 }
 /* }}} */
 
