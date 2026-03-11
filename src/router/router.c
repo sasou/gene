@@ -108,19 +108,19 @@ int setMca(zend_string *key, char *val) {
 	if (key->len == 1) {
 		switch (key->val[0]) {
 		case 'm':
-			GENE_G(module) = str_init(val);
-			firstToUpper(GENE_G(module));
+			GENE_REQ(module) = str_init(val);
+			firstToUpper(GENE_REQ(module));
 			break;
 		case 'c':
-			GENE_G(controller) = str_init(val);
-			firstToUpper(GENE_G(controller));
+			GENE_REQ(controller) = str_init(val);
+			firstToUpper(GENE_REQ(controller));
 			break;
 		case 'a':
-			GENE_G(action) = str_init(val);
+			GENE_REQ(action) = str_init(val);
 			break;
 		}
 	} else {
-		params = GENE_G(path_params);
+		params = GENE_REQ(path_params);
 		if (params != NULL) {
 			ZVAL_STRING(&sval, val);
 			zend_symtable_update(Z_ARRVAL_P(params), key, &sval);
@@ -136,13 +136,13 @@ void gene_router_set_uri(zval **leaf) {
 	zval *key = NULL;
 	key = zend_hash_str_find(Z_ARRVAL_P(*leaf), "key", 3);
 	if (key) {
-		if (GENE_G(router_path)) {
-			efree(GENE_G(router_path));
+		if (GENE_REQ(router_path)) {
+			efree(GENE_REQ(router_path));
 		}
 		if (Z_STRLEN_P(key)) {
-			GENE_G(router_path) = estrndup(Z_STRVAL_P(key), Z_STRLEN_P(key));
+			GENE_REQ(router_path) = estrndup(Z_STRVAL_P(key), Z_STRLEN_P(key));
 		} else {
-			GENE_G(router_path) = str_init("");
+			GENE_REQ(router_path) = str_init("");
 		}
 	}
 }
@@ -186,7 +186,7 @@ char *get_path_router_init(zval *conf, char *path) {
 			search = strstr(Z_STRVAL_P(langs), lang_tmp);
 			efree(lang_tmp);
 			if (search != NULL) {
-				GENE_G(lang) = str_init(seg);
+				GENE_REQ(lang) = str_init(seg);
 				spprintf(&path_tmp, 0, "%s", ptr);
 				if (strlen(path_tmp) > 0) {
 					trim(path_tmp, '/');
@@ -586,11 +586,11 @@ void get_router_content_run(char *methodin, char *pathin, zval *safe) {
 	zval *conf = NULL,*cache = NULL, *cacheHook = NULL;
 
 	if (methodin == NULL && pathin == NULL) {
-		if (GENE_G(method)) {
-			method = str_init(GENE_G(method));
+		if (GENE_REQ(method)) {
+			method = str_init(GENE_REQ(method));
 		}
-		if (GENE_G(path)) {
-			path = str_init(GENE_G(path));
+		if (GENE_REQ(path)) {
+			path = str_init(GENE_REQ(path));
 		}
 	} else {
 		method = str_init(methodin);
@@ -654,8 +654,8 @@ void get_router_content_run(char *methodin, char *pathin, zval *safe) {
 			lead = NULL;
 		} else {
 			if (!get_router_error_run_by_router(cacheHook, "404")) {
-				if (GENE_G(path)) {
-					php_error_docref(NULL, E_WARNING, "Gene Unknown Url:%s", GENE_G(path));
+				if (GENE_REQ(path)) {
+					php_error_docref(NULL, E_WARNING, "Gene Unknown Url:%s", GENE_REQ(path));
 				} else {
 					php_error_docref(NULL, E_WARNING, "Gene Unknown Url:%s", path);
 				}
@@ -1142,11 +1142,11 @@ PHP_METHOD(gene_router, display) {
 	zend_array *table = (Z_TYPE_P(vars) == IS_ARRAY) ? Z_ARRVAL_P(vars) : NULL;
 
 	if (parent_file && ZSTR_LEN(parent_file) > 0) {
-		if (GENE_G(child_views)) {
-			efree(GENE_G(child_views));
-			GENE_G(child_views) = NULL;
+		if (GENE_REQ(child_views)) {
+			efree(GENE_REQ(child_views));
+			GENE_REQ(child_views) = NULL;
 		}
-		GENE_G(child_views) = estrndup(ZSTR_VAL(file), ZSTR_LEN(file));
+		GENE_REQ(child_views) = estrndup(ZSTR_VAL(file), ZSTR_LEN(file));
 		gene_view_display(ZSTR_VAL(parent_file), self, table);
 	} else {
 		gene_view_display(ZSTR_VAL(file), self, table);
@@ -1170,11 +1170,11 @@ PHP_METHOD(gene_router, displayExt) {
 	zend_array *table = (Z_TYPE_P(vars) == IS_ARRAY) ? Z_ARRVAL_P(vars) : NULL;
 
 	if (parent_file && ZSTR_LEN(parent_file)) {
-		if (GENE_G(child_views)) {
-			efree(GENE_G(child_views));
-			GENE_G(child_views) = NULL;
+		if (GENE_REQ(child_views)) {
+			efree(GENE_REQ(child_views));
+			GENE_REQ(child_views) = NULL;
 		}
-		GENE_G(child_views) = estrndup(ZSTR_VAL(file), ZSTR_LEN(file));
+		GENE_REQ(child_views) = estrndup(ZSTR_VAL(file), ZSTR_LEN(file));
 		gene_view_display_ext(ZSTR_VAL(parent_file), isCompile, self, table);
 	} else {
 		gene_view_display_ext(ZSTR_VAL(file), isCompile, self, table);
@@ -1195,16 +1195,16 @@ PHP_METHOD(gene_router, dispatch) {
 	if (zend_parse_parameters(ZEND_NUM_ARGS(), "ssz", &class, &class_len, &action, &action_len, &params) == FAILURE) {
 		return;
 	}
-	if (GENE_G(module) != NULL) {
-		class = strreplace2(class, ":m", GENE_G(module));
+	if (GENE_REQ(module) != NULL) {
+		class = strreplace2(class, ":m", GENE_REQ(module));
 	}
-	if (GENE_G(controller) != NULL) {
-		class = strreplace2(class, ":c", GENE_G(controller));
+	if (GENE_REQ(controller) != NULL) {
+		class = strreplace2(class, ":c", GENE_REQ(controller));
 	}
 
 	if (gene_factory(class, strlen(class), NULL, &classObject)) {
-		if (GENE_G(action) != NULL) {
-			action = strreplace2(action, ":a", GENE_G(action));
+		if (GENE_REQ(action) != NULL) {
+			action = strreplace2(action, ":a", GENE_REQ(action));
 		}
 		strtolower(action);
 		if (Z_TYPE(classObject) == IS_OBJECT
@@ -1234,9 +1234,9 @@ PHP_METHOD(gene_router, params) {
 		return;
 	}
 
-	params = GENE_G(path_params);
+	params = GENE_REQ(path_params);
 	if (name == NULL) {
-		RETURN_ZVAL(GENE_G(path_params), 1, 0);
+		RETURN_ZVAL(GENE_REQ(path_params), 1, 0);
 	} else {
 		zval *val = zend_symtable_str_find(Z_ARRVAL_P(params), ZSTR_VAL(name), ZSTR_LEN(name));
 		if (val) {
@@ -1345,8 +1345,8 @@ PHP_METHOD(gene_router, lang) {
  * {{{ public gene_router::getLang()
  */
 PHP_METHOD(gene_router, getLang) {
-	if (GENE_G(lang)) {
-		RETURN_STRING(GENE_G(lang));
+	if (GENE_REQ(lang)) {
+		RETURN_STRING(GENE_REQ(lang));
 	}
 	RETURN_NULL();
 }

@@ -330,15 +330,18 @@ void gene_memory_set(char *keyString, size_t keyString_len, zval *zvalue,
 	zval *copyval, ret;
 	zend_string *key;
 	if (zvalue) {
+		GENE_CACHE_WRLOCK();
 		copyval = zend_symtable_str_find(GENE_G(cache), keyString, keyString_len);
 		if (copyval == NULL) {
 			gene_memory_zval_persistent(&ret, zvalue);
 			key = gene_str_persistent(keyString, keyString_len);
 			gene_symtable_update(GENE_G(cache), key, &ret);
 			zend_string_release(key);
+			GENE_CACHE_WRUNLOCK();
 			return;
 		}
 		gene_memory_zval_edit_persistent(copyval, zvalue);
+		GENE_CACHE_WRUNLOCK();
 	}
 }
 /* }}} */
@@ -347,7 +350,9 @@ void gene_memory_set(char *keyString, size_t keyString_len, zval *zvalue,
  */
 zval * gene_memory_get(char *keyString, size_t keyString_len) {
 	zval *zvalue;
+	GENE_CACHE_RDLOCK();
 	zvalue = zend_symtable_str_find(GENE_G(cache), keyString, keyString_len);
+	GENE_CACHE_RDUNLOCK();
 	return zvalue;
 }
 /* }}} */
@@ -355,7 +360,11 @@ zval * gene_memory_get(char *keyString, size_t keyString_len) {
 /** {{{ void gene_memory_get_quick(char *keyString, int keyString_len)
  */
 zval * gene_memory_get_quick(char *keyString, size_t keyString_len) {
-	return zend_symtable_str_find(GENE_G(cache), keyString, keyString_len);
+	zval *zvalue;
+	GENE_CACHE_RDLOCK();
+	zvalue = zend_symtable_str_find(GENE_G(cache), keyString, keyString_len);
+	GENE_CACHE_RDUNLOCK();
+	return zvalue;
 }
 /* }}} */
 
@@ -367,6 +376,7 @@ zval * gene_memory_get_by_config(char *keyString, size_t keyString_len, char *pa
 	zval *ret = NULL;
 	zval *copyval = NULL;
 
+	GENE_CACHE_RDLOCK();
 	copyval = zend_symtable_str_find(GENE_G(cache), keyString, keyString_len);
 	if (copyval) {
 		tmp = copyval;
@@ -374,17 +384,21 @@ zval * gene_memory_get_by_config(char *keyString, size_t keyString_len, char *pa
 			seg = php_strtok_r(path, "/", &ptr);
 			while (seg) {
 				if (Z_TYPE_P(tmp) != IS_ARRAY) {
+					GENE_CACHE_RDUNLOCK();
 					return NULL;
 				}
 				tmp = zend_symtable_str_find(Z_ARRVAL_P(tmp), seg, strlen(seg));
 				if (tmp == NULL) {
+					GENE_CACHE_RDUNLOCK();
 					return NULL;
 				}
 				seg = php_strtok_r(NULL, "/", &ptr);
 			}
 		}
+		GENE_CACHE_RDUNLOCK();
 		return tmp;
 	}
+	GENE_CACHE_RDUNLOCK();
 	return NULL;
 }
 /* }}} */
@@ -392,7 +406,11 @@ zval * gene_memory_get_by_config(char *keyString, size_t keyString_len, char *pa
 /** {{{ filenode * file_cache_get_easy(char *keyString, int keyString_len)
  */
 filenode * file_cache_get_easy(char *keyString, size_t keyString_len) {
-	return zend_hash_str_find_ptr(GENE_G(cache_easy), keyString, keyString_len);
+	filenode *result;
+	GENE_CACHE_RDLOCK();
+	result = zend_hash_str_find_ptr(GENE_G(cache_easy), keyString, keyString_len);
+	GENE_CACHE_RDUNLOCK();
+	return result;
 }
 /* }}} */
 
@@ -405,7 +423,9 @@ void file_cache_set_val(char *val, size_t keyString_len, zend_long times,
 	n.ftime = times;
 	n.validity = validity;
 	n.status = 0;
+	GENE_CACHE_WRLOCK();
 	zend_hash_update_mem(GENE_G(cache_easy), gene_str_persistent(val, keyString_len), &n, sizeof(filenode));
+	GENE_CACHE_WRUNLOCK();
 }
 /* }}} */
 
@@ -453,6 +473,7 @@ void gene_memory_set_by_router(char *keyString, size_t keyString_len, char *path
 	zval *tmp;
 	zval *copyval = NULL, ret;
 	zend_string *keyS = NULL;
+	GENE_CACHE_WRLOCK();
 	copyval = zend_symtable_str_find(GENE_G(cache), keyString, keyString_len);
 	if (copyval == NULL) {
 		gene_hash_init(&ret, 0);
@@ -481,6 +502,7 @@ void gene_memory_set_by_router(char *keyString, size_t keyString_len, char *path
 			seg = php_strtok_r(NULL, "/", &ptr);
 		}
 	}
+	GENE_CACHE_WRUNLOCK();
 	return;
 }
 /* }}} */
@@ -488,10 +510,11 @@ void gene_memory_set_by_router(char *keyString, size_t keyString_len, char *path
 /** {{{ void gene_memory_exists(char *keyString, int keyString_len)
  */
 int gene_memory_exists(char *keyString, size_t keyString_len) {
-	if (zend_symtable_str_exists(GENE_G(cache), keyString, keyString_len) != 1) {
-		return 0;
-	}
-	return 1;
+	int result;
+	GENE_CACHE_RDLOCK();
+	result = zend_symtable_str_exists(GENE_G(cache), keyString, keyString_len) == 1 ? 1 : 0;
+	GENE_CACHE_RDUNLOCK();
+	return result;
 }
 /* }}} */
 
@@ -499,11 +522,14 @@ int gene_memory_exists(char *keyString, size_t keyString_len) {
  */
 zend_long gene_memory_getTime(char *keyString, size_t keyString_len) {
 	zval *zvalue = NULL;
+	zend_long result = 0;
+	GENE_CACHE_RDLOCK();
 	zvalue = zend_symtable_str_find(GENE_G(cache), keyString, keyString_len);
 	if (zvalue && Z_TYPE_P(zvalue) == IS_LONG) {
-		return Z_LVAL_P(zvalue);
+		result = Z_LVAL_P(zvalue);
 	}
-	return 0;
+	GENE_CACHE_RDUNLOCK();
+	return result;
 }
 /* }}} */
 
@@ -516,6 +542,7 @@ int gene_memory_del(char *keyString, size_t keyString_len) {
 	zval *iter_val;
 	dtor_func_t orig_dtor;
 
+	GENE_CACHE_WRLOCK();
 	/* Keys are allocated as persistent interned strings (IS_STR_INTERNED),
 	 * so zend_string_release() is a no-op for them. We must find the stored
 	 * key pointer and free() it manually to avoid a memory leak on each del. */
@@ -541,13 +568,16 @@ int gene_memory_del(char *keyString, size_t keyString_len) {
 
 		/* Finally free the persistent key memory that PHP would never release */
 		pefree(stored_key, 1);
+		GENE_CACHE_WRUNLOCK();
 		return 1;
 	}
 
 	/* Fallback for numeric keys (stored by index, no persistent key to free) */
 	if (zend_symtable_str_del(GENE_G(cache), keyString, keyString_len) == SUCCESS) {
+		GENE_CACHE_WRUNLOCK();
 		return 1;
 	}
+	GENE_CACHE_WRUNLOCK();
 	return 0;
 }
 /* }}} */
@@ -708,11 +738,13 @@ PHP_METHOD(gene_memory, del) {
  * {{{ public gene_memory::clean()
  */
 PHP_METHOD(gene_memory, clean) {
+	GENE_CACHE_WRLOCK();
 	if (GENE_G(cache)) {
 		gene_hash_destroy(GENE_G(cache));
 		GENE_G(cache) = NULL;
 	}
 	gene_memory_init();
+	GENE_CACHE_WRUNLOCK();
 	RETURN_TRUE;
 }
 /* }}} */

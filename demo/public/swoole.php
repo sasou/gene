@@ -64,6 +64,9 @@ $http->on("request", function (\Swoole\Http\Request $request, \Swoole\Http\Respo
         $response->status(500);
         $response->end("Internal Server Error: " . $e->getMessage());
         return;
+    } finally {
+        // 5. 释放当前协程的请求上下文，防止内存泄漏
+        \Gene\Application::destroyContext();
     }
     $out = ob_get_clean();
 

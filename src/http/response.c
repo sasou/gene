@@ -332,8 +332,8 @@ PHP_METHOD(gene_response, url) {
 	for (; path_len > 0 && *p == '/'; p++, path_len--) {}
 	if (path_len == 0) {
 		/* 如果只有斜杠，也加上语言前缀 */
-		if (GENE_G(lang) && GENE_G(lang)[0] != '\0') {
-			spprintf(&out, 0, "/%s/", GENE_G(lang));
+		if (GENE_REQ(lang) && GENE_REQ(lang)[0] != '\0') {
+			spprintf(&out, 0, "/%s/", GENE_REQ(lang));
 			RETVAL_STRING(out);
 			efree(out);
 		} else {
@@ -341,8 +341,8 @@ PHP_METHOD(gene_response, url) {
 		}
 		return;
 	}
-	if (GENE_G(lang) && GENE_G(lang)[0] != '\0') {
-		spprintf(&out, 0, "/%s/%.*s", GENE_G(lang), (int)path_len, p);
+	if (GENE_REQ(lang) && GENE_REQ(lang)[0] != '\0') {
+		spprintf(&out, 0, "/%s/%.*s", GENE_REQ(lang), (int)path_len, p);
 	} else {
 		spprintf(&out, 0, "/%.*s", (int)path_len, p);
 	}

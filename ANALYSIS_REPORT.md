@@ -355,10 +355,18 @@ All fixes below have been applied directly to the source files.
 | 20 | `http/request.c` | Added `Gene\Request::clear()` static method to reset the static `$_attr` property for Swoole per-request cleanup |
 | 21 | `demo/public/swoole.php` | Optimized Swoole integration: separated one-time init (`workerStart`) from per-request handling, added `clearState()` calls, added try/catch error handling, used `\Swoole\Http\Server` class name, auto CPU worker count, `SWOOLE_HOOK_ALL` |
 
-### Not Fixed (Requires Design Decision)
+### Security & Concurrency Fixes (v5.2.2 continued)
 
-These issues require broader design decisions and are documented for future consideration:
-
-- **SQL identifier injection** in DB query builder — table/column names not escaped
-- **Persistent cache thread safety** — no locking on `GENE_G(cache)` HashTable modifications
-- **True coroutine isolation (runtime_type=3)** — `GENE_G()` is per-process, not per-coroutine; for full coroutine safety, would need Swoole coroutine-local storage or per-coroutine context objects
+| # | File(s) | Fix Description |
+|---|---------|-----------------|
+| 22 | `db/pdo.c`, `db/pdo.h` | Added `gene_quote_identifier()` and `gene_quote_table()` helper functions that wrap identifiers with database-specific quote characters and double any embedded quote characters to prevent SQL identifier injection |
+| 23 | `db/mysql.c` | Applied backtick (`` ` ``) identifier escaping to all query builder methods (`select`, `count`, `insert`, `batchInsert`, `update`, `delete`) for table and column names |
+| 24 | `db/mssql.c` | Applied bracket (`[`/`]`) identifier escaping to all query builder methods for table and column names |
+| 25 | `db/pgsql.c` | Applied double-quote (`"`) identifier escaping to all query builder methods for table and column names |
+| 26 | `db/sqlite.c` | Applied backtick (`` ` ``) identifier escaping to all query builder methods for table and column names |
+| 27 | `gene.h` | Added cross-platform `gene_rwlock_t` type and macros (`gene_rwlock_init/rdlock/wrlock/destroy`) using `SRWLOCK` on Windows and `pthread_rwlock_t` on POSIX |
+| 28 | `cache/memory.h`, `cache/memory.c` | Added `GENE_CACHE_RDLOCK/WRUNLOCK` macros; wrapped all `GENE_G(cache)` and `GENE_G(cache_easy)` read/write operations (`gene_memory_set`, `gene_memory_get`, `gene_memory_get_quick`, `gene_memory_get_by_config`, `gene_memory_exists`, `gene_memory_getTime`, `gene_memory_del`, `gene_memory_set_by_router`, `file_cache_get_easy`, `file_cache_set_val`, `clean`) with read-write locks for thread safety |
+| 29 | `gene.h`, `gene.c` | Introduced `gene_request_context` struct containing per-request fields (`method`, `path`, `router_path`, `module`, `controller`, `action`, `child_views`, `lang`, `path_params`). Added `co_contexts` HashTable keyed by Swoole coroutine ID, with cached `current_cid`/`current_ctx` for fast repeated access. `gene_request_ctx()` returns `&default_ctx` in FPM mode (zero overhead) or looks up/creates per-coroutine context in Swoole mode |
+| 30 | All source files using per-request globals | Replaced all `GENE_G(method)`, `GENE_G(path)`, `GENE_G(module)`, etc. with `GENE_REQ(field)` macro across `application.c`, `router.c`, `controller.c`, `view.c`, `request.c`, `response.c`, `request.h` |
+| 31 | `app/application.c` | Added `Gene\Application::destroyContext()` static method to free the current coroutine's request context from `co_contexts`, preventing memory leaks in long-running Swoole workers |
+| 32 | `demo/public/swoole.php` | Added `destroyContext()` call in `finally` block of request handler for automatic coroutine context cleanup |
