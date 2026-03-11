@@ -84,7 +84,7 @@ static void gene_memory_zval_dtor(zval *zvalue) {
 		case IS_CONSTANT:
 #endif
 	case IS_STRING:
-		pefree(Z_PTR_P(zvalue), 1);
+		free(Z_PTR_P(zvalue));
 		break;
 	case IS_ARRAY:
 		gene_hash_destroy(Z_ARRVAL_P(zvalue));
@@ -99,7 +99,7 @@ static void gene_memory_zval_dtor(zval *zvalue) {
 static zval* gene_symtable_update(HashTable *ht, zend_string *key, zval *zv) /* {{{ */{
 	zend_ulong idx;
 	if (ZEND_HANDLE_NUMERIC(key, idx)) {
-		pefree(key, 1);
+		free(key);
 		return zend_hash_index_update(ht, idx, zv);
 	} else {
 		return zend_hash_update(ht, key, zv);
@@ -147,7 +147,7 @@ void gene_hash_destroy(HashTable *ht) /* {{{ */{
 		ZEND_HASH_FOREACH_STR_KEY_VAL(ht, key, element)
 		{
 			if (key) {
-				pefree(key, 1);
+				free(key);
 			}
 			switch (Z_TYPE_P(element)) {
 			case IS_PTR:
@@ -155,7 +155,7 @@ void gene_hash_destroy(HashTable *ht) /* {{{ */{
 			case IS_CONSTANT:
 			#endif
 			case IS_STRING:
-				pefree(Z_PTR_P(element), 1);
+				free(Z_PTR_P(element));
 				break;
 			case IS_ARRAY:
 				gene_hash_destroy(Z_ARRVAL_P(element));
@@ -163,9 +163,9 @@ void gene_hash_destroy(HashTable *ht) /* {{{ */{
 			}
 			zval_ptr_dtor(element);
 		}ZEND_HASH_FOREACH_END();
-		pefree(HT_GET_DATA_ADDR(ht), 1);
+		free(HT_GET_DATA_ADDR(ht));
 	}
-	pefree(ht, 1);
+	free(ht);
 } /* }}} */
 /*
  * {{{ static void * gene_memory_init()
@@ -540,7 +540,7 @@ int gene_memory_del(char *keyString, size_t keyString_len) {
 		GENE_G(cache)->pDestructor = orig_dtor;
 
 		/* Finally free the persistent key memory that PHP would never release */
-		pefree(stored_key, 1);
+		free(stored_key);
 		return 1;
 	}
 
