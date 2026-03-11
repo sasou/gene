@@ -102,6 +102,14 @@ void gene_free_request_context(gene_request_context *ctx) {
 		efree(ctx->path_params);
 		ctx->path_params = NULL;
 	}
+	if (Z_TYPE(ctx->request_attr) != IS_UNDEF) {
+		zval_ptr_dtor(&ctx->request_attr);
+		ZVAL_UNDEF(&ctx->request_attr);
+	}
+	if (Z_TYPE(ctx->di_regs) != IS_UNDEF) {
+		zval_ptr_dtor(&ctx->di_regs);
+		ZVAL_UNDEF(&ctx->di_regs);
+	}
 	if (Z_TYPE(ctx->response) != IS_UNDEF) {
 		zval_ptr_dtor(&ctx->response);
 		ZVAL_UNDEF(&ctx->response);
@@ -148,6 +156,9 @@ gene_request_context *gene_request_ctx(void) {
 		ctx = ecalloc(1, sizeof(gene_request_context));
 		ctx->path_params = (zval*) emalloc(sizeof(zval));
 		array_init(ctx->path_params);
+		ZVAL_UNDEF(&ctx->request_attr);
+		ZVAL_UNDEF(&ctx->di_regs);
+		ZVAL_UNDEF(&ctx->response);
 		zend_hash_index_update_ptr(GENE_G(co_contexts), (zend_ulong)cid, ctx);
 	}
 	GENE_G(current_cid) = cid;

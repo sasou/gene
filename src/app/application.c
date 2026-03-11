@@ -603,6 +603,15 @@ PHP_METHOD(gene_application, clearState) {
 	ZVAL_NULL(&null_val);
 	zend_update_static_property(gene_request_ce, GENE_REQUEST_PROPERTY_ATTR, strlen(GENE_REQUEST_PROPERTY_ATTR), &null_val);
 
+	if (Z_TYPE(gene_request_ctx()->di_regs) != IS_UNDEF) {
+		zval_ptr_dtor(&gene_request_ctx()->di_regs);
+		ZVAL_UNDEF(&gene_request_ctx()->di_regs);
+	}
+	if (Z_TYPE(gene_request_ctx()->request_attr) != IS_UNDEF) {
+		zval_ptr_dtor(&gene_request_ctx()->request_attr);
+		ZVAL_UNDEF(&gene_request_ctx()->request_attr);
+	}
+
 	gene_view_reset_vars();
 
 	if (self) {
