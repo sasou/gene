@@ -24,6 +24,7 @@
 #include "Zend/zend_API.h"
 #include "zend_exceptions.h"
 #include "zend_smart_str.h"
+#include <string.h>
 
 #include "../gene.h"
 #include "../common/common.h"
@@ -37,8 +38,15 @@ void gene_quote_identifier(smart_str *dest, const char *name, size_t len, char o
 			if (start > 0) {
 				smart_str_appendc(dest, '.');
 			}
-			if (part_len == 1 && name[start] == '*') {
+			if (part_len == 0) {
+				start = i + 1;
+				continue;
+			}
+			if ((part_len == 1 && name[start] == '*')) {
 				smart_str_appendc(dest, '*');
+			} else if ((name[start] == oq && name[start + part_len - 1] == cq)
+					|| (oq == '[' && name[start] == '[' && name[start + part_len - 1] == ']')) {
+				smart_str_appendl(dest, name + start, part_len);
 			} else {
 				smart_str_appendc(dest, oq);
 				for (j = start; j < i; j++) {
@@ -54,14 +62,280 @@ void gene_quote_identifier(smart_str *dest, const char *name, size_t len, char o
 	}
 }/*}}}*/
 
+static const char *gene_ltrim_ptr(const char *str)
+{
+	while (*str && isspace((unsigned char)*str)) {
+		str++;
+	}
+	return str;
+}
+
+static size_t gene_rtrim_len(const char *str, size_t len)
+{
+	while (len > 0 && isspace((unsigned char)str[len - 1])) {
+		len--;
+	}
+	return len;
+}
+
+static int gene_is_sql_keyword(const char *token, size_t len)
+{
+	static const char *keywords[] = {
+		"as", "left", "right", "inner", "outer", "join", "on", "and", "or",
+		"not", "is", "null", "like", "in", "between", "using", "cross", "full",
+		"asc", "desc"
+	};
+	size_t i;
+	for (i = 0; i < sizeof(keywords) / sizeof(keywords[0]); i++) {
+		if (strlen(keywords[i]) == len && strncasecmp(token, keywords[i], len) == 0) {
+			return 1;
+		}
+	}
+	return 0;
+}
+
+static int gene_is_numeric_token(const char *token, size_t len)
+{
+	size_t i;
+	if (len == 0) {
+		return 0;
+	}
+	for (i = 0; i < len; i++) {
+		if (!isdigit((unsigned char)token[i])) {
+			return 0;
+		}
+	}
+	return 1;
+}
+
+static void gene_append_quoted_token(smart_str *dest, const char *token, size_t len, char oq, char cq)
+{
+	if (len == 0) {
+		return;
+	}
+	if ((token[0] == oq && token[len - 1] == cq) || (token[0] == '\'' && token[len - 1] == '\'')) {
+		smart_str_appendl(dest, token, len);
+		return;
+	}
+	if (len == 1 && token[0] == '*') {
+		smart_str_appendc(dest, '*');
+		return;
+	}
+	if (gene_is_sql_keyword(token, len) || gene_is_numeric_token(token, len)) {
+		smart_str_appendl(dest, token, len);
+		return;
+	}
+	gene_quote_identifier(dest, token, len, oq, cq);
+}
+
+static void gene_quote_expression_range(smart_str *dest, const char *expr, size_t len, char oq, char cq)
+{
+	size_t i = 0;
+	while (i < len) {
+		if (isspace((unsigned char)expr[i])) {
+			smart_str_appendc(dest, expr[i]);
+			i++;
+			continue;
+		}
+		if (expr[i] == '\'' || expr[i] == '"' || (oq == '`' && expr[i] == '`') || (oq == '[' && expr[i] == '[')) {
+			char quote = expr[i++];
+			char close_quote = (quote == '[') ? ']' : quote;
+			smart_str_appendc(dest, quote);
+			while (i < len) {
+				smart_str_appendc(dest, expr[i]);
+				if (expr[i] == close_quote) {
+					if (quote != '[' && i + 1 < len && expr[i + 1] == close_quote) {
+						i++;
+						smart_str_appendc(dest, expr[i]);
+					} else if (quote == '[' && i + 1 < len && expr[i + 1] == close_quote) {
+						i++;
+						smart_str_appendc(dest, expr[i]);
+					} else {
+						i++;
+						break;
+					}
+				}
+				i++;
+			}
+			continue;
+		}
+		if (isalnum((unsigned char)expr[i]) || expr[i] == '_' || expr[i] == '.') {
+			size_t start = i;
+			size_t j;
+			while (i < len) {
+				if (isalnum((unsigned char)expr[i]) || expr[i] == '_') {
+					i++;
+					continue;
+				}
+				if (expr[i] == '.') {
+					if (i + 1 < len && (isalnum((unsigned char)expr[i + 1]) || expr[i + 1] == '_'
+							|| expr[i + 1] == '*')) {
+						i++;
+						continue;
+					}
+					break;
+				}
+				if (expr[i] == '*' && i > start && expr[i - 1] == '.') {
+					i++;
+					continue;
+				}
+				break;
+			}
+			j = i;
+			while (j < len && isspace((unsigned char)expr[j])) {
+				j++;
+			}
+			if (j < len && expr[j] == '(' && !gene_is_sql_keyword(expr + start, i - start)) {
+				smart_str_appendl(dest, expr + start, i - start);
+			} else {
+				gene_append_quoted_token(dest, expr + start, i - start, oq, cq);
+			}
+			continue;
+		}
+		smart_str_appendc(dest, expr[i]);
+		i++;
+	}
+}
+
+static void gene_quote_field_item(smart_str *dest, const char *item, size_t len, char oq, char cq)
+{
+	const char *start = gene_ltrim_ptr(item);
+	size_t trimmed_len = gene_rtrim_len(start, len - (start - item));
+	const char *as_pos = NULL;
+	size_t i;
+	int depth = 0;
+
+	if (trimmed_len == 0) {
+		return;
+	}
+
+	for (i = 0; i + 3 < trimmed_len; i++) {
+		char ch = start[i];
+		if (ch == '(') depth++;
+		else if (ch == ')') depth--;
+		if (depth == 0 && i > 0 &&
+			isspace((unsigned char)start[i]) &&
+			(start[i + 1] == 'a' || start[i + 1] == 'A') &&
+			(start[i + 2] == 's' || start[i + 2] == 'S') &&
+			isspace((unsigned char)start[i + 3])) {
+			as_pos = start + i;
+			break;
+		}
+	}
+
+	if (as_pos) {
+		size_t expr_len = gene_rtrim_len(start, as_pos - start);
+		const char *alias = gene_ltrim_ptr(as_pos + 4);
+		size_t alias_len = gene_rtrim_len(alias, trimmed_len - (alias - start));
+		gene_quote_expression_range(dest, start, expr_len, oq, cq);
+		smart_str_appends(dest, " AS ");
+		gene_append_quoted_token(dest, alias, alias_len, oq, cq);
+		return;
+	}
+
+	depth = 0;
+	for (i = trimmed_len; i > 0; i--) {
+		char ch = start[i - 1];
+		if (ch == ')') depth++;
+		else if (ch == '(') depth--;
+		if (depth == 0 && isspace((unsigned char)ch)) {
+			const char *alias = gene_ltrim_ptr(start + i);
+			size_t expr_len = gene_rtrim_len(start, i - 1);
+			size_t alias_len = gene_rtrim_len(alias, trimmed_len - (alias - start));
+			if (alias_len > 0 && expr_len > 0) {
+				gene_quote_expression_range(dest, start, expr_len, oq, cq);
+				smart_str_appendc(dest, ' ');
+				gene_append_quoted_token(dest, alias, alias_len, oq, cq);
+				return;
+			}
+			break;
+		}
+	}
+
+	gene_quote_expression_range(dest, start, trimmed_len, oq, cq);
+}
+
+static char *gene_quote_field_list_string(const char *name, char oq, char cq)
+{
+	smart_str buf = {0};
+	size_t len = strlen(name), start = 0, i, depth = 0;
+	int pre = 0;
+	for (i = 0; i <= len; i++) {
+		char ch = (i < len) ? name[i] : ',';
+		if (ch == '(') depth++;
+		else if (ch == ')') depth--;
+		if (i == len || (ch == ',' && depth == 0)) {
+			if (pre) {
+				smart_str_appends(&buf, ",");
+			}
+			gene_quote_field_item(&buf, name + start, i - start, oq, cq);
+			pre = 1;
+			start = i + 1;
+		}
+	}
+	smart_str_0(&buf);
+	if (!buf.s) {
+		return str_init("");
+	}
+	{
+		char *result = str_init(ZSTR_VAL(buf.s));
+		smart_str_free(&buf);
+		return result;
+	}
+}
+
+static char *gene_quote_order_list_string(const char *name, char oq, char cq)
+{
+	smart_str buf = {0};
+	size_t len = strlen(name), start = 0, i, depth = 0;
+	int pre = 0;
+	for (i = 0; i <= len; i++) {
+		char ch = (i < len) ? name[i] : ',';
+		if (ch == '(') depth++;
+		else if (ch == ')') depth--;
+		if (i == len || (ch == ',' && depth == 0)) {
+			const char *item_start = name + start;
+			const char *item = gene_ltrim_ptr(item_start);
+			size_t item_len = i - start;
+			item_len -= (size_t) (item - item_start);
+			item_len = gene_rtrim_len(item, item_len);
+			if (pre) {
+				smart_str_appends(&buf, ",");
+			}
+			gene_quote_expression_range(&buf, item, item_len, oq, cq);
+			pre = 1;
+			start = i + 1;
+		}
+	}
+	smart_str_0(&buf);
+	if (!buf.s) {
+		return str_init("");
+	}
+	{
+		char *result = str_init(ZSTR_VAL(buf.s));
+		smart_str_free(&buf);
+		return result;
+	}
+}
+
 char *gene_quote_table(const char *name, char oq, char cq) /*{{{*/
 {
 	smart_str buf = {0};
-	gene_quote_identifier(&buf, name, strlen(name), oq, cq);
+	gene_quote_expression_range(&buf, name, strlen(name), oq, cq);
 	smart_str_0(&buf);
 	char *result = str_init(ZSTR_VAL(buf.s));
 	smart_str_free(&buf);
 	return result;
+}/*}}}*/
+
+char *gene_quote_columns(const char *name, char oq, char cq) /*{{{*/
+{
+	return gene_quote_field_list_string(name, oq, cq);
+}/*}}}*/
+
+char *gene_quote_order(const char *name, char oq, char cq) /*{{{*/
+{
+	return gene_quote_order_list_string(name, oq, cq);
 }/*}}}*/
 
 void array_to_string(zval *array, char **result, char oq, char cq)
@@ -77,7 +351,9 @@ void array_to_string(zval *array, char **result, char oq, char cq)
     	}
         if ( Z_TYPE_P(value) == IS_OBJECT ) convert_to_string(value);
         if ( (Z_TYPE_P(value) == IS_STRING) && isalpha(*(Z_STRVAL_P(value))) ) {
-            gene_quote_identifier(&field_str, Z_STRVAL_P(value), Z_STRLEN_P(value), oq, cq);
+			char *quoted = gene_quote_columns(Z_STRVAL_P(value), oq, cq);
+			smart_str_appends(&field_str, quoted);
+			efree(quoted);
         }
     } ZEND_HASH_FOREACH_END();
     smart_str_0(&field_str);
@@ -98,7 +374,9 @@ void mssql_array_to_string(zval *array, char **result, char oq, char cq)
     	}
         if ( Z_TYPE_P(value) == IS_OBJECT ) convert_to_string(value);
         if ( (Z_TYPE_P(value) == IS_STRING) && isalpha(*(Z_STRVAL_P(value))) ) {
-            gene_quote_identifier(&field_str, Z_STRVAL_P(value), Z_STRLEN_P(value), oq, cq);
+			char *quoted = gene_quote_columns(Z_STRVAL_P(value), oq, cq);
+			smart_str_appends(&field_str, quoted);
+			efree(quoted);
         }
     } ZEND_HASH_FOREACH_END();
     smart_str_0(&field_str);

@@ -23,6 +23,8 @@ void array_to_string(zval *array, char **result, char oq, char cq);
 void mssql_array_to_string(zval *array, char **result, char oq, char cq);
 void gene_quote_identifier(smart_str *dest, const char *name, size_t len, char oq, char cq);
 char *gene_quote_table(const char *name, char oq, char cq);
+char *gene_quote_columns(const char *name, char oq, char cq);
+char *gene_quote_order(const char *name, char oq, char cq);
 void gene_pdo_construct(zval *pdo_object, zval *dsn, zval *user, zval *pass, zval *options);
 void gene_pdo_begin_transaction(zval *pdo_object, zval *retval);
 void gene_pdo_commit(zval *pdo_object, zval *retval);
