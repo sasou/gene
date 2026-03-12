@@ -18,6 +18,9 @@
 #define GENE_APPLICATION_H
 #define GENE_APPLICATION_INSTANCE "instance"
 #define GENE_APPLICATION_SAFE "safe"
+#define GENE_APPLICATION_WEBSCAN_ENABLED "webscanEnabled"
+#define GENE_APPLICATION_WEBSCAN_CONFIG "webscanConfig"
+#define GENE_APPLICATION_WEBSCAN_CALLBACK "webscanCallback"
 
 extern zend_class_entry *gene_application_ce;
 
