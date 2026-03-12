@@ -216,7 +216,6 @@ PHP_METHOD(gene_factory, __construct)
 PHP_METHOD(gene_factory, create)
 {
 	zval *params = NULL, *entrys = NULL, *pzval = NULL, classObject;
-	zval *di = NULL;
 	zend_string *name;
 	zend_long type = 0;
 	if (zend_parse_parameters(ZEND_NUM_ARGS(), "S|zl", &name, &params, &type) == FAILURE) {
@@ -224,8 +223,7 @@ PHP_METHOD(gene_factory, create)
 	}
 
 	if (type) {
-		di = gene_di_instance();
-		entrys = zend_read_property(gene_di_ce, gene_strip_obj(di), GENE_DI_PROPERTY_REG, strlen(GENE_DI_PROPERTY_REG), 1, NULL);
+		entrys = gene_di_regs();
 		if ((pzval = zend_hash_find(Z_ARRVAL_P(entrys), name)) != NULL) {
 			Z_TRY_ADDREF_P(pzval);
 			RETURN_ZVAL(pzval, 0, 0);
