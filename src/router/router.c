@@ -142,6 +142,27 @@ int setMca(zend_string *key, char *val) {
 }
 /* }}} */
 
+/** {{{ void gene_router_reset_path_params()
+ */
+static void gene_router_reset_path_params() {
+	zval *params = GENE_REQ(path_params);
+
+	if (params == NULL) {
+		GENE_REQ(path_params) = (zval *) emalloc(sizeof(zval));
+		array_init(GENE_REQ(path_params));
+		return;
+	}
+
+	if (Z_TYPE_P(params) != IS_ARRAY) {
+		zval_ptr_dtor(params);
+		array_init(params);
+		return;
+	}
+
+	zend_hash_clean(Z_ARRVAL_P(params));
+}
+/* }}} */
+
 /** {{{ void gene_router_set_uri(zval **leaf)
  */
 void gene_router_set_uri(zval **leaf) {
@@ -630,6 +651,8 @@ void get_router_content_run(char *methodin, char *pathin, zval *safe) {
 		php_error_docref(NULL, E_WARNING, "Gene Unknown Method And Url: NULL");
 		return;
 	}
+
+	gene_router_reset_path_params();
 
 	if (safe != NULL && Z_STRLEN_P(safe)) {
 		router_e = str_concat(Z_STRVAL_P(safe), GENE_ROUTER_ROUTER_TREE);
