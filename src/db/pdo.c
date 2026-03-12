@@ -159,7 +159,7 @@ static void gene_quote_expression_range(smart_str *dest, const char *expr, size_
 			}
 			continue;
 		}
-		if (isalnum((unsigned char)expr[i]) || expr[i] == '_' || expr[i] == '.') {
+		if (isalnum((unsigned char)expr[i]) || expr[i] == '_') {
 			size_t start = i;
 			size_t j;
 			while (i < len) {
