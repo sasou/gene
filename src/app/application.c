@@ -770,10 +770,16 @@ PHP_METHOD(gene_application, setView) {
 	if (zend_parse_parameters(ZEND_NUM_ARGS(), "|SS", &view, &tpl) == FAILURE) {
 		return;
 	}
+	if (GENE_G(app_view)) {
+		efree(GENE_G(app_view));
+	}
 	if (view && ZSTR_LEN(view)) {
 		GENE_G(app_view) = estrndup(ZSTR_VAL(view), ZSTR_LEN(view));
 	} else {
 		GENE_G(app_view) = estrndup(GENE_VIEW_VIEW, strlen(GENE_VIEW_VIEW));
+	}
+	if (GENE_G(app_ext)) {
+		efree(GENE_G(app_ext));
 	}
 	if (tpl && ZSTR_LEN(tpl)) {
 		GENE_G(app_ext) = estrndup(ZSTR_VAL(tpl), ZSTR_LEN(tpl));

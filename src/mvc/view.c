@@ -135,9 +135,7 @@ void gene_view_contains_ext(char *file, bool isCompile, zval *ret) {
 			efree(path);
 			cpath = estrndup(compile_path, compile_path_len);
 			php_dirname(cpath, compile_path_len);
-			if (check_folder_exists(cpath) == FAILURE) {
-				efree(cpath);
-			}
+			check_folder_exists(cpath);
 			efree(cpath);
 			parser_templates(&stream, compile_path);
 			php_stream_close(stream);
