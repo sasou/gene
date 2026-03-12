@@ -1,4 +1,4 @@
-<?php
+﻿<?php
 namespace Gene;
 
 /**
@@ -41,9 +41,9 @@ class Application
     /**
      * load
      * 
-     * @param string $file 配置文件名
-     * @param string|null $path 文件所在目录（默认使用 app_root）
-     * @param int $validity 文件变更检测缓存时间（秒，默认10）
+     * @param string $file 閰嶇疆鏂囦欢鍚?
+     * @param string|null $path 鏂囦欢鎵€鍦ㄧ洰褰曪紙榛樿浣跨敤 app_root锛?
+     * @param int $validity 鏂囦欢鍙樻洿妫€娴嬬紦瀛樻椂闂达紙绉掞紝榛樿10锛?
      * @return static
      */
     public function load($file, $path = null, $validity = null) {
@@ -53,8 +53,8 @@ class Application
     /**
      * autoload
      * 
-     * @param string|null $app_root 应用根目录
-     * @param callable|null $auto_function 自定义自动加载函数
+     * @param string|null $app_root 搴旂敤鏍圭洰褰?
+     * @param callable|null $auto_function 鑷畾涔夎嚜鍔ㄥ姞杞藉嚱鏁?
      * @return static
      */
     public function autoload($app_root = null, $auto_function = null) {
@@ -64,10 +64,10 @@ class Application
     /**
      * setMode
      * 
-     * @param int|null $error_type 错误处理类型（1=内置HTML，0=自定义）
-     * @param int|null $exception_type 异常处理类型（1=内置HTML，0=自定义）
-     * @param callable|null $ex_callback 自定义异常处理回调
-     * @param callable|null $error_callback 自定义错误处理回调
+     * @param int|null $error_type 閿欒澶勭悊绫诲瀷锛?=鍐呯疆HTML锛?=鑷畾涔夛級
+     * @param int|null $exception_type 寮傚父澶勭悊绫诲瀷锛?=鍐呯疆HTML锛?=鑷畾涔夛級
+     * @param callable|null $ex_callback 鑷畾涔夊紓甯稿鐞嗗洖璋?
+     * @param callable|null $error_callback 鑷畾涔夐敊璇鐞嗗洖璋?
      * @return static
      */
     public function setMode($error_type = null, $exception_type = null, $ex_callback = null, $error_callback = null) {
@@ -108,11 +108,37 @@ class Application
 
     }
 
+
+    /**
+     * webscan
+     * 
+     * @param int|null $webscan_switch
+     * @param string|null $webscan_white_directory
+     * @param callable|null $callback
+     * @param array|null $webscan_white_url
+     * @param int|null $webscan_get
+     * @param int|null $webscan_post
+     * @param int|null $webscan_cookie
+     * @param int|null $webscan_referer
+     * @return static
+     */
+    public function webscan(
+        $webscan_switch = null,
+        $webscan_white_directory = null,
+        $callback = null,
+        $webscan_white_url = null,
+        $webscan_get = null,
+        $webscan_post = null,
+        $webscan_cookie = null,
+        $webscan_referer = null
+    ) {
+
+    }
     /**
      * run
      * 
-     * @param string|null $method HTTP 请求方法（默认从 $_SERVER 读取）
-     * @param string|null $uri 请求路径（默认从 $_SERVER 读取）
+     * @param string|null $method HTTP 璇锋眰鏂规硶锛堥粯璁や粠 $_SERVER 璇诲彇锛?
+     * @param string|null $uri 璇锋眰璺緞锛堥粯璁や粠 $_SERVER 璇诲彇锛?
      * @return static
      */
     public function run($method = null, $uri = null) {
@@ -148,7 +174,7 @@ class Application
 
     /**
      * getLang
-     * 获取当前语言
+     * 鑾峰彇褰撳墠璇█
      *
      * @return string|null
      */
@@ -252,7 +278,7 @@ class Application
     /**
      * params
      * 
-     * @param string|null $name 路径参数名，不传则返回全部参数数组
+     * @param string|null $name 璺緞鍙傛暟鍚嶏紝涓嶄紶鍒欒繑鍥炲叏閮ㄥ弬鏁版暟缁?
      * @return mixed
      */
     public static function params($name = null) {

@@ -57,6 +57,7 @@ if test "$PHP_GENE" != "no"; then
 	  http/request.c \
 	  http/response.c \
 	  http/validate.c \
+      http/webscan.c \
 	  mvc/view.c \
 	  exception/exception.c \
 	  tool/benchmark.c \
@@ -89,3 +90,7 @@ if test "$PHP_GENE" != "no"; then
   PHP_ADD_BUILD_DIR([$ext_builddir/tool], 1)
 
 fi
+
+
+
+
