@@ -108,14 +108,26 @@ int setMca(zend_string *key, char *val) {
 	if (key->len == 1) {
 		switch (key->val[0]) {
 		case 'm':
+			if (GENE_REQ(module)) {
+				efree(GENE_REQ(module));
+				GENE_REQ(module) = NULL;
+			}
 			GENE_REQ(module) = str_init(val);
 			firstToUpper(GENE_REQ(module));
 			break;
 		case 'c':
+			if (GENE_REQ(controller)) {
+				efree(GENE_REQ(controller));
+				GENE_REQ(controller) = NULL;
+			}
 			GENE_REQ(controller) = str_init(val);
 			firstToUpper(GENE_REQ(controller));
 			break;
 		case 'a':
+			if (GENE_REQ(action)) {
+				efree(GENE_REQ(action));
+				GENE_REQ(action) = NULL;
+			}
 			GENE_REQ(action) = str_init(val);
 			break;
 		}
@@ -152,7 +164,7 @@ void gene_router_set_uri(zval **leaf) {
  */
 char *get_path_router_init(zval *conf, char *path) {
 	zval *prefix = NULL, *lang = NULL, *langs = NULL;
-	char *seg = NULL, *ptr = NULL, *path_prefix = NULL,*path_tmp = NULL,*lang_tmp = NULL,*search = NULL, *uri = NULL;
+	char *seg = NULL, *ptr = NULL, *path_prefix = NULL,*path_tmp = NULL,*lang_tmp = NULL,*search = NULL, *uri = NULL, *old_path_tmp = NULL;
 	zend_long path_len = 0;
 	path_len = strlen(path);
 	if (path_len == 0) {
@@ -167,11 +179,12 @@ char *get_path_router_init(zval *conf, char *path) {
 			if (strcmp(path_prefix, Z_STRVAL_P(prefix)) == 0) {
 				path_tmp = str_sub_len(path, Z_STRLEN_P(prefix), path_len - Z_STRLEN_P(prefix));
 				trim(path_tmp, '/');
-				efree(path_prefix);
 				if (strlen(path_tmp) < 1) {
+					efree(path_prefix);
 					return path_tmp;
 				}
 			}
+			efree(path_prefix);
 		}
 	}
 	langs = zend_symtable_str_find(Z_ARRVAL_P(conf), "langs", 5);
@@ -186,10 +199,18 @@ char *get_path_router_init(zval *conf, char *path) {
 			search = strstr(Z_STRVAL_P(langs), lang_tmp);
 			efree(lang_tmp);
 			if (search != NULL) {
+				if (GENE_REQ(lang)) {
+					efree(GENE_REQ(lang));
+					GENE_REQ(lang) = NULL;
+				}
 				GENE_REQ(lang) = str_init(seg);
+				old_path_tmp = path_tmp;
 				spprintf(&path_tmp, 0, "%s", ptr);
 				if (strlen(path_tmp) > 0) {
 					trim(path_tmp, '/');
+				}
+				if (old_path_tmp != path && old_path_tmp != uri) {
+					efree(old_path_tmp);
 				}
 				efree(uri);
 			} else {
@@ -581,6 +602,7 @@ char* get_router_content(zval **content, char *method, char *path) {
  */
 void get_router_content_run(char *methodin, char *pathin, zval *safe) {
 	char *method = NULL, *path = NULL, *run = NULL, *hook = NULL, *router_e;
+	char *path_new = NULL;
 	size_t router_e_len;// @suppress("Type cannot be resolved")
 	zval *temp = NULL, *lead = NULL;
 	zval *conf = NULL,*cache = NULL, *cacheHook = NULL;
@@ -642,7 +664,11 @@ void get_router_content_run(char *methodin, char *pathin, zval *safe) {
 		}
 		conf = gene_memory_get_quick(router_e, router_e_len);
 		if (conf && Z_TYPE_P(conf) == IS_ARRAY) {
-			path = get_path_router_init(conf, path);
+			path_new = get_path_router_init(conf, path);
+			if (path_new != path) {
+				efree(path);
+			}
+			path = path_new;
 		}
 		efree(router_e);
 		
