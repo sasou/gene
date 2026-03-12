@@ -191,19 +191,6 @@ static void php_gene_init_globals() {
  */
 static void php_gene_close_request_globals() {
 	gene_free_request_context(&GENE_G(default_ctx));
-	if (GENE_G(co_contexts)) {
-		zend_hash_destroy(GENE_G(co_contexts));
-		FREE_HASHTABLE(GENE_G(co_contexts));
-		GENE_G(co_contexts) = NULL;
-	}
-	GENE_G(current_ctx) = NULL;
-	GENE_G(current_cid) = -1;
-}
-/* }}} */
-
-/* {{{ php_gene_close_globals
- */
-static void php_gene_close_globals() {
 	if (GENE_G(directory)) {
 		efree(GENE_G(directory));
 		GENE_G(directory) = NULL;
@@ -228,6 +215,19 @@ static void php_gene_close_globals() {
 		efree(GENE_G(app_key));
 		GENE_G(app_key) = NULL;
 	}
+	if (GENE_G(co_contexts)) {
+		zend_hash_destroy(GENE_G(co_contexts));
+		FREE_HASHTABLE(GENE_G(co_contexts));
+		GENE_G(co_contexts) = NULL;
+	}
+	GENE_G(current_ctx) = NULL;
+	GENE_G(current_cid) = -1;
+}
+/* }}} */
+
+/* {{{ php_gene_close_globals
+ */
+static void php_gene_close_globals() {
 	php_gene_close_request_globals();
 }
 /* }}} */
