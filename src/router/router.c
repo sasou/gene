@@ -1036,9 +1036,7 @@ PHP_METHOD(gene_router, clear) {
 		router_e_len = spprintf(&router_e, 0, "%s", GENE_ROUTER_ROUTER_TREE);
 	}
 	ret = gene_memory_del(router_e, router_e_len);
-	if (ret) {
-		efree(router_e);
-	}
+	efree(router_e);
 	if (Z_STRLEN_P(safe)) {
 		router_e_len = spprintf(&router_e, 0, "%s%s", Z_STRVAL_P(safe),
 		GENE_ROUTER_ROUTER_EVENT);
@@ -1046,9 +1044,7 @@ PHP_METHOD(gene_router, clear) {
 		router_e_len = spprintf(&router_e, 0, "%s", GENE_ROUTER_ROUTER_EVENT);
 	}
 	ret = gene_memory_del(router_e, router_e_len);
-	if (ret) {
-		efree(router_e);
-	}
+	efree(router_e);
 	RETURN_ZVAL(self, 1, 0);
 }
 /* }}} */
@@ -1301,6 +1297,7 @@ PHP_METHOD(gene_router, prefix) {
 		gene_memory_set_by_router(router_e, router_e_len, prefix, &content, 0);
 		efree(router_e);
 		efree(prefix);
+		efree(val);
 		zval_ptr_dtor(&content);
 	}
 	RETURN_ZVAL(self, 1, 0);
