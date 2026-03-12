@@ -44,6 +44,10 @@ static char *gene_view_app_base_path() {
 	return NULL;
 }
 
+/* forward declarations for local helpers */
+static int check_folder_exists(char *fullpath);
+static int parser_templates(php_stream **stream, char *compile_path);
+
 zend_array *gene_view_build_symbol_table(zval *vars) {
 	zend_array *table;
 	zend_ulong idx;
