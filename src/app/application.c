@@ -201,17 +201,17 @@ zend_long gene_file_modified(char *file, zend_long ctime) {
  */
 void gene_ini_router() {
 	zval *server = NULL, *temp = NULL;
-	if (!GENE_REQ(method) && !GENE_REQ(path) && !GENE_G(directory)) {
+	if (!GENE_REQ(method) || !GENE_REQ(path) || !GENE_G(directory)) {
 		server = request_query(TRACK_VARS_SERVER, NULL, 0);
 		if (server) {
-			if ((temp = zend_hash_str_find(HASH_OF(server), ZEND_STRL("DOCUMENT_ROOT"))) != NULL) {
+			if (!GENE_G(directory) && (temp = zend_hash_str_find(HASH_OF(server), ZEND_STRL("DOCUMENT_ROOT"))) != NULL) {
 				GENE_G(directory) = estrndup(Z_STRVAL_P(temp), Z_STRLEN_P(temp));
 			}
-			if ((temp = zend_hash_str_find(HASH_OF(server), ZEND_STRL("REQUEST_METHOD"))) != NULL) {
+			if (!GENE_REQ(method) && (temp = zend_hash_str_find(HASH_OF(server), ZEND_STRL("REQUEST_METHOD"))) != NULL) {
 				GENE_REQ(method) = estrndup(Z_STRVAL_P(temp), Z_STRLEN_P(temp));
 				strtolower(GENE_REQ(method));
 			}
-			if ((temp = zend_hash_str_find(HASH_OF(server), ZEND_STRL("REQUEST_URI"))) != NULL) {
+			if (!GENE_REQ(path) && (temp = zend_hash_str_find(HASH_OF(server), ZEND_STRL("REQUEST_URI"))) != NULL) {
 				GENE_REQ(path) = ecalloc(Z_STRLEN_P(temp)+1, sizeof(char));
 				leftByChar(GENE_REQ(path), Z_STRVAL_P(temp), '?');
 			}
