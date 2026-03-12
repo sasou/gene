@@ -929,7 +929,7 @@ PHP_METHOD(gene_router, getEvent) {
 	cache = gene_memory_get(router_e, router_e_len);
 	efree(router_e);
 	if (cache) {
-		ZVAL_COPY_VALUE(return_value, cache);
+		gene_memory_zval_local(return_value, cache);
 		return;
 	}
 	RETURN_NULL();
@@ -952,7 +952,7 @@ PHP_METHOD(gene_router, getTree) {
 	cache = gene_memory_get(router_e, router_e_len);
 	efree(router_e);
 	if (cache) {
-		ZVAL_COPY_VALUE(return_value, cache);
+		gene_memory_zval_local(return_value, cache);
 		return;
 	}
 	RETURN_NULL();
@@ -975,7 +975,7 @@ PHP_METHOD(gene_router, getConf) {
 	cache = gene_memory_get(router_e, router_e_len);
 	efree(router_e);
 	if (cache) {
-		ZVAL_COPY_VALUE(return_value, cache);
+		gene_memory_zval_local(return_value, cache);
 		return;
 	}
 	RETURN_NULL();
@@ -1430,3 +1430,4 @@ GENE_MINIT_FUNCTION(router) {
  * vim600: noet sw=4 ts=4 fdm=marker
  * vim<600: noet sw=4 ts=4
  */
+
