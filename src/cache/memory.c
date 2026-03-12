@@ -281,7 +281,8 @@ void gene_memory_hash_copy_local(HashTable *target, HashTable *source) /* {{{ */
 		gene_memory_zval_local(&rv, element);
 		if (key) {
 			str_key = zend_string_init(ZSTR_VAL(key), ZSTR_LEN(key), 0);
-			gene_symtable_update(target, str_key, &rv);
+			zend_symtable_update(target, str_key, &rv);
+			zend_string_release(str_key);
 		} else {
 			zend_hash_index_update(target, idx, &rv);
 		}
@@ -297,7 +298,7 @@ zval *gene_memory_zval_local(zval *dst, zval *source) /* {{{ */
 #endif
 	case IS_STRING:
 		str_key = zend_string_init(Z_STRVAL_P(source), Z_STRLEN_P(source), 0);
-		ZVAL_INTERNED_STR(dst, str_key);
+		ZVAL_NEW_STR(dst, str_key);
 		break;
 	case IS_ARRAY:
 		array_init(dst);
