@@ -135,34 +135,10 @@ static void gene_hash_init(zval *zv, uint32_t size) /* {{{ */{
 /* }}} */
 
 void gene_hash_destroy(HashTable *ht) /* {{{ */{
-	zend_string *key = NULL;
-	zval *element = NULL;
-
-#if PHP_VERSION_ID < 70400
-	if (((ht)->u.flags & HASH_FLAG_INITIALIZED)) {
-#else
-	if (HT_IS_INITIALIZED(ht)) {
-#endif
-		ZEND_HASH_FOREACH_STR_KEY_VAL(ht, key, element)
-		{
-			if (key) {
-				pefree(key, 1);
-			}
-			switch (Z_TYPE_P(element)) {
-			case IS_PTR:
-			#if PHP_VERSION_ID < 70300
-			case IS_CONSTANT:
-			#endif
-			case IS_STRING:
-				pefree(Z_PTR_P(element), 1);
-				break;
-			case IS_ARRAY:
-				gene_hash_destroy(Z_ARRVAL_P(element));
-				break;
-			}
-		}ZEND_HASH_FOREACH_END();
-		pefree(HT_GET_DATA_ADDR(ht), 1);
+	if (!ht) {
+		return;
 	}
+	zend_hash_destroy(ht);
 	pefree(ht, 1);
 } /* }}} */
 /*
