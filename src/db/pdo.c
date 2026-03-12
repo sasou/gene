@@ -512,8 +512,10 @@ void gene_pdo_prepare(zval *pdo_object, char *sql, zval *retval) /*{{{ RETURN a 
         uint32_t param_count = 1;
         zval prepare_sql;
         ZVAL_STRING(&prepare_sql, sql);
-        zval params[] = { prepare_sql };
+        zval params[1];
+        ZVAL_COPY(&params[0], &prepare_sql);
         call_user_function(NULL, pdo_object, &function_name, retval, param_count, params);
+        zval_ptr_dtor(&params[0]);
         zval_ptr_dtor(&prepare_sql);
     }
     zval_ptr_dtor(&function_name);
@@ -535,8 +537,10 @@ void gene_pdo_statement_execute(zval *pdostatement_obj, zval *bind_parameters, z
     ZVAL_STRING(&function_name, "execute");
     if (bind_parameters){
         uint32_t param_count = 1;
-        zval params[] = { *bind_parameters };
+        zval params[1];
+        ZVAL_COPY(&params[0], bind_parameters);
         call_user_function(NULL, pdostatement_obj, &function_name, retval, param_count, params);
+        zval_ptr_dtor(&params[0]);
     } else {
         uint32_t param_count = 0;
         zval *params = NULL;
