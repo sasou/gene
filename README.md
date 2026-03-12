@@ -27,6 +27,7 @@
 * 缓存：支持两种缓存，一是方法级定时缓存；二是实时版本缓存（创新功能：高效的实时缓存方案，轻松解决复杂缓存的更新，比如分页数据的缓存）； 
 * 国际化：内置多语言方案；  
 * 自动加载：基于 PSR-4，支持自定义扩展类库加载目录；
+* 运行时：PHP-FPM / 常驻进程 / 协程三种运行模型一键切换；提供 per-request 上下文清理，适配长驻与协程模式；
 * 完美支持Swoole（gene框架严格测试，常驻进程下低内存占用，无内存泄露）；
 * 其他：redis、memcached类库二次封装；  
 
@@ -193,7 +194,9 @@
     <?php
     define('APP_ROOT', dirname(__dir__) . '/app');
 
-    $http = new swoole_http_server("127.0.0.1", 9501, SWOOLE_PROCESS);
+    \Gene\Application::setRuntimeType('swoole');
+
+    $http = new swoole_http_server("0.0.0.0", 9501, SWOOLE_PROCESS);
 
     //配置
     $http->set([
@@ -210,17 +213,22 @@
         $type = $request->server['request_method'] ?? "get";
         $url = $request->server['request_uri'] ?? "/";
         \Gene\Request::init($request->get, $request->post, $request->cookie, $request->server, null, $request->files);
-        \Gene\Di::set("response", $response);
+        \Gene\Application::setResponse($response);
         
         ob_start();
-        $app = \Gene\Application::getInstance();
-        $app
-        ->autoload(APP_ROOT)
-        ->load("router.ini.php")
-        ->load("config.ini.php")
-        ->setEnvironment((int)\Gene\Application::config("runtime")["app_env"])
-        ->setRuntimeType(\Gene\Application::config("runtime")["runtime"])
-        ->run($type, $url);
+        try {
+            $app = \Gene\Application::getInstance();
+            $app
+            ->autoload(APP_ROOT)
+            ->load("router.ini.php")
+            ->load("config.ini.php")
+            ->run($type, $url);
+        } finally {
+            // 常驻/协程模式下建议清理上下文，避免数据串扰
+            \Gene\Application::clearState();
+            \Gene\Application::destroyContext();
+            \Gene\Request::clear();
+        }
         
         $out = ob_get_contents();
         ob_end_clean();
