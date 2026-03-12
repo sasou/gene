@@ -334,7 +334,9 @@ PHP_METHOD(gene_db_sqlite, select)
     	case IS_STRING:
     		{
     			char *qt = gene_quote_table(table, '`', '`');
-    			spprintf(&sql, 0, "SELECT %s FROM %s", Z_STRVAL_P(fields), qt);
+    			char *qf = gene_quote_columns(Z_STRVAL_P(fields), '`', '`');
+    			spprintf(&sql, 0, "SELECT %s FROM %s", qf, qt);
+    			efree(qf);
     			efree(qt);
     		}
     		break;
@@ -369,7 +371,7 @@ PHP_METHOD(gene_db_sqlite, count)
     {
     	char *qt = gene_quote_table(ZSTR_VAL(table), '`', '`');
     	if (fields) {
-    		char *qf = gene_quote_table(ZSTR_VAL(fields), '`', '`');
+    		char *qf = gene_quote_columns(ZSTR_VAL(fields), '`', '`');
     		spprintf(&sql, 0, "SELECT count(%s) AS count FROM %s", qf, qt);
     		efree(qf);
     	} else {
@@ -842,8 +844,10 @@ PHP_METHOD(gene_db_sqlite, order)
 		return;
 	}
 	if (order_len) {
-		spprintf(&order_tmp, 0, " ORDER BY %s", order);
+		char *qo = gene_quote_order(order, '`', '`');
+		spprintf(&order_tmp, 0, " ORDER BY %s", qo);
 		zend_update_property_string(gene_db_sqlite_ce, gene_strip_obj(self), ZEND_STRL(GENE_DB_SQLITE_ORDER), order_tmp);
+		efree(qo);
 		efree(order_tmp);
 	}
 	RETURN_ZVAL(self, 1, 0);
