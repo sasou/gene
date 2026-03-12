@@ -90,9 +90,8 @@ static void gene_memory_zval_dtor(zval *zvalue) {
 		gene_hash_destroy(Z_ARRVAL_P(zvalue));
 		break;
 	default:
-			break;
+		break;
 	}
-    zval_ptr_dtor(zvalue);
 }
 /* }}} */
 
@@ -161,7 +160,6 @@ void gene_hash_destroy(HashTable *ht) /* {{{ */{
 				gene_hash_destroy(Z_ARRVAL_P(element));
 				break;
 			}
-			zval_ptr_dtor(element);
 		}ZEND_HASH_FOREACH_END();
 		pefree(HT_GET_DATA_ADDR(ht), 1);
 	}

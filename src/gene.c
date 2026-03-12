@@ -318,6 +318,18 @@ PHP_RINIT_FUNCTION(gene) {
 		GENE_G(default_ctx).path_params = (zval*) pemalloc(sizeof(zval), 0);
 		array_init(GENE_G(default_ctx).path_params);
 	}
+	if (Z_TYPE(GENE_G(default_ctx).request_attr) != IS_UNDEF) {
+		zval_ptr_dtor(&GENE_G(default_ctx).request_attr);
+	}
+	ZVAL_UNDEF(&GENE_G(default_ctx).request_attr);
+	if (Z_TYPE(GENE_G(default_ctx).di_regs) != IS_UNDEF) {
+		zval_ptr_dtor(&GENE_G(default_ctx).di_regs);
+	}
+	ZVAL_UNDEF(&GENE_G(default_ctx).di_regs);
+	if (Z_TYPE(GENE_G(default_ctx).response) != IS_UNDEF) {
+		zval_ptr_dtor(&GENE_G(default_ctx).response);
+	}
+	ZVAL_UNDEF(&GENE_G(default_ctx).response);
 	if (GENE_G(runtime_type) >= 2 && !GENE_G(co_contexts)) {
 		ALLOC_HASHTABLE(GENE_G(co_contexts));
 		zend_hash_init(GENE_G(co_contexts), 8, NULL, gene_co_context_dtor, 0);
