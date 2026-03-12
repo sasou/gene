@@ -23,6 +23,7 @@
 #include "main/SAPI.h"
 #include "Zend/zend_API.h"
 #include "zend_exceptions.h"
+#include "zend_smart_str.h" /* for smart_str */
 
 #include "../gene.h"
 #include "language.h"
@@ -190,7 +191,12 @@ PHP_METHOD(gene_language, __get) {
         return;
     }
 
-    dir_conf = zend_hash_find(Z_ARRVAL_P(config), Z_STR_P(dir_zv));
+    smart_str_appendl(&cache_key, Z_STRVAL_P(dir_zv), Z_STRLEN_P(dir_zv));
+    smart_str_appendl(&cache_key, ":", 1);
+    smart_str_appendl(&cache_key, Z_STRVAL_P(lang_zv), Z_STRLEN_P(lang_zv));
+    smart_str_0(&cache_key);
+
+    dir_conf = zend_hash_find(Z_ARRVAL_P(config), cache_key.s);
 
     if (dir_conf == NULL) {
         /* 相当于 init(): APP_ROOT/Language/Dir/Lang.php */
