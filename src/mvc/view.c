@@ -44,6 +44,32 @@ static char *gene_view_app_base_path() {
 	return NULL;
 }
 
+zend_array *gene_view_build_symbol_table(zval *vars) {
+	zend_array *table;
+	zend_ulong idx;
+	zend_string *key;
+	zval *val;
+
+	if (vars == NULL || Z_TYPE_P(vars) != IS_ARRAY) {
+		return NULL;
+	}
+
+	ALLOC_HASHTABLE(table);
+	zend_hash_init(table, zend_hash_num_elements(Z_ARRVAL_P(vars)), NULL, ZVAL_PTR_DTOR, 0);
+
+	ZEND_HASH_FOREACH_KEY_VAL(Z_ARRVAL_P(vars), idx, key, val) {
+		zval tmp;
+		ZVAL_COPY(&tmp, val);
+		if (key) {
+			zend_hash_update(table, key, &tmp);
+		} else {
+			zend_hash_index_update(table, idx, &tmp);
+		}
+	} ZEND_HASH_FOREACH_END();
+
+	return table;
+}
+
 
 ZEND_BEGIN_ARG_INFO_EX(gene_view_void_arginfo, 0, 0, 0)
 ZEND_END_ARG_INFO()
@@ -438,12 +464,14 @@ PHP_METHOD(gene_view, __construct) {
  */
 PHP_METHOD(gene_view, display) {
 	zend_string *file, *parent_file = NULL;
+	zend_array *table = NULL;
+	zval *vars = NULL;
 	if (zend_parse_parameters(ZEND_NUM_ARGS(), "S|S", &file, &parent_file) == FAILURE) {
 		return;
 	}
 	zval *self = getThis();
-	zval *vars = gene_view_get_vars();
-	zend_array *table = (vars && Z_TYPE_P(vars) == IS_ARRAY) ? Z_ARRVAL_P(vars) : NULL;
+	vars = gene_view_get_vars();
+	table = gene_view_build_symbol_table(vars);
 
 	if (parent_file && ZSTR_LEN(parent_file) > 0) {
 		if (GENE_REQ(child_views)) {
@@ -456,6 +484,8 @@ PHP_METHOD(gene_view, display) {
 		gene_view_display(ZSTR_VAL(file), self, table);
 	}
 	if (table) {
+		zend_hash_destroy(table);
+		FREE_HASHTABLE(table);
 		gene_view_clear_vars();
 	}
 }
@@ -466,12 +496,14 @@ PHP_METHOD(gene_view, display) {
 PHP_METHOD(gene_view, displayExt) {
 	zend_string *file, *parent_file = NULL;
 	bool isCompile = 0;
+	zend_array *table = NULL;
+	zval *vars = NULL;
 	if (zend_parse_parameters(ZEND_NUM_ARGS(), "S|Sb", &file, &parent_file, &isCompile) == FAILURE) {
 		return;
 	}
 	zval *self = getThis();
-	zval *vars = gene_view_get_vars();
-	zend_array *table = (vars && Z_TYPE_P(vars) == IS_ARRAY) ? Z_ARRVAL_P(vars) : NULL;
+	vars = gene_view_get_vars();
+	table = gene_view_build_symbol_table(vars);
 
 	if (parent_file && ZSTR_LEN(parent_file)) {
 		if (GENE_REQ(child_views)) {
@@ -484,6 +516,8 @@ PHP_METHOD(gene_view, displayExt) {
 		gene_view_display_ext(ZSTR_VAL(file), isCompile, self, table);
 	}
 	if (table) {
+		zend_hash_destroy(table);
+		FREE_HASHTABLE(table);
 		gene_view_clear_vars();
 	}
 }
