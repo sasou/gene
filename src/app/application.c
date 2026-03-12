@@ -32,6 +32,7 @@
 #include "../config/configs.h"
 #include "../router/router.h"
 #include "../http/request.h"
+#include "../http/webscan.h"
 #include "../common/common.h"
 #include "../mvc/view.h"
 #include "../di/di.h"
@@ -82,6 +83,17 @@ ZEND_END_ARG_INFO()
 ZEND_BEGIN_ARG_INFO_EX(gene_application_run, 0, 0, 0)
 	ZEND_ARG_INFO(0, method)
 	ZEND_ARG_INFO(0, uri)
+ZEND_END_ARG_INFO()
+
+ZEND_BEGIN_ARG_INFO_EX(gene_application_webscan, 0, 0, 0)
+	ZEND_ARG_INFO(0, webscan_switch)
+	ZEND_ARG_INFO(0, webscan_white_directory)
+	ZEND_ARG_INFO(0, callback)
+	ZEND_ARG_INFO(0, webscan_white_url)
+	ZEND_ARG_INFO(0, webscan_get)
+	ZEND_ARG_INFO(0, webscan_post)
+	ZEND_ARG_INFO(0, webscan_cookie)
+	ZEND_ARG_INFO(0, webscan_referer)
 ZEND_END_ARG_INFO()
 
 ZEND_BEGIN_ARG_INFO_EX(gene_application_get_method, 0, 0, 0)
@@ -221,6 +233,81 @@ void gene_ini_router() {
 	}
 }
 /* }}} */
+
+static int gene_application_webscan_check()
+{
+	zval *enabled = zend_read_static_property(gene_application_ce, ZEND_STRL(GENE_APPLICATION_WEBSCAN_ENABLED), 1);
+	zval *config = zend_read_static_property(gene_application_ce, ZEND_STRL(GENE_APPLICATION_WEBSCAN_CONFIG), 1);
+	zval *callback = zend_read_static_property(gene_application_ce, ZEND_STRL(GENE_APPLICATION_WEBSCAN_CALLBACK), 1);
+	zend_string *class_name = NULL;
+	zend_class_entry *webscan_ce = NULL;
+	zval webscan_obj, ctor_name, ctor_ret, check_name, check_ret;
+	zval params[7];
+	int i, blocked = 0;
+
+	if (!enabled || !zend_is_true(enabled)) {
+		return 0;
+	}
+	if (!config || Z_TYPE_P(config) != IS_ARRAY) {
+		return 0;
+	}
+
+	class_name = zend_string_init(ZEND_STRL("Gene\\Webscan"), 0);
+	webscan_ce = zend_lookup_class(class_name);
+	zend_string_release(class_name);
+	if (!webscan_ce) {
+		php_error_docref(NULL, E_WARNING, "Unable to load security scanner class Gene\\Webscan");
+		return 0;
+	}
+
+	object_init_ex(&webscan_obj, webscan_ce);
+	for (i = 0; i < 7; i++) {
+		zval *item = zend_hash_index_find(Z_ARRVAL_P(config), i);
+		if (item) {
+			ZVAL_COPY(&params[i], item);
+		} else {
+			ZVAL_NULL(&params[i]);
+		}
+	}
+
+	ZVAL_STRING(&ctor_name, "__construct");
+	ZVAL_NULL(&ctor_ret);
+	call_user_function(NULL, &webscan_obj, &ctor_name, &ctor_ret, 7, params);
+	zval_ptr_dtor(&ctor_name);
+	zval_ptr_dtor(&ctor_ret);
+	for (i = 0; i < 7; i++) {
+		zval_ptr_dtor(&params[i]);
+	}
+
+	ZVAL_STRING(&check_name, "check");
+	ZVAL_NULL(&check_ret);
+	call_user_function(NULL, &webscan_obj, &check_name, &check_ret, 0, NULL);
+	blocked = zend_is_true(&check_ret);
+	zval_ptr_dtor(&check_name);
+	zval_ptr_dtor(&check_ret);
+
+	if (blocked) {
+		if (callback && Z_TYPE_P(callback) != IS_NULL) {
+			zval cb_ret;
+			ZVAL_NULL(&cb_ret);
+			if (call_user_function(EG(function_table), NULL, callback, &cb_ret, 0, NULL) == SUCCESS) {
+				if (Z_TYPE(cb_ret) != IS_NULL) {
+					zend_string *output = zval_get_string(&cb_ret);
+					if (ZSTR_LEN(output) > 0) {
+						PHPWRITE(ZSTR_VAL(output), ZSTR_LEN(output));
+					}
+					zend_string_release(output);
+				}
+				zval_ptr_dtor(&cb_ret);
+			}
+		} else {
+			PHPWRITE("Illegal access", sizeof("Illegal access") - 1);
+		}
+	}
+
+	zval_ptr_dtor(&webscan_obj);
+	return blocked;
+}
 
 /*
  *  {{{ zval *gene_application_instance(zval *this_ptr,zval *safe)
@@ -789,6 +876,64 @@ PHP_METHOD(gene_application, setView) {
 	RETURN_ZVAL(self, 1, 0);
 }
 /* }}} */
+/*
+ * {{{ public gene_application::webscan()
+ */
+PHP_METHOD(gene_application, webscan) {
+    zval *callback = NULL, *webscan_white_url = NULL, *self = getThis();
+    zend_long webscan_switch = 1, webscan_get = 1, webscan_post = 1, webscan_cookie = 1, webscan_referer = 1;
+    zend_string *webscan_white_directory = NULL;
+    zval config, enabled, null_val;
+
+    if (zend_parse_parameters(ZEND_NUM_ARGS(), "|lSzallll",
+        &webscan_switch,
+        &webscan_white_directory,
+        &callback,
+        &webscan_white_url,
+        &webscan_get,
+        &webscan_post,
+        &webscan_cookie,
+        &webscan_referer) == FAILURE) {
+        return;
+    }
+
+    array_init_size(&config, 7);
+    add_index_long(&config, 0, webscan_switch);
+    if (webscan_white_directory) {
+        add_index_str(&config, 1, zend_string_copy(webscan_white_directory));
+    } else {
+        add_index_string(&config, 1, "");
+    }
+    if (webscan_white_url) {
+        zval tmp;
+        ZVAL_COPY(&tmp, webscan_white_url);
+        add_index_zval(&config, 2, &tmp);
+    } else {
+        zval tmp;
+        array_init(&tmp);
+        add_index_zval(&config, 2, &tmp);
+    }
+    add_index_long(&config, 3, webscan_get);
+    add_index_long(&config, 4, webscan_post);
+    add_index_long(&config, 5, webscan_cookie);
+    add_index_long(&config, 6, webscan_referer);
+    zend_update_static_property(gene_application_ce, ZEND_STRL(GENE_APPLICATION_WEBSCAN_CONFIG), &config);
+    zval_ptr_dtor(&config);
+
+    ZVAL_LONG(&enabled, webscan_switch > 0 ? 1 : 0);
+    zend_update_static_property(gene_application_ce, ZEND_STRL(GENE_APPLICATION_WEBSCAN_ENABLED), &enabled);
+
+    if (callback) {
+        zend_update_static_property(gene_application_ce, ZEND_STRL(GENE_APPLICATION_WEBSCAN_CALLBACK), callback);
+    } else {
+        ZVAL_NULL(&null_val);
+        zend_update_static_property(gene_application_ce, ZEND_STRL(GENE_APPLICATION_WEBSCAN_CALLBACK), &null_val);
+    }
+
+    RETURN_ZVAL(self, 1, 0);
+}
+/* }}} */
+
 
 /*
  * {{{ public gene_application::run($method,$path)
@@ -802,6 +947,9 @@ PHP_METHOD(gene_application, run) {
 	}
 
 	gene_loader_register();
+	if (gene_application_webscan_check()) {
+		RETURN_ZVAL(self, 1, 0);
+	}
 
 	if (GENE_G(app_key)) {
 		ZVAL_STRING(&safe, GENE_G(app_key));
@@ -883,6 +1031,7 @@ const zend_function_entry gene_application_methods[] = {
 	PHP_ME(gene_application, setView, gene_application_set_view, ZEND_ACC_PUBLIC)
 	PHP_ME(gene_application, error, gene_application_error, ZEND_ACC_PUBLIC)
 	PHP_ME(gene_application, exception, gene_application_exception, ZEND_ACC_PUBLIC)
+	PHP_ME(gene_application, webscan, gene_application_webscan, ZEND_ACC_PUBLIC)
 	PHP_ME(gene_application, run, gene_application_run, ZEND_ACC_PUBLIC)
 	PHP_ME(gene_application, clearState, gene_application_get_method, ZEND_ACC_PUBLIC|ZEND_ACC_STATIC)
 	PHP_ME(gene_application, destroyContext, gene_application_get_method, ZEND_ACC_PUBLIC|ZEND_ACC_STATIC)
@@ -919,6 +1068,9 @@ GENE_MINIT_FUNCTION(application) {
 
 	//static
 	zend_declare_property_null(gene_application_ce, ZEND_STRL(GENE_APPLICATION_INSTANCE), ZEND_ACC_PROTECTED | ZEND_ACC_STATIC);
+	zend_declare_property_long(gene_application_ce, ZEND_STRL(GENE_APPLICATION_WEBSCAN_ENABLED), 0, ZEND_ACC_PROTECTED | ZEND_ACC_STATIC);
+	zend_declare_property_null(gene_application_ce, ZEND_STRL(GENE_APPLICATION_WEBSCAN_CONFIG), ZEND_ACC_PROTECTED | ZEND_ACC_STATIC);
+	zend_declare_property_null(gene_application_ce, ZEND_STRL(GENE_APPLICATION_WEBSCAN_CALLBACK), ZEND_ACC_PROTECTED | ZEND_ACC_STATIC);
 
 	return SUCCESS; // @suppress("Symbol is not resolved")
 }
@@ -932,3 +1084,5 @@ GENE_MINIT_FUNCTION(application) {
  * vim600: noet sw=4 ts=4 fdm=marker
  * vim<600: noet sw=4 ts=4
  */
+
+

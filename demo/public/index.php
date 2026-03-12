@@ -9,4 +9,10 @@ $app
     ->load("config.ini.php", CONF_DIR)
     ->setMode(1, 1)
     ->setRuntimeType(1)
+    ->webscan(1, 'cms', function () {
+        if (\Gene\Request::isAjax()) {
+            return json_encode(\Gene\Response::error("Illegal access"));
+        }
+        return "Illegal access";
+    })
     ->run();

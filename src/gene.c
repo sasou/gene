@@ -1,4 +1,4 @@
-/*
+﻿/*
  +----------------------------------------------------------------------+
  | gene                                                                 |
  +----------------------------------------------------------------------+
@@ -36,6 +36,7 @@
 #include "di/di.h"
 #include "mvc/controller.h"
 #include "http/request.h"
+#include "http/webscan.h"
 #include "http/response.h"
 #include "http/validate.h"
 #include "session/session.h"
@@ -261,6 +262,7 @@ PHP_MINIT_FUNCTION(gene) {
 	GENE_STARTUP(memory);
 	GENE_STARTUP(controller);
 	GENE_STARTUP(request);
+	GENE_STARTUP(webscan);
 	GENE_STARTUP(response);
 	GENE_STARTUP(validate);
 	GENE_STARTUP(session);
@@ -429,3 +431,6 @@ zend_module_entry gene_module_entry = {
  * vim600: noet sw=4 ts=4 fdm=marker
  * vim<600: noet sw=4 ts=4
  */
+
+
+
