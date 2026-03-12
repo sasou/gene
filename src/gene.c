@@ -303,7 +303,11 @@ PHP_MSHUTDOWN_FUNCTION(gene) {
 		GENE_G(cache) = NULL;
 	}
 	if (GENE_G(cache_easy)) {
-		gene_hash_destroy(GENE_G(cache_easy));
+		/* cache_easy stores raw filenode structs (not zvals), so we must not
+		 * use gene_hash_destroy which interprets buckets as zvals. A plain hash
+		 * destroy + manual table free is enough. */
+		zend_hash_destroy(GENE_G(cache_easy));
+		pefree(GENE_G(cache_easy), 1);
 		GENE_G(cache_easy) = NULL;
 	}
 	gene_rwlock_destroy(&GENE_G(cache_lock));
