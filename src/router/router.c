@@ -214,6 +214,9 @@ char *get_path_router_init(zval *conf, char *path) {
 				}
 				efree(uri);
 			} else {
+				if (path_tmp != path) {
+					efree(path_tmp);
+				}
 				path_tmp = uri;
 			}
 		}
@@ -594,6 +597,7 @@ char* get_router_content(zval **content, char *method, char *path) {
 		efree(contents);
 		return tmp;
 	}
+	efree(contents);
 	return NULL;
 }
 
@@ -621,6 +625,8 @@ void get_router_content_run(char *methodin, char *pathin, zval *safe) {
 	}
 
 	if (method == NULL || path == NULL) {
+		if (method) efree(method);
+		if (path) efree(path);
 		php_error_docref(NULL, E_WARNING, "Gene Unknown Method And Url: NULL");
 		return;
 	}
@@ -1121,7 +1127,9 @@ PHP_METHOD(gene_router, readFile) {
 	}
 	rec = readfilecontent(ZSTR_VAL(fileName));
 	if (rec != NULL) {
-		RETURN_STRING(rec);
+		RETVAL_STRING(rec);
+		efree(rec);
+		return;
 	}
 	RETURN_NULL();
 }
@@ -1212,36 +1220,47 @@ PHP_METHOD(gene_router, displayExt) {
  */
 PHP_METHOD(gene_router, dispatch) {
 	char *class = NULL, *action = NULL;
+	char *class_alloc = NULL, *action_alloc = NULL, *tmp_alloc = NULL;
 	zend_long class_len = 0, action_len = 0;
 	zval *params = NULL, classObject;
 	if (zend_parse_parameters(ZEND_NUM_ARGS(), "ssz", &class, &class_len, &action, &action_len, &params) == FAILURE) {
 		return;
 	}
 	if (GENE_REQ(module) != NULL) {
-		class = strreplace2(class, ":m", GENE_REQ(module));
+		class_alloc = strreplace2(class, ":m", GENE_REQ(module));
+		class = class_alloc;
 	}
 	if (GENE_REQ(controller) != NULL) {
-		class = strreplace2(class, ":c", GENE_REQ(controller));
+		tmp_alloc = strreplace2(class, ":c", GENE_REQ(controller));
+		if (class_alloc) efree(class_alloc);
+		class_alloc = tmp_alloc;
+		class = class_alloc;
 	}
 
 	if (gene_factory(class, strlen(class), NULL, &classObject)) {
 		if (GENE_REQ(action) != NULL) {
-			action = strreplace2(action, ":a", GENE_REQ(action));
+			action_alloc = strreplace2(action, ":a", GENE_REQ(action));
+			action = action_alloc;
 		}
 		strtolower(action);
 		if (Z_TYPE(classObject) == IS_OBJECT
 				&& zend_hash_str_exists(&(Z_OBJCE(classObject)->function_table), action, strlen(action))) {
 			zval ret;
 			gene_factory_call_1(&classObject, action, params, &ret);
+			if (class_alloc) efree(class_alloc);
+			if (action_alloc) efree(action_alloc);
 			RETURN_ZVAL(&ret, 1, 1);
 		} else {
 			php_error_docref(NULL, E_WARNING, "Unable to call method '%s' in class '%s'." , action, class);
 		}
+		if (class_alloc) efree(class_alloc);
+		if (action_alloc) efree(action_alloc);
 		RETURN_NULL();
 
 	} else {
 		php_error_docref(NULL, E_WARNING, "Unable to init calss '%s'." , class);
 	}
+	if (class_alloc) efree(class_alloc);
 	RETURN_NULL();
 }
 /* }}} */
