@@ -135,10 +135,38 @@ static void gene_hash_init(zval *zv, uint32_t size) /* {{{ */{
 /* }}} */
 
 void gene_hash_destroy(HashTable *ht) /* {{{ */{
+	zend_string **keys = NULL;
+	zend_string *key;
+	uint32_t key_count = 0;
+	uint32_t i;
+
 	if (!ht) {
 		return;
 	}
+
+	if (ht->nNumUsed > 0) {
+		keys = (zend_string **) pemalloc(sizeof(zend_string *) * ht->nNumUsed, 1);
+		ZEND_HASH_FOREACH_STR_KEY(ht, key) {
+			if (key
+#if PHP_VERSION_ID < 70300
+					&& (GC_FLAGS(key) & IS_STR_INTERNED)
+#else
+					&& (GC_FLAGS(key) & (IS_STR_INTERNED | IS_STR_PERMANENT))
+#endif
+			) {
+				keys[key_count++] = key;
+			}
+		} ZEND_HASH_FOREACH_END();
+	}
+
 	zend_hash_destroy(ht);
+
+	for (i = 0; i < key_count; i++) {
+		pefree(keys[i], 1);
+	}
+	if (keys) {
+		pefree(keys, 1);
+	}
 	pefree(ht, 1);
 } /* }}} */
 /*
@@ -421,6 +449,7 @@ static zval * gene_memory_set_val(zval *val, char *keyString, size_t keyString_l
 		}
 		keyS = zend_string_init(keyString, keyString_len, 1);
 		copyval = gene_symtable_update(Z_ARRVAL_P(val), keyS, &tmp);
+		zend_string_release(keyS);
 		zval_ptr_dtor(&tmp);
 	} else {
 		if (zvalue) {
@@ -454,6 +483,7 @@ void gene_memory_set_by_router(char *keyString, size_t keyString_len, char *path
 		gene_hash_init(&ret, 0);
 		keyS = zend_string_init(keyString, keyString_len, 1);
 		gene_symtable_update(GENE_G(cache), keyS, &ret);
+		zend_string_release(keyS);
 		tmp = &ret;
 		seg = php_strtok_r(path, "/", &ptr);
 		while (seg) {
@@ -541,8 +571,16 @@ int gene_memory_del(char *keyString, size_t keyString_len) {
 		zend_symtable_str_del(GENE_G(cache), keyString, keyString_len);
 		GENE_G(cache)->pDestructor = orig_dtor;
 
-		/* Finally free the persistent key memory that PHP would never release */
-		pefree(stored_key, 1);
+		/* Only keys forced to permanent/interned need manual freeing */
+#if PHP_VERSION_ID < 70300
+		if (GC_FLAGS(stored_key) & IS_STR_INTERNED) {
+			pefree(stored_key, 1);
+		}
+#else
+		if (GC_FLAGS(stored_key) & (IS_STR_INTERNED | IS_STR_PERMANENT)) {
+			pefree(stored_key, 1);
+		}
+#endif
 		GENE_CACHE_WRUNLOCK();
 		return 1;
 	}
