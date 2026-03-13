@@ -447,9 +447,8 @@ static zval * gene_memory_set_val(zval *val, char *keyString, size_t keyString_l
 		} else {
 			gene_hash_init(&tmp, 1);
 		}
-		keyS = zend_string_init(keyString, keyString_len, 1);
+		keyS = gene_str_persistent(keyString, keyString_len);
 		copyval = gene_symtable_update(Z_ARRVAL_P(val), keyS, &tmp);
-		zend_string_release(keyS);
 		zval_ptr_dtor(&tmp);
 	} else {
 		if (zvalue) {
@@ -481,9 +480,8 @@ void gene_memory_set_by_router(char *keyString, size_t keyString_len, char *path
 	copyval = zend_symtable_str_find(GENE_G(cache), keyString, keyString_len);
 	if (copyval == NULL) {
 		gene_hash_init(&ret, 0);
-		keyS = zend_string_init(keyString, keyString_len, 1);
+		keyS = gene_str_persistent(keyString, keyString_len);
 		gene_symtable_update(GENE_G(cache), keyS, &ret);
-		zend_string_release(keyS);
 		tmp = &ret;
 		seg = php_strtok_r(path, "/", &ptr);
 		while (seg) {
