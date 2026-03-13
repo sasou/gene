@@ -176,13 +176,8 @@ bool mysqlInitPdo (zval * self, zval *config) {
     if (options == NULL || Z_TYPE_P(options) == IS_NULL) {
 		array_init(&option);
     } else {
-		ZVAL_COPY(&option, options);
+		ZVAL_DUP(&option, options);
     }
-	#if PHP_VERSION_ID < 70300
-		GC_REFCOUNT(Z_ARRVAL_P(&option)) = 1;
-	#else
-		GC_SET_REFCOUNT(Z_ARRVAL_P(&option), 1);
-	#endif
 	
 	add_index_long(&option, 3, 2);
 	add_index_long(&option, 19, 2);
@@ -265,7 +260,11 @@ bool gene_mysql_pdo_execute (zval *self, zval *statement)
 			mysqlSaveHistory(&sql, params);
 		}
 		smart_str_free(&sql);
-		return Z_TYPE(retval) == 3 ? 1 : 0;
+		{
+			zend_bool success = Z_TYPE(retval) == IS_TRUE ? 1 : 0;
+			zval_ptr_dtor(&retval);
+			return success;
+		}
 	}
 	smart_str_free(&sql);
     return 0;
