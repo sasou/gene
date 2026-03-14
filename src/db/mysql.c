@@ -179,14 +179,13 @@ bool mysqlInitPdo (zval * self, zval *config) {
 	
 	add_index_long(&option, 3, 2);
 	add_index_long(&option, 19, 2);
-	/* In Swoole/coroutine mode, Gene\Db\Mysql is recreated per-request (instance:false +
-	 * DI skip) to isolate query-builder state between concurrent coroutines. Force
-	 * PDO::ATTR_PERSISTENT (key=12) so the underlying TCP connection is reused from
-	 * PHP's own persistent-connection pool even when the PHP object is brand-new.
-	 * Swoole's coroutine hook makes persistent PDO connections coroutine-safe. */
-	if (GENE_G(runtime_type) >= 2) {
-		add_index_long(&option, 12, 1);
-	}
+	/* In Swoole/coroutine mode, do NOT use PDO::ATTR_PERSISTENT.
+	 * PHP persistent connections live in the process-global EG(persistent_list);
+	 * when two coroutines create PDO with the same DSN + ATTR_PERSISTENT, PHP
+	 * returns the SAME underlying TCP socket — Swoole then throws
+	 * "Socket has already been bound to another coroutine".
+	 * Each coroutine already gets its own Gene\Db\Mysql via per-coroutine di_regs,
+	 * so each creates a private non-persistent connection that is fully isolated. */
 	gene_pdo_construct(&pdo_object, dsn, user, pass, &option);
 	zval_ptr_dtor(&option);
 
