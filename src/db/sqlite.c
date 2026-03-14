@@ -116,10 +116,9 @@ void sqlite_reset_sql_params(zval *self)
 }
 
 void sqliteSaveHistory(smart_str *sql, zval *param) {
-	zval *history = NULL;
+	zval *history = &GENE_REQ(db_sqlite_history);
 	zval params, z_row, z_sql, z_data, z_time, z_memory;
 	char *char_t,*char_m;
-	history = zend_read_static_property(gene_db_sqlite_ce, ZEND_STRL(GENE_DB_SQLITE_HISTORY), 1);
 
 	ZVAL_STRING(&z_sql, ZSTR_VAL(sql->s));
 
@@ -144,8 +143,7 @@ void sqliteSaveHistory(smart_str *sql, zval *param) {
 	} else {
     	array_init(&params);
     	add_next_index_zval(&params, &z_row);
-    	zend_update_static_property(gene_db_sqlite_ce, ZEND_STRL(GENE_DB_SQLITE_HISTORY), &params);
-    	zval_ptr_dtor(&params);
+    	ZVAL_COPY_VALUE(history, &params);
 	}
 }
 
@@ -284,7 +282,10 @@ PHP_METHOD(gene_db_sqlite, __construct)
         return;
     }
 
-    zend_update_static_property_null(gene_db_sqlite_ce, ZEND_STRL(GENE_DB_SQLITE_HISTORY));
+    if (Z_TYPE(GENE_REQ(db_sqlite_history)) != IS_UNDEF) {
+    	zval_ptr_dtor(&GENE_REQ(db_sqlite_history));
+    }
+    ZVAL_UNDEF(&GENE_REQ(db_sqlite_history));
 
     if (config) {
     	zend_update_property(gene_db_sqlite_ce, gene_strip_obj(self), ZEND_STRL(GENE_DB_SQLITE_CONFIG), config);
@@ -1068,9 +1069,10 @@ PHP_METHOD(gene_db_sqlite, free)
  */
 PHP_METHOD(gene_db_sqlite, history)
 {
-	zval *history = NULL;
-	history = zend_read_static_property(gene_db_sqlite_ce, ZEND_STRL(GENE_DB_SQLITE_HISTORY), 1);
-	RETURN_ZVAL(history, 1, 0);
+	if (Z_TYPE(GENE_REQ(db_sqlite_history)) == IS_UNDEF) {
+		RETURN_NULL();
+	}
+	RETURN_ZVAL(&GENE_REQ(db_sqlite_history), 1, 0);
 }
 /* }}} */
 
