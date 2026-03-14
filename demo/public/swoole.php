@@ -46,10 +46,12 @@ $http->on("request", function ($request, $response) {
     );
 
     \Gene\Application::setResponse($response);
+    $method = strtolower($request->server['request_method'] ?? 'get');
+    $uri    = $request->server['request_uri'] ?? '/';
 
     ob_start();
     try {
-        \Gene\Application::getInstance()->run();
+        \Gene\Application::getInstance()->run($method, $uri);
     } catch (\Throwable $e) {
         ob_end_clean();
         $response->status(500);
