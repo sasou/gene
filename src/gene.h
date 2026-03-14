@@ -103,6 +103,10 @@ typedef struct _gene_request_context {
 	zval response;
 	zval view_vars;
 	zend_long view_scope_no;
+	zval db_mysql_history;
+	zval db_pgsql_history;
+	zval db_sqlite_history;
+	zval db_mssql_history;
 } gene_request_context;
 
 ZEND_BEGIN_MODULE_GLOBALS (gene)
