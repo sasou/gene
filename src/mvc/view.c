@@ -380,12 +380,10 @@ static int parser_templates(php_stream **stream, char *compile_path) {
  *  {{{ int gene_view_clear_vars()
  */
 void gene_view_clear_vars() {
-	zval *no = NULL, *vars = NULL;
-	vars = zend_read_static_property(gene_view_ce, GENE_VIEW_VARS, strlen(GENE_VIEW_VARS), 1);
+	gene_request_context *ctx = gene_request_ctx();
+	zval *vars = &ctx->view_vars;
 	if (Z_TYPE_P(vars) == IS_ARRAY) {
-		no = zend_read_static_property(gene_view_ce, GENE_VIEW_VERSION_NO, strlen(GENE_VIEW_VERSION_NO), 1);
-		zend_long num = Z_LVAL_P(no);
-		zend_hash_index_del(Z_ARRVAL_P(vars), num);
+		zend_hash_index_del(Z_ARRVAL_P(vars), ctx->view_scope_no);
 	}
 }
 /* }}} */
@@ -394,10 +392,12 @@ void gene_view_clear_vars() {
  *  {{{ int gene_view_reset_vars()
  */
 void gene_view_reset_vars() {
-	zval null_val;
-	ZVAL_NULL(&null_val);
-	zend_update_static_property(gene_view_ce, GENE_VIEW_VARS, strlen(GENE_VIEW_VARS), &null_val);
-	zend_update_static_property_long(gene_view_ce, GENE_VIEW_VERSION_NO, strlen(GENE_VIEW_VERSION_NO), 0);
+	gene_request_context *ctx = gene_request_ctx();
+	if (Z_TYPE(ctx->view_vars) != IS_UNDEF) {
+		zval_ptr_dtor(&ctx->view_vars);
+	}
+	ZVAL_UNDEF(&ctx->view_vars);
+	ctx->view_scope_no = 0;
 }
 /* }}} */
 
@@ -405,14 +405,12 @@ void gene_view_reset_vars() {
  *  {{{ int gene_view_get_vars()
  */
 zval *gene_view_get_vars() {
-	zval *no = NULL, *vars = NULL, *nodata = NULL;
-	no = zend_read_static_property(gene_view_ce, GENE_VIEW_VERSION_NO, strlen(GENE_VIEW_VERSION_NO), 1);
-	zend_long num = Z_LVAL_P(no);
-	vars = zend_read_static_property(gene_view_ce, GENE_VIEW_VARS, strlen(GENE_VIEW_VARS), 1);
+	gene_request_context *ctx = gene_request_ctx();
+	zval *vars = &ctx->view_vars, *nodata = NULL;
 	if (Z_TYPE_P(vars) != IS_ARRAY) {
 		return NULL;
 	}
-	nodata = zend_hash_index_find(Z_ARRVAL_P(vars), num);
+	nodata = zend_hash_index_find(Z_ARRVAL_P(vars), ctx->view_scope_no);
 	return Z_TYPE_P(nodata) == IS_ARRAY ? nodata : NULL;
 }
 /* }}} */
@@ -421,10 +419,9 @@ zval *gene_view_get_vars() {
  *  {{{ int gene_view_set_vars(zend_string *name, zval *value)
  */
 int gene_view_set_vars(zend_string *name, zval *value) {
-	zval *vars = NULL, *no = NULL, *nodata = NULL;
-	vars = zend_read_static_property(gene_view_ce, GENE_VIEW_VARS, strlen(GENE_VIEW_VARS), 1);
-	no = zend_read_static_property(gene_view_ce, GENE_VIEW_VERSION_NO, strlen(GENE_VIEW_VERSION_NO), 1);
-	zend_long num = Z_LVAL_P(no);
+	gene_request_context *ctx = gene_request_ctx();
+	zval *vars = &ctx->view_vars, *nodata = NULL;
+	zend_long num = ctx->view_scope_no;
 
 	if (Z_TYPE_P(vars) != IS_ARRAY) {
 		zval params, nodata_tmp;
@@ -433,8 +430,7 @@ int gene_view_set_vars(zend_string *name, zval *value) {
 		Z_TRY_ADDREF_P(value);
 		zend_hash_update(Z_ARRVAL(nodata_tmp), name, value);
 		zend_hash_index_update(Z_ARRVAL(params), num, &nodata_tmp);
-		zend_update_static_property(gene_view_ce, GENE_VIEW_VARS, strlen(GENE_VIEW_VARS), &params);
-		zval_ptr_dtor(&params);
+		ZVAL_COPY_VALUE(vars, &params);
 	} else {
 		nodata = zend_hash_index_find(Z_ARRVAL_P(vars), num);
 		if (nodata == NULL || Z_TYPE_P(nodata) != IS_ARRAY) {
@@ -620,16 +616,14 @@ PHP_METHOD(gene_view, __set)
 PHP_METHOD(gene_view, scope)
 {
 	zend_long num = 0;
-	zval *no = NULL;
+	gene_request_context *ctx = gene_request_ctx();
 	if (zend_parse_parameters(ZEND_NUM_ARGS(), "|l", &num) == FAILURE) {
 		return;
 	}
 	if (num == 0) {
-		no = zend_read_static_property(gene_view_ce, GENE_VIEW_VERSION_NO, strlen(GENE_VIEW_VERSION_NO), 1);
-		num = Z_LVAL_P(no);
-		num = num + 1;
+		num = ctx->view_scope_no + 1;
 	}
-	zend_update_static_property_long(gene_view_ce, GENE_VIEW_VERSION_NO, strlen(GENE_VIEW_VERSION_NO), num);
+	ctx->view_scope_no = num;
 	RETURN_TRUE;
 }
 /* }}} */

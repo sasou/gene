@@ -101,6 +101,8 @@ typedef struct _gene_request_context {
 	zval request_attr;
 	zval di_regs;
 	zval response;
+	zval view_vars;
+	zend_long view_scope_no;
 } gene_request_context;
 
 ZEND_BEGIN_MODULE_GLOBALS (gene)
