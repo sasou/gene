@@ -669,11 +669,14 @@ PHP_METHOD(gene_application, destroyContext) {
 	if (GENE_G(runtime_type) >= 2 && GENE_G(co_contexts)) {
 		zend_long cid = gene_get_coroutine_id();
 		if (cid < 0) {
-			if (GENE_G(current_ctx) == &GENE_G(default_ctx)) {
-				GENE_G(current_ctx) = NULL;
+			if (GENE_G(resident_ctx)) {
+				gene_request_context_destroy(GENE_G(resident_ctx));
+				efree(GENE_G(resident_ctx));
+				GENE_G(resident_ctx) = NULL;
 			}
+			GENE_G(current_ctx) = NULL;
 			GENE_G(current_cid) = -1;
-			RETURN_FALSE;
+			RETURN_TRUE;
 		}
 		zend_hash_index_del(GENE_G(co_contexts), (zend_ulong)cid);
 		if (GENE_G(current_cid) == cid) {

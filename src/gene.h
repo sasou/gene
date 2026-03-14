@@ -126,6 +126,7 @@ HashTable *cache;
 HashTable *cache_easy;
 gene_rwlock_t cache_lock;
 gene_request_context default_ctx;
+gene_request_context *resident_ctx;
 HashTable *co_contexts;
 gene_request_context *current_ctx;
 zend_long current_cid;
