@@ -119,6 +119,22 @@ void gene_free_request_context(gene_request_context *ctx) {
 		zval_ptr_dtor(&ctx->view_vars);
 		ZVAL_UNDEF(&ctx->view_vars);
 	}
+	if (Z_TYPE(ctx->db_mysql_history) != IS_UNDEF) {
+		zval_ptr_dtor(&ctx->db_mysql_history);
+		ZVAL_UNDEF(&ctx->db_mysql_history);
+	}
+	if (Z_TYPE(ctx->db_pgsql_history) != IS_UNDEF) {
+		zval_ptr_dtor(&ctx->db_pgsql_history);
+		ZVAL_UNDEF(&ctx->db_pgsql_history);
+	}
+	if (Z_TYPE(ctx->db_sqlite_history) != IS_UNDEF) {
+		zval_ptr_dtor(&ctx->db_sqlite_history);
+		ZVAL_UNDEF(&ctx->db_sqlite_history);
+	}
+	if (Z_TYPE(ctx->db_mssql_history) != IS_UNDEF) {
+		zval_ptr_dtor(&ctx->db_mssql_history);
+		ZVAL_UNDEF(&ctx->db_mssql_history);
+	}
 	ctx->view_scope_no = 0;
 }
 /* }}} */
@@ -166,6 +182,10 @@ gene_request_context *gene_request_ctx(void) {
 		ZVAL_UNDEF(&ctx->di_regs);
 		ZVAL_UNDEF(&ctx->response);
 		ZVAL_UNDEF(&ctx->view_vars);
+		ZVAL_UNDEF(&ctx->db_mysql_history);
+		ZVAL_UNDEF(&ctx->db_pgsql_history);
+		ZVAL_UNDEF(&ctx->db_sqlite_history);
+		ZVAL_UNDEF(&ctx->db_mssql_history);
 		ctx->view_scope_no = 0;
 		zend_hash_index_update_ptr(GENE_G(co_contexts), (zend_ulong)cid, ctx);
 	}
@@ -343,6 +363,22 @@ PHP_RINIT_FUNCTION(gene) {
 		zval_ptr_dtor(&GENE_G(default_ctx).view_vars);
 	}
 	ZVAL_UNDEF(&GENE_G(default_ctx).view_vars);
+	if (Z_TYPE(GENE_G(default_ctx).db_mysql_history) != IS_UNDEF) {
+		zval_ptr_dtor(&GENE_G(default_ctx).db_mysql_history);
+	}
+	ZVAL_UNDEF(&GENE_G(default_ctx).db_mysql_history);
+	if (Z_TYPE(GENE_G(default_ctx).db_pgsql_history) != IS_UNDEF) {
+		zval_ptr_dtor(&GENE_G(default_ctx).db_pgsql_history);
+	}
+	ZVAL_UNDEF(&GENE_G(default_ctx).db_pgsql_history);
+	if (Z_TYPE(GENE_G(default_ctx).db_sqlite_history) != IS_UNDEF) {
+		zval_ptr_dtor(&GENE_G(default_ctx).db_sqlite_history);
+	}
+	ZVAL_UNDEF(&GENE_G(default_ctx).db_sqlite_history);
+	if (Z_TYPE(GENE_G(default_ctx).db_mssql_history) != IS_UNDEF) {
+		zval_ptr_dtor(&GENE_G(default_ctx).db_mssql_history);
+	}
+	ZVAL_UNDEF(&GENE_G(default_ctx).db_mssql_history);
 	GENE_G(default_ctx).view_scope_no = 0;
 	if (GENE_G(runtime_type) >= 2 && !GENE_G(co_contexts)) {
 		ALLOC_HASHTABLE(GENE_G(co_contexts));
