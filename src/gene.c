@@ -211,18 +211,11 @@ void gene_request_context_destroy(gene_request_context *ctx) {
 }
 /* }}} */
 
-/* {{{ gene_free_request_context */
-void gene_free_request_context(gene_request_context *ctx) {
-	if (!ctx) return;
-	gene_request_context_destroy(ctx);
-}
-/* }}} */
-
 /* {{{ gene_co_context_dtor - destructor for co_contexts HashTable entries */
 static void gene_co_context_dtor(zval *zv) {
 	gene_request_context *ctx = (gene_request_context *)Z_PTR_P(zv);
 	if (ctx) {
-		gene_free_request_context(ctx);
+		gene_request_context_destroy(ctx);
 		efree(ctx);
 	}
 }
@@ -287,7 +280,7 @@ static void php_gene_init_globals() {
 /* {{{ php_gene_close_request_globals
  */
 static void php_gene_close_request_globals() {
-	gene_free_request_context(&GENE_G(default_ctx));
+	gene_request_context_destroy(&GENE_G(default_ctx));
 	if (GENE_G(directory)) {
 		efree(GENE_G(directory));
 		GENE_G(directory) = NULL;
