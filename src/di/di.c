@@ -115,34 +115,41 @@ zval *gene_di_get(zend_string *name) {
     		type = 1;
     	}
 
+		zend_string *local_class_str = zend_string_init(Z_STRVAL_P(class), Z_STRLEN_P(class), 0);
+		zval local_params;
+		if (params) {
+			gene_memory_zval_local(&local_params, params);
+		} else {
+			ZVAL_NULL(&local_params);
+		}
+
 		if (type) {
-			if ((pzval = zend_hash_find(Z_ARRVAL_P(entrys), Z_STR_P(class))) != NULL) {
+			if ((pzval = zend_hash_find(Z_ARRVAL_P(entrys), local_class_str)) != NULL) {
+				zend_string_release(local_class_str);
+				zval_ptr_dtor(&local_params);
 				return pzval;
 			}
 		}
 
 		zval classObject;
-		if (gene_factory_load_class(Z_STRVAL_P(class), Z_STRLEN_P(class), &classObject)) {
+		if (gene_factory_load_class(ZSTR_VAL(local_class_str), ZSTR_LEN(local_class_str), &classObject)) {
 			if (zend_hash_str_exists(&(Z_OBJCE(classObject)->function_table), ZEND_STRL("__construct"))) {
 				zval tmp;
-				zval local_params;
-				if (params) {
-					gene_memory_zval_local(&local_params, params);
-				} else {
-					ZVAL_NULL(&local_params);
-				}
 				gene_factory_call(&classObject, "__construct", &local_params, &tmp);
 				zval_ptr_dtor(&tmp);
-				zval_ptr_dtor(&local_params);
 			}
 
 			if (type) {
-				zend_hash_update(Z_ARRVAL_P(entrys), Z_STR_P(class), &classObject);
+				zend_hash_update(Z_ARRVAL_P(entrys), local_class_str, &classObject);
 			}
 		    if ((pzval = zend_hash_update(Z_ARRVAL_P(entrys), name, &classObject)) != NULL ) {
+		    	zend_string_release(local_class_str);
+		    	zval_ptr_dtor(&local_params);
 		    	return pzval;
 		    }
 		}
+		zend_string_release(local_class_str);
+		zval_ptr_dtor(&local_params);
 	}
 	return NULL;
 }
