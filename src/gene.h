@@ -137,7 +137,6 @@ gene_request_context *gene_request_ctx(void);
 void gene_request_context_init(gene_request_context *ctx);
 void gene_request_context_reset(gene_request_context *ctx);
 void gene_request_context_destroy(gene_request_context *ctx);
-void gene_free_request_context(gene_request_context *ctx);
 zend_long gene_get_coroutine_id(void);
 void gene_init_co_contexts(void);
 
