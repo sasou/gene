@@ -37,6 +37,8 @@ $http->on("workerStart", function ($server, $workerId) {
         ->load("router.ini.php", CONF_DIR)
         ->load("config.ini.php", CONF_DIR)
         ->setMode(1, 1);
+
+    \Gene\Application::destroyContext();
 });
 
 $http->on("request", function ($request, $response) {
