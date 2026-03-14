@@ -352,7 +352,7 @@ int get_router_info(zval **leaf, zval **cacheHook) {
 			is = 0;
 		}
 	}
-	if (is == 1) {
+	if (is == 1 && *cacheHook && Z_TYPE_P(*cacheHook) == IS_ARRAY) {
 		before = zend_hash_str_find(Z_ARRVAL_P(*cacheHook), "hook:before", 11);
 		if (before) {
 			size = size + Z_STRLEN_P(before);
@@ -362,7 +362,7 @@ int get_router_info(zval **leaf, zval **cacheHook) {
 		}
 	}
 	is = 1;
-	if (seg && strlen(seg) > 0) {
+	if (seg && strlen(seg) > 0 && *cacheHook && Z_TYPE_P(*cacheHook) == IS_ARRAY) {
 		h = zend_hash_str_find(Z_ARRVAL_P(*cacheHook), seg, strlen(seg));
 		if (h) {
 			size = size + Z_STRLEN_P(h);
@@ -383,7 +383,7 @@ int get_router_info(zval **leaf, zval **cacheHook) {
 			is = 0;
 		}
 	}
-	if (is == 1) {
+	if (is == 1 && *cacheHook && Z_TYPE_P(*cacheHook) == IS_ARRAY) {
 		after = zend_hash_str_find(Z_ARRVAL_P(*cacheHook), "hook:after", 10);
 		if (after) {
 			size = size + Z_STRLEN_P(after);
@@ -393,7 +393,10 @@ int get_router_info(zval **leaf, zval **cacheHook) {
 		}
 	}
 
-	zend_eval_stringl(run, size - 1, NULL, "");
+	zend_try {
+		zend_eval_stringl(run, size - 1, NULL, "");
+	} zend_catch {
+	} zend_end_try();
 
 	efree(run);
 	if (hookname) {
@@ -418,7 +421,10 @@ int get_router_error_run_by_router(zval *cacheHook, char *errorName) {
 			strcat(run, Z_STRVAL_P(error));
 			run[size - 1] = 0;
 
-			zend_eval_stringl(run, strlen(run), NULL, errorName);
+			zend_try {
+				zend_eval_stringl(run, strlen(run), NULL, errorName);
+			} zend_catch {
+			} zend_end_try();
 
 			efree(router_e);
 			efree(run);
@@ -464,7 +470,10 @@ int get_router_error_run(char *errorName, zval *safe) {
 		return 0;
 	}
 
-	zend_eval_stringl(run, strlen(run), NULL, "");
+	zend_try {
+		zend_eval_stringl(run, strlen(run), NULL, "");
+	} zend_catch {
+	} zend_end_try();
 
 	efree(run);
 	run = NULL;
@@ -483,6 +492,7 @@ char * get_function_content(zval *content) {
 	zend_class_entry *reflection_ptr = zend_lookup_class(c_key);
 
 	if (reflection_ptr == NULL) {
+		zend_string_release(c_key);
 		php_error_docref(NULL, E_WARNING, "Unable to start ReflectionFunction");
 		return NULL;
 	}
@@ -491,20 +501,49 @@ char * get_function_content(zval *content) {
 	object_init_ex(&objEx, reflection_ptr);
 	zend_call_method_with_1_params(gene_strip_obj(&objEx), NULL, NULL, "__construct", NULL,
 			content);
+	if (EG(exception)) {
+		zval_ptr_dtor(&objEx);
+		zend_clear_exception();
+		return NULL;
+	}
 	zend_call_method_with_0_params(gene_strip_obj(&objEx), NULL, NULL, "getFileName",
 			&fileName);
+	if (Z_TYPE(fileName) != IS_STRING) {
+		zval_ptr_dtor(&fileName);
+		zval_ptr_dtor(&objEx);
+		return NULL;
+	}
 	zend_call_method_with_0_params(gene_strip_obj(&objEx), NULL, NULL, "getStartLine", &ret);
+	if (Z_TYPE(ret) != IS_LONG) {
+		zval_ptr_dtor(&ret);
+		zval_ptr_dtor(&fileName);
+		zval_ptr_dtor(&objEx);
+		return NULL;
+	}
 	startline = Z_LVAL(ret) - 1;
 	zval_ptr_dtor(&ret);
 	zend_call_method_with_0_params(gene_strip_obj(&objEx), NULL, NULL, "getEndLine", &ret);
+	if (Z_TYPE(ret) != IS_LONG) {
+		zval_ptr_dtor(&ret);
+		zval_ptr_dtor(&fileName);
+		zval_ptr_dtor(&objEx);
+		return NULL;
+	}
 	endline = Z_LVAL(ret);
 	zval_ptr_dtor(&ret);
 	zval_ptr_dtor(&objEx);
+
+	if (startline < 0 || endline <= 0 || startline >= endline) {
+		zval_ptr_dtor(&fileName);
+		return NULL;
+	}
 
 	//get codestartline
 	c_key = zend_string_init(ZEND_STRL("SplFileObject"), 0);
 	zend_class_entry *spl_file_ptr = zend_lookup_class(c_key);
 	if (spl_file_ptr == NULL) {
+		zend_string_release(c_key);
+		zval_ptr_dtor(&fileName);
 		php_error_docref(NULL, E_WARNING, "Unable to start SplFileObject");
 		return NULL;
 	}
@@ -514,6 +553,11 @@ char * get_function_content(zval *content) {
 	zend_call_method_with_1_params(gene_strip_obj(&objEx), NULL, NULL, "__construct", NULL,
 			&fileName);
 	zval_ptr_dtor(&fileName);
+	if (EG(exception)) {
+		zval_ptr_dtor(&objEx);
+		zend_clear_exception();
+		return NULL;
+	}
 
 	ZVAL_LONG(&fileName, startline);
 	zend_call_method_with_1_params(gene_strip_obj(&objEx), NULL, NULL, "seek", NULL, &fileName);
@@ -521,6 +565,12 @@ char * get_function_content(zval *content) {
 
 	while (startline < endline) {
 		zend_call_method_with_0_params(gene_strip_obj(&objEx), NULL, NULL, "current", &ret);
+		if (Z_TYPE(ret) != IS_STRING) {
+			zval_ptr_dtor(&ret);
+			++startline;
+			zend_call_method_with_0_params(gene_strip_obj(&objEx), NULL, NULL, "next", NULL);
+			continue;
+		}
 		spprintf(&tmp, 0, "%s", Z_STRVAL(ret));
 		zval_ptr_dtor(&ret);
 
@@ -542,10 +592,21 @@ char * get_function_content(zval *content) {
 	}
 	zval_ptr_dtor(&objEx);
 
+	if (result == NULL) {
+		return NULL;
+	}
+
 	ZVAL_STRING(&fileName, "function");
 	ZVAL_STRING(&arg1, result);
 	zend_call_method_with_2_params(NULL, NULL, NULL, "strpos", &ret, &arg1,
 			&fileName);
+	if (Z_TYPE(ret) == IS_FALSE) {
+		zval_ptr_dtor(&ret);
+		zval_ptr_dtor(&fileName);
+		zval_ptr_dtor(&arg1);
+		efree(result);
+		return NULL;
+	}
 	startline = Z_LVAL(ret);
 	zval_ptr_dtor(&ret);
 	zval_ptr_dtor(&fileName);
@@ -554,11 +615,24 @@ char * get_function_content(zval *content) {
 	ZVAL_STRING(&fileName, "}");
 	zend_call_method_with_2_params(NULL, NULL, NULL, "strrpos", &ret, &arg1,
 			&fileName);
+	if (Z_TYPE(ret) == IS_FALSE) {
+		zval_ptr_dtor(&ret);
+		zval_ptr_dtor(&fileName);
+		zval_ptr_dtor(&arg);
+		zval_ptr_dtor(&arg1);
+		efree(result);
+		return NULL;
+	}
 	endline = Z_LVAL(ret);
 	zval_ptr_dtor(&ret);
 	zval_ptr_dtor(&fileName);
 	zval_ptr_dtor(&arg);
 	zval_ptr_dtor(&arg1);
+
+	if (endline < startline) {
+		efree(result);
+		return NULL;
+	}
 
 	tmp = ecalloc(endline - startline + 2, sizeof(char));
 	mid(tmp, result, endline - startline + 1, startline);
@@ -583,6 +657,9 @@ char *get_function_content_quik(zval **content) {
  */
 char *get_router_content_F(char *src, char *method, char *path) {
 	char *dist;
+	if (src == NULL) {
+		return NULL;
+	}
 	if (strcmp(method, "hook") == 0) {
 		if (strcmp(path, "before") == 0) {
 			spprintf(&dist, 0, GENE_ROUTER_CONTENT_FB, src);
