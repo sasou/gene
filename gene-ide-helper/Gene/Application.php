@@ -137,8 +137,12 @@ class Application
     /**
      * run
      * 
-     * @param string|null $method HTTP 请求方法（默认从 $_SERVER 读取）
-     * @param string|null $uri 请求路径（默认从 $_SERVER 读取）
+     * FPM模式：自动从 $_SERVER 读取 REQUEST_METHOD 和 REQUEST_URI
+     * Swoole模式：自动从 Request::init() 初始化的 server 数据中读取，无需手动传参
+     * 也可手动传入 method/uri 覆盖自动检测
+     *
+     * @param string|null $method HTTP 请求方法（可选，默认自动检测）
+     * @param string|null $uri 请求路径（可选，默认自动检测）
      * @return static
      */
     public function run($method = null, $uri = null) {

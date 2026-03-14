@@ -355,6 +355,17 @@ PHP_METHOD(gene_request, init) {
 	}
 	if (request && Z_TYPE_P(request) == IS_ARRAY) {
 		setVal(6, request);
+	} else {
+		zval merged;
+		array_init(&merged);
+		if (get && Z_TYPE_P(get) == IS_ARRAY) {
+			zend_hash_merge(Z_ARRVAL(merged), Z_ARRVAL_P(get), zval_add_ref, 1);
+		}
+		if (post && Z_TYPE_P(post) == IS_ARRAY) {
+			zend_hash_merge(Z_ARRVAL(merged), Z_ARRVAL_P(post), zval_add_ref, 1);
+		}
+		setVal(6, &merged);
+		zval_ptr_dtor(&merged);
 	}
 	RETURN_TRUE;
 }
