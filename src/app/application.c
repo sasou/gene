@@ -225,22 +225,50 @@ zend_long gene_file_modified(char *file, zend_long ctime) {
 void gene_ini_router() {
 	zval *server = NULL, *temp = NULL;
 	if (!GENE_REQ(method) || !GENE_REQ(path) || !GENE_G(directory)) {
-		server = request_query(TRACK_VARS_SERVER, NULL, 0);
-		if (server) {
-			if (!GENE_G(directory) && (temp = zend_hash_str_find(HASH_OF(server), ZEND_STRL("DOCUMENT_ROOT"))) != NULL) {
-				GENE_G(directory) = estrndup(Z_STRVAL_P(temp), Z_STRLEN_P(temp));
-			}
-			if (!GENE_REQ(method) && (temp = zend_hash_str_find(HASH_OF(server), ZEND_STRL("REQUEST_METHOD"))) != NULL) {
-				GENE_REQ(method) = estrndup(Z_STRVAL_P(temp), Z_STRLEN_P(temp));
-				strtolower(GENE_REQ(method));
-			}
-			if (!GENE_REQ(path) && (temp = zend_hash_str_find(HASH_OF(server), ZEND_STRL("REQUEST_URI"))) != NULL) {
-				GENE_REQ(path) = ecalloc(Z_STRLEN_P(temp)+1, sizeof(char));
-				leftByChar(GENE_REQ(path), Z_STRVAL_P(temp), '?');
+		if (GENE_G(runtime_type) >= 2) {
+			zval *attr_server = getVal(TRACK_VARS_SERVER, NULL, 0);
+			if (attr_server && Z_TYPE_P(attr_server) == IS_ARRAY) {
+				if (!GENE_REQ(method)) {
+					temp = zend_hash_str_find(Z_ARRVAL_P(attr_server), ZEND_STRL("REQUEST_METHOD"));
+					if (temp && Z_TYPE_P(temp) == IS_STRING) {
+						GENE_REQ(method) = estrndup(Z_STRVAL_P(temp), Z_STRLEN_P(temp));
+						strtolower(GENE_REQ(method));
+					}
+				}
+				if (!GENE_REQ(path)) {
+					temp = zend_hash_str_find(Z_ARRVAL_P(attr_server), ZEND_STRL("REQUEST_URI"));
+					if (temp && Z_TYPE_P(temp) == IS_STRING) {
+						GENE_REQ(path) = ecalloc(Z_STRLEN_P(temp)+1, sizeof(char));
+						leftByChar(GENE_REQ(path), Z_STRVAL_P(temp), '?');
+					}
+				}
+				if (!GENE_G(directory)) {
+					temp = zend_hash_str_find(Z_ARRVAL_P(attr_server), ZEND_STRL("DOCUMENT_ROOT"));
+					if (temp && Z_TYPE_P(temp) == IS_STRING) {
+						GENE_G(directory) = estrndup(Z_STRVAL_P(temp), Z_STRLEN_P(temp));
+					}
+				}
+				temp = NULL;
 			}
 		}
-		server = NULL;
-		temp = NULL;
+		if (!GENE_REQ(method) || !GENE_REQ(path) || !GENE_G(directory)) {
+			server = request_query(TRACK_VARS_SERVER, NULL, 0);
+			if (server) {
+				if (!GENE_G(directory) && (temp = zend_hash_str_find(HASH_OF(server), ZEND_STRL("DOCUMENT_ROOT"))) != NULL) {
+					GENE_G(directory) = estrndup(Z_STRVAL_P(temp), Z_STRLEN_P(temp));
+				}
+				if (!GENE_REQ(method) && (temp = zend_hash_str_find(HASH_OF(server), ZEND_STRL("REQUEST_METHOD"))) != NULL) {
+					GENE_REQ(method) = estrndup(Z_STRVAL_P(temp), Z_STRLEN_P(temp));
+					strtolower(GENE_REQ(method));
+				}
+				if (!GENE_REQ(path) && (temp = zend_hash_str_find(HASH_OF(server), ZEND_STRL("REQUEST_URI"))) != NULL) {
+					GENE_REQ(path) = ecalloc(Z_STRLEN_P(temp)+1, sizeof(char));
+					leftByChar(GENE_REQ(path), Z_STRVAL_P(temp), '?');
+				}
+			}
+			server = NULL;
+			temp = NULL;
+		}
 	}
 }
 /* }}} */
@@ -927,6 +955,7 @@ PHP_METHOD(gene_application, run) {
 		RETURN_NULL();
 	}
 
+	gene_ini_router();
 	gene_loader_register();
 	if (gene_application_webscan_check()) {
 		RETURN_ZVAL(self, 1, 0);
