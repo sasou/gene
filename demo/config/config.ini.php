@@ -39,7 +39,7 @@ $config->set("session", [
 $config->set("db", [
     'class' => '\Gene\Db\Mysql',
     'params' => [[
-    'dsn' => 'mysql:dbname=gene_demo;host=10.5.5.11;port=3306;charset=utf8',
+    'dsn' => 'mysql:dbname=gene_demo;host=127.0.0.1;port=3306;charset=utf8',
     'username' => 'dev',
     'password' => 'dev123'
         ]],
@@ -52,7 +52,7 @@ $config->set("db", [
 $config->set("memcache", [
     'class' => '\Gene\Cache\Memcached',
     'params' => [[
-    'servers' => [['host' => '10.5.5.13', 'port' => 11211]],
+    'servers' => [['host' => '127.0.0.1', 'port' => 11211]],
     'persistent' => true,
     'serializer' => 2
         ]],
@@ -66,7 +66,7 @@ $config->set("redis", [
     'class' => '\Gene\Cache\Redis',
     'params' => [[
     'persistent' => true,
-    'host' => '10.5.5.13',
+    'host' => '127.0.0.1',
     'port' => 6379,
     'timeout' => 3,
     'ttl' => 0,
@@ -99,7 +99,7 @@ $config->set("memory", [
 $config->set("httpsqs", [
     'class' => '\Ext\Queue\Httpsqs',
     'params' => [[
-    'host' => '10.5.5.14', 
+    'host' => '127.0.0.1', 
     'port' => 1212,
     'name' => 'email'
         ]],
@@ -110,7 +110,7 @@ $config->set("httpsqs", [
 $config->set("redisQueue", [
     'class' => '\Ext\Queue\Redis',
     'params' => [[
-    'host' => '10.5.5.13', 
+    'host' => '127.0.0.1', 
     'port' => 6379,
     'name' => 'email'
         ]],
