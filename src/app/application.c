@@ -748,6 +748,10 @@ PHP_METHOD(gene_application, autoload) {
 			efree(GENE_G(app_root));
 		}
 		GENE_G(app_root) = estrndup(ZSTR_VAL(app_root), ZSTR_LEN(app_root));
+		/* CLI/Swoole 模式下没有 DOCUMENT_ROOT，确保目录基准可用于自动加载 */
+		if (!GENE_G(directory)) {
+			GENE_G(directory) = estrndup(ZSTR_VAL(app_root), ZSTR_LEN(app_root));
+		}
 	}
 	if (fileName && ZSTR_LEN(fileName) > 0) {
 		if (GENE_G(auto_load_fun)) {
