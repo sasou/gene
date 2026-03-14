@@ -25,7 +25,7 @@
 #include <ctype.h>
 #include "../common/common.h"
 
-char *str_init(char *s)
+char *str_init(const char *s)
 {
 	size_t s_l = strlen(s);
 	char *p = (char *) emalloc(s_l + 1);
