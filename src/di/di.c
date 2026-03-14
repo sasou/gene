@@ -140,6 +140,7 @@ zval *gene_di_get(zend_string *name) {
 			}
 
 			if (type) {
+				Z_TRY_ADDREF(classObject);
 				zend_hash_update(Z_ARRVAL_P(entrys), local_class_str, &classObject);
 			}
 		    if ((pzval = zend_hash_update(Z_ARRVAL_P(entrys), name, &classObject)) != NULL ) {
