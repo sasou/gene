@@ -642,49 +642,7 @@ PHP_METHOD(gene_application, setRuntimeType) {
  * {{{ void gene_clear_request_state()
  */
 static void gene_clear_request_state() {
-	if (GENE_REQ(method)) {
-		efree(GENE_REQ(method));
-		GENE_REQ(method) = NULL;
-	}
-	if (GENE_REQ(path)) {
-		efree(GENE_REQ(path));
-		GENE_REQ(path) = NULL;
-	}
-	if (GENE_REQ(router_path)) {
-		efree(GENE_REQ(router_path));
-		GENE_REQ(router_path) = NULL;
-	}
-	if (GENE_REQ(module)) {
-		efree(GENE_REQ(module));
-		GENE_REQ(module) = NULL;
-	}
-	if (GENE_REQ(controller)) {
-		efree(GENE_REQ(controller));
-		GENE_REQ(controller) = NULL;
-	}
-	if (GENE_REQ(action)) {
-		efree(GENE_REQ(action));
-		GENE_REQ(action) = NULL;
-	}
-	if (GENE_REQ(child_views)) {
-		efree(GENE_REQ(child_views));
-		GENE_REQ(child_views) = NULL;
-	}
-	if (GENE_REQ(lang)) {
-		efree(GENE_REQ(lang));
-		GENE_REQ(lang) = NULL;
-	}
-	if (GENE_REQ(path_params)) {
-		zval_ptr_dtor(GENE_REQ(path_params));
-		efree(GENE_REQ(path_params));
-		GENE_REQ(path_params) = NULL;
-	}
-	GENE_REQ(path_params) = (zval*) pemalloc(sizeof(zval), 0);
-	array_init(GENE_REQ(path_params));
-	if (Z_TYPE(GENE_REQ(response)) != IS_UNDEF) {
-		zval_ptr_dtor(&GENE_REQ(response));
-		ZVAL_UNDEF(&GENE_REQ(response));
-	}
+	gene_request_context_reset(gene_request_ctx());
 }
 /* }}} */
 
@@ -694,15 +652,6 @@ static void gene_clear_request_state() {
 PHP_METHOD(gene_application, clearState) {
 	zval *self = getThis();
 	gene_clear_request_state();
-
-	if (Z_TYPE(gene_request_ctx()->di_regs) != IS_UNDEF) {
-		zval_ptr_dtor(&gene_request_ctx()->di_regs);
-		ZVAL_UNDEF(&gene_request_ctx()->di_regs);
-	}
-	if (Z_TYPE(gene_request_ctx()->request_attr) != IS_UNDEF) {
-		zval_ptr_dtor(&gene_request_ctx()->request_attr);
-		ZVAL_UNDEF(&gene_request_ctx()->request_attr);
-	}
 
 	gene_view_reset_vars();
 
