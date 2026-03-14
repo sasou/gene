@@ -165,26 +165,37 @@ void load_file(char *key, size_t key_len, char *php_script, int validity) {
 	if (key_len) {
 		val = file_cache_get_easy(key, key_len);
 		if (val) {
+			if (val->status == 1) {
+				return;
+			}
 			cur = time(NULL);
 			times = cur - val->stime;
 			if (times > val->validity) {
+				val->status = 1;
 				val->stime = cur;
 				val->validity = validity;
 				cur = gene_file_modified(php_script, 0);
 				if (cur != val->ftime) {
 					import = 1;
 					val->ftime = cur;
+				} else {
+					val->status = 0;
 				}
 			}
 		} else {
 			import = 1;
-			file_cache_set_val(key, key_len,
-					gene_file_modified(php_script, 0), validity);
+			file_cache_set_val(key, key_len, 0, validity);
+			val = file_cache_get_easy(key, key_len);
+			if (val) {
+				val->status = 1;
+				val->ftime = gene_file_modified(php_script, 0);
+			}
 		}
 		if (import) {
 			if(!gene_load_import(php_script, NULL, NULL)) {
 				php_error_docref(NULL, E_WARNING, "Unable to load config file %s", php_script);
 			}
+			if (val) val->status = 0;
 		}
 	}
 }
@@ -639,6 +650,17 @@ PHP_METHOD(gene_application, setRuntimeType) {
  * {{{ void gene_clear_request_state()
  */
 static void gene_clear_request_state() {
+	if (GENE_G(runtime_type) >= 2 && GENE_G(co_contexts)) {
+		zend_long cid = gene_get_coroutine_id();
+		if (cid >= 0) {
+			zend_hash_index_del(GENE_G(co_contexts), (zend_ulong)cid);
+			if (GENE_G(current_cid) == cid) {
+				GENE_G(current_ctx) = NULL;
+				GENE_G(current_cid) = -1;
+			}
+			return;
+		}
+	}
 	gene_request_context_reset(gene_request_ctx());
 }
 /* }}} */
@@ -648,9 +670,9 @@ static void gene_clear_request_state() {
  */
 PHP_METHOD(gene_application, clearState) {
 	zval *self = getThis();
-	gene_clear_request_state();
-
 	gene_view_reset_vars();
+
+	gene_clear_request_state();
 
 	if (self) {
 		RETURN_ZVAL(self, 1, 0);
