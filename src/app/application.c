@@ -320,10 +320,7 @@ zval *gene_application_instance(zval *this_ptr, zval *safe) {
 		if (safe && !GENE_G(app_key)) {
 			GENE_G(app_key) = estrndup(Z_STRVAL_P(safe), Z_STRLEN_P(safe));
 		}
-		if (GENE_G(directory) != NULL) {
-			if (GENE_G(app_root)) {
-				efree(GENE_G(app_root));
-			}
+		if (GENE_G(directory) != NULL && !GENE_G(app_root)) {
 			spprintf(&GENE_G(app_root), 0, "%s/application", GENE_G(directory));
 		}
 		return instance;
