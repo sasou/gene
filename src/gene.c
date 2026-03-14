@@ -87,8 +87,80 @@ zend_long gene_get_coroutine_id(void) {
 }
 /* }}} */
 
-/* {{{ gene_free_request_context */
-void gene_free_request_context(gene_request_context *ctx) {
+/* {{{ gene_request_context_init */
+void gene_request_context_init(gene_request_context *ctx) {
+	if (!ctx) return;
+	memset(ctx, 0, sizeof(gene_request_context));
+	ctx->path_params = (zval*) emalloc(sizeof(zval));
+	array_init(ctx->path_params);
+	ZVAL_UNDEF(&ctx->request_attr);
+	ZVAL_UNDEF(&ctx->di_regs);
+	ZVAL_UNDEF(&ctx->response);
+	ZVAL_UNDEF(&ctx->view_vars);
+	ZVAL_UNDEF(&ctx->db_mysql_history);
+	ZVAL_UNDEF(&ctx->db_pgsql_history);
+	ZVAL_UNDEF(&ctx->db_sqlite_history);
+	ZVAL_UNDEF(&ctx->db_mssql_history);
+	ctx->view_scope_no = 0;
+}
+/* }}} */
+
+/* {{{ gene_request_context_reset */
+void gene_request_context_reset(gene_request_context *ctx) {
+	if (!ctx) return;
+	if (ctx->method) { efree(ctx->method); ctx->method = NULL; }
+	if (ctx->path) { efree(ctx->path); ctx->path = NULL; }
+	if (ctx->router_path) { efree(ctx->router_path); ctx->router_path = NULL; }
+	if (ctx->module) { efree(ctx->module); ctx->module = NULL; }
+	if (ctx->controller) { efree(ctx->controller); ctx->controller = NULL; }
+	if (ctx->action) { efree(ctx->action); ctx->action = NULL; }
+	if (ctx->child_views) { efree(ctx->child_views); ctx->child_views = NULL; }
+	if (ctx->lang) { efree(ctx->lang); ctx->lang = NULL; }
+	if (ctx->path_params) {
+		zval_ptr_dtor(ctx->path_params);
+		efree(ctx->path_params);
+		ctx->path_params = NULL;
+	}
+	if (Z_TYPE(ctx->request_attr) != IS_UNDEF) {
+		zval_ptr_dtor(&ctx->request_attr);
+		ZVAL_UNDEF(&ctx->request_attr);
+	}
+	if (Z_TYPE(ctx->di_regs) != IS_UNDEF) {
+		zval_ptr_dtor(&ctx->di_regs);
+		ZVAL_UNDEF(&ctx->di_regs);
+	}
+	if (Z_TYPE(ctx->response) != IS_UNDEF) {
+		zval_ptr_dtor(&ctx->response);
+		ZVAL_UNDEF(&ctx->response);
+	}
+	if (Z_TYPE(ctx->view_vars) != IS_UNDEF) {
+		zval_ptr_dtor(&ctx->view_vars);
+		ZVAL_UNDEF(&ctx->view_vars);
+	}
+	if (Z_TYPE(ctx->db_mysql_history) != IS_UNDEF) {
+		zval_ptr_dtor(&ctx->db_mysql_history);
+		ZVAL_UNDEF(&ctx->db_mysql_history);
+	}
+	if (Z_TYPE(ctx->db_pgsql_history) != IS_UNDEF) {
+		zval_ptr_dtor(&ctx->db_pgsql_history);
+		ZVAL_UNDEF(&ctx->db_pgsql_history);
+	}
+	if (Z_TYPE(ctx->db_sqlite_history) != IS_UNDEF) {
+		zval_ptr_dtor(&ctx->db_sqlite_history);
+		ZVAL_UNDEF(&ctx->db_sqlite_history);
+	}
+	if (Z_TYPE(ctx->db_mssql_history) != IS_UNDEF) {
+		zval_ptr_dtor(&ctx->db_mssql_history);
+		ZVAL_UNDEF(&ctx->db_mssql_history);
+	}
+	ctx->path_params = (zval*) emalloc(sizeof(zval));
+	array_init(ctx->path_params);
+	ctx->view_scope_no = 0;
+}
+/* }}} */
+
+/* {{{ gene_request_context_destroy */
+void gene_request_context_destroy(gene_request_context *ctx) {
 	if (!ctx) return;
 	if (ctx->method) { efree(ctx->method); ctx->method = NULL; }
 	if (ctx->path) { efree(ctx->path); ctx->path = NULL; }
@@ -139,6 +211,13 @@ void gene_free_request_context(gene_request_context *ctx) {
 }
 /* }}} */
 
+/* {{{ gene_free_request_context */
+void gene_free_request_context(gene_request_context *ctx) {
+	if (!ctx) return;
+	gene_request_context_destroy(ctx);
+}
+/* }}} */
+
 /* {{{ gene_co_context_dtor - destructor for co_contexts HashTable entries */
 static void gene_co_context_dtor(zval *zv) {
 	gene_request_context *ctx = (gene_request_context *)Z_PTR_P(zv);
@@ -176,17 +255,7 @@ gene_request_context *gene_request_ctx(void) {
 	ctx = zend_hash_index_find_ptr(GENE_G(co_contexts), (zend_ulong)cid);
 	if (!ctx) {
 		ctx = ecalloc(1, sizeof(gene_request_context));
-		ctx->path_params = (zval*) emalloc(sizeof(zval));
-		array_init(ctx->path_params);
-		ZVAL_UNDEF(&ctx->request_attr);
-		ZVAL_UNDEF(&ctx->di_regs);
-		ZVAL_UNDEF(&ctx->response);
-		ZVAL_UNDEF(&ctx->view_vars);
-		ZVAL_UNDEF(&ctx->db_mysql_history);
-		ZVAL_UNDEF(&ctx->db_pgsql_history);
-		ZVAL_UNDEF(&ctx->db_sqlite_history);
-		ZVAL_UNDEF(&ctx->db_mssql_history);
-		ctx->view_scope_no = 0;
+		gene_request_context_init(ctx);
 		zend_hash_index_update_ptr(GENE_G(co_contexts), (zend_ulong)cid, ctx);
 	}
 	GENE_G(current_cid) = cid;
@@ -344,42 +413,10 @@ PHP_MSHUTDOWN_FUNCTION(gene) {
  */
 PHP_RINIT_FUNCTION(gene) {
 	if (!GENE_G(default_ctx).path_params) {
-		GENE_G(default_ctx).path_params = (zval*) pemalloc(sizeof(zval), 0);
-		array_init(GENE_G(default_ctx).path_params);
+		gene_request_context_init(&GENE_G(default_ctx));
+	} else {
+		gene_request_context_reset(&GENE_G(default_ctx));
 	}
-	if (Z_TYPE(GENE_G(default_ctx).request_attr) != IS_UNDEF) {
-		zval_ptr_dtor(&GENE_G(default_ctx).request_attr);
-	}
-	ZVAL_UNDEF(&GENE_G(default_ctx).request_attr);
-	if (Z_TYPE(GENE_G(default_ctx).di_regs) != IS_UNDEF) {
-		zval_ptr_dtor(&GENE_G(default_ctx).di_regs);
-	}
-	ZVAL_UNDEF(&GENE_G(default_ctx).di_regs);
-	if (Z_TYPE(GENE_G(default_ctx).response) != IS_UNDEF) {
-		zval_ptr_dtor(&GENE_G(default_ctx).response);
-	}
-	ZVAL_UNDEF(&GENE_G(default_ctx).response);
-	if (Z_TYPE(GENE_G(default_ctx).view_vars) != IS_UNDEF) {
-		zval_ptr_dtor(&GENE_G(default_ctx).view_vars);
-	}
-	ZVAL_UNDEF(&GENE_G(default_ctx).view_vars);
-	if (Z_TYPE(GENE_G(default_ctx).db_mysql_history) != IS_UNDEF) {
-		zval_ptr_dtor(&GENE_G(default_ctx).db_mysql_history);
-	}
-	ZVAL_UNDEF(&GENE_G(default_ctx).db_mysql_history);
-	if (Z_TYPE(GENE_G(default_ctx).db_pgsql_history) != IS_UNDEF) {
-		zval_ptr_dtor(&GENE_G(default_ctx).db_pgsql_history);
-	}
-	ZVAL_UNDEF(&GENE_G(default_ctx).db_pgsql_history);
-	if (Z_TYPE(GENE_G(default_ctx).db_sqlite_history) != IS_UNDEF) {
-		zval_ptr_dtor(&GENE_G(default_ctx).db_sqlite_history);
-	}
-	ZVAL_UNDEF(&GENE_G(default_ctx).db_sqlite_history);
-	if (Z_TYPE(GENE_G(default_ctx).db_mssql_history) != IS_UNDEF) {
-		zval_ptr_dtor(&GENE_G(default_ctx).db_mssql_history);
-	}
-	ZVAL_UNDEF(&GENE_G(default_ctx).db_mssql_history);
-	GENE_G(default_ctx).view_scope_no = 0;
 	if (GENE_G(runtime_type) >= 2 && !GENE_G(co_contexts)) {
 		ALLOC_HASHTABLE(GENE_G(co_contexts));
 		zend_hash_init(GENE_G(co_contexts), 8, NULL, gene_co_context_dtor, 0);
