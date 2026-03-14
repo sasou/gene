@@ -247,14 +247,10 @@ zval* gene_di_instance() {
 	zval *instance = zend_read_static_property(gene_di_ce, GENE_DI_PROPERTY_INSTANCE, strlen(GENE_DI_PROPERTY_INSTANCE), 1);
 
 	if (Z_TYPE_P(instance) != IS_OBJECT) {
-		zval regs, this_ptr;
+		zval this_ptr;
 
 		object_init_ex(&this_ptr, gene_di_ce);
-
-		array_init(&regs);
-		zend_update_property(gene_di_ce, gene_strip_obj(&this_ptr), GENE_DI_PROPERTY_REG, strlen(GENE_DI_PROPERTY_REG), &regs);
 		zend_update_static_property(gene_di_ce, GENE_DI_PROPERTY_INSTANCE, strlen(GENE_DI_PROPERTY_INSTANCE), &this_ptr);
-		zval_ptr_dtor(&regs);
 		zval_ptr_dtor(&this_ptr);
 		instance = zend_read_static_property(gene_di_ce, GENE_DI_PROPERTY_INSTANCE, strlen(GENE_DI_PROPERTY_INSTANCE), 1);
 	}
@@ -372,7 +368,6 @@ GENE_MINIT_FUNCTION(di) {
 
 	//static
 	zend_declare_property_null(gene_di_ce, GENE_DI_PROPERTY_INSTANCE, strlen(GENE_DI_PROPERTY_INSTANCE), ZEND_ACC_PROTECTED | ZEND_ACC_STATIC);
-	zend_declare_property_null(gene_di_ce, GENE_DI_PROPERTY_REG, strlen(GENE_DI_PROPERTY_REG), ZEND_ACC_PROTECTED);
 	//
 	return SUCCESS; // @suppress("Symbol is not resolved")
 }

@@ -17,7 +17,6 @@
 #ifndef GENE_DI_H
 #define GENE_DI_H
 #define GENE_DI_PROPERTY_INSTANCE "_instance"
-#define GENE_DI_PROPERTY_REG "_reg"
 
 extern zend_class_entry *gene_di_ce;
 
