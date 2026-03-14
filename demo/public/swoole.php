@@ -37,6 +37,7 @@ $http->on("workerStart", function ($server, $workerId) {
         ->load("router.ini.php", CONF_DIR)
         ->load("config.ini.php", CONF_DIR)
         ->setMode(1, 1);
+    \Gene\Application::destroyContext();
 });
 
 $http->on("request", function ($request, $response) {
@@ -46,13 +47,11 @@ $http->on("request", function ($request, $response) {
     );
 
     \Gene\Application::setResponse($response);
-    $method = strtolower($request->server['request_method'] ?? 'get');
-    $uri    = $request->server['request_uri'] ?? '/';
 
     ob_start();
     $error = null;
     try {
-        \Gene\Application::getInstance()->run($method, $uri);
+        \Gene\Application::getInstance()->run();
     } catch (\Throwable $e) {
         $error = $e;
     }

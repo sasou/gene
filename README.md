@@ -220,7 +220,7 @@
             ->autoload(APP_ROOT)
             ->load("router.ini.php")
             ->load("config.ini.php")
-            ->run($type, $url);
+            ->run();
         } finally {
             // 常驻/协程模式下建议清理上下文，避免数据串扰
             \Gene\Application::clearState();
