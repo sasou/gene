@@ -27,6 +27,7 @@
 
 #include "../gene.h"
 #include "../http/request.h"
+#include "../common/common.h"
 #include "../cache/memory.h"
 
 zend_class_entry * gene_request_ce;
@@ -42,6 +43,14 @@ static zval *gene_request_attr(void) {
 	return &ctx->request_attr;
 }
 
+static zend_string* gene_zend_string_toupper(zend_string *str) {
+	char *tmp = estrndup(ZSTR_VAL(str), ZSTR_LEN(str));
+	strtoupper(tmp);
+	zend_string *result = zend_string_init(tmp, ZSTR_LEN(str), 0);
+	efree(tmp);
+	return result;
+}
+
 static void gene_request_set_server_val(zval *server) {
 	zval normalized;
 	zval *item;
@@ -54,7 +63,7 @@ static void gene_request_set_server_val(zval *server) {
 		Z_TRY_ADDREF_P(item);
 		if (key) {
 			zend_hash_update(Z_ARRVAL(normalized), key, item);
-			upper_key = zend_string_toupper(zend_string_copy(key));
+			upper_key = gene_zend_string_toupper(key);
 			if (!zend_hash_exists(Z_ARRVAL(normalized), upper_key)) {
 				Z_TRY_ADDREF_P(item);
 				zend_hash_update(Z_ARRVAL(normalized), upper_key, item);
