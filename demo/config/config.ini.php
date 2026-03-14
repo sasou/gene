@@ -31,9 +31,11 @@ $config->set("session", [
 ]);
 
 //数据库类注入配置
-// instance:false — FPM 下同一请求内复用（DI 按名称缓存），Swoole/协程下每次请求
-// 得到全新对象（DI 跳过名称缓存），隔离链式查询构建状态；连接复用由
-// PDO::ATTR_PERSISTENT 实现（框架在 runtime_type>=2 时自动注入）。
+// instance:true — 每个协程通过 per-coroutine di_regs 缓存独立的 Gene\Db\Mysql 对象，
+// 同一协程内多次 Di::get('db') 复用同一对象；不同协程各自持有独立的 PDO 连接，
+// 避免 Swoole 下 "Socket has already been bound to another coroutine" 冲突。
+// 注意：不要在 Swoole 协程模式下使用 PDO::ATTR_PERSISTENT，持久连接是进程级共享的，
+// 多协程并发会争用同一个 socket。
 $config->set("db", [
     'class' => '\Gene\Db\Mysql',
     'params' => [[
