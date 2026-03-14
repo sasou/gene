@@ -240,7 +240,13 @@ gene_request_context *gene_request_ctx(void) {
 	gene_init_co_contexts();
 	cid = gene_get_coroutine_id();
 	if (cid < 0) {
-		return &GENE_G(default_ctx);
+		if (!GENE_G(resident_ctx)) {
+			GENE_G(resident_ctx) = ecalloc(1, sizeof(gene_request_context));
+			gene_request_context_init(GENE_G(resident_ctx));
+		}
+		GENE_G(current_cid) = -2;
+		GENE_G(current_ctx) = GENE_G(resident_ctx);
+		return GENE_G(resident_ctx);
 	}
 	if (GENE_G(current_cid) == cid && GENE_G(current_ctx)) {
 		return GENE_G(current_ctx);
@@ -267,6 +273,7 @@ static void php_gene_init_globals() {
 	GENE_G(app_key) = NULL;
 	GENE_G(auto_load_fun) = NULL;
 	memset(&GENE_G(default_ctx), 0, sizeof(gene_request_context));
+	GENE_G(resident_ctx) = NULL;
 	GENE_G(co_contexts) = NULL;
 	GENE_G(current_ctx) = NULL;
 	GENE_G(current_cid) = -1;
@@ -304,6 +311,11 @@ static void php_gene_close_request_globals() {
 	if (GENE_G(app_key)) {
 		efree(GENE_G(app_key));
 		GENE_G(app_key) = NULL;
+	}
+	if (GENE_G(resident_ctx)) {
+		gene_request_context_destroy(GENE_G(resident_ctx));
+		efree(GENE_G(resident_ctx));
+		GENE_G(resident_ctx) = NULL;
 	}
 	if (GENE_G(co_contexts)) {
 		zend_hash_destroy(GENE_G(co_contexts));
