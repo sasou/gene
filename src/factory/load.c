@@ -184,7 +184,13 @@ zval *gene_load_instance(zval *this_ptr) {
 	if (this_ptr) {
 		instance = this_ptr;
 	} else {
-		object_init_ex(instance, gene_load_ce);
+		zval new_instance;
+		object_init_ex(&new_instance, gene_load_ce);
+		zend_update_static_property(gene_load_ce, GENE_LOAD_PROPERTY_INSTANCE,
+				strlen(GENE_LOAD_PROPERTY_INSTANCE), &new_instance);
+		zval_ptr_dtor(&new_instance);
+		return zend_read_static_property(gene_load_ce,
+		GENE_LOAD_PROPERTY_INSTANCE, strlen(GENE_LOAD_PROPERTY_INSTANCE), 1);
 	}
 	zend_update_static_property(gene_load_ce, GENE_LOAD_PROPERTY_INSTANCE,
 			strlen(GENE_LOAD_PROPERTY_INSTANCE), instance);

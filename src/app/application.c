@@ -316,29 +316,38 @@ zval *gene_application_instance(zval *this_ptr, zval *safe) {
 	zval *instance = zend_read_static_property(gene_application_ce, ZEND_STRL(GENE_APPLICATION_INSTANCE), 1);
 
 	if (Z_TYPE_P(instance) == IS_OBJECT) {
-		return instance;
-	}
-	if (this_ptr) {
-		instance = this_ptr;
-		zend_update_static_property(gene_application_ce, ZEND_STRL(GENE_APPLICATION_INSTANCE), instance);
-	} else {
-		zval new_instance;
-		object_init_ex(&new_instance, gene_application_ce);
-		zend_update_static_property(gene_application_ce, ZEND_STRL(GENE_APPLICATION_INSTANCE), &new_instance);
-		zval_ptr_dtor(&new_instance);
-		instance = zend_read_static_property(gene_application_ce, ZEND_STRL(GENE_APPLICATION_INSTANCE), 1);
-
 		gene_ini_router();
 		if (safe && !GENE_G(app_key)) {
 			GENE_G(app_key) = estrndup(Z_STRVAL_P(safe), Z_STRLEN_P(safe));
 		}
-
 		if (GENE_G(directory) != NULL) {
 			if (GENE_G(app_root)) {
 				efree(GENE_G(app_root));
 			}
 			spprintf(&GENE_G(app_root), 0, "%s/application", GENE_G(directory));
 		}
+		return instance;
+	}
+	if (this_ptr) {
+		zend_update_static_property(gene_application_ce, ZEND_STRL(GENE_APPLICATION_INSTANCE), this_ptr);
+		instance = zend_read_static_property(gene_application_ce, ZEND_STRL(GENE_APPLICATION_INSTANCE), 1);
+	} else {
+		zval new_instance;
+		object_init_ex(&new_instance, gene_application_ce);
+		zend_update_static_property(gene_application_ce, ZEND_STRL(GENE_APPLICATION_INSTANCE), &new_instance);
+		zval_ptr_dtor(&new_instance);
+		instance = zend_read_static_property(gene_application_ce, ZEND_STRL(GENE_APPLICATION_INSTANCE), 1);
+	}
+
+	gene_ini_router();
+	if (safe && !GENE_G(app_key)) {
+		GENE_G(app_key) = estrndup(Z_STRVAL_P(safe), Z_STRLEN_P(safe));
+	}
+	if (GENE_G(directory) != NULL) {
+		if (GENE_G(app_root)) {
+			efree(GENE_G(app_root));
+		}
+		spprintf(&GENE_G(app_root), 0, "%s/application", GENE_G(directory));
 	}
 	return instance;
 }
