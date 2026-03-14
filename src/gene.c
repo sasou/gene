@@ -312,18 +312,19 @@ static void php_gene_close_request_globals() {
 		efree(GENE_G(app_key));
 		GENE_G(app_key) = NULL;
 	}
+	GENE_G(current_ctx) = NULL;
+	GENE_G(current_cid) = -1;
 	if (GENE_G(resident_ctx)) {
-		gene_request_context_destroy(GENE_G(resident_ctx));
-		efree(GENE_G(resident_ctx));
+		gene_request_context *tmp = GENE_G(resident_ctx);
 		GENE_G(resident_ctx) = NULL;
+		gene_request_context_destroy(tmp);
+		efree(tmp);
 	}
 	if (GENE_G(co_contexts)) {
 		zend_hash_destroy(GENE_G(co_contexts));
 		FREE_HASHTABLE(GENE_G(co_contexts));
 		GENE_G(co_contexts) = NULL;
 	}
-	GENE_G(current_ctx) = NULL;
-	GENE_G(current_cid) = -1;
 }
 /* }}} */
 
