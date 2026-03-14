@@ -453,7 +453,6 @@ static zval * gene_memory_set_val(zval *val, char *keyString, size_t keyString_l
 		}
 		keyS = gene_str_persistent(keyString, keyString_len);
 		copyval = gene_symtable_update(Z_ARRVAL_P(val), keyS, &tmp);
-		zval_ptr_dtor(&tmp);
 	} else {
 		if (zvalue) {
 			gene_memory_zval_edit_persistent(copyval, zvalue);
@@ -496,7 +495,6 @@ void gene_memory_set_by_router(char *keyString, size_t keyString_len, char *path
 			}
 			seg = php_strtok_r(NULL, "/", &ptr);
 		}
-		zval_ptr_dtor(&ret);
 	} else {
 		tmp = copyval;
 		seg = php_strtok_r(path, "/", &ptr);
