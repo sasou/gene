@@ -52,18 +52,22 @@ $http->on("request", function ($request, $response) {
     $uri    = $request->server['request_uri'] ?? '/';
 
     ob_start();
+    $error = null;
     try {
         \Gene\Application::getInstance()->run($method, $uri);
     } catch (\Throwable $e) {
-        ob_end_clean();
-        $response->status(500);
-        $response->end("Internal Server Error: " . $e->getMessage());
-        return;
-    } finally {
-        \Gene\Application::clearState();
-        \Gene\Application::destroyContext();
+        $error = $e;
     }
     $out = ob_get_clean();
+
+    \Gene\Application::clearState();
+    \Gene\Application::destroyContext();
+
+    if ($error) {
+        $response->status(500);
+        $response->end("Internal Server Error: " . $error->getMessage());
+        return;
+    }
 
     if (!$response->isWritable()) {
         return;
