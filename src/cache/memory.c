@@ -374,7 +374,7 @@ zval * gene_memory_get_quick(char *keyString, size_t keyString_len) {
 /** {{{ zval * gene_memory_get_by_config(char *keyString, int keyString_len,char *path)
  */
 zval * gene_memory_get_by_config(char *keyString, size_t keyString_len, char *path) {
-	char *ptr = NULL, *seg = NULL;
+	char *ptr = NULL, *seg = NULL, *path_copy = NULL;
 	zval *tmp = NULL;
 	zval *ret = NULL;
 	zval *copyval = NULL;
@@ -384,19 +384,23 @@ zval * gene_memory_get_by_config(char *keyString, size_t keyString_len, char *pa
 	if (copyval) {
 		tmp = copyval;
 		if (path != NULL) {
-			seg = php_strtok_r(path, "/", &ptr);
+			path_copy = estrndup(path, strlen(path));
+			seg = php_strtok_r(path_copy, "/", &ptr);
 			while (seg) {
 				if (Z_TYPE_P(tmp) != IS_ARRAY) {
+					efree(path_copy);
 					GENE_CACHE_RDUNLOCK();
 					return NULL;
 				}
 				tmp = zend_symtable_str_find(Z_ARRVAL_P(tmp), seg, strlen(seg));
 				if (tmp == NULL) {
+					efree(path_copy);
 					GENE_CACHE_RDUNLOCK();
 					return NULL;
 				}
 				seg = php_strtok_r(NULL, "/", &ptr);
 			}
+			efree(path_copy);
 		}
 		GENE_CACHE_RDUNLOCK();
 		return tmp;
