@@ -653,10 +653,9 @@ static void gene_clear_request_state() {
 	if (GENE_G(runtime_type) >= 2 && GENE_G(co_contexts)) {
 		zend_long cid = gene_get_coroutine_id();
 		if (cid >= 0) {
-			zend_hash_index_del(GENE_G(co_contexts), (zend_ulong)cid);
-			if (GENE_G(current_cid) == cid) {
-				GENE_G(current_ctx) = NULL;
-				GENE_G(current_cid) = -1;
+			gene_request_context *ctx = zend_hash_index_find_ptr(GENE_G(co_contexts), (zend_ulong)cid);
+			if (ctx) {
+				gene_request_context_reset(ctx);
 			}
 			return;
 		}
@@ -688,20 +687,21 @@ PHP_METHOD(gene_application, destroyContext) {
 	if (GENE_G(runtime_type) >= 2 && GENE_G(co_contexts)) {
 		zend_long cid = gene_get_coroutine_id();
 		if (cid < 0) {
-			if (GENE_G(resident_ctx)) {
-				gene_request_context_destroy(GENE_G(resident_ctx));
-				efree(GENE_G(resident_ctx));
-				GENE_G(resident_ctx) = NULL;
-			}
 			GENE_G(current_ctx) = NULL;
 			GENE_G(current_cid) = -1;
+			if (GENE_G(resident_ctx)) {
+				gene_request_context *tmp = GENE_G(resident_ctx);
+				GENE_G(resident_ctx) = NULL;
+				gene_request_context_destroy(tmp);
+				efree(tmp);
+			}
 			RETURN_TRUE;
 		}
-		zend_hash_index_del(GENE_G(co_contexts), (zend_ulong)cid);
 		if (GENE_G(current_cid) == cid) {
 			GENE_G(current_ctx) = NULL;
 			GENE_G(current_cid) = -1;
 		}
+		zend_hash_index_del(GENE_G(co_contexts), (zend_ulong)cid);
 	}
 	RETURN_TRUE;
 }
