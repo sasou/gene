@@ -44,6 +44,12 @@ bool gene_factory_load_class(char *className, size_t tmp_len, zval *classObject)
 	zend_string *c_key = NULL;
 	zend_class_entry *pdo_ptr = NULL;
 
+	/* Normalize leading backslash so zend_lookup_class can find the ce */
+	if (tmp_len > 0 && className[0] == '\\') {
+		className++;
+		tmp_len--;
+	}
+
 	c_key = zend_string_init(className, tmp_len, 0);
 	pdo_ptr = zend_lookup_class(c_key);
 	zend_string_release(c_key);
@@ -154,6 +160,12 @@ void gene_factory_function_call_1(zval *function_name, zval *param_key, zval *pa
 bool gene_factory(char *className, size_t tmp_len, zval *params, zval *classObject) {
 	zend_string *c_key = NULL;
 	zend_class_entry *pdo_ptr = NULL;
+
+	/* Normalize leading backslash so zend_lookup_class can find the ce */
+	if (tmp_len > 0 && className[0] == '\\') {
+		className++;
+		tmp_len--;
+	}
 
 	c_key = zend_string_init(className, tmp_len, 0);
 	pdo_ptr = zend_lookup_class(c_key);
