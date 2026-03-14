@@ -16,8 +16,6 @@
 
 #ifndef GENE_REQUEST_H
 #define GENE_REQUEST_H
-#define GENE_REQUEST_PROPERTY_ATTR "_attr"
-
 extern zend_class_entry *gene_request_ce;
 zval * request_query(zend_ulong type, char * name, size_t len);
 void setVal(zend_ulong type, zval *value);
