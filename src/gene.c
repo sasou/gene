@@ -115,6 +115,11 @@ void gene_free_request_context(gene_request_context *ctx) {
 		zval_ptr_dtor(&ctx->response);
 		ZVAL_UNDEF(&ctx->response);
 	}
+	if (Z_TYPE(ctx->view_vars) != IS_UNDEF) {
+		zval_ptr_dtor(&ctx->view_vars);
+		ZVAL_UNDEF(&ctx->view_vars);
+	}
+	ctx->view_scope_no = 0;
 }
 /* }}} */
 
@@ -160,6 +165,8 @@ gene_request_context *gene_request_ctx(void) {
 		ZVAL_UNDEF(&ctx->request_attr);
 		ZVAL_UNDEF(&ctx->di_regs);
 		ZVAL_UNDEF(&ctx->response);
+		ZVAL_UNDEF(&ctx->view_vars);
+		ctx->view_scope_no = 0;
 		zend_hash_index_update_ptr(GENE_G(co_contexts), (zend_ulong)cid, ctx);
 	}
 	GENE_G(current_cid) = cid;
@@ -332,6 +339,11 @@ PHP_RINIT_FUNCTION(gene) {
 		zval_ptr_dtor(&GENE_G(default_ctx).response);
 	}
 	ZVAL_UNDEF(&GENE_G(default_ctx).response);
+	if (Z_TYPE(GENE_G(default_ctx).view_vars) != IS_UNDEF) {
+		zval_ptr_dtor(&GENE_G(default_ctx).view_vars);
+	}
+	ZVAL_UNDEF(&GENE_G(default_ctx).view_vars);
+	GENE_G(default_ctx).view_scope_no = 0;
 	if (GENE_G(runtime_type) >= 2 && !GENE_G(co_contexts)) {
 		ALLOC_HASHTABLE(GENE_G(co_contexts));
 		zend_hash_init(GENE_G(co_contexts), 8, NULL, gene_co_context_dtor, 0);

@@ -1,12 +1,13 @@
 <?php
+date_default_timezone_set("Asia/Shanghai");
 define('APP_ROOT', dirname(__dir__) . '/application');
 define('CONF_DIR', dirname(__dir__) . '/config');
 
 if (class_exists('\Swoole\Runtime')) {
-    \Swoole\Runtime::enableCoroutine(SWOOLE_HOOK_ALL);
+    \Swoole\Runtime::enableCoroutine(SWOOLE_HOOK_ALL & ~SWOOLE_HOOK_FILE);
 }
 
-$http = new \Swoole\Http\Server("0.0.0.0", 9501, SWOOLE_PROCESS);
+$http = new \Swoole\Http\Server("0.0.0.0", 80, SWOOLE_PROCESS);
 
 $http->set([
     'worker_num'             => swoole_cpu_num(),
@@ -17,7 +18,7 @@ $http->set([
 ]);
 
 $http->on("start", function ($server) {
-    echo "Gene Swoole server started at http://0.0.0.0:9501\n";
+    echo "Gene Swoole server started at http://0.0.0.0:80\n";
 });
 
 $http->on("workerStart", function ($server, $workerId) {
@@ -30,16 +31,16 @@ $http->on("workerStart", function ($server, $workerId) {
         ->setMode(1, 1);
 });
 
-$http->on("request", function (\Swoole\Http\Request $request, \Swoole\Http\Response $response) {
+$http->on("request", function ($request, $response) {
     \Gene\Request::init(
         $request->get, $request->post, $request->cookie,
-        $server, null, $request->files
+        $request->server, null, $request->files
     );
 
     \Gene\Application::setResponse($response);
 
-    $method = strtolower($server['REQUEST_METHOD'] ?? $server['request_method'] ?? 'get');
-    $uri    = $server['REQUEST_URI'] ?? $server['request_uri'] ?? '/';
+    $method = strtolower($request->server['REQUEST_METHOD'] ?? $request->server['request_method'] ?? 'get');
+    $uri    = $request->server['REQUEST_URI'] ?? $request->server['request_uri'] ?? '/';
 
     ob_start();
     try {
