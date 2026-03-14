@@ -686,10 +686,6 @@ PHP_METHOD(gene_application, clearState) {
 	zval *self = getThis();
 	gene_clear_request_state();
 
-	zval null_val;
-	ZVAL_NULL(&null_val);
-	zend_update_static_property(gene_request_ce, GENE_REQUEST_PROPERTY_ATTR, strlen(GENE_REQUEST_PROPERTY_ATTR), &null_val);
-
 	if (Z_TYPE(gene_request_ctx()->di_regs) != IS_UNDEF) {
 		zval_ptr_dtor(&gene_request_ctx()->di_regs);
 		ZVAL_UNDEF(&gene_request_ctx()->di_regs);

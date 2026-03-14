@@ -430,8 +430,6 @@ GENE_MINIT_FUNCTION(request) {
 	gene_request_ce->ce_flags |= ZEND_ACC_ALLOW_DYNAMIC_PROPERTIES;
 #endif
 
-	zend_declare_property_null(gene_request_ce, GENE_REQUEST_PROPERTY_ATTR, strlen(GENE_REQUEST_PROPERTY_ATTR), ZEND_ACC_PROTECTED | ZEND_ACC_STATIC);
-	//
 	return SUCCESS; // @suppress("Symbol is not resolved")
 }
 /* }}} */
