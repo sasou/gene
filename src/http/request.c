@@ -42,6 +42,33 @@ static zval *gene_request_attr(void) {
 	return &ctx->request_attr;
 }
 
+static void gene_request_set_server_val(zval *server) {
+	zval normalized;
+	zval *item;
+	zend_string *key, *upper_key;
+	zend_ulong idx;
+
+	array_init_size(&normalized, zend_hash_num_elements(Z_ARRVAL_P(server)) * 2);
+
+	ZEND_HASH_FOREACH_KEY_VAL(Z_ARRVAL_P(server), idx, key, item) {
+		Z_TRY_ADDREF_P(item);
+		if (key) {
+			zend_hash_update(Z_ARRVAL(normalized), key, item);
+			upper_key = zend_string_toupper(zend_string_copy(key));
+			if (!zend_hash_exists(Z_ARRVAL(normalized), upper_key)) {
+				Z_TRY_ADDREF_P(item);
+				zend_hash_update(Z_ARRVAL(normalized), upper_key, item);
+			}
+			zend_string_release(upper_key);
+		} else {
+			zend_hash_index_update(Z_ARRVAL(normalized), idx, item);
+		}
+	} ZEND_HASH_FOREACH_END();
+
+	setVal(3, &normalized);
+	zval_ptr_dtor(&normalized);
+}
+
 /** {{{ ARG_INFO
  */
 ZEND_BEGIN_ARG_INFO_EX(geme_request_void_arginfo, 0, 0, 0)
@@ -309,7 +336,7 @@ PHP_METHOD(gene_request, init) {
 		setVal(2, cookie);
 	}
 	if (server && Z_TYPE_P(server) == IS_ARRAY) {
-		setVal(3, server);
+		gene_request_set_server_val(server);
 	}
 	if (env && Z_TYPE_P(env) == IS_ARRAY) {
 		setVal(4, env);

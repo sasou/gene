@@ -2,15 +2,23 @@
 date_default_timezone_set("Asia/Shanghai");
 define('APP_ROOT', dirname(__dir__) . '/application');
 define('CONF_DIR', dirname(__dir__) . '/config');
+define('SWOOLE_HOST', getenv('GENE_SWOOLE_HOST') ?: '0.0.0.0');
+define('SWOOLE_PORT', (int) (getenv('GENE_SWOOLE_PORT') ?: 9501));
+
+if (!extension_loaded('swoole') && !extension_loaded('openswoole')) {
+    fwrite(STDERR, "Swoole or OpenSwoole extension is required.\n");
+    exit(1);
+}
 
 if (class_exists('\Swoole\Runtime')) {
     \Swoole\Runtime::enableCoroutine(SWOOLE_HOOK_ALL & ~SWOOLE_HOOK_FILE);
 }
 
-$http = new \Swoole\Http\Server("0.0.0.0", 80, SWOOLE_PROCESS);
+$serverClass = class_exists('\Swoole\Http\Server') ? '\Swoole\Http\Server' : '\OpenSwoole\Http\Server';
+$http = new $serverClass(SWOOLE_HOST, SWOOLE_PORT, SWOOLE_PROCESS);
 
 $http->set([
-    'worker_num'             => swoole_cpu_num(),
+    'worker_num'             => function_exists('swoole_cpu_num') ? swoole_cpu_num() : 1,
     'max_request'            => 10000,
     'dispatch_mode'          => 2,
     'enable_static_handler'  => true,
@@ -18,7 +26,7 @@ $http->set([
 ]);
 
 $http->on("start", function ($server) {
-    echo "Gene Swoole server started at http://0.0.0.0:80\n";
+    echo "Gene Swoole server started at http://" . SWOOLE_HOST . ":" . SWOOLE_PORT . "\n";
 });
 
 $http->on("workerStart", function ($server, $workerId) {
@@ -39,12 +47,9 @@ $http->on("request", function ($request, $response) {
 
     \Gene\Application::setResponse($response);
 
-    $method = strtolower($request->server['REQUEST_METHOD'] ?? $request->server['request_method'] ?? 'get');
-    $uri    = $request->server['REQUEST_URI'] ?? $request->server['request_uri'] ?? '/';
-
     ob_start();
     try {
-        \Gene\Application::getInstance()->run($method, $uri);
+        \Gene\Application::getInstance()->run();
     } catch (\Throwable $e) {
         ob_end_clean();
         $response->status(500);

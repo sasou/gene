@@ -210,8 +210,6 @@
     });
 
     $http->on("request", function ($request, $response) {
-        $type = $request->server['request_method'] ?? "get";
-        $url = $request->server['request_uri'] ?? "/";
         \Gene\Request::init($request->get, $request->post, $request->cookie, $request->server, null, $request->files);
         \Gene\Application::setResponse($response);
         
@@ -227,7 +225,6 @@
             // 常驻/协程模式下建议清理上下文，避免数据串扰
             \Gene\Application::clearState();
             \Gene\Application::destroyContext();
-            \Gene\Request::clear();
         }
         
         $out = ob_get_contents();
