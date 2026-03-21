@@ -809,12 +809,14 @@ PHP_METHOD(gene_application, config) {
 		return;
 	}
 
-	if (GENE_G(app_key)) {
+	if (GENE_G(app_key) && strlen(GENE_G(app_key)) > 0) {
 		router_e_len = spprintf(&router_e, 0, "%s%s", GENE_G(app_key),
 		GENE_CONFIG_CACHE);
-	} else {
+	} else if (GENE_G(directory) && strlen(GENE_G(directory)) > 0) {
 		router_e_len = spprintf(&router_e, 0, "%s%s", GENE_G(directory),
 		GENE_CONFIG_CACHE);
+	} else {
+		router_e_len = spprintf(&router_e, 0, "%s", GENE_CONFIG_CACHE);
 	}
 	cache = gene_memory_get_by_config(router_e, router_e_len, ZSTR_VAL(keyString));
 	efree(router_e);
