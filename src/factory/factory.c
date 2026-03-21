@@ -263,6 +263,9 @@ GENE_MINIT_FUNCTION(factory)
     zend_class_entry gene_factory;
 	GENE_INIT_CLASS_ENTRY(gene_factory, "Gene_Factory", "Gene\\Factory", gene_factory_methods);
 	gene_factory_ce = zend_register_internal_class_ex(&gene_factory, NULL);
+#if PHP_VERSION_ID >= 80200
+	gene_factory_ce->ce_flags |= ZEND_ACC_ALLOW_DYNAMIC_PROPERTIES;
+#endif
 
 	return SUCCESS; // @suppress("Symbol is not resolved")
 }

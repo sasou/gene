@@ -122,11 +122,7 @@ ZEND_BEGIN_ARG_INFO_EX(gene_validate_call_arginfo, 0, 0, 2)
 ZEND_END_ARG_INFO()
 
 void setFefCount(zval *arr) {
-	#if PHP_VERSION_ID < 70300
-		GC_REFCOUNT(Z_ARRVAL_P(arr)) = 1;
-	#else
-		GC_SET_REFCOUNT(Z_ARRVAL_P(arr), 1);
-	#endif
+	GC_SET_REFCOUNT(Z_ARRVAL_P(arr), 1);
 }
 
 void reset_params(zval *self)

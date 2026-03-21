@@ -503,6 +503,9 @@ GENE_MINIT_FUNCTION(memcached)
     zend_class_entry gene_memcached;
     GENE_INIT_CLASS_ENTRY(gene_memcached, "Gene_Cache_Memcached", "Gene\\Cache\\Memcached", gene_memcached_methods);
     gene_memcached_ce = zend_register_internal_class(&gene_memcached);
+#if PHP_VERSION_ID >= 80200
+    gene_memcached_ce->ce_flags |= ZEND_ACC_ALLOW_DYNAMIC_PROPERTIES;
+#endif
 
     zend_declare_property_null(gene_memcached_ce, ZEND_STRL(GENE_MEM_CONFIG), ZEND_ACC_PUBLIC);
 	zend_declare_property_null(gene_memcached_ce, ZEND_STRL(GENE_MEM_OBJ), ZEND_ACC_PUBLIC);

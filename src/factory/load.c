@@ -58,19 +58,9 @@ int exec_by_symbol_table(zval *obj, zend_op_array *op_array, zend_array *symbol_
 
 	zend_function *func = (zend_function *)op_array;
 
-#if PHP_VERSION_ID >= 70400
 	call_info = ZEND_CALL_HAS_THIS | ZEND_CALL_NESTED_CODE | ZEND_CALL_HAS_SYMBOL_TABLE;
-#elif PHP_VERSION_ID >= 70100
-	call_info = ZEND_CALL_NESTED_CODE | ZEND_CALL_HAS_SYMBOL_TABLE;
-#else
-	call_info = ZEND_CALL_NESTED_CODE;
-#endif
 
-#if PHP_VERSION_ID < 70400
-	call = zend_vm_stack_push_call_frame(call_info, func, 0, op_array->scope, Z_OBJ_P(obj));
-#else
-    call = zend_vm_stack_push_call_frame(call_info, func, 0, Z_OBJ_P(obj));
-#endif
+	call = zend_vm_stack_push_call_frame(call_info, func, 0, Z_OBJ_P(obj));
 
 	call->symbol_table = symbol_table;
 
@@ -94,25 +84,13 @@ int gene_load_import(char *path , zval *obj, zend_array *symbol_table) {
 		return 0;
 	}
 
-#if PHP_VERSION_ID < 70400
-	file_handle.filename = path;
-	file_handle.free_filename = 0;
-	file_handle.type = ZEND_HANDLE_FILENAME;
-	file_handle.opened_path = NULL;
-	file_handle.handle.fp = NULL;
-#else
 	/* setup file-handle */
 	zend_stream_init_filename(&file_handle, path);
-#endif
 
 
 	op_array = zend_compile_file(&file_handle, ZEND_INCLUDE);
 
-#if PHP_VERSION_ID < 70400
-	if (op_array && file_handle.handle.stream.handle) {
-#else
 	if (op_array) {
-#endif
 		if (!file_handle.opened_path) {
 			file_handle.opened_path = zend_string_init(path, strlen(path), 0);
 		}
@@ -218,22 +196,12 @@ int gene_loader_register() {
 	do {
 		zend_fcall_info fci = {
 			sizeof(fci),
-#if PHP_VERSION_ID < 70100
-			EG(function_table),
-#endif
 			function,
-#if PHP_VERSION_ID < 70100
-			NULL,
-#endif
 			&ret,
 			&autoload,
 			NULL,
 			1,
-#if PHP_VERSION_ID < 80000
-            1
-#else
-           NULL
-#endif
+			NULL
 		};
 
 
@@ -320,6 +288,9 @@ GENE_MINIT_FUNCTION(load) {
 	GENE_INIT_CLASS_ENTRY(gene_load, "Gene_Load", "Gene\\Load", gene_load_methods);
 	gene_load_ce = zend_register_internal_class_ex(&gene_load, NULL);
 	gene_load_ce->ce_flags |= ZEND_ACC_FINAL;
+#if PHP_VERSION_ID >= 80200
+	gene_load_ce->ce_flags |= ZEND_ACC_ALLOW_DYNAMIC_PROPERTIES;
+#endif
 	//static
 	zend_declare_property_null(gene_load_ce, GENE_LOAD_PROPERTY_INSTANCE, strlen(GENE_LOAD_PROPERTY_INSTANCE), ZEND_ACC_PROTECTED | ZEND_ACC_STATIC);
 

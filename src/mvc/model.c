@@ -231,6 +231,9 @@ GENE_MINIT_FUNCTION(model)
     zend_class_entry gene_model;
 	GENE_INIT_CLASS_ENTRY(gene_model, "Gene_Model", "Gene\\Model", gene_model_methods);
 	gene_model_ce = zend_register_internal_class_ex(&gene_model, NULL);
+#if PHP_VERSION_ID >= 80200
+	gene_model_ce->ce_flags |= ZEND_ACC_ALLOW_DYNAMIC_PROPERTIES;
+#endif
 
 	return SUCCESS; // @suppress("Symbol is not resolved")
 }

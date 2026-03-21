@@ -34,8 +34,8 @@ zend_class_entry * gene_benchmark_ce;
 
 PHPAPI int gettimeofday(struct timeval *time_Info, struct timezone *timezone_Info);
 
-static struct timeval bench_start, bench_end;
-static zend_long bench_memory_start = 0, bench_memory_end = 0;
+/* Benchmark state moved to gene_request_context (gene.h) for coroutine safety.
+ * Accessed via GENE_REQ(bench_start), GENE_REQ(bench_end), etc. */
 
 ZEND_BEGIN_ARG_INFO_EX(gene_benchmark_start, 0, 0, 0)
 ZEND_END_ARG_INFO()
@@ -126,7 +126,7 @@ void getBenchMemory(zend_long *memory_start, zend_long *memory_end, char **ret, 
  */
 PHP_METHOD(gene_benchmark, start)
 {
-	markStart(&bench_start, &bench_memory_start);
+	markStart(&GENE_REQ(bench_start), &GENE_REQ(bench_memory_start));
 }
 /* }}} */
 
@@ -136,7 +136,7 @@ PHP_METHOD(gene_benchmark, start)
  */
 PHP_METHOD(gene_benchmark, end)
 {
-	markEnd(&bench_end, &bench_memory_end);
+	markEnd(&GENE_REQ(bench_end), &GENE_REQ(bench_memory_end));
 }
 /* }}} */
 
@@ -152,7 +152,7 @@ PHP_METHOD(gene_benchmark, time)
 		return;
 	}
 
-	getBenchTime(&bench_start, &bench_end, &ret, type);
+	getBenchTime(&GENE_REQ(bench_start), &GENE_REQ(bench_end), &ret, type);
 
 	ZVAL_STRING(return_value, ret);
 	efree(ret);
@@ -172,10 +172,10 @@ PHP_METHOD(gene_benchmark, memory)
 		return;
 	}
 
-    if (!bench_memory_start || !bench_memory_end) {
+    if (!GENE_REQ(bench_memory_start) || !GENE_REQ(bench_memory_end)) {
     	RETURN_NULL();
     }
-    getBenchMemory(&bench_memory_start, &bench_memory_end, &ret, type);
+    getBenchMemory(&GENE_REQ(bench_memory_start), &GENE_REQ(bench_memory_end), &ret, type);
 
 	ZVAL_STRING(return_value, ret);
 	efree(ret);
@@ -205,6 +205,9 @@ GENE_MINIT_FUNCTION(benchmark)
     GENE_INIT_CLASS_ENTRY(gene_benchmark, "Gene_Benchmark", "Gene\\Benchmark", gene_benchmark_methods);
     gene_benchmark_ce = zend_register_internal_class_ex(&gene_benchmark, NULL);
     gene_benchmark_ce->ce_flags |= ZEND_ACC_FINAL;
+#if PHP_VERSION_ID >= 80200
+    gene_benchmark_ce->ce_flags |= ZEND_ACC_ALLOW_DYNAMIC_PROPERTIES;
+#endif
 
 	return SUCCESS; // @suppress("Symbol is not resolved")
 }

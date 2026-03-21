@@ -419,6 +419,9 @@ GENE_MINIT_FUNCTION(redis)
     zend_class_entry gene_redis;
     GENE_INIT_CLASS_ENTRY(gene_redis, "Gene_Cache_Redis", "Gene\\Cache\\Redis", gene_redis_methods);
     gene_redis_ce = zend_register_internal_class(&gene_redis);
+#if PHP_VERSION_ID >= 80200
+    gene_redis_ce->ce_flags |= ZEND_ACC_ALLOW_DYNAMIC_PROPERTIES;
+#endif
 
     zend_declare_property_null(gene_redis_ce, ZEND_STRL(GENE_REDIS_CONFIG), ZEND_ACC_PUBLIC);
 	zend_declare_property_null(gene_redis_ce, ZEND_STRL(GENE_REDIS_OBJ), ZEND_ACC_PUBLIC);

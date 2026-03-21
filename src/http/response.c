@@ -456,6 +456,9 @@ GENE_MINIT_FUNCTION(response) {
 	zend_class_entry gene_response;
 	GENE_INIT_CLASS_ENTRY(gene_response, "Gene_Response", "Gene\\Response", gene_response_methods);
 	gene_response_ce = zend_register_internal_class(&gene_response);
+#if PHP_VERSION_ID >= 80200
+	gene_response_ce->ce_flags |= ZEND_ACC_ALLOW_DYNAMIC_PROPERTIES;
+#endif
 
 	//
 	return SUCCESS; // @suppress("Symbol is not resolved")
