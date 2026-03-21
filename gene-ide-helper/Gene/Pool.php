@@ -15,6 +15,20 @@ namespace Gene;
 class Pool
 {
     /**
+     * __construct
+     *
+     * @param array $config 配置参数
+     */
+    public function __construct(array $config) {
+    }
+
+    /**
+     * __destruct
+     */
+    public function __destruct() {
+    }
+
+    /**
      * 创建命名连接池并注册到全局注册表
      *
      * @param string $name   池名称（与db config中的pool参数对应）
@@ -75,6 +89,14 @@ class Pool
      * @return void
      */
     public function close(): void {
+    }
+
+    /**
+     * 回收空闲超时的连接
+     *
+     * @return void
+     */
+    public function recycleIdle(): void {
     }
 
     /**
