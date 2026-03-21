@@ -302,7 +302,9 @@ class Sqlite
     /**
      * free
      * 
-     * @return mixed
+     * 释放PDO连接。启用pool时归还到池，否则销毁连接。
+     *
+     * @return void
      */
     public function free() {
 

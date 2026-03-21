@@ -1154,6 +1154,8 @@ const zend_function_entry gene_db_mssql_methods[] = {
 		{NULL, NULL, NULL}
 };
 /* }}} */
+
+/*
  * {{{ GENE_MINIT_FUNCTION
  */
 GENE_MINIT_FUNCTION(db_mssql)
