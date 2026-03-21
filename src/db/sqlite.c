@@ -36,8 +36,8 @@
 
 zend_class_entry * gene_db_sqlite_ce;
 
-static struct timeval db_start, db_end;
-static zend_long db_sqlite_memory_start = 0, db_sqlite_memory_end = 0;
+/* Benchmark variables removed from file scope to avoid coroutine data races.
+ * They are now local to gene_sqlite_pdo_execute and passed to sqliteSaveHistory. */
 
 ZEND_BEGIN_ARG_INFO_EX(gene_db_sqlite_construct, 0, 0, 1)
 	ZEND_ARG_INFO(0, config)
@@ -117,7 +117,7 @@ void sqlite_reset_sql_params(zval *self)
     zend_update_property_null(gene_db_sqlite_ce, gene_strip_obj(self), ZEND_STRL(GENE_DB_SQLITE_DATA));
 }
 
-void sqliteSaveHistory(smart_str *sql, zval *param) {
+void sqliteSaveHistory(smart_str *sql, zval *param, struct timeval *start, struct timeval *end, zend_long *mem_start, zend_long *mem_end) {
 	zval *history = &GENE_REQ(db_sqlite_history);
 	zval params, z_row, z_sql, z_data, z_time, z_memory;
 	char *char_t,*char_m;
@@ -126,11 +126,11 @@ void sqliteSaveHistory(smart_str *sql, zval *param) {
 
 	jsonEncode(&z_data, param);
 
-	getBenchTime(&db_start, &db_end, &char_t, 1);
+	getBenchTime(start, end, &char_t, 1);
 	ZVAL_STRING(&z_time, char_t);
 	efree(char_t);
 
-    getBenchMemory(&db_sqlite_memory_start, &db_sqlite_memory_end, &char_m, 1);
+    getBenchMemory(mem_start, mem_end, &char_m, 1);
 	ZVAL_STRING(&z_memory, char_m);
 	efree(char_m);
 
@@ -216,6 +216,8 @@ bool gene_sqlite_pdo_execute (zval *self, zval *statement)
 	zval *pdo_object = NULL, *params = NULL, *pdo_sql = NULL, *pdo_where = NULL, *pdo_group = NULL,*pdo_having = NULL,*pdo_order = NULL, *pdo_limit = NULL;
 	zval retval;
 	smart_str sql = {0};
+	struct timeval db_start, db_end;
+	zend_long db_sqlite_memory_start = 0, db_sqlite_memory_end = 0;
 
 	pdo_object = zend_read_property(gene_db_sqlite_ce, gene_strip_obj(self), ZEND_STRL(GENE_DB_SQLITE_PDO), 1, NULL);
 	pdo_sql = zend_read_property(gene_db_sqlite_ce, gene_strip_obj(self), ZEND_STRL(GENE_DB_SQLITE_SQL), 1, NULL);
@@ -269,7 +271,7 @@ bool gene_sqlite_pdo_execute (zval *self, zval *statement)
     	}
 		if (!GENE_G(run_environment)) {
 			markEnd(&db_end, &db_sqlite_memory_end);
-			sqliteSaveHistory(&sql, params);
+			sqliteSaveHistory(&sql, params, &db_start, &db_end, &db_sqlite_memory_start, &db_sqlite_memory_end);
 		}
 		smart_str_free(&sql);
 		{
@@ -872,15 +874,15 @@ PHP_METHOD(gene_db_sqlite, order)
 PHP_METHOD(gene_db_sqlite, limit)
 {
 	zval *self = getThis();
-	zend_long *num, *offset = NULL;
+	zend_long num, offset = 0;
 	char *limit;
 	if (zend_parse_parameters(ZEND_NUM_ARGS(), "l|l", &num, &offset) == FAILURE) {
 		return;
 	}
-	if (offset) {
-		spprintf(&limit, 0, " limit %d offset %d", offset, num);
+	if (ZEND_NUM_ARGS() > 1) {
+		spprintf(&limit, 0, " limit " ZEND_LONG_FMT " offset " ZEND_LONG_FMT, num, offset);
 	} else {
-		spprintf(&limit, 0, " limit %d", num);
+		spprintf(&limit, 0, " limit " ZEND_LONG_FMT, num);
 	}
 	zend_update_property_string(gene_db_sqlite_ce, gene_strip_obj(self), ZEND_STRL(GENE_DB_SQLITE_LIMIT), limit);
 	efree(limit);
@@ -1164,6 +1166,9 @@ GENE_MINIT_FUNCTION(db_sqlite)
 	GENE_INIT_CLASS_ENTRY(gene_db_sqlite, "Gene_Db_Sqlite", "Gene\\Db\\Sqlite", gene_db_sqlite_methods);
 	gene_db_sqlite_ce = zend_register_internal_class_ex(&gene_db_sqlite, NULL);
 	gene_db_sqlite_ce->ce_flags |= ZEND_ACC_FINAL;
+#if PHP_VERSION_ID >= 80200
+	gene_db_sqlite_ce->ce_flags |= ZEND_ACC_ALLOW_DYNAMIC_PROPERTIES;
+#endif
 
 	//pdo
     zend_declare_property_null(gene_db_sqlite_ce, ZEND_STRL(GENE_DB_SQLITE_CONFIG), ZEND_ACC_PUBLIC);

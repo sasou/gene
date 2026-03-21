@@ -36,8 +36,8 @@
 
 zend_class_entry * gene_db_mysql_ce;
 
-static struct timeval db_start, db_end;
-static zend_long db_mysql_memory_start = 0, db_mysql_memory_end = 0;
+/* Benchmark variables removed from file scope to avoid coroutine data races.
+ * They are now local to gene_mysql_pdo_execute and passed to mysqlSaveHistory. */
 
 ZEND_BEGIN_ARG_INFO_EX(gene_db_mysql_void_arginfo, 0, 0, 0)
 ZEND_END_ARG_INFO()
@@ -117,7 +117,7 @@ void mysql_reset_sql_params(zval *self)
     zend_update_property_null(gene_db_mysql_ce, gene_strip_obj(self), ZEND_STRL(GENE_DB_MYSQL_DATA));
 }
 
-void mysqlSaveHistory(smart_str *sql, zval *param) {
+void mysqlSaveHistory(smart_str *sql, zval *param, struct timeval *start, struct timeval *end, zend_long *mem_start, zend_long *mem_end) {
 	zval *history = &GENE_REQ(db_mysql_history);
 	zval params, z_row, z_sql, z_data, z_time, z_memory;
 	char *char_t,*char_m;
@@ -126,11 +126,11 @@ void mysqlSaveHistory(smart_str *sql, zval *param) {
 
 	jsonEncode(&z_data, param);
 
-	getBenchTime(&db_start, &db_end, &char_t, 1);
+	getBenchTime(start, end, &char_t, 1);
 	ZVAL_STRING(&z_time, char_t);
 	efree(char_t);
 
-    getBenchMemory(&db_mysql_memory_start, &db_mysql_memory_end, &char_m, 1);
+    getBenchMemory(mem_start, mem_end, &char_m, 1);
 	ZVAL_STRING(&z_memory, char_m);
 	efree(char_m);
 
@@ -213,6 +213,8 @@ bool gene_mysql_pdo_execute (zval *self, zval *statement)
 	zval *pdo_object = NULL, *params = NULL, *pdo_sql = NULL, *pdo_where = NULL, *pdo_group = NULL,*pdo_having = NULL,*pdo_order = NULL, *pdo_limit = NULL;
 	zval retval;
 	smart_str sql = {0};
+	struct timeval db_start, db_end;
+	zend_long db_mysql_memory_start = 0, db_mysql_memory_end = 0;
 
 	pdo_object = zend_read_property(gene_db_mysql_ce, gene_strip_obj(self), ZEND_STRL(GENE_DB_MYSQL_PDO), 1, NULL);
 	pdo_sql = zend_read_property(gene_db_mysql_ce, gene_strip_obj(self), ZEND_STRL(GENE_DB_MYSQL_SQL), 1, NULL);
@@ -266,7 +268,7 @@ bool gene_mysql_pdo_execute (zval *self, zval *statement)
     	}
 		if (!GENE_G(run_environment)) {
 			markEnd(&db_end, &db_mysql_memory_end);
-			mysqlSaveHistory(&sql, params);
+			mysqlSaveHistory(&sql, params, &db_start, &db_end, &db_mysql_memory_start, &db_mysql_memory_end);
 		}
 		smart_str_free(&sql);
 		{
@@ -880,15 +882,15 @@ PHP_METHOD(gene_db_mysql, order)
 PHP_METHOD(gene_db_mysql, limit)
 {
 	zval *self = getThis();
-	zend_long *num, *offset = NULL;
+	zend_long num, offset = 0;
 	char *limit;
 	if (zend_parse_parameters(ZEND_NUM_ARGS(), "l|l", &num, &offset) == FAILURE) {
 		return;
 	}
-	if (offset) {
-		spprintf(&limit, 0, " LIMIT %d,%d", num, offset);
+	if (ZEND_NUM_ARGS() > 1) {
+		spprintf(&limit, 0, " LIMIT " ZEND_LONG_FMT "," ZEND_LONG_FMT, num, offset);
 	} else {
-		spprintf(&limit, 0, " LIMIT %d", num);
+		spprintf(&limit, 0, " LIMIT " ZEND_LONG_FMT, num);
 	}
 	zend_update_property_string(gene_db_mysql_ce, gene_strip_obj(self), ZEND_STRL(GENE_DB_MYSQL_LIMIT), limit);
 	efree(limit);
@@ -1172,6 +1174,9 @@ GENE_MINIT_FUNCTION(db_mysql)
 	GENE_INIT_CLASS_ENTRY(gene_db_mysql, "Gene_Db_Mysql", "Gene\\Db\\Mysql", gene_db_mysql_methods);
 	gene_db_mysql_ce = zend_register_internal_class_ex(&gene_db_mysql, NULL);
 	gene_db_mysql_ce->ce_flags |= ZEND_ACC_FINAL;
+#if PHP_VERSION_ID >= 80200
+	gene_db_mysql_ce->ce_flags |= ZEND_ACC_ALLOW_DYNAMIC_PROPERTIES;
+#endif
 
 	//pdo
     zend_declare_property_null(gene_db_mysql_ce, ZEND_STRL(GENE_DB_MYSQL_CONFIG), ZEND_ACC_PUBLIC);

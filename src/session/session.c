@@ -31,9 +31,7 @@
 
 zend_class_entry * gene_session_ce;
 
-#if defined(HAVE_SPL) && PHP_VERSION_ID < 70200
-extern PHPAPI zend_class_entry *spl_ce_Countable;
-#endif
+/* spl_ce_Countable is globally available since PHP 7.2+ */
 
 /* {{{ ARG_INFO
  */

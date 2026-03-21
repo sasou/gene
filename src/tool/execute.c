@@ -94,11 +94,7 @@ PHP_METHOD(gene_execute, GetOpcodes) {
 	ZVAL_STRINGL(&zv, ZSTR_VAL(php_script), ZSTR_LEN(php_script));
 	array_init(&opcodes_array);
 
-#if PHP_VERSION_ID < 80000
-		op_array = zend_compile_string(&zv, "");
-#else
-        op_array = zend_compile_string(Z_STR(zv), "");
-#endif
+	op_array = zend_compile_string(Z_STR(zv), "");
 	if (!op_array) {
 		zval_ptr_dtor(&zv);
 		zval_ptr_dtor(&opcodes_array);
@@ -151,6 +147,9 @@ GENE_MINIT_FUNCTION(execute) {
 	zend_class_entry gene_execute;
 	GENE_INIT_CLASS_ENTRY(gene_execute, "Gene_Execute", "Gene\\Execute", gene_execute_methods);
 	gene_execute_ce = zend_register_internal_class(&gene_execute);
+#if PHP_VERSION_ID >= 80200
+	gene_execute_ce->ce_flags |= ZEND_ACC_ALLOW_DYNAMIC_PROPERTIES;
+#endif
 
 	//debug
 	zend_declare_property_null(gene_execute_ce, GENE_EXECUTE_DEBUG, strlen(GENE_EXECUTE_DEBUG), ZEND_ACC_PUBLIC);

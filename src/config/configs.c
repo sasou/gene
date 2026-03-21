@@ -202,6 +202,9 @@ GENE_MINIT_FUNCTION(config) {
 	zend_class_entry gene_config;
 	GENE_INIT_CLASS_ENTRY(gene_config, "Gene_Config", "Gene\\Config", gene_config_methods);
 	gene_config_ce = zend_register_internal_class(&gene_config);
+#if PHP_VERSION_ID >= 80200
+	gene_config_ce->ce_flags |= ZEND_ACC_ALLOW_DYNAMIC_PROPERTIES;
+#endif
 
 	//debug
 	zend_declare_property_string(gene_config_ce, GENE_CONFIG_SAFE, strlen(GENE_CONFIG_SAFE), "", ZEND_ACC_PUBLIC);
