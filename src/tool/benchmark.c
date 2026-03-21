@@ -23,7 +23,6 @@
 #include "main/SAPI.h"
 #include "Zend/zend_API.h"
 #include "zend_exceptions.h"
-#include "Zend/zend_exceptions.h"
 #include "Zend/zend_alloc.h"
 #include "Zend/zend_interfaces.h"
 
@@ -32,7 +31,9 @@
 
 zend_class_entry * gene_benchmark_ce;
 
+#ifdef PHP_WIN32
 PHPAPI int gettimeofday(struct timeval *time_Info, struct timezone *timezone_Info);
+#endif
 
 /* Benchmark state moved to gene_request_context (gene.h) for coroutine safety.
  * Accessed via GENE_REQ(bench_start), GENE_REQ(bench_end), etc. */
