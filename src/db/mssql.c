@@ -30,6 +30,8 @@
 #include "../cache/memory.h"
 #include "../db/pdo.h"
 #include "../db/mssql.h"
+#include "../db/pool.h"
+#include "../factory/factory.h"
 #include "../tool/benchmark.h"
 
 zend_class_entry * gene_db_mssql_ce;
@@ -155,6 +157,12 @@ bool mssqlInitPdo (zval * self, zval *config) {
 		config =  zend_read_property(gene_db_mssql_ce, gene_strip_obj(self), ZEND_STRL(GENE_DB_MSSQL_CONFIG), 1, NULL);
 	}
 
+	/* Pool mode: in Swoole coroutine mode, if config has 'pool' key,
+	 * borrow a PDO connection from the named pool instead of creating one. */
+	if (gene_pool_get_pdo(gene_db_mssql_ce, self, config, ZEND_STRL(GENE_DB_MSSQL_POOL), ZEND_STRL(GENE_DB_MSSQL_PDO))) {
+		return 0;
+	}
+
 	zend_string *c_key = zend_string_init(ZEND_STRL("PDO"), 0);
 	zend_class_entry *pdo_ptr = zend_lookup_class(c_key);
 	zend_string_release(c_key);
@@ -240,7 +248,10 @@ bool gene_mssql_pdo_execute (zval *self, zval *statement)
     	if (EG(exception)) {
     		if (checkPdoError(EG(exception))) {
     			zend_clear_exception();
+    			/* If using pool, notify that the broken connection is lost */
+    			gene_pool_notify_remove(gene_db_mssql_ce, self, ZEND_STRL(GENE_DB_MSSQL_POOL));
     			mssqlInitPdo (self, NULL);
+    			pdo_object = zend_read_property(gene_db_mssql_ce, gene_strip_obj(self), ZEND_STRL(GENE_DB_MSSQL_PDO), 1, NULL);
     			gene_pdo_prepare(pdo_object, ZSTR_VAL(sql.s), statement);
     			ZVAL_NULL(&retval);
     			gene_pdo_statement_execute(statement, params, &retval);
@@ -1055,13 +1066,42 @@ PHP_METHOD(gene_db_mssql, commit)
 /* }}} */
 
 /*
+ * {{{ public gene_db::release()
+ */
+PHP_METHOD(gene_db_mssql, release)
+{
+	zval *self = getThis();
+	gene_pool_return_pdo(gene_db_mssql_ce, self, ZEND_STRL(GENE_DB_MSSQL_POOL), ZEND_STRL(GENE_DB_MSSQL_PDO));
+	RETURN_NULL();
+}
+/* }}} */
+
+/*
  * {{{ public gene_db::free()
  */
 PHP_METHOD(gene_db_mssql, free)
 {
 	zval *self = getThis();
-	zend_update_property_null(gene_db_mssql_ce, gene_strip_obj(self), ZEND_STRL(GENE_DB_MSSQL_PDO));
+	zval *pool = zend_read_property(gene_db_mssql_ce, gene_strip_obj(self), ZEND_STRL(GENE_DB_MSSQL_POOL), 1, NULL);
+	if (pool && Z_TYPE_P(pool) == IS_OBJECT) {
+		gene_pool_return_pdo(gene_db_mssql_ce, self, ZEND_STRL(GENE_DB_MSSQL_POOL), ZEND_STRL(GENE_DB_MSSQL_PDO));
+	} else {
+		zend_update_property_null(gene_db_mssql_ce, gene_strip_obj(self), ZEND_STRL(GENE_DB_MSSQL_PDO));
+	}
 	RETURN_NULL();
+}
+/* }}} */
+
+/*
+ * {{{ public gene_db::__destruct()
+ */
+PHP_METHOD(gene_db_mssql, __destruct)
+{
+	zval *self = getThis();
+	zval *pool = zend_read_property(gene_db_mssql_ce, gene_strip_obj(self), ZEND_STRL(GENE_DB_MSSQL_POOL), 1, NULL);
+	if (pool && Z_TYPE_P(pool) == IS_OBJECT) {
+		gene_pool_return_pdo(gene_db_mssql_ce, self, ZEND_STRL(GENE_DB_MSSQL_POOL), ZEND_STRL(GENE_DB_MSSQL_PDO));
+	}
 }
 /* }}} */
 
@@ -1107,14 +1147,13 @@ const zend_function_entry gene_db_mssql_methods[] = {
 		PHP_ME(gene_db_mssql, inTransaction, gene_db_mssql_void_arginfo, ZEND_ACC_PUBLIC)
 		PHP_ME(gene_db_mssql, rollBack, gene_db_mssql_void_arginfo, ZEND_ACC_PUBLIC)
 		PHP_ME(gene_db_mssql, commit, gene_db_mssql_void_arginfo, ZEND_ACC_PUBLIC)
+		PHP_ME(gene_db_mssql, release, gene_db_mssql_void_arginfo, ZEND_ACC_PUBLIC)
 		PHP_ME(gene_db_mssql, free, gene_db_mssql_void_arginfo, ZEND_ACC_PUBLIC)
+		PHP_ME(gene_db_mssql, __destruct, gene_db_mssql_void_arginfo, ZEND_ACC_PUBLIC)
 		PHP_ME(gene_db_mssql, history, gene_db_mssql_void_arginfo, ZEND_ACC_PUBLIC)
 		{NULL, NULL, NULL}
 };
 /* }}} */
-
-
-/*
  * {{{ GENE_MINIT_FUNCTION
  */
 GENE_MINIT_FUNCTION(db_mssql)
@@ -1134,6 +1173,7 @@ GENE_MINIT_FUNCTION(db_mssql)
     zend_declare_property_null(gene_db_mssql_ce, ZEND_STRL(GENE_DB_MSSQL_ORDER), ZEND_ACC_PUBLIC);
     zend_declare_property_null(gene_db_mssql_ce, ZEND_STRL(GENE_DB_MSSQL_LIMIT), ZEND_ACC_PUBLIC);
     zend_declare_property_null(gene_db_mssql_ce, ZEND_STRL(GENE_DB_MSSQL_DATA), ZEND_ACC_PUBLIC);
+    zend_declare_property_null(gene_db_mssql_ce, ZEND_STRL(GENE_DB_MSSQL_POOL), ZEND_ACC_PROTECTED);
     zend_declare_property_null(gene_db_mssql_ce, ZEND_STRL(GENE_DB_MSSQL_HISTORY), ZEND_ACC_PROTECTED | ZEND_ACC_STATIC);
 
 	return SUCCESS;// @suppress("Symbol is not resolved")
