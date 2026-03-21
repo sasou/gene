@@ -135,6 +135,18 @@ class Pool
     }
 
     /**
+     * 清除所有连接池的空闲回收定时器
+     *
+     * 轻量级方法，仅清除定时器，不排空连接也不关闭池。
+     * 设计用于 Swoole 的 onWorkerExit 回调中，让事件循环可以正常退出。
+     * onWorkerStop 中仍应调用 closeAll() 做完整清理。
+     *
+     * @return void
+     */
+    public static function stopTimers(): void {
+    }
+
+    /**
      * 获取连接池状态
      *
      * @return array{total: int, idle: int, using: int, overflow: int, min: int, max: int, closed: bool}
