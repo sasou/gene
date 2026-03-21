@@ -21,37 +21,6 @@
 #define GENE_AUTOLOAD_FUNC_NAME 		"Gene_Load::autoload"
 #define GENE_AUTOLOAD_FUNC_NAME_NS 		"Gene\\Load::autoload"
 
-#if ((PHP_MAJOR_VERSION == 5) && (PHP_MINOR_VERSION > 2)) || (PHP_MAJOR_VERSION > 5)
-#define GENE_STORE_EG_ENVIRON() \
-	{ \
-		zval ** __old_return_value_pp   = EG(return_value_ptr_ptr); \
-		zend_op ** __old_opline_ptr  	= EG(opline_ptr); \
-		zend_op_array * __old_op_array  = EG(active_op_array);
-
-#define GENE_RESTORE_EG_ENVIRON() \
-		EG(return_value_ptr_ptr) = __old_return_value_pp;\
-		EG(opline_ptr)			 = __old_opline_ptr; \
-		EG(active_op_array)		 = __old_op_array; \
-	}
-
-#else
-
-#define GENE_STORE_EG_ENVIRON() \
-	{ \
-		zval ** __old_return_value_pp  		   = EG(return_value_ptr_ptr); \
-		zend_op ** __old_opline_ptr 		   = EG(opline_ptr); \
-		zend_op_array * __old_op_array 		   = EG(active_op_array); \
-		zend_function_state * __old_func_state = EG(function_state_ptr);
-
-#define GENE_RESTORE_EG_ENVIRON() \
-		EG(return_value_ptr_ptr) = __old_return_value_pp;\
-		EG(opline_ptr)			 = __old_opline_ptr; \
-		EG(active_op_array)		 = __old_op_array; \
-		EG(function_state_ptr)	 = __old_func_state; \
-	}
-
-#endif
-
 extern zend_class_entry *gene_load_ce;
 
 int gene_load_import(char *path, zval *obj, zend_array *symbol_table);
