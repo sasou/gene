@@ -291,8 +291,11 @@ static void pool_recycle_idle(zval *self) {
     zend_long now, idle_timeout, size, i;
     zval item, *conn_zv, *last_used_zv;
  
-    if (pool_is_closed(self)) return;
- 
+    if (pool_is_closed(self)) {
+        pool_stop_timer(self);
+        return;
+    }
+
     channel = zend_read_property(gene_pool_ce, gene_strip_obj(self), ZEND_STRL(GENE_POOL_PROPERTY_CHANNEL), 1, NULL);
     idle_zv = zend_read_property(gene_pool_ce, gene_strip_obj(self), ZEND_STRL(GENE_POOL_PROPERTY_IDLE_TIME), 1, NULL);
     idle_timeout = (idle_zv && Z_TYPE_P(idle_zv) == IS_LONG) ? Z_LVAL_P(idle_zv) : 60;
@@ -970,6 +973,28 @@ PHP_METHOD(gene_pool, closeAll)
 /* }}} */
  
 /*
+ * {{{ public static Gene\Pool::stopTimers(): void
+ *
+ * Lightweight method that only clears pool idle-recycler timers without
+ * draining channels.  Designed to be called from Swoole's onWorkerExit
+ * callback so the event loop can exit cleanly.  closeAll() (which also
+ * drains channels) should still be called from onWorkerStop afterwards.
+ */
+PHP_METHOD(gene_pool, stopTimers)
+{
+    zval *instances = zend_read_static_property(gene_pool_ce, ZEND_STRL(GENE_POOL_PROPERTY_INSTANCES), 1);
+    if (instances && Z_TYPE_P(instances) == IS_ARRAY) {
+        zval *pool;
+        ZEND_HASH_FOREACH_VAL(Z_ARRVAL_P(instances), pool) {
+            if (Z_TYPE_P(pool) == IS_OBJECT) {
+                pool_stop_timer(pool);
+            }
+        } ZEND_HASH_FOREACH_END();
+    }
+}
+/* }}} */
+
+/*
  * {{{ public Gene\Pool::stats(): array
  */
 PHP_METHOD(gene_pool, stats)
@@ -1115,6 +1140,7 @@ const zend_function_entry gene_pool_methods[] = {
     PHP_ME(gene_pool, remove, gene_pool_void_arginfo, ZEND_ACC_PUBLIC)
     PHP_ME(gene_pool, close, gene_pool_void_arginfo, ZEND_ACC_PUBLIC)
     PHP_ME(gene_pool, closeAll, gene_pool_void_arginfo, ZEND_ACC_PUBLIC|ZEND_ACC_STATIC)
+    PHP_ME(gene_pool, stopTimers, gene_pool_void_arginfo, ZEND_ACC_PUBLIC|ZEND_ACC_STATIC)
     PHP_ME(gene_pool, recycleIdle, gene_pool_void_arginfo, ZEND_ACC_PUBLIC)
     PHP_ME(gene_pool, stats, gene_pool_void_arginfo, ZEND_ACC_PUBLIC)
     {NULL, NULL, NULL}

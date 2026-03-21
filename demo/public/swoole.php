@@ -39,6 +39,11 @@ $http->on("workerStart", function ($server, $workerId) {
     ]);
 });
 
+$http->on("workerExit", function ($server, $workerId) {
+    // 清除连接池定时器，让事件循环可以正常退出
+    \Gene\Pool::stopTimers();
+});
+
 $http->on("workerStop", function ($server, $workerId) {
     // 关闭所有连接池，释放资源
     \Gene\Pool::closeAll();
