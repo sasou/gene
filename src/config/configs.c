@@ -64,11 +64,13 @@ PHP_METHOD(gene_config, __construct) {
 	if (safe) {
 		zend_update_property_string(gene_config_ce, gene_strip_obj(self), GENE_CONFIG_SAFE, strlen(GENE_CONFIG_SAFE), Z_STRVAL_P(safe));
 	} else {
-		if (GENE_G(app_key)) {
+		if (GENE_G(app_key) && strlen(GENE_G(app_key)) > 0) {
 			zend_update_property_string(gene_config_ce, gene_strip_obj(self), GENE_CONFIG_SAFE, strlen(GENE_CONFIG_SAFE), GENE_G(app_key));
 		} else {
 			gene_ini_router();
-			zend_update_property_string(gene_config_ce, gene_strip_obj(self), GENE_CONFIG_SAFE, strlen(GENE_CONFIG_SAFE), GENE_G(directory));
+			if (GENE_G(directory) && strlen(GENE_G(directory)) > 0) {
+				zend_update_property_string(gene_config_ce, gene_strip_obj(self), GENE_CONFIG_SAFE, strlen(GENE_CONFIG_SAFE), GENE_G(directory));
+			}
 		}
 	}
 }
