@@ -836,14 +836,14 @@ PHP_METHOD(gene_pool, remove)
 PHP_METHOD(gene_pool, close)
 {
     zval *self = getThis();
- 
-    if (pool_is_closed(self)) {
-        return;
-    }
- 
-    zend_update_property_bool(gene_pool_ce, gene_strip_obj(self), ZEND_STRL(GENE_POOL_PROPERTY_CLOSED), 1);
 
-    pool_stop_timer(self);
+    /* Mark as closed and stop timer (idempotent — safe to call multiple times).
+     * closeAll() marks pools closed before calling close(), so we must NOT
+     * bail out early when already closed; the channel still needs draining. */
+    if (!pool_is_closed(self)) {
+        zend_update_property_bool(gene_pool_ce, gene_strip_obj(self), ZEND_STRL(GENE_POOL_PROPERTY_CLOSED), 1);
+        pool_stop_timer(self);
+    }
 
     /* Two-phase drain:
      * Phase 1: drain immediately available idle connections.
