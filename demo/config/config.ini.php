@@ -36,12 +36,15 @@ $config->set("session", [
 // 避免 Swoole 下 "Socket has already been bound to another coroutine" 冲突。
 // 注意：不要在 Swoole 协程模式下使用 PDO::ATTR_PERSISTENT，持久连接是进程级共享的，
 // 多协程并发会争用同一个 socket。
+// pool: 连接池名称（可选），在Swoole协程模式下启用连接池。需在workerStart中通过
+//   Gene\Pool::create('dbPool', [...]) 预先创建。FPM模式下此参数被忽略，行为不变。
 $config->set("db", [
     'class' => '\Gene\Db\Mysql',
     'params' => [[
     'dsn' => 'mysql:dbname=gene_demo;host=127.0.0.1;port=3306;charset=utf8',
     'username' => 'dev',
-    'password' => 'dev123'
+    'password' => 'dev123',
+    'pool' => 'dbPool'
         ]],
     'instance' => true
 ]);

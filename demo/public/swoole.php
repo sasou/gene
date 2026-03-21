@@ -37,6 +37,23 @@ $http->on("workerStart", function ($server, $workerId) {
         ->load("router.ini.php", CONF_DIR)
         ->load("config.ini.php", CONF_DIR)
         ->setMode(1, 1);
+
+    // 创建数据库连接池（每个Worker进程独立）
+    // 连接池参数需与config.ini.php中db配置的dsn/username/password一致
+    \Gene\Pool::create('dbPool', [
+        'dsn'         => 'mysql:dbname=gene_demo;host=127.0.0.1;port=3306;charset=utf8',
+        'username'    => 'dev',
+        'password'    => 'dev123',
+        'min'         => 2,    // 最小连接数
+        'max'         => 10,   // 最大连接数
+        'idleTimeout' => 60,   // 空闲超时（秒），超时回收，保持最小连接数
+        'waitTimeout' => 3.0,  // 获取连接等待超时（秒）
+    ]);
+});
+
+$http->on("workerStop", function ($server, $workerId) {
+    // 关闭所有连接池，释放资源
+    \Gene\Pool::closeAll();
 });
 
 $http->on("request", function ($request, $response) {
