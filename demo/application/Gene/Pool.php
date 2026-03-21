@@ -83,9 +83,15 @@ class Pool
      *   - max:         int     最大连接数（默认10）
      *   - idleTimeout: int     空闲超时秒数（默认60）
      *   - waitTimeout: float   获取连接等待超时秒数（默认3.0）
+     * @throws \RuntimeException 在非Swoole模式下运行时抛出异常
      */
     public function __construct(array $config)
     {
+        // 检查运行时模式：只在Swoole模式下允许使用连接池
+        if (!class_exists('\Swoole\Coroutine\Channel')) {
+            throw new \RuntimeException('Gene\\Pool can only be used in Swoole coroutine mode');
+        }
+        
         $this->min = max(0, (int)($config['min'] ?? 1));
         $this->max = max(1, (int)($config['max'] ?? 10));
         if ($this->min > $this->max) {
@@ -110,9 +116,15 @@ class Pool
      * @param string $name  池名称
      * @param array  $config 配置参数（同构造函数）
      * @return self
+     * @throws \RuntimeException 在非Swoole模式下运行时抛出异常
      */
     public static function create(string $name, array $config): self
     {
+        // 检查运行时模式：只在Swoole模式下允许使用连接池
+        if (!defined('SWOOLE_RUNTIME') && !class_exists('\Swoole\Coroutine\Channel')) {
+            throw new \RuntimeException('Gene\\Pool can only be used in Swoole coroutine mode');
+        }
+        
         if (isset(self::$instances[$name])) {
             self::$instances[$name]->close();
         }

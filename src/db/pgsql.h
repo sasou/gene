@@ -27,6 +27,7 @@
 #define GENE_DB_PGSQL_LIMIT "limit"
 #define GENE_DB_PGSQL_DATA "data"
 #define GENE_DB_PGSQL_HISTORY "history"
+#define GENE_DB_PGSQL_POOL "pool"
 
 
 extern zend_class_entry *gene_db_pgsql_ce;

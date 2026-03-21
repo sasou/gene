@@ -27,6 +27,7 @@
 #define GENE_DB_SQLITE_LIMIT "limit"
 #define GENE_DB_SQLITE_DATA "data"
 #define GENE_DB_SQLITE_HISTORY "history"
+#define GENE_DB_SQLITE_POOL "pool"
 
 
 extern zend_class_entry *gene_db_sqlite_ce;
