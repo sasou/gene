@@ -2,52 +2,40 @@
 date_default_timezone_set("Asia/Shanghai");
 define('APP_ROOT', dirname(__dir__) . '/application');
 define('CONF_DIR', dirname(__dir__) . '/config');
-define('SWOOLE_HOST', getenv('GENE_SWOOLE_HOST') ?: '0.0.0.0');
-define('SWOOLE_PORT', (int) (getenv('GENE_SWOOLE_PORT') ?: 9501));
+define('WWW_ROOT', dirname(__dir__) . '/public');
 
-if (!extension_loaded('swoole') && !extension_loaded('openswoole')) {
-    fwrite(STDERR, "Swoole or OpenSwoole extension is required.\n");
-    exit(1);
-}
 
-if (class_exists('\Swoole\Runtime')) {
-    \Swoole\Runtime::enableCoroutine(SWOOLE_HOOK_ALL & ~SWOOLE_HOOK_FILE);
-}
-
-$serverClass = class_exists('\Swoole\Http\Server') ? '\Swoole\Http\Server' : '\OpenSwoole\Http\Server';
-$http = new $serverClass(SWOOLE_HOST, SWOOLE_PORT, SWOOLE_PROCESS);
+\Swoole\Runtime::enableCoroutine(SWOOLE_HOOK_ALL);
+$http = new \Swoole\Http\Server("0.0.0.0", 80, SWOOLE_PROCESS);
 
 $http->set([
-    'worker_num'             => function_exists('swoole_cpu_num') ? swoole_cpu_num() : 1,
+    'reactor_num'            => 4,
+    'worker_num'             => 4,
     'max_request'            => 10000,
     'dispatch_mode'          => 2,
     'enable_static_handler'  => true,
-    'document_root'          => dirname(__dir__) . "/public/",
+    'document_root'          => WWW_ROOT
 ]);
 
 $http->on("start", function ($server) {
-    echo "Gene Swoole server started at http://" . SWOOLE_HOST . ":" . SWOOLE_PORT . "\n";
+    echo "Gene Swoole server started at http://0.0.0.0:80\n";
 });
 
 $http->on("workerStart", function ($server, $workerId) {
-    \Gene\Application::setRuntimeType('swoole');
-
-    $app = new \Gene\Application();
-    $app->autoload(APP_ROOT)
+    \Gene\Application::getInstance()->autoload(APP_ROOT)
         ->load("router.ini.php", CONF_DIR)
         ->load("config.ini.php", CONF_DIR)
-        ->setMode(1, 1);
+        ->setMode(1, 1)
+        ->setRuntimeType('swoole');
 
     // 创建数据库连接池（每个Worker进程独立）
-    // 连接池参数需与config.ini.php中db配置的dsn/username/password一致
-    \Gene\Pool::create('dbPool', [
-        'dsn'         => 'mysql:dbname=gene_demo;host=127.0.0.1;port=3306;charset=utf8',
-        'username'    => 'dev',
-        'password'    => 'dev123',
-        'min'         => 2,    // 最小连接数
-        'max'         => 10,   // 最大连接数
-        'idleTimeout' => 60,   // 空闲超时（秒），超时回收，保持最小连接数
-        'waitTimeout' => 1.5,  // 获取连接等待超时（秒）
+    // 第二个参数 'db' 对应 config.ini.php 中 $config->set("db", ...) 的配置key，自动从持久化配置缓存中读取 dsn/username/password
+    // 第三个参数可选，不传则使用默认连接池参数。
+    \Gene\Pool::create('dbPool', 'db', [
+        'min'         => 2,    // 最小连接数（默认1）
+        'max'         => 10,   // 最大连接数（默认10）
+        'idleTimeout' => 60,   // 空闲超时（秒），超时回收，保持最小连接数（默认60）
+        'waitTimeout' => 1.5,  // 获取连接等待超时（秒）（默认3.0）
     ]);
 });
 
@@ -61,7 +49,6 @@ $http->on("request", function ($request, $response) {
         $request->get, $request->post, $request->cookie,
         $request->server, null, $request->files
     );
-
     \Gene\Application::setResponse($response);
 
     ob_start();
@@ -73,8 +60,7 @@ $http->on("request", function ($request, $response) {
     }
     $out = ob_get_clean();
 
-    \Gene\Application::clearState();
-    \Gene\Application::destroyContext();
+    \Gene\Application::cleanup();
 
     if ($error) {
         $response->status(500);

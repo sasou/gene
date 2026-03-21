@@ -37,7 +37,8 @@ $config->set("session", [
 // 注意：不要在 Swoole 协程模式下使用 PDO::ATTR_PERSISTENT，持久连接是进程级共享的，
 // 多协程并发会争用同一个 socket。
 // pool: 连接池名称（可选），在Swoole协程模式下启用连接池。需在workerStart中通过
-//   Gene\Pool::create('dbPool', [...]) 预先创建。FPM模式下此参数被忽略，行为不变。
+//   Gene\Pool::create('dbPool', 'db') 预先创建，自动读取此处的dsn/username/password。
+//   FPM模式下此参数被忽略，行为不变。
 $config->set("db", [
     'class' => '\Gene\Db\Mysql',
     'params' => [[

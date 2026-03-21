@@ -63,6 +63,10 @@
 | getRouterUri() | 获取路由模式 URI（:m/:c/:a 已替换） |
 | getLang() | 获取当前语言前缀 |
 | getModule(), getController(), getAction() | 当前模块、控制器、动作 |
+| clearState() | 软重置当前请求上下文（释放用户数据但保留上下文结构体），Swoole 下建议用 cleanup() |
+| destroyContext() | 销毁当前协程的请求上下文结构体，Swoole 下建议用 cleanup() |
+| cleanup() | **Swoole 推荐**：合并 clearState + destroyContext 的两阶段清理，FPM 下等同 clearState |
+| setResponse($response) | 将 Swoole Response 对象存入当前请求上下文 |
 | config($key) | 从内存缓存读取配置项 |
 | params($name = null) | 获取路由路径参数（不传则返回全部数组） |
 

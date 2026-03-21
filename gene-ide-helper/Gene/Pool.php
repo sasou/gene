@@ -31,20 +31,22 @@ class Pool
     /**
      * 创建命名连接池并注册到全局注册表
      *
-     * @param string $name   池名称（与db config中的pool参数对应）
-     * @param array  $config 配置参数：
-     *   - dsn:         string  PDO DSN
-     *   - username:    string  数据库用户名
-     *   - password:    string  数据库密码
-     *   - options:     array   PDO选项（可选）
+     * 自动从持久化配置缓存中读取数据库连接信息（dsn, username, password, options），
+     * 避免在多处重复维护连接配置。配置通过 Gene\Config::set() 注入，例如：
+     *   $config->set("db", ['class'=>..., 'params'=>[[dsn, username, password, ...]], ...])
+     *
+     * @param string $name      池名称（与db config中的pool参数对应）
+     * @param string $configKey 配置键名（如 'db'），对应 $config->set() 的第一个参数，
+     *                          从中读取 params[0] 的 dsn/username/password/options
+     * @param array  $options   连接池参数（可选，不传使用默认值）：
      *   - min:         int     最小连接数（默认1）
      *   - max:         int     最大连接数（默认10）
      *   - idleTimeout: int     空闲超时秒数（默认60）
      *   - waitTimeout: float   获取连接等待超时秒数（默认3.0）
      * @return self
      */
-    public static function create(string $name, array $config): self {
-        return new self($config);
+    public static function create(string $name, string $configKey, array $options = []): self {
+        return new self($options);
     }
 
     /**
