@@ -204,17 +204,12 @@ void load_file(char *key, size_t key_len, char *php_script, int validity) {
 /** {{{ gene_file_modified
  */
 zend_long gene_file_modified(char *file, zend_long ctime) {
-	zval n_ctime;
-	#if PHP_VERSION_ID >= 80101
-		zend_string *filename;
-		filename = zend_string_init(file, strlen(file), 0);
-		php_stat(filename, 6 /* FS_MTIME */, &n_ctime);
-		zend_string_release(filename);
-	#else
-	    php_stat(file, strlen(file), 6 /* FS_MTIME */, &n_ctime);
-	#endif
-	if (ctime != Z_LVAL(n_ctime)) {
-		return Z_LVAL(n_ctime);
+	zend_stat_t sb;
+	if (!file || VCWD_STAT(file, &sb) == -1) {
+		return 0;
+	}
+	if (ctime != (zend_long)sb.st_mtime) {
+		return (zend_long)sb.st_mtime;
 	}
 	return 0;
 }
@@ -428,8 +423,11 @@ PHP_METHOD(gene_application, load) {
 	}
 	if (path && ZSTR_LEN(path) > 0) {
 		cache_key_len = spprintf(&cache_key, 0, "%s/%s", ZSTR_VAL(path), ZSTR_VAL(file));
-	} else {
+	} else if (GENE_G(app_root) && strlen(GENE_G(app_root)) > 0) {
 		cache_key_len = spprintf(&cache_key, 0, "%s/Config/%s", GENE_G(app_root), ZSTR_VAL(file));
+	} else {
+		php_error_docref(NULL, E_WARNING, "app_root is not set, call autoload() first or pass an explicit path");
+		RETURN_ZVAL(self, 1, 0);
 	}
 	load_file(cache_key, cache_key_len, cache_key, validity);
 	efree(cache_key);
