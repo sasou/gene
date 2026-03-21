@@ -60,7 +60,14 @@ class Pool
     /**
      * 从池中获取一个PDO连接
      *
-     * @return \PDO|null
+     * 获取优先级：
+     * 1. 从空闲队列中弹出可用连接
+     * 2. 当前连接数 < max 时创建新连接
+     * 3. 已达 max 时等待 waitTimeout 秒
+     * 4. 等待超时后创建溢出连接（超出max），防止调用方异常
+     *    溢出连接归还时会被自动丢弃，池自动收缩回 max
+     *
+     * @return \PDO|null 仅在溢出创建也失败时返回null
      */
     public function get(): ?\PDO {
         return null;
@@ -68,6 +75,12 @@ class Pool
 
     /**
      * 归还PDO连接到池中
+     *
+     * 自动处理以下情况：
+     * - 池已关闭：丢弃连接并递减计数
+     * - 连接已死：丢弃连接并递减计数
+     * - 溢出收缩：当 currentCount > max 时丢弃连接，自动恢复到 max
+     * - 正常归还：推入空闲队列供其他协程复用
      *
      * @param \PDO $pdo
      * @return void
@@ -84,7 +97,14 @@ class Pool
     }
 
     /**
-     * 关闭连接池，释放所有空闲连接
+     * 关闭连接池，释放所有连接
+     *
+     * 两阶段排空：
+     * 1. 标记关闭 + 停止空闲回收定时器
+     * 2. 立即排空空闲连接
+     * 3. 短暂等待在途连接归还（最多 waitTimeout 秒，上限3秒）
+     * 4. 关闭 Channel（唤醒阻塞中的协程）
+     * 5. 强制重置计数，剩余在用连接归还时自动丢弃
      *
      * @return void
      */
@@ -100,7 +120,12 @@ class Pool
     }
 
     /**
-     * 关闭所有命名连接池
+     * 关闭所有命名连接池（两阶段关闭）
+     *
+     * Phase 1: 先将所有池标记为 closed 并停止定时器，
+     *          防止关闭过程中其他协程从未关闭的池借用连接。
+     * Phase 2: 依次排空并关闭所有池的 Channel。
+     * 最后清空静态实例注册表。
      *
      * @return void
      */
@@ -110,7 +135,7 @@ class Pool
     /**
      * 获取连接池状态
      *
-     * @return array{total: int, idle: int, using: int, min: int, max: int, closed: bool}
+     * @return array{total: int, idle: int, using: int, overflow: int, min: int, max: int, closed: bool}
      */
     public function stats(): array {
         return [];

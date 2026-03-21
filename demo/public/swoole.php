@@ -47,7 +47,7 @@ $http->on("workerStart", function ($server, $workerId) {
         'min'         => 2,    // 最小连接数
         'max'         => 10,   // 最大连接数
         'idleTimeout' => 60,   // 空闲超时（秒），超时回收，保持最小连接数
-        'waitTimeout' => 3.0,  // 获取连接等待超时（秒）
+        'waitTimeout' => 1.5,  // 获取连接等待超时（秒）
     ]);
 });
 
