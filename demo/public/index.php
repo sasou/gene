@@ -8,7 +8,6 @@ $app
     ->load("router.ini.php", CONF_DIR)
     ->load("config.ini.php", CONF_DIR)
     ->setMode(1, 1)
-    ->setRuntimeType(1)
     ->webscan(1, 'admin', function () {
         if (\Gene\Request::isAjax()) {
             return json_encode(\Gene\Response::error("Illegal access"));
