@@ -27,6 +27,7 @@
 #define GENE_DB_MSSQL_LIMIT "limit"
 #define GENE_DB_MSSQL_DATA "data"
 #define GENE_DB_MSSQL_HISTORY "history"
+#define GENE_DB_MSSQL_POOL "pool"
 
 
 extern zend_class_entry *gene_db_mssql_ce;

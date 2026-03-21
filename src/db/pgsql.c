@@ -30,6 +30,8 @@
 #include "../cache/memory.h"
 #include "../db/pdo.h"
 #include "../db/pgsql.h"
+#include "../db/pool.h"
+#include "../factory/factory.h"
 #include "../tool/benchmark.h"
 
 zend_class_entry * gene_db_pgsql_ce;
@@ -167,6 +169,12 @@ bool pgsqlInitPdo (zval * self, zval *config) {
 		config =  zend_read_property(gene_db_pgsql_ce, gene_strip_obj(self), ZEND_STRL(GENE_DB_PGSQL_CONFIG), 1, NULL);
 	}
 
+	/* Pool mode: in Swoole coroutine mode, if config has 'pool' key,
+	 * borrow a PDO connection from the named pool instead of creating one. */
+	if (gene_pool_get_pdo(gene_db_pgsql_ce, self, config, ZEND_STRL(GENE_DB_PGSQL_POOL), ZEND_STRL(GENE_DB_PGSQL_PDO))) {
+		return 0;
+	}
+
 	zend_string *c_key = zend_string_init(ZEND_STRL("PDO"), 0);
 	zend_class_entry *pdo_ptr = zend_lookup_class(c_key);
 	zend_string_release(c_key);
@@ -251,7 +259,10 @@ bool gene_pgsql_pdo_execute (zval *self, zval *statement)
     	if (EG(exception)) {
     		if (checkPdoError(EG(exception))) {
     			zend_clear_exception();
+    			/* If using pool, notify that the broken connection is lost */
+    			gene_pool_notify_remove(gene_db_pgsql_ce, self, ZEND_STRL(GENE_DB_PGSQL_POOL));
     			pgsqlInitPdo (self, NULL);
+    			pdo_object = zend_read_property(gene_db_pgsql_ce, gene_strip_obj(self), ZEND_STRL(GENE_DB_PGSQL_PDO), 1, NULL);
     			gene_pdo_prepare(pdo_object, ZSTR_VAL(sql.s), statement);
     			ZVAL_NULL(&retval);
     			gene_pdo_statement_execute(statement, params, &retval);
@@ -1055,13 +1066,42 @@ PHP_METHOD(gene_db_pgsql, commit)
 /* }}} */
 
 /*
+ * {{{ public gene_db::release()
+ */
+PHP_METHOD(gene_db_pgsql, release)
+{
+	zval *self = getThis();
+	gene_pool_return_pdo(gene_db_pgsql_ce, self, ZEND_STRL(GENE_DB_PGSQL_POOL), ZEND_STRL(GENE_DB_PGSQL_PDO));
+	RETURN_NULL();
+}
+/* }}} */
+
+/*
  * {{{ public gene_db::free()
  */
 PHP_METHOD(gene_db_pgsql, free)
 {
 	zval *self = getThis();
-	zend_update_property_null(gene_db_pgsql_ce, gene_strip_obj(self), ZEND_STRL(GENE_DB_PGSQL_PDO));
+	zval *pool = zend_read_property(gene_db_pgsql_ce, gene_strip_obj(self), ZEND_STRL(GENE_DB_PGSQL_POOL), 1, NULL);
+	if (pool && Z_TYPE_P(pool) == IS_OBJECT) {
+		gene_pool_return_pdo(gene_db_pgsql_ce, self, ZEND_STRL(GENE_DB_PGSQL_POOL), ZEND_STRL(GENE_DB_PGSQL_PDO));
+	} else {
+		zend_update_property_null(gene_db_pgsql_ce, gene_strip_obj(self), ZEND_STRL(GENE_DB_PGSQL_PDO));
+	}
 	RETURN_NULL();
+}
+/* }}} */
+
+/*
+ * {{{ public gene_db::__destruct()
+ */
+PHP_METHOD(gene_db_pgsql, __destruct)
+{
+	zval *self = getThis();
+	zval *pool = zend_read_property(gene_db_pgsql_ce, gene_strip_obj(self), ZEND_STRL(GENE_DB_PGSQL_POOL), 1, NULL);
+	if (pool && Z_TYPE_P(pool) == IS_OBJECT) {
+		gene_pool_return_pdo(gene_db_pgsql_ce, self, ZEND_STRL(GENE_DB_PGSQL_POOL), ZEND_STRL(GENE_DB_PGSQL_PDO));
+	}
 }
 /* }}} */
 
@@ -1107,7 +1147,9 @@ const zend_function_entry gene_db_pgsql_methods[] = {
 		PHP_ME(gene_db_pgsql, inTransaction, gene_db_pgsql_void_arginfo, ZEND_ACC_PUBLIC)
 		PHP_ME(gene_db_pgsql, rollBack, gene_db_pgsql_void_arginfo, ZEND_ACC_PUBLIC)
 		PHP_ME(gene_db_pgsql, commit, gene_db_pgsql_void_arginfo, ZEND_ACC_PUBLIC)
+		PHP_ME(gene_db_pgsql, release, gene_db_pgsql_void_arginfo, ZEND_ACC_PUBLIC)
 		PHP_ME(gene_db_pgsql, free, gene_db_pgsql_void_arginfo, ZEND_ACC_PUBLIC)
+		PHP_ME(gene_db_pgsql, __destruct, gene_db_pgsql_void_arginfo, ZEND_ACC_PUBLIC)
 		PHP_ME(gene_db_pgsql, history, gene_db_pgsql_void_arginfo, ZEND_ACC_PUBLIC)
 		{NULL, NULL, NULL}
 };
@@ -1134,7 +1176,8 @@ GENE_MINIT_FUNCTION(db_pgsql)
     zend_declare_property_null(gene_db_pgsql_ce, ZEND_STRL(GENE_DB_PGSQL_ORDER), ZEND_ACC_PUBLIC);
     zend_declare_property_null(gene_db_pgsql_ce, ZEND_STRL(GENE_DB_PGSQL_LIMIT), ZEND_ACC_PUBLIC);
     zend_declare_property_null(gene_db_pgsql_ce, ZEND_STRL(GENE_DB_PGSQL_DATA), ZEND_ACC_PUBLIC);
-    zend_declare_property_null(gene_db_pgsql_ce, ZEND_STRL(GENE_DB_PGSQL_HISTORY), ZEND_ACC_PROTECTED | ZEND_ACC_STATIC);
+	zend_declare_property_null(gene_db_pgsql_ce, ZEND_STRL(GENE_DB_PGSQL_POOL), ZEND_ACC_PROTECTED);
+	zend_declare_property_null(gene_db_pgsql_ce, ZEND_STRL(GENE_DB_PGSQL_HISTORY), ZEND_ACC_PROTECTED | ZEND_ACC_STATIC);
 
 	return SUCCESS;// @suppress("Symbol is not resolved")
 }
