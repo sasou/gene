@@ -43,6 +43,7 @@
 #include "mvc/view.h"
 #include "exception/exception.h"
 #include "db/pdo.h"
+#include "db/pool.h"
 #include "db/mysql.h"
 #include "db/mssql.h"
 #include "db/pgsql.h"
@@ -370,6 +371,7 @@ PHP_MINIT_FUNCTION(gene) {
 	GENE_STARTUP(session);
 	GENE_STARTUP(view);
 	GENE_STARTUP(benchmark);
+	GENE_STARTUP(pool);
 	GENE_STARTUP(db_mysql);
 	GENE_STARTUP(db_mssql);
 	GENE_STARTUP(db_pgsql);

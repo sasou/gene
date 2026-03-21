@@ -27,6 +27,7 @@
 #define GENE_DB_MYSQL_LIMIT "limit"
 #define GENE_DB_MYSQL_DATA "data"
 #define GENE_DB_MYSQL_HISTORY "history"
+#define GENE_DB_MYSQL_POOL "pool"
 
 
 extern zend_class_entry *gene_db_mysql_ce;

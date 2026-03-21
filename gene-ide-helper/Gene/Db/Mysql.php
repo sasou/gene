@@ -19,6 +19,7 @@ class Mysql
     public $config;
     public $pdo;
     public $sql;
+    protected $pool;
     public $where;
     public $group;
     public $having;
@@ -288,11 +289,36 @@ class Mysql
     }
 
     /**
+     * release
+     * 
+     * 将PDO连接归还到连接池（仅在启用pool时有效）
+     * 非pool模式下为空操作
+     *
+     * @return void
+     */
+    public function release() {
+
+    }
+
+    /**
      * free
      * 
-     * @return mixed
+     * 释放PDO连接。启用pool时归还到池，否则销毁连接。
+     *
+     * @return void
      */
     public function free() {
+
+    }
+
+    /**
+     * __destruct
+     * 
+     * 对象销毁时，若启用pool则自动归还PDO连接到池中
+     *
+     * @return void
+     */
+    public function __destruct() {
 
     }
 
