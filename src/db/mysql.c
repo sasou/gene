@@ -30,6 +30,7 @@
 #include "../cache/memory.h"
 #include "../db/pdo.h"
 #include "../db/mysql.h"
+#include "../db/pool.h"
 #include "../factory/factory.h"
 #include "../tool/benchmark.h"
 
@@ -148,79 +149,6 @@ void mysqlSaveHistory(smart_str *sql, zval *param) {
 	}
 }
 
-static void mysql_pool_return_pdo(zval *self) {
-	zval *pool = zend_read_property(gene_db_mysql_ce, gene_strip_obj(self), ZEND_STRL(GENE_DB_MYSQL_POOL), 1, NULL);
-	if (pool && Z_TYPE_P(pool) == IS_OBJECT) {
-		zval *pdo = zend_read_property(gene_db_mysql_ce, gene_strip_obj(self), ZEND_STRL(GENE_DB_MYSQL_PDO), 1, NULL);
-		if (pdo && Z_TYPE_P(pdo) == IS_OBJECT) {
-			zval retval, params;
-			array_init(&params);
-			Z_TRY_ADDREF_P(pdo);
-			add_next_index_zval(&params, pdo);
-			gene_factory_call(pool, "put", &params, &retval);
-			zval_ptr_dtor(&retval);
-			zval_ptr_dtor(&params);
-		}
-		zend_update_property_null(gene_db_mysql_ce, gene_strip_obj(self), ZEND_STRL(GENE_DB_MYSQL_PDO));
-	}
-}
-
-static void mysql_pool_notify_remove(zval *self) {
-	zval *pool = zend_read_property(gene_db_mysql_ce, gene_strip_obj(self), ZEND_STRL(GENE_DB_MYSQL_POOL), 1, NULL);
-	if (pool && Z_TYPE_P(pool) == IS_OBJECT) {
-		zval retval;
-		gene_factory_call(pool, "remove", NULL, &retval);
-		zval_ptr_dtor(&retval);
-	}
-}
-
-static bool mysql_pool_get_pdo(zval *self, zval *config) {
-	zval *pool_name = NULL;
-	if (config == NULL || Z_TYPE_P(config) != IS_ARRAY) {
-		return 0;
-	}
-	pool_name = zend_hash_str_find(Z_ARRVAL_P(config), ZEND_STRL(GENE_DB_MYSQL_POOL));
-	if (!pool_name || Z_TYPE_P(pool_name) != IS_STRING || GENE_G(runtime_type) < 2) {
-		return 0;
-	}
-
-	/* Call Gene\Pool::getInstance($name) to get the pool object */
-	{
-		zval callable, pool_obj;
-		array_init(&callable);
-		if (GENE_G(use_namespace)) {
-			add_next_index_string(&callable, "Gene\\Pool");
-		} else {
-			add_next_index_string(&callable, "Gene_Pool");
-		}
-		add_next_index_string(&callable, "getInstance");
-
-		zval params[1];
-		ZVAL_COPY(&params[0], pool_name);
-		call_user_function(NULL, NULL, &callable, &pool_obj, 1, params);
-		zval_ptr_dtor(&params[0]);
-		zval_ptr_dtor(&callable);
-
-		if (Z_TYPE(pool_obj) == IS_OBJECT) {
-			/* Store pool reference */
-			zend_update_property(gene_db_mysql_ce, gene_strip_obj(self), ZEND_STRL(GENE_DB_MYSQL_POOL), &pool_obj);
-
-			/* Call pool->get() */
-			zval pdo_obj;
-			gene_factory_call(&pool_obj, "get", NULL, &pdo_obj);
-
-			if (Z_TYPE(pdo_obj) == IS_OBJECT) {
-				zend_update_property(gene_db_mysql_ce, gene_strip_obj(self), ZEND_STRL(GENE_DB_MYSQL_PDO), &pdo_obj);
-				zval_ptr_dtor(&pdo_obj);
-				zval_ptr_dtor(&pool_obj);
-				return 1;
-			}
-			zval_ptr_dtor(&pdo_obj);
-		}
-		zval_ptr_dtor(&pool_obj);
-	}
-	return 0;
-}
 
 bool mysqlInitPdo (zval * self, zval *config) {
 	zval  *dsn = NULL, *user = NULL, *pass = NULL, *options = NULL;
@@ -232,7 +160,7 @@ bool mysqlInitPdo (zval * self, zval *config) {
 
 	/* Pool mode: in Swoole coroutine mode, if config has 'pool' key,
 	 * borrow a PDO connection from the named pool instead of creating one. */
-	if (mysql_pool_get_pdo(self, config)) {
+	if (gene_pool_get_pdo(gene_db_mysql_ce, self, config, ZEND_STRL(GENE_DB_MYSQL_POOL), ZEND_STRL(GENE_DB_MYSQL_PDO))) {
 		return 0;
 	}
 
@@ -328,7 +256,7 @@ bool gene_mysql_pdo_execute (zval *self, zval *statement)
     		if (checkPdoError(EG(exception))) {
     			zend_clear_exception();
     			/* If using pool, notify that the broken connection is lost */
-    			mysql_pool_notify_remove(self);
+    			gene_pool_notify_remove(gene_db_mysql_ce, self, ZEND_STRL(GENE_DB_MYSQL_POOL));
     			mysqlInitPdo (self, NULL);
     			pdo_object = zend_read_property(gene_db_mysql_ce, gene_strip_obj(self), ZEND_STRL(GENE_DB_MYSQL_PDO), 1, NULL);
     			gene_pdo_prepare(pdo_object, ZSTR_VAL(sql.s), statement);
@@ -1150,7 +1078,7 @@ PHP_METHOD(gene_db_mysql, commit)
 PHP_METHOD(gene_db_mysql, release)
 {
 	zval *self = getThis();
-	mysql_pool_return_pdo(self);
+	gene_pool_return_pdo(gene_db_mysql_ce, self, ZEND_STRL(GENE_DB_MYSQL_POOL), ZEND_STRL(GENE_DB_MYSQL_PDO));
 	RETURN_NULL();
 }
 /* }}} */
@@ -1163,7 +1091,7 @@ PHP_METHOD(gene_db_mysql, free)
 	zval *self = getThis();
 	zval *pool = zend_read_property(gene_db_mysql_ce, gene_strip_obj(self), ZEND_STRL(GENE_DB_MYSQL_POOL), 1, NULL);
 	if (pool && Z_TYPE_P(pool) == IS_OBJECT) {
-		mysql_pool_return_pdo(self);
+		gene_pool_return_pdo(gene_db_mysql_ce, self, ZEND_STRL(GENE_DB_MYSQL_POOL), ZEND_STRL(GENE_DB_MYSQL_PDO));
 	} else {
 		zend_update_property_null(gene_db_mysql_ce, gene_strip_obj(self), ZEND_STRL(GENE_DB_MYSQL_PDO));
 	}
@@ -1179,7 +1107,7 @@ PHP_METHOD(gene_db_mysql, __destruct)
 	zval *self = getThis();
 	zval *pool = zend_read_property(gene_db_mysql_ce, gene_strip_obj(self), ZEND_STRL(GENE_DB_MYSQL_POOL), 1, NULL);
 	if (pool && Z_TYPE_P(pool) == IS_OBJECT) {
-		mysql_pool_return_pdo(self);
+		gene_pool_return_pdo(gene_db_mysql_ce, self, ZEND_STRL(GENE_DB_MYSQL_POOL), ZEND_STRL(GENE_DB_MYSQL_PDO));
 	}
 }
 /* }}} */
