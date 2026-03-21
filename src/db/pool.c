@@ -394,6 +394,21 @@ static void pool_start_idle_recycler(zval *self) {
     }
 }
  
+static bool pool_in_coroutine(void) {
+    zval callable, retval;
+    array_init(&callable);
+    add_next_index_string(&callable, "Swoole\\Coroutine");
+    add_next_index_string(&callable, "getCid");
+    ZVAL_UNDEF(&retval);
+    call_user_function(NULL, NULL, &callable, &retval, 0, NULL);
+    zval_ptr_dtor(&callable);
+    bool in_co = (Z_TYPE(retval) == IS_LONG && Z_LVAL(retval) >= 0);
+    if (!Z_ISUNDEF(retval)) {
+        zval_ptr_dtor(&retval);
+    }
+    return in_co;
+}
+
 static void pool_stop_timer(zval *self) {
     zval *timer_id = zend_read_property(gene_pool_ce, gene_strip_obj(self), ZEND_STRL(GENE_POOL_PROPERTY_TIMER_ID), 1, NULL);
     if (timer_id && Z_TYPE_P(timer_id) == IS_LONG && Z_LVAL_P(timer_id) > 0) {
@@ -845,54 +860,59 @@ PHP_METHOD(gene_pool, close)
         pool_stop_timer(self);
     }
 
-    /* Two-phase drain:
-     * Phase 1: drain immediately available idle connections.
-     * Phase 2: briefly wait for in-flight connections being returned
-     *          by concurrent coroutines (up to waitTimeout total).
-     * After drain, close the channel and force-reset count. */
+    /* Channel operations (pop/push/isEmpty/close) require Swoole coroutine
+     * context.  When called from workerStop (no coroutine), skip the drain
+     * and just force-reset.  The channel and its PDO objects will be freed
+     * when the pool object is destroyed at worker shutdown. */
     zval *channel = zend_read_property(gene_pool_ce, gene_strip_obj(self), ZEND_STRL(GENE_POOL_PROPERTY_CHANNEL), 1, NULL);
     if (channel && Z_TYPE_P(channel) == IS_OBJECT) {
-        /* Phase 1: drain idle connections (non-blocking) */
-        while (!pool_channel_is_empty(channel)) {
-            zval item;
-            if (!pool_channel_pop(channel, 0.001, &item)) {
-                break;
-            }
-            pool_decrement_count(self);
-            zval_ptr_dtor(&item);
-        }
+        if (pool_in_coroutine()) {
+            /* Two-phase drain:
+             * Phase 1: drain immediately available idle connections.
+             * Phase 2: briefly wait for in-flight connections being returned
+             *          by concurrent coroutines (up to waitTimeout total).
+             * After drain, close the channel and force-reset count. */
 
-        /* Phase 2: if connections are still in-use, wait briefly for returns.
-         * In-use connections' put() will see closed=true and decrement count,
-         * but some may arrive just after our Phase 1 drain. Give them a
-         * short window to land in the channel before we close it. */
-        if (pool_get_count(self) > 0) {
-            double wait = pool_get_wait_timeout(self);
-            if (wait > 3.0) wait = 3.0;
-            if (wait < 0.1) wait = 0.1;
-            zend_long rounds = 0;
-            zend_long max_rounds = (zend_long)(wait / 0.05);
-            if (max_rounds < 1) max_rounds = 1;
-
-            while (pool_get_count(self) > 0 && rounds < max_rounds) {
+            /* Phase 1: drain idle connections (non-blocking) */
+            while (!pool_channel_is_empty(channel)) {
                 zval item;
-                if (pool_channel_pop(channel, 0.05, &item)) {
-                    pool_decrement_count(self);
-                    zval_ptr_dtor(&item);
-                } else {
-                    rounds++;
+                if (!pool_channel_pop(channel, 0.001, &item)) {
+                    break;
+                }
+                pool_decrement_count(self);
+                zval_ptr_dtor(&item);
+            }
+
+            /* Phase 2: if connections are still in-use, wait briefly for returns. */
+            if (pool_get_count(self) > 0) {
+                double wait = pool_get_wait_timeout(self);
+                if (wait > 3.0) wait = 3.0;
+                if (wait < 0.1) wait = 0.1;
+                zend_long rounds = 0;
+                zend_long max_rounds = (zend_long)(wait / 0.05);
+                if (max_rounds < 1) max_rounds = 1;
+
+                while (pool_get_count(self) > 0 && rounds < max_rounds) {
+                    zval item;
+                    if (pool_channel_pop(channel, 0.05, &item)) {
+                        pool_decrement_count(self);
+                        zval_ptr_dtor(&item);
+                    } else {
+                        rounds++;
+                    }
                 }
             }
-        }
 
-        /* Close channel — wakes any remaining blocked coroutines with false */
-        zval close_func, close_ret;
-        ZVAL_STRING(&close_func, "close");
-        call_user_function(NULL, channel, &close_func, &close_ret, 0, NULL);
-        zval_ptr_dtor(&close_func);
-        if (!Z_ISUNDEF(close_ret)) {
-            zval_ptr_dtor(&close_ret);
+            /* Close channel — wakes any remaining blocked coroutines with false */
+            zval close_func, close_ret;
+            ZVAL_STRING(&close_func, "close");
+            call_user_function(NULL, channel, &close_func, &close_ret, 0, NULL);
+            zval_ptr_dtor(&close_func);
+            if (!Z_ISUNDEF(close_ret)) {
+                zval_ptr_dtor(&close_ret);
+            }
         }
+        /* else: not in coroutine — channel will be freed with the pool object */
 
         /* Force-reset count: any remaining in-use connections will see
          * closed=true when returned via put() and self-discard. */
