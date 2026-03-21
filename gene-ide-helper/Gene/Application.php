@@ -270,6 +270,56 @@ class Application
     }
 
     /**
+     * cleanup
+     * 
+     * Swoole模式下的合并清理方法，等价于依次调用 clearState() + destroyContext()。
+     * Phase 1: 重置视图变量，软重置请求上下文（释放用户数据，触发对象析构）。
+     * Phase 2: 从协程上下文哈希表中移除已清空的上下文结构体。
+     * FPM模式下：行为与 clearState() 相同。
+     *
+     * @return bool
+     */
+    public static function cleanup() {
+
+    }
+
+    /**
+     * clearState
+     * 
+     * 软重置当前请求上下文（释放用户数据但保留上下文结构体）。
+     * Swoole模式下建议使用 cleanup() 代替。
+     *
+     * @return static|bool
+     */
+    public static function clearState() {
+
+    }
+
+    /**
+     * destroyContext
+     * 
+     * 销毁当前协程的请求上下文结构体。
+     * Swoole模式下建议使用 cleanup() 代替。
+     *
+     * @return bool
+     */
+    public static function destroyContext() {
+
+    }
+
+    /**
+     * setResponse
+     * 
+     * 设置当前请求的 Swoole Response 对象到请求上下文中。
+     *
+     * @param mixed $response Swoole\Http\Response 对象
+     * @return bool
+     */
+    public static function setResponse($response) {
+
+    }
+
+    /**
      * config
      * 
      * @param mixed $key key

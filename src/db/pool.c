@@ -26,6 +26,8 @@
  
 #include "../gene.h"
 #include "../factory/factory.h"
+#include "../config/configs.h"
+#include "../cache/memory.h"
 #include "../db/pool.h"
  
 zend_class_entry *gene_pool_ce;
@@ -40,7 +42,8 @@ ZEND_END_ARG_INFO()
  
 ZEND_BEGIN_ARG_INFO_EX(gene_pool_create_arginfo, 0, 0, 2)
     ZEND_ARG_INFO(0, name)
-    ZEND_ARG_INFO(0, config)
+    ZEND_ARG_INFO(0, configKey)
+    ZEND_ARG_INFO(0, options)
 ZEND_END_ARG_INFO()
  
 ZEND_BEGIN_ARG_INFO_EX(gene_pool_get_instance_arginfo, 0, 0, 1)
@@ -496,20 +499,116 @@ PHP_METHOD(gene_pool, __construct)
 /* }}} */
  
 /*
- * {{{ public static Gene\Pool::create(string $name, array $config): self
+ * {{{ public static Gene\Pool::create(string $name, string $configKey, array $options = []): self
+ *
+ * Reads DB connection info (dsn, username, password, options) from the
+ * persistent config cache using $configKey (e.g. 'db'), following the
+ * same lookup path as Gene\Di.  The $options parameter is optional and
+ * overrides pool-specific defaults (min, max, idleTimeout, waitTimeout).
  */
 PHP_METHOD(gene_pool, create)
 {
     zend_string *name;
-    zval *config = NULL;
+    char *config_key;
+    size_t config_key_len;
+    zval *options = NULL;
     zval *instances;
- 
-    if (zend_parse_parameters(ZEND_NUM_ARGS(), "Sa", &name, &config) == FAILURE) {
+
+    if (zend_parse_parameters(ZEND_NUM_ARGS(), "Ss|a", &name, &config_key, &config_key_len, &options) == FAILURE) {
         return;
     }
- 
+
+    /* --- Read DB config from persistent cache (same path as gene_di_get) --- */
+    char *router_e = NULL;
+    size_t router_e_len = 0;
+    if (GENE_G(app_key)) {
+        router_e_len = spprintf(&router_e, 0, "%s%s", GENE_G(app_key), GENE_CONFIG_CACHE);
+    } else {
+        router_e_len = spprintf(&router_e, 0, "%s%s", GENE_G(directory), GENE_CONFIG_CACHE);
+    }
+
+    zval *di_config = gene_memory_get_by_config(router_e, router_e_len, config_key);
+    efree(router_e);
+    router_e = NULL;
+
+    if (!di_config || Z_TYPE_P(di_config) != IS_ARRAY) {
+        php_error_docref(NULL, E_WARNING,
+            "Gene\\Pool::create(): config key '%s' not found in config cache", config_key);
+        RETURN_NULL();
+    }
+
+    /* Expect di_config = ['class'=>..., 'params'=>[[dsn,username,password,...]], ...] */
+    zval *params_zv = zend_hash_str_find(Z_ARRVAL_P(di_config), ZEND_STRL("params"));
+    if (!params_zv || Z_TYPE_P(params_zv) != IS_ARRAY) {
+        php_error_docref(NULL, E_WARNING,
+            "Gene\\Pool::create(): config key '%s' has no 'params' array", config_key);
+        RETURN_NULL();
+    }
+
+    zval *db_params = zend_hash_index_find(Z_ARRVAL_P(params_zv), 0);
+    if (!db_params || Z_TYPE_P(db_params) != IS_ARRAY) {
+        php_error_docref(NULL, E_WARNING,
+            "Gene\\Pool::create(): config key '%s' params[0] is not an array", config_key);
+        RETURN_NULL();
+    }
+
+    /* --- Build merged config array for __construct --- */
+    zval merged_config;
+    array_init(&merged_config);
+
+    /* Copy dsn, username, password from persistent cache (creates local copies) */
+    {
+        zval *dsn = zend_hash_str_find(Z_ARRVAL_P(db_params), ZEND_STRL("dsn"));
+        if (dsn && Z_TYPE_P(dsn) == IS_STRING) {
+            add_assoc_stringl(&merged_config, "dsn", Z_STRVAL_P(dsn), Z_STRLEN_P(dsn));
+        }
+        zval *user = zend_hash_str_find(Z_ARRVAL_P(db_params), ZEND_STRL("username"));
+        if (user && Z_TYPE_P(user) == IS_STRING) {
+            add_assoc_stringl(&merged_config, "username", Z_STRVAL_P(user), Z_STRLEN_P(user));
+        }
+        zval *pass = zend_hash_str_find(Z_ARRVAL_P(db_params), ZEND_STRL("password"));
+        if (pass && Z_TYPE_P(pass) == IS_STRING) {
+            add_assoc_stringl(&merged_config, "password", Z_STRVAL_P(pass), Z_STRLEN_P(pass));
+        }
+        zval *db_opts = zend_hash_str_find(Z_ARRVAL_P(db_params), ZEND_STRL("options"));
+        if (db_opts && Z_TYPE_P(db_opts) == IS_ARRAY) {
+            zval opts_local;
+            gene_memory_zval_local(&opts_local, db_opts);
+            add_assoc_zval(&merged_config, "options", &opts_local);
+        }
+    }
+
+    /* Apply pool options from $options, falling back to defaults */
+    {
+        zend_long min_val = 1, max_val = 10, idle_val = 60;
+        double wait_val = 3.0;
+        zval *opt;
+
+        if (options) {
+            if ((opt = zend_hash_str_find(Z_ARRVAL_P(options), ZEND_STRL("min"))) != NULL && Z_TYPE_P(opt) == IS_LONG) {
+                min_val = Z_LVAL_P(opt);
+            }
+            if ((opt = zend_hash_str_find(Z_ARRVAL_P(options), ZEND_STRL("max"))) != NULL && Z_TYPE_P(opt) == IS_LONG) {
+                max_val = Z_LVAL_P(opt);
+            }
+            if ((opt = zend_hash_str_find(Z_ARRVAL_P(options), ZEND_STRL("idleTimeout"))) != NULL && Z_TYPE_P(opt) == IS_LONG) {
+                idle_val = Z_LVAL_P(opt);
+            }
+            if ((opt = zend_hash_str_find(Z_ARRVAL_P(options), ZEND_STRL("waitTimeout"))) != NULL) {
+                if (Z_TYPE_P(opt) == IS_DOUBLE) wait_val = Z_DVAL_P(opt);
+                else if (Z_TYPE_P(opt) == IS_LONG) wait_val = (double)Z_LVAL_P(opt);
+            }
+        }
+
+        add_assoc_long(&merged_config, "min", min_val);
+        add_assoc_long(&merged_config, "max", max_val);
+        add_assoc_long(&merged_config, "idleTimeout", idle_val);
+        add_assoc_double(&merged_config, "waitTimeout", wait_val);
+    }
+
+    /* --- Create / register pool (same logic as before) --- */
     instances = zend_read_static_property(gene_pool_ce, ZEND_STRL(GENE_POOL_PROPERTY_INSTANCES), 1);
- 
+
     /* Close existing pool with same name if any */
     if (instances && Z_TYPE_P(instances) == IS_ARRAY) {
         zval *existing = zend_hash_find(Z_ARRVAL_P(instances), name);
@@ -525,24 +624,25 @@ PHP_METHOD(gene_pool, create)
         zval_ptr_dtor(&arr);
         instances = zend_read_static_property(gene_pool_ce, ZEND_STRL(GENE_POOL_PROPERTY_INSTANCES), 1);
     }
- 
+
     /* Create new pool object */
     zval new_pool, params_arr;
     object_init_ex(&new_pool, gene_pool_ce);
- 
+
     array_init(&params_arr);
-    Z_TRY_ADDREF_P(config);
-    add_next_index_zval(&params_arr, config);
- 
+    Z_TRY_ADDREF(merged_config);
+    add_next_index_zval(&params_arr, &merged_config);
+
     zval construct_ret;
     gene_factory_call(&new_pool, "__construct", &params_arr, &construct_ret);
     zval_ptr_dtor(&construct_ret);
     zval_ptr_dtor(&params_arr);
- 
+    zval_ptr_dtor(&merged_config);
+
     /* Register in static instances */
     Z_TRY_ADDREF(new_pool);
     zend_hash_update(Z_ARRVAL_P(instances), name, &new_pool);
- 
+
     RETURN_ZVAL(&new_pool, 1, 1);
 }
 /* }}} */
