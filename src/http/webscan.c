@@ -305,6 +305,9 @@ GENE_MINIT_FUNCTION(webscan) {
     zend_class_entry gene_webscan;
     GENE_INIT_CLASS_ENTRY(gene_webscan, "Gene_Webscan", "Gene\\Webscan", gene_webscan_methods);
     gene_webscan_ce = zend_register_internal_class(&gene_webscan);
+#if PHP_VERSION_ID >= 80200
+    gene_webscan_ce->ce_flags |= ZEND_ACC_ALLOW_DYNAMIC_PROPERTIES;
+#endif
     zend_declare_property_long(gene_webscan_ce, ZEND_STRL("webscan_switch"), 1, ZEND_ACC_PRIVATE);
     zend_declare_property_string(gene_webscan_ce, ZEND_STRL("webscan_white_directory"), "", ZEND_ACC_PRIVATE);
     zend_declare_property_null(gene_webscan_ce, ZEND_STRL("webscan_white_url"), ZEND_ACC_PRIVATE);

@@ -1540,6 +1540,9 @@ GENE_MINIT_FUNCTION(router) {
 	zend_class_entry gene_router;
 	GENE_INIT_CLASS_ENTRY(gene_router, "Gene_Router", "Gene\\Router", gene_router_methods);
 	gene_router_ce = zend_register_internal_class(&gene_router);
+#if PHP_VERSION_ID >= 80200
+	gene_router_ce->ce_flags |= ZEND_ACC_ALLOW_DYNAMIC_PROPERTIES;
+#endif
 
 	//prop
 	zend_declare_property_string(gene_router_ce, GENE_ROUTER_SAFE, strlen(GENE_ROUTER_SAFE), "", ZEND_ACC_PUBLIC);

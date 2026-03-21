@@ -20,7 +20,7 @@
 extern zend_module_entry gene_module_entry;
 #define phpext_gene_ptr &gene_module_entry
 
-#define PHP_GENE_VERSION "5.3.4"
+#define PHP_GENE_VERSION "5.3.5"
 
 #ifdef PHP_WIN32
 #	define PHP_GENE_API __declspec(dllexport)
@@ -60,13 +60,8 @@ typedef pthread_rwlock_t gene_rwlock_t;
 #define GENE_G(v) (gene_globals.v)
 #endif
 
-#if PHP_VERSION_ID < 80000
-#define gene_object zval
-#define gene_strip_obj(o) o
-#else
 #define gene_object zend_object
 #define gene_strip_obj(o) Z_OBJ_P(o)
-#endif
 
 
 #define GENE_INIT_CLASS_ENTRY(ce, common_name, namespace_name, methods) \
@@ -107,6 +102,10 @@ typedef struct _gene_request_context {
 	zval db_pgsql_history;
 	zval db_sqlite_history;
 	zval db_mssql_history;
+	struct timeval bench_start;
+	struct timeval bench_end;
+	zend_long bench_memory_start;
+	zend_long bench_memory_end;
 } gene_request_context;
 
 ZEND_BEGIN_MODULE_GLOBALS (gene)

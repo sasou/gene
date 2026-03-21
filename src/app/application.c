@@ -1075,6 +1075,9 @@ GENE_MINIT_FUNCTION(application) {
 	GENE_INIT_CLASS_ENTRY(gene_application, "Gene_Application", "Gene\\Application", gene_application_methods);
 	gene_application_ce = zend_register_internal_class( &gene_application);
 	gene_application_ce->ce_flags |= ZEND_ACC_FINAL;
+#if PHP_VERSION_ID >= 80200
+	gene_application_ce->ce_flags |= ZEND_ACC_ALLOW_DYNAMIC_PROPERTIES;
+#endif
 
 	//static
 	zend_declare_property_null(gene_application_ce, ZEND_STRL(GENE_APPLICATION_INSTANCE), ZEND_ACC_PROTECTED | ZEND_ACC_STATIC);

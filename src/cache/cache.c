@@ -760,6 +760,9 @@ GENE_MINIT_FUNCTION(cache)
     zend_class_entry gene_cache;
     GENE_INIT_CLASS_ENTRY(gene_cache, "Gene_Cache_Cache", "Gene\\Cache\\Cache", gene_cache_methods);
     gene_cache_ce = zend_register_internal_class(&gene_cache);
+#if PHP_VERSION_ID >= 80200
+    gene_cache_ce->ce_flags |= ZEND_ACC_ALLOW_DYNAMIC_PROPERTIES;
+#endif
 
     zend_declare_property_null(gene_cache_ce, ZEND_STRL(GENE_CACHE_CONFIG), ZEND_ACC_PUBLIC);
 	return SUCCESS; // @suppress("Symbol is not resolved")

@@ -570,6 +570,9 @@ GENE_MINIT_FUNCTION(controller) {
 	zend_class_entry gene_controller;
 	GENE_INIT_CLASS_ENTRY(gene_controller, "Gene_Controller", "Gene\\Controller", gene_controller_methods);
 	gene_controller_ce = zend_register_internal_class(&gene_controller);
+#if PHP_VERSION_ID >= 80200
+	gene_controller_ce->ce_flags |= ZEND_ACC_ALLOW_DYNAMIC_PROPERTIES;
+#endif
 
 	return SUCCESS; // @suppress("Symbol is not resolved")
 }

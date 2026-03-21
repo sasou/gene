@@ -464,6 +464,9 @@ GENE_MINIT_FUNCTION(exception) {
 	zend_class_entry gene_exception;
 	GENE_INIT_CLASS_ENTRY(gene_exception, "Gene_Exception", "Gene\\Exception", gene_exception_methods);
 	gene_exception_ce = zend_register_internal_class_ex(&gene_exception, gene_get_exception_base(0));
+#if PHP_VERSION_ID >= 80200
+	gene_exception_ce->ce_flags |= ZEND_ACC_ALLOW_DYNAMIC_PROPERTIES;
+#endif
 
 	zend_declare_property_null(gene_exception_ce, ZEND_STRL("message"), ZEND_ACC_PROTECTED);
 	zend_declare_property_long(gene_exception_ce, ZEND_STRL("code"), 0, ZEND_ACC_PROTECTED);

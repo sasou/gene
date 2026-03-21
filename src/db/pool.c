@@ -909,6 +909,9 @@ GENE_MINIT_FUNCTION(pool)
     GENE_INIT_CLASS_ENTRY(gene_pool, "Gene_Pool", "Gene\\Pool", gene_pool_methods);
     gene_pool_ce = zend_register_internal_class_ex(&gene_pool, NULL);
     gene_pool_ce->ce_flags |= ZEND_ACC_FINAL;
+#if PHP_VERSION_ID >= 80200
+    gene_pool_ce->ce_flags |= ZEND_ACC_ALLOW_DYNAMIC_PROPERTIES;
+#endif
  
     zend_declare_property_null(gene_pool_ce, ZEND_STRL(GENE_POOL_PROPERTY_CHANNEL), ZEND_ACC_PROTECTED);
     zend_declare_property_null(gene_pool_ce, ZEND_STRL(GENE_POOL_PROPERTY_CONFIG), ZEND_ACC_PROTECTED);

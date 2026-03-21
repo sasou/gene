@@ -66,11 +66,7 @@ static zend_string* gene_str_persistent(char *str, size_t len) /* {{{ */{
 		zend_error(E_ERROR, "Cannot allocate string, not enough memory?");
 	}
 	key->h = zend_string_hash_val(key);
-#if PHP_VERSION_ID < 70300
-	GC_FLAGS(key) |= (IS_STR_INTERNED | IS_STR_PERMANENT);
-#else
 	GC_ADD_FLAGS(key, IS_STR_INTERNED | IS_STR_PERMANENT);
-#endif
 	return key;
 }
 /* }}} */
@@ -80,9 +76,6 @@ static zend_string* gene_str_persistent(char *str, size_t len) /* {{{ */{
 static void gene_memory_zval_dtor(zval *zvalue) {
 	switch(Z_TYPE_P(zvalue)){
 	case IS_PTR:
-#if PHP_VERSION_ID < 70300
-		case IS_CONSTANT:
-#endif
 	case IS_STRING:
 		pefree(Z_PTR_P(zvalue), 1);
 		break;
@@ -111,26 +104,14 @@ static void gene_hash_init(zval *zv, uint32_t size) /* {{{ */{
 	PALLOC_HASHTABLE(ht);
 	zend_hash_init(ht, size, NULL, gene_memory_zval_dtor, 1);
 
-#if PHP_VERSION_ID >= 70400
 	zend_hash_real_init(ht, 0);
-#endif
-#if PHP_VERSION_ID >= 70200
 	HT_ALLOW_COW_VIOLATION(ht);
-#endif
 
 	ZVAL_ARR(zv, ht);
 	/* make immutable array */
-#if PHP_VERSION_ID < 70300
-	Z_TYPE_FLAGS_P(zv) = IS_TYPE_COPYABLE;
-	GC_REFCOUNT(ht) = 2;
-	GC_FLAGS(ht) |= IS_ARRAY_IMMUTABLE;
-	ht->u.flags |= HASH_FLAG_STATIC_KEYS;
-	ht->u.flags &= ~HASH_FLAG_APPLY_PROTECTION;
-#else
 	Z_TYPE_FLAGS_P(zv) = 0;
 	GC_SET_REFCOUNT(ht, 2);
 	GC_ADD_FLAGS(ht, IS_ARRAY_IMMUTABLE);
-#endif
 }
 /* }}} */
 
@@ -147,13 +128,7 @@ void gene_hash_destroy(HashTable *ht) /* {{{ */{
 	if (ht->nNumUsed > 0) {
 		keys = (zend_string **) pemalloc(sizeof(zend_string *) * ht->nNumUsed, 1);
 		ZEND_HASH_FOREACH_STR_KEY(ht, key) {
-			if (key
-#if PHP_VERSION_ID < 70300
-					&& (GC_FLAGS(key) & IS_STR_INTERNED)
-#else
-					&& (GC_FLAGS(key) & (IS_STR_INTERNED | IS_STR_PERMANENT))
-#endif
-			) {
+			if (key && (GC_FLAGS(key) & (IS_STR_INTERNED | IS_STR_PERMANENT))) {
 				keys[key_count++] = key;
 			}
 		} ZEND_HASH_FOREACH_END();
@@ -205,9 +180,6 @@ static void gene_memory_hash_copy(HashTable *target, HashTable *source) /* {{{ *
 
 static void gene_memory_zval_persistent(zval *dst, zval *source) /* {{{ */{
 	switch (Z_TYPE_P(source)) {
-#if PHP_VERSION_ID < 70300
-		case IS_CONSTANT:
-#endif
 	case IS_STRING:
 		ZVAL_INTERNED_STR(dst, gene_str_persistent(Z_STRVAL_P(source), Z_STRLEN_P(source)));
 		break;
@@ -235,9 +207,6 @@ static void gene_memory_zval_persistent(zval *dst, zval *source) /* {{{ */{
 static void * gene_memory_zval_edit_persistent(zval *dst, zval *source) {
 	switch (Z_TYPE_P(dst)) {
 	case IS_PTR:
-#if PHP_VERSION_ID < 70300
-		case IS_CONSTANT:
-#endif
 	case IS_STRING:
 		pefree(Z_PTR_P(dst), 1);
 		break;
@@ -246,9 +215,6 @@ static void * gene_memory_zval_edit_persistent(zval *dst, zval *source) {
 		break;
 	}
 	switch (Z_TYPE_P(source)) {
-#if PHP_VERSION_ID < 70300
-		case IS_CONSTANT:
-#endif
 	case IS_STRING:
 		ZVAL_INTERNED_STR(dst,
 				gene_str_persistent(Z_STRVAL_P(source), Z_STRLEN_P(source)));
@@ -297,9 +263,6 @@ zval *gene_memory_zval_local(zval *dst, zval *source) /* {{{ */
 {
 	zend_string *str_key = NULL;
 	switch (Z_TYPE_P(source)) {
-#if PHP_VERSION_ID < 70300
-		case IS_CONSTANT:
-#endif
 	case IS_STRING:
 		str_key = zend_string_init(Z_STRVAL_P(source), Z_STRLEN_P(source), 0);
 		ZVAL_NEW_STR(dst, str_key);
@@ -572,15 +535,9 @@ int gene_memory_del(char *keyString, size_t keyString_len) {
 		GENE_G(cache)->pDestructor = orig_dtor;
 
 		/* Only keys forced to permanent/interned need manual freeing */
-#if PHP_VERSION_ID < 70300
-		if (GC_FLAGS(stored_key) & IS_STR_INTERNED) {
-			pefree(stored_key, 1);
-		}
-#else
 		if (GC_FLAGS(stored_key) & (IS_STR_INTERNED | IS_STR_PERMANENT)) {
 			pefree(stored_key, 1);
 		}
-#endif
 		GENE_CACHE_WRUNLOCK();
 		return 1;
 	}
@@ -784,6 +741,9 @@ GENE_MINIT_FUNCTION(memory) {
 	zend_class_entry gene_memory;
 	GENE_INIT_CLASS_ENTRY(gene_memory, "Gene_Memory", "Gene\\Memory", gene_memory_methods);
 	gene_memory_ce = zend_register_internal_class(&gene_memory);
+#if PHP_VERSION_ID >= 80200
+	gene_memory_ce->ce_flags |= ZEND_ACC_ALLOW_DYNAMIC_PROPERTIES;
+#endif
 
 	//debug
 	zend_declare_property_string(gene_memory_ce, GENE_MEMORY_SAFE, strlen(GENE_MEMORY_SAFE), "", ZEND_ACC_PUBLIC);
