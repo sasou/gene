@@ -1024,8 +1024,9 @@ PHP_METHOD(gene_db_mysql, print)
 
 	array_init(&z_row);
 	add_assoc_zval_ex(&z_row, ZEND_STRL("sql"), &z_sql);
+	Z_TRY_ADDREF_P(params);
 	add_assoc_zval_ex(&z_row, ZEND_STRL("param"), params);
-	RETURN_ZVAL(&z_row, 1, 0);
+	RETURN_ZVAL(&z_row, 1, 1);
 }
 /* }}} */
 

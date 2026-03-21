@@ -736,6 +736,51 @@ PHP_METHOD(gene_application, destroyContext) {
 /* }}} */
 
 /*
+ * {{{ public gene_application::cleanup()
+ * Combined clearState + destroyContext for Swoole mode.
+ * Phase 1 (clearState): reset view vars, soft-reset context (free user data,
+ *         triggers object destructors while context struct is still alive).
+ * Phase 2 (destroyContext): remove the now-empty context from co_contexts
+ *         (dtor only frees the empty path_params array, no object destructors).
+ * In FPM mode: behaves identically to clearState() alone.
+ */
+PHP_METHOD(gene_application, cleanup) {
+	gene_view_reset_vars();
+
+	if (GENE_G(runtime_type) >= 2 && GENE_G(co_contexts)) {
+		zend_long cid = gene_get_coroutine_id();
+		if (cid >= 0) {
+			/* Phase 1: soft-reset the coroutine context */
+			gene_request_context *ctx = zend_hash_index_find_ptr(GENE_G(co_contexts), (zend_ulong)cid);
+			if (ctx) {
+				gene_request_context_reset(ctx);
+			}
+			/* Phase 2: invalidate cached pointers, then remove from hash */
+			if (GENE_G(current_cid) == cid) {
+				GENE_G(current_ctx) = NULL;
+				GENE_G(current_cid) = -1;
+			}
+			zend_hash_index_del(GENE_G(co_contexts), (zend_ulong)cid);
+		} else {
+			/* Non-coroutine Swoole mode: destroy resident_ctx */
+			GENE_G(current_ctx) = NULL;
+			GENE_G(current_cid) = -1;
+			if (GENE_G(resident_ctx)) {
+				gene_request_context *tmp = GENE_G(resident_ctx);
+				GENE_G(resident_ctx) = NULL;
+				gene_request_context_destroy(tmp);
+				efree(tmp);
+			}
+		}
+	} else {
+		/* FPM mode: just reset the default context */
+		gene_request_context_reset(gene_request_ctx());
+	}
+	RETURN_TRUE;
+}
+/* }}} */
+
+/*
  * {{{ public gene_application::setResponse($response)
  */
 PHP_METHOD(gene_application, setResponse) {
@@ -1045,6 +1090,7 @@ const zend_function_entry gene_application_methods[] = {
 	PHP_ME(gene_application, run, gene_application_run, ZEND_ACC_PUBLIC)
 	PHP_ME(gene_application, clearState, gene_application_get_method, ZEND_ACC_PUBLIC|ZEND_ACC_STATIC)
 	PHP_ME(gene_application, destroyContext, gene_application_get_method, ZEND_ACC_PUBLIC|ZEND_ACC_STATIC)
+	PHP_ME(gene_application, cleanup, gene_application_get_method, ZEND_ACC_PUBLIC|ZEND_ACC_STATIC)
 	PHP_ME(gene_application, setResponse, gene_application_set_response, ZEND_ACC_PUBLIC|ZEND_ACC_STATIC)
 	PHP_ME(gene_application, getMethod, gene_application_get_method, ZEND_ACC_PUBLIC|ZEND_ACC_STATIC)
 	PHP_ME(gene_application, getPath, gene_application_get_path, ZEND_ACC_PUBLIC|ZEND_ACC_STATIC)
