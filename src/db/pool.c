@@ -1,4 +1,4 @@
-/*
+﻿/*
  +----------------------------------------------------------------------+
  | gene                                                                 |
  +----------------------------------------------------------------------+
@@ -649,7 +649,23 @@ PHP_METHOD(gene_pool, get)
                 retries++;
                 continue;
             }
-            /* Timeout */
+            /* Timeout — create an overflow connection to prevent caller exception.
+             * The overflow is tracked by currentCount (exceeds max).
+             * When returned via put(), excess connections are auto-discarded
+             * to shrink the pool back to max. */
+            pool_increment_count(self);
+            {
+                zval overflow_conn;
+                pool_create_connection(self, &overflow_conn);
+                if (Z_TYPE(overflow_conn) == IS_OBJECT) {
+                    php_error_docref(NULL, E_NOTICE,
+                        "Gene\\Pool: pool exhausted (max=%ld, current=%ld), created overflow connection",
+                        (long)pool_get_max(self), (long)pool_get_count(self));
+                    RETURN_ZVAL(&overflow_conn, 0, 0);
+                }
+                /* Overflow creation also failed — roll back */
+                pool_decrement_count(self);
+            }
             RETURN_NULL();
         }
     }
@@ -687,14 +703,23 @@ PHP_METHOD(gene_pool, put)
         pool_decrement_count(self);
         return;
     }
- 
+
+    /* Auto-shrink overflow: if currentCount exceeds max, discard this
+     * connection instead of pushing it back. This naturally heals the
+     * pool after overflow connections (created when pool was exhausted)
+     * are returned. */
+    if (pool_get_count(self) > pool_get_max(self)) {
+        pool_decrement_count(self);
+        return;
+    }
+
     if (!pool_channel_push(channel, pdo)) {
         /* Channel is full or push failed */
         pool_decrement_count(self);
     }
 }
 /* }}} */
- 
+
 /*
  * {{{ public Gene\Pool::remove(): void
  */
@@ -703,7 +728,6 @@ PHP_METHOD(gene_pool, remove)
     pool_decrement_count(getThis());
 }
 /* }}} */
- 
 /*
  * {{{ public Gene\Pool::close(): void
  */
@@ -716,12 +740,17 @@ PHP_METHOD(gene_pool, close)
     }
  
     zend_update_property_bool(gene_pool_ce, gene_strip_obj(self), ZEND_STRL(GENE_POOL_PROPERTY_CLOSED), 1);
- 
+
     pool_stop_timer(self);
- 
-    /* Drain channel */
+
+    /* Two-phase drain:
+     * Phase 1: drain immediately available idle connections.
+     * Phase 2: briefly wait for in-flight connections being returned
+     *          by concurrent coroutines (up to waitTimeout total).
+     * After drain, close the channel and force-reset count. */
     zval *channel = zend_read_property(gene_pool_ce, gene_strip_obj(self), ZEND_STRL(GENE_POOL_PROPERTY_CHANNEL), 1, NULL);
     if (channel && Z_TYPE_P(channel) == IS_OBJECT) {
+        /* Phase 1: drain idle connections (non-blocking) */
         while (!pool_channel_is_empty(channel)) {
             zval item;
             if (!pool_channel_pop(channel, 0.001, &item)) {
@@ -730,8 +759,31 @@ PHP_METHOD(gene_pool, close)
             pool_decrement_count(self);
             zval_ptr_dtor(&item);
         }
- 
-        /* Close channel */
+
+        /* Phase 2: if connections are still in-use, wait briefly for returns.
+         * In-use connections' put() will see closed=true and decrement count,
+         * but some may arrive just after our Phase 1 drain. Give them a
+         * short window to land in the channel before we close it. */
+        if (pool_get_count(self) > 0) {
+            double wait = pool_get_wait_timeout(self);
+            if (wait > 3.0) wait = 3.0;
+            if (wait < 0.1) wait = 0.1;
+            zend_long rounds = 0;
+            zend_long max_rounds = (zend_long)(wait / 0.05);
+            if (max_rounds < 1) max_rounds = 1;
+
+            while (pool_get_count(self) > 0 && rounds < max_rounds) {
+                zval item;
+                if (pool_channel_pop(channel, 0.05, &item)) {
+                    pool_decrement_count(self);
+                    zval_ptr_dtor(&item);
+                } else {
+                    rounds++;
+                }
+            }
+        }
+
+        /* Close channel — wakes any remaining blocked coroutines with false */
         zval close_func, close_ret;
         ZVAL_STRING(&close_func, "close");
         call_user_function(NULL, channel, &close_func, &close_ret, 0, NULL);
@@ -739,6 +791,10 @@ PHP_METHOD(gene_pool, close)
         if (!Z_ISUNDEF(close_ret)) {
             zval_ptr_dtor(&close_ret);
         }
+
+        /* Force-reset count: any remaining in-use connections will see
+         * closed=true when returned via put() and self-discard. */
+        zend_update_property_long(gene_pool_ce, gene_strip_obj(self), ZEND_STRL(GENE_POOL_PROPERTY_COUNT), 0);
     }
 }
 /* }}} */
@@ -760,6 +816,20 @@ PHP_METHOD(gene_pool, closeAll)
     zval *instances = zend_read_static_property(gene_pool_ce, ZEND_STRL(GENE_POOL_PROPERTY_INSTANCES), 1);
     if (instances && Z_TYPE_P(instances) == IS_ARRAY) {
         zval *pool;
+
+        /* Phase 1: mark ALL pools as closed and stop timers first.
+         * This prevents new get() borrows during the shutdown sequence,
+         * avoiding a race where pool A's close() yields (during channel drain)
+         * and a coroutine borrows from pool B before B is closed. */
+        ZEND_HASH_FOREACH_VAL(Z_ARRVAL_P(instances), pool) {
+            if (Z_TYPE_P(pool) == IS_OBJECT && !pool_is_closed(pool)) {
+                zend_update_property_bool(gene_pool_ce, gene_strip_obj(pool),
+                    ZEND_STRL(GENE_POOL_PROPERTY_CLOSED), 1);
+                pool_stop_timer(pool);
+            }
+        } ZEND_HASH_FOREACH_END();
+
+        /* Phase 2: drain and close all pools (already marked closed). */
         ZEND_HASH_FOREACH_VAL(Z_ARRVAL_P(instances), pool) {
             if (Z_TYPE_P(pool) == IS_OBJECT) {
                 zval close_ret;
@@ -768,7 +838,8 @@ PHP_METHOD(gene_pool, closeAll)
             }
         } ZEND_HASH_FOREACH_END();
     }
- 
+
+    /* Clear the static instances registry */
     zval empty_arr;
     array_init(&empty_arr);
     zend_update_static_property(gene_pool_ce, ZEND_STRL(GENE_POOL_PROPERTY_INSTANCES), &empty_arr);
@@ -786,12 +857,16 @@ PHP_METHOD(gene_pool, stats)
     zend_long count = pool_get_count(self);
     zend_long idle = (channel && Z_TYPE_P(channel) == IS_OBJECT) ? pool_channel_length(channel) : 0;
  
+    zend_long max = pool_get_max(self);
+    zend_long overflow = (count > max) ? (count - max) : 0;
+
     array_init(return_value);
     add_assoc_long(return_value, "total", count);
     add_assoc_long(return_value, "idle", idle);
     add_assoc_long(return_value, "using", count - idle);
+    add_assoc_long(return_value, "overflow", overflow);
     add_assoc_long(return_value, "min", pool_get_min(self));
-    add_assoc_long(return_value, "max", pool_get_max(self));
+    add_assoc_long(return_value, "max", max);
     add_assoc_bool(return_value, "closed", pool_is_closed(self));
 }
 /* }}} */
@@ -846,14 +921,17 @@ bool gene_pool_get_pdo(zend_class_entry *db_ce, zval *self, zval *config,
         zval_ptr_dtor(&callable);
  
         if (Z_TYPE(pool_obj) == IS_OBJECT) {
-            /* Store pool reference on the DB object */
-            zend_update_property(db_ce, gene_strip_obj(self), pool_key, pool_key_len, &pool_obj);
- 
             /* Call pool->get() to borrow a PDO */
             zval pdo_obj;
             gene_factory_call(&pool_obj, "get", NULL, &pdo_obj);
  
             if (Z_TYPE(pdo_obj) == IS_OBJECT) {
+                /* Store pool reference ONLY after successful get().
+                 * If get() returned NULL (timeout/exhausted), we must NOT
+                 * set the pool property — otherwise __destruct would try
+                 * to return a standalone fallback PDO to the pool,
+                 * corrupting the pool's connection count. */
+                zend_update_property(db_ce, gene_strip_obj(self), pool_key, pool_key_len, &pool_obj);
                 zend_update_property(db_ce, gene_strip_obj(self), pdo_key, pdo_key_len, &pdo_obj);
                 zval_ptr_dtor(&pdo_obj);
                 zval_ptr_dtor(&pool_obj);
