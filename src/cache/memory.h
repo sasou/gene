@@ -53,7 +53,7 @@ int gene_memory_exists(char *keyString, size_t keyString_len);
 int gene_memory_del(char *keyString, size_t keyString_len);
 void file_cache_set_val(char *val, size_t keyString_len, zend_long times, int validity);
 filenode * file_cache_get_easy(char *keyString, size_t keyString_len);
-static zval * gene_memory_set_val(zval *val, char *keyString, size_t keyString_len, zval *zvalue);
+
 void gene_memory_hash_copy_local(HashTable *target, HashTable *source);
 zval * gene_memory_zval_local(zval *dst, zval *source);
 
