@@ -1,0 +1,927 @@
+/*
+ +----------------------------------------------------------------------+
+ | gene                                                                 |
+ +----------------------------------------------------------------------+
+ | This source file is subject to version 3.01 of the PHP license,      |
+ | that is bundled with this package in the file LICENSE, and is        |
+ | available through the world-wide-web at the following url:           |
+ | http://www.php.net/license/3_01.txt                                  |
+ | If you did not receive a copy of the PHP license and are unable to   |
+ | obtain it through the world-wide-web, please send a note to          |
+ | license@php.net so we can mail you a copy immediately.               |
+ +----------------------------------------------------------------------+
+ | Author: Sasou  <admin@php-gene.com> web:www.php-gene.com             |
+ +----------------------------------------------------------------------+
+ */
+ 
+#ifdef HAVE_CONFIG_H
+#include "config.h"
+#endif
+ 
+#include "php.h"
+#include "php_ini.h"
+#include "main/SAPI.h"
+#include "Zend/zend_API.h"
+#include "zend_exceptions.h"
+ 
+#include "../gene.h"
+#include "../factory/factory.h"
+#include "../db/pool.h"
+ 
+zend_class_entry *gene_pool_ce;
+ 
+/* {{{ ARG_INFO */
+ZEND_BEGIN_ARG_INFO_EX(gene_pool_void_arginfo, 0, 0, 0)
+ZEND_END_ARG_INFO()
+ 
+ZEND_BEGIN_ARG_INFO_EX(gene_pool_construct_arginfo, 0, 0, 1)
+    ZEND_ARG_INFO(0, config)
+ZEND_END_ARG_INFO()
+ 
+ZEND_BEGIN_ARG_INFO_EX(gene_pool_create_arginfo, 0, 0, 2)
+    ZEND_ARG_INFO(0, name)
+    ZEND_ARG_INFO(0, config)
+ZEND_END_ARG_INFO()
+ 
+ZEND_BEGIN_ARG_INFO_EX(gene_pool_get_instance_arginfo, 0, 0, 1)
+    ZEND_ARG_INFO(0, name)
+ZEND_END_ARG_INFO()
+ 
+ZEND_BEGIN_ARG_INFO_EX(gene_pool_put_arginfo, 0, 0, 1)
+    ZEND_ARG_INFO(0, pdo)
+ZEND_END_ARG_INFO()
+/* }}} */
+ 
+/* ====================== Internal helper functions ====================== */
+ 
+static void pool_create_connection(zval *self, zval *retval) {
+    zval *config = zend_read_property(gene_pool_ce, gene_strip_obj(self), ZEND_STRL(GENE_POOL_PROPERTY_CONFIG), 1, NULL);
+    zval *dsn = NULL, *user = NULL, *pass = NULL, *options = NULL;
+ 
+    ZVAL_NULL(retval);
+ 
+    if (!config || Z_TYPE_P(config) != IS_ARRAY) {
+        return;
+    }
+ 
+    dsn = zend_hash_str_find(Z_ARRVAL_P(config), ZEND_STRL("dsn"));
+    user = zend_hash_str_find(Z_ARRVAL_P(config), ZEND_STRL("username"));
+    pass = zend_hash_str_find(Z_ARRVAL_P(config), ZEND_STRL("password"));
+    options = zend_hash_str_find(Z_ARRVAL_P(config), ZEND_STRL("options"));
+ 
+    if (!dsn || Z_TYPE_P(dsn) != IS_STRING) {
+        return;
+    }
+ 
+    zend_string *pdo_key = zend_string_init(ZEND_STRL("PDO"), 0);
+    zend_class_entry *pdo_ce = zend_lookup_class(pdo_key);
+    zend_string_release(pdo_key);
+ 
+    if (!pdo_ce) {
+        return;
+    }
+ 
+    zval pdo_object, option, func_name, construct_ret;
+    object_init_ex(&pdo_object, pdo_ce);
+ 
+    if (options && Z_TYPE_P(options) == IS_ARRAY) {
+        ZVAL_DUP(&option, options);
+    } else {
+        array_init(&option);
+    }
+    /* PDO::ATTR_ERRMODE => PDO::ERRMODE_EXCEPTION */
+    add_index_long(&option, 3, 2);
+    /* PDO::ATTR_EMULATE_PREPARES => false */
+    add_index_long(&option, 20, 0);
+ 
+    ZVAL_STRING(&func_name, "__construct");
+    {
+        zval params[4];
+        ZVAL_COPY(&params[0], dsn);
+        if (user && Z_TYPE_P(user) == IS_STRING) {
+            ZVAL_COPY(&params[1], user);
+        } else {
+            ZVAL_STRING(&params[1], "");
+        }
+        if (pass && Z_TYPE_P(pass) == IS_STRING) {
+            ZVAL_COPY(&params[2], pass);
+        } else {
+            ZVAL_STRING(&params[2], "");
+        }
+        ZVAL_COPY(&params[3], &option);
+        ZVAL_UNDEF(&construct_ret);
+        call_user_function(NULL, &pdo_object, &func_name, &construct_ret, 4, params);
+        zval_ptr_dtor(&params[0]);
+        zval_ptr_dtor(&params[1]);
+        zval_ptr_dtor(&params[2]);
+        zval_ptr_dtor(&params[3]);
+        if (!Z_ISUNDEF(construct_ret)) {
+            zval_ptr_dtor(&construct_ret);
+        }
+    }
+    zval_ptr_dtor(&func_name);
+    zval_ptr_dtor(&option);
+ 
+    if (EG(exception)) {
+        zend_clear_exception();
+        zval_ptr_dtor(&pdo_object);
+        return;
+    }
+ 
+    ZVAL_COPY_VALUE(retval, &pdo_object);
+ 
+    /* Increment currentCount */
+    {
+        zval *count_zv = zend_read_property(gene_pool_ce, gene_strip_obj(self), ZEND_STRL(GENE_POOL_PROPERTY_COUNT), 1, NULL);
+        zend_long count = (count_zv && Z_TYPE_P(count_zv) == IS_LONG) ? Z_LVAL_P(count_zv) : 0;
+        zend_update_property_long(gene_pool_ce, gene_strip_obj(self), ZEND_STRL(GENE_POOL_PROPERTY_COUNT), count + 1);
+    }
+}
+ 
+static bool pool_is_alive(zval *pdo) {
+    zval func_name, retval;
+    ZVAL_STRING(&func_name, "getAttribute");
+    zval params[1];
+    /* PDO::ATTR_SERVER_INFO = 6 */
+    ZVAL_LONG(&params[0], 6);
+    ZVAL_UNDEF(&retval);
+    call_user_function(NULL, pdo, &func_name, &retval, 1, params);
+    zval_ptr_dtor(&func_name);
+ 
+    if (EG(exception)) {
+        zend_clear_exception();
+        if (!Z_ISUNDEF(retval)) {
+            zval_ptr_dtor(&retval);
+        }
+        return 0;
+    }
+    if (!Z_ISUNDEF(retval)) {
+        zval_ptr_dtor(&retval);
+    }
+    return 1;
+}
+ 
+static void pool_channel_push(zval *channel, zval *pdo) {
+    zval func_name, retval, item;
+    array_init(&item);
+    Z_TRY_ADDREF_P(pdo);
+    add_assoc_zval(&item, "conn", pdo);
+    add_assoc_long(&item, "lastUsed", (zend_long)time(NULL));
+ 
+    ZVAL_STRING(&func_name, "push");
+    zval params[1];
+    ZVAL_COPY(&params[0], &item);
+    call_user_function(NULL, channel, &func_name, &retval, 1, params);
+    zval_ptr_dtor(&params[0]);
+    zval_ptr_dtor(&func_name);
+    zval_ptr_dtor(&item);
+    if (!Z_ISUNDEF(retval)) {
+        zval_ptr_dtor(&retval);
+    }
+}
+ 
+static bool pool_channel_pop(zval *channel, double timeout, zval *result) {
+    zval func_name, retval;
+    ZVAL_STRING(&func_name, "pop");
+    zval params[1];
+    ZVAL_DOUBLE(&params[0], timeout);
+    ZVAL_UNDEF(&retval);
+    call_user_function(NULL, channel, &func_name, &retval, 1, params);
+    zval_ptr_dtor(&func_name);
+ 
+    if (Z_TYPE(retval) == IS_FALSE || Z_TYPE(retval) == IS_NULL) {
+        zval_ptr_dtor(&retval);
+        ZVAL_NULL(result);
+        return 0;
+    }
+    ZVAL_COPY_VALUE(result, &retval);
+    return 1;
+}
+ 
+static bool pool_channel_is_empty(zval *channel) {
+    zval func_name, retval;
+    ZVAL_STRING(&func_name, "isEmpty");
+    call_user_function(NULL, channel, &func_name, &retval, 0, NULL);
+    zval_ptr_dtor(&func_name);
+    bool empty = (Z_TYPE(retval) == IS_TRUE);
+    zval_ptr_dtor(&retval);
+    return empty;
+}
+ 
+static bool pool_channel_is_full(zval *channel) {
+    zval func_name, retval;
+    ZVAL_STRING(&func_name, "isFull");
+    call_user_function(NULL, channel, &func_name, &retval, 0, NULL);
+    zval_ptr_dtor(&func_name);
+    bool full = (Z_TYPE(retval) == IS_TRUE);
+    zval_ptr_dtor(&retval);
+    return full;
+}
+ 
+static zend_long pool_channel_length(zval *channel) {
+    zval func_name, retval;
+    ZVAL_STRING(&func_name, "length");
+    call_user_function(NULL, channel, &func_name, &retval, 0, NULL);
+    zval_ptr_dtor(&func_name);
+    zend_long len = (Z_TYPE(retval) == IS_LONG) ? Z_LVAL(retval) : 0;
+    zval_ptr_dtor(&retval);
+    return len;
+}
+ 
+static void pool_decrement_count(zval *self) {
+    zval *count_zv = zend_read_property(gene_pool_ce, gene_strip_obj(self), ZEND_STRL(GENE_POOL_PROPERTY_COUNT), 1, NULL);
+    zend_long count = (count_zv && Z_TYPE_P(count_zv) == IS_LONG) ? Z_LVAL_P(count_zv) : 0;
+    if (count > 0) count--;
+    zend_update_property_long(gene_pool_ce, gene_strip_obj(self), ZEND_STRL(GENE_POOL_PROPERTY_COUNT), count);
+}
+ 
+static zend_long pool_get_count(zval *self) {
+    zval *count_zv = zend_read_property(gene_pool_ce, gene_strip_obj(self), ZEND_STRL(GENE_POOL_PROPERTY_COUNT), 1, NULL);
+    return (count_zv && Z_TYPE_P(count_zv) == IS_LONG) ? Z_LVAL_P(count_zv) : 0;
+}
+ 
+static zend_long pool_get_max(zval *self) {
+    zval *max_zv = zend_read_property(gene_pool_ce, gene_strip_obj(self), ZEND_STRL(GENE_POOL_PROPERTY_MAX), 1, NULL);
+    return (max_zv && Z_TYPE_P(max_zv) == IS_LONG) ? Z_LVAL_P(max_zv) : 10;
+}
+ 
+static zend_long pool_get_min(zval *self) {
+    zval *min_zv = zend_read_property(gene_pool_ce, gene_strip_obj(self), ZEND_STRL(GENE_POOL_PROPERTY_MIN), 1, NULL);
+    return (min_zv && Z_TYPE_P(min_zv) == IS_LONG) ? Z_LVAL_P(min_zv) : 1;
+}
+ 
+static bool pool_is_closed(zval *self) {
+    zval *closed = zend_read_property(gene_pool_ce, gene_strip_obj(self), ZEND_STRL(GENE_POOL_PROPERTY_CLOSED), 1, NULL);
+    return (closed && Z_TYPE_P(closed) == IS_TRUE);
+}
+ 
+static double pool_get_wait_timeout(zval *self) {
+    zval *wt = zend_read_property(gene_pool_ce, gene_strip_obj(self), ZEND_STRL(GENE_POOL_PROPERTY_WAIT_TIME), 1, NULL);
+    if (wt && Z_TYPE_P(wt) == IS_DOUBLE) return Z_DVAL_P(wt);
+    if (wt && Z_TYPE_P(wt) == IS_LONG) return (double)Z_LVAL_P(wt);
+    return 3.0;
+}
+ 
+static void pool_fill(zval *self) {
+    zval *channel = zend_read_property(gene_pool_ce, gene_strip_obj(self), ZEND_STRL(GENE_POOL_PROPERTY_CHANNEL), 1, NULL);
+    zend_long min = pool_get_min(self);
+    zend_long i;
+ 
+    if (!channel || Z_TYPE_P(channel) != IS_OBJECT) return;
+ 
+    for (i = 0; i < min; i++) {
+        zval conn;
+        pool_create_connection(self, &conn);
+        if (Z_TYPE(conn) == IS_OBJECT) {
+            pool_channel_push(channel, &conn);
+            zval_ptr_dtor(&conn);
+        } else {
+            break;
+        }
+    }
+}
+ 
+static void pool_recycle_idle(zval *self) {
+    zval *channel, *idle_zv;
+    zend_long now, idle_timeout, size, i;
+    zval item, *conn_zv, *last_used_zv;
+ 
+    if (pool_is_closed(self)) return;
+ 
+    channel = zend_read_property(gene_pool_ce, gene_strip_obj(self), ZEND_STRL(GENE_POOL_PROPERTY_CHANNEL), 1, NULL);
+    idle_zv = zend_read_property(gene_pool_ce, gene_strip_obj(self), ZEND_STRL(GENE_POOL_PROPERTY_IDLE_TIME), 1, NULL);
+    idle_timeout = (idle_zv && Z_TYPE_P(idle_zv) == IS_LONG) ? Z_LVAL_P(idle_zv) : 60;
+ 
+    if (!channel || Z_TYPE_P(channel) != IS_OBJECT) return;
+ 
+    now = (zend_long)time(NULL);
+    size = pool_channel_length(channel);
+ 
+    /* Collect items to keep */
+    zval kept;
+    array_init(&kept);
+ 
+    for (i = 0; i < size; i++) {
+        ZVAL_UNDEF(&item);
+        if (!pool_channel_pop(channel, 0.001, &item)) {
+            break;
+        }
+        if (Z_TYPE(item) != IS_ARRAY) {
+            zval_ptr_dtor(&item);
+            continue;
+        }
+ 
+        last_used_zv = zend_hash_str_find(Z_ARRVAL(item), ZEND_STRL("lastUsed"));
+        zend_long last_used = (last_used_zv && Z_TYPE_P(last_used_zv) == IS_LONG) ? Z_LVAL_P(last_used_zv) : now;
+ 
+        if (pool_get_count(self) > pool_get_min(self) && (now - last_used) > idle_timeout) {
+            /* Discard idle connection */
+            pool_decrement_count(self);
+            zval_ptr_dtor(&item);
+            continue;
+        }
+ 
+        add_next_index_zval(&kept, &item);
+    }
+ 
+    /* Push back kept items */
+    zval *kept_item;
+    ZEND_HASH_FOREACH_VAL(Z_ARRVAL(kept), kept_item) {
+        conn_zv = zend_hash_str_find(Z_ARRVAL_P(kept_item), ZEND_STRL("conn"));
+        if (conn_zv && Z_TYPE_P(conn_zv) == IS_OBJECT) {
+            pool_channel_push(channel, conn_zv);
+        }
+    } ZEND_HASH_FOREACH_END();
+    zval_ptr_dtor(&kept);
+ 
+    /* Refill to minimum */
+    while (pool_get_count(self) < pool_get_min(self) && !pool_channel_is_full(channel)) {
+        zval conn;
+        pool_create_connection(self, &conn);
+        if (Z_TYPE(conn) == IS_OBJECT) {
+            pool_channel_push(channel, &conn);
+            zval_ptr_dtor(&conn);
+        } else {
+            break;
+        }
+    }
+}
+ 
+/* Timer callback - called from PHP userland via Swoole\Timer */
+static void pool_start_idle_recycler(zval *self) {
+    zval *idle_zv = zend_read_property(gene_pool_ce, gene_strip_obj(self), ZEND_STRL(GENE_POOL_PROPERTY_IDLE_TIME), 1, NULL);
+    zend_long idle_timeout = (idle_zv && Z_TYPE_P(idle_zv) == IS_LONG) ? Z_LVAL_P(idle_zv) : 60;
+ 
+    if (idle_timeout <= 0) return;
+ 
+    /* We store the pool object in a closure and use Swoole\Timer::tick */
+    zend_long interval_ms = idle_timeout * 500; /* half the idle timeout */
+    if (interval_ms < 1000) interval_ms = 1000;
+ 
+    /* Build: Swoole\Timer::tick($interval, function() use ($self) { $self->recycleIdle(); }) */
+    zval callable, timer_ret;
+    array_init(&callable);
+    add_next_index_string(&callable, "Swoole\\Timer");
+    add_next_index_string(&callable, "tick");
+ 
+    /* Create closure: [$self, 'recycleIdle'] */
+    zval callback;
+    array_init(&callback);
+    Z_TRY_ADDREF_P(self);
+    add_next_index_zval(&callback, self);
+    add_next_index_string(&callback, "recycleIdle");
+ 
+    zval params[2];
+    ZVAL_LONG(&params[0], interval_ms);
+    ZVAL_COPY(&params[1], &callback);
+ 
+    ZVAL_UNDEF(&timer_ret);
+    call_user_function(NULL, NULL, &callable, &timer_ret, 2, params);
+ 
+    zval_ptr_dtor(&params[1]);
+    zval_ptr_dtor(&callable);
+    zval_ptr_dtor(&callback);
+ 
+    if (Z_TYPE(timer_ret) == IS_LONG) {
+        zend_update_property_long(gene_pool_ce, gene_strip_obj(self), ZEND_STRL(GENE_POOL_PROPERTY_TIMER_ID), Z_LVAL(timer_ret));
+    }
+    if (!Z_ISUNDEF(timer_ret)) {
+        zval_ptr_dtor(&timer_ret);
+    }
+}
+ 
+static void pool_stop_timer(zval *self) {
+    zval *timer_id = zend_read_property(gene_pool_ce, gene_strip_obj(self), ZEND_STRL(GENE_POOL_PROPERTY_TIMER_ID), 1, NULL);
+    if (timer_id && Z_TYPE_P(timer_id) == IS_LONG && Z_LVAL_P(timer_id) > 0) {
+        zval callable, retval;
+        array_init(&callable);
+        add_next_index_string(&callable, "Swoole\\Timer");
+        add_next_index_string(&callable, "clear");
+ 
+        zval params[1];
+        ZVAL_LONG(&params[0], Z_LVAL_P(timer_id));
+ 
+        call_user_function(NULL, NULL, &callable, &retval, 1, params);
+        zval_ptr_dtor(&callable);
+        if (!Z_ISUNDEF(retval)) {
+            zval_ptr_dtor(&retval);
+        }
+ 
+        zend_update_property_long(gene_pool_ce, gene_strip_obj(self), ZEND_STRL(GENE_POOL_PROPERTY_TIMER_ID), 0);
+    }
+}
+ 
+/* ====================== PHP Methods ====================== */
+ 
+/*
+ * {{{ public Gene\Pool::__construct(array $config)
+ */
+PHP_METHOD(gene_pool, __construct)
+{
+    zval *config = NULL, *self = getThis();
+    zend_long min_val, max_val, idle_val;
+    double wait_val;
+ 
+    if (zend_parse_parameters(ZEND_NUM_ARGS(), "a", &config) == FAILURE) {
+        return;
+    }
+ 
+    zval *min_zv = zend_hash_str_find(Z_ARRVAL_P(config), ZEND_STRL("min"));
+    zval *max_zv = zend_hash_str_find(Z_ARRVAL_P(config), ZEND_STRL("max"));
+    zval *idle_zv = zend_hash_str_find(Z_ARRVAL_P(config), ZEND_STRL("idleTimeout"));
+    zval *wait_zv = zend_hash_str_find(Z_ARRVAL_P(config), ZEND_STRL("waitTimeout"));
+ 
+    min_val = (min_zv && Z_TYPE_P(min_zv) == IS_LONG) ? Z_LVAL_P(min_zv) : 1;
+    max_val = (max_zv && Z_TYPE_P(max_zv) == IS_LONG) ? Z_LVAL_P(max_zv) : 10;
+    idle_val = (idle_zv && Z_TYPE_P(idle_zv) == IS_LONG) ? Z_LVAL_P(idle_zv) : 60;
+    if (wait_zv) {
+        if (Z_TYPE_P(wait_zv) == IS_DOUBLE) wait_val = Z_DVAL_P(wait_zv);
+        else if (Z_TYPE_P(wait_zv) == IS_LONG) wait_val = (double)Z_LVAL_P(wait_zv);
+        else wait_val = 3.0;
+    } else {
+        wait_val = 3.0;
+    }
+ 
+    if (min_val < 0) min_val = 0;
+    if (max_val < 1) max_val = 1;
+    if (min_val > max_val) min_val = max_val;
+    if (idle_val < 0) idle_val = 0;
+ 
+    zend_update_property(gene_pool_ce, gene_strip_obj(self), ZEND_STRL(GENE_POOL_PROPERTY_CONFIG), config);
+    zend_update_property_long(gene_pool_ce, gene_strip_obj(self), ZEND_STRL(GENE_POOL_PROPERTY_MIN), min_val);
+    zend_update_property_long(gene_pool_ce, gene_strip_obj(self), ZEND_STRL(GENE_POOL_PROPERTY_MAX), max_val);
+    zend_update_property_long(gene_pool_ce, gene_strip_obj(self), ZEND_STRL(GENE_POOL_PROPERTY_IDLE_TIME), idle_val);
+    zend_update_property_double(gene_pool_ce, gene_strip_obj(self), ZEND_STRL(GENE_POOL_PROPERTY_WAIT_TIME), wait_val);
+    zend_update_property_long(gene_pool_ce, gene_strip_obj(self), ZEND_STRL(GENE_POOL_PROPERTY_COUNT), 0);
+    zend_update_property_long(gene_pool_ce, gene_strip_obj(self), ZEND_STRL(GENE_POOL_PROPERTY_TIMER_ID), 0);
+    zend_update_property_bool(gene_pool_ce, gene_strip_obj(self), ZEND_STRL(GENE_POOL_PROPERTY_CLOSED), 0);
+ 
+    /* Create Swoole\Coroutine\Channel */
+    {
+        zend_string *ch_class_str = zend_string_init(ZEND_STRL("Swoole\\Coroutine\\Channel"), 0);
+        zend_class_entry *ch_ce = zend_lookup_class(ch_class_str);
+        zend_string_release(ch_class_str);
+ 
+        if (!ch_ce) {
+            php_error_docref(NULL, E_WARNING, "Gene\\Pool requires Swoole extension (Swoole\\Coroutine\\Channel not found).");
+            return;
+        }
+ 
+        zval channel;
+        object_init_ex(&channel, ch_ce);
+ 
+        zval ch_func, ch_ret;
+        ZVAL_STRING(&ch_func, "__construct");
+        zval ch_params[1];
+        ZVAL_LONG(&ch_params[0], max_val);
+        call_user_function(NULL, &channel, &ch_func, &ch_ret, 1, ch_params);
+        zval_ptr_dtor(&ch_func);
+        if (!Z_ISUNDEF(ch_ret)) {
+            zval_ptr_dtor(&ch_ret);
+        }
+ 
+        zend_update_property(gene_pool_ce, gene_strip_obj(self), ZEND_STRL(GENE_POOL_PROPERTY_CHANNEL), &channel);
+        zval_ptr_dtor(&channel);
+    }
+ 
+    /* Pre-fill min connections */
+    pool_fill(self);
+ 
+    /* Start idle recycler timer */
+    if (idle_val > 0) {
+        pool_start_idle_recycler(self);
+    }
+}
+/* }}} */
+ 
+/*
+ * {{{ public static Gene\Pool::create(string $name, array $config): self
+ */
+PHP_METHOD(gene_pool, create)
+{
+    zend_string *name;
+    zval *config = NULL;
+    zval *instances;
+ 
+    if (zend_parse_parameters(ZEND_NUM_ARGS(), "Sa", &name, &config) == FAILURE) {
+        return;
+    }
+ 
+    instances = zend_read_static_property(gene_pool_ce, ZEND_STRL(GENE_POOL_PROPERTY_INSTANCES), 1);
+ 
+    /* Close existing pool with same name if any */
+    if (instances && Z_TYPE_P(instances) == IS_ARRAY) {
+        zval *existing = zend_hash_find(Z_ARRVAL_P(instances), name);
+        if (existing && Z_TYPE_P(existing) == IS_OBJECT) {
+            zval close_ret;
+            gene_factory_call(existing, "close", NULL, &close_ret);
+            zval_ptr_dtor(&close_ret);
+        }
+    } else {
+        zval arr;
+        array_init(&arr);
+        zend_update_static_property(gene_pool_ce, ZEND_STRL(GENE_POOL_PROPERTY_INSTANCES), &arr);
+        zval_ptr_dtor(&arr);
+        instances = zend_read_static_property(gene_pool_ce, ZEND_STRL(GENE_POOL_PROPERTY_INSTANCES), 1);
+    }
+ 
+    /* Create new pool object */
+    zval new_pool, params_arr;
+    object_init_ex(&new_pool, gene_pool_ce);
+ 
+    array_init(&params_arr);
+    Z_TRY_ADDREF_P(config);
+    add_next_index_zval(&params_arr, config);
+ 
+    zval construct_ret;
+    gene_factory_call(&new_pool, "__construct", &params_arr, &construct_ret);
+    zval_ptr_dtor(&construct_ret);
+    zval_ptr_dtor(&params_arr);
+ 
+    /* Register in static instances */
+    Z_TRY_ADDREF(new_pool);
+    zend_hash_update(Z_ARRVAL_P(instances), name, &new_pool);
+ 
+    RETURN_ZVAL(&new_pool, 1, 1);
+}
+/* }}} */
+ 
+/*
+ * {{{ public static Gene\Pool::getInstance(string $name): ?self
+ */
+PHP_METHOD(gene_pool, getInstance)
+{
+    zend_string *name;
+ 
+    if (zend_parse_parameters(ZEND_NUM_ARGS(), "S", &name) == FAILURE) {
+        RETURN_NULL();
+    }
+ 
+    zval *instances = zend_read_static_property(gene_pool_ce, ZEND_STRL(GENE_POOL_PROPERTY_INSTANCES), 1);
+    if (instances && Z_TYPE_P(instances) == IS_ARRAY) {
+        zval *pool = zend_hash_find(Z_ARRVAL_P(instances), name);
+        if (pool && Z_TYPE_P(pool) == IS_OBJECT) {
+            RETURN_ZVAL(pool, 1, 0);
+        }
+    }
+    RETURN_NULL();
+}
+/* }}} */
+ 
+/*
+ * {{{ public Gene\Pool::get(): ?PDO
+ */
+PHP_METHOD(gene_pool, get)
+{
+    zval *self = getThis();
+    zval *channel;
+    zend_long retries = 0;
+    zend_long max_retries;
+ 
+    if (pool_is_closed(self)) {
+        RETURN_NULL();
+    }
+ 
+    channel = zend_read_property(gene_pool_ce, gene_strip_obj(self), ZEND_STRL(GENE_POOL_PROPERTY_CHANNEL), 1, NULL);
+    if (!channel || Z_TYPE_P(channel) != IS_OBJECT) {
+        RETURN_NULL();
+    }
+ 
+    max_retries = pool_get_max(self) + 2;
+ 
+    while (retries < max_retries) {
+        /* 1. Try to pop from idle queue */
+        if (!pool_channel_is_empty(channel)) {
+            zval item;
+            if (pool_channel_pop(channel, 0.001, &item)) {
+                if (Z_TYPE(item) == IS_ARRAY) {
+                    zval *conn = zend_hash_str_find(Z_ARRVAL(item), ZEND_STRL("conn"));
+                    if (conn && Z_TYPE_P(conn) == IS_OBJECT) {
+                        if (pool_is_alive(conn)) {
+                            RETVAL_ZVAL(conn, 1, 0);
+                            zval_ptr_dtor(&item);
+                            return;
+                        }
+                        /* Dead connection, discard */
+                        pool_decrement_count(self);
+                    }
+                }
+                zval_ptr_dtor(&item);
+                retries++;
+                continue;
+            }
+        }
+ 
+        /* 2. Below max, create new */
+        if (pool_get_count(self) < pool_get_max(self)) {
+            zval conn;
+            pool_create_connection(self, &conn);
+            if (Z_TYPE(conn) == IS_OBJECT) {
+                RETURN_ZVAL(&conn, 0, 0);
+            }
+            /* Creation failed, fall through to wait */
+        }
+ 
+        /* 3. At max, wait for return */
+        {
+            zval item;
+            if (pool_channel_pop(channel, pool_get_wait_timeout(self), &item)) {
+                if (Z_TYPE(item) == IS_ARRAY) {
+                    zval *conn = zend_hash_str_find(Z_ARRVAL(item), ZEND_STRL("conn"));
+                    if (conn && Z_TYPE_P(conn) == IS_OBJECT) {
+                        if (pool_is_alive(conn)) {
+                            RETVAL_ZVAL(conn, 1, 0);
+                            zval_ptr_dtor(&item);
+                            return;
+                        }
+                        pool_decrement_count(self);
+                    }
+                }
+                zval_ptr_dtor(&item);
+                retries++;
+                continue;
+            }
+            /* Timeout */
+            RETURN_NULL();
+        }
+    }
+ 
+    RETURN_NULL();
+}
+/* }}} */
+ 
+/*
+ * {{{ public Gene\Pool::put(PDO $pdo): void
+ */
+PHP_METHOD(gene_pool, put)
+{
+    zval *pdo = NULL, *self = getThis();
+    zval *channel;
+ 
+    if (zend_parse_parameters(ZEND_NUM_ARGS(), "o", &pdo) == FAILURE) {
+        return;
+    }
+ 
+    if (pool_is_closed(self)) {
+        pool_decrement_count(self);
+        return;
+    }
+ 
+    channel = zend_read_property(gene_pool_ce, gene_strip_obj(self), ZEND_STRL(GENE_POOL_PROPERTY_CHANNEL), 1, NULL);
+    if (!channel || Z_TYPE_P(channel) != IS_OBJECT) {
+        pool_decrement_count(self);
+        return;
+    }
+ 
+    if (pool_channel_is_full(channel)) {
+        pool_decrement_count(self);
+        return;
+    }
+ 
+    pool_channel_push(channel, pdo);
+}
+/* }}} */
+ 
+/*
+ * {{{ public Gene\Pool::remove(): void
+ */
+PHP_METHOD(gene_pool, remove)
+{
+    pool_decrement_count(getThis());
+}
+/* }}} */
+ 
+/*
+ * {{{ public Gene\Pool::close(): void
+ */
+PHP_METHOD(gene_pool, close)
+{
+    zval *self = getThis();
+ 
+    if (pool_is_closed(self)) {
+        return;
+    }
+ 
+    zend_update_property_bool(gene_pool_ce, gene_strip_obj(self), ZEND_STRL(GENE_POOL_PROPERTY_CLOSED), 1);
+ 
+    pool_stop_timer(self);
+ 
+    /* Drain channel */
+    zval *channel = zend_read_property(gene_pool_ce, gene_strip_obj(self), ZEND_STRL(GENE_POOL_PROPERTY_CHANNEL), 1, NULL);
+    if (channel && Z_TYPE_P(channel) == IS_OBJECT) {
+        while (!pool_channel_is_empty(channel)) {
+            zval item;
+            if (!pool_channel_pop(channel, 0.001, &item)) {
+                break;
+            }
+            pool_decrement_count(self);
+            zval_ptr_dtor(&item);
+        }
+ 
+        /* Close channel */
+        zval close_func, close_ret;
+        ZVAL_STRING(&close_func, "close");
+        call_user_function(NULL, channel, &close_func, &close_ret, 0, NULL);
+        zval_ptr_dtor(&close_func);
+        if (!Z_ISUNDEF(close_ret)) {
+            zval_ptr_dtor(&close_ret);
+        }
+    }
+}
+/* }}} */
+ 
+/*
+ * {{{ public Gene\Pool::recycleIdle(): void (called by timer)
+ */
+PHP_METHOD(gene_pool, recycleIdle)
+{
+    pool_recycle_idle(getThis());
+}
+/* }}} */
+ 
+/*
+ * {{{ public static Gene\Pool::closeAll(): void
+ */
+PHP_METHOD(gene_pool, closeAll)
+{
+    zval *instances = zend_read_static_property(gene_pool_ce, ZEND_STRL(GENE_POOL_PROPERTY_INSTANCES), 1);
+    if (instances && Z_TYPE_P(instances) == IS_ARRAY) {
+        zval *pool;
+        ZEND_HASH_FOREACH_VAL(Z_ARRVAL_P(instances), pool) {
+            if (Z_TYPE_P(pool) == IS_OBJECT) {
+                zval close_ret;
+                gene_factory_call(pool, "close", NULL, &close_ret);
+                zval_ptr_dtor(&close_ret);
+            }
+        } ZEND_HASH_FOREACH_END();
+    }
+ 
+    zval empty_arr;
+    array_init(&empty_arr);
+    zend_update_static_property(gene_pool_ce, ZEND_STRL(GENE_POOL_PROPERTY_INSTANCES), &empty_arr);
+    zval_ptr_dtor(&empty_arr);
+}
+/* }}} */
+ 
+/*
+ * {{{ public Gene\Pool::stats(): array
+ */
+PHP_METHOD(gene_pool, stats)
+{
+    zval *self = getThis();
+    zval *channel = zend_read_property(gene_pool_ce, gene_strip_obj(self), ZEND_STRL(GENE_POOL_PROPERTY_CHANNEL), 1, NULL);
+    zend_long count = pool_get_count(self);
+    zend_long idle = (channel && Z_TYPE_P(channel) == IS_OBJECT) ? pool_channel_length(channel) : 0;
+ 
+    array_init(return_value);
+    add_assoc_long(return_value, "total", count);
+    add_assoc_long(return_value, "idle", idle);
+    add_assoc_long(return_value, "using", count - idle);
+    add_assoc_long(return_value, "min", pool_get_min(self));
+    add_assoc_long(return_value, "max", pool_get_max(self));
+    add_assoc_bool(return_value, "closed", pool_is_closed(self));
+}
+/* }}} */
+ 
+/*
+ * {{{ public Gene\Pool::__destruct()
+ */
+PHP_METHOD(gene_pool, __destruct)
+{
+    zval *self = getThis();
+    if (!pool_is_closed(self)) {
+        zval close_ret;
+        gene_factory_call(self, "close", NULL, &close_ret);
+        zval_ptr_dtor(&close_ret);
+    }
+}
+/* }}} */
+ 
+/* ====================== Shared DB pool helpers ====================== */
+ 
+bool gene_pool_get_pdo(zend_class_entry *db_ce, zval *self, zval *config,
+    const char *pool_key, size_t pool_key_len,
+    const char *pdo_key, size_t pdo_key_len)
+{
+    zval *pool_name = NULL;
+ 
+    if (config == NULL || Z_TYPE_P(config) != IS_ARRAY) {
+        return 0;
+    }
+ 
+    pool_name = zend_hash_str_find(Z_ARRVAL_P(config), pool_key, pool_key_len);
+    if (!pool_name || Z_TYPE_P(pool_name) != IS_STRING || GENE_G(runtime_type) < 2) {
+        return 0;
+    }
+ 
+    /* Call Gene\Pool::getInstance($name) */
+    {
+        zval callable, pool_obj;
+        array_init(&callable);
+        if (GENE_G(use_namespace)) {
+            add_next_index_string(&callable, "Gene\\Pool");
+        } else {
+            add_next_index_string(&callable, "Gene_Pool");
+        }
+        add_next_index_string(&callable, "getInstance");
+ 
+        zval params[1];
+        ZVAL_COPY(&params[0], pool_name);
+        ZVAL_UNDEF(&pool_obj);
+        call_user_function(NULL, NULL, &callable, &pool_obj, 1, params);
+        zval_ptr_dtor(&params[0]);
+        zval_ptr_dtor(&callable);
+ 
+        if (Z_TYPE(pool_obj) == IS_OBJECT) {
+            /* Store pool reference on the DB object */
+            zend_update_property(db_ce, gene_strip_obj(self), pool_key, pool_key_len, &pool_obj);
+ 
+            /* Call pool->get() to borrow a PDO */
+            zval pdo_obj;
+            gene_factory_call(&pool_obj, "get", NULL, &pdo_obj);
+ 
+            if (Z_TYPE(pdo_obj) == IS_OBJECT) {
+                zend_update_property(db_ce, gene_strip_obj(self), pdo_key, pdo_key_len, &pdo_obj);
+                zval_ptr_dtor(&pdo_obj);
+                zval_ptr_dtor(&pool_obj);
+                return 1;
+            }
+            zval_ptr_dtor(&pdo_obj);
+        }
+        zval_ptr_dtor(&pool_obj);
+    }
+    return 0;
+}
+ 
+void gene_pool_return_pdo(zend_class_entry *db_ce, zval *self,
+    const char *pool_key, size_t pool_key_len,
+    const char *pdo_key, size_t pdo_key_len)
+{
+    zval *pool = zend_read_property(db_ce, gene_strip_obj(self), pool_key, pool_key_len, 1, NULL);
+    if (pool && Z_TYPE_P(pool) == IS_OBJECT) {
+        zval *pdo = zend_read_property(db_ce, gene_strip_obj(self), pdo_key, pdo_key_len, 1, NULL);
+        if (pdo && Z_TYPE_P(pdo) == IS_OBJECT) {
+            zval retval, params;
+            array_init(&params);
+            Z_TRY_ADDREF_P(pdo);
+            add_next_index_zval(&params, pdo);
+            gene_factory_call(pool, "put", &params, &retval);
+            zval_ptr_dtor(&retval);
+            zval_ptr_dtor(&params);
+        }
+        zend_update_property_null(db_ce, gene_strip_obj(self), pdo_key, pdo_key_len);
+    }
+}
+ 
+void gene_pool_notify_remove(zend_class_entry *db_ce, zval *self,
+    const char *pool_key, size_t pool_key_len)
+{
+    zval *pool = zend_read_property(db_ce, gene_strip_obj(self), pool_key, pool_key_len, 1, NULL);
+    if (pool && Z_TYPE_P(pool) == IS_OBJECT) {
+        zval retval;
+        gene_factory_call(pool, "remove", NULL, &retval);
+        zval_ptr_dtor(&retval);
+    }
+}
+ 
+/* ====================== Method table ====================== */
+ 
+const zend_function_entry gene_pool_methods[] = {
+    PHP_ME(gene_pool, __construct, gene_pool_construct_arginfo, ZEND_ACC_PUBLIC)
+    PHP_ME(gene_pool, __destruct, gene_pool_void_arginfo, ZEND_ACC_PUBLIC)
+    PHP_ME(gene_pool, create, gene_pool_create_arginfo, ZEND_ACC_PUBLIC|ZEND_ACC_STATIC)
+    PHP_ME(gene_pool, getInstance, gene_pool_get_instance_arginfo, ZEND_ACC_PUBLIC|ZEND_ACC_STATIC)
+    PHP_ME(gene_pool, get, gene_pool_void_arginfo, ZEND_ACC_PUBLIC)
+    PHP_ME(gene_pool, put, gene_pool_put_arginfo, ZEND_ACC_PUBLIC)
+    PHP_ME(gene_pool, remove, gene_pool_void_arginfo, ZEND_ACC_PUBLIC)
+    PHP_ME(gene_pool, close, gene_pool_void_arginfo, ZEND_ACC_PUBLIC)
+    PHP_ME(gene_pool, closeAll, gene_pool_void_arginfo, ZEND_ACC_PUBLIC|ZEND_ACC_STATIC)
+    PHP_ME(gene_pool, recycleIdle, gene_pool_void_arginfo, ZEND_ACC_PUBLIC)
+    PHP_ME(gene_pool, stats, gene_pool_void_arginfo, ZEND_ACC_PUBLIC)
+    {NULL, NULL, NULL}
+};
+ 
+/* ====================== MINIT ====================== */
+ 
+GENE_MINIT_FUNCTION(pool)
+{
+    zend_class_entry gene_pool;
+    GENE_INIT_CLASS_ENTRY(gene_pool, "Gene_Pool", "Gene\\Pool", gene_pool_methods);
+    gene_pool_ce = zend_register_internal_class_ex(&gene_pool, NULL);
+    gene_pool_ce->ce_flags |= ZEND_ACC_FINAL;
+ 
+    zend_declare_property_null(gene_pool_ce, ZEND_STRL(GENE_POOL_PROPERTY_CHANNEL), ZEND_ACC_PROTECTED);
+    zend_declare_property_null(gene_pool_ce, ZEND_STRL(GENE_POOL_PROPERTY_CONFIG), ZEND_ACC_PROTECTED);
+    zend_declare_property_long(gene_pool_ce, ZEND_STRL(GENE_POOL_PROPERTY_MIN), 1, ZEND_ACC_PROTECTED);
+    zend_declare_property_long(gene_pool_ce, ZEND_STRL(GENE_POOL_PROPERTY_MAX), 10, ZEND_ACC_PROTECTED);
+    zend_declare_property_long(gene_pool_ce, ZEND_STRL(GENE_POOL_PROPERTY_IDLE_TIME), 60, ZEND_ACC_PROTECTED);
+    zend_declare_property_double(gene_pool_ce, ZEND_STRL(GENE_POOL_PROPERTY_WAIT_TIME), 3.0, ZEND_ACC_PROTECTED);
+    zend_declare_property_long(gene_pool_ce, ZEND_STRL(GENE_POOL_PROPERTY_COUNT), 0, ZEND_ACC_PROTECTED);
+    zend_declare_property_long(gene_pool_ce, ZEND_STRL(GENE_POOL_PROPERTY_TIMER_ID), 0, ZEND_ACC_PROTECTED);
+    zend_declare_property_bool(gene_pool_ce, ZEND_STRL(GENE_POOL_PROPERTY_CLOSED), 0, ZEND_ACC_PROTECTED);
+ 
+    /* Static property: instances registry */
+    zend_declare_property_null(gene_pool_ce, ZEND_STRL(GENE_POOL_PROPERTY_INSTANCES), ZEND_ACC_PROTECTED | ZEND_ACC_STATIC);
+ 
+    return SUCCESS;
+}
