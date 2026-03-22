@@ -31,6 +31,9 @@
 #include "../db/pool.h"
  
 zend_class_entry *gene_pool_ce;
+
+/* Forward declarations */
+static void pool_stop_timer(zval *self);
  
 /* {{{ ARG_INFO */
 ZEND_BEGIN_ARG_INFO_EX(gene_pool_void_arginfo, 0, 0, 0)
