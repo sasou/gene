@@ -182,14 +182,10 @@ bool sqliteInitPdo (zval * self, zval *config) {
 	object_init_ex(&pdo_object, pdo_ptr);
 
 	if ((dsn = zend_hash_str_find(Z_ARRVAL_P(config), ZEND_STRL("dsn"))) == NULL) {
-		 php_error_docref(NULL, E_ERROR, "PDO need a valid dns.");
+		 php_error_docref(NULL, E_ERROR, "PDO need a valid dsn.");
 	}
-	if ((user = zend_hash_str_find(Z_ARRVAL_P(config), ZEND_STRL("username"))) == NULL) {
-		 php_error_docref(NULL, E_ERROR, "PDO need a valid username.");
-	}
-	if ((pass = zend_hash_str_find(Z_ARRVAL_P(config), ZEND_STRL("password"))) == NULL) {
-		 php_error_docref(NULL, E_ERROR, "PDO need a valid password.");
-	}
+	user = zend_hash_str_find(Z_ARRVAL_P(config), ZEND_STRL("username"));
+	pass = zend_hash_str_find(Z_ARRVAL_P(config), ZEND_STRL("password"));
 	options = zend_hash_str_find(Z_ARRVAL_P(config), ZEND_STRL("options"));
     if (options == NULL || Z_TYPE_P(options) == IS_NULL) {
 		array_init(&option);
@@ -198,6 +194,8 @@ bool sqliteInitPdo (zval * self, zval *config) {
     }
 	add_index_long(&option, 3, 2);
 	add_index_long(&option, 19, 2);
+	add_index_long(&option, 11, 2);
+	add_index_long(&option, 8, 2);
 	gene_pdo_construct(&pdo_object, dsn, user, pass, &option);
 	zval_ptr_dtor(&option);
 
@@ -653,7 +651,7 @@ PHP_METHOD(gene_db_sqlite, in)
 		if (ZSTR_LEN(where_str.s) == 0) {
 			smart_str_appends(&where_str, " WHERE ");
 		}
-		spprintf(&in_tmp, 0, "%s", in, in_len);
+		spprintf(&in_tmp, 0, "%s", in);
 	}
     if (fields) {
     	data = zend_read_property(gene_db_sqlite_ce, gene_strip_obj(self), ZEND_STRL(GENE_DB_SQLITE_DATA), 1, NULL);

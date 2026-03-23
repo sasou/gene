@@ -116,9 +116,9 @@ void getBenchMemory(zend_long *memory_start, zend_long *memory_end, char **ret, 
 	memory = *memory_end - *memory_start;
 
 	if (type) {
-		spprintf(ret, 0, "%.3f", memory/1024);
+		spprintf(ret, 0, "%.3f", (double)memory / 1024.0);
 	} else {
-		spprintf(ret, 0, "%.3f", memory/1048576);
+		spprintf(ret, 0, "%.3f", (double)memory / 1048576.0);
 	}
 }
 
