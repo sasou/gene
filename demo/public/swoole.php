@@ -50,33 +50,29 @@ $http->on("workerStop", function ($server, $workerId) {
 });
 
 $http->on("request", function ($request, $response) {
-    \Gene\Request::init(
-        $request->get, $request->post, $request->cookie,
-        $request->server, null, $request->files
-    );
+    \Gene\Request::init($request->get, $request->post, $request->cookie, $request->server, null, $request->files);
     \Gene\Application::setResponse($response);
 
     ob_start();
-    $error = null;
+    $error = false;
     try {
         \Gene\Application::getInstance()->run();
     } catch (\Throwable $e) {
-        $error = $e;
+        $error = true;
+        \Gene\Log::exception($e);
     }
     $out = ob_get_clean();
 
     \Gene\Application::cleanup();
 
     if ($error) {
-        $response->status(500);
-        $response->end("Internal Server Error: " . $error->getMessage());
+        $response->redirect('/50x.html');
         return;
     }
 
     if (!$response->isWritable()) {
         return;
     }
-    $response->header('Content-Type', 'text/html; charset=UTF-8');
     $response->end($out);
 });
 
