@@ -116,6 +116,10 @@ ZEND_END_ARG_INFO()
  */
 void gene_view_contains(char *file, zval *ret) {
 	char *path, *base_path;
+	if (!file || file[0] == '\0') {
+		ZVAL_FALSE(ret);
+		return;
+	}
 	if (strstr(file, "..") != NULL) {
 		php_error_docref(NULL, E_WARNING, "Path traversal detected in view file: %s", file);
 		ZVAL_FALSE(ret);
@@ -144,6 +148,10 @@ void gene_view_contains_ext(char *file, bool isCompile, zval *ret) {
 	char *path, *compile_path, *cpath, *base_path;
 	size_t compile_path_len;
 	php_stream *stream = NULL;
+	if (!file || file[0] == '\0') {
+		ZVAL_FALSE(ret);
+		return;
+	}
 	if (strstr(file, "..") != NULL) {
 		php_error_docref(NULL, E_WARNING, "Path traversal detected in view file: %s", file);
 		ZVAL_FALSE(ret);
