@@ -50,7 +50,7 @@ $http->on("workerStop", function ($server, $workerId) {
 });
 
 $http->on("request", function ($request, $response) {
-    \Gene\Request::init($request->get, $request->post, $request->cookie, $request->server, null, $request->files);
+    \Gene\Request::init($request->get, $request->post, $request->cookie, $request->server, null, $request->files, null, $request->header);
     \Gene\Application::setResponse($response);
 
     ob_start();
