@@ -96,19 +96,48 @@ static const char *gene_log_level_name(zend_long level) {
 }
 /* }}} */
 
+/* {{{ gene_log_get_effective_level */
+static zend_long gene_log_get_effective_level(void) {
+	if (GENE_G(runtime_type) >= 2) {
+		gene_request_context *ctx = gene_request_ctx();
+		if (ctx && ctx->log_level_set) {
+			return ctx->log_level;
+		}
+	}
+	zval *prop_level = zend_read_static_property(gene_log_ce, ZEND_STRL("level"), 1);
+	if (prop_level && Z_TYPE_P(prop_level) == IS_LONG) {
+		return Z_LVAL_P(prop_level);
+	}
+	return GENE_LOG_LEVEL_DEBUG;
+}
+/* }}} */
+
+/* {{{ gene_log_get_effective_file */
+static const char *gene_log_get_effective_file(void) {
+	if (GENE_G(runtime_type) >= 2) {
+		gene_request_context *ctx = gene_request_ctx();
+		if (ctx && ctx->log_file) {
+			return ctx->log_file;
+		}
+	}
+	zval *prop_file = zend_read_static_property(gene_log_ce, ZEND_STRL("file"), 1);
+	if (prop_file && Z_TYPE_P(prop_file) == IS_STRING && Z_STRLEN_P(prop_file) > 0) {
+		return Z_STRVAL_P(prop_file);
+	}
+	return NULL;
+}
+/* }}} */
+
 /* {{{ gene_log_write_message */
 static void gene_log_write_message(zend_long level, const char *msg) {
-	zval *prop_level, *prop_file;
 	char *datetime = NULL;
 	char *log_line = NULL;
 	const char *level_name;
+	const char *effective_file;
 
 	/* Check log level threshold */
-	prop_level = zend_read_static_property(gene_log_ce, ZEND_STRL("level"), 1);
-	if (prop_level && Z_TYPE_P(prop_level) == IS_LONG) {
-		if (level < Z_LVAL_P(prop_level)) {
-			return;
-		}
+	if (level < gene_log_get_effective_level()) {
+		return;
 	}
 
 	gene_log_get_datetime(&datetime);
@@ -118,15 +147,15 @@ static void gene_log_write_message(zend_long level, const char *msg) {
 	efree(datetime);
 
 	/* Check if custom log file is set */
-	prop_file = zend_read_static_property(gene_log_ce, ZEND_STRL("file"), 1);
-	if (prop_file && Z_TYPE_P(prop_file) == IS_STRING && Z_STRLEN_P(prop_file) > 0) {
+	effective_file = gene_log_get_effective_file();
+	if (effective_file) {
 		/* Write to custom file */
 		zval func_name, retval;
 		zval params[3];
 		ZVAL_STRING(&func_name, "error_log");
 		ZVAL_STRING(&params[0], log_line);
 		ZVAL_LONG(&params[1], 3);
-		ZVAL_STR_COPY(&params[2], Z_STR_P(prop_file));
+		ZVAL_STRING(&params[2], effective_file);
 		call_user_function(EG(function_table), NULL, &func_name, &retval, 3, params);
 		zval_ptr_dtor(&func_name);
 		zval_ptr_dtor(&params[0]);
@@ -204,7 +233,6 @@ PHP_METHOD(gene_log, exception) {
 	zend_string *extra_msg = NULL;
 	char *datetime = NULL;
 	char *log_line = NULL;
-	zval *prop_level, *prop_file;
 	zval msg_val, file_val, line_val, trace_val;
 
 	if (zend_parse_parameters(ZEND_NUM_ARGS(), "z|S", &ex, &extra_msg) == FAILURE) {
@@ -217,11 +245,8 @@ PHP_METHOD(gene_log, exception) {
 	}
 
 	/* Check log level threshold (exception always logs at ERROR level) */
-	prop_level = zend_read_static_property(gene_log_ce, ZEND_STRL("level"), 1);
-	if (prop_level && Z_TYPE_P(prop_level) == IS_LONG) {
-		if (GENE_LOG_LEVEL_ERROR < Z_LVAL_P(prop_level)) {
-			return;
-		}
+	if (GENE_LOG_LEVEL_ERROR < gene_log_get_effective_level()) {
+		return;
 	}
 
 	/* Get exception info */
@@ -272,14 +297,15 @@ PHP_METHOD(gene_log, exception) {
 	efree(datetime);
 
 	/* Write log */
-	prop_file = zend_read_static_property(gene_log_ce, ZEND_STRL("file"), 1);
-	if (prop_file && Z_TYPE_P(prop_file) == IS_STRING && Z_STRLEN_P(prop_file) > 0) {
+	{
+	const char *effective_file = gene_log_get_effective_file();
+	if (effective_file) {
 		zval func_name, retval;
 		zval params[3];
 		ZVAL_STRING(&func_name, "error_log");
 		ZVAL_STRING(&params[0], log_line);
 		ZVAL_LONG(&params[1], 3);
-		ZVAL_STR_COPY(&params[2], Z_STR_P(prop_file));
+		ZVAL_STRING(&params[2], effective_file);
 		call_user_function(EG(function_table), NULL, &func_name, &retval, 3, params);
 		zval_ptr_dtor(&func_name);
 		zval_ptr_dtor(&params[0]);
@@ -294,6 +320,7 @@ PHP_METHOD(gene_log, exception) {
 		zval_ptr_dtor(&func_name);
 		zval_ptr_dtor(&params[0]);
 		zval_ptr_dtor(&retval);
+	}
 	}
 
 	efree(log_line);
@@ -310,16 +337,23 @@ PHP_METHOD(gene_log, setFile) {
 	if (zend_parse_parameters(ZEND_NUM_ARGS(), "S", &file) == FAILURE) {
 		return;
 	}
+	if (GENE_G(runtime_type) >= 2) {
+		gene_request_context *ctx = gene_request_ctx();
+		if (ctx) {
+			if (ctx->log_file) { efree(ctx->log_file); }
+			ctx->log_file = estrndup(ZSTR_VAL(file), ZSTR_LEN(file));
+			return;
+		}
+	}
 	zend_update_static_property_string(gene_log_ce, ZEND_STRL("file"), ZSTR_VAL(file));
 }
 /* }}} */
 
 /* {{{ proto static string|null Gene\Log::getFile() */
 PHP_METHOD(gene_log, getFile) {
-	zval *prop;
-	prop = zend_read_static_property(gene_log_ce, ZEND_STRL("file"), 1);
-	if (prop && Z_TYPE_P(prop) == IS_STRING && Z_STRLEN_P(prop) > 0) {
-		RETURN_STR_COPY(Z_STR_P(prop));
+	const char *effective = gene_log_get_effective_file();
+	if (effective) {
+		RETURN_STRING(effective);
 	}
 	RETURN_NULL();
 }
@@ -335,18 +369,21 @@ PHP_METHOD(gene_log, setLevel) {
 		php_error_docref(NULL, E_WARNING, "Log level must be between %d and %d", GENE_LOG_LEVEL_DEBUG, GENE_LOG_LEVEL_ERROR);
 		return;
 	}
+	if (GENE_G(runtime_type) >= 2) {
+		gene_request_context *ctx = gene_request_ctx();
+		if (ctx) {
+			ctx->log_level = level;
+			ctx->log_level_set = 1;
+			return;
+		}
+	}
 	zend_update_static_property_long(gene_log_ce, ZEND_STRL("level"), level);
 }
 /* }}} */
 
 /* {{{ proto static int Gene\Log::getLevel() */
 PHP_METHOD(gene_log, getLevel) {
-	zval *prop;
-	prop = zend_read_static_property(gene_log_ce, ZEND_STRL("level"), 1);
-	if (prop && Z_TYPE_P(prop) == IS_LONG) {
-		RETURN_LONG(Z_LVAL_P(prop));
-	}
-	RETURN_LONG(GENE_LOG_LEVEL_DEBUG);
+	RETURN_LONG(gene_log_get_effective_level());
 }
 /* }}} */
 
