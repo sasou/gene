@@ -227,7 +227,7 @@ void gene_ini_router() {
 					temp = zend_hash_str_find(Z_ARRVAL_P(attr_server), ZEND_STRL("REQUEST_METHOD"));
 					if (temp && Z_TYPE_P(temp) == IS_STRING) {
 						GENE_REQ(method) = estrndup(Z_STRVAL_P(temp), Z_STRLEN_P(temp));
-						strtolower(GENE_REQ(method));
+						gene_strtolower(GENE_REQ(method));
 					}
 				}
 				if (!GENE_REQ(path)) {
@@ -254,7 +254,7 @@ void gene_ini_router() {
 				}
 				if (!GENE_REQ(method) && (temp = zend_hash_str_find(HASH_OF(server), ZEND_STRL("REQUEST_METHOD"))) != NULL) {
 					GENE_REQ(method) = estrndup(Z_STRVAL_P(temp), Z_STRLEN_P(temp));
-					strtolower(GENE_REQ(method));
+					gene_strtolower(GENE_REQ(method));
 				}
 				if (!GENE_REQ(path) && (temp = zend_hash_str_find(HASH_OF(server), ZEND_STRL("REQUEST_URI"))) != NULL) {
 					GENE_REQ(path) = ecalloc(Z_STRLEN_P(temp)+1, sizeof(char));
@@ -526,7 +526,7 @@ PHP_METHOD(gene_application, getRouterUri) {
 		efree(path);
 		path = new_path;
 	}
-	strtolower(path);
+	gene_strtolower(path);
 	RETVAL_STRING(path);
 	efree(path);
 }

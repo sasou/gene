@@ -34,6 +34,7 @@
 #include "../common/common.h"
 #include "../app/application.h"
 #include "../mvc/view.h"
+#include "zend_smart_str.h"
 
 zend_class_entry *gene_router_ce;
 
@@ -184,25 +185,25 @@ void gene_router_set_uri(zval **leaf) {
 /** {{{ static void get_path_router(char *keyString, int keyString_len)
  */
 char *get_path_router_init(zval *conf, char *path) {
-	zval *prefix = NULL, *lang = NULL, *langs = NULL;
-	char *seg = NULL, *ptr = NULL, *path_prefix = NULL,*path_tmp = NULL,*lang_tmp = NULL,*search = NULL, *uri = NULL, *old_path_tmp = NULL;
+	zval *prefix = NULL, *langs = NULL;
+	char *seg = NULL, *ptr = NULL, *path_prefix = NULL, *result = NULL, *lang_tmp = NULL, *search = NULL, *work = NULL;
 	zend_long path_len = 0;
 	path_len = strlen(path);
 	if (path_len == 0) {
 		return path;
 	}
 
-	path_tmp = path;
+	result = NULL;
 	prefix = zend_symtable_str_find(Z_ARRVAL_P(conf), "prefix", 6);
 	if (prefix) {
 		if (Z_STRLEN_P(prefix) <= path_len) {
 			path_prefix = str_sub(path, Z_STRLEN_P(prefix));
 			if (strcmp(path_prefix, Z_STRVAL_P(prefix)) == 0) {
-				path_tmp = str_sub_len(path, Z_STRLEN_P(prefix), path_len - Z_STRLEN_P(prefix));
-				trim(path_tmp, '/');
-				if (strlen(path_tmp) < 1) {
+				result = str_sub_len(path, Z_STRLEN_P(prefix), path_len - Z_STRLEN_P(prefix));
+				trim(result, '/');
+				if (strlen(result) < 1) {
 					efree(path_prefix);
-					return path_tmp;
+					return result;
 				}
 			}
 			efree(path_prefix);
@@ -210,9 +211,9 @@ char *get_path_router_init(zval *conf, char *path) {
 	}
 	langs = zend_symtable_str_find(Z_ARRVAL_P(conf), "langs", 5);
 	if (langs) {
-        uri = str_init(path_tmp);
-		seg = php_strtok_r(path_tmp, "/", &ptr);
-		if (strlen(seg) > 0) {
+		work = str_init(result ? result : path);
+		seg = php_strtok_r(work, "/", &ptr);
+		if (seg && strlen(seg) > 0) {
 			if (ptr == NULL) {
 				ptr = "";
 			}
@@ -225,25 +226,19 @@ char *get_path_router_init(zval *conf, char *path) {
 					GENE_REQ(lang) = NULL;
 				}
 				GENE_REQ(lang) = str_init(seg);
-				old_path_tmp = path_tmp;
-				spprintf(&path_tmp, 0, "%s", ptr);
-				if (strlen(path_tmp) > 0) {
-					trim(path_tmp, '/');
+				if (result) {
+					efree(result);
 				}
-				if (old_path_tmp != path && old_path_tmp != uri) {
-					efree(old_path_tmp);
+				spprintf(&result, 0, "%s", ptr);
+				if (strlen(result) > 0) {
+					trim(result, '/');
 				}
-				efree(uri);
-			} else {
-				if (path_tmp != path) {
-					efree(path_tmp);
-				}
-				path_tmp = uri;
 			}
 		}
+		efree(work);
 	}
 
-	return path_tmp;
+	return result ? result : path;
 }
 /* }}} */
 
@@ -282,7 +277,6 @@ zval *get_path_router(zval *val, char *paths) {
 							if (tmp != NULL) {
 								leaf = get_path_router(tmp, ptr);
 								if (leaf) {
-									setMca(key, seg);
 									break;
 								}
 							}
@@ -310,7 +304,6 @@ zval *get_path_router(zval *val, char *paths) {
 							if (tmp != NULL) {
 								leaf = zend_symtable_str_find(Z_ARRVAL_P(tmp), "leaf", 4);
 								if (leaf) {
-									setMca(key, seg);
 									break;
 								}
 							}
@@ -454,7 +447,7 @@ int get_router_error_run(char *errorName, zval *safe) {
 	efree(router_e);
 	if (cacheHook) {
 		router_e_len = spprintf(&router_e, 0, "error:%s", errorName);
-		error = zend_hash_str_find(Z_ARRVAL_P(cacheHook), router_e, router_e_len + 1);
+		error = zend_hash_str_find(Z_ARRVAL_P(cacheHook), router_e, router_e_len);
 		if (error) {
 			size = Z_STRLEN_P(error) + 1;
 			run = (char *) ecalloc(size, sizeof(char));
@@ -563,37 +556,29 @@ char * get_function_content(zval *content) {
 	zend_call_method_with_1_params(gene_strip_obj(&objEx), NULL, NULL, "seek", NULL, &fileName);
 	zval_ptr_dtor(&fileName);
 
-	while (startline < endline) {
-		zend_call_method_with_0_params(gene_strip_obj(&objEx), NULL, NULL, "current", &ret);
-		if (Z_TYPE(ret) != IS_STRING) {
+	{
+		smart_str buf = {0};
+		while (startline < endline) {
+			zend_call_method_with_0_params(gene_strip_obj(&objEx), NULL, NULL, "current", &ret);
+			if (Z_TYPE(ret) != IS_STRING) {
+				zval_ptr_dtor(&ret);
+				++startline;
+				zend_call_method_with_0_params(gene_strip_obj(&objEx), NULL, NULL, "next", NULL);
+				continue;
+			}
+			smart_str_appendl(&buf, Z_STRVAL(ret), Z_STRLEN(ret));
 			zval_ptr_dtor(&ret);
 			++startline;
 			zend_call_method_with_0_params(gene_strip_obj(&objEx), NULL, NULL, "next", NULL);
-			continue;
 		}
-		spprintf(&tmp, 0, "%s", Z_STRVAL(ret));
-		zval_ptr_dtor(&ret);
-
-		if (result) {
-			size = strlen(result) + strlen(tmp) + 1;
-			result = erealloc(result, size);
-			strcat(result, tmp);
-			result[size - 1] = 0;
+		zval_ptr_dtor(&objEx);
+		if (buf.s) {
+			smart_str_0(&buf);
+			result = estrndup(ZSTR_VAL(buf.s), ZSTR_LEN(buf.s));
+			smart_str_free(&buf);
 		} else {
-			size = strlen(tmp) + 1;
-			result = ecalloc(size, sizeof(char));
-			strcpy(result, tmp);
-			result[size - 1] = 0;
+			return NULL;
 		}
-		efree(tmp);
-		++startline;
-
-		zend_call_method_with_0_params(gene_strip_obj(&objEx), NULL, NULL, "next", NULL);
-	}
-	zval_ptr_dtor(&objEx);
-
-	if (result == NULL) {
-		return NULL;
 	}
 
 	ZVAL_STRING(&fileName, "function");
@@ -718,7 +703,7 @@ void get_router_content_run(char *methodin, char *pathin, zval *safe) {
 		}
 	} else {
 		method = str_init(methodin);
-		strtolower(method);
+		gene_strtolower(method);
 		path = str_init(pathin);
 	}
 
@@ -895,7 +880,7 @@ PHP_METHOD(gene_router, __call) {
 		RETURN_NULL();
 	}
 
-	strtolower(method);
+	gene_strtolower(method);
 	if (IS_ARRAY == Z_TYPE_P(val)) {
 		pathVal = zend_hash_index_find(Z_ARRVAL_P(val), 0);
 		if (pathVal != NULL && Z_TYPE_P(pathVal) == IS_STRING) {
@@ -1012,8 +997,11 @@ PHP_METHOD(gene_router, __call) {
 			}
 		}
 	}
-	if (val) {
-		zval_ptr_dtor(val);
+	if (path) {
+		efree(path);
+	}
+	if (Z_TYPE(content) == IS_STRING) {
+		zval_ptr_dtor(&content);
 	}
 	RETURN_ZVAL(self, 1, 0);
 }
@@ -1350,7 +1338,7 @@ PHP_METHOD(gene_router, dispatch) {
 			action_alloc = strreplace2(action, ":a", GENE_REQ(action));
 			action = action_alloc;
 		}
-		strtolower(action);
+		gene_strtolower(action);
 		if (Z_TYPE(classObject) == IS_OBJECT
 				&& zend_hash_str_exists(&(Z_OBJCE(classObject)->function_table), action, strlen(action))) {
 			zval ret;

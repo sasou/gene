@@ -302,7 +302,8 @@ void gene_memory_set(char *keyString, size_t keyString_len, zval *zvalue,
 			gene_memory_zval_persistent(&ret, zvalue);
 			key = gene_str_persistent(keyString, keyString_len);
 			gene_symtable_update(GENE_G(cache), key, &ret);
-			zend_string_release(key);
+			/* key is now owned by the hash table; do not free here.
+			 * zend_string_release is a no-op for interned strings. */
 			GENE_CACHE_WRUNLOCK();
 			return;
 		}
@@ -389,13 +390,16 @@ filenode * file_cache_get_easy(char *keyString, size_t keyString_len) {
 void file_cache_set_val(char *val, size_t keyString_len, zend_long times,
 		int validity) {
 	filenode n;
+	zend_string *key;
 	n.stime = time(NULL);
 	n.ftime = times;
 	n.validity = validity;
 	n.status = 0;
+	key = gene_str_persistent(val, keyString_len);
 	GENE_CACHE_WRLOCK();
-	zend_hash_update_mem(GENE_G(cache_easy), gene_str_persistent(val, keyString_len), &n, sizeof(filenode));
+	zend_hash_update_mem(GENE_G(cache_easy), key, &n, sizeof(filenode));
 	GENE_CACHE_WRUNLOCK();
+	pefree(key, 1);
 }
 /* }}} */
 
