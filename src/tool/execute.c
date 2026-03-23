@@ -42,14 +42,15 @@ ZEND_BEGIN_ARG_INFO_EX(gene_execute_stringrun_arginfo, 0, 0, 1)
 ZEND_END_ARG_INFO()
 
 /*
- * {{{ void * gene_execite_opcodes_run(zend_op_array *op_array)
+ * {{{ void * gene_execute_opcodes_run(zend_op_array *op_array)
  */
-void *gene_execite_opcodes_run(zend_op_array *op_array) {
+void *gene_execute_opcodes_run(zend_op_array *op_array) {
 	zend_op_array *orig_op_array = CG(active_op_array);
 	zval ret;
 	CG(active_op_array) = op_array;
 	if (CG(active_op_array)) {
 		zend_execute(CG(active_op_array), &ret);
+		zval_ptr_dtor(&ret);
 		destroy_op_array(CG(active_op_array));
 		efree(CG(active_op_array));
 	}
@@ -107,7 +108,7 @@ PHP_METHOD(gene_execute, GetOpcodes) {
 	destroy_op_array(op_array);
 	efree(op_array);
 	zval_ptr_dtor(&zv);
-	RETURN_ZVAL(&opcodes_array, 1, 0);
+	RETURN_ZVAL(&opcodes_array, 1, 1);
 }
 /* }}} */
 
