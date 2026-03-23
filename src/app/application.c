@@ -786,11 +786,11 @@ PHP_METHOD(gene_application, setResponse) {
 	if (zend_parse_parameters(ZEND_NUM_ARGS(), "z", &resp) == FAILURE) {
 		return;
 	}
-	gene_request_context *ctx = gene_request_ctx();
-	if (Z_TYPE(ctx->response) != IS_UNDEF) {
-		zval_ptr_dtor(&ctx->response);
-	}
-	ZVAL_COPY(&ctx->response, resp);
+	zval *entrys = gene_di_regs();
+	zend_string *key = zend_string_init("response", sizeof("response") - 1, 0);
+	Z_TRY_ADDREF_P(resp);
+	zend_hash_update(Z_ARRVAL_P(entrys), key, resp);
+	zend_string_release(key);
 	RETURN_TRUE;
 }
 /* }}} */

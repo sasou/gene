@@ -79,13 +79,13 @@ ZEND_BEGIN_ARG_INFO_EX(gene_response_arg_url, 0, 0, 1)
     ZEND_ARG_INFO(0, path)
 ZEND_END_ARG_INFO()
 
-/* {{{ gene_response_context_obj - get response from request context first, then DI fallback */
+ZEND_BEGIN_ARG_INFO_EX(gene_response_arg_end, 0, 0, 0)
+    ZEND_ARG_INFO(0, data)
+ZEND_END_ARG_INFO()
+
+/* {{{ gene_response_context_obj - get response object from DI */
 zval *gene_response_context_obj(void) {
 	if (GENE_G(runtime_type) >= 2) {
-		gene_request_context *ctx = gene_request_ctx();
-		if (Z_TYPE(ctx->response) == IS_OBJECT) {
-			return &ctx->response;
-		}
 		zend_string *key = zend_string_init("response", sizeof("response") - 1, 0);
 		zval *resp = gene_di_get(key);
 		zend_string_release(key);
@@ -412,6 +412,39 @@ PHP_METHOD(gene_response, url) {
 }
 /* }}} */
 
+/** {{{ proto public gene_response::end(string $data)
+ */
+PHP_METHOD(gene_response, end) {
+	zend_string *data = NULL;
+
+	if (zend_parse_parameters(ZEND_NUM_ARGS(), "|S", &data) == FAILURE) {
+		return;
+	}
+
+	zval *swoole_resp = gene_response_context_obj();
+	if (swoole_resp) {
+		zval method, retval;
+		ZVAL_STRING(&method, "end");
+		if (data && ZSTR_LEN(data) > 0) {
+			zval zdata;
+			ZVAL_STR_COPY(&zdata, data);
+			zval params[] = { zdata };
+			call_user_function(NULL, swoole_resp, &method, &retval, 1, params);
+			zval_ptr_dtor(&zdata);
+		} else {
+			call_user_function(NULL, swoole_resp, &method, &retval, 0, NULL);
+		}
+		zval_ptr_dtor(&method);
+		zval_ptr_dtor(&retval);
+		RETURN_TRUE;
+	}
+	if (data && ZSTR_LEN(data) > 0) {
+		php_write(ZSTR_VAL(data), ZSTR_LEN(data));
+	}
+	RETURN_TRUE;
+}
+/* }}} */
+
 /** {{{ proto public gene_response::setJsonHeader()
  */
 PHP_METHOD(gene_response, setJsonHeader) {
@@ -442,6 +475,7 @@ const zend_function_entry gene_response_methods[] = {
 	PHP_ME(gene_response, header, gene_response_arg_header, ZEND_ACC_PUBLIC|ZEND_ACC_STATIC)
 	PHP_ME(gene_response, cookie, gene_response_arg_cookie, ZEND_ACC_PUBLIC|ZEND_ACC_STATIC)
 	PHP_ME(gene_response, url, gene_response_arg_url, ZEND_ACC_PUBLIC|ZEND_ACC_STATIC)
+	PHP_ME(gene_response, end, gene_response_arg_end, ZEND_ACC_PUBLIC|ZEND_ACC_STATIC)
 	PHP_ME(gene_response, setJsonHeader, gene_response_void_arginfo, ZEND_ACC_PUBLIC|ZEND_ACC_STATIC)
 	PHP_ME(gene_response, setHtmlHeader, gene_response_void_arginfo, ZEND_ACC_PUBLIC|ZEND_ACC_STATIC)
 	PHP_ME(gene_response, __construct, gene_response_void_arginfo, ZEND_ACC_PUBLIC)

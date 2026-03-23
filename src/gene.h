@@ -95,7 +95,6 @@ typedef struct _gene_request_context {
 	zval *path_params;
 	zval request_attr;
 	zval di_regs;
-	zval response;
 	zval view_vars;
 	zend_long view_scope_no;
 	zval db_mysql_history;
