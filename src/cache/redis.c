@@ -163,6 +163,11 @@ bool initRObj (zval * self, zval *config) {
 	zend_class_entry *obj_ptr = zend_lookup_class(c_key);
 	zend_string_release(c_key);
 
+	if (!obj_ptr) {
+		php_error_docref(NULL, E_ERROR, "Redis class not found, please install the Redis extension.");
+		return 0;
+	}
+
 	object_init_ex(&obj_object, obj_ptr);
 
 	host = zend_hash_str_find(Z_ARRVAL_P(config), ZEND_STRL("host"));
@@ -173,8 +178,7 @@ bool initRObj (zval * self, zval *config) {
 	if (!(host && port)) {
 		 if (servers && Z_TYPE_P(servers) == IS_ARRAY) {
 			uint32_t num = zend_hash_num_elements(Z_ARRVAL_P(servers));
-   			srand((int) time(0));   
-		    uint32_t index = rand() % num;
+		    uint32_t index = php_mt_rand_range(0, num - 1);
 			oneServers = zend_hash_index_find(Z_ARRVAL_P(servers), index);
 			if (oneServers) {
 				host = zend_hash_str_find(Z_ARRVAL_P(oneServers), ZEND_STRL("host"));
@@ -284,6 +288,7 @@ PHP_METHOD(gene_redis, get) {
     		if (checkError(EG(exception))) {
     			zend_clear_exception();
     			initRObj (self, NULL);
+    			object = zend_read_property(gene_redis_ce, gene_strip_obj(self), ZEND_STRL(GENE_REDIS_OBJ), 1, NULL);
     			redis_get(object, key, &ret);
     		}
     	}
@@ -351,6 +356,7 @@ PHP_METHOD(gene_redis, set) {
 						if (checkError(EG(exception))) {
 							zend_clear_exception();
 							initRObj (self, NULL);
+							object = zend_read_property(gene_redis_ce, gene_strip_obj(self), ZEND_STRL(GENE_REDIS_OBJ), 1, NULL);
 							redis_set(object, key, ttl, &ret_string, return_value);
 						}
 					}
@@ -365,6 +371,7 @@ PHP_METHOD(gene_redis, set) {
 			if (checkError(EG(exception))) {
 				zend_clear_exception();
 				initRObj (self, NULL);
+				object = zend_read_property(gene_redis_ce, gene_strip_obj(self), ZEND_STRL(GENE_REDIS_OBJ), 1, NULL);
 				redis_set(object, key, ttl, value, return_value);
 			}
 		}
@@ -390,6 +397,7 @@ PHP_METHOD(gene_redis, __call) {
     		if (checkError(EG(exception))) {
     			zend_clear_exception();
     			initRObj (self, NULL);
+    			object = zend_read_property(gene_redis_ce, gene_strip_obj(self), ZEND_STRL(GENE_REDIS_OBJ), 1, NULL);
     			gene_factory_call(object, method, params, &ret);
     		}
     	}

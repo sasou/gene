@@ -268,6 +268,7 @@ void gene_cache_call(zval *object, zval *args, zval *retval) /*{{{*/
 	int num = 0;
 	ZEND_HASH_FOREACH_VAL(Z_ARRVAL_P(args), element)
 	{
+		if (num >= 10) break;
 		params[num] = *element;
 		num++;
 	}ZEND_HASH_FOREACH_END();
@@ -317,6 +318,7 @@ void gene_cache_get_version_arr(zval *versionSign, zval *versionField, zval *ret
 	zend_string *id = NULL;
 	array_init(retval);
 	if (top) {
+		Z_TRY_ADDREF_P(top);
 		add_next_index_zval(retval, top);
 	}
 	if (versionField != NULL && Z_TYPE_P(versionField) == IS_ARRAY) {
@@ -421,13 +423,9 @@ int checkVersion(zval *oldVersion, zval *newVersion, zval *mode) {
 	{
 		zval *val = zend_hash_find(Z_ARRVAL_P(oldVersion), id);
 		if (val) {
-			if (Z_TYPE_P(element) != IS_LONG) {
-				convert_to_long(element);
-			}
-			if (Z_TYPE_P(val) != IS_LONG) {
-				convert_to_long(val);
-			}
-			if (Z_LVAL_P(val) != Z_LVAL_P(element)) {
+			zend_long lval_element = zval_get_long(element);
+			zend_long lval_val = zval_get_long(val);
+			if (lval_val != lval_element) {
 				return 0;
 			}
 		} else {
@@ -467,9 +465,18 @@ PHP_METHOD(gene_cache, cached)
 		return;
 	}
 	config =  zend_read_property(gene_cache_ce, gene_strip_obj(self), ZEND_STRL(GENE_CACHE_CONFIG), 1, NULL);
+	if (!config || Z_TYPE_P(config) != IS_ARRAY) {
+		RETURN_NULL();
+	}
 	sign = zend_hash_str_find(Z_ARRVAL_P(config), ZEND_STRL("sign"));
 	hookName = zend_hash_str_find(Z_ARRVAL_P(config), ZEND_STRL("hook"));
+	if (!sign || !hookName) {
+		RETURN_NULL();
+	}
 	hook = gene_di_get(Z_STR_P(hookName));
+	if (!hook) {
+		RETURN_NULL();
+	}
 
 	zval key, ret;
 	gene_cache_key(sign, 1, obj, args, ttl, &key);
@@ -478,7 +485,9 @@ PHP_METHOD(gene_cache, cached)
 		zval data;
 		gene_cache_call(obj, args, &data);
 		hook = gene_di_get(Z_STR_P(hookName));
-		hook_cache_set(hook, &key, &data, ttl);
+		if (hook) {
+			hook_cache_set(hook, &key, &data, ttl);
+		}
 		zval_ptr_dtor(&key);
 		zval_ptr_dtor(&ret);
 		RETURN_ZVAL(&data, 1, 1);
@@ -498,7 +507,13 @@ PHP_METHOD(gene_cache, localCached)
 		return;
 	}
 	config =  zend_read_property(gene_cache_ce, gene_strip_obj(self), ZEND_STRL(GENE_CACHE_CONFIG), 1, NULL);
+	if (!config || Z_TYPE_P(config) != IS_ARRAY) {
+		RETURN_NULL();
+	}
 	sign = zend_hash_str_find(Z_ARRVAL_P(config), ZEND_STRL("sign"));
+	if (!sign) {
+		RETURN_NULL();
+	}
 
 	zval key, ret;
 	gene_cache_key(sign, 1, obj, args, ttl, &key);
@@ -526,9 +541,18 @@ PHP_METHOD(gene_cache, unsetCached)
 		return;
 	}
 	config =  zend_read_property(gene_cache_ce, gene_strip_obj(self), ZEND_STRL(GENE_CACHE_CONFIG), 1, NULL);
+	if (!config || Z_TYPE_P(config) != IS_ARRAY) {
+		RETURN_NULL();
+	}
 	hookName = zend_hash_str_find(Z_ARRVAL_P(config), ZEND_STRL("hook"));
 	sign = zend_hash_str_find(Z_ARRVAL_P(config), ZEND_STRL("sign"));
+	if (!hookName || !sign) {
+		RETURN_NULL();
+	}
 	hook = gene_di_get(Z_STR_P(hookName));
+	if (!hook) {
+		RETURN_NULL();
+	}
 
 	zval key;
 	gene_cache_key(sign, 1, obj, args, ttl, &key);
@@ -547,7 +571,13 @@ PHP_METHOD(gene_cache, unsetLocalCached)
 		return;
 	}
 	config =  zend_read_property(gene_cache_ce, gene_strip_obj(self), ZEND_STRL(GENE_CACHE_CONFIG), 1, NULL);
+	if (!config || Z_TYPE_P(config) != IS_ARRAY) {
+		RETURN_NULL();
+	}
 	sign = zend_hash_str_find(Z_ARRVAL_P(config), ZEND_STRL("sign"));
+	if (!sign) {
+		RETURN_NULL();
+	}
 
 	zval key;
 	gene_cache_key(sign, 1, obj, args, ttl, &key);
@@ -566,10 +596,19 @@ PHP_METHOD(gene_cache, cachedVersion)
 		return;
 	}
 	config =  zend_read_property(gene_cache_ce, gene_strip_obj(self), ZEND_STRL(GENE_CACHE_CONFIG), 1, NULL);
+	if (!config || Z_TYPE_P(config) != IS_ARRAY) {
+		RETURN_NULL();
+	}
 	hookName = zend_hash_str_find(Z_ARRVAL_P(config), ZEND_STRL("hook"));
 	sign = zend_hash_str_find(Z_ARRVAL_P(config), ZEND_STRL("sign"));
 	versionSign = zend_hash_str_find(Z_ARRVAL_P(config), ZEND_STRL("versionSign"));
+	if (!hookName || !sign || !versionSign) {
+		RETURN_NULL();
+	}
 	hook = gene_di_get(Z_STR_P(hookName));
+	if (!hook) {
+		RETURN_NULL();
+	}
 
 	zval key, cache, cache_key;
 	zval *data = NULL,*cacheData = NULL,*cacheVersion = NULL;
@@ -592,7 +631,9 @@ PHP_METHOD(gene_cache, cachedVersion)
 				add_assoc_zval_ex(&data_new, ZEND_STRL("data"), &cur_data);
 				add_assoc_zval_ex(&data_new, ZEND_STRL("version"), &cur_version);
 				hook = gene_di_get(Z_STR_P(hookName));
-				hook_cache_set(hook, &key, &data_new, ttl);
+				if (hook) {
+					hook_cache_set(hook, &key, &data_new, ttl);
+				}
 				zval_ptr_dtor(&data_new);
 				zval_ptr_dtor(&cache_key);
 				zval_ptr_dtor(&cache);
@@ -612,7 +653,9 @@ PHP_METHOD(gene_cache, cachedVersion)
 			add_assoc_zval_ex(&data_new, ZEND_STRL("data"), &cur_data);
 			add_assoc_zval_ex(&data_new, ZEND_STRL("version"), &cur_version);
 			hook = gene_di_get(Z_STR_P(hookName));
-			hook_cache_set(hook, &key, &data_new, ttl);
+			if (hook) {
+				hook_cache_set(hook, &key, &data_new, ttl);
+			}
 			zval_ptr_dtor(&data_new);
 			zval_ptr_dtor(&cache_key);
 			zval_ptr_dtor(&cache);
@@ -625,6 +668,7 @@ PHP_METHOD(gene_cache, cachedVersion)
 }
 /* }}} */
 
+
 /*
  * {{{ public gene_cache::localCachedVersion($key)
  */
@@ -635,15 +679,27 @@ PHP_METHOD(gene_cache, localCachedVersion)
 		return;
 	}
 	config =  zend_read_property(gene_cache_ce, gene_strip_obj(self), ZEND_STRL(GENE_CACHE_CONFIG), 1, NULL);
+	if (!config || Z_TYPE_P(config) != IS_ARRAY) {
+		RETURN_NULL();
+	}
 	hookName = zend_hash_str_find(Z_ARRVAL_P(config), ZEND_STRL("hook"));
 	sign = zend_hash_str_find(Z_ARRVAL_P(config), ZEND_STRL("sign"));
 	versionSign = zend_hash_str_find(Z_ARRVAL_P(config), ZEND_STRL("versionSign"));
+	if (!hookName || !sign || !versionSign) {
+		RETURN_NULL();
+	}
 
 	zval key, cache, cache_key, cur_version;
 	gene_cache_key(sign, 0, obj, args, ttl, &key);
 	gene_apcu_fetch(&key, &cache);
 	gene_cache_get_version_arr(versionSign, versionField, &cache_key, NULL);
 	hook = gene_di_get(Z_STR_P(hookName));
+	if (!hook) {
+		zval_ptr_dtor(&key);
+		zval_ptr_dtor(&cache);
+		zval_ptr_dtor(&cache_key);
+		RETURN_NULL();
+	}
 	gene_cache_get(hook, &cache_key, &cur_version);
 
 	if (Z_TYPE(cache) == IS_ARRAY) {
@@ -701,11 +757,20 @@ PHP_METHOD(gene_cache, getVersion)
 		return;
 	}
 	config =  zend_read_property(gene_cache_ce, gene_strip_obj(self), ZEND_STRL(GENE_CACHE_CONFIG), 1, NULL);
+	if (!config || Z_TYPE_P(config) != IS_ARRAY) {
+		RETURN_NULL();
+	}
 	hookName = zend_hash_str_find(Z_ARRVAL_P(config), ZEND_STRL("hook"));
 	versionSign = zend_hash_str_find(Z_ARRVAL_P(config), ZEND_STRL("versionSign"));
+	if (!hookName || !versionSign) {
+		RETURN_NULL();
+	}
 
 	zval ret, new_arr;
 	hook = gene_di_get(Z_STR_P(hookName));
+	if (!hook) {
+		RETURN_NULL();
+	}
 	gene_cache_get_version_arr(versionSign, versionField, &new_arr, NULL);
 	gene_cache_get(hook, &new_arr, &ret);
 	zval_ptr_dtor(&new_arr);
@@ -724,10 +789,19 @@ PHP_METHOD(gene_cache, updateVersion)
 		return;
 	}
 	config =  zend_read_property(gene_cache_ce, gene_strip_obj(self), ZEND_STRL(GENE_CACHE_CONFIG), 1, NULL);
+	if (!config || Z_TYPE_P(config) != IS_ARRAY) {
+		RETURN_NULL();
+	}
 	hookName = zend_hash_str_find(Z_ARRVAL_P(config), ZEND_STRL("hook"));
 	sign = zend_hash_str_find(Z_ARRVAL_P(config), ZEND_STRL("versionSign"));
+	if (!hookName || !sign) {
+		RETURN_NULL();
+	}
 
 	hook = gene_di_get(Z_STR_P(hookName));
+	if (!hook) {
+		RETURN_NULL();
+	}
 	gene_cache_update_version(sign, versionField, hook);
 	RETURN_TRUE;
 }
