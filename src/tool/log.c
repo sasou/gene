@@ -310,7 +310,7 @@ PHP_METHOD(gene_log, setFile) {
 	if (zend_parse_parameters(ZEND_NUM_ARGS(), "S", &file) == FAILURE) {
 		return;
 	}
-	zend_update_static_property_str(gene_log_ce, ZEND_STRL("file"), file);
+	zend_update_static_property_string(gene_log_ce, ZEND_STRL("file"), ZSTR_VAL(file));
 }
 /* }}} */
 
