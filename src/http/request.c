@@ -45,7 +45,7 @@ static zval *gene_request_attr(void) {
 
 static zend_string* gene_zend_string_toupper(zend_string *str) {
 	char *tmp = estrndup(ZSTR_VAL(str), ZSTR_LEN(str));
-	strtoupper(tmp);
+	gene_strtoupper(tmp);
 	zend_string *result = zend_string_init(tmp, ZSTR_LEN(str), 0);
 	efree(tmp);
 	return result;

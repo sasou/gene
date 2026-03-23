@@ -74,16 +74,30 @@ PHP_INI_END();
 
 /* {{{ gene_get_coroutine_id */
 zend_long gene_get_coroutine_id(void) {
-	zval retval, fname;
+	zval retval;
 	zend_long cid = -1;
-	ZVAL_STRING(&fname, "Swoole\\Coroutine::getCid");
-	if (call_user_function(NULL, NULL, &fname, &retval, 0, NULL) == SUCCESS) {
-		if (Z_TYPE(retval) == IS_LONG) {
+	static zend_function *cached_func = NULL;
+	static zend_bool func_resolved = 0;
+
+	if (!func_resolved) {
+		zend_string *func_name = zend_string_init(ZEND_STRL("swoole\\coroutine::getcid"), 0);
+		cached_func = zend_hash_find_ptr(EG(function_table), func_name);
+		zend_string_release(func_name);
+		func_resolved = 1;
+	}
+
+	if (cached_func) {
+		zend_fcall_info fci = empty_fcall_info;
+		zend_fcall_info_cache fcc = empty_fcall_info_cache;
+		fci.size = sizeof(fci);
+		fci.retval = &retval;
+		fcc.function_handler = cached_func;
+		ZVAL_UNDEF(&retval);
+		if (zend_call_function(&fci, &fcc) == SUCCESS && Z_TYPE(retval) == IS_LONG) {
 			cid = Z_LVAL(retval);
 		}
 		zval_ptr_dtor(&retval);
 	}
-	zval_ptr_dtor(&fname);
 	return cid;
 }
 /* }}} */
@@ -249,9 +263,6 @@ gene_request_context *gene_request_ctx(void) {
 		GENE_G(current_ctx) = GENE_G(resident_ctx);
 		return GENE_G(resident_ctx);
 	}
-	if (GENE_G(current_cid) == cid && GENE_G(current_ctx)) {
-		return GENE_G(current_ctx);
-	}
 	ctx = zend_hash_index_find_ptr(GENE_G(co_contexts), (zend_ulong)cid);
 	if (!ctx) {
 		ctx = ecalloc(1, sizeof(gene_request_context));
@@ -330,9 +341,13 @@ static void php_gene_close_request_globals() {
 /* }}} */
 
 /* {{{ php_gene_close_globals
+ * Only cleans up persistent (process-level) resources.
+ * Request-scoped resources are cleaned in RSHUTDOWN via php_gene_close_request_globals().
  */
 static void php_gene_close_globals() {
-	php_gene_close_request_globals();
+	/* Persistent resources (cache, cache_easy, cache_lock) are cleaned in MSHUTDOWN directly.
+	 * Do NOT call php_gene_close_request_globals() here to avoid double-free
+	 * since RSHUTDOWN already handles request-scoped cleanup. */
 }
 /* }}} */
 
@@ -425,10 +440,17 @@ PHP_RINIT_FUNCTION(gene) {
 	} else {
 		gene_request_context_reset(&GENE_G(default_ctx));
 	}
-	if (GENE_G(runtime_type) >= 2 && !GENE_G(co_contexts)) {
-		ALLOC_HASHTABLE(GENE_G(co_contexts));
-		zend_hash_init(GENE_G(co_contexts), 8, NULL, gene_co_context_dtor, 0);
+	if (GENE_G(runtime_type) >= 2) {
+		if (!GENE_G(co_contexts)) {
+			ALLOC_HASHTABLE(GENE_G(co_contexts));
+			zend_hash_init(GENE_G(co_contexts), 8, NULL, gene_co_context_dtor, 0);
+		}
+		if (GENE_G(resident_ctx)) {
+			gene_request_context_reset(GENE_G(resident_ctx));
+		}
 	}
+	GENE_G(current_ctx) = NULL;
+	GENE_G(current_cid) = -1;
 	return SUCCESS; // @suppress("Symbol is not resolved")
 }
 /* }}} */
