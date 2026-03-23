@@ -110,7 +110,6 @@ void gene_request_context_init(gene_request_context *ctx) {
 	array_init(ctx->path_params);
 	ZVAL_UNDEF(&ctx->request_attr);
 	ZVAL_UNDEF(&ctx->di_regs);
-	ZVAL_UNDEF(&ctx->response);
 	ZVAL_UNDEF(&ctx->view_vars);
 	ZVAL_UNDEF(&ctx->db_mysql_history);
 	ZVAL_UNDEF(&ctx->db_pgsql_history);
@@ -143,10 +142,6 @@ void gene_request_context_reset(gene_request_context *ctx) {
 	if (Z_TYPE(ctx->di_regs) != IS_UNDEF) {
 		zval_ptr_dtor(&ctx->di_regs);
 		ZVAL_UNDEF(&ctx->di_regs);
-	}
-	if (Z_TYPE(ctx->response) != IS_UNDEF) {
-		zval_ptr_dtor(&ctx->response);
-		ZVAL_UNDEF(&ctx->response);
 	}
 	if (Z_TYPE(ctx->view_vars) != IS_UNDEF) {
 		zval_ptr_dtor(&ctx->view_vars);
@@ -197,10 +192,6 @@ void gene_request_context_destroy(gene_request_context *ctx) {
 	if (Z_TYPE(ctx->di_regs) != IS_UNDEF) {
 		zval_ptr_dtor(&ctx->di_regs);
 		ZVAL_UNDEF(&ctx->di_regs);
-	}
-	if (Z_TYPE(ctx->response) != IS_UNDEF) {
-		zval_ptr_dtor(&ctx->response);
-		ZVAL_UNDEF(&ctx->response);
 	}
 	if (Z_TYPE(ctx->view_vars) != IS_UNDEF) {
 		zval_ptr_dtor(&ctx->view_vars);
