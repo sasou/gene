@@ -146,6 +146,7 @@ void gene_pdo_exec(zval *pdo_object, char *sql, zval *retval) /*{{{*/
     zval params[] = { pdo_sql };
     call_user_function(NULL, pdo_object, &function_name, retval, param_count, params);
     zval_ptr_dtor(&pdo_sql);
+    zval_ptr_dtor(&function_name);
 }/*}}}*/
 
 void gene_pdo_in_transaction(zval *pdo_object, zval *retval) /*{{{*/
@@ -208,8 +209,8 @@ bool show_sql_errors(zval *pdo_object)
     ok_state = zend_string_init(ZEND_STRL("00000"), 0);
     if (!zend_string_equals(Z_STR_P(sql_state), ok_state)) {
     	zend_string_release(ok_state);
-    	php_error_docref(NULL, E_ERROR, "SQL: %d %s", Z_LVAL_P(sql_code), Z_STRVAL_P(sql_info));
     	zval_ptr_dtor(&retval);
+    	php_error_docref(NULL, E_ERROR, "SQL: %d %s", Z_LVAL_P(sql_code), Z_STRVAL_P(sql_info));
         return 1;
     }
     zend_string_release(ok_state);

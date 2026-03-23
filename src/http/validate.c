@@ -1083,7 +1083,7 @@ PHP_METHOD(gene_validate, rule_size)
 		RETURN_FALSE;
 	}
 
-	int num = zend_hash_num_elements(Z_ARRVAL_P(val));
+	uint32_t num = zend_hash_num_elements(Z_ARRVAL_P(val));
 	if (num >= min && num <= max) {
 		RETURN_TRUE;
 	}
@@ -1227,8 +1227,10 @@ PHP_METHOD(gene_validate, rule_mobile)
 	zval retval;
 	gene_preg_match_str(GENE_VALIDATE_MOBILE, val, &retval);
 	if (Z_TYPE(retval) == IS_LONG && Z_LVAL(retval) > 0) {
+		zval_ptr_dtor(&retval);
 		RETURN_TRUE;
 	}
+	zval_ptr_dtor(&retval);
 	RETURN_FALSE;
 }
 /* }}} */
@@ -1247,8 +1249,10 @@ PHP_METHOD(gene_validate, rule_date)
 	zval retval;
 	gene_preg_match_str(GENE_VALIDATE_DATE, val, &retval);
 	if (Z_TYPE(retval) == IS_LONG && Z_LVAL(retval) > 0) {
+		zval_ptr_dtor(&retval);
 		RETURN_TRUE;
 	}
+	zval_ptr_dtor(&retval);
 	RETURN_FALSE;
 }
 /* }}} */
@@ -1260,7 +1264,7 @@ PHP_METHOD(gene_validate, rule_datetime)
 {
 	zval *self = getThis(), *val = NULL;
 	char *format_str = NULL;
-	int format_str_len = 0;
+	size_t format_str_len = 0;
 	if (zend_parse_parameters(ZEND_NUM_ARGS(), "|s", &format_str, &format_str_len) == FAILURE) {
 		return;
 	}

@@ -214,6 +214,11 @@ bool initObj (zval * self, zval *config) {
 	zend_class_entry *obj_ptr = zend_lookup_class(c_key);
 	zend_string_release(c_key);
 
+	if (!obj_ptr) {
+		php_error_docref(NULL, E_ERROR, "Memcached class not found, please install the Memcached extension.");
+		return 0;
+	}
+
 	object_init_ex(&obj_object, obj_ptr);
 
 	servers = zend_hash_str_find(Z_ARRVAL_P(config), ZEND_STRL("servers"));
@@ -254,6 +259,11 @@ bool initObjWin (zval * self, zval *config) {
 	zend_string *c_key = zend_string_init(ZEND_STRL("Memcache"), 0);
 	zend_class_entry *obj_ptr = zend_lookup_class(c_key);
 	zend_string_release(c_key);
+
+	if (!obj_ptr) {
+		php_error_docref(NULL, E_ERROR, "Memcache class not found, please install the Memcache extension.");
+		return 0;
+	}
 
 	object_init_ex(&obj_object, obj_ptr);
 
@@ -326,16 +336,16 @@ PHP_METHOD(gene_memcached, get) {
 				zval arr;
 				zval *element;
 				array_init(&arr);
-				zend_string *key = NULL;
+				zend_string *hash_key = NULL;
 				int i = 0;
-				ZEND_HASH_FOREACH_STR_KEY_VAL_IND(Z_ARRVAL(ret), key, element) {
+				ZEND_HASH_FOREACH_STR_KEY_VAL_IND(Z_ARRVAL(ret), hash_key, element) {
 					zval tmp;
 					ZVAL_UNDEF(&tmp);
 					if (unserialize(element, &tmp, serializer_handler)) {
-						add_assoc_zval_ex(&arr, ZSTR_VAL(key), ZSTR_LEN(key), &tmp);
+						add_assoc_zval_ex(&arr, ZSTR_VAL(hash_key), ZSTR_LEN(hash_key), &tmp);
 					} else {
 						Z_TRY_ADDREF_P(element);
-						add_assoc_zval_ex(&arr, ZSTR_VAL(key), ZSTR_LEN(key), element);
+						add_assoc_zval_ex(&arr, ZSTR_VAL(hash_key), ZSTR_LEN(hash_key), element);
 					}
 					i = i + 1;
 				}ZEND_HASH_FOREACH_END();
