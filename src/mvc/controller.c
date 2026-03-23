@@ -325,6 +325,9 @@ PHP_METHOD(gene_controller, displayExt) {
 /** {{{ public gene_controller::contains(string $file)
  */
 PHP_METHOD(gene_controller, contains) {
+	if (!GENE_REQ(child_views) || GENE_REQ(child_views)[0] == '\0') {
+		RETURN_FALSE;
+	}
 	gene_view_contains(GENE_REQ(child_views), return_value);
 }
 /* }}} */
@@ -332,6 +335,9 @@ PHP_METHOD(gene_controller, contains) {
 /** {{{ public gene_controller::contains(string $file)
  */
 PHP_METHOD(gene_controller, containsExt) {
+	if (!GENE_REQ(child_views) || GENE_REQ(child_views)[0] == '\0') {
+		RETURN_FALSE;
+	}
 	gene_view_contains_ext(GENE_REQ(child_views), 0, return_value);
 }
 /* }}} */
