@@ -62,6 +62,7 @@ if test "$PHP_GENE" != "no"; then
 	  exception/exception.c \
 	  tool/benchmark.c \
     tool/language.c \
+	  tool/log.c \
 	  db/pdo.c \
 	  db/pool.c \
 	  db/mysql.c \
