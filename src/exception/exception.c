@@ -93,6 +93,21 @@ void gene_exception_getTrace(zval *object, zval *retval) /*{{{*/
     zval_ptr_dtor(&function_name);
 }/*}}}*/
 
+static void gene_html_escape(const char *input, zval *retval) /*{{{*/
+{
+    zval function_name, zv_input, zv_flags, zv_encoding;
+    ZVAL_STRING(&function_name, "htmlspecialchars");
+    ZVAL_STRING(&zv_input, input);
+    ZVAL_LONG(&zv_flags, 3 /* ENT_QUOTES */);
+    ZVAL_STRING(&zv_encoding, "UTF-8");
+    zval params[] = { zv_input, zv_flags, zv_encoding };
+    ZVAL_UNDEF(retval);
+    call_user_function(NULL, NULL, &function_name, retval, 3, params);
+    zval_ptr_dtor(&function_name);
+    zval_ptr_dtor(&zv_input);
+    zval_ptr_dtor(&zv_encoding);
+}/*}}}*/
+
 void gene_file_codes(zval *file, zval *retval) /*{{{*/
 {
     zval function_name;
@@ -364,7 +379,12 @@ void showTrace(zval *ex) {
 				func = zend_hash_str_find(Z_ARRVAL_P(element), "function", 8);
 				args = zend_hash_str_find(Z_ARRVAL_P(element), "args", 4);
 				PHPWRITE("<tr>\n", 6);
-				length = spprintf(&out, 0, HTML_EXCEPTION_TABLE_TD_STR, file != NULL ? Z_STRVAL_P(file) : "");
+				{
+					zval esc;
+					gene_html_escape(file != NULL ? Z_STRVAL_P(file) : "", &esc);
+					length = spprintf(&out, 0, HTML_EXCEPTION_TABLE_TD_STR, Z_TYPE(esc) == IS_STRING ? Z_STRVAL(esc) : "");
+					zval_ptr_dtor(&esc);
+				}
 				PHPWRITE(out, length);
 				efree(out);
 				out = NULL;
@@ -372,26 +392,40 @@ void showTrace(zval *ex) {
 				PHPWRITE(out, length);
 				efree(out);
 				out = NULL;
-				length = spprintf(&out, 0, HTML_EXCEPTION_TABLE_TD_STR, class != NULL ? Z_STRVAL_P(class) : "");
+				{
+					zval esc;
+					gene_html_escape(class != NULL ? Z_STRVAL_P(class) : "", &esc);
+					length = spprintf(&out, 0, HTML_EXCEPTION_TABLE_TD_STR, Z_TYPE(esc) == IS_STRING ? Z_STRVAL(esc) : "");
+					zval_ptr_dtor(&esc);
+				}
 				PHPWRITE(out, length);
 				efree(out);
 				out = NULL;
-				length = spprintf(&out, 0, HTML_EXCEPTION_TABLE_TD_STR, func != NULL ? Z_STRVAL_P(func) : "");
+				{
+					zval esc;
+					gene_html_escape(func != NULL ? Z_STRVAL_P(func) : "", &esc);
+					length = spprintf(&out, 0, HTML_EXCEPTION_TABLE_TD_STR, Z_TYPE(esc) == IS_STRING ? Z_STRVAL(esc) : "");
+					zval_ptr_dtor(&esc);
+				}
 				PHPWRITE(out, length);
 				efree(out);
 				out = NULL;
 				PHPWRITE("<td>", 4);
 				if (args != NULL && Z_TYPE_P(args) == IS_ARRAY) {
 					ZEND_HASH_FOREACH_VAL(Z_ARRVAL_P(args), arg) {
-						zval export,type;
+						zval export,type,esc_export,esc_type;
 						gene_file_gettype(arg, &type);
 						gene_file_var_export(arg, &export);
-						length = spprintf(&out, 0, HTML_EXCEPTION_TABLE_TD_SPAN, Z_TYPE(export) == IS_STRING ? Z_STRVAL(export) : "", Z_TYPE(type) == IS_STRING ? Z_STRVAL(type) : "");
+						gene_html_escape(Z_TYPE(export) == IS_STRING ? Z_STRVAL(export) : "", &esc_export);
+						gene_html_escape(Z_TYPE(type) == IS_STRING ? Z_STRVAL(type) : "", &esc_type);
+						length = spprintf(&out, 0, HTML_EXCEPTION_TABLE_TD_SPAN, Z_TYPE(esc_export) == IS_STRING ? Z_STRVAL(esc_export) : "", Z_TYPE(esc_type) == IS_STRING ? Z_STRVAL(esc_type) : "");
 						PHPWRITE(out, length);
 						efree(out);
 						out = NULL;
 						zval_ptr_dtor(&export);
 						zval_ptr_dtor(&type);
+						zval_ptr_dtor(&esc_export);
+						zval_ptr_dtor(&esc_type);
 					}ZEND_HASH_FOREACH_END();
 				}
 				PHPWRITE("</td>", 5);
@@ -412,20 +446,24 @@ PHP_METHOD(gene_exception, doException) {
 	char *out = NULL;
 	size_t length = 0;
 
-	zval msg;
+	zval msg, msg_escaped;
 	gene_exception_getMessage(ex, &msg);
 	PHPWRITE(HTML_EXCEPTION_HEADER, sizeof(HTML_EXCEPTION_HEADER) - 1);
 
-	length = spprintf(&out, 0, HTML_EXCEPTION_MSG, Z_STRVAL(msg));
+	gene_html_escape(Z_STRVAL(msg), &msg_escaped);
 	zval_ptr_dtor(&msg);
+	length = spprintf(&out, 0, HTML_EXCEPTION_MSG, Z_TYPE(msg_escaped) == IS_STRING ? Z_STRVAL(msg_escaped) : "");
+	zval_ptr_dtor(&msg_escaped);
 	PHPWRITE(out, length);
 	efree(out);
 	out = NULL;
 
-	zval file, line;
+	zval file, line, file_escaped;
 	gene_exception_getFile(ex, &file);
 	gene_exception_getLine(ex, &line);
-	length = spprintf(&out, 0, HTML_EXCEPTION_FILE, Z_STRVAL(file), Z_LVAL(line));
+	gene_html_escape(Z_STRVAL(file), &file_escaped);
+	length = spprintf(&out, 0, HTML_EXCEPTION_FILE, Z_TYPE(file_escaped) == IS_STRING ? Z_STRVAL(file_escaped) : "", Z_LVAL(line));
+	zval_ptr_dtor(&file_escaped);
 	PHPWRITE(out, length);
 	efree(out);
 	out = NULL;

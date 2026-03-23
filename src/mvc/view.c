@@ -116,6 +116,11 @@ ZEND_END_ARG_INFO()
  */
 void gene_view_contains(char *file, zval *ret) {
 	char *path, *base_path;
+	if (strstr(file, "..") != NULL) {
+		php_error_docref(NULL, E_WARNING, "Path traversal detected in view file: %s", file);
+		ZVAL_FALSE(ret);
+		return;
+	}
 	base_path = gene_view_app_base_path();
 	if (base_path) {
 		if (!GENE_G(app_view)) {
@@ -139,6 +144,11 @@ void gene_view_contains_ext(char *file, bool isCompile, zval *ret) {
 	char *path, *compile_path, *cpath, *base_path;
 	size_t compile_path_len;
 	php_stream *stream = NULL;
+	if (strstr(file, "..") != NULL) {
+		php_error_docref(NULL, E_WARNING, "Path traversal detected in view file: %s", file);
+		ZVAL_FALSE(ret);
+		return;
+	}
 	base_path = gene_view_app_base_path();
 	if (base_path) {
 		compile_path_len = spprintf(&compile_path, 0, "%s/Cache/Views/%s.php", base_path, file);
@@ -181,6 +191,10 @@ void gene_view_contains_ext(char *file, bool isCompile, zval *ret) {
  */
 int gene_view_display(char *file, zval *obj, zend_array *symbol_table) {
 	char *path, *base_path;
+	if (strstr(file, "..") != NULL) {
+		php_error_docref(NULL, E_WARNING, "Path traversal detected in view file: %s", file);
+		return 0;
+	}
 	base_path = gene_view_app_base_path();
 	if (base_path) {
 		if (!GENE_G(app_view)) {
@@ -275,7 +289,7 @@ static int parser_templates(php_stream **stream, char *compile_path) {
 	int i;
 	zend_string *arg,*ret;
 	php_stream *CacheStream = NULL;
-	char *subject = NULL,*result = NULL;
+	char *result = NULL;
 
 	char regex[PARSER_NUMS][100] = { "/([\\n\\r]+)\\t+/s",
 			"/\\<\\!\\-\\-\\{(.+?)\\}\\-\\-\\>/s", "/\\{template\\s+(\\S+)\\}/",
@@ -310,22 +324,17 @@ static int parser_templates(php_stream **stream, char *compile_path) {
 			"<?php require $this::contains()?>",
 			"<?php require $this::containsExt()?>" };
 
-	smart_str content = { 0 };
-	subject = (char *) ecalloc(1024, sizeof(char));
-
-	while (!php_stream_eof(*stream)) {
-		if (!php_stream_gets(*stream, subject, 1024)) {
-			break;
+	{
+		zend_string *file_content = php_stream_copy_to_mem(*stream, PHP_STREAM_COPY_ALL, 0);
+		if (file_content) {
+			result = estrndup(ZSTR_VAL(file_content), ZSTR_LEN(file_content));
+			result_len = ZSTR_LEN(file_content);
+			zend_string_release(file_content);
+		} else {
+			result = estrndup("", 0);
+			result_len = 0;
 		}
-		smart_str_appendl(&content, subject, strlen(subject));
 	}
-	efree(subject);
-	subject = NULL;
-	smart_str_0(&content);
-
-	result = estrndup(content.s->val, content.s->len);
-	result_len = content.s->len;
-	smart_str_free(&content);
 
 	for (i = 0; i < PARSER_NUMS; i++) {
 		arg = zend_string_init(regex[i], strlen(regex[i]), 0);

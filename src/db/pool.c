@@ -202,7 +202,11 @@ static bool pool_channel_pop(zval *channel, double timeout, zval *result) {
 static bool pool_channel_is_empty(zval *channel) {
     zval func_name, retval;
     ZVAL_STRING(&func_name, "isEmpty");
-    call_user_function(NULL, channel, &func_name, &retval, 0, NULL);
+    ZVAL_UNDEF(&retval);
+    if (call_user_function(NULL, channel, &func_name, &retval, 0, NULL) != SUCCESS) {
+        zval_ptr_dtor(&func_name);
+        return true;
+    }
     zval_ptr_dtor(&func_name);
     bool empty = (Z_TYPE(retval) == IS_TRUE);
     zval_ptr_dtor(&retval);
@@ -212,7 +216,11 @@ static bool pool_channel_is_empty(zval *channel) {
 static bool pool_channel_is_full(zval *channel) {
     zval func_name, retval;
     ZVAL_STRING(&func_name, "isFull");
-    call_user_function(NULL, channel, &func_name, &retval, 0, NULL);
+    ZVAL_UNDEF(&retval);
+    if (call_user_function(NULL, channel, &func_name, &retval, 0, NULL) != SUCCESS) {
+        zval_ptr_dtor(&func_name);
+        return true;
+    }
     zval_ptr_dtor(&func_name);
     bool full = (Z_TYPE(retval) == IS_TRUE);
     zval_ptr_dtor(&retval);
@@ -222,7 +230,11 @@ static bool pool_channel_is_full(zval *channel) {
 static zend_long pool_channel_length(zval *channel) {
     zval func_name, retval;
     ZVAL_STRING(&func_name, "length");
-    call_user_function(NULL, channel, &func_name, &retval, 0, NULL);
+    ZVAL_UNDEF(&retval);
+    if (call_user_function(NULL, channel, &func_name, &retval, 0, NULL) != SUCCESS) {
+        zval_ptr_dtor(&func_name);
+        return 0;
+    }
     zval_ptr_dtor(&func_name);
     zend_long len = (Z_TYPE(retval) == IS_LONG) ? Z_LVAL(retval) : 0;
     zval_ptr_dtor(&retval);
@@ -406,7 +418,10 @@ static bool pool_in_coroutine(void) {
     add_next_index_string(&callable, "Swoole\\Coroutine");
     add_next_index_string(&callable, "getCid");
     ZVAL_UNDEF(&retval);
-    call_user_function(NULL, NULL, &callable, &retval, 0, NULL);
+    if (call_user_function(NULL, NULL, &callable, &retval, 0, NULL) != SUCCESS) {
+        zval_ptr_dtor(&callable);
+        return false;
+    }
     zval_ptr_dtor(&callable);
     bool in_co = (Z_TYPE(retval) == IS_LONG && Z_LVAL(retval) >= 0);
     if (!Z_ISUNDEF(retval)) {
@@ -422,16 +437,20 @@ static void pool_stop_timer(zval *self) {
         array_init(&callable);
         add_next_index_string(&callable, "Swoole\\Timer");
         add_next_index_string(&callable, "clear");
- 
+
         zval params[1];
         ZVAL_LONG(&params[0], Z_LVAL_P(timer_id));
- 
-        call_user_function(NULL, NULL, &callable, &retval, 1, params);
+        ZVAL_UNDEF(&retval);
+
+        if (call_user_function(NULL, NULL, &callable, &retval, 1, params) != SUCCESS) {
+            zval_ptr_dtor(&callable);
+            return;
+        }
         zval_ptr_dtor(&callable);
         if (!Z_ISUNDEF(retval)) {
             zval_ptr_dtor(&retval);
         }
- 
+
         zend_update_property_long(gene_pool_ce, gene_strip_obj(self), ZEND_STRL(GENE_POOL_PROPERTY_TIMER_ID), 0);
     }
 }

@@ -84,7 +84,7 @@ char *str_concat(char *s, const char *t)
 /*
  * {{{ char *strupr(char *str)
  */
-char *strtoupper(char *str) {
+char *gene_strtoupper(char *str) {
 	char *orign = str;
 	while (*str != '\0') {
 		*str = toupper(*str);
@@ -97,7 +97,7 @@ char *strtoupper(char *str) {
 /*
  * {{{ char *strupr(char *str)
  */
-char *strtolower(char *str) {
+char *gene_strtolower(char *str) {
 	char *orign = str;
 	while (*str != '\0') {
 		*str = tolower(*str);
@@ -171,8 +171,7 @@ void mid(char *dst, char *src, size_t n, size_t m) {
 	size_t len = strlen(src);
 	if (n > len)
 		n = len - m;
-	if (m < 0)
-		m = 0;
+	/* m is size_t (unsigned), no need to check < 0 */
 	//if(m>len) return NULL;
 	p += m;
 	while (n--)
@@ -266,11 +265,14 @@ void trim(char* s, const char c) {
  */
 void replace(char originalString[], char key[], char swap[]) {
 	size_t lengthOfOriginalString, lengthOfKey, lengthOfSwap, i, j, flag;
-	char tmp[1000];
+	char *tmp = NULL;
+	size_t tmp_size = 0;
 
 	lengthOfOriginalString = strlen(originalString);
 	lengthOfKey = strlen(key);
 	lengthOfSwap = strlen(swap);
+
+	if (lengthOfKey == 0) return;
 
 	for (i = 0; i <= lengthOfOriginalString - lengthOfKey; i++) {
 		flag = 1;
@@ -281,14 +283,21 @@ void replace(char originalString[], char key[], char swap[]) {
 			}
 		}
 		if (flag) {
-			strcpy(tmp, originalString);
-			strcpy(&tmp[i], swap);
-			strcpy(&tmp[i + lengthOfSwap], &originalString[i + lengthOfKey]);
-			strcpy(originalString, tmp);
+			size_t new_len = lengthOfOriginalString - lengthOfKey + lengthOfSwap;
+			if (new_len + 1 > tmp_size) {
+				tmp_size = new_len + 1;
+				if (tmp) efree(tmp);
+				tmp = (char *) emalloc(tmp_size);
+			}
+			memcpy(tmp, originalString, i);
+			memcpy(tmp + i, swap, lengthOfSwap);
+			memcpy(tmp + i + lengthOfSwap, originalString + i + lengthOfKey, lengthOfOriginalString - i - lengthOfKey + 1);
+			memcpy(originalString, tmp, new_len + 1);
 			i += lengthOfSwap - 1;
-			lengthOfOriginalString = strlen(originalString);
+			lengthOfOriginalString = new_len;
 		}
 	}
+	if (tmp) efree(tmp);
 }
 /* }}} */
 
@@ -373,20 +382,30 @@ char * replace_string(char * string, char source, const char * destination) {
  * {{{ char * replace_string (char * string, const char * source, const char * destination )
  */
 int ReplaceStr(char* sSrc, char* sMatchStr, char* sReplaceStr) {
-	size_t StringLen;
-	char caNewString[500];
+	size_t StringLen, src_len, match_len, replace_len, new_len;
+	char *caNewString = NULL;
 	char* FindPos;
-	FindPos = (char *) strstr(sSrc, sMatchStr);
-	if ((!FindPos) || (!sMatchStr))
+
+	if ((!sMatchStr) || (!*sMatchStr))
 		return -1;
 
+	FindPos = (char *) strstr(sSrc, sMatchStr);
+	if (!FindPos)
+		return -1;
+
+	match_len = strlen(sMatchStr);
+	replace_len = strlen(sReplaceStr);
+
 	while (FindPos) {
-		memset(caNewString, 0, sizeof(caNewString));
+		src_len = strlen(sSrc);
+		new_len = src_len - match_len + replace_len;
+		caNewString = (char *) emalloc(new_len + 1);
 		StringLen = FindPos - sSrc;
-		strncpy(caNewString, sSrc, StringLen);
-		strcat(caNewString, sReplaceStr);
-		strcat(caNewString, FindPos + strlen(sMatchStr));
-		strcpy(sSrc, caNewString);
+		memcpy(caNewString, sSrc, StringLen);
+		memcpy(caNewString + StringLen, sReplaceStr, replace_len);
+		memcpy(caNewString + StringLen + replace_len, FindPos + match_len, src_len - StringLen - match_len + 1);
+		memcpy(sSrc, caNewString, new_len + 1);
+		efree(caNewString);
 
 		FindPos = (char *) strstr(sSrc, sMatchStr);
 	}
@@ -428,6 +447,8 @@ char * insert_string(char * string, const char * source,
 	memcpy(retstr + pos, destination, strlen(destination));
 	pos += strlen(destination);
 	memcpy(retstr + pos, sk, strlen(sk));
+	pos += strlen(sk);
+	retstr[pos] = '\0';
 
 	efree(newstr);
 	return retstr;
@@ -441,8 +462,6 @@ int fullToHalf(char *sFullStr, char *sHalfStr) {
 
 	size_t iFullStrLen = strlen(sFullStr);
 
-	printf("sFullStr[%s]\n", sFullStr);
-
 	for (; iFullStrIndex < iFullStrLen; iFullStrIndex++, iHalfStrIndex++) {
 
 		if (sFullStr[iFullStrIndex] == 0xA3) {
@@ -455,8 +474,6 @@ int fullToHalf(char *sFullStr, char *sHalfStr) {
 
 	}
 
-	printf("sHalfStr:[%s]\n", sHalfStr);
-
 	return 0;
 }
 
@@ -465,8 +482,6 @@ int halfToFull(char *sFullStr, char *sHalfStr) {
 	size_t iHalfStrIndex = 0;
 
 	size_t iHalfStrlen = strlen(sHalfStr);
-
-	printf("sHalfStr[%s]\n", sHalfStr);
 
 	for (; iHalfStrIndex < iHalfStrlen; iHalfStrIndex++, iFullStrIndex++) {
 
@@ -480,8 +495,6 @@ int halfToFull(char *sFullStr, char *sHalfStr) {
 		}
 
 	}
-
-	printf("sFullStr:[%s]\n", sFullStr);
 
 	return 0;
 }
@@ -526,6 +539,10 @@ char *readfilecontent(char *file) {
 	char *tmp = NULL;
 	int file_size = 0;
 	FILE *fp = NULL;
+	if (strstr(file, "..") != NULL) {
+		php_error_docref(NULL, E_WARNING, "Path traversal detected in file path: %s", file);
+		return NULL;
+	}
 	fp = fopen(file, "rb");
 	if (fp != NULL) {
 		fseek(fp, 0, SEEK_END);
@@ -556,7 +573,7 @@ char *strreplace(char *original, char *pattern, char *replacement)
 
   {
     // allocate memory for the new string
-	size_t const retlen = orilen + patcnt * (replen - patlen);
+	size_t const retlen = orilen + patcnt * replen - patcnt * patlen;
     char *returned = (char *) ecalloc(retlen + 1,  sizeof(char));
 
     if (returned != NULL)
