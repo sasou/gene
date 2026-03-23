@@ -53,6 +53,7 @@
 #include "service/service.h"
 #include "factory/factory.h"
 #include "tool/benchmark.h"
+#include "tool/log.h"
 #include "cache/memcached.h"
 #include "cache/redis.h"
 #include "cache/cache.h"
@@ -388,6 +389,7 @@ PHP_MINIT_FUNCTION(gene) {
 	GENE_STARTUP(redis);
 	GENE_STARTUP(memcached);
 	GENE_STARTUP(cache);
+	GENE_STARTUP(log);
 	GENE_STARTUP(exception);
 
 	return SUCCESS; // @suppress("Symbol is not resolved")
