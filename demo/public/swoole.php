@@ -9,8 +9,8 @@ define('WWW_ROOT', dirname(__dir__) . '/public');
 $http = new \Swoole\Http\Server("0.0.0.0", 80, SWOOLE_PROCESS);
 
 $http->set([
-    'reactor_num'            => 4,
-    'worker_num'             => 4,
+    'reactor_num'            => 3,
+    'worker_num'             => 6,
     'max_request'            => 10000,
     'dispatch_mode'          => 2,
     'enable_static_handler'  => true,
