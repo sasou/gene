@@ -92,7 +92,7 @@ ZEND_BEGIN_ARG_INFO_EX(geme_request_url_param, 0, 0, 1)
     ZEND_ARG_INFO(0, key)
 ZEND_END_ARG_INFO()
 
-ZEND_BEGIN_ARG_INFO_EX(gene_request_init_arginfo, 0, 0, 7)
+ZEND_BEGIN_ARG_INFO_EX(gene_request_init_arginfo, 0, 0, 0)
 	ZEND_ARG_INFO(0, get)
 	ZEND_ARG_INFO(0, post)
 	ZEND_ARG_INFO(0, cookie)
@@ -100,6 +100,7 @@ ZEND_BEGIN_ARG_INFO_EX(gene_request_init_arginfo, 0, 0, 7)
 	ZEND_ARG_INFO(0, env)
 	ZEND_ARG_INFO(0, files)
 	ZEND_ARG_INFO(0, request)
+	ZEND_ARG_INFO(0, header)
 ZEND_END_ARG_INFO()
 
 ZEND_BEGIN_ARG_INFO_EX(gene_request_get_arginfo, 0, 0, 1)
@@ -281,6 +282,11 @@ GENE_REQUEST_IS_METHOD(gene_request, Delete);
 GENE_REQUEST_IS_METHOD(gene_request, Cli);
 /* }}} */
 
+/** {{{ public gene_request::header(mixed $name, mixed $default = NULL)
+ */
+GENE_REQUEST_METHOD(gene_request, header, 7);
+/* }}} */
+
 /** {{{ public gene_request::isAjax()
  */
 PHP_METHOD(gene_request, isAjax) {
@@ -331,8 +337,8 @@ PHP_METHOD(gene_request, params) {
  * {{{ public gene_request::init($get, $post, $cookie, $server, $env, $files, $request)
  */
 PHP_METHOD(gene_request, init) {
-	zval *get = NULL, *post = NULL, *cookie = NULL, *server = NULL, *env = NULL, *files = NULL, *request = NULL;
-	if (zend_parse_parameters(ZEND_NUM_ARGS(), "|zzzzzzz", &get, &post, &cookie, &server, &env, &files, &request) == FAILURE) {
+	zval *get = NULL, *post = NULL, *cookie = NULL, *server = NULL, *env = NULL, *files = NULL, *request = NULL, *header = NULL;
+	if (zend_parse_parameters(ZEND_NUM_ARGS(), "|zzzzzzzz", &get, &post, &cookie, &server, &env, &files, &request, &header) == FAILURE) {
 		return;
 	}
 	if (post && Z_TYPE_P(post) == IS_ARRAY) {
@@ -367,6 +373,29 @@ PHP_METHOD(gene_request, init) {
 		setVal(6, &merged);
 		zval_ptr_dtor(&merged);
 	}
+	if (header && Z_TYPE_P(header) == IS_ARRAY) {
+		zval normalized;
+		zval *item;
+		zend_string *key, *upper_key;
+		zend_ulong idx;
+		array_init_size(&normalized, zend_hash_num_elements(Z_ARRVAL_P(header)) * 2);
+		ZEND_HASH_FOREACH_KEY_VAL(Z_ARRVAL_P(header), idx, key, item) {
+			Z_TRY_ADDREF_P(item);
+			if (key) {
+				zend_hash_update(Z_ARRVAL(normalized), key, item);
+				upper_key = gene_zend_string_toupper(key);
+				if (!zend_hash_exists(Z_ARRVAL(normalized), upper_key)) {
+					Z_TRY_ADDREF_P(item);
+					zend_hash_update(Z_ARRVAL(normalized), upper_key, item);
+				}
+				zend_string_release(upper_key);
+			} else {
+				zend_hash_index_update(Z_ARRVAL(normalized), idx, item);
+			}
+		} ZEND_HASH_FOREACH_END();
+		setVal(7, &normalized);
+		zval_ptr_dtor(&normalized);
+	}
 	RETURN_TRUE;
 }
 /* }}} */
@@ -379,14 +408,14 @@ PHP_METHOD(gene_request, _get) {
 	zend_long name_len = 0;
 	zval *ret = NULL;
 	int i = 0;
-	const char *valType[7] = { "post", "get", "cookie", "server", "env", "files",
-			"request"};
+	const char *valType[8] = { "post", "get", "cookie", "server", "env", "files",
+			"request", "header"};
 
 	if (zend_parse_parameters(ZEND_NUM_ARGS(), "s", &name, &name_len) == FAILURE) {
 		RETURN_NULL();
 	}
 
-	for (i = 0; i < 7; i++) {
+	for (i = 0; i < 8; i++) {
 		if (strcmp(valType[i], name) == 0) {
 			ret = getVal(i, NULL, 0);
 			break;
@@ -407,13 +436,13 @@ PHP_METHOD(gene_request, _set) {
 	zend_long name_len = 0;
 	zval *value = NULL;
 	int i = 0;
-	const char *valType[7] = { "post", "get", "cookie", "server", "env", "files",
-			"request"};
+	const char *valType[8] = { "post", "get", "cookie", "server", "env", "files",
+			"request", "header"};
 	if (zend_parse_parameters(ZEND_NUM_ARGS(), "sz", &name, &name_len, &value) == FAILURE) {
 		RETURN_NULL();
 	}
 
-	for (i = 0; i < 7; i++) {
+	for (i = 0; i < 8; i++) {
 		if (strcmp(valType[i], name) == 0) {
 			setVal(i, value);
 			break;
@@ -449,6 +478,7 @@ const zend_function_entry gene_request_methods[] = {
 	PHP_ME(gene_request, files, geme_request_get_param_arginfo, ZEND_ACC_PUBLIC|ZEND_ACC_STATIC)
 	PHP_ME(gene_request, server, geme_request_get_param_arginfo, ZEND_ACC_PUBLIC|ZEND_ACC_STATIC)
 	PHP_ME(gene_request, env, geme_request_get_param_arginfo, ZEND_ACC_PUBLIC|ZEND_ACC_STATIC)
+	PHP_ME(gene_request, header, geme_request_get_param_arginfo, ZEND_ACC_PUBLIC|ZEND_ACC_STATIC)
 	PHP_ME(gene_request, isAjax, geme_request_void_arginfo, ZEND_ACC_PUBLIC|ZEND_ACC_STATIC)
 	PHP_ME(gene_request, params, geme_request_url_param, ZEND_ACC_PUBLIC|ZEND_ACC_STATIC)
 	PHP_ME(gene_request, getMethod, geme_request_void_arginfo, ZEND_ACC_PUBLIC|ZEND_ACC_STATIC)
