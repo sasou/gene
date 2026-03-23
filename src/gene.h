@@ -83,6 +83,8 @@ PHP_RINIT_FUNCTION (gene);
 PHP_RSHUTDOWN_FUNCTION (gene);
 PHP_MINFO_FUNCTION (gene);
 
+#define GENE_DB_HISTORY_MAX 200
+
 typedef struct _gene_request_context {
 	char *method;
 	char *path;
@@ -105,6 +107,9 @@ typedef struct _gene_request_context {
 	struct timeval bench_end;
 	zend_long bench_memory_start;
 	zend_long bench_memory_end;
+	char *log_file;
+	zend_long log_level;
+	zend_bool log_level_set;
 } gene_request_context;
 
 ZEND_BEGIN_MODULE_GLOBALS (gene)

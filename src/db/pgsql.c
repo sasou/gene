@@ -141,6 +141,13 @@ void pgsqlSaveHistory(smart_str *sql, zval *param, struct timeval *start, struct
 	add_assoc_zval_ex(&z_row, ZEND_STRL("memory"), &z_memory);
 
 	if (history && Z_TYPE_P(history) == IS_ARRAY) {
+		if (zend_hash_num_elements(Z_ARRVAL_P(history)) >= GENE_DB_HISTORY_MAX) {
+			zend_ulong _hk; zend_string *_sk;
+			ZEND_HASH_FOREACH_KEY(Z_ARRVAL_P(history), _hk, _sk) {
+				zend_hash_index_del(Z_ARRVAL_P(history), _hk);
+				break;
+			} ZEND_HASH_FOREACH_END();
+		}
 		add_next_index_zval(history, &z_row);
 	} else {
     	array_init(&params);

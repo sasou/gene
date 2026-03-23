@@ -117,6 +117,9 @@ void gene_request_context_init(gene_request_context *ctx) {
 	ZVAL_UNDEF(&ctx->db_sqlite_history);
 	ZVAL_UNDEF(&ctx->db_mssql_history);
 	ctx->view_scope_no = 0;
+	ctx->log_file = NULL;
+	ctx->log_level = 0;
+	ctx->log_level_set = 0;
 }
 /* }}} */
 
@@ -164,6 +167,9 @@ void gene_request_context_reset(gene_request_context *ctx) {
 		zval_ptr_dtor(&ctx->db_mssql_history);
 		ZVAL_UNDEF(&ctx->db_mssql_history);
 	}
+	if (ctx->log_file) { efree(ctx->log_file); ctx->log_file = NULL; }
+	ctx->log_level = 0;
+	ctx->log_level_set = 0;
 	ctx->path_params = (zval*) emalloc(sizeof(zval));
 	array_init(ctx->path_params);
 	ctx->view_scope_no = 0;
@@ -214,6 +220,9 @@ void gene_request_context_destroy(gene_request_context *ctx) {
 		zval_ptr_dtor(&ctx->db_mssql_history);
 		ZVAL_UNDEF(&ctx->db_mssql_history);
 	}
+	if (ctx->log_file) { efree(ctx->log_file); ctx->log_file = NULL; }
+	ctx->log_level = 0;
+	ctx->log_level_set = 0;
 	ctx->view_scope_no = 0;
 }
 /* }}} */
