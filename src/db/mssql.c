@@ -170,7 +170,7 @@ bool mssqlInitPdo (zval * self, zval *config) {
 	object_init_ex(&pdo_object, pdo_ptr);
 
 	if ((dsn = zend_hash_str_find(Z_ARRVAL_P(config), ZEND_STRL("dsn"))) == NULL) {
-		 php_error_docref(NULL, E_ERROR, "PDO need a valid dns.");
+		 php_error_docref(NULL, E_ERROR, "PDO need a valid dsn.");
 	}
 	if ((user = zend_hash_str_find(Z_ARRVAL_P(config), ZEND_STRL("username"))) == NULL) {
 		 php_error_docref(NULL, E_ERROR, "PDO need a valid username.");
@@ -654,7 +654,7 @@ PHP_METHOD(gene_db_mssql, in)
 		if (ZSTR_LEN(where_str.s) == 0) {
 			smart_str_appends(&where_str, " WHERE ");
 		}
-		spprintf(&in_tmp, 0, "%s", in, in_len);
+		spprintf(&in_tmp, 0, "%s", in);
 	}
     if (fields) {
     	data = zend_read_property(gene_db_mssql_ce, gene_strip_obj(self), ZEND_STRL(GENE_DB_MSSQL_DATA), 1, NULL);
