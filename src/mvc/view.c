@@ -251,6 +251,7 @@ int gene_view_display_ext(char *file, bool isCompile, zval *obj, zend_array *sym
 		if (stream == NULL) {
 			zend_error(E_WARNING, "%s does not read able", path);
 			efree(path);
+			efree(compile_path);
 			return 0;
 		} else {
 			efree(path);
@@ -258,6 +259,8 @@ int gene_view_display_ext(char *file, bool isCompile, zval *obj, zend_array *sym
 			php_dirname(cpath, compile_path_len);
 			if (check_folder_exists(cpath) == FAILURE) {
 				efree(cpath);
+				efree(compile_path);
+				php_stream_close(stream);
 				return 0;
 			}
 			efree(cpath);
@@ -410,7 +413,7 @@ zval *gene_view_get_vars() {
 		return NULL;
 	}
 	nodata = zend_hash_index_find(Z_ARRVAL_P(vars), ctx->view_scope_no);
-	return Z_TYPE_P(nodata) == IS_ARRAY ? nodata : NULL;
+	return (nodata && Z_TYPE_P(nodata) == IS_ARRAY) ? nodata : NULL;
 }
 /* }}} */
 
