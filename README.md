@@ -8,7 +8,7 @@
 
 [![Version](https://img.shields.io/badge/version-5.3.6-blue.svg)](https://github.com/sasou/php-gene)
 [![License](https://img.shields.io/badge/license-PHP%203.01-green.svg)](http://www.php.net/license/3_01.txt)
-[![Website](https://img.shields.io/badge/website-1xm.net-orange.svg)](http://1xm.net/)
+[![Website](https://img.shields.io/badge/website-1xm.net-orange.svg)](https://www.1xm.net/)
 
 [中文](README.md) | [English](README_EN.md)
 
@@ -210,7 +210,7 @@ $http->start();
 |------|------|-----|----------|
 | PHP-FPM + Nginx | Gene | ~15,000 | 低 |
 | PHP-FPM + Nginx | 原生PHP | ~16,000 | 最低 |
-| Swoole | Gene | ~45,000 | 中等 |
+| Swoole | Gene | ~47,000 | 低 |
 | Swoole | 原生PHP | ~48,000 | 最低 |
 
 **结论**：Gene框架在提供完整功能栈的同时，性能损失极小，是业界最快的PHP框架之一。
@@ -223,7 +223,7 @@ $http->start();
 - ✅ 标准PHP生命周期
 - ✅ 生产环境验证
 
-#### Swoole模式：⭐⭐⭐⭐☆ (中高稳定性)
+#### Swoole模式：⭐⭐⭐⭐☆ (高稳定性)
 - ✅ 完善的协程上下文管理
 - ✅ 内存清理机制
 - ✅ 连接池管理
@@ -237,15 +237,15 @@ $http->start();
 
 ### 技术支持
 
-- 📖 [官方文档](http://1xm.net/)
+- 📖 [官方文档](https://www.1xm.net/)
 - 🐛 [问题反馈](https://github.com/sasou/php-gene/issues)
-- 💬 [技术交流](mailto:admin@php-gene.com)
+- 💬 [技术交流](mailto:zaipd@qq.com)
     
 ---
 
 ## Links
 
-- **Official Website**: [http://1xm.net/](http://1xm.net/)
+- **Official Website**: [https://www.1xm.net/](https://www.1xm.net/)
 - **PHP5 Version**: [https://github.com/sasou/php-gene](https://github.com/sasou/php-gene) (Version 2.1.0)
 - **Windows Version**: [https://github.com/sasou/php-gene-for-windows](https://github.com/sasou/php-gene-for-windows)
 
@@ -256,6 +256,6 @@ $http->start();
 **Gene Framework - 简单编码，优雅生活！**
 
 [![License](https://img.shields.io/badge/license-PHP%203.01-green.svg)](http://www.php.net/license/3_01.txt)
-[![Author](https://img.shields.io/badge/author-Sasou-blue.svg)](mailto:admin@php-gene.com)
+[![Author](https://img.shields.io/badge/author-Sasou-blue.svg)](mailto:zaipd@qq.com)
 
 </div>
