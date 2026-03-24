@@ -245,7 +245,6 @@ gene_request_context *gene_request_ctx(void) {
 /* {{{ php_gene_init_globals
  */
 static void php_gene_init_globals() {
-	GENE_G(directory) = NULL;
 	GENE_G(app_root) = NULL;
 	GENE_G(app_view) = NULL;
 	GENE_G(app_ext) = NULL;
@@ -269,10 +268,6 @@ static void php_gene_init_globals() {
  */
 static void php_gene_close_request_globals() {
 	gene_request_context_destroy(&GENE_G(default_ctx));
-	if (GENE_G(directory)) {
-		efree(GENE_G(directory));
-		GENE_G(directory) = NULL;
-	}
 	if (GENE_G(app_root)) {
 		efree(GENE_G(app_root));
 		GENE_G(app_root) = NULL;

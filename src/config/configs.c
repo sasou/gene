@@ -66,11 +66,8 @@ PHP_METHOD(gene_config, __construct) {
 	} else {
 		if (GENE_G(app_key) && strlen(GENE_G(app_key)) > 0) {
 			zend_update_property_string(gene_config_ce, gene_strip_obj(self), GENE_CONFIG_SAFE, strlen(GENE_CONFIG_SAFE), GENE_G(app_key));
-		} else {
-			gene_ini_router();
-			if (GENE_G(directory) && strlen(GENE_G(directory)) > 0) {
-				zend_update_property_string(gene_config_ce, gene_strip_obj(self), GENE_CONFIG_SAFE, strlen(GENE_CONFIG_SAFE), GENE_G(directory));
-			}
+		} else if (GENE_G(app_root) && strlen(GENE_G(app_root)) > 0) {
+			zend_update_property_string(gene_config_ce, gene_strip_obj(self), GENE_CONFIG_SAFE, strlen(GENE_CONFIG_SAFE), GENE_G(app_root));
 		}
 	}
 }

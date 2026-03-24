@@ -228,11 +228,11 @@ zend_long gene_file_modified(char *file, zend_long ctime) {
 /* }}} */
 
 /** {{{ int gene_ini_router()
- * Returns 1 on success (method + path + directory all available), 0 on failure.
+ * Returns 1 on success (method + path all available), 0 on failure.
  */
 int gene_ini_router() {
 	zval *server = NULL, *temp = NULL;
-	if (!GENE_REQ(method) || !GENE_REQ(path) || !GENE_G(directory)) {
+	if (!GENE_REQ(method) || !GENE_REQ(path)) {
 		if (GENE_G(runtime_type) >= 2) {
 			zval *attr_server = getVal(TRACK_VARS_SERVER, NULL, 0);
 			if (attr_server && Z_TYPE_P(attr_server) == IS_ARRAY) {
@@ -250,21 +250,12 @@ int gene_ini_router() {
 						leftByChar(GENE_REQ(path), Z_STRVAL_P(temp), '?');
 					}
 				}
-				if (!GENE_G(directory)) {
-					temp = zend_hash_str_find(Z_ARRVAL_P(attr_server), ZEND_STRL("DOCUMENT_ROOT"));
-					if (temp && Z_TYPE_P(temp) == IS_STRING) {
-						GENE_G(directory) = estrndup(Z_STRVAL_P(temp), Z_STRLEN_P(temp));
-					}
-				}
 				temp = NULL;
 			}
 		}
-		if (!GENE_REQ(method) || !GENE_REQ(path) || !GENE_G(directory)) {
+		if (!GENE_REQ(method) || !GENE_REQ(path)) {
 			server = request_query(TRACK_VARS_SERVER, NULL, 0);
 			if (server) {
-				if (!GENE_G(directory) && (temp = zend_hash_str_find(HASH_OF(server), ZEND_STRL("DOCUMENT_ROOT"))) != NULL) {
-					GENE_G(directory) = estrndup(Z_STRVAL_P(temp), Z_STRLEN_P(temp));
-				}
 				if (!GENE_REQ(method) && (temp = zend_hash_str_find(HASH_OF(server), ZEND_STRL("REQUEST_METHOD"))) != NULL) {
 					GENE_REQ(method) = estrndup(Z_STRVAL_P(temp), Z_STRLEN_P(temp));
 					gene_strtolower(GENE_REQ(method));
@@ -367,12 +358,8 @@ zval *gene_application_instance(zval *this_ptr, zval *safe) {
 	zval *instance = zend_read_static_property(gene_application_ce, ZEND_STRL(GENE_APPLICATION_INSTANCE), 1);
 
 	if (Z_TYPE_P(instance) == IS_OBJECT) {
-		gene_ini_router();
 		if (safe && !GENE_G(app_key)) {
 			GENE_G(app_key) = estrndup(Z_STRVAL_P(safe), Z_STRLEN_P(safe));
-		}
-		if (GENE_G(directory) != NULL && !GENE_G(app_root)) {
-			spprintf(&GENE_G(app_root), 0, "%s/application", GENE_G(directory));
 		}
 		return instance;
 	}
@@ -387,15 +374,8 @@ zval *gene_application_instance(zval *this_ptr, zval *safe) {
 		instance = zend_read_static_property(gene_application_ce, ZEND_STRL(GENE_APPLICATION_INSTANCE), 1);
 	}
 
-	gene_ini_router();
 	if (safe && !GENE_G(app_key)) {
 		GENE_G(app_key) = estrndup(Z_STRVAL_P(safe), Z_STRLEN_P(safe));
-	}
-	if (GENE_G(directory) != NULL) {
-		if (GENE_G(app_root)) {
-			efree(GENE_G(app_root));
-		}
-		spprintf(&GENE_G(app_root), 0, "%s/application", GENE_G(directory));
 	}
 	return instance;
 }
@@ -827,8 +807,8 @@ PHP_METHOD(gene_application, config) {
 	if (GENE_G(app_key) && strlen(GENE_G(app_key)) > 0) {
 		router_e_len = spprintf(&router_e, 0, "%s%s", GENE_G(app_key),
 		GENE_CONFIG_CACHE);
-	} else if (GENE_G(directory) && strlen(GENE_G(directory)) > 0) {
-		router_e_len = spprintf(&router_e, 0, "%s%s", GENE_G(directory),
+	} else if (GENE_G(app_root) && strlen(GENE_G(app_root)) > 0) {
+		router_e_len = spprintf(&router_e, 0, "%s%s", GENE_G(app_root),
 		GENE_CONFIG_CACHE);
 	} else {
 		router_e_len = spprintf(&router_e, 0, "%s", GENE_CONFIG_CACHE);
@@ -1035,8 +1015,10 @@ PHP_METHOD(gene_application, run) {
 
 	if (GENE_G(app_key)) {
 		ZVAL_STRING(&safe, GENE_G(app_key));
+	} else if (GENE_G(app_root)) {
+		ZVAL_STRING(&safe, GENE_G(app_root));
 	} else {
-		ZVAL_STRING(&safe, GENE_G(directory));
+		ZVAL_STRING(&safe, "");
 	}
 
 	get_router_content_run(min, pin, &safe);
