@@ -114,7 +114,6 @@ PHP_METHOD(gene_controller, __construct) {
 	if (zend_parse_parameters(ZEND_NUM_ARGS(), "|l", &debug) == FAILURE) {
 		RETURN_NULL();
 	}
-	gene_ini_router();
 	RETURN_NULL();
 }
 /* }}} */

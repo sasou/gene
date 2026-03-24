@@ -1018,8 +1018,10 @@
 	 }
 	 if (GENE_G(app_key)) {
 		 ZVAL_STRING(&safe, GENE_G(app_key));
+	 } else if (GENE_G(app_root)) {
+		 ZVAL_STRING(&safe, GENE_G(app_root));
 	 } else {
-		 ZVAL_STRING(&safe, GENE_G(directory));
+		 ZVAL_STRING(&safe, "");
 	 }
 	 get_router_error_run(ZSTR_VAL(methodin), &safe);
 	 zval_ptr_dtor(&safe);
@@ -1037,14 +1039,13 @@
 	 if (zend_parse_parameters(ZEND_NUM_ARGS(), "|z", &safe) == FAILURE) {
 		 RETURN_NULL();
 	 }
-	 gene_ini_router();
 	 if (safe) {
 		 zend_update_property_string(gene_router_ce, gene_strip_obj(obj), GENE_ROUTER_SAFE, strlen(GENE_ROUTER_SAFE), Z_STRVAL_P(safe));
 	 } else {
 		 if (GENE_G(app_key)) {
 			 zend_update_property_string(gene_router_ce, gene_strip_obj(obj),GENE_ROUTER_SAFE, strlen(GENE_ROUTER_SAFE),GENE_G(app_key));
-		 } else {
-			 zend_update_property_string(gene_router_ce, gene_strip_obj(obj),GENE_ROUTER_SAFE, strlen(GENE_ROUTER_SAFE),GENE_G(directory));
+		 } else if (GENE_G(app_root)) {
+			 zend_update_property_string(gene_router_ce, gene_strip_obj(obj),GENE_ROUTER_SAFE, strlen(GENE_ROUTER_SAFE),GENE_G(app_root));
 		 }
 	 }
  }
