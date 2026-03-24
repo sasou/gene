@@ -367,7 +367,7 @@ PHP_METHOD(gene_response, header) {
 /** {{{ proto public gene_response::cookie(array $json, int $code)
  */
 PHP_METHOD(gene_response, cookie) {
-	zval *name, *value, *expires, *path, *domain, *secure, *httponly;
+	zval *name = NULL, *value = NULL, *expires = NULL, *path = NULL, *domain = NULL, *secure = NULL, *httponly = NULL;
 	if (zend_parse_parameters(ZEND_NUM_ARGS(), "z|zzzzzz", &name, &value, &expires, &path, &domain, &secure, &httponly) == FAILURE) {
 		return;
 	}
