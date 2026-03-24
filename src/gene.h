@@ -14,145 +14,148 @@
  +----------------------------------------------------------------------+
  */
 
-#ifndef PHP_GENE_H
-#define PHP_GENE_H
-
-extern zend_module_entry gene_module_entry;
-#define phpext_gene_ptr &gene_module_entry
-
-#define PHP_GENE_VERSION "5.4.0"
-
-#ifdef PHP_WIN32
-#	define PHP_GENE_API __declspec(dllexport)
-#elif defined(__GNUC__) && __GNUC__ >= 4
-#	define PHP_GENE_API __attribute__ ((visibility("default")))
-#else
-#	define PHP_GENE_API
-#endif
-
-#ifdef ZTS
-#include "TSRM.h"
-#endif
-
-#ifdef PHP_WIN32
-#include <synchapi.h>
-typedef SRWLOCK gene_rwlock_t;
-#define gene_rwlock_init(lock)    InitializeSRWLock(lock)
-#define gene_rwlock_rdlock(lock)  AcquireSRWLockShared(lock)
-#define gene_rwlock_rdunlock(lock) ReleaseSRWLockShared(lock)
-#define gene_rwlock_wrlock(lock)  AcquireSRWLockExclusive(lock)
-#define gene_rwlock_wrunlock(lock) ReleaseSRWLockExclusive(lock)
-#define gene_rwlock_destroy(lock)
-#else
-#include <pthread.h>
-typedef pthread_rwlock_t gene_rwlock_t;
-#define gene_rwlock_init(lock)    pthread_rwlock_init(lock, NULL)
-#define gene_rwlock_rdlock(lock)  pthread_rwlock_rdlock(lock)
-#define gene_rwlock_rdunlock(lock) pthread_rwlock_unlock(lock)
-#define gene_rwlock_wrlock(lock)  pthread_rwlock_wrlock(lock)
-#define gene_rwlock_wrunlock(lock) pthread_rwlock_unlock(lock)
-#define gene_rwlock_destroy(lock) pthread_rwlock_destroy(lock)
-#endif
-
-#ifdef ZTS
-#define GENE_G(v) TSRMG(gene_globals_id, zend_gene_globals *, v)
-#else
-#define GENE_G(v) (gene_globals.v)
-#endif
-
-#define gene_object zend_object
-#define gene_strip_obj(o) Z_OBJ_P(o)
-
-
-#define GENE_INIT_CLASS_ENTRY(ce, common_name, namespace_name, methods) \
-	if(GENE_G(use_namespace)) { \
-		INIT_CLASS_ENTRY(ce, namespace_name, methods); \
-	} else { \
-		INIT_CLASS_ENTRY(ce, common_name, methods); \
-	}
-#define GENE_MINIT_FUNCTION(module)   	    ZEND_MINIT_FUNCTION(gene_##module)
-#define GENE_MSHUTDOWN_FUNCTION(module)   	ZEND_MSHUTDOWN_FUNCTION(gene_##module)
-#define GENE_RINIT_FUNCTION(module)   	    ZEND_RINIT_FUNCTION(gene_##module)
-#define GENE_RSHUTDOWN_FUNCTION(module)   	ZEND_RSHUTDOWN_FUNCTION(gene_##module)
-#define GENE_MINFO_FUNCTION(module)   	PHP_MINFO_FUNCTION(module)
-#define GENE_STARTUP(module)	 		ZEND_MODULE_STARTUP_N(gene_##module)(INIT_FUNC_ARGS_PASSTHRU)
-
-PHP_MINIT_FUNCTION (gene);
-PHP_MSHUTDOWN_FUNCTION (gene);
-PHP_RINIT_FUNCTION (gene);
-PHP_RSHUTDOWN_FUNCTION (gene);
-PHP_MINFO_FUNCTION (gene);
-
-#define GENE_DB_HISTORY_MAX 200
-
-typedef struct _gene_request_context {
-	char *method;
-	char *path;
-	char *router_path;
-	char *module;
-	char *controller;
-	char *action;
-	char *child_views;
-	char *lang;
-	zval *path_params;
-	zval request_attr;
-	zval di_regs;
-	zval view_vars;
-	zend_long view_scope_no;
-	zval db_mysql_history;
-	zval db_pgsql_history;
-	zval db_sqlite_history;
-	zval db_mssql_history;
-	struct timeval bench_start;
-	struct timeval bench_end;
-	zend_long bench_memory_start;
-	zend_long bench_memory_end;
-	char *log_file;
-	zend_long log_level;
-	zend_bool log_level_set;
-} gene_request_context;
-
-ZEND_BEGIN_MODULE_GLOBALS (gene)
-char *directory;
-char *app_root;
-char *library_root;
-char *app_view;
-char *app_ext;
-char *app_key;
-char *auto_load_fun;
-bool use_library;
-zend_long run_environment;
-zend_long runtime_type;
-bool use_namespace;
-bool view_compile;
-HashTable *cache;
-HashTable *cache_easy;
-gene_rwlock_t cache_lock;
-gene_request_context default_ctx;
-gene_request_context *resident_ctx;
-HashTable *co_contexts;
-gene_request_context *current_ctx;
-zend_long current_cid;
-ZEND_END_MODULE_GLOBALS (gene)
-
-extern ZEND_DECLARE_MODULE_GLOBALS (gene);
-
-gene_request_context *gene_request_ctx(void);
-void gene_request_context_init(gene_request_context *ctx);
-void gene_request_context_reset(gene_request_context *ctx);
-void gene_request_context_destroy(gene_request_context *ctx);
-zend_long gene_get_coroutine_id(void);
-void gene_init_co_contexts(void);
-
-#define GENE_REQ(v) (gene_request_ctx()->v)
-
-#endif	/* PHP_GENE_H */
-
-/*
- * Local variables:
- * tab-width: 4
- * c-basic-offset: 4
- * End:
- * vim600: noet sw=4 ts=4 fdm=marker
- * vim<600: noet sw=4 ts=4
- */
+ #ifndef PHP_GENE_H
+ #define PHP_GENE_H
+ 
+ extern zend_module_entry gene_module_entry;
+ #define phpext_gene_ptr &gene_module_entry
+ 
+ #define PHP_GENE_VERSION "5.4.0"
+ 
+ #ifdef PHP_WIN32
+ #	define PHP_GENE_API __declspec(dllexport)
+ #elif defined(__GNUC__) && __GNUC__ >= 4
+ #	define PHP_GENE_API __attribute__ ((visibility("default")))
+ #else
+ #	define PHP_GENE_API
+ #endif
+ 
+ #ifdef ZTS
+ #include "TSRM.h"
+ #endif
+ 
+ #ifdef PHP_WIN32
+ #include <synchapi.h>
+ typedef SRWLOCK gene_rwlock_t;
+ #define gene_rwlock_init(lock)    InitializeSRWLock(lock)
+ #define gene_rwlock_rdlock(lock)  AcquireSRWLockShared(lock)
+ #define gene_rwlock_rdunlock(lock) ReleaseSRWLockShared(lock)
+ #define gene_rwlock_wrlock(lock)  AcquireSRWLockExclusive(lock)
+ #define gene_rwlock_wrunlock(lock) ReleaseSRWLockExclusive(lock)
+ #define gene_rwlock_destroy(lock)
+ #else
+ #include <pthread.h>
+ typedef pthread_rwlock_t gene_rwlock_t;
+ #define gene_rwlock_init(lock)    pthread_rwlock_init(lock, NULL)
+ #define gene_rwlock_rdlock(lock)  pthread_rwlock_rdlock(lock)
+ #define gene_rwlock_rdunlock(lock) pthread_rwlock_unlock(lock)
+ #define gene_rwlock_wrlock(lock)  pthread_rwlock_wrlock(lock)
+ #define gene_rwlock_wrunlock(lock) pthread_rwlock_unlock(lock)
+ #define gene_rwlock_destroy(lock) pthread_rwlock_destroy(lock)
+ #endif
+ 
+ #ifdef ZTS
+ #define GENE_G(v) TSRMG(gene_globals_id, zend_gene_globals *, v)
+ #else
+ #define GENE_G(v) (gene_globals.v)
+ #endif
+ 
+ #define gene_object zend_object
+ #define gene_strip_obj(o) Z_OBJ_P(o)
+ 
+ 
+ #define GENE_INIT_CLASS_ENTRY(ce, common_name, namespace_name, methods) \
+	 if(GENE_G(use_namespace)) { \
+		 INIT_CLASS_ENTRY(ce, namespace_name, methods); \
+	 } else { \
+		 INIT_CLASS_ENTRY(ce, common_name, methods); \
+	 }
+ #define GENE_MINIT_FUNCTION(module)   	    ZEND_MINIT_FUNCTION(gene_##module)
+ #define GENE_MSHUTDOWN_FUNCTION(module)   	ZEND_MSHUTDOWN_FUNCTION(gene_##module)
+ #define GENE_RINIT_FUNCTION(module)   	    ZEND_RINIT_FUNCTION(gene_##module)
+ #define GENE_RSHUTDOWN_FUNCTION(module)   	ZEND_RSHUTDOWN_FUNCTION(gene_##module)
+ #define GENE_MINFO_FUNCTION(module)   	PHP_MINFO_FUNCTION(module)
+ #define GENE_STARTUP(module)	 		ZEND_MODULE_STARTUP_N(gene_##module)(INIT_FUNC_ARGS_PASSTHRU)
+ 
+ PHP_MINIT_FUNCTION (gene);
+ PHP_MSHUTDOWN_FUNCTION (gene);
+ PHP_RINIT_FUNCTION (gene);
+ PHP_RSHUTDOWN_FUNCTION (gene);
+ PHP_MINFO_FUNCTION (gene);
+ 
+ #define GENE_DB_HISTORY_MAX 200
+ 
+ typedef struct _gene_request_context {
+	 char *method;
+	 char *path;
+	 char *router_path;
+	 char *module;
+	 char *controller;
+	 char *action;
+	 char *child_views;
+	 char *lang;
+	 zval *path_params;
+	 zval request_attr;
+	 zval di_regs;
+	 zval view_vars;
+	 zend_long view_scope_no;
+	 zval db_mysql_history;
+	 zval db_pgsql_history;
+	 zval db_sqlite_history;
+	 zval db_mssql_history;
+	 struct timeval bench_start;
+	 struct timeval bench_end;
+	 zend_long bench_memory_start;
+	 zend_long bench_memory_end;
+	 char *log_file;
+	 zend_long log_level;
+	 zend_bool log_level_set;
+ } gene_request_context;
+ 
+ ZEND_BEGIN_MODULE_GLOBALS (gene)
+ char *directory;
+ char *app_root;
+ char *library_root;
+ char *app_view;
+ char *app_ext;
+ char *app_key;
+ char *auto_load_fun;
+ bool use_library;
+ zend_long run_environment;
+ zend_long runtime_type;
+ bool use_namespace;
+ bool view_compile;
+ HashTable *cache;
+ HashTable *cache_easy;
+ gene_rwlock_t cache_lock;
+ gene_request_context default_ctx;
+ gene_request_context *resident_ctx;
+ HashTable *co_contexts;
+ gene_request_context *current_ctx;
+ zend_long current_cid;
+ zend_function *swoole_getcid_func;
+ zend_bool swoole_getcid_resolved;
+ ZEND_END_MODULE_GLOBALS (gene)
+ 
+ extern ZEND_DECLARE_MODULE_GLOBALS (gene);
+ 
+ gene_request_context *gene_request_ctx(void);
+ void gene_request_context_init(gene_request_context *ctx);
+ void gene_request_context_reset(gene_request_context *ctx);
+ void gene_request_context_destroy(gene_request_context *ctx);
+ zend_long gene_get_coroutine_id(void);
+ void gene_init_co_contexts(void);
+ 
+ #define GENE_REQ(v) (gene_request_ctx()->v)
+ 
+ #endif	/* PHP_GENE_H */
+ 
+ /*
+  * Local variables:
+  * tab-width: 4
+  * c-basic-offset: 4
+  * End:
+  * vim600: noet sw=4 ts=4 fdm=marker
+  * vim<600: noet sw=4 ts=4
+  */
+ 
