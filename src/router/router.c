@@ -1125,13 +1125,13 @@ PHP_METHOD(gene_router, __call) {
 		//call tree
 		if (gene_router_is_http_method(method)) {
 			{
+				 zval pathvals;
 				 safe = zend_read_property(gene_router_ce, gene_strip_obj(self), GENE_ROUTER_SAFE, strlen(GENE_ROUTER_SAFE), 1, NULL);
 				 if (Z_STRLEN_P(safe)) {
 					 router_e_len = spprintf(&router_e, 0, "%s%s",Z_STRVAL_P(safe),GENE_ROUTER_ROUTER_TREE);
 				 } else {
 					 router_e_len = spprintf(&router_e, 0, "%s", GENE_ROUTER_ROUTER_TREE);
 				 }
-				 zval pathvals;
 				 if (strlen(path) == 0) {
 					 ZVAL_STRING(&pathvals, "");
 					 spprintf(&key, 0, GENE_ROUTER_LEAF_KEY, method);
@@ -1228,6 +1228,7 @@ PHP_METHOD(gene_router, __call) {
 	 }
 	 if (Z_TYPE(content) == IS_STRING) {
 		 zval_ptr_dtor(&content);
+	 }
 	 }
 	 RETURN_ZVAL(self, 1, 0);
  }
