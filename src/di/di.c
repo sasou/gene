@@ -44,7 +44,7 @@ static void gene_smart_str_release(smart_str *str) {
 zval *gene_di_regs() {
 	gene_request_context *ctx = gene_request_ctx();
 	if (Z_TYPE(ctx->di_regs) == IS_UNDEF || Z_TYPE(ctx->di_regs) == IS_NULL) {
-		if (Z_TYPE(ctx->di_regs) != IS_UNDEF && Z_TYPE(ctx->di_regs) != IS_NULL) {
+		if (Z_TYPE(ctx->di_regs) == IS_NULL) {
 			zval_ptr_dtor(&ctx->di_regs);
 		}
 		array_init(&ctx->di_regs);
