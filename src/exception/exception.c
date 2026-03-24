@@ -207,6 +207,7 @@ int gene_exception_error_register(zval *callback, zval *error_type) {
 	zval ret, bak;
 	zval function;
 	int arg_num = 1;
+	int used_bak = 0;
 	zval params[2];
 
 	if (!callback) {
@@ -216,6 +217,7 @@ int gene_exception_error_register(zval *callback, zval *error_type) {
 			ZVAL_STRING(&bak, GENE_ERROR_FUNC_NAME);
 		}
 		callback = &bak;
+		used_bak = 1;
 	}
 	params[0] = *callback;
 	if (error_type) {
@@ -226,11 +228,13 @@ int gene_exception_error_register(zval *callback, zval *error_type) {
 	if (call_user_function(EG(function_table), NULL, &function, &ret, arg_num, params) == FAILURE) {
 		zval_ptr_dtor(&ret);
 		zval_ptr_dtor(&function);
+		if (used_bak) zval_ptr_dtor(&bak);
 		php_error_docref(NULL, E_WARNING, "Call to set_error_handler failed");
 		return 0;
 	}
 	zval_ptr_dtor(&function);
 	zval_ptr_dtor(&ret);
+	if (used_bak) zval_ptr_dtor(&bak);
 	return 1;
 }
 
@@ -240,6 +244,7 @@ int gene_exception_register(zval *callback) {
 	zval ret, bak;
 	zval function;
 	int arg_num = 1;
+	int used_bak = 0;
 	zval params[1];
 
 	if (!callback) {
@@ -249,17 +254,20 @@ int gene_exception_register(zval *callback) {
 			ZVAL_STRING(&bak, GENE_EXCEPTION_FUNC_NAME);
 		}
 		callback = &bak;
+		used_bak = 1;
 	}
 	params[0] = *callback;
 	ZVAL_STRING(&function, "set_exception_handler");
 	if (call_user_function(EG(function_table), NULL, &function, &ret, arg_num, params) == FAILURE) {
 		zval_ptr_dtor(&ret);
 		zval_ptr_dtor(&function);
+		if (used_bak) zval_ptr_dtor(&bak);
 		php_error_docref(NULL, E_WARNING, "Call to set_exception_handler failed");
 		return 0;
 	}
 	zval_ptr_dtor(&function);
 	zval_ptr_dtor(&ret);
+	if (used_bak) zval_ptr_dtor(&bak);
 	return 1;
 }
 
