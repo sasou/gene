@@ -279,7 +279,6 @@ int gene_ini_router() {
 		}
 	}
 	if (!GENE_REQ(method) || !GENE_REQ(path)) {
-		php_error_docref(NULL, E_WARNING, "Gene: unable to resolve REQUEST_METHOD or REQUEST_URI from server context");
 		return 0;
 	}
 	return 1;
@@ -1019,6 +1018,16 @@ PHP_METHOD(gene_application, run) {
 	}
 
 	gene_ini_router();
+	if (methodin && ZSTR_LEN(methodin)) {
+		min = ZSTR_VAL(methodin);
+	}
+	if (pathin && ZSTR_LEN(pathin)) {
+		pin = ZSTR_VAL(pathin);
+	}
+	if (!min && !GENE_REQ(method)) {
+		php_error_docref(NULL, E_WARNING, "Gene: unable to resolve REQUEST_METHOD or REQUEST_URI from server context");
+		RETURN_ZVAL(self, 1, 0);
+	}
 	gene_loader_register();
 	if (gene_application_webscan_check()) {
 		RETURN_ZVAL(self, 1, 0);
@@ -1028,12 +1037,6 @@ PHP_METHOD(gene_application, run) {
 		ZVAL_STRING(&safe, GENE_G(app_key));
 	} else {
 		ZVAL_STRING(&safe, GENE_G(directory));
-	}
-	if (methodin && ZSTR_LEN(methodin)) {
-		min = ZSTR_VAL(methodin);
-	}
-	if (pathin && ZSTR_LEN(pathin)) {
-		pin = ZSTR_VAL(pathin);
 	}
 
 	get_router_content_run(min, pin, &safe);
