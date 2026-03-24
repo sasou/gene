@@ -35,7 +35,7 @@ zend_class_entry * gene_request_ce;
 static zval *gene_request_attr(void) {
 	gene_request_context *ctx = gene_request_ctx();
 	if (Z_TYPE(ctx->request_attr) == IS_UNDEF || Z_TYPE(ctx->request_attr) == IS_NULL) {
-		if (Z_TYPE(ctx->request_attr) != IS_UNDEF && Z_TYPE(ctx->request_attr) != IS_NULL) {
+		if (Z_TYPE(ctx->request_attr) == IS_NULL) {
 			zval_ptr_dtor(&ctx->request_attr);
 		}
 		array_init(&ctx->request_attr);

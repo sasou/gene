@@ -171,15 +171,21 @@ void load_file(char *key, size_t key_len, char *php_script, int validity) {
 			cur = time(NULL);
 			times = cur - val->stime;
 			if (times > val->validity) {
+				GENE_CACHE_WRLOCK();
 				val->status = 1;
 				val->stime = cur;
 				val->validity = validity;
+				GENE_CACHE_WRUNLOCK();
 				cur = gene_file_modified(php_script, 0);
 				if (cur != val->ftime) {
 					import = 1;
+					GENE_CACHE_WRLOCK();
 					val->ftime = cur;
+					GENE_CACHE_WRUNLOCK();
 				} else {
+					GENE_CACHE_WRLOCK();
 					val->status = 0;
+					GENE_CACHE_WRUNLOCK();
 				}
 			}
 		} else {
@@ -187,15 +193,21 @@ void load_file(char *key, size_t key_len, char *php_script, int validity) {
 			file_cache_set_val(key, key_len, 0, validity);
 			val = file_cache_get_easy(key, key_len);
 			if (val) {
+				GENE_CACHE_WRLOCK();
 				val->status = 1;
 				val->ftime = gene_file_modified(php_script, 0);
+				GENE_CACHE_WRUNLOCK();
 			}
 		}
 		if (import) {
 			if(!gene_load_import(php_script, NULL, NULL)) {
 				php_error_docref(NULL, E_WARNING, "Unable to load config file %s", php_script);
 			}
-			if (val) val->status = 0;
+			if (val) {
+				GENE_CACHE_WRLOCK();
+				val->status = 0;
+				GENE_CACHE_WRUNLOCK();
+			}
 		}
 	}
 }
@@ -215,9 +227,10 @@ zend_long gene_file_modified(char *file, zend_long ctime) {
 }
 /* }}} */
 
-/** {{{ void gene_ini_router()
+/** {{{ int gene_ini_router()
+ * Returns 1 on success (method + path + directory all available), 0 on failure.
  */
-void gene_ini_router() {
+int gene_ini_router() {
 	zval *server = NULL, *temp = NULL;
 	if (!GENE_REQ(method) || !GENE_REQ(path) || !GENE_G(directory)) {
 		if (GENE_G(runtime_type) >= 2) {
@@ -265,6 +278,11 @@ void gene_ini_router() {
 			temp = NULL;
 		}
 	}
+	if (!GENE_REQ(method) || !GENE_REQ(path)) {
+		php_error_docref(NULL, E_WARNING, "Gene: unable to resolve REQUEST_METHOD or REQUEST_URI from server context");
+		return 0;
+	}
+	return 1;
 }
 /* }}} */
 

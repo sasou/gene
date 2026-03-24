@@ -252,11 +252,11 @@
 	 char *seg = NULL, *ptr = NULL, *path = NULL;
 	 zend_string *key = NULL;
 	 zend_long idx;
-	 if (strlen(paths) == 0) {
-		 leaf = zend_symtable_str_find(Z_ARRVAL_P(val), "leaf", 4);
-		 return leaf;
-	 } else {
-		 spprintf(&path, 0, "%s", paths);
+	if (strlen(paths) == 0) {
+		leaf = zend_symtable_str_find(Z_ARRVAL_P(val), "leaf", 4);
+		return leaf;
+	} else {
+		path = estrdup(paths);
 		 seg = php_strtok_r(path, "/", &ptr);
 		 if (ptr && strlen(seg) > 0) {
 			 ret = zend_symtable_str_find(Z_ARRVAL_P(val), seg, strlen(seg));
@@ -1050,14 +1050,34 @@
  /*
   * {{{ public gene_router::__call($codeString)
   */
- PHP_METHOD(gene_router, __call) {
-	 zval *val = NULL, *group, *safe, *pathVal = NULL, *contentval = NULL, *hook = NULL, *self = getThis();
-	 zval content;
-	 zend_long methodlen;
-	 int i, is_string_route = 0;
-	 size_t router_e_len;
-	 char *method, *path = NULL, *result = NULL, *tmp = NULL, *router_e, *key = NULL;
-	 const char *methods[9] = { "get", "post", "put", "patch", "delete", "trace","connect", "options", "head" }, *event[2] = { "hook", "error" };
+static int gene_router_is_http_method(const char *m) {
+	switch (m[0]) {
+	case 'g': return strcmp(m, "get") == 0;
+	case 'p':
+		if (m[1] == 'o') return strcmp(m, "post") == 0;
+		if (m[1] == 'u') return strcmp(m, "put") == 0;
+		if (m[1] == 'a') return strcmp(m, "patch") == 0;
+		return 0;
+	case 'd': return strcmp(m, "delete") == 0;
+	case 't': return strcmp(m, "trace") == 0;
+	case 'c': return strcmp(m, "connect") == 0;
+	case 'o': return strcmp(m, "options") == 0;
+	case 'h': return strcmp(m, "head") == 0;
+	default: return 0;
+	}
+}
+
+static int gene_router_is_event(const char *m) {
+	return (strcmp(m, "hook") == 0 || strcmp(m, "error") == 0);
+}
+
+PHP_METHOD(gene_router, __call) {
+	zval *val = NULL, *group, *safe, *pathVal = NULL, *contentval = NULL, *hook = NULL, *self = getThis();
+	zval content;
+	zend_long methodlen;
+	int is_string_route = 0;
+	size_t router_e_len;
+	char *method, *path = NULL, *result = NULL, *tmp = NULL, *router_e, *key = NULL;
  
 	 if (zend_parse_parameters(ZEND_NUM_ARGS(), "sz", &method, &methodlen, &val) == FAILURE) {
 		 RETURN_NULL();
@@ -1099,9 +1119,9 @@
 			 hook = NULL;
 		 }
  
-		 //call tree
-		 for (i = 0; i < 9; i++) {
-			 if (strcmp(methods[i], method) == 0) {
+		//call tree
+		if (gene_router_is_http_method(method)) {
+			{
 				 safe = zend_read_property(gene_router_ce, gene_strip_obj(self), GENE_ROUTER_SAFE, strlen(GENE_ROUTER_SAFE), 1, NULL);
 				 if (Z_STRLEN_P(safe)) {
 					 router_e_len = spprintf(&router_e, 0, "%s%s",Z_STRVAL_P(safe),GENE_ROUTER_ROUTER_TREE);
@@ -1169,17 +1189,17 @@
 						 efree(tmp);
 					 }
 				 }
-				 efree(router_e);
-				 efree(path);
-				 zval_ptr_dtor(&content);
-				 zval_ptr_dtor(&pathvals);
-				 RETURN_ZVAL(self, 1, 0);
-			 }
-		 }
- 
-		 //call event
-		 for (i = 0; i < 2; i++) {
-			 if (strcmp(event[i], method) == 0) {
+			efree(router_e);
+			efree(path);
+			zval_ptr_dtor(&content);
+			zval_ptr_dtor(&pathvals);
+			RETURN_ZVAL(self, 1, 0);
+		}
+	}
+
+	//call event
+	if (gene_router_is_event(method)) {
+		{
 				 safe = zend_read_property(gene_router_ce, gene_strip_obj(self), GENE_ROUTER_SAFE, strlen(GENE_ROUTER_SAFE), 1, NULL);
 				 if (Z_STRLEN_P(safe)) {
 					 router_e_len = spprintf(&router_e, 0, "%s%s", Z_STRVAL_P(safe), GENE_ROUTER_ROUTER_EVENT);
@@ -1194,11 +1214,10 @@
 					 gene_memory_set_by_router(router_e, router_e_len, key, contentval, 0);
 					 efree(key);
 				 }
-				 efree(router_e);
-				 efree(path);
-				 zval_ptr_dtor(&content);
-				 RETURN_ZVAL(self, 1, 0);
-			 }
+			 efree(router_e);
+			 efree(path);
+			 zval_ptr_dtor(&content);
+			 RETURN_ZVAL(self, 1, 0);
 		 }
 	 }
 	 if (path) {

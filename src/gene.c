@@ -1,4 +1,4 @@
-﻿/*
+/*
  +----------------------------------------------------------------------+
  | gene                                                                 |
  +----------------------------------------------------------------------+
@@ -77,22 +77,20 @@ PHP_INI_END();
 zend_long gene_get_coroutine_id(void) {
 	zval retval;
 	zend_long cid = -1;
-	static zend_function *cached_func = NULL;
-	static zend_bool func_resolved = 0;
 
-	if (!func_resolved) {
+	if (!GENE_G(swoole_getcid_resolved)) {
 		zend_string *func_name = zend_string_init(ZEND_STRL("swoole\\coroutine::getcid"), 0);
-		cached_func = zend_hash_find_ptr(EG(function_table), func_name);
+		GENE_G(swoole_getcid_func) = zend_hash_find_ptr(EG(function_table), func_name);
 		zend_string_release(func_name);
-		func_resolved = 1;
+		GENE_G(swoole_getcid_resolved) = 1;
 	}
 
-	if (cached_func) {
+	if (GENE_G(swoole_getcid_func)) {
 		zend_fcall_info fci = empty_fcall_info;
 		zend_fcall_info_cache fcc = empty_fcall_info_cache;
 		fci.size = sizeof(fci);
 		fci.retval = &retval;
-		fcc.function_handler = cached_func;
+		fcc.function_handler = GENE_G(swoole_getcid_func);
 		ZVAL_UNDEF(&retval);
 		if (zend_call_function(&fci, &fcc) == SUCCESS && Z_TYPE(retval) == IS_LONG) {
 			cid = Z_LVAL(retval);
@@ -123,9 +121,9 @@ void gene_request_context_init(gene_request_context *ctx) {
 }
 /* }}} */
 
-/* {{{ gene_request_context_reset */
-void gene_request_context_reset(gene_request_context *ctx) {
-	if (!ctx) return;
+/* {{{ gene_request_context_free_fields - shared cleanup for reset/destroy */
+static void gene_request_context_free_fields(gene_request_context *ctx) {
+	zval *pp;
 	if (ctx->method) { efree(ctx->method); ctx->method = NULL; }
 	if (ctx->path) { efree(ctx->path); ctx->path = NULL; }
 	if (ctx->router_path) { efree(ctx->router_path); ctx->router_path = NULL; }
@@ -134,11 +132,10 @@ void gene_request_context_reset(gene_request_context *ctx) {
 	if (ctx->action) { efree(ctx->action); ctx->action = NULL; }
 	if (ctx->child_views) { efree(ctx->child_views); ctx->child_views = NULL; }
 	if (ctx->lang) { efree(ctx->lang); ctx->lang = NULL; }
-	if (ctx->path_params) {
-		zval_ptr_dtor(ctx->path_params);
-		efree(ctx->path_params);
-		ctx->path_params = NULL;
-	}
+	if (ctx->log_file) { efree(ctx->log_file); ctx->log_file = NULL; }
+	pp = ctx->path_params;
+	ctx->path_params = NULL;
+	if (pp) { zval_ptr_dtor(pp); efree(pp); }
 	if (Z_TYPE(ctx->request_attr) != IS_UNDEF) {
 		zval_ptr_dtor(&ctx->request_attr);
 		ZVAL_UNDEF(&ctx->request_attr);
@@ -167,63 +164,25 @@ void gene_request_context_reset(gene_request_context *ctx) {
 		zval_ptr_dtor(&ctx->db_mssql_history);
 		ZVAL_UNDEF(&ctx->db_mssql_history);
 	}
-	if (ctx->log_file) { efree(ctx->log_file); ctx->log_file = NULL; }
 	ctx->log_level = 0;
 	ctx->log_level_set = 0;
+	ctx->view_scope_no = 0;
+}
+/* }}} */
+
+/* {{{ gene_request_context_reset */
+void gene_request_context_reset(gene_request_context *ctx) {
+	if (!ctx) return;
+	gene_request_context_free_fields(ctx);
 	ctx->path_params = (zval*) emalloc(sizeof(zval));
 	array_init(ctx->path_params);
-	ctx->view_scope_no = 0;
 }
 /* }}} */
 
 /* {{{ gene_request_context_destroy */
 void gene_request_context_destroy(gene_request_context *ctx) {
 	if (!ctx) return;
-	if (ctx->method) { efree(ctx->method); ctx->method = NULL; }
-	if (ctx->path) { efree(ctx->path); ctx->path = NULL; }
-	if (ctx->router_path) { efree(ctx->router_path); ctx->router_path = NULL; }
-	if (ctx->module) { efree(ctx->module); ctx->module = NULL; }
-	if (ctx->controller) { efree(ctx->controller); ctx->controller = NULL; }
-	if (ctx->action) { efree(ctx->action); ctx->action = NULL; }
-	if (ctx->child_views) { efree(ctx->child_views); ctx->child_views = NULL; }
-	if (ctx->lang) { efree(ctx->lang); ctx->lang = NULL; }
-	if (ctx->path_params) {
-		zval_ptr_dtor(ctx->path_params);
-		efree(ctx->path_params);
-		ctx->path_params = NULL;
-	}
-	if (Z_TYPE(ctx->request_attr) != IS_UNDEF) {
-		zval_ptr_dtor(&ctx->request_attr);
-		ZVAL_UNDEF(&ctx->request_attr);
-	}
-	if (Z_TYPE(ctx->di_regs) != IS_UNDEF) {
-		zval_ptr_dtor(&ctx->di_regs);
-		ZVAL_UNDEF(&ctx->di_regs);
-	}
-	if (Z_TYPE(ctx->view_vars) != IS_UNDEF) {
-		zval_ptr_dtor(&ctx->view_vars);
-		ZVAL_UNDEF(&ctx->view_vars);
-	}
-	if (Z_TYPE(ctx->db_mysql_history) != IS_UNDEF) {
-		zval_ptr_dtor(&ctx->db_mysql_history);
-		ZVAL_UNDEF(&ctx->db_mysql_history);
-	}
-	if (Z_TYPE(ctx->db_pgsql_history) != IS_UNDEF) {
-		zval_ptr_dtor(&ctx->db_pgsql_history);
-		ZVAL_UNDEF(&ctx->db_pgsql_history);
-	}
-	if (Z_TYPE(ctx->db_sqlite_history) != IS_UNDEF) {
-		zval_ptr_dtor(&ctx->db_sqlite_history);
-		ZVAL_UNDEF(&ctx->db_sqlite_history);
-	}
-	if (Z_TYPE(ctx->db_mssql_history) != IS_UNDEF) {
-		zval_ptr_dtor(&ctx->db_mssql_history);
-		ZVAL_UNDEF(&ctx->db_mssql_history);
-	}
-	if (ctx->log_file) { efree(ctx->log_file); ctx->log_file = NULL; }
-	ctx->log_level = 0;
-	ctx->log_level_set = 0;
-	ctx->view_scope_no = 0;
+	gene_request_context_free_fields(ctx);
 }
 /* }}} */
 
@@ -231,6 +190,10 @@ void gene_request_context_destroy(gene_request_context *ctx) {
 static void gene_co_context_dtor(zval *zv) {
 	gene_request_context *ctx = (gene_request_context *)Z_PTR_P(zv);
 	if (ctx) {
+		if (GENE_G(current_ctx) == ctx) {
+			GENE_G(current_ctx) = NULL;
+			GENE_G(current_cid) = -1;
+		}
 		gene_request_context_destroy(ctx);
 		efree(ctx);
 	}
@@ -253,8 +216,11 @@ gene_request_context *gene_request_ctx(void) {
 	if (GENE_G(runtime_type) < 2) {
 		return &GENE_G(default_ctx);
 	}
-	gene_init_co_contexts();
 	cid = gene_get_coroutine_id();
+	if (cid >= 0 && cid == GENE_G(current_cid) && GENE_G(current_ctx)) {
+		return GENE_G(current_ctx);
+	}
+	gene_init_co_contexts();
 	if (cid < 0) {
 		if (!GENE_G(resident_ctx)) {
 			GENE_G(resident_ctx) = ecalloc(1, sizeof(gene_request_context));
@@ -290,6 +256,8 @@ static void php_gene_init_globals() {
 	GENE_G(co_contexts) = NULL;
 	GENE_G(current_ctx) = NULL;
 	GENE_G(current_cid) = -1;
+	GENE_G(swoole_getcid_func) = NULL;
+	GENE_G(swoole_getcid_resolved) = 0;
 	GENE_G(cache) = NULL;
 	GENE_G(cache_easy) = NULL;
 	gene_rwlock_init(&GENE_G(cache_lock));
