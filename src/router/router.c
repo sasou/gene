@@ -376,18 +376,20 @@
 	 if (Z_TYPE(classObject) == IS_OBJECT
 			 && zend_hash_str_exists(&(Z_OBJCE(classObject)->function_table), action_alloc, strlen(action_alloc))) {
 		 gene_factory_call_1(&classObject, action_alloc, ctx->path_params, retval);
+		 zval_ptr_dtor(&classObject);
 		 if (class_alloc) efree(class_alloc);
 		 efree(action_alloc);
 		 efree(copy);
 		 return 1;
 	 }
- 
+
 	 php_error_docref(NULL, E_WARNING, "Gene direct dispatch: unable to call method '%s' in class '%s'.", action_alloc, class_name);
+	 zval_ptr_dtor(&classObject);
 	 if (class_alloc) efree(class_alloc);
 	 efree(action_alloc);
 	 efree(copy);
 	 return 0;
- }
+}
  /* }}} */
  
  /** {{{ gene_router_exec_hook_direct
@@ -419,7 +421,7 @@
 	 }
  
 	 gene_strtolower(method);
- 
+
 	 if (Z_TYPE(classObject) == IS_OBJECT
 			 && zend_hash_str_exists(&(Z_OBJCE(classObject)->function_table), method, strlen(method))) {
 		 if (param) {
@@ -428,9 +430,10 @@
 			 gene_factory_call(&classObject, method, NULL, &retval);
 		 }
 	 }
- 
+
+	 zval_ptr_dtor(&classObject);
 	 efree(copy);
- 
+
 	 if (is_before) {
 		 int abort = 0;
 		 if (Z_TYPE(retval) != IS_NULL && Z_TYPE(retval) != IS_UNDEF) {
@@ -442,10 +445,10 @@
 		 zval_ptr_dtor(&retval);
 		 return abort ? 0 : 1;
 	 }
- 
+
 	 zval_ptr_dtor(&retval);
 	 return 1;
- }
+}
  /* }}} */
  
  /** {{{ static void get_router_info(char *keyString, int keyString_len)
@@ -1566,16 +1569,18 @@ PHP_METHOD(gene_router, __call) {
 				 && zend_hash_str_exists(&(Z_OBJCE(classObject)->function_table), action, strlen(action))) {
 			 zval ret;
 			 gene_factory_call_1(&classObject, action, params, &ret);
+			 zval_ptr_dtor(&classObject);
 			 if (class_alloc) efree(class_alloc);
 			 if (action_alloc) efree(action_alloc);
 			 RETURN_ZVAL(&ret, 1, 1);
 		 } else {
 			 php_error_docref(NULL, E_WARNING, "Unable to call method '%s' in class '%s'." , action, class);
 		 }
+		 zval_ptr_dtor(&classObject);
 		 if (class_alloc) efree(class_alloc);
 		 if (action_alloc) efree(action_alloc);
 		 RETURN_NULL();
- 
+
 	 } else {
 		 php_error_docref(NULL, E_WARNING, "Unable to init calss '%s'." , class);
 	 }
