@@ -203,14 +203,24 @@ bool show_sql_errors(zval *pdo_object)
     zval retval;
     zend_string *ok_state;
     gene_pdo_error_info(pdo_object, &retval);
+    if (Z_TYPE(retval) != IS_ARRAY) {
+    	zval_ptr_dtor(&retval);
+    	return 0;
+    }
     zval *sql_state = zend_hash_index_find(Z_ARRVAL(retval), 0);
-    zval *sql_code = zend_hash_index_find(Z_ARRVAL_P(&retval), 1);
-    zval *sql_info = zend_hash_index_find(Z_ARRVAL_P(&retval), 2);
+    zval *sql_code = zend_hash_index_find(Z_ARRVAL(retval), 1);
+    zval *sql_info = zend_hash_index_find(Z_ARRVAL(retval), 2);
+    if (!sql_state || Z_TYPE_P(sql_state) != IS_STRING) {
+    	zval_ptr_dtor(&retval);
+    	return 0;
+    }
     ok_state = zend_string_init(ZEND_STRL("00000"), 0);
     if (!zend_string_equals(Z_STR_P(sql_state), ok_state)) {
     	zend_string_release(ok_state);
+    	zend_long code = (sql_code && Z_TYPE_P(sql_code) == IS_LONG) ? Z_LVAL_P(sql_code) : 0;
+    	char *info = (sql_info && Z_TYPE_P(sql_info) == IS_STRING) ? Z_STRVAL_P(sql_info) : "Unknown error";
     	zval_ptr_dtor(&retval);
-    	php_error_docref(NULL, E_ERROR, "SQL: %d %s", Z_LVAL_P(sql_code), Z_STRVAL_P(sql_info));
+    	php_error_docref(NULL, E_ERROR, "SQL: " ZEND_LONG_FMT " %s", code, info);
         return 1;
     }
     zend_string_release(ok_state);
