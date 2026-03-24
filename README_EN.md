@@ -4,7 +4,7 @@
 
 **A high-performance PHP extension framework developed in C**
 
-[![Version](https://img.shields.io/badge/version-5.3.6-blue.svg)](https://github.com/sasou/php-gene)
+[![Version](https://img.shields.io/badge/version-5.4.0-blue.svg)](https://github.com/sasou/php-gene)
 [![License](https://img.shields.io/badge/license-PHP%203.01-green.svg)](http://www.php.net/license/3_01.txt)
 [![Website](https://img.shields.io/badge/website-1xm.net-orange.svg)](https://www.1xm.net/)
 
@@ -57,6 +57,27 @@ After rigorous code audit, the framework features:
 | **Session Management** | Multi-driver support, Swoole adaptation | ⭐⭐⭐⭐☆ |
 | **Internationalization** | Multi-language solution, flexible configuration | ⭐⭐⭐⭐☆ |
 | **Command Line** | Console programs, daemon process support | ⭐⭐⭐⭐☆ |
+
+## System Requirements
+
+### Required Dependencies
+- **PHP 8.0+** - Framework is developed for PHP 8.0+, requires at least PHP 8.0.0
+- **PDO Extension** - Required for database operations, supports MySQL/PostgreSQL/SQLite etc
+
+### Optional Dependencies
+
+**Cache System**
+- **Redis Extension** - Required when using Redis cache: `extension=redis`
+- **Memcached Extension** - Required when using Memcached cache: `extension=memcached`
+
+**High Performance Mode**
+- **Swoole Extension** - For resident process mode and high-performance HTTP service: `extension=swoole`
+
+**Database Drivers**
+- **MySQL PDO Driver** - `extension=pdo_mysql`
+- **PostgreSQL PDO Driver** - `extension=pdo_pgsql`
+- **SQLite PDO Driver** - `extension=pdo_sqlite`
+- **SQL Server PDO Driver** - `extension=pdo_sqlsrv`
 
 ## Quick Start
 
