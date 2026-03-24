@@ -1,4 +1,4 @@
-﻿/*
+/*
  +----------------------------------------------------------------------+
  | gene                                                                 |
  +----------------------------------------------------------------------+
@@ -21,6 +21,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include "php.h"
+#include "php_streams.h"
 #include "string.h"
 #include <ctype.h>
 #include "../common/common.h"
@@ -215,9 +216,12 @@ char * replaceAll(char * src, const char oldChar, const char newChar) {
  * {{{ insertAll(char *dst, char *src, int n)
  */
 char * insertAll(char * dest, char * src, char oldChar, char newChar) {
-	int size = 50;
-	char *head;
-	dest = (char *) emalloc(strlen(src) + size + 1);
+	size_t extra = 0;
+	char *p, *head;
+	for (p = src; *p != '\0'; p++) {
+		if (*p == oldChar) extra++;
+	}
+	dest = (char *) emalloc(strlen(src) + extra + 1);
 	head = dest;
 	while (*src != '\0') {
 		if (*src == oldChar) {
@@ -537,20 +541,20 @@ void remove_extra_space(char *str) {
 
 char *readfilecontent(char *file) {
 	char *tmp = NULL;
-	int file_size = 0;
-	FILE *fp = NULL;
+	php_stream *stream = NULL;
+	zend_string *contents = NULL;
 	if (strstr(file, "..") != NULL) {
 		php_error_docref(NULL, E_WARNING, "Path traversal detected in file path: %s", file);
 		return NULL;
 	}
-	fp = fopen(file, "rb");
-	if (fp != NULL) {
-		fseek(fp, 0, SEEK_END);
-		file_size = ftell(fp);
-		fseek(fp, 0, SEEK_SET);
-		tmp = (char*) ecalloc(file_size + 1, sizeof(char));
-		fread(tmp, file_size, sizeof(char), fp);
-		fclose(fp);
+	stream = php_stream_open_wrapper(file, "rb", REPORT_ERRORS, NULL);
+	if (stream) {
+		contents = php_stream_copy_to_mem(stream, PHP_STREAM_COPY_ALL, 0);
+		php_stream_close(stream);
+		if (contents) {
+			tmp = estrndup(ZSTR_VAL(contents), ZSTR_LEN(contents));
+			zend_string_release(contents);
+		}
 	}
 	return tmp;
 }
