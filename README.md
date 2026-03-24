@@ -6,7 +6,7 @@
 
 优雅、极速、灵活、简单的PHP扩展框架
 
-[![Version](https://img.shields.io/badge/version-5.3.6-blue.svg)](https://github.com/sasou/php-gene)
+[![Version](https://img.shields.io/badge/version-5.4.0-blue.svg)](https://github.com/sasou/php-gene)
 [![License](https://img.shields.io/badge/license-PHP%203.01-green.svg)](http://www.php.net/license/3_01.txt)
 [![Website](https://img.shields.io/badge/website-1xm.net-orange.svg)](https://www.1xm.net/)
 
@@ -61,6 +61,27 @@
 | **会话管理** | 多驱动支持，Swoole适配 | ⭐⭐⭐⭐☆ |
 | **国际化** | 多语言方案，灵活配置 | ⭐⭐⭐⭐☆ |
 | **命令行** | 控制台程序，守护进程支持 | ⭐⭐⭐⭐☆ |  
+
+### 系统要求
+
+#### 必需依赖
+- **PHP 8.0+** - 框架基于PHP 8.0+开发，需要至少PHP 8.0.0版本
+- **PDO扩展** - 数据库操作必需，支持MySQL/PostgreSQL/SQLite等
+
+#### 可选依赖
+
+**缓存系统**
+- **Redis扩展** - 使用Redis缓存时必需：`extension=redis`
+- **Memcached扩展** - 使用Memcached缓存时必需：`extension=memcached`
+
+**高性能模式**
+- **Swoole扩展** - 常驻进程模式和高性能HTTP服务：`extension=swoole`
+
+**数据库驱动**
+- **MySQL PDO驱动** - `extension=pdo_mysql`
+- **PostgreSQL PDO驱动** - `extension=pdo_pgsql`
+- **SQLite PDO驱动** - `extension=pdo_sqlite`
+- **SQL Server PDO驱动** - `extension=pdo_sqlsrv`
 
 ### 快速开始
 
