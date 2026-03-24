@@ -135,8 +135,6 @@ void gene_load_file_by_class_name (char *className) {
 
 	if (GENE_G(app_root)) {
 		spprintf(&filePath, 0, "%s/%s.php", GENE_G(app_root), fileNmae);
-	} else if (GENE_G(directory)) {
-		spprintf(&filePath, 0, "%s/application/%s.php", GENE_G(directory), fileNmae);
 	} else {
 		spprintf(&filePath, 0, "%s.php", fileNmae);
 	}

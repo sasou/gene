@@ -90,8 +90,8 @@ zval *gene_di_get(zend_string *name) {
 
 	if (GENE_G(app_key) && strlen(GENE_G(app_key)) > 0) {
 		router_e_len = spprintf(&router_e, 0, "%s%s", GENE_G(app_key), GENE_CONFIG_CACHE);
-	} else if (GENE_G(directory) && strlen(GENE_G(directory)) > 0) {
-		router_e_len = spprintf(&router_e, 0, "%s%s", GENE_G(directory), GENE_CONFIG_CACHE);
+	} else if (GENE_G(app_root) && strlen(GENE_G(app_root)) > 0) {
+		router_e_len = spprintf(&router_e, 0, "%s%s", GENE_G(app_root), GENE_CONFIG_CACHE);
 	} else {
 		router_e_len = spprintf(&router_e, 0, "%s", GENE_CONFIG_CACHE);
 	}

@@ -113,7 +113,6 @@
  } gene_request_context;
  
  ZEND_BEGIN_MODULE_GLOBALS (gene)
- char *directory;
  char *app_root;
  char *library_root;
  char *app_view;
