@@ -482,3 +482,140 @@ zval * gene_memory_get_quick(...) {
 **Swoole 稳定性**：持久化缓存指针竞态已记录为已知限制，实际触发概率极低（路由数据在请求处理期间通常不会被修改）。
 
 **性能**：闭包路由的 eval 是持久化缓存架构的必然结果，当前已优化到可行极限。生产环境推荐使用字符串路由以获得零 eval + OPcache 双重优势。
+
+---
+
+# 第四轮审计（Round 4）
+
+审计时间：2026-03-24  
+审计重点：
+1. HTTP/MVC 模块完整审查（request.c、response.c、validate.c、service.c、session.c）
+2. DB 模块交叉校验（Round 2 O-03 修复状态验证）
+3. PDO 层错误处理健壮性
+4. Config 模块类型安全
+
+---
+
+## 修复总览
+
+| 编号 | 级别 | 类别 | 描述 | 状态 |
+|------|------|------|------|------|
+| H4-01 | 高 | 稳定性 | `response.c` cookie() 未初始化可选参数 → 垃圾指针解引用崩溃 | ✅ 已修复 |
+| H4-02 | 高 | 稳定性 | `pdo.c` show_sql_errors() 缺少 NULL/类型检查 → 崩溃 | ✅ 已修复 |
+| H4-03 | 中 | 内存安全 | `config.c` set() `int` vs `size_t` 类型不匹配 → 栈溢出 | ✅ 已修复 |
+| H4-04 | 备忘 | 代码质量 | O-03 修复未实际应用 — DB 属性仍为 PUBLIC | ⚠️ 已确认待修复 |
+
+---
+
+## 一、稳定性修复
+
+### H4-01 [高] response.c cookie() — 未初始化可选参数导致垃圾指针崩溃
+
+**文件**：`src/http/response.c` `PHP_METHOD(gene_response, cookie)`
+
+**问题**：
+
+```c
+zval *name, *value, *expires, *path, *domain, *secure, *httponly;
+if (zend_parse_parameters(ZEND_NUM_ARGS(), "z|zzzzzz", ...) == FAILURE) {
+    return;
+}
+gene_response_cookie(name, value, expires, path, domain, secure, httponly, return_value);
+```
+
+`value` 至 `httponly` 6 个指针声明时未初始化为 NULL。当调用者传入少于 7 个参数时，`zend_parse_parameters` 不修改未提供的可选参数对应的 C 变量，导致它们保持栈上的**垃圾值**。
+
+`gene_response_cookie()` 通过 `if (value)` 判断是否使用可选参数，但垃圾指针非 NULL 会通过检测 → `*value` 解引用垃圾地址 → **segfault**。
+
+**触发条件**：`Gene\Response::cookie("name")` — 仅传名称不传值。
+
+**修复**：将 6 个可选参数初始化为 NULL。
+
+### H4-02 [高] pdo.c show_sql_errors() — 缺少返回值与 NULL 检查
+
+**文件**：`src/db/pdo.c` `show_sql_errors()`
+
+**问题**：
+
+```c
+gene_pdo_error_info(pdo_object, &retval);
+zval *sql_state = zend_hash_index_find(Z_ARRVAL(retval), 0);  // retval 未验证为数组
+zval *sql_code  = zend_hash_index_find(Z_ARRVAL_P(&retval), 1);  // 可能返回 NULL
+zval *sql_info  = zend_hash_index_find(Z_ARRVAL_P(&retval), 2);  // 可能返回 NULL
+ok_state = zend_string_init(ZEND_STRL("00000"), 0);
+if (!zend_string_equals(Z_STR_P(sql_state), ok_state)) {  // sql_state 可能为 NULL
+    php_error_docref(NULL, E_ERROR, "SQL: %d %s", Z_LVAL_P(sql_code), Z_STRVAL_P(sql_info));
+```
+
+三重风险：
+1. `retval` 未验证 `IS_ARRAY` → `Z_ARRVAL()` 对非数组类型 → 崩溃
+2. `zend_hash_index_find` 可能返回 NULL → `Z_STR_P(NULL)` → 崩溃
+3. `sql_code`/`sql_info` 可能为 NULL → `Z_LVAL_P(NULL)` / `Z_STRVAL_P(NULL)` → 崩溃
+
+**触发条件**：PDO 对象无效或驱动未正确返回 errorInfo 数组时。
+
+**修复**：添加 `retval` 类型检查和三个 `zend_hash_index_find` 返回值 NULL 检查。
+
+---
+
+## 二、内存安全修复
+
+### H4-03 [中] config.c set() — `int` vs `size_t` 类型不匹配
+
+**文件**：`src/config/configs.c` `PHP_METHOD(gene_config, set)`
+
+**问题**：
+
+```c
+int keyString_len, validity = 0;
+...
+zend_parse_parameters(ZEND_NUM_ARGS(), "sz|l", &keyString, &keyString_len, ...)
+```
+
+`zend_parse_parameters` 的 `"s"` 格式符向 `&keyString_len` 写入 `size_t`（64 位系统 8 字节），但 `keyString_len` 声明为 `int`（4 字节）。写入溢出 4 字节到相邻栈变量 `validity`。
+
+**实际影响**：由于字符串长度通常较小（高 4 字节为 0），`validity` 被覆盖为 0 与其初始值相同，且 `validity` 参数未被使用（O-02 已记录），因此实际危害极低。但属于未定义行为，应修正。
+
+**修复**：将 `int keyString_len` 改为 `size_t keyString_len`。
+
+---
+
+## 三、代码质量
+
+### H4-04 [备忘] O-03 修复未实际应用 — DB 属性仍为 PUBLIC
+
+**文件**：`src/db/mysql.c`、`src/db/pgsql.c`、`src/db/mssql.c`、`src/db/sqlite.c`
+
+**问题**：Round 2 审计报告中 O-03 标记为 "✅ 已修复"，但实际代码中 `config`、`pdo`、`sql`、`where`、`group`、`having`、`order`、`limit`、`data` 9 个属性在全部 4 个 DB 模块中仍为 `ZEND_ACC_PUBLIC`。仅 `pool` 和 `history` 为 `ZEND_ACC_PROTECTED`。
+
+**状态**：确认未应用。标记为待修复。
+
+---
+
+## 第四轮修改文件清单
+
+| 文件 | 关联编号 |
+|------|----------|
+| `src/http/response.c` | H4-01 |
+| `src/db/pdo.c` | H4-02 |
+| `src/config/configs.c` | H4-03 |
+
+---
+
+## 最终审计结论（四轮总计）
+
+经过四轮审计，框架核心模块已全面覆盖：
+
+**Round 1-2**：路由性能（零 eval 快速路径）、Swoole 原子计数、上下文生命周期安全、内存泄漏修复
+**Round 3**：控制器/Hook 对象泄漏（严重）、factory addref 泄漏、PDO NULL 保护
+**Round 4**：HTTP 响应层参数安全、PDO 错误处理健壮性、Config 类型安全
+
+**累计统计**（四轮）：
+- 严重/高：3（R3）+ 2（R4）= 5 项新发现，均已修复
+- 中：1（R4）已修复
+- 备忘：1（R4）O-03 待确认应用
+
+**剩余已知限制**：
+- 持久化缓存指针竞态（S3-01）— 架构性约束，v6 处理
+- 闭包路由 eval 开销 — 架构性约束，推荐使用字符串路由
+- DB 属性可见性（H4-04/O-03）— 待应用修复

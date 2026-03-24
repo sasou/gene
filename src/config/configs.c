@@ -78,7 +78,8 @@ PHP_METHOD(gene_config, __construct) {
  */
 PHP_METHOD(gene_config, set) {
 	char *keyString, *router_e, *path;
-	int keyString_len, validity = 0;
+	size_t keyString_len;
+	int validity = 0;
 	size_t router_e_len;
 	zval *self = getThis(), *zvalue, *safe;
 	if (zend_parse_parameters(ZEND_NUM_ARGS(), "sz|l", &keyString,
