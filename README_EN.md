@@ -6,7 +6,7 @@
 
 [![Version](https://img.shields.io/badge/version-5.3.6-blue.svg)](https://github.com/sasou/php-gene)
 [![License](https://img.shields.io/badge/license-PHP%203.01-green.svg)](http://www.php.net/license/3_01.txt)
-[![Website](https://img.shields.io/badge/website-1xm.net-orange.svg)](http://1xm.net/)
+[![Website](https://img.shields.io/badge/website-1xm.net-orange.svg)](https://www.1xm.net/)
 
 [中文](README.md) | [English](README_EN.md)
 
@@ -206,7 +206,7 @@ Based on rigorous performance testing, Gene Framework performs excellently:
 |------------|----------|-----|-------------|
 | PHP-FPM + Nginx | Gene | ~15,000 | Low |
 | PHP-FPM + Nginx | Native PHP | ~16,000 | Lowest |
-| Swoole | Gene | ~45,000 | Medium |
+| Swoole | Gene | ~47,000 | Low |
 | Swoole | Native PHP | ~48,000 | Lowest |
 
 **Conclusion**: Gene Framework maintains minimal performance loss while providing a complete feature stack, making it one of the fastest PHP frameworks in the industry.
@@ -219,7 +219,7 @@ Based on rigorous performance testing, Gene Framework performs excellently:
 - ✅ Standard PHP lifecycle
 - ✅ Production environment proven
 
-### Swoole Mode: ⭐⭐⭐⭐☆ (Medium-High Stability)
+### Swoole Mode: ⭐⭐⭐⭐☆ (High Stability)
 - ✅ Complete coroutine context management
 - ✅ Memory cleanup mechanism
 - ✅ Connection pool management
@@ -233,15 +233,15 @@ Based on rigorous performance testing, Gene Framework performs excellently:
 
 ## Technical Support
 
-- 📖 [Official Documentation](http://1xm.net/)
+- 📖 [Official Documentation](https://www.1xm.net/)
 - 🐛 [Issue Tracker](https://github.com/sasou/php-gene/issues)
-- 💬 [Technical Support](mailto:admin@php-gene.com)
+- 💬 [Technical Support](mailto:zaipd@qq.com)
 
 ---
 
 ## Links
 
-- **Official Website**: [http://1xm.net/](http://1xm.net/)
+- **Official Website**: [https://www.1xm.net/](https://www.1xm.net/)
 - **PHP5 Version**: [https://github.com/sasou/php-gene](https://github.com/sasou/php-gene) (Version 2.1.0)
 - **Windows Version**: [https://github.com/sasou/php-gene-for-windows](https://github.com/sasou/php-gene-for-windows)
 
@@ -252,6 +252,6 @@ Based on rigorous performance testing, Gene Framework performs excellently:
 **Gene Framework - Simple Coding, Elegant Life!**
 
 [![License](https://img.shields.io/badge/license-PHP%203.01-green.svg)](http://www.php.net/license/3_01.txt)
-[![Author](https://img.shields.io/badge/author-Sasou-blue.svg)](mailto:admin@php-gene.com)
+[![Author](https://img.shields.io/badge/author-Sasou-blue.svg)](mailto:zaipd@qq.com)
 
 </div>
