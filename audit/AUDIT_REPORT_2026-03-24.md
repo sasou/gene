@@ -272,7 +272,7 @@ static 缓存策略在极端重载/生命周期边界下存在失效风险。
 
 ---
 
-## 审计结论
+## 审计结论（前两轮）
 
 经过两轮修复，框架在以下方面取得实质性改进：
 
@@ -282,4 +282,203 @@ static 缓存策略在极端重载/生命周期边界下存在失效风险。
 4. **内存安全**：不可达释放分支修复（M-01）+ 精确分配（M-02）+ 重复代码合并（M-04）—— 消除潜在泄漏和溢出
 5. **代码质量**：DB 属性收敛（O-03）+ PHP VFS（O-04）+ 查表优化（O-05）
 
-剩余 5 项为低优先级或需大版本配合的改进项，不影响当前版本稳定运行。
+---
+
+# 第三轮审计（Round 3）
+
+审计时间：2026-03-24  
+审计重点：
+1. 性能优化 —— 闭包路由在开启 OPcache 时的优化可行性
+2. 内存泄漏检查 —— 全路径内存生命周期跟踪
+3. FPM 模式稳定性检查
+4. Swoole 模式稳定性检查
+
+---
+
+## 修复总览
+
+| 编号 | 级别 | 类别 | 描述 | 状态 |
+|------|------|------|------|------|
+| M3-01 | 严重 | 内存 | `gene_router_dispatch_direct` classObject 每次调度泄漏 | ✅ 已修复 |
+| M3-02 | 严重 | 内存 | `gene_router_exec_hook_direct` classObject 每次 hook 泄漏 | ✅ 已修复 |
+| M3-03 | 严重 | 内存 | `PHP_METHOD(gene_router, dispatch)` classObject 泄漏 | ✅ 已修复 |
+| M3-04 | 高 | 内存 | `gene_factory::create()` 多余 addref 致对象永不释放 | ✅ 已修复 |
+| M3-05 | 中 | 内存 | `exception.c` error/exception handler 注册时 bak zval 泄漏 | ✅ 已修复 |
+| F3-01 | 中 | FPM | mysql/pgsql/mssql/sqlite PDO 类查找失败 NULL 解引用 → segfault | ✅ 已修复 |
+| S3-01 | 备忘 | Swoole | `gene_memory_get*` 释放 RDLOCK 后返回内部指针（竞态风险） | ⚠️ 已记录 |
+| P3-01 | 分析 | 性能 | 闭包路由 OPcache 可行性分析 | 📋 分析完成 |
+
+---
+
+## 一、内存泄漏修复
+
+### M3-01 [严重] gene_router_dispatch_direct — classObject 泄漏
+
+**文件**：`src/router/router.c` `gene_router_dispatch_direct()`
+
+**问题**：`gene_factory()` 创建 `classObject`（refcount=1），但成功和失败两条路径均未调用 `zval_ptr_dtor(&classObject)`。**每次路由调度泄漏一个控制器对象**，在 FPM 和 Swoole 模式下均会导致内存持续增长。
+
+**影响**：高并发场景下，每请求泄漏一个控制器实例（含其所有属性），是本轮发现的**最严重内存泄漏**。
+
+**修复**：在成功路径（`gene_factory_call_1` 之后）和失败路径（方法不存在）的 `return` 前均添加 `zval_ptr_dtor(&classObject)`。
+
+### M3-02 [严重] gene_router_exec_hook_direct — classObject 泄漏
+
+**文件**：`src/router/router.c` `gene_router_exec_hook_direct()`
+
+**问题**：与 M3-01 相同模式。`gene_factory()` 成功后创建的 hook 类对象从未被释放。**每次 hook 执行（before/after/specific）泄漏一个对象**。
+
+**修复**：在 `efree(copy)` 后、`return` 前添加 `zval_ptr_dtor(&classObject)`。
+
+### M3-03 [严重] PHP_METHOD(gene_router, dispatch) — classObject 泄漏
+
+**文件**：`src/router/router.c` `PHP_METHOD(gene_router, dispatch)`
+
+**问题**：公开的 `dispatch()` 静态方法在 `gene_factory()` 成功后创建 `classObject`，有三条出口路径：
+1. 方法调用成功 → `RETURN_ZVAL(&ret, 1, 1)` — classObject 未释放
+2. 方法不存在 → `RETURN_NULL()` — classObject 未释放
+3. 外层 else → gene_factory 失败 — classObject 未初始化，安全
+
+**修复**：在路径 1 的 `RETURN_ZVAL` 前和路径 2 的 `RETURN_NULL` 前均添加 `zval_ptr_dtor(&classObject)`。
+
+### M3-04 [高] gene_factory::create() — 多余 Z_TRY_ADDREF
+
+**文件**：`src/factory/factory.c` `PHP_METHOD(gene_factory, create)`
+
+**问题**：`gene_factory()` 返回 refcount=1 的对象。原代码：
+
+```c
+Z_TRY_ADDREF_P(&classObject);        // refcount: 1→2（多余！）
+if (type) {
+    Z_TRY_ADDREF_P(&classObject);    // refcount: 2→3
+    zend_hash_update(..., &classObject);
+}
+RETURN_ZVAL(&classObject, 0, 0);     // copy=0, dtor=0
+```
+
+`RETURN_ZVAL` 使用 `ZVAL_COPY_VALUE`（不增减 refcount），因此：
+- `type=0`：return_value 独占 refcount=2 → 释放后 refcount=1 → **永不归零，对象泄漏**
+- `type=1`：两个持有者共享 refcount=3 → 全释放后 refcount=1 → **对象泄漏**
+
+**修复**：移除第一个 `Z_TRY_ADDREF_P`。修复后：
+- `type=0`：refcount=1，return_value 独占 → 释放归零 ✓
+- `type=1`：addref → refcount=2，hash + return_value 各持有 → 逐次释放归零 ✓
+
+### M3-05 [中] exception.c — bak zval 字符串泄漏
+
+**文件**：`src/exception/exception.c`
+
+**问题**：`gene_exception_error_register()` 和 `gene_exception_register()` 中，当 `callback == NULL` 时，通过 `ZVAL_STRING(&bak, ...)` 分配了堆字符串。但函数返回前从未调用 `zval_ptr_dtor(&bak)`，导致每次使用默认回调时泄漏一个 `zend_string`。
+
+**修复**：添加 `used_bak` 标记，在成功和失败两条路径末尾均检查并释放 `bak`。
+
+---
+
+## 二、FPM 模式稳定性
+
+### F3-01 [中] 四个 DB 模块 PDO 类查找缺少 NULL 保护
+
+**文件**：`src/db/mysql.c`、`src/db/pgsql.c`、`src/db/mssql.c`、`src/db/sqlite.c`
+
+**问题**：所有四个数据库模块在 `initPdo` 函数中执行：
+
+```c
+zend_class_entry *pdo_ptr = zend_lookup_class(c_key);
+object_init_ex(&pdo_object, pdo_ptr);  // pdo_ptr 可能为 NULL！
+```
+
+当 PHP 未加载 PDO 扩展时，`zend_lookup_class` 返回 NULL，`object_init_ex` 收到 NULL class_entry 会导致 **segfault（段错误）**。
+
+**影响**：在 FPM 模式下，如果 `php.ini` 未启用 `extension=pdo`，任何数据库操作将导致 worker 进程崩溃。
+
+**修复**：在四个文件中，`zend_lookup_class` 之后添加 NULL 检查，不通过则报 `E_ERROR` 并 `return -1`。
+
+---
+
+## 三、Swoole 模式稳定性
+
+### S3-01 [备忘] gene_memory_get* 指针稳定性
+
+**文件**：`src/cache/memory.c`
+
+**问题**：`gene_memory_get()`、`gene_memory_get_quick()`、`gene_memory_get_by_config()` 三个函数在释放 RDLOCK **之后**返回指向持久化 cache HashTable 内部的 zval 指针。
+
+```c
+zval * gene_memory_get_quick(...) {
+    GENE_CACHE_RDLOCK();
+    zvalue = zend_symtable_str_find(GENE_G(cache), ...);
+    GENE_CACHE_RDUNLOCK();   // 锁已释放
+    return zvalue;           // 返回的指针可能被其他协程失效
+}
+```
+
+在 Swoole 模式下，如果协程 A 获取了指针后让出（例如进入 IO 等待），协程 B 在此期间调用 `gene_memory_set` 或 `gene_memory_del`，协程 A 持有的指针将指向已释放或已修改的内存。
+
+**风险评估**：`gene_memory_get_quick` 的主要调用者是路由调度（`get_router_content_run`），路由数据通常是只读的（注册后不修改）。实际触发需要在请求处理期间并发修改路由缓存，属于低概率场景。
+
+**当前决策**：记录为已知限制。完整修复需要架构级改动（如将读锁范围扩大到整个请求处理周期，或在读取时复制到请求作用域），将视 v6 版本架构调整一并处理。
+
+---
+
+## 四、性能分析 — 闭包路由与 OPcache
+
+### P3-01 闭包路由 OPcache 可行性分析
+
+**当前实现**：
+1. **注册时**（`__call`）：使用 `ReflectionFunction` + `SplFileObject` 提取闭包源码为字符串
+2. **存储**：源码字符串存入进程级持久化缓存（`GENE_G(cache)`）
+3. **调度时**（`get_router_info`）：通过 `zend_eval_stringl` 编译执行
+
+**为什么 OPcache 无法缓存 eval 代码**：OPcache 按**文件路径**索引编译结果。`zend_eval_stringl` 产生的 op_array 没有关联的文件路径，因此 OPcache 无法缓存它。每次调度都需重新编译。
+
+**替代方案分析**：
+
+| 方案 | 可行性 | 优点 | 缺点 |
+|------|--------|------|------|
+| ① 存储闭包 zval 直接调用 | 部分可行 | 零 eval，利用 OPcache | PHP 对象无法持久化到进程级缓存；仅在路由注册请求有效，后续请求仍需 eval |
+| ② 预编译 op_array 缓存 | 不可行 | 理论最优 | op_array 内部指针跨请求不安全，需要 OPcache 级别的复杂序列化 |
+| ③ 写临时文件 + include | 技术可行 | OPcache 可缓存 | 文件 I/O 开销；临时文件管理复杂；安全风险 |
+| ④ 改用 Class@action 字符串路由 | **最佳实践** | 直接 C 级调度，零 eval，天然 OPcache 友好 | 需要调整代码组织 |
+
+**结论与建议**：
+
+闭包路由的 eval 是由**持久化缓存架构**决定的 —— 闭包是 PHP 对象，无法序列化到进程级内存。这是一个架构性约束，非简单代码修改可解。
+
+**推荐策略**：
+1. **生产环境**：使用 `Class@action` 字符串路由（已通过 P-01 实现零 eval 直接分派），天然利用 OPcache
+2. **开发环境**：闭包路由的 eval 开销可接受（已通过 P-02 使用 smart_str 优化拼接）
+3. **文档建议**：在框架文档中注明，闭包路由适用于快速原型开发，生产环境建议使用字符串路由以获得最佳性能
+
+**当前架构下的优化已到位**：
+- 字符串路由：零 eval，C 级直接分派（P-01）✓
+- 闭包路由：smart_str 拼接（P-02）+ 不可避免的 eval ✓
+- 路由识别：switch 查表（O-05）✓
+- 上下文获取：短路缓存（P-03）✓
+
+---
+
+## 第三轮修改文件清单
+
+| 文件 | 关联编号 |
+|------|----------|
+| `src/router/router.c` | M3-01, M3-02, M3-03 |
+| `src/factory/factory.c` | M3-04 |
+| `src/exception/exception.c` | M3-05 |
+| `src/db/mysql.c` | F3-01 |
+| `src/db/pgsql.c` | F3-01 |
+| `src/db/mssql.c` | F3-01 |
+| `src/db/sqlite.c` | F3-01 |
+
+---
+
+## 最终审计结论
+
+经过三轮审计修复，框架核心安全性和稳定性已全面加固：
+
+**内存安全**：消除了 3 处严重级别的对象泄漏（每请求累积）、1 处引用计数泄漏、1 处字符串泄漏。修复前，FPM 和 Swoole 模式下每处理一个请求都会泄漏至少一个控制器对象和 hook 对象，长时间运行后 worker 进程内存将持续增长直至 OOM。
+
+**FPM 稳定性**：PDO 扩展未加载时的 segfault 防护已覆盖全部 4 个数据库驱动。
+
+**Swoole 稳定性**：持久化缓存指针竞态已记录为已知限制，实际触发概率极低（路由数据在请求处理期间通常不会被修改）。
+
+**性能**：闭包路由的 eval 是持久化缓存架构的必然结果，当前已优化到可行极限。生产环境推荐使用字符串路由以获得零 eval + OPcache 双重优势。
