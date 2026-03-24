@@ -75,6 +75,29 @@ static void gene_request_set_server_val(zval *server) {
 	} ZEND_HASH_FOREACH_END();
 
 	setVal(3, &normalized);
+
+	/* Directly populate ctx->method and ctx->path from the normalized server
+	 * data so that gene_ini_router() finds them already set.  This avoids
+	 * the indirect getVal(TRACK_VARS_SERVER) lookup which can occasionally
+	 * miss in high-concurrency Swoole scenarios. */
+	if (GENE_G(runtime_type) >= 2) {
+		gene_request_context *ctx = gene_request_ctx();
+		if (!ctx->method) {
+			zval *rm = zend_hash_str_find(Z_ARRVAL(normalized), ZEND_STRL("REQUEST_METHOD"));
+			if (rm && Z_TYPE_P(rm) == IS_STRING) {
+				ctx->method = estrndup(Z_STRVAL_P(rm), Z_STRLEN_P(rm));
+				gene_strtolower(ctx->method);
+			}
+		}
+		if (!ctx->path) {
+			zval *ru = zend_hash_str_find(Z_ARRVAL(normalized), ZEND_STRL("REQUEST_URI"));
+			if (ru && Z_TYPE_P(ru) == IS_STRING) {
+				ctx->path = ecalloc(Z_STRLEN_P(ru) + 1, sizeof(char));
+				leftByChar(ctx->path, Z_STRVAL_P(ru), '?');
+			}
+		}
+	}
+
 	zval_ptr_dtor(&normalized);
 }
 
