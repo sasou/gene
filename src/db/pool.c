@@ -1,4 +1,4 @@
-﻿/*
+/*
  +----------------------------------------------------------------------+
  | gene                                                                 |
  +----------------------------------------------------------------------+
@@ -303,12 +303,30 @@
      return 3.0;
  }
   
- static void pool_increment_count(zval *self) {
-     zval *atomic = zend_read_property(gene_pool_ce, gene_strip_obj(self), ZEND_STRL(GENE_POOL_PROPERTY_COUNT), 1, NULL);
-     if (atomic && Z_TYPE_P(atomic) == IS_OBJECT) {
-         pool_atomic_call(atomic, "add", 1, NULL);
-     }
- }
+static void pool_increment_count(zval *self) {
+    zval *atomic = zend_read_property(gene_pool_ce, gene_strip_obj(self), ZEND_STRL(GENE_POOL_PROPERTY_COUNT), 1, NULL);
+    if (atomic && Z_TYPE_P(atomic) == IS_OBJECT) {
+        pool_atomic_call(atomic, "add", 1, NULL);
+    }
+}
+
+/* [GENE_AUDIT:2026-03-25] Atomic increment that returns the new value.
+ * Swoole\Atomic::add() is atomic and returns the post-increment value,
+ * enabling check-after-reserve pattern to reduce the TOCTOU race window
+ * in pool::get(). Two coroutines may both call add(1), but only one will
+ * see new_value <= max; the other rolls back with sub(1). */
+static zend_long pool_increment_count_get(zval *self) {
+    zval *atomic = zend_read_property(gene_pool_ce, gene_strip_obj(self), ZEND_STRL(GENE_POOL_PROPERTY_COUNT), 1, NULL);
+    if (atomic && Z_TYPE_P(atomic) == IS_OBJECT) {
+        zval ret;
+        ZVAL_UNDEF(&ret);
+        pool_atomic_call(atomic, "add", 1, &ret);
+        zend_long val = (Z_TYPE(ret) == IS_LONG) ? Z_LVAL(ret) : 0;
+        if (!Z_ISUNDEF(ret)) zval_ptr_dtor(&ret);
+        return val;
+    }
+    return 0;
+}
  
  static void pool_set_count(zval *self, zend_long val) {
      zval *atomic = zend_read_property(gene_pool_ce, gene_strip_obj(self), ZEND_STRL(GENE_POOL_PROPERTY_COUNT), 1, NULL);
@@ -799,21 +817,23 @@
              }
          }
   
-         /* 2. Below max: optimistically increment count BEFORE creating.
-          *    This prevents two coroutines from both seeing count<max and
-          *    both creating, which would exceed max. */
-         if (pool_get_count(self) < pool_get_max(self)) {
-             pool_increment_count(self);
-             zval conn;
-             pool_create_connection(self, &conn);
-             if (Z_TYPE(conn) == IS_OBJECT) {
-                 RETURN_ZVAL(&conn, 0, 0);
-             }
-             /* Creation failed — roll back the optimistic increment */
-             pool_decrement_count(self);
-             retries++;
-             continue;
-         }
+        /* 2. Below max: atomically increment THEN check the new value.
+         *    Swoole\Atomic::add(1) returns the post-increment value atomically,
+         *    so two coroutines cannot both see count<=max for the same slot. */
+        {
+            zend_long new_count = pool_increment_count_get(self);
+            if (new_count <= pool_get_max(self)) {
+                zval conn;
+                pool_create_connection(self, &conn);
+                if (Z_TYPE(conn) == IS_OBJECT) {
+                    RETURN_ZVAL(&conn, 0, 0);
+                }
+                pool_decrement_count(self);
+                retries++;
+                continue;
+            }
+            pool_decrement_count(self);
+        }
   
          /* 3. At max, wait for return */
          {

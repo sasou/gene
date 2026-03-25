@@ -963,13 +963,18 @@ check_retval:
 	 return NULL;
  }
  
- /*
-  *  {{{ void get_router_content_run(char *methodin,char *pathin,zval *safe)
-  */
- void get_router_content_run(char *methodin, char *pathin, zval *safe) {
-	 char *method = NULL, *path = NULL, *run = NULL, *hook = NULL, *router_e;
+/*
+ *  {{{ void get_router_content_run(char *methodin,char *pathin,zval *safe)
+ *  [GENE_AUDIT:2026-03-25] Performance: replaced spprintf/str_concat+efree with
+ *  stack-based snprintf for cache key construction in the hot dispatch path.
+ *  Eliminates 3 heap alloc/free pairs per request. 256-byte buffer is sufficient
+ *  for app_key (typically <64 chars) + suffix (2-3 chars).
+ */
+void get_router_content_run(char *methodin, char *pathin, zval *safe) {
+	 char *method = NULL, *path = NULL, *run = NULL, *hook = NULL;
+	 char router_e_buf[256];
 	 char *path_new = NULL;
-	 size_t router_e_len;// @suppress("Type cannot be resolved")
+	 size_t router_e_len;
 	 zval *temp = NULL, *lead = NULL;
 	 zval *conf = NULL,*cache = NULL, *cacheHook = NULL;
 	 gene_request_context *ctx = gene_request_ctx();
@@ -997,14 +1002,11 @@ check_retval:
 	 gene_router_reset_path_params();
  
 	 if (safe != NULL && Z_STRLEN_P(safe)) {
-		 router_e = str_concat(Z_STRVAL_P(safe), GENE_ROUTER_ROUTER_TREE);
-		 router_e_len = strlen(router_e);
+		 router_e_len = snprintf(router_e_buf, sizeof(router_e_buf), "%s%s", Z_STRVAL_P(safe), GENE_ROUTER_ROUTER_TREE);
 	 } else {
-		 router_e = str_init(GENE_ROUTER_ROUTER_TREE);
-		 router_e_len = strlen(router_e);
+		 router_e_len = snprintf(router_e_buf, sizeof(router_e_buf), "%s", GENE_ROUTER_ROUTER_TREE);
 	 }
-	 cache = gene_memory_get_quick(router_e, router_e_len);
-	 efree(router_e);
+	 cache = gene_memory_get_quick(router_e_buf, router_e_len);
  
 	 if (cache) {
 		 temp = zend_symtable_str_find(Z_ARRVAL_P(cache), method, strlen(method));
@@ -1016,24 +1018,19 @@ check_retval:
 			 return;
 		 }
 		 if (safe != NULL && Z_STRLEN_P(safe)) {
-			 router_e = str_concat(Z_STRVAL_P(safe), GENE_ROUTER_ROUTER_EVENT);
-			 router_e_len = strlen(router_e);
+			 router_e_len = snprintf(router_e_buf, sizeof(router_e_buf), "%s%s", Z_STRVAL_P(safe), GENE_ROUTER_ROUTER_EVENT);
 		 } else {
-			 router_e = str_init(GENE_ROUTER_ROUTER_EVENT);
-			 router_e_len = strlen(router_e);
+			 router_e_len = snprintf(router_e_buf, sizeof(router_e_buf), "%s", GENE_ROUTER_ROUTER_EVENT);
 		 }
-		 cacheHook = gene_memory_get_quick(router_e, router_e_len);
-		 efree(router_e);
+		 cacheHook = gene_memory_get_quick(router_e_buf, router_e_len);
 		 trim(path, '/');
 		 replaceAll(path, '.', '/');
 		 if (safe != NULL && Z_STRLEN_P(safe)) {
-			 router_e = str_concat(Z_STRVAL_P(safe), GENE_ROUTER_ROUTER_CONF);
-			 router_e_len = strlen(router_e);
+			 router_e_len = snprintf(router_e_buf, sizeof(router_e_buf), "%s%s", Z_STRVAL_P(safe), GENE_ROUTER_ROUTER_CONF);
 		 } else {
-			 router_e = str_init(GENE_ROUTER_ROUTER_CONF);
-			 router_e_len = strlen(router_e);
+			 router_e_len = snprintf(router_e_buf, sizeof(router_e_buf), "%s", GENE_ROUTER_ROUTER_CONF);
 		 }
-		 conf = gene_memory_get_quick(router_e, router_e_len);
+		 conf = gene_memory_get_quick(router_e_buf, router_e_len);
 		 if (conf && Z_TYPE_P(conf) == IS_ARRAY) {
 			 path_new = get_path_router_init(conf, path);
 			 if (path_new != path) {
@@ -1041,7 +1038,6 @@ check_retval:
 			 }
 			 path = path_new;
 		 }
-		 efree(router_e);
 		 
  
 		 lead = get_path_router(temp, path);

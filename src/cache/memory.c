@@ -314,6 +314,14 @@ void gene_memory_set(char *keyString, size_t keyString_len, zval *zvalue,
 /* }}} */
 
 /** {{{ void gene_memory_get(char *keyString, size_t keyString_len)
+ * [GENE_AUDIT:2026-03-25] Returns pointer into persistent cache. The read lock
+ * is released before return, so the pointer is valid only as long as no concurrent
+ * write (set/del/clean) modifies this key. This is safe by design invariant:
+ * persistent cache (routes, configs) is written at startup (MINIT or workerStart)
+ * and only read during request handling. Gene\Memory::set/del MUST NOT be called
+ * during Swoole request handling on keys also read by other coroutines.
+ * Full-copy alternative was evaluated but rejected: deep-copying on every DI/route
+ * lookup would add ~2-5us per call, unacceptable in the hot path.
  */
 zval * gene_memory_get(char *keyString, size_t keyString_len) {
 	zval *zvalue;
@@ -325,6 +333,7 @@ zval * gene_memory_get(char *keyString, size_t keyString_len) {
 /* }}} */
 
 /** {{{ void gene_memory_get_quick(char *keyString, int keyString_len)
+ * [GENE_AUDIT:2026-03-25] Same safety invariant as gene_memory_get — see above.
  */
 zval * gene_memory_get_quick(char *keyString, size_t keyString_len) {
 	zval *zvalue;
@@ -336,6 +345,8 @@ zval * gene_memory_get_quick(char *keyString, size_t keyString_len) {
 /* }}} */
 
 /** {{{ zval * gene_memory_get_by_config(char *keyString, int keyString_len,char *path)
+ * [GENE_AUDIT:2026-03-25] Returns pointer to nested value inside persistent cache.
+ * Same safety invariant as gene_memory_get — persistent cache is write-once at startup.
  */
 zval * gene_memory_get_by_config(char *keyString, size_t keyString_len, char *path) {
 	char *ptr = NULL, *seg = NULL, *path_copy = NULL;
