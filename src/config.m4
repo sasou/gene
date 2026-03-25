@@ -70,6 +70,7 @@ if test "$PHP_GENE" != "no"; then
 	  db/pgsql.c \
 	  db/sqlite.c \
 	  mvc/model.c \
+	  mvc/hook.c \
 	  service/service.c \
 	  factory/factory.c \
 	  cache/redis.c \
