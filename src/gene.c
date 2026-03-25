@@ -50,6 +50,7 @@
 #include "db/sqlite.h"
 #include "common/common.h"
 #include "mvc/model.h"
+#include "mvc/hook.h"
 #include "service/service.h"
 #include "factory/factory.h"
 #include "tool/benchmark.h"
@@ -73,26 +74,35 @@ STD_PHP_INI_ENTRY("gene.library_root", "", PHP_INI_SYSTEM, OnUpdateString, libra
 PHP_INI_END();
 /* }}} */
 
-/* {{{ gene_get_coroutine_id */
+/* {{{ gene_get_coroutine_id
+ * Optimized: pre-cached fcc avoids repeated struct init per call.
+ * The fcc.function_handler is resolved once and reused.
+ */
 zend_long gene_get_coroutine_id(void) {
 	zval retval;
 	zend_long cid = -1;
+	static zend_fcall_info_cache fcc_cached = {0};
+	static zend_bool fcc_initialized = 0;
 
 	if (!GENE_G(swoole_getcid_resolved)) {
 		zend_string *func_name = zend_string_init(ZEND_STRL("swoole\\coroutine::getcid"), 0);
 		GENE_G(swoole_getcid_func) = zend_hash_find_ptr(EG(function_table), func_name);
 		zend_string_release(func_name);
 		GENE_G(swoole_getcid_resolved) = 1;
+		if (GENE_G(swoole_getcid_func)) {
+			memset(&fcc_cached, 0, sizeof(fcc_cached));
+			fcc_cached.function_handler = GENE_G(swoole_getcid_func);
+			fcc_initialized = 1;
+		}
 	}
 
-	if (GENE_G(swoole_getcid_func)) {
-		zend_fcall_info fci = empty_fcall_info;
-		zend_fcall_info_cache fcc = empty_fcall_info_cache;
+	if (fcc_initialized) {
+		zend_fcall_info fci;
+		memset(&fci, 0, sizeof(fci));
 		fci.size = sizeof(fci);
 		fci.retval = &retval;
-		fcc.function_handler = GENE_G(swoole_getcid_func);
 		ZVAL_UNDEF(&retval);
-		if (zend_call_function(&fci, &fcc) == SUCCESS && Z_TYPE(retval) == IS_LONG) {
+		if (zend_call_function(&fci, &fcc_cached) == SUCCESS && Z_TYPE(retval) == IS_LONG) {
 			cid = Z_LVAL(retval);
 		}
 		zval_ptr_dtor(&retval);
@@ -356,6 +366,7 @@ PHP_MINIT_FUNCTION(gene) {
 	GENE_STARTUP(db_pgsql);
 	GENE_STARTUP(db_sqlite);
 	GENE_STARTUP(model);
+	GENE_STARTUP(hook);
 	GENE_STARTUP(service);
 	GENE_STARTUP(factory);
 	GENE_STARTUP(redis);

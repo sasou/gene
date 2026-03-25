@@ -34,6 +34,7 @@
  #include "../common/common.h"
  #include "../app/application.h"
  #include "../mvc/view.h"
+ #include "../mvc/hook.h"
  #include "zend_smart_str.h"
  
  zend_class_entry *gene_router_ce;
@@ -394,6 +395,8 @@
  
  /** {{{ gene_router_exec_hook_direct
   * Directly execute a "HookClass@method" hook via C API.
+  * For Gene\Hook subclasses: uses gene_factory_load_class (no constructor)
+  * since hooks are stateless and DI is handled via __get/__set.
   * For before/specific hooks: call with no args, return 0 to abort.
   * For after hooks: call with dispatch_result as single arg.
   * Returns 1 to continue, 0 to abort (before hooks only).
@@ -401,29 +404,53 @@
  static int gene_router_exec_hook_direct(const char *class_method, zval *param, int is_before) {
 	 char *copy, *class_name, *method, *ptr;
 	 zval classObject, retval;
- 
+	 size_t method_len;
+	 zend_class_entry *ce;
+
 	 ZVAL_NULL(&retval);
- 
+
 	 if (!class_method || strlen(class_method) == 0) return 1;
- 
+
 	 copy = estrdup(class_method);
 	 class_name = php_strtok_r(copy, "@", &ptr);
 	 method = ptr;
- 
+
 	 if (!class_name || !method || strlen(method) == 0) {
 		 efree(copy);
 		 return 1;
 	 }
- 
+
+	 gene_strtolower(method);
+	 method_len = strlen(method);
+
+	 /* Try lightweight load for Gene\Hook subclasses (skip constructor) */
+	 if (gene_hook_ce && gene_factory_load_class(class_name, strlen(class_name), &classObject)) {
+		 ce = Z_OBJCE(classObject);
+		 if (instanceof_function(ce, gene_hook_ce)) {
+			 /* Fast path: Hook subclass, no constructor needed */
+			 if (zend_hash_str_exists(&ce->function_table, method, method_len)) {
+				 if (param) {
+					 gene_factory_call_1(&classObject, method, param, &retval);
+				 } else {
+					 gene_factory_call(&classObject, method, NULL, &retval);
+				 }
+			 }
+			 zval_ptr_dtor(&classObject);
+			 efree(copy);
+			 goto check_retval;
+		 }
+		 /* Not a Hook subclass, destroy and fall through to gene_factory path */
+		 zval_ptr_dtor(&classObject);
+	 }
+
+	 /* Standard path: full factory init with constructor */
 	 if (!gene_factory(class_name, strlen(class_name), NULL, &classObject)) {
 		 efree(copy);
 		 return 1;
 	 }
- 
-	 gene_strtolower(method);
 
 	 if (Z_TYPE(classObject) == IS_OBJECT
-			 && zend_hash_str_exists(&(Z_OBJCE(classObject)->function_table), method, strlen(method))) {
+			 && zend_hash_str_exists(&(Z_OBJCE(classObject)->function_table), method, method_len)) {
 		 if (param) {
 			 gene_factory_call_1(&classObject, method, param, &retval);
 		 } else {
@@ -434,6 +461,7 @@
 	 zval_ptr_dtor(&classObject);
 	 efree(copy);
 
+check_retval:
 	 if (is_before) {
 		 int abort = 0;
 		 if (Z_TYPE(retval) != IS_NULL && Z_TYPE(retval) != IS_UNDEF) {
@@ -449,6 +477,48 @@
 	 zval_ptr_dtor(&retval);
 	 return 1;
 }
+ /* }}} */
+
+ /** {{{ gene_router_exec_error_direct
+  * Directly execute a "Class@method" error handler via C API, avoiding eval.
+  * Returns 1 on success, 0 on failure.
+  */
+ static int gene_router_exec_error_direct(const char *class_method) {
+	 char *copy, *class_name, *method, *ptr;
+	 zval classObject, retval;
+
+	 if (!class_method || strlen(class_method) == 0) return 0;
+
+	 copy = estrdup(class_method);
+	 class_name = php_strtok_r(copy, "@", &ptr);
+	 method = ptr;
+
+	 if (!class_name || !method || strlen(method) == 0) {
+		 efree(copy);
+		 return 0;
+	 }
+
+	 if (!gene_factory(class_name, strlen(class_name), NULL, &classObject)) {
+		 efree(copy);
+		 return 0;
+	 }
+
+	 gene_strtolower(method);
+
+	 if (Z_TYPE(classObject) == IS_OBJECT
+			 && zend_hash_str_exists(&(Z_OBJCE(classObject)->function_table), method, strlen(method))) {
+		 ZVAL_NULL(&retval);
+		 gene_factory_call(&classObject, method, NULL, &retval);
+		 zval_ptr_dtor(&retval);
+		 zval_ptr_dtor(&classObject);
+		 efree(copy);
+		 return 1;
+	 }
+
+	 zval_ptr_dtor(&classObject);
+	 efree(copy);
+	 return 0;
+ }
  /* }}} */
  
  /** {{{ static void get_router_info(char *keyString, int keyString_len)
@@ -587,23 +657,35 @@
  /** {{{ static void get_router_info(char *keyString, int keyString_len)
   */
  int get_router_error_run_by_router(zval *cacheHook, char *errorName) {
-	 zval *error = NULL;
+	 zval *error = NULL, *error_src = NULL;
 	 size_t router_e_len, size = 0;
-	 char *run = NULL, *router_e;
+	 char *run = NULL, *router_e, *hsrc_key;
+	 size_t hsrc_key_len;
 	 if (cacheHook) {
 		 router_e_len = spprintf(&router_e, 0, "error:%s", errorName);
 		 error = zend_hash_str_find(Z_ARRVAL_P(cacheHook), router_e, router_e_len);
 		 if (error) {
+			 /* Try direct dispatch first via hsrc: key */
+			 hsrc_key_len = spprintf(&hsrc_key, 0, "hsrc:%s", errorName);
+			 error_src = zend_hash_str_find(Z_ARRVAL_P(cacheHook), hsrc_key, hsrc_key_len);
+			 efree(hsrc_key);
+			 if (error_src && Z_TYPE_P(error_src) == IS_STRING && Z_STRLEN_P(error_src) > 0) {
+				 if (gene_router_exec_error_direct(Z_STRVAL_P(error_src))) {
+					 efree(router_e);
+					 return 1;
+				 }
+			 }
+			 /* Fallback to eval */
 			 size = Z_STRLEN_P(error) + 1;
 			 run = (char *) ecalloc(size, sizeof(char));
 			 strcat(run, Z_STRVAL_P(error));
 			 run[size - 1] = 0;
- 
+
 			 zend_try {
 				 zend_eval_stringl(run, strlen(run), NULL, errorName);
 			 } zend_catch {
 			 } zend_end_try();
- 
+
 			 efree(router_e);
 			 efree(run);
 			 run = NULL;
@@ -619,9 +701,10 @@
  /** {{{ static void get_router_info(char *keyString, int keyString_len)
   */
  int get_router_error_run(char *errorName, zval *safe) {
-	 zval *cacheHook = NULL, *error = NULL;
+	 zval *cacheHook = NULL, *error = NULL, *error_src = NULL;
 	 size_t router_e_len, size = 0;
-	 char *run = NULL, *router_e;
+	 char *run = NULL, *router_e, *hsrc_key;
+	 size_t hsrc_key_len;
 	 if (safe != NULL && Z_STRLEN_P(safe)) {
 		 router_e_len = spprintf(&router_e, 0, "%s%s", Z_STRVAL_P(safe),
 		 GENE_ROUTER_ROUTER_EVENT);
@@ -634,6 +717,17 @@
 		 router_e_len = spprintf(&router_e, 0, "error:%s", errorName);
 		 error = zend_hash_str_find(Z_ARRVAL_P(cacheHook), router_e, router_e_len);
 		 if (error) {
+			 /* Try direct dispatch first via hsrc: key */
+			 hsrc_key_len = spprintf(&hsrc_key, 0, "hsrc:%s", errorName);
+			 error_src = zend_hash_str_find(Z_ARRVAL_P(cacheHook), hsrc_key, hsrc_key_len);
+			 efree(hsrc_key);
+			 if (error_src && Z_TYPE_P(error_src) == IS_STRING && Z_STRLEN_P(error_src) > 0) {
+				 if (gene_router_exec_error_direct(Z_STRVAL_P(error_src))) {
+					 efree(router_e);
+					 return 1;
+				 }
+			 }
+			 /* Fallback to eval */
 			 size = Z_STRLEN_P(error) + 1;
 			 run = (char *) ecalloc(size, sizeof(char));
 			 strcat(run, Z_STRVAL_P(error));
@@ -647,12 +741,12 @@
 	 } else {
 		 return 0;
 	 }
- 
+
 	 zend_try {
 		 zend_eval_stringl(run, strlen(run), NULL, "");
 	 } zend_catch {
 	 } zend_end_try();
- 
+
 	 efree(run);
 	 run = NULL;
 	 return 1;
