@@ -60,10 +60,10 @@ $http->on("request", function ($request, $response) {
     } catch (\Throwable $e) {
         $error = true;
         \Gene\Log::exception($e);
+    } finally {
+        $out = ob_get_clean();
+        \Gene\Application::cleanup();
     }
-    $out = ob_get_clean();
-
-    \Gene\Application::cleanup();
 
     if ($error) {
         $response->redirect('/50x.html');

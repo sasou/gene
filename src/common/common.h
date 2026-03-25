@@ -19,7 +19,7 @@
 
 char *str_init(const char *s);
 char *str_sub(char *s, size_t s_len);
-char *str_sub_len(char *src, size_t start, int len);
+char *str_sub_len(char *src, size_t start, size_t len);
 char *str_append(char* s, const char* t);
 char *firstToUpper(char *str);
 char *gene_strtoupper(char *str);
@@ -34,7 +34,7 @@ char *insert_string(char * string, const char * source, const char * destination
 char *replace_string(char * string, char source, const char * destination);
 int ReplaceStr(char* sSrc, char* sMatchStr, char* sReplaceStr);
 char *insertAll(char * dest, char * src, char oldChar, char newChar);
-void replace(char originalString[], char key[], char swap[]);
+void replace(char originalString[], char key[], char swap[], size_t buf_size);
 int findChildCnt(char* str1, const char* str2);
 int fullToHalf(char *sFullStr, char *sHalfStr);
 void remove_extra_space(char *str);

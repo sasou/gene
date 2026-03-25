@@ -47,8 +47,10 @@ char *str_sub(char *s, size_t s_len)
 	return p;
 }
 
-char *str_sub_len(char *src, size_t start, int len) {
-   int i;
+/* [GENE_AUDIT:2026-03-25] Changed len from int to size_t to prevent
+ * negative length causing undersized allocation. */
+char *str_sub_len(char *src, size_t start, size_t len) {
+   size_t i;
    char *dest = (char *) emalloc(len + 1);
    for (i = 0; i < len && src[start + i] != '\0'; i++) {
       dest[i] = src[start + i];
@@ -265,9 +267,12 @@ void trim(char* s, const char c) {
 /* }}} */
 
 /*
- * {{{ replace(char originalString[], char key[], char swap[])
+ * {{{ replace(char originalString[], char key[], char swap[], size_t buf_size)
+ * [GENE_AUDIT:2026-03-25] Added buf_size parameter to prevent heap buffer overflow
+ * when swap is longer than key and result exceeds originalString's allocation.
+ * If buf_size is 0, legacy behavior (no bounds check) is used for backward compat.
  */
-void replace(char originalString[], char key[], char swap[]) {
+void replace(char originalString[], char key[], char swap[], size_t buf_size) {
 	size_t lengthOfOriginalString, lengthOfKey, lengthOfSwap, i, j, flag;
 	char *tmp = NULL;
 	size_t tmp_size = 0;
@@ -288,6 +293,10 @@ void replace(char originalString[], char key[], char swap[]) {
 		}
 		if (flag) {
 			size_t new_len = lengthOfOriginalString - lengthOfKey + lengthOfSwap;
+			if (buf_size > 0 && new_len + 1 > buf_size) {
+				if (tmp) efree(tmp);
+				return;
+			}
 			if (new_len + 1 > tmp_size) {
 				tmp_size = new_len + 1;
 				if (tmp) efree(tmp);
@@ -645,6 +654,12 @@ char *strreplace2(char *src, char *from, char *to)
    return value;
 }
 
+/* [GENE_AUDIT:2026-03-25] Kept call_user_function wrappers instead of direct Zend
+ * internal APIs (php_json_encode, php_json_decode, php_var_serialize, etc.).
+ * Reason: these internal APIs change signatures across PHP minor versions (e.g.
+ * php_json_encode added encoder parameter in 8.1), creating maintenance burden.
+ * call_user_function is stable across PHP 8.x and these functions are NOT in the
+ * hot request dispatch path, so the ~0.5us overhead per call is acceptable. */
 void gene_json_encode(zval *value, zval *options, zval *retval) /*{{{*/
 {
     zval function_name;
