@@ -499,7 +499,8 @@ ZEND_GET_MODULE(gene)
  */
 #if ZEND_MODULE_API_NO >= 20050922
 const zend_module_dep gene_deps[] = {
-	ZEND_MOD_REQUIRED("spl"),
+	// Audit [2026-03-25] cannot add comma separation, window compilation fails
+	ZEND_MOD_REQUIRED("spl")
 	{ NULL, NULL, NULL }
 };
 #endif
