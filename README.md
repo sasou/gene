@@ -202,24 +202,29 @@ class Index extends \Gene\Controller
 
 $http = new swoole_http_server("0.0.0.0", 9501);
 $http->on("request", function ($request, $response) {
-    \Gene\Request::init($request->get, $request->post, $request->cookie, $request->server);
+    \Gene\Request::init($request->get, $request->post, $request->cookie, $request->server, null, $request->files, null, $request->header);
     \Gene\Application::setResponse($response);
-    
+
     ob_start();
+    $error = false;
     try {
-        $app = \Gene\Application::getInstance();
-        $app->autoload(APP_ROOT)
-            ->load("router.ini.php")
-            ->load("config.ini.php")
-            ->run();
+        \Gene\Application::getInstance()->run();
+    } catch (\Throwable $e) {
+        $error = true;
+        \Gene\Log::exception($e);
     } finally {
-        // 清理上下文，避免数据串扰
-        \Gene\Application::clearState();
-        \Gene\Application::destroyContext();
+        $out = ob_get_clean();
+        \Gene\Application::cleanup();
     }
-    
-    $out = ob_get_contents();
-    ob_end_clean();
+
+    if ($error) {
+        $response->redirect('/50x.html');
+        return;
+    }
+
+    if (!$response->isWritable()) {
+        return;
+    }
     $response->end($out);
 });
 $http->start();
