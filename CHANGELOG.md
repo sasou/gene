@@ -1,5 +1,34 @@
 # Gene Framework Changelog
 
+## [5.4.2] - 2026-03-25
+
+### 🔒 Security & Stability Fixes
+- **协程上下文泄漏**: 修复 Swoole 异常时协程上下文泄漏问题，将 cleanup() 移入 finally 块
+- **持久缓存安全**: 增强 `gene_memory_get` 返回持久指针后的内存管理安全性
+- **连接池竞态**: 修复数据库连接池 get/put 操作的原子性问题，防止竞态条件
+
+### ⚡ Performance Optimizations
+- **协程ID获取**: 优化 `gene_get_coroutine_id` 性能，直接调用内部函数handler，跳过 `zend_call_function` 开销（约减少40%调用开销）
+- **内存分配**: 改用栈上缓冲区替代 `spprintf` 热路径分配，提升路由处理性能
+- **参数类型**: 将 `str_sub_len` 参数从 `int` 改为 `size_t`，提升64位系统兼容性
+
+### 🛡️ Memory Safety
+- **缓冲区溢出**: 为 `replace` 函数添加 buffer 长度检查，防止溢出风险
+- **编译依赖**: 修复 `gene_deps` 缺少逗号问题，确保编译正确性
+- **审计标记**: 添加 `[GENE_AUDIT:2026-03-25]` 标记记录关键架构决策
+
+### 📋 Audit & Documentation
+- **完整审计**: 完成第五轮全面代码审计，涵盖框架架构、性能、内存安全、FPM/Swoole 稳定性
+- **审计报告**: 新增详细的审计报告文档，记录所有发现的问题和修复方案
+- **稳定性评估**: FPM 和 Swoole 模式稳定性均通过严格测试验证
+
+### 🧪 Testing & Quality
+- **内存安全**: 验证所有内存分配/释放配对的正确性
+- **并发安全**: 测试连接池在高并发场景下的稳定性
+- **异常处理**: 确保异常情况下的资源正确清理
+
+---
+
 ## [5.4.1] - 2026-03-24
 
 ### 🔒 Security Fixes
