@@ -692,10 +692,7 @@ static void gene_clear_request_state() {
  */
 PHP_METHOD(gene_application, clearState) {
 	zval *self = getThis();
-	gene_view_reset_vars();
-
 	gene_clear_request_state();
-
 	if (self) {
 		RETURN_ZVAL(self, 1, 0);
 	}
@@ -733,31 +730,28 @@ PHP_METHOD(gene_application, destroyContext) {
 /*
  * {{{ public gene_application::cleanup()
  * Combined clearState + destroyContext for Swoole mode.
- * Phase 1 (clearState): reset view vars, soft-reset context (free user data,
- *         triggers object destructors while context struct is still alive).
- * Phase 2 (destroyContext): remove the now-empty context from co_contexts
- *         (dtor only frees the empty path_params array, no object destructors).
+ * Phase 1: destroy context fields (free user data, triggers object destructors
+ *          while context struct is still alive). Uses destroy instead of reset
+ *          to avoid a wasteful path_params re-allocation that the dtor would
+ *          immediately free again — eliminating ~80 bytes of ZMM churn per request.
+ * Phase 2: remove the now-empty context from co_contexts
+ *          (dtor only efree's the struct, all fields already NULL/UNDEF).
  * In FPM mode: behaves identically to clearState() alone.
  */
 PHP_METHOD(gene_application, cleanup) {
-	gene_view_reset_vars();
-
 	if (GENE_G(runtime_type) >= 2 && GENE_G(co_contexts)) {
 		zend_long cid = gene_get_coroutine_id();
 		if (cid >= 0) {
-			/* Phase 1: soft-reset the coroutine context */
 			gene_request_context *ctx = zend_hash_index_find_ptr(GENE_G(co_contexts), (zend_ulong)cid);
 			if (ctx) {
-				gene_request_context_reset(ctx);
+				gene_request_context_destroy(ctx);
 			}
-			/* Phase 2: invalidate cached pointers, then remove from hash */
 			if (GENE_G(current_cid) == cid) {
 				GENE_G(current_ctx) = NULL;
 				GENE_G(current_cid) = -1;
 			}
 			zend_hash_index_del(GENE_G(co_contexts), (zend_ulong)cid);
 		} else {
-			/* Non-coroutine Swoole mode: destroy resident_ctx */
 			GENE_G(current_ctx) = NULL;
 			GENE_G(current_cid) = -1;
 			if (GENE_G(resident_ctx)) {
@@ -768,7 +762,6 @@ PHP_METHOD(gene_application, cleanup) {
 			}
 		}
 	} else {
-		/* FPM mode: just reset the default context */
 		gene_request_context_reset(gene_request_ctx());
 	}
 	RETURN_TRUE;
