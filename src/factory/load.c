@@ -181,6 +181,10 @@ zval *gene_load_instance(zval *this_ptr) {
 int gene_loader_register() {
 	zval autoload, function, ret;
 
+	if (GENE_G(autoload_registered)) {
+		return 1;
+	}
+
 	if (GENE_G(auto_load_fun)) {
 		ZVAL_STRING(&autoload, GENE_G(auto_load_fun));
 	} else {
@@ -215,6 +219,7 @@ int gene_loader_register() {
 		zval_ptr_dtor(&autoload);
 		zval_ptr_dtor(&ret);
 	} while (0);
+	GENE_G(autoload_registered) = 1;
 	return 1;
 }
 /* }}} */

@@ -105,6 +105,8 @@ zend_long gene_get_coroutine_id(void) {
 			GENE_G(swoole_getcid_func)->internal_function.handler(&fake_frame, &retval);
 			if (Z_TYPE(retval) == IS_LONG) {
 				cid = Z_LVAL(retval);
+			} else {
+				zval_ptr_dtor(&retval);
 			}
 		} else {
 			zend_fcall_info fci;
@@ -281,6 +283,7 @@ static void php_gene_init_globals() {
 	GENE_G(current_cid) = -1;
 	GENE_G(swoole_getcid_func) = NULL;
 	GENE_G(swoole_getcid_resolved) = 0;
+	GENE_G(autoload_registered) = 0;
 	GENE_G(cache) = NULL;
 	GENE_G(cache_easy) = NULL;
 	gene_rwlock_init(&GENE_G(cache_lock));
@@ -441,6 +444,7 @@ PHP_RINIT_FUNCTION(gene) {
 	}
 	GENE_G(current_ctx) = NULL;
 	GENE_G(current_cid) = -1;
+	GENE_G(autoload_registered) = 0;
 	return SUCCESS; // @suppress("Symbol is not resolved")
 }
 /* }}} */
