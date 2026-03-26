@@ -37,6 +37,9 @@ $http->on("workerStart", function ($server, $workerId) {
         'idleTimeout' => 60,   // 空闲超时（秒），超时回收，保持最小连接数（默认60）
         'waitTimeout' => 1.5,  // 获取连接等待超时（秒）（默认3.0）
     ]);
+
+    // 标记Worker已就绪，run()将在此标记前阻塞等待
+    \Gene\Application::getInstance()->workerReady();
 });
 
 $http->on("workerExit", function ($server, $workerId) {

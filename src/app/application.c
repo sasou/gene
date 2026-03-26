@@ -980,6 +980,19 @@ PHP_METHOD(gene_application, webscan) {
 
 
 /*
+ * {{{ public gene_application::workerReady()
+ */
+PHP_METHOD(gene_application, workerReady) {
+	zval *self = getThis();
+	GENE_G(worker_ready) = 1;
+	if (self) {
+		RETURN_ZVAL(self, 1, 0);
+	}
+	RETURN_TRUE;
+}
+/* }}} */
+
+/*
  * {{{ public gene_application::run($method,$path)
  */
 PHP_METHOD(gene_application, run) {
@@ -988,6 +1001,24 @@ PHP_METHOD(gene_application, run) {
 	char *min = NULL, *pin = NULL;
 	if (zend_parse_parameters(ZEND_NUM_ARGS(), "|SS", &methodin, &pathin) == FAILURE) {
 		RETURN_NULL();
+	}
+
+	if (GENE_G(runtime_type) >= 2 && !GENE_G(worker_ready)) {
+		zend_long waited_us = 0;
+		zval func_name, retval, param;
+		ZVAL_STRING(&func_name, "usleep");
+		ZVAL_LONG(&param, GENE_WORKER_READY_WAIT_INTERVAL_US);
+		while (!GENE_G(worker_ready) && waited_us < GENE_WORKER_READY_WAIT_MAX_US) {
+			ZVAL_UNDEF(&retval);
+			call_user_function(EG(function_table), NULL, &func_name, &retval, 1, &param);
+			zval_ptr_dtor(&retval);
+			waited_us += GENE_WORKER_READY_WAIT_INTERVAL_US;
+		}
+		zval_ptr_dtor(&func_name);
+		if (!GENE_G(worker_ready)) {
+			php_error_docref(NULL, E_WARNING, "Gene: worker not ready after %lds timeout",
+				(long)(GENE_WORKER_READY_WAIT_MAX_US / 1000000));
+		}
 	}
 
 	gene_ini_router();
@@ -1084,6 +1115,7 @@ const zend_function_entry gene_application_methods[] = {
 	PHP_ME(gene_application, exception, gene_application_exception, ZEND_ACC_PUBLIC)
 	PHP_ME(gene_application, webscan, gene_application_webscan, ZEND_ACC_PUBLIC)
 	PHP_ME(gene_application, run, gene_application_run, ZEND_ACC_PUBLIC)
+	PHP_ME(gene_application, workerReady, gene_application_get_method, ZEND_ACC_PUBLIC|ZEND_ACC_STATIC)
 	PHP_ME(gene_application, clearState, gene_application_get_method, ZEND_ACC_PUBLIC|ZEND_ACC_STATIC)
 	PHP_ME(gene_application, destroyContext, gene_application_get_method, ZEND_ACC_PUBLIC|ZEND_ACC_STATIC)
 	PHP_ME(gene_application, cleanup, gene_application_get_method, ZEND_ACC_PUBLIC|ZEND_ACC_STATIC)

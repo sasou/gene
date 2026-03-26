@@ -135,6 +135,7 @@
  zend_function *swoole_getcid_func;
  zend_bool swoole_getcid_resolved;
  zend_bool autoload_registered;
+ zend_bool worker_ready;
  ZEND_END_MODULE_GLOBALS (gene)
  
  extern ZEND_DECLARE_MODULE_GLOBALS (gene);
