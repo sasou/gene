@@ -99,6 +99,9 @@ ZEND_END_ARG_INFO()
 ZEND_BEGIN_ARG_INFO_EX(gene_application_get_method, 0, 0, 0)
 ZEND_END_ARG_INFO()
 
+ZEND_BEGIN_ARG_INFO_EX(gene_application_wait_worker_ready, 0, 0, 0)
+ZEND_END_ARG_INFO()
+
 ZEND_BEGIN_ARG_INFO_EX(gene_application_get_path, 0, 0, 0)
 ZEND_END_ARG_INFO()
 
@@ -688,11 +691,48 @@ static void gene_clear_request_state() {
 /* }}} */
 
 /*
+ * {{{ static void gene_application_wait_worker_ready_once()
+ */
+static void gene_application_wait_worker_ready_once() {
+	if (GENE_G(runtime_type) >= 2 && !GENE_G(worker_ready)) {
+		zend_long waited_us = 0;
+		zval func_name, retval, param;
+		ZVAL_STRING(&func_name, "usleep");
+		ZVAL_LONG(&param, GENE_WORKER_READY_WAIT_INTERVAL_US);
+		while (!GENE_G(worker_ready) && waited_us < GENE_WORKER_READY_WAIT_MAX_US) {
+			ZVAL_UNDEF(&retval);
+			call_user_function(EG(function_table), NULL, &func_name, &retval, 1, &param);
+			zval_ptr_dtor(&retval);
+			waited_us += GENE_WORKER_READY_WAIT_INTERVAL_US;
+		}
+		zval_ptr_dtor(&func_name);
+		if (!GENE_G(worker_ready)) {
+			php_error_docref(NULL, E_WARNING, "Gene: worker not ready after %lds timeout",
+				(long)(GENE_WORKER_READY_WAIT_MAX_US / 1000000));
+		}
+	}
+}
+/* }}} */
+
+/*
  * {{{ public gene_application::clearState()
  */
 PHP_METHOD(gene_application, clearState) {
 	zval *self = getThis();
 	gene_clear_request_state();
+	if (self) {
+		RETURN_ZVAL(self, 1, 0);
+	}
+	RETURN_TRUE;
+}
+/* }}} */
+
+/*
+ * {{{ public gene_application::waitWorkerReady()
+ */
+PHP_METHOD(gene_application, waitWorkerReady) {
+	zval *self = getThis();
+	gene_application_wait_worker_ready_once();
 	if (self) {
 		RETURN_ZVAL(self, 1, 0);
 	}
@@ -1003,24 +1043,6 @@ PHP_METHOD(gene_application, run) {
 		RETURN_NULL();
 	}
 
-	if (GENE_G(runtime_type) >= 2 && !GENE_G(worker_ready)) {
-		zend_long waited_us = 0;
-		zval func_name, retval, param;
-		ZVAL_STRING(&func_name, "usleep");
-		ZVAL_LONG(&param, GENE_WORKER_READY_WAIT_INTERVAL_US);
-		while (!GENE_G(worker_ready) && waited_us < GENE_WORKER_READY_WAIT_MAX_US) {
-			ZVAL_UNDEF(&retval);
-			call_user_function(EG(function_table), NULL, &func_name, &retval, 1, &param);
-			zval_ptr_dtor(&retval);
-			waited_us += GENE_WORKER_READY_WAIT_INTERVAL_US;
-		}
-		zval_ptr_dtor(&func_name);
-		if (!GENE_G(worker_ready)) {
-			php_error_docref(NULL, E_WARNING, "Gene: worker not ready after %lds timeout",
-				(long)(GENE_WORKER_READY_WAIT_MAX_US / 1000000));
-		}
-	}
-
 	gene_ini_router();
 	if (methodin && ZSTR_LEN(methodin)) {
 		min = ZSTR_VAL(methodin);
@@ -1116,6 +1138,7 @@ const zend_function_entry gene_application_methods[] = {
 	PHP_ME(gene_application, webscan, gene_application_webscan, ZEND_ACC_PUBLIC)
 	PHP_ME(gene_application, run, gene_application_run, ZEND_ACC_PUBLIC)
 	PHP_ME(gene_application, workerReady, gene_application_get_method, ZEND_ACC_PUBLIC|ZEND_ACC_STATIC)
+	PHP_ME(gene_application, waitWorkerReady, gene_application_wait_worker_ready, ZEND_ACC_PUBLIC|ZEND_ACC_STATIC)
 	PHP_ME(gene_application, clearState, gene_application_get_method, ZEND_ACC_PUBLIC|ZEND_ACC_STATIC)
 	PHP_ME(gene_application, destroyContext, gene_application_get_method, ZEND_ACC_PUBLIC|ZEND_ACC_STATIC)
 	PHP_ME(gene_application, cleanup, gene_application_get_method, ZEND_ACC_PUBLIC|ZEND_ACC_STATIC)
