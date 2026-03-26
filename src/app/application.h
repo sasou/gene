@@ -22,6 +22,9 @@
 #define GENE_APPLICATION_WEBSCAN_CONFIG "webscanConfig"
 #define GENE_APPLICATION_WEBSCAN_CALLBACK "webscanCallback"
 
+#define GENE_WORKER_READY_WAIT_INTERVAL_US 1000
+#define GENE_WORKER_READY_WAIT_MAX_US      1000000
+
 extern zend_class_entry *gene_application_ce;
 
 void load_file(char *key, size_t key_len,char *php_script, int validity);
