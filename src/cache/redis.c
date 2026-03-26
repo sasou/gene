@@ -200,7 +200,7 @@ bool initRObj (zval * self, zval *config) {
 	persistent = zend_hash_str_find(Z_ARRVAL_P(config), ZEND_STRL("persistent"));
 	options = zend_hash_str_find(Z_ARRVAL_P(config), ZEND_STRL("options"));
 
-    if (persistent) {
+    if (persistent && GENE_G(runtime_type) < 2) {
     	gene_redis_pconnect(&obj_object, host, port, timeout, persistent);
     } else {
     	gene_redis_connect(&obj_object, host, port, timeout);

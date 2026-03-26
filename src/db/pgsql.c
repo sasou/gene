@@ -211,6 +211,11 @@ bool pgsqlInitPdo (zval * self, zval *config) {
 	add_index_long(&option, 19, 2);
 	add_index_long(&option, 11, 2);
 	add_index_long(&option, 8, 2);
+	/* In Swoole/coroutine mode, do NOT use PDO::ATTR_PERSISTENT.
+	 * NOTE: PDO::ATTR_PERSISTENT index is 12. */
+	if (GENE_G(runtime_type) >= 2) {
+		add_index_bool(&option, 12, 0);
+	}
 	gene_pdo_construct(&pdo_object, dsn, user, pass, &option);
 	zval_ptr_dtor(&option);
 

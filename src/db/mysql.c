@@ -205,7 +205,11 @@ bool mysqlInitPdo (zval * self, zval *config) {
 	 * returns the SAME underlying TCP socket — Swoole then throws
 	 * "Socket has already been bound to another coroutine".
 	 * Each coroutine already gets its own Gene\Db\Mysql via per-coroutine di_regs,
-	 * so each creates a private non-persistent connection that is fully isolated. */
+	 * so each creates a private non-persistent connection that is fully isolated.
+	 * NOTE: PDO::ATTR_PERSISTENT index is 12. */
+	if (GENE_G(runtime_type) >= 2) {
+		add_index_bool(&option, 12, 0);
+	}
 	gene_pdo_construct(&pdo_object, dsn, user, pass, &option);
 	zval_ptr_dtor(&option);
 
