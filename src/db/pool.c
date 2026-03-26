@@ -99,6 +99,11 @@
      add_index_long(&option, 3, 2);
      /* PDO::ATTR_EMULATE_PREPARES => false */
      add_index_long(&option, 20, 0);
+    /* In Swoole/coroutine mode, force-disable PDO persistent connections.
+     * NOTE: PDO::ATTR_PERSISTENT index is 12. */
+    if (GENE_G(runtime_type) >= 2) {
+        add_index_bool(&option, 12, 0);
+    }
   
      ZVAL_STRING(&func_name, "__construct");
      {
