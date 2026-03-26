@@ -154,6 +154,7 @@ zval *gene_di_get(zend_string *name) {
 		zend_string_release(local_class_str);
 		zval_ptr_dtor(&local_params);
 	}
+	php_error_docref(NULL, E_WARNING, "Unable to init calss '%s'." , Z_STRVAL_P(class));
 	return NULL;
 }
 
