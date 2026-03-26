@@ -284,6 +284,7 @@ static void php_gene_init_globals() {
 	GENE_G(swoole_getcid_func) = NULL;
 	GENE_G(swoole_getcid_resolved) = 0;
 	GENE_G(autoload_registered) = 0;
+	GENE_G(worker_ready) = 0;
 	GENE_G(cache) = NULL;
 	GENE_G(cache_easy) = NULL;
 	gene_rwlock_init(&GENE_G(cache_lock));
