@@ -1,4 +1,4 @@
-﻿<?php
+<?php
 namespace Gene;
 
 /**
@@ -146,6 +146,18 @@ class Application
      * @return static
      */
     public function run($method = null, $uri = null) {
+
+    }
+
+    /**
+     * waitWorkerReady
+     *
+     * Swoole/常驻模式下等待 workerStart 初始化结束（workerReady 标记）。
+     * FPM 模式下无阻塞，直接返回。
+     *
+     * @return static|bool
+     */
+    public static function waitWorkerReady() {
 
     }
 
