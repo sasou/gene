@@ -4,13 +4,13 @@ define('APP_ROOT', dirname(__dir__) . '/application');
 define('CONF_DIR', dirname(__dir__) . '/config');
 define('WWW_ROOT', dirname(__dir__) . '/public');
 
-
 \Swoole\Runtime::enableCoroutine(SWOOLE_HOOK_ALL);
+
 $http = new \Swoole\Http\Server("0.0.0.0", 80, SWOOLE_PROCESS);
 
 $http->set([
-    'reactor_num'            => 3,
-    'worker_num'             => 6,
+    'reactor_num'            => 2,
+    'worker_num'             => 4,
     'max_request'            => 10000,
     'dispatch_mode'          => 2,
     'enable_static_handler'  => true,
@@ -22,7 +22,8 @@ $http->on("start", function ($server) {
 });
 
 $http->on("workerStart", function ($server, $workerId) {
-    \Gene\Application::getInstance()->autoload(APP_ROOT)
+    \Gene\Application::getInstance()
+        ->autoload(APP_ROOT)
         ->load("router.ini.php", CONF_DIR)
         ->load("config.ini.php", CONF_DIR)
         ->setMode(1, 1)
@@ -53,7 +54,7 @@ $http->on("workerStop", function ($server, $workerId) {
 });
 
 $http->on("request", function ($request, $response) {
-    // 先等待 workerStart 初始化完成，避免首批请求过早进入 run()
+    // 先等待 workerStart 初始化完成，避免首批请求过早进入 run() 导致异常
     \Gene\Application::waitWorkerReady();
     \Gene\Request::init($request->get, $request->post, $request->cookie, $request->server, null, $request->files, null, $request->header);
     \Gene\Application::setResponse($response);
