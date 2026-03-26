@@ -4,6 +4,8 @@ define('APP_ROOT', dirname(__dir__) . '/application');
 define('CONF_DIR', dirname(__dir__) . '/config');
 define('WWW_ROOT', dirname(__dir__) . '/public');
 
+\Gene\Application::setRuntimeType('swoole');
+
 \Swoole\Runtime::enableCoroutine(SWOOLE_HOOK_ALL);
 
 $http = new \Swoole\Http\Server("0.0.0.0", 80, SWOOLE_PROCESS);
@@ -26,8 +28,7 @@ $http->on("workerStart", function ($server, $workerId) {
         ->autoload(APP_ROOT)
         ->load("router.ini.php", CONF_DIR)
         ->load("config.ini.php", CONF_DIR)
-        ->setMode(1, 1)
-        ->setRuntimeType('swoole');
+        ->setMode(1, 1);
 
     // 创建数据库连接池（每个Worker进程独立）
     // 第二个参数 'db' 对应 config.ini.php 中 $config->set("db", ...) 的配置key，自动从持久化配置缓存中读取 dsn/username/password
