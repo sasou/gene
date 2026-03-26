@@ -38,7 +38,7 @@ $http->on("workerStart", function ($server, $workerId) {
         'waitTimeout' => 1.5,  // 获取连接等待超时（秒）（默认3.0）
     ]);
 
-    // 标记Worker已就绪，run()将在此标记前阻塞等待
+    // 标记Worker已就绪，request 回调开头会先阻塞等待此标记
     \Gene\Application::getInstance()->workerReady();
 });
 
@@ -53,6 +53,8 @@ $http->on("workerStop", function ($server, $workerId) {
 });
 
 $http->on("request", function ($request, $response) {
+    // 先等待 workerStart 初始化完成，避免首批请求过早进入 run()
+    \Gene\Application::waitWorkerReady();
     \Gene\Request::init($request->get, $request->post, $request->cookie, $request->server, null, $request->files, null, $request->header);
     \Gene\Application::setResponse($response);
 
