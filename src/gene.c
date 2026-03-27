@@ -56,6 +56,7 @@
 #include "tool/benchmark.h"
 #include "tool/log.h"
 #include "cache/memcached.h"
+#include "cache/redis_pool.h"
 #include "cache/redis.h"
 #include "cache/cache.h"
 
@@ -387,6 +388,7 @@ PHP_MINIT_FUNCTION(gene) {
 	GENE_STARTUP(hook);
 	GENE_STARTUP(service);
 	GENE_STARTUP(factory);
+	GENE_STARTUP(redis_pool);
 	GENE_STARTUP(redis);
 	GENE_STARTUP(memcached);
 	GENE_STARTUP(cache);
