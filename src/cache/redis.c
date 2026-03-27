@@ -29,6 +29,7 @@
 #include "../common/common.h"
 #include "../cache/redis.h"
 #include "../factory/factory.h"
+#include "../cache/redis_pool.h"
 
 zend_class_entry * gene_redis_ce;
 
@@ -230,6 +231,39 @@ bool initRObj (zval * self, zval *config) {
 	return 1;
 }
 
+/*
+ * Reconnect helper used by the error-recovery paths in get/set/__call.
+ *
+ * Pool mode: notifies the pool that the current connection is dead (no PING —
+ * the caller already knows), clears it, then borrows a fresh one.
+ * Non-pool mode: recreates a direct connection via initRObj (same as before).
+ *
+ * This preserves correct pool currentCount bookkeeping across reconnects:
+ *   notify_remove decrements count for the dead slot,
+ *   pool_get increments count for the fresh slot.
+ */
+static void gene_redis_reconnect(zval *self)
+{
+    zval *config = zend_read_property(gene_redis_ce, gene_strip_obj(self),
+                                       ZEND_STRL(GENE_REDIS_CONFIG), 1, NULL);
+    zval *pool   = zend_read_property(gene_redis_ce, gene_strip_obj(self),
+                                       ZEND_STRL(GENE_REDIS_POOL_REF), 1, NULL);
+
+    if (pool && Z_TYPE_P(pool) == IS_OBJECT) {
+        /* Decrement count for the dead connection (no PING needed) */
+        gene_redis_pool_notify_remove(gene_redis_ce, self, ZEND_STRL(GENE_REDIS_POOL_REF));
+        /* Clear the dead connection property */
+        zend_update_property_null(gene_redis_ce, gene_strip_obj(self),
+                                   ZEND_STRL(GENE_REDIS_OBJ));
+        /* Borrow a fresh connection from the pool */
+        gene_redis_pool_get(gene_redis_ce, self, config,
+                             ZEND_STRL(GENE_REDIS_POOL_REF), ZEND_STRL(GENE_REDIS_OBJ));
+    } else {
+        /* Non-pool mode: recreate direct connection */
+        initRObj(self, config);
+    }
+}
+
 void redis_get(zval *object, zval *key, zval *ret) {
 	if (Z_TYPE_P(key) == IS_ARRAY) {
 		gene_redis_mGet(object, key, ret);
@@ -258,14 +292,29 @@ PHP_METHOD(gene_redis, __construct)
     }
 
     if (Z_TYPE_P(config) == IS_ARRAY) {
-    	zend_update_property(gene_redis_ce, gene_strip_obj(self), ZEND_STRL(GENE_REDIS_CONFIG), config);
-    	initRObj (self, config);
-    	if (EG(exception)) {
-    		if (checkError(EG(exception))) {
-    			zend_clear_exception();
-    			initRObj(self, config);
-    		}
-    	}
+        zend_update_property(gene_redis_ce, gene_strip_obj(self), ZEND_STRL(GENE_REDIS_CONFIG), config);
+        /* Set Gene-level serializer before pool check so it is available
+         * regardless of whether a pooled or direct connection is used. */
+        {
+            zval *serializer = zend_hash_str_find(Z_ARRVAL_P(config), ZEND_STRL("serializer"));
+            if (serializer && Z_TYPE_P(serializer) == IS_LONG) {
+                zend_update_property_long(gene_redis_ce, gene_strip_obj(self),
+                                           ZEND_STRL(GENE_REDIS_SERIALIZE), Z_LVAL_P(serializer));
+            }
+        }
+        /* Pool mode: in Swoole coroutine mode, if config has a 'pool' key,
+         * borrow a Redis connection from the named Gene\Cache\RedisPool instance. */
+        if (!gene_redis_pool_get(gene_redis_ce, self, config,
+                                  ZEND_STRL(GENE_REDIS_POOL_REF), ZEND_STRL(GENE_REDIS_OBJ))) {
+            /* Not pool mode — create a direct connection */
+            initRObj(self, config);
+            if (EG(exception)) {
+                if (checkError(EG(exception))) {
+                    zend_clear_exception();
+                    initRObj(self, config);
+                }
+            }
+        }
     }
     RETURN_ZVAL(self, 1, 0);
 }
@@ -287,9 +336,11 @@ PHP_METHOD(gene_redis, get) {
     	if (EG(exception)) {
     		if (checkError(EG(exception))) {
     			zend_clear_exception();
-    			initRObj (self, NULL);
+    			gene_redis_reconnect(self);
     			object = zend_read_property(gene_redis_ce, gene_strip_obj(self), ZEND_STRL(GENE_REDIS_OBJ), 1, NULL);
-    			redis_get(object, key, &ret);
+    			if (object && Z_TYPE_P(object) == IS_OBJECT) {
+    				redis_get(object, key, &ret);
+    			}
     		}
     	}
 		if(serializer_handler) {
@@ -353,13 +404,15 @@ PHP_METHOD(gene_redis, set) {
 				if (serialize(value, &ret_string, serializer_handler) > 0) {
 					redis_set(object, key, ttl, &ret_string, return_value);
 					if (EG(exception)) {
-						if (checkError(EG(exception))) {
-							zend_clear_exception();
-							initRObj (self, NULL);
-							object = zend_read_property(gene_redis_ce, gene_strip_obj(self), ZEND_STRL(GENE_REDIS_OBJ), 1, NULL);
-							redis_set(object, key, ttl, &ret_string, return_value);
+							if (checkError(EG(exception))) {
+								zend_clear_exception();
+								gene_redis_reconnect(self);
+								object = zend_read_property(gene_redis_ce, gene_strip_obj(self), ZEND_STRL(GENE_REDIS_OBJ), 1, NULL);
+								if (object && Z_TYPE_P(object) == IS_OBJECT) {
+									redis_set(object, key, ttl, &ret_string, return_value);
+								}
+							}
 						}
-					}
 					zval_ptr_dtor(&ret_string);
 					return;
 				}
@@ -370,9 +423,11 @@ PHP_METHOD(gene_redis, set) {
 		if (EG(exception)) {
 			if (checkError(EG(exception))) {
 				zend_clear_exception();
-				initRObj (self, NULL);
+				gene_redis_reconnect(self);
 				object = zend_read_property(gene_redis_ce, gene_strip_obj(self), ZEND_STRL(GENE_REDIS_OBJ), 1, NULL);
-				redis_set(object, key, ttl, value, return_value);
+				if (object && Z_TYPE_P(object) == IS_OBJECT) {
+					redis_set(object, key, ttl, value, return_value);
+				}
 			}
 		}
 		return;
@@ -396,9 +451,11 @@ PHP_METHOD(gene_redis, __call) {
     	if (EG(exception)) {
     		if (checkError(EG(exception))) {
     			zend_clear_exception();
-    			initRObj (self, NULL);
+    			gene_redis_reconnect(self);
     			object = zend_read_property(gene_redis_ce, gene_strip_obj(self), ZEND_STRL(GENE_REDIS_OBJ), 1, NULL);
-    			gene_factory_call(object, method, params, &ret);
+    			if (object && Z_TYPE_P(object) == IS_OBJECT) {
+    				gene_factory_call(object, method, params, &ret);
+    			}
     		}
     	}
 		RETURN_ZVAL(&ret, 1, 1);
@@ -407,13 +464,72 @@ PHP_METHOD(gene_redis, __call) {
 }
 
 /*
+ * {{{ public gene_redis::release()
+ *
+ * Explicitly return the pool-borrowed Redis connection back to the pool.
+ * Designed for long-lived objects or explicit resource management patterns.
+ */
+PHP_METHOD(gene_redis, release)
+{
+    zval *self = getThis();
+    gene_redis_pool_return(gene_redis_ce, self,
+                            ZEND_STRL(GENE_REDIS_POOL_REF), ZEND_STRL(GENE_REDIS_OBJ));
+    RETURN_NULL();
+}
+/* }}} */
+
+/*
+ * {{{ public gene_redis::free()
+ *
+ * Pool mode:     return the connection to the pool.
+ * Non-pool mode: null out the internal Redis object (close the connection).
+ */
+PHP_METHOD(gene_redis, free)
+{
+    zval *self = getThis();
+    zval *pool = zend_read_property(gene_redis_ce, gene_strip_obj(self),
+                                     ZEND_STRL(GENE_REDIS_POOL_REF), 1, NULL);
+    if (pool && Z_TYPE_P(pool) == IS_OBJECT) {
+        gene_redis_pool_return(gene_redis_ce, self,
+                                ZEND_STRL(GENE_REDIS_POOL_REF), ZEND_STRL(GENE_REDIS_OBJ));
+    } else {
+        zend_update_property_null(gene_redis_ce, gene_strip_obj(self),
+                                   ZEND_STRL(GENE_REDIS_OBJ));
+    }
+    RETURN_NULL();
+}
+/* }}} */
+
+/*
+ * {{{ public gene_redis::__destruct()
+ *
+ * In pool mode, automatically return the borrowed connection to the pool when
+ * the Gene\Cache\Redis object is destroyed (end of coroutine scope, etc.).
+ * Double-return is safe: gene_redis_pool_return checks obj_key == null.
+ */
+PHP_METHOD(gene_redis, __destruct)
+{
+    zval *self = getThis();
+    zval *pool = zend_read_property(gene_redis_ce, gene_strip_obj(self),
+                                     ZEND_STRL(GENE_REDIS_POOL_REF), 1, NULL);
+    if (pool && Z_TYPE_P(pool) == IS_OBJECT) {
+        gene_redis_pool_return(gene_redis_ce, self,
+                                ZEND_STRL(GENE_REDIS_POOL_REF), ZEND_STRL(GENE_REDIS_OBJ));
+    }
+}
+/* }}} */
+
+/*
  * {{{ gene_redis_methods
  */
 const zend_function_entry gene_redis_methods[] = {
-		PHP_ME(gene_redis, set, gene_redis_set_arginfo, ZEND_ACC_PUBLIC)
-		PHP_ME(gene_redis, get, gene_redis_get_arginfo, ZEND_ACC_PUBLIC)
-		PHP_ME(gene_redis, __call, gene_redis_call_arginfo, ZEND_ACC_PUBLIC)
+		PHP_ME(gene_redis, set,         gene_redis_set_arginfo,  ZEND_ACC_PUBLIC)
+		PHP_ME(gene_redis, get,         gene_redis_get_arginfo,  ZEND_ACC_PUBLIC)
+		PHP_ME(gene_redis, __call,      gene_redis_call_arginfo, ZEND_ACC_PUBLIC)
 		PHP_ME(gene_redis, __construct, gene_redis_void_arginfo, ZEND_ACC_PUBLIC)
+		PHP_ME(gene_redis, release,     gene_redis_void_arginfo, ZEND_ACC_PUBLIC)
+		PHP_ME(gene_redis, free,        gene_redis_void_arginfo, ZEND_ACC_PUBLIC)
+		PHP_ME(gene_redis, __destruct,  gene_redis_void_arginfo, ZEND_ACC_PUBLIC)
 		{NULL, NULL, NULL}
 };
 /* }}} */
@@ -431,9 +547,11 @@ GENE_MINIT_FUNCTION(redis)
     gene_redis_ce->ce_flags |= ZEND_ACC_ALLOW_DYNAMIC_PROPERTIES;
 #endif
 
-    zend_declare_property_null(gene_redis_ce, ZEND_STRL(GENE_REDIS_CONFIG), ZEND_ACC_PUBLIC);
-	zend_declare_property_null(gene_redis_ce, ZEND_STRL(GENE_REDIS_OBJ), ZEND_ACC_PUBLIC);
-	zend_declare_property_long(gene_redis_ce, ZEND_STRL(GENE_REDIS_SERIALIZE), 1, ZEND_ACC_PUBLIC);
+    zend_declare_property_null(gene_redis_ce, ZEND_STRL(GENE_REDIS_CONFIG),   ZEND_ACC_PUBLIC);
+    zend_declare_property_null(gene_redis_ce, ZEND_STRL(GENE_REDIS_OBJ),      ZEND_ACC_PUBLIC);
+    zend_declare_property_long(gene_redis_ce, ZEND_STRL(GENE_REDIS_SERIALIZE), 1, ZEND_ACC_PUBLIC);
+    /* Pool reference — set when a Gene\Cache\RedisPool connection is borrowed */
+    zend_declare_property_null(gene_redis_ce, ZEND_STRL(GENE_REDIS_POOL_REF), ZEND_ACC_PUBLIC);
     //
 	return SUCCESS; // @suppress("Symbol is not resolved")
 }

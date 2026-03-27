@@ -4,7 +4,7 @@ PHP_ARG_ENABLE(gene, whether to enable gene support,
 AC_ARG_ENABLE(gene-debug,
 [  --enable-gene-debug     Enable gene debug mode default=no],
 [PHP_GENE_DEBUG=$enableval],
-[PHP_GENE_DEBUG="no"])  
+[PHP_GENE_DEBUG="no"])
 
 if test "$PHP_GENE" != "no"; then
 
@@ -41,15 +41,15 @@ if test "$PHP_GENE" != "no"; then
   else
     AC_MSG_RESULT([$php_version, ok])
   fi
-  
-  PHP_NEW_EXTENSION(gene, 
+
+  PHP_NEW_EXTENSION(gene,
 	  gene.c \
 	  app/application.c \
 	  factory/load.c \
 	  di/di.c \
 	  router/router.c \
 	  tool/execute.c \
-	  cache/memory.c \ 
+	  cache/memory.c \
 	  common/common.c \
 	  config/configs.c \
 	  mvc/controller.c \
@@ -73,9 +73,10 @@ if test "$PHP_GENE" != "no"; then
 	  mvc/hook.c \
 	  service/service.c \
 	  factory/factory.c \
+	  cache/redis_pool.c \
 	  cache/redis.c \
 	  cache/memcached.c \
-	  cache/cache.c, 
+	  cache/cache.c,
 	  $ext_shared,, -DZEND_ENABLE_STATIC_TSRMLS_CACHE=1)
   PHP_ADD_BUILD_DIR([$ext_builddir/app], 1)
   PHP_ADD_BUILD_DIR([$ext_builddir/cache], 1)
@@ -93,7 +94,3 @@ if test "$PHP_GENE" != "no"; then
   PHP_ADD_BUILD_DIR([$ext_builddir/tool], 1)
 
 fi
-
-
-
-
