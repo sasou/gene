@@ -16,6 +16,6 @@ if (PHP_GENE != "no") {
 	ADD_SOURCES(configure_module_dirname + "/router", "router.c", "gene");
 	ADD_SOURCES(configure_module_dirname + "/service", "service.c", "gene");
 	ADD_SOURCES(configure_module_dirname + "/session", "session.c", "gene");
-	ADD_SOURCES(configure_module_dirname + "/cache", "memory.c memcached.c redis.c cache.c", "gene");
+	ADD_SOURCES(configure_module_dirname + "/cache", "memory.c memcached.c redis_pool.c redis.c cache.c", "gene");
 	AC_DEFINE("HAVE_GENE", 1, "Have Gene Support");
 }
