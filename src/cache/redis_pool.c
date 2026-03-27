@@ -1310,6 +1310,7 @@ bool gene_redis_pool_get(zend_class_entry *redis_ce, zval *self, zval *config,
 
     if (Z_TYPE(pool_obj) == IS_OBJECT) {
         zval redis_conn;
+        ZVAL_UNDEF(&redis_conn);
         gene_factory_call(&pool_obj, "get", NULL, &redis_conn);
 
         if (Z_TYPE(redis_conn) == IS_OBJECT) {
