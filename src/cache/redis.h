@@ -19,6 +19,8 @@
 #define GENE_REDIS_CONFIG "config"
 #define GENE_REDIS_OBJ "obj"
 #define GENE_REDIS_SERIALIZE "rehandler"
+/* Property holding a reference to Gene\Cache\RedisPool when in pool mode */
+#define GENE_REDIS_POOL_REF "pool"
 
 extern zend_class_entry *gene_redis_ce;
 
