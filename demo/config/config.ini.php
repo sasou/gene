@@ -30,6 +30,19 @@ $config->set("session", [
         ]],
 ]);
 
+//Redis类注入配置
+$config->set("redis", [
+    'class' => '\Gene\Cache\Redis',
+    'params' => [[
+    'host' => '127.0.0.1',
+    'port' => 6379,
+    'password' => '',
+    'database' => 0,
+    'pool' => 'redisPool'
+        ]],
+    'instance' => true
+]);
+
 //数据库类注入配置
 // instance:true — 每个协程通过 per-coroutine di_regs 缓存独立的 Gene\Db\Mysql 对象，
 // 同一协程内多次 Di::get('db') 复用同一对象；不同协程各自持有独立的 PDO 连接，
