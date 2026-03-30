@@ -65,6 +65,13 @@ void gene_factory_call(zval *object, char *action, zval *param, zval *retval) /*
 	uint32_t num = 0;
 
     ZVAL_STRING(&function_name, action);
+    if (retval) {
+        ZVAL_UNDEF(retval);
+    }
+    GENE_DEBUG_LOG("[gene:factory_call][cid=%ld] action=%s object_type=%d param_is_array=%d",
+        (long)gene_get_coroutine_id(), action,
+        object ? (int)Z_TYPE_P(object) : -1,
+        (param && Z_TYPE_P(param) == IS_ARRAY) ? 1 : 0);
     if (param && Z_TYPE_P(param) == IS_ARRAY) {
     	param_count = zend_hash_num_elements(Z_ARRVAL_P(param));
     	if (param_count > 0) {
@@ -84,6 +91,10 @@ void gene_factory_call(zval *object, char *action, zval *param, zval *retval) /*
     } else {
     	call_user_function(NULL, object, &function_name, retval, 0, NULL);
     }
+    GENE_DEBUG_LOG("[gene:factory_call][cid=%ld] action=%s retval_type=%d exception=%d",
+        (long)gene_get_coroutine_id(), action,
+        retval ? (int)Z_TYPE_P(retval) : -1,
+        EG(exception) ? 1 : 0);
     zval_ptr_dtor(&function_name);
 }/*}}}*/
 
@@ -99,6 +110,9 @@ void gene_factory_function_call(char *action, zval *param_key, zval *param_arr, 
 	zval *params;
 
     ZVAL_STRING(&function_name, action);
+    if (retval) {
+        ZVAL_UNDEF(retval);
+    }
     if (param_arr && Z_TYPE_P(param_arr) == IS_ARRAY) {
     	param_count = zend_hash_num_elements(Z_ARRVAL_P(param_arr));
     }
@@ -164,8 +178,9 @@ bool gene_factory(char *className, size_t tmp_len, zval *params, zval *classObje
 		if (Z_TYPE_P(classObject) == IS_OBJECT
 						&& zend_hash_str_exists(&(Z_OBJCE_P(classObject)->function_table), ZEND_STRL("__construct"))) {
 			zval ret;
+			ZVAL_UNDEF(&ret);
 			gene_factory_call(classObject, "__construct", params, &ret);
-			zval_ptr_dtor(&ret);
+			if (!Z_ISUNDEF(ret)) zval_ptr_dtor(&ret);
 		}
 		return 1;
 	}
@@ -176,6 +191,13 @@ void gene_factory_call_1(zval *object, char *action, zval *param, zval *retval) 
 {
     zval function_name;
     ZVAL_STRING(&function_name, action);
+    if (retval) {
+        ZVAL_UNDEF(retval);
+    }
+    GENE_DEBUG_LOG("[gene:factory_call_1][cid=%ld] action=%s object_type=%d param_type=%d",
+        (long)gene_get_coroutine_id(), action,
+        object ? (int)Z_TYPE_P(object) : -1,
+        param ? (int)Z_TYPE_P(param) : -1);
     if (param && Z_TYPE_P(param) == IS_ARRAY) {
     	zval params[1];
     	params[0] = *param;
@@ -183,6 +205,10 @@ void gene_factory_call_1(zval *object, char *action, zval *param, zval *retval) 
     } else {
     	call_user_function(NULL, object, &function_name, retval, 0, NULL);
     }
+    GENE_DEBUG_LOG("[gene:factory_call_1][cid=%ld] action=%s retval_type=%d exception=%d",
+        (long)gene_get_coroutine_id(), action,
+        retval ? (int)Z_TYPE_P(retval) : -1,
+        EG(exception) ? 1 : 0);
     zval_ptr_dtor(&function_name);
 }/*}}}*/
 
@@ -190,6 +216,9 @@ void gene_factory_call_2(char *method, zval *key, zval *retval) /*{{{*/
 {
     zval function_name;
     ZVAL_STRING(&function_name, method);
+    if (retval) {
+        ZVAL_UNDEF(retval);
+    }
     if (key) {
     	zval params[1];
     	params[0] = *key;

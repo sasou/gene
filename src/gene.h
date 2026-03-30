@@ -148,7 +148,13 @@
  void gene_init_co_contexts(void);
  
  #define GENE_REQ(v) (gene_request_ctx()->v)
- 
+
+#ifdef GENE_DEBUG_TRACE
+#define GENE_DEBUG_LOG(...) php_error_docref(NULL, E_NOTICE, __VA_ARGS__)
+#else
+#define GENE_DEBUG_LOG(...) ((void)0)
+#endif
+
  #endif	/* PHP_GENE_H */
  
  /*
