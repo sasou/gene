@@ -30,12 +30,22 @@ $http->on("workerStart", function ($server, $workerId) {
         ->load("config.ini.php", CONF_DIR)
         ->setMode(1, 1);
 
+    // 创建Redis连接池（每个Worker进程独立）
+    // 第二个参数 'redis' 对应 config.ini.php 中 $config->set("redis", ...) 的配置key，自动从持久化配置缓存中读取连接参数
+    // 第三个参数可选，不传则使用默认连接池参数（v5.4.3起默认max=64）
+    \Gene\Cache\RedisPool::create('redisPool', 'redis', [
+        'min'         => 2,    // 最小连接数（默认1）
+        'max'         => 64,   // 最大连接数（v5.4.3起默认64，提升高并发性能）
+        'idleTimeout' => 60,   // 空闲超时（秒），超时回收，保持最小连接数（默认60）
+        'waitTimeout' => 1.5,  // 获取连接等待超时（秒）（默认3.0）
+    ]);
+
     // 创建数据库连接池（每个Worker进程独立）
     // 第二个参数 'db' 对应 config.ini.php 中 $config->set("db", ...) 的配置key，自动从持久化配置缓存中读取 dsn/username/password
-    // 第三个参数可选，不传则使用默认连接池参数。
+    // 第三个参数可选，不传则使用默认连接池参数（v5.4.3起默认max=64）
     \Gene\Pool::create('dbPool', 'db', [
         'min'         => 2,    // 最小连接数（默认1）
-        'max'         => 10,   // 最大连接数（默认10）
+        'max'         => 64,   // 最大连接数（v5.4.3起默认64，提升高并发性能）
         'idleTimeout' => 60,   // 空闲超时（秒），超时回收，保持最小连接数（默认60）
         'waitTimeout' => 1.5,  // 获取连接等待超时（秒）（默认3.0）
     ]);
@@ -46,11 +56,13 @@ $http->on("workerStart", function ($server, $workerId) {
 
 $http->on("workerExit", function ($server, $workerId) {
     // 清除连接池定时器，让事件循环可以正常退出
+    \Gene\Cache\RedisPool::stopTimers();
     \Gene\Pool::stopTimers();
 });
 
 $http->on("workerStop", function ($server, $workerId) {
     // 关闭所有连接池，释放资源
+    \Gene\Cache\RedisPool::closeAll();
     \Gene\Pool::closeAll();
 });
 

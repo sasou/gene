@@ -20,7 +20,7 @@ namespace Gene\Cache;
  * 典型 Swoole Worker 生命周期：
  * ```php
  * // onWorkerStart
- * Gene\Cache\RedisPool::create('cache', 'redis', ['min' => 2, 'max' => 10]);
+ * Gene\Cache\RedisPool::create('cache', 'redis', ['min' => 2, 'max' => 64]);
  *
  * // onWorkerStop
  * Gene\Cache\RedisPool::closeAll();

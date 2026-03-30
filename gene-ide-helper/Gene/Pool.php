@@ -40,7 +40,7 @@ class Pool
      *                          从中读取 params[0] 的 dsn/username/password/options
      * @param array  $options   连接池参数（可选，不传使用默认值）：
      *   - min:         int     最小连接数（默认1）
-     *   - max:         int     最大连接数（默认10）
+     *   - max:         int     最大连接数（v5.4.3起默认64）
      *   - idleTimeout: int     空闲超时秒数（默认60）
      *   - waitTimeout: float   获取连接等待超时秒数（默认3.0）
      * @return self

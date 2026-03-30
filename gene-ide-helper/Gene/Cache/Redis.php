@@ -17,7 +17,7 @@ namespace Gene\Cache;
  *
  * 2. 连接池模式（仅 Swoole 协程，runtime_type >= 2）：
  *    // onWorkerStart 中预先创建连接池：
- *    Gene\Cache\RedisPool::create('cache', 'redis', ['min' => 2, 'max' => 10]);
+ *    Gene\Cache\RedisPool::create('cache', 'redis', ['min' => 2, 'max' => 64]);
  *
  *    // 业务代码中使用（config 加入 'pool' 键）：
  *    $redis = new Gene\Cache\Redis([
@@ -28,7 +28,7 @@ namespace Gene\Cache;
  *    $redis->release();  // 显式归还连接（可选，__destruct 自动归还）
  *
  * @author  sasou<admin@php-gene.com>
- * @version  5.4.2
+ * @version  5.4.3
  */
 class Redis
 {

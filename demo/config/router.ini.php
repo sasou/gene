@@ -6,6 +6,13 @@ $router->clear()
     ->get("/doc.html", "\Controllers\Index@doc","@clearAll")
     ->get("/doc/:id.html", "\Controllers\Index@doc","@clearAll")
     ->get("/test.html", "\Controllers\Index@test","@clearAll")
+    
+    // Redis Pool 演示路由
+    ->group("/redis-demo")
+    ->get("/", "\Controllers\RedisDemo@index", "@clearAfter")
+    ->get("/performance", "\Controllers\RedisDemo@performance", "@clearAfter")
+    ->get("/cleanup", "\Controllers\RedisDemo@cleanup", "@clearAfter")
+    ->group()
 
     // Admin 登录、控制台相关页面 静态匹配具体类的方法
     ->get("/admin.html", "Controllers\Admin\Index@run", "adminAuth@clearAfter")

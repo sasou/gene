@@ -23,7 +23,7 @@ namespace Gene;
  * @property \Gene\Response $response
  * 
  * @author  sasou<admin@php-gene.com>
- * @version  5.4.1
+ * @version  5.4.3
  */
  
 class Hook
