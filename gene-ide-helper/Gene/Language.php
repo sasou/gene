@@ -14,7 +14,7 @@ namespace Gene;
  *  echo $language->login_title; // 读取语言键
  *
  * @author  sasou<admin@php-gene.com>
- * @version 3.0.5
+ * @version 5.4.3
  */
 class Language
 {

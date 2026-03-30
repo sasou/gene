@@ -5,7 +5,7 @@ namespace Gene;
  * Log
  * 
  * @author  sasou<admin@php-gene.com>
- * @version  5.3.5
+ * @version  5.4.3
  */
  
 class Log

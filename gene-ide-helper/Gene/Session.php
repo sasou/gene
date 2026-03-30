@@ -8,7 +8,7 @@ namespace Gene;
  * 驱动对象需实现 get(id)、set(id, data)、delete(id) 三个方法。
  *
  * @author  sasou<admin@php-gene.com>
- * @version  5.2.0
+ * @version  5.4.3
  */
 class Session
 {

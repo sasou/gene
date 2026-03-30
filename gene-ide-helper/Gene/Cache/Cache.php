@@ -15,7 +15,7 @@ namespace Gene\Cache;
  *   ]);
  *
  * @author  sasou<admin@php-gene.com>
- * @version  5.2.0
+ * @version  5.4.3
  */
 class Cache
 {
