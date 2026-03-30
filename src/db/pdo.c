@@ -623,6 +623,9 @@ bool checkPdoError(zend_object *ex) {
 	ce = Z_OBJCE(zv);
 
 	msg = zend_read_property(ce, gene_strip_obj(&zv), ZEND_STRL("message"), 0, &rv);
+	if (!msg || Z_TYPE_P(msg) != IS_STRING) {
+		return 0;
+	}
 	for (i = 0; i < 9; i++) {
 		if (strstr(Z_STRVAL_P(msg), pdoErrorStr[i]) != NULL) {
 			return 1;
