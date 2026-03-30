@@ -324,197 +324,207 @@
  }
  /* }}} */
  
- /** {{{ gene_router_dispatch_direct
-  * Directly dispatch a "Class@action" route via C API, avoiding eval.
-  * Performs :m/:c/:a placeholder substitution identical to PHP_METHOD(dispatch).
-  * Returns 1 on success, 0 on failure. Result written to *retval.
-  */
- static int gene_router_dispatch_direct(const char *class_method, zval *retval) {
+
+/** {{{ gene_router_dispatch_direct
+ * Directly dispatch a "Class@action" route via C API, avoiding eval.
+ * Performs :m/:c/:a placeholder substitution identical to PHP_METHOD(dispatch).
+ * Returns 1 on success, 0 on failure. Result written to *retval.
+ */
+static int gene_router_dispatch_direct(const char *class_method, zval *retval) {
 	 char *copy, *class_name, *action, *ptr;
 	 char *class_alloc = NULL, *action_alloc = NULL, *tmp_alloc = NULL;
+	 size_t class_name_len, action_len;
 	 zval classObject;
 	 gene_request_context *ctx = gene_request_ctx();
- 
+
 	 ZVAL_NULL(retval);
- 
-	 if (!class_method || strlen(class_method) == 0) return 0;
- 
+
+	 if (!class_method || class_method[0] == '\0') return 0;
+
 	 copy = estrdup(class_method);
 	 class_name = php_strtok_r(copy, "@", &ptr);
 	 action = ptr;
- 
-	 if (!class_name || !action || strlen(action) == 0) {
+
+	 if (!class_name || !action || action[0] == '\0') {
 		 efree(copy);
 		 return 0;
 	 }
- 
+	 class_name_len = strlen(class_name);
+
 	 if (ctx->module != NULL) {
 		 class_alloc = strreplace2(class_name, ":m", ctx->module);
 		 class_name = class_alloc;
+		 class_name_len = strlen(class_name);
 	 }
 	 if (ctx->controller != NULL) {
 		 tmp_alloc = strreplace2(class_name, ":c", ctx->controller);
 		 if (class_alloc) efree(class_alloc);
 		 class_alloc = tmp_alloc;
 		 class_name = class_alloc;
+		 class_name_len = strlen(class_name);
 	 }
- 
-	 if (!gene_factory(class_name, strlen(class_name), NULL, &classObject)) {
+
+	 if (!gene_factory(class_name, class_name_len, NULL, &classObject)) {
 		 php_error_docref(NULL, E_WARNING, "Gene direct dispatch: unable to init class '%s'.", class_name);
 		 if (class_alloc) efree(class_alloc);
 		 efree(copy);
 		 return 0;
 	 }
- 
-	 action_alloc = estrdup(action);
+
 	 if (ctx->action != NULL) {
-		 char *tmp = strreplace2(action_alloc, ":a", ctx->action);
-		 efree(action_alloc);
+		 char *tmp = strreplace2(action, ":a", ctx->action);
 		 action_alloc = tmp;
+		 action = action_alloc;
 	 }
-	 gene_strtolower(action_alloc);
- 
+	 gene_strtolower(action);
+	 action_len = strlen(action);
+
 	 if (Z_TYPE(classObject) == IS_OBJECT
-			 && zend_hash_str_exists(&(Z_OBJCE(classObject)->function_table), action_alloc, strlen(action_alloc))) {
-		 gene_factory_call_1(&classObject, action_alloc, ctx->path_params, retval);
+			 && zend_hash_str_exists(&(Z_OBJCE(classObject)->function_table), action, action_len)) {
+		 gene_factory_call_1(&classObject, action, ctx->path_params, retval);
 		 zval_ptr_dtor(&classObject);
 		 if (class_alloc) efree(class_alloc);
-		 efree(action_alloc);
+		 if (action_alloc) efree(action_alloc);
 		 efree(copy);
 		 return 1;
 	 }
 
-	 php_error_docref(NULL, E_WARNING, "Gene direct dispatch: unable to call method '%s' in class '%s'.", action_alloc, class_name);
+	 php_error_docref(NULL, E_WARNING, "Gene direct dispatch: unable to call method '%s' in class '%s'.", action, class_name);
 	 zval_ptr_dtor(&classObject);
 	 if (class_alloc) efree(class_alloc);
-	 efree(action_alloc);
+	 if (action_alloc) efree(action_alloc);
 	 efree(copy);
 	 return 0;
 }
- /* }}} */
- 
- /** {{{ gene_router_exec_hook_direct
-  * Directly execute a "HookClass@method" hook via C API.
-  * For Gene\Hook subclasses: uses gene_factory_load_class (no constructor)
-  * since hooks are stateless and DI is handled via __get/__set.
-  * For before/specific hooks: call with no args, return 0 to abort.
-  * For after hooks: call with dispatch_result as single arg.
-  * Returns 1 to continue, 0 to abort (before hooks only).
-  */
- static int gene_router_exec_hook_direct(const char *class_method, zval *param, int is_before) {
-	 char *copy, *class_name, *method, *ptr;
-	 zval classObject, retval;
-	 size_t method_len;
-	 zend_class_entry *ce;
+/* }}} */
 
-	 ZVAL_NULL(&retval);
+/** {{{ gene_router_exec_hook_direct
+ * Directly execute a "HookClass@method" hook via C API.
+ * For Gene\Hook subclasses: uses gene_factory_load_class (no constructor)
+ * since hooks are stateless and DI is handled via __get/__set.
+ * For before/specific hooks: call with no args, return 0 to abort.
+ * For after hooks: call with dispatch_result as single arg.
+ * Returns 1 to continue, 0 to abort (before hooks only).
+ */
+static int gene_router_exec_hook_direct(const char *class_method, zval *param, int is_before) {
+    char *copy, *class_name, *method, *ptr;
+    zval classObject, retval;
+    size_t class_name_len, method_len;
+    zend_class_entry *ce;
 
-	 if (!class_method || strlen(class_method) == 0) return 1;
+    ZVAL_NULL(&retval);
 
-	 copy = estrdup(class_method);
-	 class_name = php_strtok_r(copy, "@", &ptr);
-	 method = ptr;
+    if (!class_method || class_method[0] == '\0') return 1;
 
-	 if (!class_name || !method || strlen(method) == 0) {
-		 efree(copy);
-		 return 1;
-	 }
+    copy = estrdup(class_method);
+    class_name = php_strtok_r(copy, "@", &ptr);
+    method = ptr;
 
-	 gene_strtolower(method);
-	 method_len = strlen(method);
+    if (!class_name || !method || method[0] == '\0') {
+        efree(copy);
+        return 1;
+    }
 
-	 /* Try lightweight load for Gene\Hook subclasses (skip constructor) */
-	 if (gene_hook_ce && gene_factory_load_class(class_name, strlen(class_name), &classObject)) {
-		 ce = Z_OBJCE(classObject);
-		 if (instanceof_function(ce, gene_hook_ce)) {
-			 /* Fast path: Hook subclass, no constructor needed */
-			 if (zend_hash_str_exists(&ce->function_table, method, method_len)) {
-				 if (param) {
-					 gene_factory_call_1(&classObject, method, param, &retval);
-				 } else {
-					 gene_factory_call(&classObject, method, NULL, &retval);
-				 }
-			 }
-			 zval_ptr_dtor(&classObject);
-			 efree(copy);
-			 goto check_retval;
-		 }
-		 /* Not a Hook subclass, destroy and fall through to gene_factory path */
-		 zval_ptr_dtor(&classObject);
-	 }
+    class_name_len = strlen(class_name);
+    gene_strtolower(method);
+    method_len = strlen(method);
 
-	 /* Standard path: full factory init with constructor */
-	 if (!gene_factory(class_name, strlen(class_name), NULL, &classObject)) {
-		 efree(copy);
-		 return 1;
-	 }
+    /* Try lightweight load for Gene\Hook subclasses (skip constructor) */
+    if (gene_hook_ce && gene_factory_load_class(class_name, class_name_len, &classObject)) {
+        ce = Z_OBJCE(classObject);
+        if (instanceof_function(ce, gene_hook_ce)) {
+            /* Fast path: Hook subclass, no constructor needed */
 
-	 if (Z_TYPE(classObject) == IS_OBJECT
-			 && zend_hash_str_exists(&(Z_OBJCE(classObject)->function_table), method, method_len)) {
-		 if (param) {
-			 gene_factory_call_1(&classObject, method, param, &retval);
-		 } else {
-			 gene_factory_call(&classObject, method, NULL, &retval);
-		 }
-	 }
+            if (zend_hash_str_exists(&ce->function_table, method, method_len)) {
+                if (param) {
+                    gene_factory_call_1(&classObject, method, param, &retval);
+                } else {
+                    gene_factory_call(&classObject, method, NULL, &retval);
+                }
+            }
+            zval_ptr_dtor(&classObject);
+            efree(copy);
+            goto check_retval;
+        }
+        /* Not a Hook subclass, destroy and fall through to gene_factory path */
+        zval_ptr_dtor(&classObject);
+    }
 
-	 zval_ptr_dtor(&classObject);
-	 efree(copy);
+    /* Standard path: full factory init with constructor */
+    if (!gene_factory(class_name, class_name_len, NULL, &classObject)) {
+        efree(copy);
+        return 1;
+    }
+
+    if (Z_TYPE(classObject) == IS_OBJECT
+            && zend_hash_str_exists(&(Z_OBJCE(classObject)->function_table), method, method_len)) {
+        if (param) {
+            gene_factory_call_1(&classObject, method, param, &retval);
+        } else {
+            gene_factory_call(&classObject, method, NULL, &retval);
+        }
+    }
+
+    zval_ptr_dtor(&classObject);
+    efree(copy);
 
 check_retval:
-	 if (is_before) {
-		 int abort = 0;
-		 if (Z_TYPE(retval) != IS_NULL && Z_TYPE(retval) != IS_UNDEF) {
-			 if ((Z_TYPE(retval) == IS_LONG && Z_LVAL(retval) == 0) ||
-				 (Z_TYPE(retval) == IS_FALSE)) {
-				 abort = 1;
-			 }
-		 }
-		 zval_ptr_dtor(&retval);
-		 return abort ? 0 : 1;
-	 }
+    if (is_before) {
+        int abort = 0;
+        if (Z_TYPE(retval) != IS_NULL && Z_TYPE(retval) != IS_UNDEF) {
+            if ((Z_TYPE(retval) == IS_LONG && Z_LVAL(retval) == 0) ||
+                (Z_TYPE(retval) == IS_FALSE)) {
+                abort = 1;
+            }
+        }
+        zval_ptr_dtor(&retval);
+        return abort ? 0 : 1;
+    }
 
-	 zval_ptr_dtor(&retval);
-	 return 1;
+    zval_ptr_dtor(&retval);
+    return 1;
 }
- /* }}} */
+/* }}} */
 
- /** {{{ gene_router_exec_error_direct
-  * Directly execute a "Class@method" error handler via C API, avoiding eval.
-  * Returns 1 on success, 0 on failure.
-  */
- static int gene_router_exec_error_direct(const char *class_method) {
-	 char *copy, *class_name, *method, *ptr;
-	 zval classObject, retval;
+/** {{{ gene_router_exec_error_direct
+ * Directly execute a "Class@method" error handler via C API, avoiding eval.
+ * Returns 1 on success, 0 on failure.
+ */
+static int gene_router_exec_error_direct(const char *class_method) {
+    char *copy, *class_name, *method, *ptr;
+    zval classObject, retval;
+    size_t class_name_len, method_len;
 
-	 if (!class_method || strlen(class_method) == 0) return 0;
+    if (!class_method || class_method[0] == '\0') return 0;
 
-	 copy = estrdup(class_method);
-	 class_name = php_strtok_r(copy, "@", &ptr);
-	 method = ptr;
+    copy = estrdup(class_method);
+    class_name = php_strtok_r(copy, "@", &ptr);
+    method = ptr;
 
-	 if (!class_name || !method || strlen(method) == 0) {
-		 efree(copy);
-		 return 0;
-	 }
+    if (!class_name || !method || method[0] == '\0') {
+        efree(copy);
+        return 0;
+    }
+    class_name_len = strlen(class_name);
 
-	 if (!gene_factory(class_name, strlen(class_name), NULL, &classObject)) {
-		 efree(copy);
-		 return 0;
-	 }
+    if (!gene_factory(class_name, class_name_len, NULL, &classObject)) {
+        efree(copy);
+        return 0;
+    }
 
-	 gene_strtolower(method);
+    gene_strtolower(method);
+    method_len = strlen(method);
 
-	 if (Z_TYPE(classObject) == IS_OBJECT
-			 && zend_hash_str_exists(&(Z_OBJCE(classObject)->function_table), method, strlen(method))) {
-		 ZVAL_NULL(&retval);
-		 gene_factory_call(&classObject, method, NULL, &retval);
-		 zval_ptr_dtor(&retval);
-		 zval_ptr_dtor(&classObject);
-		 efree(copy);
-		 return 1;
-	 }
+    if (Z_TYPE(classObject) == IS_OBJECT
+            && zend_hash_str_exists(&(Z_OBJCE(classObject)->function_table), method, method_len)) {
+        ZVAL_NULL(&retval);
+        gene_factory_call(&classObject, method, NULL, &retval);
+        zval_ptr_dtor(&retval);
 
+        zval_ptr_dtor(&classObject);
+        efree(copy);
+        return 1;
+    }
 	 zval_ptr_dtor(&classObject);
 	 efree(copy);
 	 return 0;
@@ -658,7 +668,7 @@ check_retval:
   */
  int get_router_error_run_by_router(zval *cacheHook, char *errorName) {
 	 zval *error = NULL, *error_src = NULL;
-	 size_t router_e_len, size = 0;
+	 size_t router_e_len, size;
 	 char *run = NULL, *router_e, *hsrc_key;
 	 size_t hsrc_key_len;
 	 if (cacheHook) {
@@ -676,13 +686,11 @@ check_retval:
 				 }
 			 }
 			 /* Fallback to eval */
-			 size = Z_STRLEN_P(error) + 1;
-			 run = (char *) ecalloc(size, sizeof(char));
-			 strcat(run, Z_STRVAL_P(error));
-			 run[size - 1] = 0;
+			 size = Z_STRLEN_P(error);
+			 run = estrndup(Z_STRVAL_P(error), size);
 
 			 zend_try {
-				 zend_eval_stringl(run, strlen(run), NULL, errorName);
+				 zend_eval_stringl(run, size, NULL, errorName);
 			 } zend_catch {
 			 } zend_end_try();
 
@@ -702,7 +710,7 @@ check_retval:
   */
  int get_router_error_run(char *errorName, zval *safe) {
 	 zval *cacheHook = NULL, *error = NULL, *error_src = NULL;
-	 size_t router_e_len, size = 0;
+	 size_t router_e_len, size;
 	 char *run = NULL, *router_e, *hsrc_key;
 	 size_t hsrc_key_len;
 	 if (safe != NULL && Z_STRLEN_P(safe)) {
@@ -728,10 +736,8 @@ check_retval:
 				 }
 			 }
 			 /* Fallback to eval */
-			 size = Z_STRLEN_P(error) + 1;
-			 run = (char *) ecalloc(size, sizeof(char));
-			 strcat(run, Z_STRVAL_P(error));
-			 run[size - 1] = 0;
+			 size = Z_STRLEN_P(error);
+			 run = estrndup(Z_STRVAL_P(error), size);
 		 } else {
 			 efree(router_e);
 			 php_error_docref(NULL, E_WARNING, "Gene Unknown Error:%s", errorName);
@@ -743,7 +749,7 @@ check_retval:
 	 }
 
 	 zend_try {
-		 zend_eval_stringl(run, strlen(run), NULL, "");
+		 zend_eval_stringl(run, size, NULL, "");
 	 } zend_catch {
 	 } zend_end_try();
 
