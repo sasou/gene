@@ -142,8 +142,27 @@ void gene_request_context_init(gene_request_context *ctx) {
 }
 /* }}} */
 
+/* {{{ gene_request_context_reset_path_params */
+static void gene_request_context_reset_path_params(gene_request_context *ctx) {
+	zval *pp;
+	if (!ctx) return;
+	pp = ctx->path_params;
+	if (!pp) {
+		ctx->path_params = (zval*) emalloc(sizeof(zval));
+		array_init(ctx->path_params);
+		return;
+	}
+	if (Z_TYPE_P(pp) != IS_ARRAY) {
+		zval_ptr_dtor(pp);
+		array_init(pp);
+		return;
+	}
+	zend_hash_clean(Z_ARRVAL_P(pp));
+}
+/* }}} */
+
 /* {{{ gene_request_context_free_fields - shared cleanup for reset/destroy */
-static void gene_request_context_free_fields(gene_request_context *ctx) {
+static void gene_request_context_free_fields(gene_request_context *ctx, int preserve_path_params) {
 	zval *pp;
 	if (ctx->method) { efree(ctx->method); ctx->method = NULL; }
 	if (ctx->path) { efree(ctx->path); ctx->path = NULL; }
@@ -154,9 +173,11 @@ static void gene_request_context_free_fields(gene_request_context *ctx) {
 	if (ctx->child_views) { efree(ctx->child_views); ctx->child_views = NULL; }
 	if (ctx->lang) { efree(ctx->lang); ctx->lang = NULL; }
 	if (ctx->log_file) { efree(ctx->log_file); ctx->log_file = NULL; }
-	pp = ctx->path_params;
-	ctx->path_params = NULL;
-	if (pp) { zval_ptr_dtor(pp); efree(pp); }
+	if (!preserve_path_params) {
+		pp = ctx->path_params;
+		ctx->path_params = NULL;
+		if (pp) { zval_ptr_dtor(pp); efree(pp); }
+	}
 	if (Z_TYPE(ctx->request_attr) != IS_UNDEF) {
 		zval_ptr_dtor(&ctx->request_attr);
 		ZVAL_UNDEF(&ctx->request_attr);
@@ -194,16 +215,15 @@ static void gene_request_context_free_fields(gene_request_context *ctx) {
 /* {{{ gene_request_context_reset */
 void gene_request_context_reset(gene_request_context *ctx) {
 	if (!ctx) return;
-	gene_request_context_free_fields(ctx);
-	ctx->path_params = (zval*) emalloc(sizeof(zval));
-	array_init(ctx->path_params);
+	gene_request_context_free_fields(ctx, 1);
+	gene_request_context_reset_path_params(ctx);
 }
 /* }}} */
 
 /* {{{ gene_request_context_destroy */
 void gene_request_context_destroy(gene_request_context *ctx) {
 	if (!ctx) return;
-	gene_request_context_free_fields(ctx);
+	gene_request_context_free_fields(ctx, 0);
 }
 /* }}} */
 
