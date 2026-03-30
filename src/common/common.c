@@ -795,12 +795,14 @@ void gene_class_name(zval *retval) /*{{{*/
 }/*}}}*/
 
 /* [GENE_AUDIT:2026-04-01] Fast path for getting the current class name.
- * Uses zend_get_executed_scope() instead of call_user_function("get_called_class").
+ * Uses zend_get_called_scope() instead of call_user_function("get_called_class").
+ * zend_get_called_scope respects late static binding (returns the actual subclass,
+ * not the class where __get/__set is defined), matching get_called_class() semantics.
  * Returns an interned zend_string* owned by the class entry — caller must NOT release it.
  * Returns NULL if called outside a class context. */
 zend_string *gene_get_class_name_fast(void) /*{{{*/
 {
-    zend_class_entry *ce = zend_get_executed_scope();
+    zend_class_entry *ce = zend_get_called_scope(EG(current_execute_data));
     if (ce) {
         return ce->name;
     }
