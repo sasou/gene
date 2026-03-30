@@ -52,6 +52,7 @@ void gene_igbinary_serialize(zval *value, zval *retval);
 void gene_igbinary_unserialize(zval *value, zval *retval);
 void gene_md5(zval *value, zval *retval);
 void gene_class_name(zval *retval);
+zend_string *gene_get_class_name_fast(void);
 int is_json(zval *str);
 int is_serialize(zval *str);
 int is_igbinary(zval *str);

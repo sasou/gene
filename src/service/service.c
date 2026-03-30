@@ -85,13 +85,11 @@ PHP_METHOD(gene_service, __set)
 	if (zend_parse_parameters(ZEND_NUM_ARGS(), "Sz", &name, &value) == FAILURE) {
 		return;
 	}
-	zval class_name;
-	gene_class_name(&class_name);
-	if (gene_di_set_class(Z_STR(class_name), name, value)) {
-		zval_ptr_dtor(&class_name);
+	zend_string *class_name = gene_get_class_name_fast();
+	if (!class_name) { RETURN_FALSE; }
+	if (gene_di_set_class(class_name, name, value)) {
 		RETURN_TRUE;
 	}
-	zval_ptr_dtor(&class_name);
 	RETURN_FALSE;
 }
 /* }}} */
@@ -112,14 +110,12 @@ PHP_METHOD(gene_service, __get)
 	if (!name) {
 		RETURN_NULL();
 	} else {
-		zval class_name;
-		gene_class_name(&class_name);
-		pzval = gene_di_get_class(Z_STR(class_name), name);
+		zend_string *class_name = gene_get_class_name_fast();
+		if (!class_name) { RETURN_NULL(); }
+		pzval = gene_di_get_class(class_name, name);
 		if (pzval) {
-			zval_ptr_dtor(&class_name);
 			RETURN_ZVAL(pzval, 1, 0);
 		}
-		zval_ptr_dtor(&class_name);
 		RETURN_NULL();
 	}
 	RETURN_NULL();
@@ -187,15 +183,19 @@ PHP_METHOD(gene_service, data) {
  */
 PHP_METHOD(gene_service, getInstance)
 {
-	zval obj, *params = NULL;
+	zval obj, *params = NULL, class_name_zval;
 	if (zend_parse_parameters(ZEND_NUM_ARGS(), "|z", &params) == FAILURE) {
 		return;
 	}
-	zval class_name;
-	gene_class_name(&class_name);
-	zval *ret = gene_class_instance(&obj, &class_name, params);
-	zval_ptr_dtor(&class_name);
-	RETURN_ZVAL(ret, 1, 0);
+	zend_string *cn = gene_get_class_name_fast();
+	if (!cn) { RETURN_NULL(); }
+	ZVAL_STR_COPY(&class_name_zval, cn);
+	zval *ret = gene_class_instance(&obj, &class_name_zval, params);
+	zval_ptr_dtor(&class_name_zval);
+	if (ret) {
+		RETURN_ZVAL(ret, 1, 0);
+	}
+	RETURN_NULL();
 }
 /* }}} */
 

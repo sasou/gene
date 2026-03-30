@@ -201,10 +201,10 @@ void gene_data_load(zval *obj) { /*{{{*/
 	session_id = zend_read_property(gene_session_ce, gene_strip_obj(obj), ZEND_STRL(GENE_SESSION_ID), 1, NULL);
 	driver = zend_read_property(gene_session_ce, gene_strip_obj(obj), ZEND_STRL(GENE_SESSION_DRIVER), 1, NULL);
 	if (session_id) {
-		zval class_name;
-		gene_class_name(&class_name);
-		hook = gene_di_get_class(Z_STR(class_name), Z_STR_P(driver));
-		zval_ptr_dtor(&class_name);
+		zend_string *class_name = gene_get_class_name_fast();
+		if (class_name) {
+			hook = gene_di_get_class(class_name, Z_STR_P(driver));
+		}
 		if (hook) {
 			zval params[] = { *session_id };
 			zval function_name,ret;
@@ -243,10 +243,10 @@ void gene_data_save(zval *obj, zval *data) { /*{{{*/
 			zval_ptr_dtor(&time);
 		}
 
-		zval class_name;
-		gene_class_name(&class_name);
-		hook = gene_di_get_class(Z_STR(class_name), Z_STR_P(driver));
-		zval_ptr_dtor(&class_name);
+		zend_string *class_name = gene_get_class_name_fast();
+		if (class_name) {
+			hook = gene_di_get_class(class_name, Z_STR_P(driver));
+		}
 		if (hook) {
 			zval params[] = { *session_id,*data };
 			zval function_name,ret;
@@ -271,10 +271,10 @@ void gene_data_clear(zval *obj) {
 	session_id = zend_read_property(gene_session_ce, gene_strip_obj(obj), ZEND_STRL(GENE_SESSION_ID), 1, NULL);
 	driver = zend_read_property(gene_session_ce, gene_strip_obj(obj), ZEND_STRL(GENE_SESSION_DRIVER), 1, NULL);
 	if (session_id) {
-		zval class_name;
-		gene_class_name(&class_name);
-		hook = gene_di_get_class(Z_STR(class_name), Z_STR_P(driver));
-		zval_ptr_dtor(&class_name);
+		zend_string *class_name = gene_get_class_name_fast();
+		if (class_name) {
+			hook = gene_di_get_class(class_name, Z_STR_P(driver));
+		}
 		if (hook) {
 			zval params[] = { *session_id };
 			zval function_name,ret;

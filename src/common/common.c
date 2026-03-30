@@ -794,6 +794,19 @@ void gene_class_name(zval *retval) /*{{{*/
     zval_ptr_dtor(&function_name);
 }/*}}}*/
 
+/* [GENE_AUDIT:2026-04-01] Fast path for getting the current class name.
+ * Uses zend_get_executed_scope() instead of call_user_function("get_called_class").
+ * Returns an interned zend_string* owned by the class entry — caller must NOT release it.
+ * Returns NULL if called outside a class context. */
+zend_string *gene_get_class_name_fast(void) /*{{{*/
+{
+    zend_class_entry *ce = zend_get_executed_scope();
+    if (ce) {
+        return ce->name;
+    }
+    return NULL;
+}/*}}}*/
+
 int is_json(zval *str) {
 	size_t length = ZSTR_LEN(Z_STR_P(str));
 	if (length > 1) {
