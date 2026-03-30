@@ -1083,13 +1083,11 @@ PHP_METHOD(gene_application, __set)
 	if (zend_parse_parameters(ZEND_NUM_ARGS(), "Sz", &name, &value) == FAILURE) {
 		return;
 	}
-	zval class_name;
-	gene_class_name(&class_name);
-	if (gene_di_set_class(Z_STR(class_name), name, value)) {
-		zval_ptr_dtor(&class_name);
+	zend_string *class_name = gene_get_class_name_fast();
+	if (!class_name) { RETURN_FALSE; }
+	if (gene_di_set_class(class_name, name, value)) {
 		RETURN_TRUE;
 	}
-	zval_ptr_dtor(&class_name);
 	RETURN_FALSE;
 }
 /* }}} */
@@ -1109,14 +1107,12 @@ PHP_METHOD(gene_application, __get)
 	if (!name) {
 		RETURN_NULL();
 	} else {
-		zval class_name;
-		gene_class_name(&class_name);
-		pzval = gene_di_get_class(Z_STR(class_name), name);
+		zend_string *class_name = gene_get_class_name_fast();
+		if (!class_name) { RETURN_NULL(); }
+		pzval = gene_di_get_class(class_name, name);
 		if (pzval) {
-			zval_ptr_dtor(&class_name);
 			RETURN_ZVAL(pzval, 1, 0);
 		}
-		zval_ptr_dtor(&class_name);
 		RETURN_NULL();
 	}
 	RETURN_NULL();

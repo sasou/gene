@@ -245,24 +245,26 @@
 	 return result ? result : path;
  }
  /* }}} */
- 
- /** {{{ static void get_path_router(char *keyString, int keyString_len)
-  */
- zval *get_path_router(zval *val, char *paths) {
+
+/** {{{ static zval *get_path_router_inner(zval *val, char *paths)
+ * [GENE_AUDIT:2026-04-01] Inner function operates on a mutable buffer directly.
+ * The caller (get_path_router) does a single estrdup; recursive calls reuse
+ * the same buffer via ptr from php_strtok_r, eliminating N-1 alloc/free pairs.
+ */
+static zval *get_path_router_inner(zval *val, char *paths) {
 	 zval *ret = NULL, *tmp = NULL, *leaf = NULL;
-	 char *seg = NULL, *ptr = NULL, *path = NULL;
+	 char *seg = NULL, *ptr = NULL;
 	 zend_string *key = NULL;
 	 zend_long idx;
-	if (strlen(paths) == 0) {
+	if (paths[0] == '\0') {
 		leaf = zend_symtable_str_find(Z_ARRVAL_P(val), "leaf", 4);
 		return leaf;
 	} else {
-		path = estrdup(paths);
-		 seg = php_strtok_r(path, "/", &ptr);
+		 seg = php_strtok_r(paths, "/", &ptr);
 		 if (ptr && strlen(seg) > 0) {
 			 ret = zend_symtable_str_find(Z_ARRVAL_P(val), seg, strlen(seg));
 			 if (ret) {
-				 leaf = get_path_router(ret, ptr);
+				 leaf = get_path_router_inner(ret, ptr);
 			 }
 			 if (!leaf) {
 				 ret = zend_symtable_str_find(Z_ARRVAL_P(val), "chird", 5);
@@ -270,16 +272,16 @@
 					 ZEND_HASH_FOREACH_KEY_VAL(Z_ARRVAL_P(ret), idx, key, tmp) {
 						 if (key) {
 							 if (tmp != NULL) {
-								 leaf = get_path_router(tmp, ptr);
+								 leaf = get_path_router_inner(tmp, ptr);
 								 if (leaf) {
 									 setMca(key, seg);
 									 break;
 								 }
 							 }
- 
+
 						 } else {
 							 if (tmp != NULL) {
-								 leaf = get_path_router(tmp, ptr);
+								 leaf = get_path_router_inner(tmp, ptr);
 								 if (leaf) {
 									 break;
 								 }
@@ -313,19 +315,28 @@
 							 }
 						 }
 					 } ZEND_HASH_FOREACH_END();
- 
+
 				 }
 			 }
 		 }
 	 }
-	 efree(path);
-	 path = NULL;
 	 return leaf;
+ }
+
+zval *get_path_router(zval *val, char *paths) {
+	 zval *leaf;
+	 char *path;
+	if (strlen(paths) == 0) {
+		return zend_symtable_str_find(Z_ARRVAL_P(val), "leaf", 4);
+	}
+	path = estrdup(paths);
+	leaf = get_path_router_inner(val, path);
+	efree(path);
+	return leaf;
  }
  /* }}} */
  
-
-/** {{{ gene_router_dispatch_direct
+ /** {{{ gene_router_dispatch_direct
  * Directly dispatch a "Class@action" route via C API, avoiding eval.
  * Performs :m/:c/:a placeholder substitution identical to PHP_METHOD(dispatch).
  * Returns 1 on success, 0 on failure. Result written to *retval.
@@ -762,7 +773,7 @@ static int gene_router_exec_error_direct(const char *class_method) {
  /** {{{ static void get_function_content(char *keyString, int keyString_len)
   */
  char * get_function_content(zval *content) {
-	 zval objEx, ret, fileName, arg, arg1;
+	 zval objEx, ret, fileName, arg1;
 	 zend_long startline, endline;
 	 size_t size;
 	 char *result = NULL, *tmp = NULL;
@@ -880,15 +891,13 @@ static int gene_router_exec_error_direct(const char *class_method) {
 	 startline = Z_LVAL(ret);
 	 zval_ptr_dtor(&ret);
 	 zval_ptr_dtor(&fileName);
- 
-	 ZVAL_STRING(&arg, "strrpos");
+
 	 ZVAL_STRING(&fileName, "}");
 	 zend_call_method_with_2_params(NULL, NULL, NULL, "strrpos", &ret, &arg1,
 			 &fileName);
 	 if (Z_TYPE(ret) == IS_FALSE) {
 		 zval_ptr_dtor(&ret);
 		 zval_ptr_dtor(&fileName);
-		 zval_ptr_dtor(&arg);
 		 zval_ptr_dtor(&arg1);
 		 efree(result);
 		 return NULL;
@@ -896,14 +905,13 @@ static int gene_router_exec_error_direct(const char *class_method) {
 	 endline = Z_LVAL(ret);
 	 zval_ptr_dtor(&ret);
 	 zval_ptr_dtor(&fileName);
-	 zval_ptr_dtor(&arg);
 	 zval_ptr_dtor(&arg1);
- 
+
 	 if (endline < startline) {
 		 efree(result);
 		 return NULL;
 	 }
- 
+
 	 tmp = ecalloc(endline - startline + 2, sizeof(char));
 	 mid(tmp, result, endline - startline + 1, startline);
 	 if (result != NULL) {
