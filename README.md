@@ -84,7 +84,6 @@
 **高性能模式**
 - **Swoole扩展** - 常驻进程模式和高性能HTTP服务：`extension=swoole`
 
-**数据库驱动**
 - **MySQL PDO驱动** - `extension=pdo_mysql`
 - **PostgreSQL PDO驱动** - `extension=pdo_pgsql`
 - **SQLite PDO驱动** - `extension=pdo_sqlite`
@@ -239,7 +238,7 @@ class AfterHook extends \Gene\Hook
 }
 ```
 
-**钩子配置 (router_hook.ini.php)**：
+**钩子配置 (router_hook.ini.php)：**
 ```php
 <?php
 $router = new \Gene\Router();
@@ -251,7 +250,7 @@ $router->clear()
     ->group();
 ```
 
-**钩子特性**：
+**钩子特性：**
 - 🎯 **直接分发**：使用`gene_factory_load_class`轻量级实例化，避免构造函数开销
 - ⚡ **C级别调用**：直接C函数调用替代eval()，性能提升80%
 - 🔄 **生命周期**：支持before/after/handle三种钩子类型
@@ -300,6 +299,7 @@ $http->on("request", function ($request, $response) {
     $response->end($out);
 });
 $http->start();
+```
 
 ### 性能基准
 
