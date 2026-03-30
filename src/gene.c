@@ -76,26 +76,48 @@ PHP_INI_END();
 /* }}} */
 
 /* {{{ gene_get_coroutine_id
- * Get coroutine ID using static class method call
+ * Get coroutine ID using cached zend_function pointer to avoid
+ * allocating a callable array on every call (hot path in Swoole mode).
  */
 zend_long gene_get_coroutine_id(void) {
 	zval retval;
-	zval callable;
 	zend_long cid = -1;
+	zend_fcall_info fci;
+	zend_fcall_info_cache fcc;
 
-	array_init(&callable);
-	add_next_index_string(&callable, "swoole\\coroutine");
-	add_next_index_string(&callable, "getcid");
+	if (!GENE_G(swoole_getcid_resolved)) {
+		zend_class_entry *co_ce = NULL;
+		zend_string *class_name = zend_string_init(ZEND_STRL("swoole\\coroutine"), 0);
+		co_ce = zend_lookup_class(class_name);
+		zend_string_release(class_name);
+		if (co_ce) {
+			GENE_G(swoole_getcid_func) = zend_hash_str_find_ptr(
+				&co_ce->function_table, ZEND_STRL("getcid"));
+		}
+		GENE_G(swoole_getcid_resolved) = 1;
+	}
+
+	if (!GENE_G(swoole_getcid_func)) {
+		return -1;
+	}
+
 	ZVAL_UNDEF(&retval);
+	memset(&fci, 0, sizeof(fci));
+	fci.size = sizeof(fci);
+	fci.retval = &retval;
+	fci.param_count = 0;
+	fci.params = NULL;
 
-	if (call_user_function(NULL, NULL, &callable, &retval, 0, NULL) == SUCCESS && Z_TYPE(retval) == IS_LONG) {
+	memset(&fcc, 0, sizeof(fcc));
+	fcc.function_handler = GENE_G(swoole_getcid_func);
+
+	if (zend_call_function(&fci, &fcc) == SUCCESS && Z_TYPE(retval) == IS_LONG) {
 		cid = Z_LVAL(retval);
 	}
 
 	if (Z_TYPE(retval) != IS_UNDEF) {
 		zval_ptr_dtor(&retval);
 	}
-	zval_ptr_dtor(&callable);
 	return cid;
 }
 /* }}} */

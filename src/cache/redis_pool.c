@@ -623,7 +623,7 @@ PHP_METHOD(gene_redis_pool, __construct)
     zval *wait_zv = zend_hash_str_find(Z_ARRVAL_P(config), ZEND_STRL("waitTimeout"));
 
     min_val  = (min_zv  && Z_TYPE_P(min_zv)  == IS_LONG) ? Z_LVAL_P(min_zv)  : 1;
-    max_val  = (max_zv  && Z_TYPE_P(max_zv)  == IS_LONG) ? Z_LVAL_P(max_zv)  : 10;
+    max_val  = (max_zv  && Z_TYPE_P(max_zv)  == IS_LONG) ? Z_LVAL_P(max_zv)  : 64;
     idle_val = (idle_zv && Z_TYPE_P(idle_zv) == IS_LONG) ? Z_LVAL_P(idle_zv) : 60;
 
     if (wait_zv) {
@@ -1425,7 +1425,7 @@ GENE_MINIT_FUNCTION(redis_pool)
     zend_declare_property_long(gene_redis_pool_ce,
         ZEND_STRL(GENE_REDIS_POOL_PROPERTY_MIN),    1,   ZEND_ACC_PROTECTED);
     zend_declare_property_long(gene_redis_pool_ce,
-        ZEND_STRL(GENE_REDIS_POOL_PROPERTY_MAX),    10,  ZEND_ACC_PROTECTED);
+        ZEND_STRL(GENE_REDIS_POOL_PROPERTY_MAX),    64,  ZEND_ACC_PROTECTED);
     zend_declare_property_long(gene_redis_pool_ce,
         ZEND_STRL(GENE_REDIS_POOL_PROPERTY_IDLE_TIME), 60, ZEND_ACC_PROTECTED);
     zend_declare_property_double(gene_redis_pool_ce,
