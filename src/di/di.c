@@ -134,25 +134,11 @@ zval *gene_di_get(zend_string *name) {
 		}
 
 		zval classObject;
-		GENE_DEBUG_LOG("[gene:di_get][cid=%ld] name=%s class=%s type=%d",
-			(long)gene_get_coroutine_id(),
-			name ? ZSTR_VAL(name) : "",
-			ZSTR_VAL(local_class_str),
-			type ? 1 : 0);
 		if (gene_factory_load_class(ZSTR_VAL(local_class_str), ZSTR_LEN(local_class_str), &classObject)) {
-			GENE_DEBUG_LOG("[gene:di_get][cid=%ld] loaded class=%s obj_type=%d",
-				(long)gene_get_coroutine_id(),
-				ZSTR_VAL(local_class_str),
-				(int)Z_TYPE(classObject));
 			if (zend_hash_str_exists(&(Z_OBJCE(classObject)->function_table), ZEND_STRL("__construct"))) {
 				zval tmp;
 				ZVAL_UNDEF(&tmp);
 				gene_factory_call(&classObject, "__construct", &local_params, &tmp);
-				GENE_DEBUG_LOG("[gene:di_get][cid=%ld] ctor class=%s retval_type=%d exception=%d",
-					(long)gene_get_coroutine_id(),
-					ZSTR_VAL(local_class_str),
-					(int)Z_TYPE(tmp),
-					EG(exception) ? 1 : 0);
 				if (!Z_ISUNDEF(tmp)) zval_ptr_dtor(&tmp);
 			}
 

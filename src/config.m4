@@ -1,18 +1,7 @@
 PHP_ARG_ENABLE(gene, whether to enable gene support,
 [  --enable-gene           Enable gene support], yes)
 
-AC_ARG_ENABLE(gene-debug,
-[  --enable-gene-debug     Enable gene debug mode default=no],
-[PHP_GENE_DEBUG=$enableval],
-[PHP_GENE_DEBUG="no"])
-
 if test "$PHP_GENE" != "no"; then
-
-  if test "$PHP_GENE_DEBUG" = "yes"; then
-    AC_DEFINE(GENE_DEBUG_TRACE, 1, [define to 1 if you want to enable gene debug trace])
-  else
-    AC_DEFINE(GENE_DEBUG_TRACE, 0, [define to 1 if you want to enable gene debug trace])
-  fi
 
   AC_MSG_CHECKING([PHP version])
 
