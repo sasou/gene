@@ -76,43 +76,26 @@ PHP_INI_END();
 /* }}} */
 
 /* {{{ gene_get_coroutine_id
- * In high-concurrency Swoole mode, always use zend_call_function() to invoke
- * Swoole\Coroutine::getCid(). Directly calling internal handlers with a
- * manually crafted execute_data frame is fragile across PHP/Swoole versions
- * and can corrupt VM state under coroutine scheduling pressure.
+ * Get coroutine ID using static class method call
  */
 zend_long gene_get_coroutine_id(void) {
 	zval retval;
+	zval callable;
 	zend_long cid = -1;
-	zend_fcall_info fci;
-	zend_fcall_info_cache fcc;
 
-	if (!GENE_G(swoole_getcid_resolved)) {
-		zend_string *func_name = zend_string_init(ZEND_STRL("swoole\\coroutine::getcid"), 0);
-		GENE_G(swoole_getcid_func) = zend_hash_find_ptr(EG(function_table), func_name);
-		zend_string_release(func_name);
-		GENE_G(swoole_getcid_resolved) = 1;
+	array_init(&callable);
+	add_next_index_string(&callable, "swoole\\coroutine");
+	add_next_index_string(&callable, "getcid");
+	ZVAL_UNDEF(&retval);
+
+	if (call_user_function(NULL, NULL, &callable, &retval, 0, NULL) == SUCCESS && Z_TYPE(retval) == IS_LONG) {
+		cid = Z_LVAL(retval);
 	}
 
-	if (GENE_G(swoole_getcid_func)) {
-		memset(&fci, 0, sizeof(fci));
-		fci.size = sizeof(fci);
-		fci.retval = &retval;
-		ZVAL_UNDEF(&fci.function_name);
-		ZVAL_UNDEF(&retval);
-
-		memset(&fcc, 0, sizeof(fcc));
-		fcc.function_handler = GENE_G(swoole_getcid_func);
-		fcc.called_scope = GENE_G(swoole_getcid_func)->common.scope;
-
-		if (zend_call_function(&fci, &fcc) == SUCCESS && Z_TYPE(retval) == IS_LONG) {
-			cid = Z_LVAL(retval);
-		}
-
-		if (Z_TYPE(retval) != IS_UNDEF) {
-			zval_ptr_dtor(&retval);
-		}
+	if (Z_TYPE(retval) != IS_UNDEF) {
+		zval_ptr_dtor(&retval);
 	}
+	zval_ptr_dtor(&callable);
 	return cid;
 }
 /* }}} */
