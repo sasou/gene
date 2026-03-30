@@ -1309,11 +1309,13 @@ bool gene_redis_pool_get(zend_class_entry *redis_ce, zval *self, zval *config,
     zval_ptr_dtor(&callable);
 
     if (Z_TYPE(pool_obj) == IS_OBJECT) {
+        zend_ulong obj_handle = self ? (zend_ulong)Z_OBJ_HANDLE_P(self) : 0;
         zval redis_conn;
         ZVAL_UNDEF(&redis_conn);
         gene_factory_call(&pool_obj, "get", NULL, &redis_conn);
 
         if (Z_TYPE(redis_conn) == IS_OBJECT) {
+            GENE_DEBUG_LOG("[gene:redis_pool_get][cid=%ld][obj=%lu] borrow ok conn_type=%d", (long)gene_get_coroutine_id(), (unsigned long)obj_handle, (int)Z_TYPE(redis_conn));
             /* Store pool ref ONLY after successful get().
              * Storing it before would make __destruct try to return a null
              * connection to the pool, corrupting the connection count. */
@@ -1325,16 +1327,12 @@ bool gene_redis_pool_get(zend_class_entry *redis_ce, zval *self, zval *config,
             zval_ptr_dtor(&pool_obj);
             return 1;
         }
+        GENE_DEBUG_LOG("[gene:redis_pool_get][cid=%ld][obj=%lu] pool->get failed type=%d exception=%d", (long)gene_get_coroutine_id(), (unsigned long)obj_handle, (int)Z_TYPE(redis_conn), EG(exception) ? 1 : 0);
         zval_ptr_dtor(&redis_conn);
     }
     zval_ptr_dtor(&pool_obj);
     return 0;
 }
-
-/*
- * Return the borrowed Redis connection back to the pool.
- *
- * Nulls $self->$obj_key BEFORE calling pool->put() to prevent accidental
  * re-use of the connection during the coroutine yield inside channel->push().
  * The pool property ($pool_key) is intentionally kept so that:
  *   - subsequent commands can detect pool mode and re-borrow;
@@ -1346,9 +1344,14 @@ void gene_redis_pool_return(zend_class_entry *redis_ce, zval *self,
 {
     zval *pool = zend_read_property(redis_ce, gene_strip_obj(self),
                                      pool_key, pool_key_len, 1, NULL);
+    zend_ulong obj_handle = self ? (zend_ulong)Z_OBJ_HANDLE_P(self) : 0;
     if (pool && Z_TYPE_P(pool) == IS_OBJECT) {
         zval *redis_obj = zend_read_property(redis_ce, gene_strip_obj(self),
                                               obj_key, obj_key_len, 1, NULL);
+        GENE_DEBUG_LOG("[gene:redis_pool_return][cid=%ld][obj=%lu] pool_type=%d redis_type=%d",
+            (long)gene_get_coroutine_id(), (unsigned long)obj_handle,
+            pool ? (int)Z_TYPE_P(pool) : -1,
+            redis_obj ? (int)Z_TYPE_P(redis_obj) : -1);
         if (redis_obj && Z_TYPE_P(redis_obj) == IS_OBJECT) {
             zval obj_copy;
             ZVAL_COPY(&obj_copy, redis_obj);
@@ -1360,6 +1363,9 @@ void gene_redis_pool_return(zend_class_entry *redis_ce, zval *self,
             array_init(&params);
             add_next_index_zval(&params, &obj_copy);
             gene_factory_call(pool, "put", &params, &retval);
+            GENE_DEBUG_LOG("[gene:redis_pool_return][cid=%ld][obj=%lu] put retval_type=%d exception=%d",
+                (long)gene_get_coroutine_id(), (unsigned long)obj_handle,
+                (int)Z_TYPE(retval), EG(exception) ? 1 : 0);
             zval_ptr_dtor(&retval);
             zval_ptr_dtor(&params);
         } else {
