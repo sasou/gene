@@ -1,5 +1,36 @@
 # Gene Framework Changelog
 
+## [5.4.4] - 2026-04-02
+
+### ⚡ Performance Optimizations
+#### 🚀 热路径优化 (零堆分配)
+- **路由缓存键构造**: 将所有 `spprintf` 堆分配替换为栈缓冲区 + `snprintf`
+  - `get_router_error_run_by_router`: 使用 `char err_buf[128]`, `hsrc_buf[128]` 栈缓冲区
+  - `get_router_info`: 使用 `char hookname_buf[256]`, `hseg_buf[256]` 栈缓冲区
+  - 移除所有 `efree(hookname)` 调用，消除内存泄漏风险
+  - 添加 `hname` zval 类型安全检查
+
+#### 🔄 Swoole 协程优化
+- **协程ID获取**: `gene_get_coroutine_id` 重构
+  - 替换手动 `fci/fcc` 构造 + `zend_call_function` 为单次 `zend_call_known_function()` 调用
+  - 消除每次协程上下文查找时约100字节的栈设置开销
+  - 显著降低协程上下文切换成本
+
+#### 🧹 代码清理
+- **DI模块**: 移除死代码 `gene_smart_str_release()` 函数和未使用的 `zend_smart_str_str.h` 包含
+
+#### 📊 性能影响分析
+- **热路径 (每请求分发)**: 缓存键构造实现零堆分配，全部使用 `spprintf→snprintf` + 栈缓冲区
+- **Swoole路径**: 通过 `zend_call_known_function` 实现更快的协程ID查找
+- **冷路径 (路由注册、管理方法)**: 仍使用 `spprintf` - 可接受，因为仅在启动时运行
+
+#### 🔍 内存泄漏审计结果
+- **审计范围**: router.c, di.c, factory.c, view.c, application.c, gene.c
+- **审计结果**: 未发现新的内存泄漏
+- **验证**: 所有分发函数、上下文生命周期管理和错误处理路径都正确释放分配
+
+---
+
 ## [5.4.3] - 2026-03-30
 
 ### 🔒 Security & Stability Fixes
