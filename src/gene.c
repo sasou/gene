@@ -81,9 +81,6 @@ PHP_INI_END();
  */
 zend_long gene_get_coroutine_id(void) {
 	zval retval;
-	zend_long cid = -1;
-	zend_fcall_info fci;
-	zend_fcall_info_cache fcc;
 
 	if (!GENE_G(swoole_getcid_resolved)) {
 		zend_class_entry *co_ce = NULL;
@@ -102,23 +99,15 @@ zend_long gene_get_coroutine_id(void) {
 	}
 
 	ZVAL_UNDEF(&retval);
-	memset(&fci, 0, sizeof(fci));
-	fci.size = sizeof(fci);
-	fci.retval = &retval;
-	fci.param_count = 0;
-	fci.params = NULL;
+	zend_call_known_function(GENE_G(swoole_getcid_func), NULL, NULL, &retval, 0, NULL, NULL);
 
-	memset(&fcc, 0, sizeof(fcc));
-	fcc.function_handler = GENE_G(swoole_getcid_func);
-
-	if (zend_call_function(&fci, &fcc) == SUCCESS && Z_TYPE(retval) == IS_LONG) {
-		cid = Z_LVAL(retval);
+	if (Z_TYPE(retval) == IS_LONG) {
+		return Z_LVAL(retval);
 	}
-
 	if (Z_TYPE(retval) != IS_UNDEF) {
 		zval_ptr_dtor(&retval);
 	}
-	return cid;
+	return -1;
 }
 /* }}} */
 

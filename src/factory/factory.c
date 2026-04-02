@@ -57,17 +57,18 @@ bool gene_factory_load_class(char *className, size_t tmp_len, zval *classObject)
 
 void gene_factory_call(zval *object, char *action, zval *param, zval *retval) /*{{{*/
 {
-    zval function_name;
     uint32_t param_count = 0;
 	zval *element;
 	zend_string *key = NULL;
 	zend_long id;
 	uint32_t num = 0;
+	zend_function *fn = NULL;
+	zend_class_entry *ce = Z_OBJCE_P(object);
 
-    ZVAL_STRING(&function_name, action);
     if (retval) {
         ZVAL_UNDEF(retval);
     }
+    fn = (zend_function *)zend_hash_str_find_ptr(&ce->function_table, action, strlen(action));
     if (param && Z_TYPE_P(param) == IS_ARRAY) {
     	param_count = zend_hash_num_elements(Z_ARRVAL_P(param));
     	if (param_count > 0) {
@@ -79,15 +80,35 @@ void gene_factory_call(zval *object, char *action, zval *param, zval *retval) /*
         			num++;
         		}
         	}ZEND_HASH_FOREACH_END();
-            call_user_function(NULL, object, &function_name, retval, param_count, params);
+        	if (fn) {
+        		zend_call_known_function(fn, Z_OBJ_P(object), ce, retval, param_count, params, NULL);
+        	} else {
+        		zval function_name;
+        		ZVAL_STRING(&function_name, action);
+        		call_user_function(NULL, object, &function_name, retval, param_count, params);
+        		zval_ptr_dtor(&function_name);
+        	}
             efree(params);
     	} else {
-    		call_user_function(NULL, object, &function_name, retval, 0, NULL);
+    		if (fn) {
+    			zend_call_known_function(fn, Z_OBJ_P(object), ce, retval, 0, NULL, NULL);
+    		} else {
+    			zval function_name;
+    			ZVAL_STRING(&function_name, action);
+    			call_user_function(NULL, object, &function_name, retval, 0, NULL);
+    			zval_ptr_dtor(&function_name);
+    		}
     	}
     } else {
-    	call_user_function(NULL, object, &function_name, retval, 0, NULL);
+    	if (fn) {
+    		zend_call_known_function(fn, Z_OBJ_P(object), ce, retval, 0, NULL, NULL);
+    	} else {
+    		zval function_name;
+    		ZVAL_STRING(&function_name, action);
+    		call_user_function(NULL, object, &function_name, retval, 0, NULL);
+    		zval_ptr_dtor(&function_name);
+    	}
     }
-    zval_ptr_dtor(&function_name);
 }/*}}}*/
 
 void gene_factory_function_call(char *action, zval *param_key, zval *param_arr, zval *retval) /*{{{*/
@@ -167,11 +188,24 @@ bool gene_factory(char *className, size_t tmp_len, zval *params, zval *classObje
 
 	if (pdo_ptr) {
 		object_init_ex(classObject, pdo_ptr);
-		if (Z_TYPE_P(classObject) == IS_OBJECT
-						&& zend_hash_str_exists(&(Z_OBJCE_P(classObject)->function_table), ZEND_STRL("__construct"))) {
+		if (pdo_ptr->constructor) {
 			zval ret;
 			ZVAL_UNDEF(&ret);
-			gene_factory_call(classObject, "__construct", params, &ret);
+			uint32_t param_count = 0;
+			zval *call_params = NULL;
+			if (params && Z_TYPE_P(params) == IS_ARRAY) {
+				param_count = zend_hash_num_elements(Z_ARRVAL_P(params));
+				if (param_count > 0) {
+					call_params = (zval *)safe_emalloc(param_count, sizeof(zval), 0);
+					uint32_t i = 0;
+					zval *el;
+					ZEND_HASH_FOREACH_VAL(Z_ARRVAL_P(params), el) {
+						if (i < param_count) call_params[i++] = *el;
+					} ZEND_HASH_FOREACH_END();
+				}
+			}
+			zend_call_known_function(pdo_ptr->constructor, Z_OBJ_P(classObject), pdo_ptr, &ret, param_count, call_params, NULL);
+			if (call_params) efree(call_params);
 			if (!Z_ISUNDEF(ret)) zval_ptr_dtor(&ret);
 		}
 		return 1;
@@ -181,19 +215,33 @@ bool gene_factory(char *className, size_t tmp_len, zval *params, zval *classObje
 
 void gene_factory_call_1(zval *object, char *action, zval *param, zval *retval) /*{{{*/
 {
-    zval function_name;
-    ZVAL_STRING(&function_name, action);
+	zend_function *fn = NULL;
+	zend_class_entry *ce = Z_OBJCE_P(object);
     if (retval) {
         ZVAL_UNDEF(retval);
     }
+    fn = (zend_function *)zend_hash_str_find_ptr(&ce->function_table, action, strlen(action));
     if (param && Z_TYPE_P(param) == IS_ARRAY) {
     	zval params[1];
     	params[0] = *param;
-        call_user_function(NULL, object, &function_name, retval, 1, params);
+    	if (fn) {
+    		zend_call_known_function(fn, Z_OBJ_P(object), ce, retval, 1, params, NULL);
+    	} else {
+    		zval function_name;
+    		ZVAL_STRING(&function_name, action);
+    		call_user_function(NULL, object, &function_name, retval, 1, params);
+    		zval_ptr_dtor(&function_name);
+    	}
     } else {
-    	call_user_function(NULL, object, &function_name, retval, 0, NULL);
+    	if (fn) {
+    		zend_call_known_function(fn, Z_OBJ_P(object), ce, retval, 0, NULL, NULL);
+    	} else {
+    		zval function_name;
+    		ZVAL_STRING(&function_name, action);
+    		call_user_function(NULL, object, &function_name, retval, 0, NULL);
+    		zval_ptr_dtor(&function_name);
+    	}
     }
-    zval_ptr_dtor(&function_name);
 }/*}}}*/
 
 void gene_factory_call_2(char *method, zval *key, zval *retval) /*{{{*/

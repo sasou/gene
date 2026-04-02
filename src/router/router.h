@@ -41,13 +41,17 @@
  #define GENE_ROUTER_CONTENT_FA  "$funa=%s;$funa($gene_mp);"
  #define GENE_ROUTER_CONTENT_FM  "$funm=%s;$gene_mp=$funm(\\Gene\\Router::params());"
  #define GENE_ROUTER_CONTENT_FH  "$funh=%s;$gene_h=$funh();if(isset($gene_h)&&($gene_h==0))return;"
- 
+
  extern zend_class_entry *gene_router_ce;
- 
+
  void init();
- void get_router_content_run(char *methodin,char *pathin,zval *safe);
- 
+ char * get_function_content(zval *content);
+ char * get_function_content_quik(zval **content);
+ char * get_router_content_F(char *src, char *method, char *path);
+ char* get_router_content(zval **content, char *method, char *path);
+ void get_router_content_run(char *methodin, char *pathin, const char *safe_str, size_t safe_len);
+ int get_router_error_run(char *errorName, const char *safe_str, size_t safe_len);
+
  GENE_MINIT_FUNCTION (router);
- 
+
  #endif
- 

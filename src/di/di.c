@@ -24,7 +24,6 @@
 #include "Zend/zend_API.h"
 #include "zend_exceptions.h"
 #include "Zend/zend_interfaces.h"
-#include "zend_smart_str.h" /* for smart_str */
 
 #include "../gene.h"
 #include "../di/di.h"
@@ -33,13 +32,6 @@
 #include "../factory/factory.h"
 
 zend_class_entry *gene_di_ce;
-
-static void gene_smart_str_release(smart_str *str) {
-	if (str->s) {
-		zend_string_release(str->s);
-		str->s = NULL;
-	}
-}
 
 zval *gene_di_regs() {
 	gene_request_context *ctx = gene_request_ctx();
@@ -135,10 +127,24 @@ zval *gene_di_get(zend_string *name) {
 
 		zval classObject;
 		if (gene_factory_load_class(ZSTR_VAL(local_class_str), ZSTR_LEN(local_class_str), &classObject)) {
-			if (zend_hash_str_exists(&(Z_OBJCE(classObject)->function_table), ZEND_STRL("__construct"))) {
+			if (Z_OBJCE(classObject)->constructor) {
 				zval tmp;
 				ZVAL_UNDEF(&tmp);
-				gene_factory_call(&classObject, "__construct", &local_params, &tmp);
+				uint32_t ctor_argc = 0;
+				zval *ctor_params = NULL;
+				if (Z_TYPE(local_params) == IS_ARRAY) {
+					ctor_argc = zend_hash_num_elements(Z_ARRVAL(local_params));
+					if (ctor_argc > 0) {
+						ctor_params = (zval *)safe_emalloc(ctor_argc, sizeof(zval), 0);
+						uint32_t ci = 0;
+						zval *el;
+						ZEND_HASH_FOREACH_VAL(Z_ARRVAL(local_params), el) {
+							if (ci < ctor_argc) ctor_params[ci++] = *el;
+						} ZEND_HASH_FOREACH_END();
+					}
+				}
+				zend_call_known_function(Z_OBJCE(classObject)->constructor, Z_OBJ(classObject), Z_OBJCE(classObject), &tmp, ctor_argc, ctor_params, NULL);
+				if (ctor_params) efree(ctor_params);
 				if (!Z_ISUNDEF(tmp)) zval_ptr_dtor(&tmp);
 			}
 
@@ -166,10 +172,25 @@ zval *gene_class_instance(zval *obj, zval *class_name, zval *params) {
 	}
 
 	if (gene_factory_load_class(Z_STRVAL_P(class_name), Z_STRLEN_P(class_name), obj)) {
-		if (zend_hash_str_exists(&(Z_OBJCE_P(obj)->function_table), ZEND_STRL("__construct"))) {
+		if (Z_OBJCE_P(obj)->constructor) {
 			zval tmp;
-			gene_factory_call(obj, "__construct", params, &tmp);
-			zval_ptr_dtor(&tmp);
+			ZVAL_UNDEF(&tmp);
+			uint32_t ctor_argc = 0;
+			zval *ctor_params = NULL;
+			if (params && Z_TYPE_P(params) == IS_ARRAY) {
+				ctor_argc = zend_hash_num_elements(Z_ARRVAL_P(params));
+				if (ctor_argc > 0) {
+					ctor_params = (zval *)safe_emalloc(ctor_argc, sizeof(zval), 0);
+					uint32_t ci = 0;
+					zval *el;
+					ZEND_HASH_FOREACH_VAL(Z_ARRVAL_P(params), el) {
+						if (ci < ctor_argc) ctor_params[ci++] = *el;
+					} ZEND_HASH_FOREACH_END();
+				}
+			}
+			zend_call_known_function(Z_OBJCE_P(obj)->constructor, Z_OBJ_P(obj), Z_OBJCE_P(obj), &tmp, ctor_argc, ctor_params, NULL);
+			if (ctor_params) efree(ctor_params);
+			if (!Z_ISUNDEF(tmp)) zval_ptr_dtor(&tmp);
 		}
 
 		if ((ppzval = zend_hash_str_update(Z_ARRVAL_P(entrys), Z_STRVAL_P(class_name), Z_STRLEN_P(class_name), obj)) != NULL ) {
@@ -186,25 +207,26 @@ zval *gene_class_instance(zval *obj, zval *class_name, zval *params) {
  */
 zval *gene_di_get_class(zend_string *class_name, zend_string *name) {
 	zval *entrys, *ppzval = NULL;
+	char stack_buf[256];
+	char *key_buf;
+	size_t key_len;
 
 	entrys = gene_di_regs();
 
-    smart_str class_val = {0};
-    smart_str_appendl(&class_val, class_name->val, class_name->len);
-    smart_str_appendc(&class_val, '_');
-    smart_str_appendl(&class_val, name->val, name->len);
-    smart_str_0(&class_val);
-	if ((ppzval = zend_hash_find(Z_ARRVAL_P(entrys), class_val.s)) != NULL) {
-		gene_smart_str_release(&class_val);
-		return ppzval;
-	}
-	ppzval = gene_di_get(name);
+	key_len = ZSTR_LEN(class_name) + 1 + ZSTR_LEN(name);
+	key_buf = (key_len < sizeof(stack_buf)) ? stack_buf : emalloc(key_len + 1);
+	memcpy(key_buf, ZSTR_VAL(class_name), ZSTR_LEN(class_name));
+	key_buf[ZSTR_LEN(class_name)] = '_';
+	memcpy(key_buf + ZSTR_LEN(class_name) + 1, ZSTR_VAL(name), ZSTR_LEN(name));
+	key_buf[key_len] = '\0';
+
+	ppzval = zend_hash_str_find(Z_ARRVAL_P(entrys), key_buf, key_len);
+	if (key_buf != stack_buf) efree(key_buf);
+
 	if (ppzval != NULL) {
-		gene_smart_str_release(&class_val);
 		return ppzval;
 	}
-	gene_smart_str_release(&class_val);
-	return NULL;
+	return gene_di_get(name);
 }
 /* }}} */
 
@@ -214,15 +236,22 @@ zval *gene_di_get_class(zend_string *class_name, zend_string *name) {
  */
 int gene_di_set_class(zend_string *class_name, zend_string *name, zval *value) {
 	zval *entrys;
+	char stack_buf[256];
+	char *key_buf;
+	size_t key_len;
+
 	entrys = gene_di_regs();
-    smart_str class_val = {0};
-    smart_str_appendl(&class_val, class_name->val, class_name->len);
-    smart_str_appendc(&class_val, '_');
-    smart_str_appendl(&class_val, name->val, name->len);
-    smart_str_0(&class_val);
-    Z_TRY_ADDREF_P(value);
-    zend_hash_update(Z_ARRVAL_P(entrys), class_val.s, value);
-	gene_smart_str_release(&class_val);
+
+	key_len = ZSTR_LEN(class_name) + 1 + ZSTR_LEN(name);
+	key_buf = (key_len < sizeof(stack_buf)) ? stack_buf : emalloc(key_len + 1);
+	memcpy(key_buf, ZSTR_VAL(class_name), ZSTR_LEN(class_name));
+	key_buf[ZSTR_LEN(class_name)] = '_';
+	memcpy(key_buf + ZSTR_LEN(class_name) + 1, ZSTR_VAL(name), ZSTR_LEN(name));
+	key_buf[key_len] = '\0';
+
+	Z_TRY_ADDREF_P(value);
+	zend_hash_str_update(Z_ARRVAL_P(entrys), key_buf, key_len, value);
+	if (key_buf != stack_buf) efree(key_buf);
 	return 1;
 }
 /* }}} */
