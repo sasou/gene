@@ -1037,7 +1037,7 @@ PHP_METHOD(gene_application, workerReady) {
  */
 PHP_METHOD(gene_application, run) {
 	zend_string *methodin = NULL, *pathin = NULL;
-	zval *self = getThis(), safe;
+	zval *self = getThis();
 	char *min = NULL, *pin = NULL;
 	if (zend_parse_parameters(ZEND_NUM_ARGS(), "|SS", &methodin, &pathin) == FAILURE) {
 		RETURN_NULL();
@@ -1059,16 +1059,18 @@ PHP_METHOD(gene_application, run) {
 		RETURN_ZVAL(self, 1, 0);
 	}
 
-	if (GENE_G(app_key)) {
-		ZVAL_STRING(&safe, GENE_G(app_key));
-	} else if (GENE_G(app_root)) {
-		ZVAL_STRING(&safe, GENE_G(app_root));
-	} else {
-		ZVAL_STRING(&safe, "");
+	{
+		const char *safe_str = NULL;
+		size_t safe_len = 0;
+		if (GENE_G(app_key)) {
+			safe_str = GENE_G(app_key);
+			safe_len = strlen(GENE_G(app_key));
+		} else if (GENE_G(app_root)) {
+			safe_str = GENE_G(app_root);
+			safe_len = strlen(GENE_G(app_root));
+		}
+		get_router_content_run(min, pin, safe_str, safe_len);
 	}
-
-	get_router_content_run(min, pin, &safe);
-	zval_ptr_dtor(&safe);
 	RETURN_ZVAL(self, 1, 0);
 }
 /* }}} */
