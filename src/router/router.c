@@ -180,7 +180,7 @@
 		 if (Z_STRLEN_P(key)) {
 			 ctx->router_path = estrndup(Z_STRVAL_P(key), Z_STRLEN_P(key));
 		 } else {
-			 ctx->router_path = str_init("");
+			 ctx->router_path = estrndup("", 0);
 		 }
 	 }
  }
@@ -190,7 +190,7 @@
   */
  char *get_path_router_init(zval *conf, char *path) {
 	 zval *prefix = NULL, *langs = NULL;
-	 char *seg = NULL, *ptr = NULL, *path_prefix = NULL, *result = NULL, *lang_tmp = NULL, *search = NULL, *work = NULL;
+	 char *seg = NULL, *ptr = NULL, *path_prefix = NULL, *result = NULL, *search = NULL, *work = NULL;
 	 zend_long path_len = 0;
 	 path_len = strlen(path);
 	 if (path_len == 0) {
@@ -221,9 +221,17 @@
 			 if (ptr == NULL) {
 				 ptr = "";
 			 }
-			 spprintf(&lang_tmp, 0, ",%s,", seg);
-			 search = strstr(Z_STRVAL_P(langs), lang_tmp);
-			 efree(lang_tmp);
+			 {
+				 size_t seg_len = strlen(seg);
+				 char lang_buf[128];
+				 char *lang_p = (seg_len + 3 <= sizeof(lang_buf)) ? lang_buf : emalloc(seg_len + 3);
+				 lang_p[0] = ',';
+				 memcpy(lang_p + 1, seg, seg_len);
+				 lang_p[seg_len + 1] = ',';
+				 lang_p[seg_len + 2] = '\0';
+				 search = strstr(Z_STRVAL_P(langs), lang_p);
+				 if (lang_p != lang_buf) efree(lang_p);
+			 }
 			 if (search != NULL) {
 				 if (GENE_REQ(lang)) {
 					 efree(GENE_REQ(lang));
@@ -233,7 +241,7 @@
 				 if (result) {
 					 efree(result);
 				 }
-				 spprintf(&result, 0, "%s", ptr);
+				 result = estrdup(ptr);
 				 if (strlen(result) > 0) {
 					 trim(result, '/');
 				 }
@@ -245,13 +253,10 @@
 	 return result ? result : path;
  }
  /* }}} */
-
-/** {{{ static zval *get_path_router_inner(zval *val, char *paths)
- * [GENE_AUDIT:2026-04-01] Inner function operates on a mutable buffer directly.
- * The caller (get_path_router) does a single estrdup; recursive calls reuse
- * the same buffer via ptr from php_strtok_r, eliminating N-1 alloc/free pairs.
- */
-static zval *get_path_router_inner(zval *val, char *paths) {
+ 
+ /** {{{ static zval *get_path_router_inner(zval *val, char *paths)
+  */
+ static zval *get_path_router_inner(zval *val, char *paths) {
 	 zval *ret = NULL, *tmp = NULL, *leaf = NULL;
 	 char *seg = NULL, *ptr = NULL;
 	 zend_string *key = NULL;
@@ -947,7 +952,7 @@ char *get_router_content_F(char *src, char *method, char *path) {
  */
 char* get_router_content(zval **content, char *method, char *path) {
 	char *contents, *seg, *ptr, *tmp;
-	spprintf(&contents, 0, "%s", Z_STRVAL_P(*content));
+	contents = estrndup(Z_STRVAL_P(*content), Z_STRLEN_P(*content));
 	seg = php_strtok_r(contents, "@", &ptr);
 	if (seg && ptr && strlen(ptr) > 0) {
 		if (strcmp(method, "hook") == 0) {

@@ -243,15 +243,21 @@ void gene_init_co_contexts(void) {
 gene_request_context *gene_request_ctx(void) {
 	gene_request_context *ctx;
 	zend_long cid;
-	if (GENE_G(runtime_type) < 2) {
+	/* Fast path: FPM mode — no coroutine overhead */
+	if (EXPECTED(GENE_G(runtime_type) < 2)) {
 		return &GENE_G(default_ctx);
 	}
-	cid = gene_get_coroutine_id();
-	if (cid >= 0 && cid == GENE_G(current_cid) && GENE_G(current_ctx)) {
-		return GENE_G(current_ctx);
+	/* Fast path: cached coroutine context still valid */
+	if (EXPECTED(GENE_G(current_ctx) != NULL)) {
+		cid = gene_get_coroutine_id();
+		if (EXPECTED(cid >= 0 && cid == GENE_G(current_cid))) {
+			return GENE_G(current_ctx);
+		}
+	} else {
+		cid = gene_get_coroutine_id();
 	}
 	gene_init_co_contexts();
-	if (cid < 0) {
+	if (UNEXPECTED(cid < 0)) {
 		if (!GENE_G(resident_ctx)) {
 			GENE_G(resident_ctx) = ecalloc(1, sizeof(gene_request_context));
 			gene_request_context_init(GENE_G(resident_ctx));
