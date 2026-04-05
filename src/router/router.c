@@ -347,9 +347,11 @@ zval *get_path_router(zval *val, char *paths) {
  * Returns 1 on success, 0 on failure. Result written to *retval.
  */
 static int gene_router_dispatch_direct(const char *class_method, zval *retval) {
-	 char *copy, *class_name, *action, *ptr;
+	 const char *at;
 	 char *class_alloc = NULL, *action_alloc = NULL, *tmp_alloc = NULL;
 	 size_t class_name_len, action_len;
+	 char cls_buf[256], act_buf[128];
+	 char *class_name, *action;
 	 zval classObject;
 	 gene_request_context *ctx = gene_request_ctx();
 
@@ -357,18 +359,32 @@ static int gene_router_dispatch_direct(const char *class_method, zval *retval) {
 
 	 if (!class_method || class_method[0] == '\0') return 0;
 
-	 copy = estrdup(class_method);
-	 class_name = php_strtok_r(copy, "@", &ptr);
-	 action = ptr;
+	 at = memchr(class_method, '@', strlen(class_method));
+	 if (!at || at == class_method || at[1] == '\0') return 0;
 
-	 if (!class_name || !action || action[0] == '\0') {
-		 efree(copy);
-		 return 0;
+	 class_name_len = at - class_method;
+	 action_len = strlen(at + 1);
+
+	 if (class_name_len < sizeof(cls_buf)) {
+		 memcpy(cls_buf, class_method, class_name_len);
+		 cls_buf[class_name_len] = '\0';
+		 class_name = cls_buf;
+	 } else {
+		 class_name = estrndup(class_method, class_name_len);
+		 class_alloc = class_name;
 	 }
-	 class_name_len = strlen(class_name);
+	 if (action_len < sizeof(act_buf)) {
+		 memcpy(act_buf, at + 1, action_len + 1);
+		 action = act_buf;
+	 } else {
+		 action = estrndup(at + 1, action_len);
+		 action_alloc = action;
+	 }
 
 	 if (ctx->module != NULL) {
-		 class_alloc = strreplace2(class_name, ":m", ctx->module);
+		 char *tmp_m = strreplace2(class_name, ":m", ctx->module);
+		 if (class_alloc) efree(class_alloc);
+		 class_alloc = tmp_m;
 		 class_name = class_alloc;
 		 class_name_len = strlen(class_name);
 	 }
@@ -383,12 +399,13 @@ static int gene_router_dispatch_direct(const char *class_method, zval *retval) {
 	 if (!gene_factory(class_name, class_name_len, NULL, &classObject)) {
 		 php_error_docref(NULL, E_WARNING, "Gene direct dispatch: unable to init class '%s'.", class_name);
 		 if (class_alloc) efree(class_alloc);
-		 efree(copy);
+		 if (action_alloc) efree(action_alloc);
 		 return 0;
 	 }
 
 	 if (ctx->action != NULL) {
 		 char *tmp = strreplace2(action, ":a", ctx->action);
+		 if (action_alloc) efree(action_alloc);
 		 action_alloc = tmp;
 		 action = action_alloc;
 	 }
@@ -401,7 +418,6 @@ static int gene_router_dispatch_direct(const char *class_method, zval *retval) {
 		 zval_ptr_dtor(&classObject);
 		 if (class_alloc) efree(class_alloc);
 		 if (action_alloc) efree(action_alloc);
-		 efree(copy);
 		 return 1;
 	 }
 
@@ -409,7 +425,6 @@ static int gene_router_dispatch_direct(const char *class_method, zval *retval) {
 	 zval_ptr_dtor(&classObject);
 	 if (class_alloc) efree(class_alloc);
 	 if (action_alloc) efree(action_alloc);
-	 efree(copy);
 	 return 0;
 }
 /* }}} */
@@ -423,27 +438,40 @@ static int gene_router_dispatch_direct(const char *class_method, zval *retval) {
  * Returns 1 to continue, 0 to abort (before hooks only).
  */
 static int gene_router_exec_hook_direct(const char *class_method, zval *param, int is_before) {
-    char *copy, *class_name, *method, *ptr;
+    const char *at;
+    char cls_buf[256], mth_buf[128];
+    char *class_name, *method;
     zval classObject, retval;
     size_t class_name_len, method_len;
+    int cls_heap = 0, mth_heap = 0;
     zend_class_entry *ce;
 
     ZVAL_NULL(&retval);
 
     if (!class_method || class_method[0] == '\0') return 1;
 
-    copy = estrdup(class_method);
-    class_name = php_strtok_r(copy, "@", &ptr);
-    method = ptr;
+    at = memchr(class_method, '@', strlen(class_method));
+    if (!at || at == class_method || at[1] == '\0') return 1;
 
-    if (!class_name || !method || method[0] == '\0') {
-        efree(copy);
-        return 1;
+    class_name_len = at - class_method;
+    method_len = strlen(at + 1);
+
+    if (class_name_len < sizeof(cls_buf)) {
+        memcpy(cls_buf, class_method, class_name_len);
+        cls_buf[class_name_len] = '\0';
+        class_name = cls_buf;
+    } else {
+        class_name = estrndup(class_method, class_name_len);
+        cls_heap = 1;
     }
-
-    class_name_len = strlen(class_name);
+    if (method_len < sizeof(mth_buf)) {
+        memcpy(mth_buf, at + 1, method_len + 1);
+        method = mth_buf;
+    } else {
+        method = estrndup(at + 1, method_len);
+        mth_heap = 1;
+    }
     gene_strtolower(method);
-    method_len = strlen(method);
 
     /* Try lightweight load for Gene\Hook subclasses (skip constructor) */
     if (gene_hook_ce && gene_factory_load_class(class_name, class_name_len, &classObject)) {
@@ -459,7 +487,8 @@ static int gene_router_exec_hook_direct(const char *class_method, zval *param, i
                 }
             }
             zval_ptr_dtor(&classObject);
-            efree(copy);
+            if (cls_heap) efree(class_name);
+            if (mth_heap) efree(method);
             goto check_retval;
         }
         /* Not a Hook subclass, destroy and fall through to gene_factory path */
@@ -468,7 +497,8 @@ static int gene_router_exec_hook_direct(const char *class_method, zval *param, i
 
     /* Standard path: full factory init with constructor */
     if (!gene_factory(class_name, class_name_len, NULL, &classObject)) {
-        efree(copy);
+        if (cls_heap) efree(class_name);
+        if (mth_heap) efree(method);
         return 1;
     }
 
@@ -482,7 +512,8 @@ static int gene_router_exec_hook_direct(const char *class_method, zval *param, i
     }
 
     zval_ptr_dtor(&classObject);
-    efree(copy);
+    if (cls_heap) efree(class_name);
+    if (mth_heap) efree(method);
 
 check_retval:
     if (is_before) {
@@ -507,29 +538,44 @@ check_retval:
  * Returns 1 on success, 0 on failure.
  */
 static int gene_router_exec_error_direct(const char *class_method) {
-    char *copy, *class_name, *method, *ptr;
+    const char *at;
+    char cls_buf[256], mth_buf[128];
+    char *class_name, *method;
+    int cls_heap = 0, mth_heap = 0;
     zval classObject, retval;
     size_t class_name_len, method_len;
 
     if (!class_method || class_method[0] == '\0') return 0;
 
-    copy = estrdup(class_method);
-    class_name = php_strtok_r(copy, "@", &ptr);
-    method = ptr;
+    at = memchr(class_method, '@', strlen(class_method));
+    if (!at || at == class_method || at[1] == '\0') return 0;
 
-    if (!class_name || !method || method[0] == '\0') {
-        efree(copy);
-        return 0;
+    class_name_len = at - class_method;
+    method_len = strlen(at + 1);
+
+    if (class_name_len < sizeof(cls_buf)) {
+        memcpy(cls_buf, class_method, class_name_len);
+        cls_buf[class_name_len] = '\0';
+        class_name = cls_buf;
+    } else {
+        class_name = estrndup(class_method, class_name_len);
+        cls_heap = 1;
     }
-    class_name_len = strlen(class_name);
+    if (method_len < sizeof(mth_buf)) {
+        memcpy(mth_buf, at + 1, method_len + 1);
+        method = mth_buf;
+    } else {
+        method = estrndup(at + 1, method_len);
+        mth_heap = 1;
+    }
 
     if (!gene_factory(class_name, class_name_len, NULL, &classObject)) {
-        efree(copy);
+        if (cls_heap) efree(class_name);
+        if (mth_heap) efree(method);
         return 0;
     }
 
     gene_strtolower(method);
-    method_len = strlen(method);
 
     if (Z_TYPE(classObject) == IS_OBJECT
             && zend_hash_str_exists(&(Z_OBJCE(classObject)->function_table), method, method_len)) {
@@ -538,12 +584,81 @@ static int gene_router_exec_error_direct(const char *class_method) {
         zval_ptr_dtor(&retval);
 
         zval_ptr_dtor(&classObject);
-        efree(copy);
+        if (cls_heap) efree(class_name);
+        if (mth_heap) efree(method);
         return 1;
     }
 	 zval_ptr_dtor(&classObject);
-	 efree(copy);
+	 if (cls_heap) efree(class_name);
+	 if (mth_heap) efree(method);
 	 return 0;
+ }
+ /* }}} */
+
+ /* {{{ gene_fn_cache_store — store closure in fn_cache, set fid_zv to the ID string */
+ static void gene_fn_cache_store(zval *closure, zval *fid_zv) {
+	 char fid[32];
+	 size_t fid_len;
+	 if (!GENE_G(fn_cache)) {
+		 ALLOC_HASHTABLE(GENE_G(fn_cache));
+		 zend_hash_init(GENE_G(fn_cache), 16, NULL, ZVAL_PTR_DTOR, 0);
+	 }
+	 fid_len = snprintf(fid, sizeof(fid), "fn_%ld", ++GENE_G(fn_cache_id));
+	 Z_TRY_ADDREF_P(closure);
+	 zend_hash_str_update(GENE_G(fn_cache), fid, fid_len, closure);
+	 ZVAL_STRINGL(fid_zv, fid, fid_len);
+ }
+ /* }}} */
+
+ /* {{{ gene_router_exec_closure_hook — execute closure as hook, returns 1=continue, 0=abort */
+ static int gene_router_exec_closure_hook(zval *closure, zval *param, int is_before) {
+	 zval retval;
+	 zend_function *func = NULL;
+	 zend_object *this_obj = NULL;
+	 zend_class_entry *called_scope = NULL;
+	 ZVAL_UNDEF(&retval);
+	 if (UNEXPECTED(!Z_OBJ_HANDLER_P(closure, get_closure)
+		 || Z_OBJ_HANDLER_P(closure, get_closure)(Z_OBJ_P(closure), &called_scope, &func, &this_obj, 0) != SUCCESS)) {
+		 return 1;
+	 }
+	 zend_try {
+		 zend_call_known_function(func, this_obj, called_scope, &retval,
+			 param ? 1 : 0, param, NULL);
+	 } zend_catch {
+	 } zend_end_try();
+	 if (is_before) {
+		 int abort = 0;
+		 if (Z_TYPE(retval) != IS_NULL && Z_TYPE(retval) != IS_UNDEF) {
+			 if ((Z_TYPE(retval) == IS_LONG && Z_LVAL(retval) == 0) ||
+				 (Z_TYPE(retval) == IS_FALSE)) {
+				 abort = 1;
+			 }
+		 }
+		 zval_ptr_dtor(&retval);
+		 return abort ? 0 : 1;
+	 }
+	 zval_ptr_dtor(&retval);
+	 return 1;
+ }
+ /* }}} */
+
+ /* {{{ gene_router_dispatch_closure — execute closure as route action with path_params */
+ static int gene_router_dispatch_closure(zval *closure, zval *retval) {
+	 zend_function *func = NULL;
+	 zend_object *this_obj = NULL;
+	 zend_class_entry *called_scope = NULL;
+	 zval *params_zv;
+	 ZVAL_NULL(retval);
+	 if (UNEXPECTED(!Z_OBJ_HANDLER_P(closure, get_closure)
+		 || Z_OBJ_HANDLER_P(closure, get_closure)(Z_OBJ_P(closure), &called_scope, &func, &this_obj, 0) != SUCCESS)) {
+		 return 0;
+	 }
+	 params_zv = GENE_REQ(path_params);
+	 zend_try {
+		 zend_call_known_function(func, this_obj, called_scope, retval, 1, params_zv, NULL);
+	 } zend_catch {
+	 } zend_end_try();
+	 return 1;
  }
  /* }}} */
  
@@ -636,6 +751,106 @@ static int gene_router_exec_error_direct(const char *class_method) {
 		 return 1;
 	 }
  
+
+	 /* === CLOSURE DISPATCH PATH (no eval) === */
+	 if (!use_direct && GENE_G(fn_cache)) {
+		 zval *frun = zend_hash_str_find(Z_ARRVAL_P(*leaf), "frun", 4);
+		 zval *route_cl = NULL, *before_cl = NULL, *after_cl = NULL, *hook_cl = NULL;
+		 int use_closure = 1;
+
+		 /* Check route action: needs frun closure OR src for direct dispatch */
+		 if (frun && Z_TYPE_P(frun) == IS_STRING) {
+			 route_cl = zend_hash_str_find(GENE_G(fn_cache), Z_STRVAL_P(frun), Z_STRLEN_P(frun));
+		 }
+		 if (!route_cl && (!src || Z_TYPE_P(src) != IS_STRING || Z_STRLEN_P(src) == 0)) {
+			 use_closure = 0;
+		 }
+
+		 /* Check hooks: each needs hsrc (direct) or fcl (closure) to avoid eval */
+		 if (use_closure && *cacheHook && Z_TYPE_P(*cacheHook) == IS_ARRAY) {
+			 if (is_before) {
+				 before = zend_hash_str_find(Z_ARRVAL_P(*cacheHook), "hook:before", 11);
+				 if (before && Z_STRLEN_P(before) > 0) {
+					 before_src = zend_hash_str_find(Z_ARRVAL_P(*cacheHook), "hsrc:before", 11);
+					 if (!before_src || Z_TYPE_P(before_src) != IS_STRING) {
+						 zval *bfcl = zend_hash_str_find(Z_ARRVAL_P(*cacheHook), "fcl:before", 10);
+						 if (bfcl && Z_TYPE_P(bfcl) == IS_STRING) {
+							 before_cl = zend_hash_str_find(GENE_G(fn_cache), Z_STRVAL_P(bfcl), Z_STRLEN_P(bfcl));
+							 if (!before_cl) use_closure = 0;
+						 } else { use_closure = 0; }
+						 before_src = NULL;
+					 }
+				 }
+			 }
+			 if (is_after) {
+				 after = zend_hash_str_find(Z_ARRVAL_P(*cacheHook), "hook:after", 10);
+				 if (after && Z_STRLEN_P(after) > 0) {
+					 after_src = zend_hash_str_find(Z_ARRVAL_P(*cacheHook), "hsrc:after", 11);
+					 if (!after_src || Z_TYPE_P(after_src) != IS_STRING) {
+						 zval *afcl = zend_hash_str_find(Z_ARRVAL_P(*cacheHook), "fcl:after", 9);
+						 if (afcl && Z_TYPE_P(afcl) == IS_STRING) {
+							 after_cl = zend_hash_str_find(GENE_G(fn_cache), Z_STRVAL_P(afcl), Z_STRLEN_P(afcl));
+							 if (!after_cl) use_closure = 0;
+						 } else { use_closure = 0; }
+						 after_src = NULL;
+					 }
+				 }
+			 }
+			 if (seg && strlen(seg) > 0) {
+				 h = zend_hash_str_find(Z_ARRVAL_P(*cacheHook), seg, strlen(seg));
+				 if (h && Z_STRLEN_P(h) > 0 && !hook_src) {
+					 char fcl_buf[256];
+					 size_t fcl_len = snprintf(fcl_buf, sizeof(fcl_buf), "fcl%s", seg + 4);
+					 zval *hfcl = zend_hash_str_find(Z_ARRVAL_P(*cacheHook), fcl_buf, fcl_len);
+					 if (hfcl && Z_TYPE_P(hfcl) == IS_STRING) {
+						 hook_cl = zend_hash_str_find(GENE_G(fn_cache), Z_STRVAL_P(hfcl), Z_STRLEN_P(hfcl));
+						 if (!hook_cl) use_closure = 0;
+					 } else { use_closure = 0; }
+				 }
+			 }
+		 }
+
+		 if (use_closure) {
+			 zval dispatch_result;
+			 ZVAL_NULL(&dispatch_result);
+
+			 /* Before hook */
+			 if (is_before) {
+				 if (before_cl) {
+					 if (!gene_router_exec_closure_hook(before_cl, NULL, 1)) goto closure_cleanup;
+				 } else if (before_src) {
+					 if (!gene_router_exec_hook_direct(Z_STRVAL_P(before_src), NULL, 1)) goto closure_cleanup;
+				 }
+			 }
+
+			 /* Named hook */
+			 if (hook_cl) {
+				 if (!gene_router_exec_closure_hook(hook_cl, NULL, 1)) goto closure_cleanup;
+			 } else if (hook_src) {
+				 if (!gene_router_exec_hook_direct(Z_STRVAL_P(hook_src), NULL, 1)) goto closure_cleanup;
+			 }
+
+			 /* Route action */
+			 if (route_cl) {
+				 gene_router_dispatch_closure(route_cl, &dispatch_result);
+			 } else if (src && Z_TYPE_P(src) == IS_STRING && Z_STRLEN_P(src) > 0) {
+				 gene_router_dispatch_direct(Z_STRVAL_P(src), &dispatch_result);
+			 }
+
+			 /* After hook */
+			 if (is_after) {
+				 if (after_cl) {
+					 gene_router_exec_closure_hook(after_cl, &dispatch_result, 0);
+				 } else if (after_src) {
+					 gene_router_exec_hook_direct(Z_STRVAL_P(after_src), &dispatch_result, 0);
+				 }
+			 }
+
+		 closure_cleanup:
+			 zval_ptr_dtor(&dispatch_result);
+			 return 1;
+		 }
+	 }
 	 /* === EVAL FALLBACK PATH (closures / legacy routes) === */
 	 {
 		 smart_str buf = {0};
@@ -697,6 +912,19 @@ static int gene_router_exec_error_direct(const char *class_method) {
 					 return 1;
 				 }
 			 }
+			 /* Try closure dispatch via fcl: key */
+			 if (GENE_G(fn_cache)) {
+				 char fcl_buf[128];
+				 size_t fcl_len = snprintf(fcl_buf, sizeof(fcl_buf), "fcl:%s", errorName);
+				 zval *efcl = zend_hash_str_find(Z_ARRVAL_P(cacheHook), fcl_buf, fcl_len);
+				 if (efcl && Z_TYPE_P(efcl) == IS_STRING) {
+					 zval *ecl = zend_hash_str_find(GENE_G(fn_cache), Z_STRVAL_P(efcl), Z_STRLEN_P(efcl));
+					 if (ecl) {
+						 gene_router_exec_closure_hook(ecl, NULL, 0);
+						 return 1;
+					 }
+				 }
+			 }
 			 /* Fallback to eval */
 			 size = Z_STRLEN_P(error);
 			 run = estrndup(Z_STRVAL_P(error), size);
@@ -741,6 +969,19 @@ static int gene_router_exec_error_direct(const char *class_method) {
 			 if (error_src && Z_TYPE_P(error_src) == IS_STRING && Z_STRLEN_P(error_src) > 0) {
 				 if (gene_router_exec_error_direct(Z_STRVAL_P(error_src))) {
 					 return 1;
+				 }
+			 }
+			 /* Try closure dispatch via fcl: key */
+			 if (GENE_G(fn_cache)) {
+				 char fcl_buf[128];
+				 size_t fcl_len = snprintf(fcl_buf, sizeof(fcl_buf), "fcl:%s", errorName);
+				 zval *efcl = zend_hash_str_find(Z_ARRVAL_P(cacheHook), fcl_buf, fcl_len);
+				 if (efcl && Z_TYPE_P(efcl) == IS_STRING) {
+					 zval *ecl = zend_hash_str_find(GENE_G(fn_cache), Z_STRVAL_P(efcl), Z_STRLEN_P(efcl));
+					 if (ecl) {
+						 gene_router_exec_closure_hook(ecl, NULL, 0);
+						 return 1;
+					 }
 				 }
 			 }
 			 /* Fallback to eval */
@@ -1174,6 +1415,9 @@ PHP_METHOD(gene_router, __call) {
 	zval content;
 	zend_long methodlen;
 	int is_string_route = 0;
+	int is_closure_route = 0;
+	zval fid_zv;
+	ZVAL_UNDEF(&fid_zv);
 	size_t router_e_len;
 	char *method, *path = NULL, *result = NULL, *tmp = NULL, *router_e, *key = NULL;
  
@@ -1200,6 +1444,9 @@ PHP_METHOD(gene_router, __call) {
 					 efree(tmp);
 					 tmp = NULL;
 				 }
+				 /* Store closure in fn_cache for direct dispatch */
+				 gene_fn_cache_store(contentval, &fid_zv);
+				 is_closure_route = 1;
 			 } else {
 				 result = get_router_content(&contentval, method, path);
 				 is_string_route = (Z_TYPE_P(contentval) == IS_STRING);
@@ -1240,6 +1487,11 @@ PHP_METHOD(gene_router, __call) {
 						 gene_memory_set_by_router(router_e, router_e_len, key, contentval, 0);
 						 efree(key);
 					 }
+					 if (is_closure_route) {
+						 spprintf(&key, 0, GENE_ROUTER_LEAF_FRUN, method);
+						 gene_memory_set_by_router(router_e, router_e_len, key, &fid_zv, 0);
+						 efree(key);
+					 }
 					 if (hook) {
 						 spprintf(&key, 0, GENE_ROUTER_LEAF_HOOK, method);
 						 gene_memory_set_by_router(router_e, router_e_len, key, hook, 0);
@@ -1262,6 +1514,11 @@ PHP_METHOD(gene_router, __call) {
 							 gene_memory_set_by_router(router_e, router_e_len, key, contentval, 0);
 							 efree(key);
 						 }
+						 if (is_closure_route) {
+							 spprintf(&key, 0, GENE_ROUTER_LEAF_FRUN_L, method, path);
+							 gene_memory_set_by_router(router_e, router_e_len, key, &fid_zv, 0);
+							 efree(key);
+						 }
 						 if (hook) {
 							 spprintf(&key, 0, GENE_ROUTER_LEAF_HOOK_L, method, path);
 							 gene_memory_set_by_router(router_e, router_e_len, key, hook, 0);
@@ -1279,6 +1536,11 @@ PHP_METHOD(gene_router, __call) {
 							 gene_memory_set_by_router(router_e, router_e_len, key, contentval, 0);
 							 efree(key);
 						 }
+						 if (is_closure_route) {
+							 spprintf(&key, 0, GENE_ROUTER_LEAF_FRUN_L, method, tmp);
+							 gene_memory_set_by_router(router_e, router_e_len, key, &fid_zv, 0);
+							 efree(key);
+						 }
 						 if (hook) {
 							 spprintf(&key, 0, GENE_ROUTER_LEAF_HOOK_L, method, tmp);
 							 gene_memory_set_by_router(router_e, router_e_len, key, hook, 0);
@@ -1291,6 +1553,7 @@ PHP_METHOD(gene_router, __call) {
 			efree(path);
 			zval_ptr_dtor(&content);
 			zval_ptr_dtor(&pathvals);
+			if (Z_TYPE(fid_zv) != IS_UNDEF) zval_ptr_dtor(&fid_zv);
 			RETURN_ZVAL(self, 1, 0);
 		}
 	}
@@ -1312,9 +1575,15 @@ PHP_METHOD(gene_router, __call) {
 					 gene_memory_set_by_router(router_e, router_e_len, key, contentval, 0);
 					 efree(key);
 				 }
+				 if (is_closure_route) {
+					 spprintf(&key, 0, "fcl:%s", path);
+					 gene_memory_set_by_router(router_e, router_e_len, key, &fid_zv, 0);
+					 efree(key);
+				 }
 			 efree(router_e);
 			 efree(path);
 			 zval_ptr_dtor(&content);
+			 if (Z_TYPE(fid_zv) != IS_UNDEF) zval_ptr_dtor(&fid_zv);
 			 RETURN_ZVAL(self, 1, 0);
 		 }
 	 }
@@ -1325,6 +1594,7 @@ PHP_METHOD(gene_router, __call) {
 		 zval_ptr_dtor(&content);
 	 }
 	 }
+	 if (Z_TYPE(fid_zv) != IS_UNDEF) zval_ptr_dtor(&fid_zv);
 	 RETURN_ZVAL(self, 1, 0);
  }
  /* }}} */
