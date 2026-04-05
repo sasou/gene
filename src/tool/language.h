@@ -20,8 +20,13 @@
 #define GENE_LANGUAGE_DIR    "dir"
 #define GENE_LANGUAGE_LANG   "lang"
 #define GENE_LANGUAGE_CONFIG "config"
+#define GENE_LANGUAGE_CACHED "_cached"
 
 extern zend_class_entry *gene_language_ce;
+extern uint32_t gene_language_offset_dir;
+extern uint32_t gene_language_offset_lang;
+extern uint32_t gene_language_offset_config;
+extern uint32_t gene_language_offset_cached;
 
 GENE_MINIT_FUNCTION(language);
 

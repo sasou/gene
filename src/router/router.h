@@ -33,6 +33,8 @@
  #define GENE_ROUTER_CHIRD "chird/"
  #define GENE_ROUTER_LEAF_SRC "%s/leaf/src"
  #define GENE_ROUTER_LEAF_SRC_L "%s/%s/leaf/src"
+ #define GENE_ROUTER_LEAF_FRUN "%s/leaf/frun"
+ #define GENE_ROUTER_LEAF_FRUN_L "%s/%s/leaf/frun"
  #define GENE_ROUTER_CONTENT_B  "$gene_b=new %s;$gene_h=$gene_b->%s();if(isset($gene_h)&&($gene_h==0))return;"
  #define GENE_ROUTER_CONTENT_A  "$gene_a=new %s;$gene_a->%s($gene_mp);"
  #define GENE_ROUTER_CONTENT_M  "$gene_mp=\\Gene\\Router::dispatch(\"%s\",\"%s\",\\Gene\\Router::params());"
