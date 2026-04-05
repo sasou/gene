@@ -295,6 +295,8 @@ static void php_gene_init_globals() {
 	GENE_G(swoole_getcid_resolved) = 0;
 	GENE_G(autoload_registered) = 0;
 	GENE_G(worker_ready) = 0;
+	GENE_G(fn_cache) = NULL;
+	GENE_G(fn_cache_id) = 0;
 	GENE_G(cache) = NULL;
 	GENE_G(cache_easy) = NULL;
 	gene_rwlock_init(&GENE_G(cache_lock));
@@ -305,6 +307,12 @@ static void php_gene_init_globals() {
 /* {{{ php_gene_close_request_globals
  */
 static void php_gene_close_request_globals() {
+	if (GENE_G(fn_cache) && GENE_G(runtime_type) < 2) {
+		zend_hash_destroy(GENE_G(fn_cache));
+		FREE_HASHTABLE(GENE_G(fn_cache));
+		GENE_G(fn_cache) = NULL;
+		GENE_G(fn_cache_id) = 0;
+	}
 	gene_request_context_destroy(&GENE_G(default_ctx));
 	if (GENE_G(app_root)) {
 		efree(GENE_G(app_root));
@@ -429,6 +437,11 @@ PHP_MSHUTDOWN_FUNCTION(gene) {
 	if (GENE_G(cache_easy)) {
 		gene_hash_destroy(GENE_G(cache_easy));
 		GENE_G(cache_easy) = NULL;
+	}
+	if (GENE_G(fn_cache)) {
+		zend_hash_destroy(GENE_G(fn_cache));
+		FREE_HASHTABLE(GENE_G(fn_cache));
+		GENE_G(fn_cache) = NULL;
 	}
 	gene_rwlock_destroy(&GENE_G(cache_lock));
 	return SUCCESS; // @suppress("Symbol is not resolved")

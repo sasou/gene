@@ -136,6 +136,8 @@
  zend_bool swoole_getcid_resolved;
  zend_bool autoload_registered;
  zend_bool worker_ready;
+ HashTable *fn_cache;
+ zend_long fn_cache_id;
  ZEND_END_MODULE_GLOBALS (gene)
  
  extern ZEND_DECLARE_MODULE_GLOBALS (gene);
