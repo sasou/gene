@@ -30,8 +30,7 @@ char *str_init(const char *s)
 {
 	size_t s_l = strlen(s);
 	char *p = (char *) emalloc(s_l + 1);
-	strncpy(p, s, s_l);
-	p[s_l] = 0;
+	memcpy(p, s, s_l + 1);
 	return p;
 }
 
@@ -42,7 +41,7 @@ char *str_sub(char *s, size_t s_len)
 		s_l = s_len;
 	}
 	char *p = (char *) emalloc(s_l + 1);
-	strncpy(p, s, s_l);
+	memcpy(p, s, s_l);
 	p[s_l] = 0;
 	return p;
 }
@@ -74,13 +73,11 @@ char *str_concat(char *s, const char *t)
 {
 	size_t s_l = strlen(s);
 	size_t t_l = strlen(t);
-    char *p = NULL,*tmp = NULL;
-	p = (char *) emalloc(s_l + t_l +1);
-    tmp = p;
-    strncpy(tmp, s, s_l);
-    tmp += s_l;
-    strncpy(tmp, t, t_l);
-	p[s_l+t_l] = 0;
+    char *p = NULL;
+	p = (char *) emalloc(s_l + t_l + 1);
+    memcpy(p, s, s_l);
+    memcpy(p + s_l, t, t_l);
+	p[s_l + t_l] = 0;
 	return p;
 }
 

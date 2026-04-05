@@ -77,10 +77,13 @@ PHP_METHOD(gene_config, __construct) {
  * {{{ public gene_config::set()
  */
 PHP_METHOD(gene_config, set) {
-	char *keyString, *router_e, *path;
+	char *keyString, *path;
 	size_t keyString_len;
 	int validity = 0;
+	char router_e_stack[256];
+	char *router_e = router_e_stack;
 	size_t router_e_len;
+	int router_e_heap = 0;
 	zval *self = getThis(), *zvalue, *safe;
 	if (zend_parse_parameters(ZEND_NUM_ARGS(), "sz|l", &keyString,
 			&keyString_len, &zvalue, &validity) == FAILURE) {
@@ -88,18 +91,24 @@ PHP_METHOD(gene_config, set) {
 	}
 	safe = zend_read_property(gene_config_ce, gene_strip_obj(self), GENE_CONFIG_SAFE, strlen(GENE_CONFIG_SAFE), 1, NULL);
 	if (Z_STRLEN_P(safe)) {
-		router_e_len = spprintf(&router_e, 0, "%s%s", Z_STRVAL_P(safe),
-		GENE_CONFIG_CACHE);
+		router_e_len = Z_STRLEN_P(safe) + sizeof(GENE_CONFIG_CACHE) - 1;
+		if (router_e_len >= sizeof(router_e_stack)) {
+			router_e = emalloc(router_e_len + 1);
+			router_e_heap = 1;
+		}
+		memcpy(router_e, Z_STRVAL_P(safe), Z_STRLEN_P(safe));
+		memcpy(router_e + Z_STRLEN_P(safe), GENE_CONFIG_CACHE, sizeof(GENE_CONFIG_CACHE));
 	} else {
-		router_e_len = spprintf(&router_e, 0, "%s", GENE_CONFIG_CACHE);
+		router_e_len = sizeof(GENE_CONFIG_CACHE) - 1;
+		memcpy(router_e, GENE_CONFIG_CACHE, sizeof(GENE_CONFIG_CACHE));
 	}
 	if (zvalue) {
-		spprintf(&path, 0, "%s", keyString);
+		path = estrndup(keyString, keyString_len);
 		replaceAll(path, '.', '/');
 		gene_memory_set_by_router(router_e, router_e_len, path, zvalue, validity);
 		efree(path);
 	}
-	efree(router_e);
+	if (router_e_heap) efree(router_e);
 	RETURN_BOOL(1);
 }
 /* }}} */
@@ -109,8 +118,11 @@ PHP_METHOD(gene_config, set) {
  */
 PHP_METHOD(gene_config, get) {
 	zval *self = getThis(), *safe, *cache = NULL;
+	char router_e_stack[256];
+	char *router_e = router_e_stack;
 	size_t router_e_len;
-	char *router_e, *path;
+	int router_e_heap = 0;
+	char *path;
 	zend_string *keyString;
 	if (zend_parse_parameters(ZEND_NUM_ARGS(), "S", &keyString)
 			== FAILURE) {
@@ -118,15 +130,21 @@ PHP_METHOD(gene_config, get) {
 	}
 	safe = zend_read_property(gene_config_ce, gene_strip_obj(self), GENE_CONFIG_SAFE, strlen(GENE_CONFIG_SAFE), 1, NULL);
 	if (Z_STRLEN_P(safe)) {
-		router_e_len = spprintf(&router_e, 0, "%s%s", Z_STRVAL_P(safe),
-		GENE_CONFIG_CACHE);
+		router_e_len = Z_STRLEN_P(safe) + sizeof(GENE_CONFIG_CACHE) - 1;
+		if (router_e_len >= sizeof(router_e_stack)) {
+			router_e = emalloc(router_e_len + 1);
+			router_e_heap = 1;
+		}
+		memcpy(router_e, Z_STRVAL_P(safe), Z_STRLEN_P(safe));
+		memcpy(router_e + Z_STRLEN_P(safe), GENE_CONFIG_CACHE, sizeof(GENE_CONFIG_CACHE));
 	} else {
-		router_e_len = spprintf(&router_e, 0, "%s", GENE_CONFIG_CACHE);
+		router_e_len = sizeof(GENE_CONFIG_CACHE) - 1;
+		memcpy(router_e, GENE_CONFIG_CACHE, sizeof(GENE_CONFIG_CACHE));
 	}
-	spprintf(&path, 0, "%s", ZSTR_VAL(keyString));
+	path = estrndup(ZSTR_VAL(keyString), ZSTR_LEN(keyString));
 	replaceAll(path, '.', '/');
 	cache = gene_memory_get_by_config(router_e, router_e_len, path);
-	efree(router_e);
+	if (router_e_heap) efree(router_e);
 	efree(path);
 	if (cache) {
 		gene_memory_zval_local(return_value, cache);
@@ -141,20 +159,28 @@ PHP_METHOD(gene_config, get) {
  */
 PHP_METHOD(gene_config, del) {
 	zval *self = getThis(), *safe;
+	char router_e_stack[256];
+	char *router_e = router_e_stack;
 	size_t router_e_len;
-	char *router_e;
+	int router_e_heap = 0;
 	safe = zend_read_property(gene_config_ce, gene_strip_obj(self), GENE_CONFIG_SAFE, strlen(GENE_CONFIG_SAFE), 1, NULL);
 	if (Z_STRLEN_P(safe)) {
-		router_e_len = spprintf(&router_e, 0, "%s%s", Z_STRVAL_P(safe),
-		GENE_CONFIG_CACHE);
+		router_e_len = Z_STRLEN_P(safe) + sizeof(GENE_CONFIG_CACHE) - 1;
+		if (router_e_len >= sizeof(router_e_stack)) {
+			router_e = emalloc(router_e_len + 1);
+			router_e_heap = 1;
+		}
+		memcpy(router_e, Z_STRVAL_P(safe), Z_STRLEN_P(safe));
+		memcpy(router_e + Z_STRLEN_P(safe), GENE_CONFIG_CACHE, sizeof(GENE_CONFIG_CACHE));
 	} else {
-		router_e_len = spprintf(&router_e, 0, "%s", GENE_CONFIG_CACHE);
+		router_e_len = sizeof(GENE_CONFIG_CACHE) - 1;
+		memcpy(router_e, GENE_CONFIG_CACHE, sizeof(GENE_CONFIG_CACHE));
 	}
 	if (gene_memory_del(router_e, router_e_len)) {
-		efree(router_e);
+		if (router_e_heap) efree(router_e);
 		RETURN_TRUE;
 	}
-	efree(router_e);
+	if (router_e_heap) efree(router_e);
 	RETURN_FALSE;
 }
 /* }}} */
@@ -164,20 +190,28 @@ PHP_METHOD(gene_config, del) {
  */
 PHP_METHOD(gene_config, clear) {
 	zval *self = getThis(), *safe;
+	char router_e_stack[256];
+	char *router_e = router_e_stack;
 	size_t router_e_len;
-	char *router_e;
+	int router_e_heap = 0;
 	safe = zend_read_property(gene_config_ce, gene_strip_obj(self), GENE_CONFIG_SAFE, strlen(GENE_CONFIG_SAFE), 1, NULL);
 	if (Z_STRLEN_P(safe)) {
-		router_e_len = spprintf(&router_e, 0, "%s%s", Z_STRVAL_P(safe),
-		GENE_CONFIG_CACHE);
+		router_e_len = Z_STRLEN_P(safe) + sizeof(GENE_CONFIG_CACHE) - 1;
+		if (router_e_len >= sizeof(router_e_stack)) {
+			router_e = emalloc(router_e_len + 1);
+			router_e_heap = 1;
+		}
+		memcpy(router_e, Z_STRVAL_P(safe), Z_STRLEN_P(safe));
+		memcpy(router_e + Z_STRLEN_P(safe), GENE_CONFIG_CACHE, sizeof(GENE_CONFIG_CACHE));
 	} else {
-		router_e_len = spprintf(&router_e, 0, "%s", GENE_CONFIG_CACHE);
+		router_e_len = sizeof(GENE_CONFIG_CACHE) - 1;
+		memcpy(router_e, GENE_CONFIG_CACHE, sizeof(GENE_CONFIG_CACHE));
 	}
 	if (gene_memory_del(router_e, router_e_len)) {
-		efree(router_e);
+		if (router_e_heap) efree(router_e);
 		RETURN_TRUE;
 	}
-	efree(router_e);
+	if (router_e_heap) efree(router_e);
 	RETURN_FALSE;
 }
 /* }}} */

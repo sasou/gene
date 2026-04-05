@@ -18,8 +18,12 @@
 #define GENE_MEMORY_H
 #define GENE_MEMORY_SAFE	"safe"
 #define PHP_GENE_URL_PARAMS ":gene_url"
-#define GENE_CACHE_RDLOCK()    gene_rwlock_rdlock(&GENE_G(cache_lock))
-#define GENE_CACHE_RDUNLOCK()  gene_rwlock_rdunlock(&GENE_G(cache_lock))
+/* Skip read locks when worker_ready is set: after workerReady() the
+ * persistent cache is read-only, so read locks only add contention
+ * across Swoole coroutines without providing safety.  In FPM mode
+ * worker_ready is always 0, so locks are always taken (correct). */
+#define GENE_CACHE_RDLOCK()    do { if (!GENE_G(worker_ready)) gene_rwlock_rdlock(&GENE_G(cache_lock)); } while(0)
+#define GENE_CACHE_RDUNLOCK()  do { if (!GENE_G(worker_ready)) gene_rwlock_rdunlock(&GENE_G(cache_lock)); } while(0)
 #define GENE_CACHE_WRLOCK()    gene_rwlock_wrlock(&GENE_G(cache_lock))
 #define GENE_CACHE_WRUNLOCK()  gene_rwlock_wrunlock(&GENE_G(cache_lock))
 
