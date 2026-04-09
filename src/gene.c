@@ -1,4 +1,4 @@
-﻿/*
+/*
  +----------------------------------------------------------------------+
  | gene                                                                 |
  +----------------------------------------------------------------------+
@@ -286,6 +286,8 @@ static void php_gene_init_globals() {
 	GENE_G(app_ext) = NULL;
 	GENE_G(app_key) = NULL;
 	GENE_G(auto_load_fun) = NULL;
+	GENE_G(config_cache_key) = NULL;
+	GENE_G(config_cache_key_len) = 0;
 	memset(&GENE_G(default_ctx), 0, sizeof(gene_request_context));
 	GENE_G(resident_ctx) = NULL;
 	GENE_G(co_contexts) = NULL;
@@ -333,6 +335,11 @@ static void php_gene_close_request_globals() {
 	if (GENE_G(app_key)) {
 		efree(GENE_G(app_key));
 		GENE_G(app_key) = NULL;
+	}
+	if (GENE_G(config_cache_key)) {
+		efree(GENE_G(config_cache_key));
+		GENE_G(config_cache_key) = NULL;
+		GENE_G(config_cache_key_len) = 0;
 	}
 	GENE_G(current_ctx) = NULL;
 	GENE_G(current_cid) = -1;

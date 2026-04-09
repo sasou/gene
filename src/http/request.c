@@ -54,21 +54,18 @@ static zend_string* gene_zend_string_toupper(zend_string *str) {
 static void gene_request_set_server_val(zval *server) {
 	zval normalized;
 	zval *item;
-	zend_string *key, *upper_key;
+	zend_string *key;
 	zend_ulong idx;
+	zend_long total_keys = zend_hash_num_elements(Z_ARRVAL_P(server));
 
-	array_init_size(&normalized, zend_hash_num_elements(Z_ARRVAL_P(server)) * 2);
+	/* [GENE_PERF] Only copy original keys, no uppercase duplicates.
+	 * Case-insensitive lookup is handled at query time. */
+	array_init_size(&normalized, total_keys);
 
 	ZEND_HASH_FOREACH_KEY_VAL(Z_ARRVAL_P(server), idx, key, item) {
 		Z_TRY_ADDREF_P(item);
 		if (key) {
 			zend_hash_update(Z_ARRVAL(normalized), key, item);
-			upper_key = gene_zend_string_toupper(key);
-			if (!zend_hash_exists(Z_ARRVAL(normalized), upper_key)) {
-				Z_TRY_ADDREF_P(item);
-				zend_hash_update(Z_ARRVAL(normalized), upper_key, item);
-			}
-			zend_string_release(upper_key);
 		} else {
 			zend_hash_index_update(Z_ARRVAL(normalized), idx, item);
 		}
@@ -84,6 +81,9 @@ static void gene_request_set_server_val(zval *server) {
 		gene_request_context *ctx = gene_request_ctx();
 		if (!ctx->method) {
 			zval *rm = zend_hash_str_find(Z_ARRVAL(normalized), ZEND_STRL("REQUEST_METHOD"));
+			if (!rm) {
+				rm = zend_hash_str_find(Z_ARRVAL(normalized), ZEND_STRL("request_method"));
+			}
 			if (rm && Z_TYPE_P(rm) == IS_STRING) {
 				ctx->method = estrndup(Z_STRVAL_P(rm), Z_STRLEN_P(rm));
 				gene_strtolower(ctx->method);
@@ -91,6 +91,9 @@ static void gene_request_set_server_val(zval *server) {
 		}
 		if (!ctx->path) {
 			zval *ru = zend_hash_str_find(Z_ARRVAL(normalized), ZEND_STRL("REQUEST_URI"));
+			if (!ru) {
+				ru = zend_hash_str_find(Z_ARRVAL(normalized), ZEND_STRL("request_uri"));
+			}
 			if (ru && Z_TYPE_P(ru) == IS_STRING) {
 				ctx->path = ecalloc(Z_STRLEN_P(ru) + 1, sizeof(char));
 				leftByChar(ctx->path, Z_STRVAL_P(ru), '?');
@@ -216,7 +219,19 @@ zval *getVal(zend_ulong type, char *name, size_t len) {
 			return val;
 		}
 		if (val && Z_TYPE_P(val) == IS_ARRAY) {
-			return zend_hash_str_find(Z_ARRVAL_P(val), name, len);
+			zval *result = zend_hash_str_find(Z_ARRVAL_P(val), name, len);
+			if (result) {
+				return result;
+			}
+			/* [GENE_PERF] For SERVER vars, try lowercase if uppercase lookup failed */
+			if (type == TRACK_VARS_SERVER && len > 0 && len < 256) {
+				char lower_name[256];
+				memcpy(lower_name, name, len);
+				lower_name[len] = '\0';
+				gene_strtolower(lower_name);
+				return zend_hash_str_find(Z_ARRVAL_P(val), lower_name, len);
+			}
+			return NULL;
 		}
 		return NULL;
 	}

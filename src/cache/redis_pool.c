@@ -1,4 +1,4 @@
-﻿/*
+/*
  +----------------------------------------------------------------------+
  | gene                                                                 |
  +----------------------------------------------------------------------+
@@ -867,7 +867,7 @@ PHP_METHOD(gene_redis_pool, create)
         zval *existing = zend_hash_find(Z_ARRVAL_P(instances), name);
         if (existing && Z_TYPE_P(existing) == IS_OBJECT) {
             zval close_ret;
-            gene_factory_call(existing, "close", NULL, &close_ret);
+            gene_factory_call(existing, "close", sizeof("close") - 1, NULL, &close_ret);
             zval_ptr_dtor(&close_ret);
         }
     } else {
@@ -888,7 +888,7 @@ PHP_METHOD(gene_redis_pool, create)
     Z_TRY_ADDREF(merged_config);
     add_next_index_zval(&params_arr, &merged_config);
 
-    gene_factory_call(&new_pool, "__construct", &params_arr, &construct_ret);
+    gene_factory_call(&new_pool, "__construct", sizeof("__construct") - 1, &params_arr, &construct_ret);
     zval_ptr_dtor(&construct_ret);
     zval_ptr_dtor(&params_arr);
     zval_ptr_dtor(&merged_config);
@@ -1197,7 +1197,7 @@ PHP_METHOD(gene_redis_pool, closeAll)
         ZEND_HASH_FOREACH_VAL(Z_ARRVAL_P(instances), pool) {
             if (Z_TYPE_P(pool) == IS_OBJECT) {
                 zval close_ret;
-                gene_factory_call(pool, "close", NULL, &close_ret);
+                gene_factory_call(pool, "close", sizeof("close") - 1, NULL, &close_ret);
                 zval_ptr_dtor(&close_ret);
             }
         } ZEND_HASH_FOREACH_END();
@@ -1266,7 +1266,7 @@ PHP_METHOD(gene_redis_pool, __destruct)
     zval *self = getThis();
     if (!rpool_is_closed(self)) {
         zval close_ret;
-        gene_factory_call(self, "close", NULL, &close_ret);
+        gene_factory_call(self, "close", sizeof("close") - 1, NULL, &close_ret);
         zval_ptr_dtor(&close_ret);
     }
 }
@@ -1316,7 +1316,7 @@ bool gene_redis_pool_get(zend_class_entry *redis_ce, zval *self, zval *config,
         zend_ulong obj_handle = self ? (zend_ulong)Z_OBJ_HANDLE_P(self) : 0;
         zval redis_conn;
         ZVAL_UNDEF(&redis_conn);
-        gene_factory_call(&pool_obj, "get", NULL, &redis_conn);
+        gene_factory_call(&pool_obj, "get", sizeof("get") - 1, NULL, &redis_conn);
 
         if (Z_TYPE(redis_conn) == IS_OBJECT) {
             /* Store pool ref ONLY after successful get().
@@ -1361,7 +1361,7 @@ void gene_redis_pool_return(zend_class_entry *redis_ce, zval *self,
             zval retval, params;
             array_init(&params);
             add_next_index_zval(&params, &obj_copy);
-            gene_factory_call(pool, "put", &params, &retval);
+            gene_factory_call(pool, "put", sizeof("put") - 1, &params, &retval);
             zval_ptr_dtor(&retval);
             zval_ptr_dtor(&params);
         } else {
@@ -1384,7 +1384,7 @@ void gene_redis_pool_notify_remove(zend_class_entry *redis_ce, zval *self,
                                      pool_key, pool_key_len, 1, NULL);
     if (pool && Z_TYPE_P(pool) == IS_OBJECT) {
         zval retval;
-        gene_factory_call(pool, "remove", NULL, &retval);
+        gene_factory_call(pool, "remove", sizeof("remove") - 1, NULL, &retval);
         zval_ptr_dtor(&retval);
     }
 }

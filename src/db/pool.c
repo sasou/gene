@@ -1,4 +1,4 @@
-﻿/*
+/*
  +----------------------------------------------------------------------+
  | gene                                                                 |
  +----------------------------------------------------------------------+
@@ -726,7 +726,7 @@ static zend_long pool_increment_count_get(zval *self) {
          zval *existing = zend_hash_find(Z_ARRVAL_P(instances), name);
          if (existing && Z_TYPE_P(existing) == IS_OBJECT) {
              zval close_ret;
-             gene_factory_call(existing, "close", NULL, &close_ret);
+             gene_factory_call(existing, "close", sizeof("close") - 1, NULL, &close_ret);
              zval_ptr_dtor(&close_ret);
          }
      } else {
@@ -746,7 +746,7 @@ static zend_long pool_increment_count_get(zval *self) {
      add_next_index_zval(&params_arr, &merged_config);
  
      zval construct_ret;
-     gene_factory_call(&new_pool, "__construct", &params_arr, &construct_ret);
+     gene_factory_call(&new_pool, "__construct", sizeof("__construct") - 1, &params_arr, &construct_ret);
      zval_ptr_dtor(&construct_ret);
      zval_ptr_dtor(&params_arr);
      zval_ptr_dtor(&merged_config);
@@ -1052,7 +1052,7 @@ static zend_long pool_increment_count_get(zval *self) {
          ZEND_HASH_FOREACH_VAL(Z_ARRVAL_P(instances), pool) {
              if (Z_TYPE_P(pool) == IS_OBJECT) {
                  zval close_ret;
-                 gene_factory_call(pool, "close", NULL, &close_ret);
+                 gene_factory_call(pool, "close", sizeof("close") - 1, NULL, &close_ret);
                  zval_ptr_dtor(&close_ret);
              }
          } ZEND_HASH_FOREACH_END();
@@ -1120,7 +1120,7 @@ static zend_long pool_increment_count_get(zval *self) {
      zval *self = getThis();
      if (!pool_is_closed(self)) {
          zval close_ret;
-         gene_factory_call(self, "close", NULL, &close_ret);
+         gene_factory_call(self, "close", sizeof("close") - 1, NULL, &close_ret);
          zval_ptr_dtor(&close_ret);
      }
  }
@@ -1164,7 +1164,7 @@ static zend_long pool_increment_count_get(zval *self) {
          if (Z_TYPE(pool_obj) == IS_OBJECT) {
              /* Call pool->get() to borrow a PDO */
              zval pdo_obj;
-             gene_factory_call(&pool_obj, "get", NULL, &pdo_obj);
+             gene_factory_call(&pool_obj, "get", sizeof("get") - 1, NULL, &pdo_obj);
   
              if (Z_TYPE(pdo_obj) == IS_OBJECT) {
                  /* Store pool reference ONLY after successful get().
@@ -1202,7 +1202,7 @@ static zend_long pool_increment_count_get(zval *self) {
              zval retval, params;
              array_init(&params);
              add_next_index_zval(&params, &pdo_copy);
-             gene_factory_call(pool, "put", &params, &retval);
+             gene_factory_call(pool, "put", sizeof("put") - 1, &params, &retval);
              zval_ptr_dtor(&retval);
              zval_ptr_dtor(&params);
          } else {
@@ -1217,7 +1217,7 @@ static zend_long pool_increment_count_get(zval *self) {
      zval *pool = zend_read_property(db_ce, gene_strip_obj(self), pool_key, pool_key_len, 1, NULL);
      if (pool && Z_TYPE_P(pool) == IS_OBJECT) {
          zval retval;
-         gene_factory_call(pool, "remove", NULL, &retval);
+         gene_factory_call(pool, "remove", sizeof("remove") - 1, NULL, &retval);
          zval_ptr_dtor(&retval);
      }
  }
