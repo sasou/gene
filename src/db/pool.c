@@ -344,15 +344,19 @@ static zend_long pool_increment_count_get(zval *self) {
      zval *channel = zend_read_property(gene_pool_ce, gene_strip_obj(self), ZEND_STRL(GENE_POOL_PROPERTY_CHANNEL), 1, NULL);
      zend_long min = pool_get_min(self);
      zend_long i;
-  
+ 
      if (!channel || Z_TYPE_P(channel) != IS_OBJECT) return;
-  
+ 
      for (i = 0; i < min; i++) {
          zval conn;
          pool_create_connection(self, &conn);
          if (Z_TYPE(conn) == IS_OBJECT) {
-             pool_increment_count(self);
-             pool_channel_push(channel, &conn);
+             /* [GENE_FIX:2026-04-09] Only increment count AFTER successful push.
+              * If push fails (channel full), we must NOT increment count, otherwise
+              * the count will drift from the actual number of connections in the pool. */
+             if (pool_channel_push(channel, &conn)) {
+                 pool_increment_count(self);
+             }
              zval_ptr_dtor(&conn);
          } else {
              break;
