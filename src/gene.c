@@ -171,6 +171,24 @@ static void gene_request_context_free_fields(gene_request_context *ctx, int pres
 		zval_ptr_dtor(&ctx->request_attr);
 		ZVAL_UNDEF(&ctx->request_attr);
 	}
+	/* [GENE_FIX:2026-04-09] Break circular references in di_regs before dtor.
+	 * In Swoole mode, objects stored in di_regs may hold references back to
+	 * other DI objects (e.g., $this->db in a Service). A simple zval_ptr_dtor
+	 * on the array won't break these cycles if refcount > 1. We iterate and
+	 * explicitly dtor each element to force refcount decrement, then clean
+	 * the hash table to avoid double-free from the array destructor. */
+	if (Z_TYPE(ctx->di_regs) == IS_ARRAY) {
+		zend_string *str_key;
+		zend_ulong num_key;
+		zval *entry;
+		ZEND_HASH_FOREACH_KEY_VAL(Z_ARRVAL(ctx->di_regs), num_key, str_key, entry) {
+			if (Z_TYPE_P(entry) == IS_OBJECT || Z_TYPE_P(entry) == IS_ARRAY) {
+				zval_ptr_dtor(entry);
+				ZVAL_NULL(entry);
+			}
+		} ZEND_HASH_FOREACH_END();
+		zend_hash_clean(Z_ARRVAL(ctx->di_regs));
+	}
 	if (Z_TYPE(ctx->di_regs) != IS_UNDEF) {
 		zval_ptr_dtor(&ctx->di_regs);
 		ZVAL_UNDEF(&ctx->di_regs);
@@ -342,10 +360,18 @@ static void php_gene_close_request_globals() {
 		gene_request_context_destroy(tmp);
 		efree(tmp);
 	}
-	if (GENE_G(co_contexts)) {
-		zend_hash_destroy(GENE_G(co_contexts));
-		FREE_HASHTABLE(GENE_G(co_contexts));
-		GENE_G(co_contexts) = NULL;
+	/* [GENE_FIX:2026-04-09] In Swoole mode (runtime_type >= 2), RSHUTDOWN is called
+	 * after EVERY request, not just at worker shutdown. Destroying co_contexts here
+	 * would leak all other active coroutines' contexts. Instead, only clean up the
+	 * current coroutine's context if we're in Swoole mode. The full co_contexts
+	 * destruction happens in MSHUTDOWN when the worker process exits. */
+	if (GENE_G(runtime_type) >= 2 && GENE_G(co_contexts)) {
+		zend_long cid = gene_get_coroutine_id();
+		if (cid >= 0) {
+			zend_hash_index_del(GENE_G(co_contexts), (zend_ulong)cid);
+		}
+		/* If cid < 0, we're in the resident context — already cleaned above.
+		 * Do NOT destroy co_contexts here; other coroutines may still be active. */
 	}
 }
 /* }}} */

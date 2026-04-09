@@ -446,8 +446,12 @@ static void rpool_fill(zval *self)
         zval conn;
         rpool_create_connection(self, &conn);
         if (Z_TYPE(conn) == IS_OBJECT) {
-            rpool_increment_count(self);
-            rpool_channel_push(channel, &conn);
+            /* [GENE_FIX:2026-04-09] Only increment count AFTER successful push.
+             * If push fails (channel full), we must NOT increment count, otherwise
+             * the count will drift from the actual number of connections in the pool. */
+            if (rpool_channel_push(channel, &conn)) {
+                rpool_increment_count(self);
+            }
             zval_ptr_dtor(&conn);
         } else {
             break; /* server unavailable — pool fills lazily on first get() */
