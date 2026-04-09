@@ -281,7 +281,7 @@ bool initObjWin (zval * self, zval *config) {
 	ZEND_HASH_FOREACH_VAL(Z_ARRVAL_P(servers), element)
 	{
 		zval ret;
-		gene_factory_call(&obj_object, "addServer", element, &ret);
+		gene_factory_call(&obj_object, "addServer", sizeof("addServer") - 1, element, &ret);
 		zval_ptr_dtor(&ret);
 	}ZEND_HASH_FOREACH_END();
 
@@ -415,7 +415,7 @@ PHP_METHOD(gene_memcached, __call) {
 	}
 	object = zend_read_property(gene_memcached_ce, gene_strip_obj(self), ZEND_STRL(GENE_MEM_OBJ), 1, NULL);
 	if (object) {
-		gene_factory_call(object, method, params, &ret);
+		gene_factory_call(object, method, methodlen, params, &ret);
 		RETURN_ZVAL(&ret, 0, 0);
 	}
 	RETURN_NULL();

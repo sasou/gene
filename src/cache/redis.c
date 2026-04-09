@@ -1,4 +1,4 @@
-﻿/*
+/*
   +----------------------------------------------------------------------+
   | gene                                                                 |
   +----------------------------------------------------------------------+
@@ -508,7 +508,7 @@ PHP_METHOD(gene_redis, __call) {
 	object = zend_read_property(gene_redis_ce, gene_strip_obj(self), ZEND_STRL(GENE_REDIS_OBJ), 1, NULL);
 	if (object && Z_TYPE_P(object) == IS_OBJECT) {
 		ZVAL_UNDEF(&ret);
-		gene_factory_call(object, method, params, &ret);
+		gene_factory_call(object, method, methodlen, params, &ret);
 		if (EG(exception)) {
 			if (checkError(EG(exception))) {
 				zend_clear_exception();
@@ -517,7 +517,7 @@ PHP_METHOD(gene_redis, __call) {
 				gene_redis_reconnect(self);
 				object = zend_read_property(gene_redis_ce, gene_strip_obj(self), ZEND_STRL(GENE_REDIS_OBJ), 1, NULL);
 				if (object && Z_TYPE_P(object) == IS_OBJECT) {
-					gene_factory_call(object, method, params, &ret);
+					gene_factory_call(object, method, methodlen, params, &ret);
 				}
 			}
 		}

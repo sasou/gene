@@ -124,7 +124,13 @@ static int gene_webscan_is_white(zval *white_dir, zval *white_urls)
 
     if (uri && Z_TYPE_P(uri) == IS_ARRAY) {
         zval *request_uri = zend_hash_str_find(Z_ARRVAL_P(uri), ZEND_STRL("REQUEST_URI"));
+        if (!request_uri) {
+            request_uri = zend_hash_str_find(Z_ARRVAL_P(uri), ZEND_STRL("request_uri"));
+        }
         zval *query_uri = zend_hash_str_find(Z_ARRVAL_P(uri), ZEND_STRL("QUERY_STRING"));
+        if (!query_uri) {
+            query_uri = zend_hash_str_find(Z_ARRVAL_P(uri), ZEND_STRL("query_string"));
+        }
         uri_str = request_uri ? zval_get_string(request_uri) : zend_string_init(ZEND_STRL("/"), 0);
         query_str = query_uri ? zval_get_string(query_uri) : zend_string_init(ZEND_STRL(""), 0);
     } else {
@@ -280,6 +286,9 @@ PHP_METHOD(gene_webscan, check)
         zval *server = getVal(TRACK_VARS_SERVER, NULL, 0);
         if (server && Z_TYPE_P(server) == IS_ARRAY) {
             zval *referer = zend_hash_str_find(Z_ARRVAL_P(server), ZEND_STRL("HTTP_REFERER"));
+            if (!referer) {
+                referer = zend_hash_str_find(Z_ARRVAL_P(server), ZEND_STRL("http_referer"));
+            }
             if (referer) {
                 zval key;
                 ZVAL_STRING(&key, "HTTP_REFERER");

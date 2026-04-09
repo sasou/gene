@@ -119,6 +119,8 @@
  char *app_ext;
  char *app_key;
  char *auto_load_fun;
+ char *config_cache_key;
+ size_t config_cache_key_len;
  bool use_library;
  zend_long run_environment;
  zend_long runtime_type;

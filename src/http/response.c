@@ -1,4 +1,4 @@
-﻿/*
+/*
  +----------------------------------------------------------------------+
  | gene                                                                 |
  +----------------------------------------------------------------------+
@@ -144,10 +144,20 @@ void gene_response_set_header(char *key, char *value) {
 		return;
 	}
 	sapi_header_line ctr = { 0 };
-	ctr.line_len = spprintf((char**)&(ctr.line), 0, "%s:%s", key, value);
-	ctr.response_code = 200;
-	sapi_header_op(SAPI_HEADER_REPLACE, &ctr);
-	efree((char*)ctr.line);
+	/* [GENE_PERF] Use stack buffer for common header sizes to avoid spprintf allocation.
+	 * Typical headers like "Content-Type: application/json" are well under 256 bytes. */
+	char header_buf[512];
+	int header_len = snprintf(header_buf, sizeof(header_buf), "%s:%s", key, value);
+	if (header_len > 0 && header_len < (int)sizeof(header_buf)) {
+		ctr.line = header_buf;
+		ctr.line_len = header_len;
+		sapi_header_op(SAPI_HEADER_REPLACE, &ctr);
+	} else {
+		ctr.line_len = spprintf((char**)&(ctr.line), 0, "%s:%s", key, value);
+		ctr.response_code = 200;
+		sapi_header_op(SAPI_HEADER_REPLACE, &ctr);
+		efree((char*)ctr.line);
+	}
 }
 /* }}} */
 

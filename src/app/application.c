@@ -1,4 +1,4 @@
-﻿/*
+/*
  +----------------------------------------------------------------------+
  | gene                                                                 |
  +----------------------------------------------------------------------+
@@ -241,6 +241,9 @@ int gene_ini_router() {
 			if (attr_server && Z_TYPE_P(attr_server) == IS_ARRAY) {
 				if (!GENE_REQ(method)) {
 					temp = zend_hash_str_find(Z_ARRVAL_P(attr_server), ZEND_STRL("REQUEST_METHOD"));
+					if (!temp) {
+						temp = zend_hash_str_find(Z_ARRVAL_P(attr_server), ZEND_STRL("request_method"));
+					}
 					if (temp && Z_TYPE_P(temp) == IS_STRING) {
 						GENE_REQ(method) = estrndup(Z_STRVAL_P(temp), Z_STRLEN_P(temp));
 						gene_strtolower(GENE_REQ(method));
@@ -248,6 +251,9 @@ int gene_ini_router() {
 				}
 				if (!GENE_REQ(path)) {
 					temp = zend_hash_str_find(Z_ARRVAL_P(attr_server), ZEND_STRL("REQUEST_URI"));
+					if (!temp) {
+						temp = zend_hash_str_find(Z_ARRVAL_P(attr_server), ZEND_STRL("request_uri"));
+					}
 					if (temp && Z_TYPE_P(temp) == IS_STRING) {
 						GENE_REQ(path) = ecalloc(Z_STRLEN_P(temp)+1, sizeof(char));
 						leftByChar(GENE_REQ(path), Z_STRVAL_P(temp), '?');
@@ -830,16 +836,14 @@ PHP_METHOD(gene_application, setResponse) {
  */
 PHP_METHOD(gene_application, config) {
 	zval *cache = NULL;
-	size_t router_e_len;
-	char router_e_stack[256];
-	char *router_e = router_e_stack;
-	int router_e_heap = 0;
 	zend_string *keyString;
 	if (zend_parse_parameters(ZEND_NUM_ARGS(), "S", &keyString) == FAILURE) {
 		return;
 	}
 
-	{
+	if (GENE_G(config_cache_key)) {
+		cache = gene_memory_get_by_config(GENE_G(config_cache_key), GENE_G(config_cache_key_len), ZSTR_VAL(keyString));
+	} else {
 		const char *prefix = NULL;
 		size_t prefix_len = 0;
 		if (GENE_G(app_key) && GENE_G(app_key)[0] != '\0') {
@@ -850,20 +854,24 @@ PHP_METHOD(gene_application, config) {
 			prefix_len = strlen(GENE_G(app_root));
 		}
 		if (prefix) {
-			router_e_len = prefix_len + sizeof(GENE_CONFIG_CACHE) - 1;
-			if (router_e_len >= sizeof(router_e_stack)) {
-				router_e = emalloc(router_e_len + 1);
-				router_e_heap = 1;
+			size_t key_len = prefix_len + sizeof(GENE_CONFIG_CACHE) - 1;
+			char stack_buf[256];
+			char *key_buf;
+			int key_heap = 0;
+			if (key_len >= sizeof(stack_buf)) {
+				key_buf = emalloc(key_len + 1);
+				key_heap = 1;
+			} else {
+				key_buf = stack_buf;
 			}
-			memcpy(router_e, prefix, prefix_len);
-			memcpy(router_e + prefix_len, GENE_CONFIG_CACHE, sizeof(GENE_CONFIG_CACHE));
+			memcpy(key_buf, prefix, prefix_len);
+			memcpy(key_buf + prefix_len, GENE_CONFIG_CACHE, sizeof(GENE_CONFIG_CACHE));
+			cache = gene_memory_get_by_config(key_buf, key_len, ZSTR_VAL(keyString));
+			if (key_heap) efree(key_buf);
 		} else {
-			router_e_len = sizeof(GENE_CONFIG_CACHE) - 1;
-			memcpy(router_e, GENE_CONFIG_CACHE, sizeof(GENE_CONFIG_CACHE));
+			cache = gene_memory_get_by_config(GENE_CONFIG_CACHE, sizeof(GENE_CONFIG_CACHE) - 1, ZSTR_VAL(keyString));
 		}
 	}
-	cache = gene_memory_get_by_config(router_e, router_e_len, ZSTR_VAL(keyString));
-	if (router_e_heap) efree(router_e);
 	if (cache) {
 		gene_memory_zval_local(return_value, cache);
 		return;
@@ -892,6 +900,31 @@ PHP_METHOD(gene_application, autoload) {
 			efree(GENE_G(auto_load_fun));
 		}
 		GENE_G(auto_load_fun) = estrndup(ZSTR_VAL(fileName), ZSTR_LEN(fileName));
+	}
+	/* Pre-compute config cache key to avoid repeated concatenation in hot path */
+	{
+		const char *prefix = NULL;
+		size_t prefix_len = 0;
+		if (GENE_G(app_key) && GENE_G(app_key)[0] != '\0') {
+			prefix = GENE_G(app_key);
+			prefix_len = strlen(GENE_G(app_key));
+		} else if (GENE_G(app_root) && GENE_G(app_root)[0] != '\0') {
+			prefix = GENE_G(app_root);
+			prefix_len = strlen(GENE_G(app_root));
+		}
+		if (GENE_G(config_cache_key)) {
+			efree(GENE_G(config_cache_key));
+		}
+		if (prefix) {
+			GENE_G(config_cache_key_len) = prefix_len + sizeof(GENE_CONFIG_CACHE) - 1;
+			GENE_G(config_cache_key) = emalloc(GENE_G(config_cache_key_len) + 1);
+			memcpy(GENE_G(config_cache_key), prefix, prefix_len);
+			memcpy(GENE_G(config_cache_key) + prefix_len, GENE_CONFIG_CACHE, sizeof(GENE_CONFIG_CACHE));
+		} else {
+			GENE_G(config_cache_key_len) = sizeof(GENE_CONFIG_CACHE) - 1;
+			GENE_G(config_cache_key) = emalloc(GENE_G(config_cache_key_len) + 1);
+			memcpy(GENE_G(config_cache_key), GENE_CONFIG_CACHE, sizeof(GENE_CONFIG_CACHE));
+		}
 	}
 	RETURN_ZVAL(self, 1, 0);
 }
