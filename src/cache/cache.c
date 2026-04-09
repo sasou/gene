@@ -160,54 +160,58 @@ void gene_apcu_del(zval *key, zval *retval) /*{{{*/
 }/*}}}*/
 
 void gene_cache_key(zval *sign, int type, zval *object, zval *args, zval *ttl, zval *retval) /*{{{*/
-{	
-	smart_str key = {0},tmp_s = {0};
-    smart_str_appendl(&key, Z_STRVAL_P(sign), Z_STRLEN_P(sign));
-    if (type > 0) {
-    	smart_str_appendl(&key, GENE_CACHE_TMP, sizeof(GENE_CACHE_TMP) -1);
-    }
-    zval *class = NULL, *method = NULL;
+{
+	smart_str tmp_s = {0};
+	zval *class = NULL, *method = NULL;
+	
 	if (Z_TYPE_P(object) == IS_ARRAY) {
 		class = zend_hash_index_find(Z_ARRVAL_P(object), 0);
 		method = zend_hash_index_find(Z_ARRVAL_P(object), 1);
-		if (Z_TYPE_P(class) == IS_OBJECT ) {
-			zval class_name;
-			gene_get_class(class, &class_name);
-			if (Z_TYPE(class_name) == IS_STRING)  {
-				smart_str_appendl(&tmp_s,  Z_STRVAL(class_name), Z_STRLEN(class_name));
-			}
-			zval_ptr_dtor(&class_name);
-		} else {
-			if (Z_TYPE_P(class) == IS_STRING) {
-				smart_str_appendl(&tmp_s,  Z_STRVAL_P(class), Z_STRLEN_P(class));
-			}
+		if (Z_TYPE_P(class) == IS_OBJECT) {
+			zend_string *class_name = Z_OBJCE_P(class)->name;
+			smart_str_appendl(&tmp_s, ZSTR_VAL(class_name), ZSTR_LEN(class_name));
+		} else if (Z_TYPE_P(class) == IS_STRING) {
+			smart_str_appendl(&tmp_s, Z_STRVAL_P(class), Z_STRLEN_P(class));
 		}
 		smart_str_appendc(&tmp_s, '.');
 		if (Z_TYPE_P(method) == IS_STRING) {
-			smart_str_appendl(&tmp_s,  Z_STRVAL_P(method), Z_STRLEN_P(method));
+			smart_str_appendl(&tmp_s, Z_STRVAL_P(method), Z_STRLEN_P(method));
 		}
 	}
-	if(Z_TYPE_P(args) == IS_ARRAY) {
-		smart_str_appendc(&tmp_s,  ':');
+	if (Z_TYPE_P(args) == IS_ARRAY) {
+		smart_str_appendc(&tmp_s, ':');
 		makeArgsArr(args, &tmp_s);
 	}
 	if (ttl != NULL && Z_TYPE_P(ttl) == IS_LONG) {
-		smart_str_appendc(&tmp_s,  ':');
-		smart_str_append_long(&tmp_s,  Z_LVAL_P(ttl));
+		smart_str_appendc(&tmp_s, ':');
+		smart_str_append_long(&tmp_s, Z_LVAL_P(ttl));
 	}
 	smart_str_0(&tmp_s);
-	zval md5,tmp_z;
-    ZVAL_STRING(&tmp_z, tmp_s.s->val);
-    smart_str_free(&tmp_s);
-    gene_md5(&tmp_z, &md5);
-    zval_ptr_dtor(&tmp_z);
-    if (Z_TYPE(md5) == IS_STRING) {
-    	smart_str_appendl(&key, Z_STRVAL(md5), Z_STRLEN(md5));
-    }
-    zval_ptr_dtor(&md5);
-    smart_str_0(&key);
-    ZVAL_STRING(retval, key.s->val);
-    smart_str_free(&key);
+	
+	zval md5;
+	gene_md5_buf(ZSTR_VAL(tmp_s.s), ZSTR_LEN(tmp_s.s), &md5);
+	smart_str_free(&tmp_s);
+	
+	size_t sign_len = Z_STRLEN_P(sign);
+	size_t md5_len = Z_STRLEN(md5);
+	size_t total_len = sign_len + md5_len;
+	if (type > 0) {
+		total_len += sizeof(GENE_CACHE_TMP) - 1;
+	}
+	
+	zend_string *result = zend_string_alloc(total_len, 0);
+	char *p = ZSTR_VAL(result);
+	memcpy(p, Z_STRVAL_P(sign), sign_len);
+	p += sign_len;
+	if (type > 0) {
+		memcpy(p, GENE_CACHE_TMP, sizeof(GENE_CACHE_TMP) - 1);
+		p += sizeof(GENE_CACHE_TMP) - 1;
+	}
+	memcpy(p, Z_STRVAL(md5), md5_len);
+	ZSTR_VAL(result)[total_len] = '\0';
+	
+	zval_ptr_dtor(&md5);
+	ZVAL_STR(retval, result);
 }/*}}}*/
 
 void makeArgsArr(zval *arr, smart_str *tmp_s) { /*{{{*/
@@ -285,31 +289,70 @@ void gene_cache_call(zval *object, zval *args, zval *retval) /*{{{*/
 }/*}}}*/
 
 void makeKey(zval *versionSign, zend_string *id, zval *element, zval *retval) {
-	smart_str key_s = {0},tmp_s = {0};
-	zval tmp_z,md5;
+	char stack_buf[256];
+	char *buf = stack_buf;
+	int heap = 0;
+	size_t buf_len = 0;
+	size_t sign_len = Z_STRLEN_P(versionSign);
+	zval md5;
+
+	/* Calculate total length needed */
 	if (id) {
-		smart_str_appendl(&tmp_s,  ZSTR_VAL(id), ZSTR_LEN(id));
+		buf_len += ZSTR_LEN(id);
 	}
 	if (Z_TYPE_P(element) != IS_NULL) {
-		smart_str_appendc(&tmp_s,  '.');
-		zval tmp;
-		ZVAL_COPY(&tmp, element);
-		convert_to_string(&tmp);
-		smart_str_appendl(&tmp_s,  Z_STRVAL(tmp), Z_STRLEN(tmp));
-		zval_ptr_dtor(&tmp);
+		buf_len += 1; /* for '.' */
+		if (Z_TYPE_P(element) == IS_STRING) {
+			buf_len += Z_STRLEN_P(element);
+		} else {
+			zval tmp;
+			ZVAL_COPY(&tmp, element);
+			convert_to_string(&tmp);
+			buf_len += Z_STRLEN(tmp);
+			zval_ptr_dtor(&tmp);
+		}
 	}
-    smart_str_0(&tmp_s);
-    ZVAL_STRING(&tmp_z, tmp_s.s->val);
-    smart_str_free(&tmp_s);
-    gene_md5(&tmp_z, &md5);
-    zval_ptr_dtor(&tmp_z);
 
-    smart_str_appendl(&key_s,  Z_STRVAL_P(versionSign), Z_STRLEN_P(versionSign));
-    smart_str_appendl(&key_s, Z_STRVAL(md5), Z_STRLEN(md5));
-    zval_ptr_dtor(&md5);
-    smart_str_0(&key_s);
-    ZVAL_STRING(retval, key_s.s->val);
-    smart_str_free(&key_s);
+	/* Allocate buffer */
+	if (buf_len >= sizeof(stack_buf)) {
+		buf = emalloc(buf_len + 1);
+		heap = 1;
+	}
+
+	/* Build buffer */
+	char *p = buf;
+	if (id) {
+		memcpy(p, ZSTR_VAL(id), ZSTR_LEN(id));
+		p += ZSTR_LEN(id);
+	}
+	if (Z_TYPE_P(element) != IS_NULL) {
+		*p++ = '.';
+		if (Z_TYPE_P(element) == IS_STRING) {
+			memcpy(p, Z_STRVAL_P(element), Z_STRLEN_P(element));
+			p += Z_STRLEN_P(element);
+		} else {
+			zval tmp;
+			ZVAL_COPY(&tmp, element);
+			convert_to_string(&tmp);
+			memcpy(p, Z_STRVAL(tmp), Z_STRLEN(tmp));
+			p += Z_STRLEN(tmp);
+			zval_ptr_dtor(&tmp);
+		}
+	}
+	*p = '\0';
+
+	/* Calculate MD5 */
+	gene_md5_buf(buf, buf_len, &md5);
+
+	/* Build final key */
+	zend_string *result = zend_string_alloc(sign_len + Z_STRLEN(md5), 0);
+	memcpy(ZSTR_VAL(result), Z_STRVAL_P(versionSign), sign_len);
+	memcpy(ZSTR_VAL(result) + sign_len, Z_STRVAL(md5), Z_STRLEN(md5));
+	ZSTR_VAL(result)[sign_len + Z_STRLEN(md5)] = '\0';
+
+	if (heap) efree(buf);
+	zval_ptr_dtor(&md5);
+	ZVAL_STR(retval, result);
 }
 
 void gene_cache_get_version_arr(zval *versionSign, zval *versionField, zval *retval, zval *top) /*{{{*/
