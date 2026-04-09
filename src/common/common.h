@@ -50,6 +50,7 @@ void gene_serialize(zval *value, zval *retval);
 void gene_unserialize(zval *value, zval *retval);
 void gene_igbinary_serialize(zval *value, zval *retval);
 void gene_igbinary_unserialize(zval *value, zval *retval);
+void gene_md5_buf(const char *data, size_t len, zval *retval);
 void gene_md5(zval *value, zval *retval);
 void gene_class_name(zval *retval);
 zend_string *gene_get_class_name_fast(void);

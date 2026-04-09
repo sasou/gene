@@ -22,6 +22,7 @@
 #include <stdlib.h>
 #include "php.h"
 #include "php_streams.h"
+#include "ext/standard/md5.h"
 #include "string.h"
 #include <ctype.h>
 #include "../common/common.h"
@@ -727,13 +728,37 @@ void gene_igbinary_unserialize(zval *value, zval *retval) /*{{{*/
     zval_ptr_dtor(&function_name);
 }/*}}}*/
 
+void gene_md5_buf(const char *data, size_t len, zval *retval) /*{{{*/
+{
+	PHP_MD5_CTX ctx;
+	unsigned char digest[16];
+	zend_string *out;
+
+	PHP_MD5Init(&ctx);
+	if (len != 0) {
+		PHP_MD5Update(&ctx, data, len);
+	}
+	PHP_MD5Final(digest, &ctx);
+	out = zend_string_alloc(32, 0);
+	make_digest_ex(ZSTR_VAL(out), digest, 16);
+	ZVAL_STR(retval, out);
+}/*}}}*/
+
 void gene_md5(zval *value, zval *retval) /*{{{*/
 {
-    zval function_name;
-    ZVAL_STRING(&function_name, "md5");
-    zval params[] = { *value };
-    call_user_function(NULL, NULL, &function_name, retval, 1, params);
-    zval_ptr_dtor(&function_name);
+	zval tmp;
+	zend_string *str;
+
+	if (Z_TYPE_P(value) == IS_STRING) {
+		str = Z_STR_P(value);
+		gene_md5_buf(ZSTR_VAL(str), ZSTR_LEN(str), retval);
+		return;
+	}
+	ZVAL_COPY(&tmp, value);
+	convert_to_string(&tmp);
+	str = Z_STR(tmp);
+	gene_md5_buf(ZSTR_VAL(str), ZSTR_LEN(str), retval);
+	zval_ptr_dtor(&tmp);
 }/*}}}*/
 
 void gene_strip_tags(zval *value, zval *retval) /*{{{*/
