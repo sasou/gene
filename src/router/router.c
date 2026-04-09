@@ -1,4 +1,4 @@
-﻿/*
+/*
  +----------------------------------------------------------------------+
  | gene                                                                 |
  +----------------------------------------------------------------------+
@@ -255,21 +255,30 @@
  /* }}} */
  
  /** {{{ static zval *get_path_router_inner(zval *val, char *paths)
+  * [GENE_PERF] Replaced php_strtok_r with pointer scanning to avoid
+  * string duplication and state maintenance overhead in the hot path.
   */
  static zval *get_path_router_inner(zval *val, char *paths) {
 	 zval *ret = NULL, *tmp = NULL, *leaf = NULL;
-	 char *seg = NULL, *ptr = NULL;
+	 char *seg = NULL, *next_slash = NULL;
 	 zend_string *key = NULL;
 	 zend_long idx;
+	 size_t seg_len;
+
 	if (paths[0] == '\0') {
 		leaf = zend_symtable_str_find(Z_ARRVAL_P(val), "leaf", 4);
 		return leaf;
 	} else {
-		 seg = php_strtok_r(paths, "/", &ptr);
-		 if (ptr && strlen(seg) > 0) {
-			 ret = zend_symtable_str_find(Z_ARRVAL_P(val), seg, strlen(seg));
+		 /* Find first '/' to extract current segment */
+		 next_slash = strchr(paths, '/');
+		 if (next_slash) {
+			 seg_len = next_slash - paths;
+			 seg = paths;
+			 /* Temporarily null-terminate the segment for hash lookup */
+			 *next_slash = '\0';
+			 ret = zend_symtable_str_find(Z_ARRVAL_P(val), seg, seg_len);
 			 if (ret) {
-				 leaf = get_path_router_inner(ret, ptr);
+				 leaf = get_path_router_inner(ret, next_slash + 1);
 			 }
 			 if (!leaf) {
 				 ret = zend_symtable_str_find(Z_ARRVAL_P(val), "chird", 5);
@@ -277,7 +286,7 @@
 					 ZEND_HASH_FOREACH_KEY_VAL(Z_ARRVAL_P(ret), idx, key, tmp) {
 						 if (key) {
 							 if (tmp != NULL) {
-								 leaf = get_path_router_inner(tmp, ptr);
+								 leaf = get_path_router_inner(tmp, next_slash + 1);
 								 if (leaf) {
 									 setMca(key, seg);
 									 break;
@@ -286,7 +295,7 @@
 
 						 } else {
 							 if (tmp != NULL) {
-								 leaf = get_path_router_inner(tmp, ptr);
+								 leaf = get_path_router_inner(tmp, next_slash + 1);
 								 if (leaf) {
 									 break;
 								 }
@@ -295,8 +304,13 @@
 					 }ZEND_HASH_FOREACH_END();
 				 }
 			 }
+			 /* Restore the '/' character */
+			 *next_slash = '/';
 		 } else {
-			 ret = zend_symtable_str_find(Z_ARRVAL_P(val), seg, strlen(seg));
+			 /* No more '/' — this is the last segment */
+			 seg_len = strlen(paths);
+			 seg = paths;
+			 ret = zend_symtable_str_find(Z_ARRVAL_P(val), seg, seg_len);
 			 if (ret) {
 				 leaf = zend_symtable_str_find(Z_ARRVAL_P(ret), "leaf", 4);
 			 } else {
@@ -414,7 +428,7 @@ static int gene_router_dispatch_direct(const char *class_method, zval *retval) {
 
 	 if (Z_TYPE(classObject) == IS_OBJECT
 			 && zend_hash_str_exists(&(Z_OBJCE(classObject)->function_table), action, action_len)) {
-		 gene_factory_call_1(&classObject, action, ctx->path_params, retval);
+		 gene_factory_call_1(&classObject, action, action_len, ctx->path_params, retval);
 		 zval_ptr_dtor(&classObject);
 		 if (class_alloc) efree(class_alloc);
 		 if (action_alloc) efree(action_alloc);
@@ -481,9 +495,9 @@ static int gene_router_exec_hook_direct(const char *class_method, zval *param, i
 
             if (zend_hash_str_exists(&ce->function_table, method, method_len)) {
                 if (param) {
-                    gene_factory_call_1(&classObject, method, param, &retval);
+                    gene_factory_call_1(&classObject, method, method_len, param, &retval);
                 } else {
-                    gene_factory_call(&classObject, method, NULL, &retval);
+                    gene_factory_call(&classObject, method, method_len, NULL, &retval);
                 }
             }
             zval_ptr_dtor(&classObject);
@@ -505,9 +519,9 @@ static int gene_router_exec_hook_direct(const char *class_method, zval *param, i
     if (Z_TYPE(classObject) == IS_OBJECT
             && zend_hash_str_exists(&(Z_OBJCE(classObject)->function_table), method, method_len)) {
         if (param) {
-            gene_factory_call_1(&classObject, method, param, &retval);
+            gene_factory_call_1(&classObject, method, method_len, param, &retval);
         } else {
-            gene_factory_call(&classObject, method, NULL, &retval);
+            gene_factory_call(&classObject, method, method_len, NULL, &retval);
         }
     }
 
@@ -580,7 +594,7 @@ static int gene_router_exec_error_direct(const char *class_method) {
     if (Z_TYPE(classObject) == IS_OBJECT
             && zend_hash_str_exists(&(Z_OBJCE(classObject)->function_table), method, method_len)) {
         ZVAL_NULL(&retval);
-        gene_factory_call(&classObject, method, NULL, &retval);
+        gene_factory_call(&classObject, method, method_len, NULL, &retval);
         zval_ptr_dtor(&retval);
 
         zval_ptr_dtor(&classObject);
@@ -1931,10 +1945,11 @@ PHP_METHOD(gene_router, __call) {
 			 action = action_alloc;
 		 }
 		 gene_strtolower(action);
+		 action_len = strlen(action);
 		 if (Z_TYPE(classObject) == IS_OBJECT
-				 && zend_hash_str_exists(&(Z_OBJCE(classObject)->function_table), action, strlen(action))) {
+				 && zend_hash_str_exists(&(Z_OBJCE(classObject)->function_table), action, action_len)) {
 			 zval ret;
-			 gene_factory_call_1(&classObject, action, params, &ret);
+			 gene_factory_call_1(&classObject, action, action_len, params, &ret);
 			 zval_ptr_dtor(&classObject);
 			 if (class_alloc) efree(class_alloc);
 			 if (action_alloc) efree(action_alloc);

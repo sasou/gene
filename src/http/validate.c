@@ -715,7 +715,7 @@ int validCheck(zval *self, zval *date_field, zval *rules, int is_group) {
 					name_len = spprintf(&name, 0, "rule_%s", ZSTR_VAL(method));
 					if (zend_hash_str_exists(&(Z_OBJCE_P(self)->function_table), name, name_len)) {
 						zval ret, *msg = NULL;
-						gene_factory_call(self, name, args, &ret);
+						gene_factory_call(self, name, name_len, args, &ret);
 						if (Z_TYPE(ret) == IS_FALSE) {
 							setFefCount(values);
 							zend_hash_str_del(Z_ARRVAL_P(values), Z_STRVAL_P(date_field), Z_STRLEN_P(date_field));

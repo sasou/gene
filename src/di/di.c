@@ -76,13 +76,16 @@ zval *gene_di_get(zend_string *name) {
 		return pzval;
 	}
 
-	char router_e_stack[256];
-	char *router_e = router_e_stack;
-	size_t router_e_len = 0;
+	const char *cache_key;
+	size_t cache_key_len;
 	bool type = 0;
-	int router_e_heap = 0;
+	char stack_buf[256];
+	int cache_key_heap = 0;
 
-	{
+	if (GENE_G(config_cache_key)) {
+		cache_key = GENE_G(config_cache_key);
+		cache_key_len = GENE_G(config_cache_key_len);
+	} else {
 		const char *prefix = NULL;
 		size_t prefix_len = 0;
 		if (GENE_G(app_key) && GENE_G(app_key)[0] != '\0') {
@@ -93,21 +96,23 @@ zval *gene_di_get(zend_string *name) {
 			prefix_len = strlen(GENE_G(app_root));
 		}
 		if (prefix) {
-			router_e_len = prefix_len + sizeof(GENE_CONFIG_CACHE) - 1;
-			if (router_e_len >= sizeof(router_e_stack)) {
-				router_e = emalloc(router_e_len + 1);
-				router_e_heap = 1;
+			cache_key_len = prefix_len + sizeof(GENE_CONFIG_CACHE) - 1;
+			if (cache_key_len >= sizeof(stack_buf)) {
+				cache_key = emalloc(cache_key_len + 1);
+				cache_key_heap = 1;
+			} else {
+				cache_key = stack_buf;
 			}
-			memcpy(router_e, prefix, prefix_len);
-			memcpy(router_e + prefix_len, GENE_CONFIG_CACHE, sizeof(GENE_CONFIG_CACHE));
+			memcpy((char *)cache_key, prefix, prefix_len);
+			memcpy((char *)cache_key + prefix_len, GENE_CONFIG_CACHE, sizeof(GENE_CONFIG_CACHE));
 		} else {
-			router_e_len = sizeof(GENE_CONFIG_CACHE) - 1;
-			memcpy(router_e, GENE_CONFIG_CACHE, sizeof(GENE_CONFIG_CACHE));
+			cache_key = GENE_CONFIG_CACHE;
+			cache_key_len = sizeof(GENE_CONFIG_CACHE) - 1;
 		}
 	}
 
-	cache = gene_memory_get_by_config(router_e, router_e_len, ZSTR_VAL(name));
-	if (router_e_heap) efree(router_e);
+	cache = gene_memory_get_by_config((char *)cache_key, cache_key_len, ZSTR_VAL(name));
+	if (cache_key_heap) efree((char *)cache_key);
 
 	if (cache && Z_TYPE_P(cache) == IS_ARRAY) {
     	if ((class = zend_hash_str_find(Z_ARRVAL_P(cache), "class", 5)) == NULL) {
