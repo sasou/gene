@@ -1,4 +1,4 @@
-﻿/*
+/*
  +----------------------------------------------------------------------+
  | gene                                                                 |
  +----------------------------------------------------------------------+
@@ -414,7 +414,10 @@ void file_cache_set_val(char *val, size_t keyString_len, zend_long times,
 	GENE_CACHE_WRLOCK();
 	zend_hash_update_mem(GENE_G(cache_easy), key, &n, sizeof(filenode));
 	GENE_CACHE_WRUNLOCK();
-	pefree(key, 1);
+	/* zend_hash_update_mem calls zend_hash_update internally, which
+	 * increments the key's refcount. For persistent interned strings,
+	 * zend_string_release is a no-op, so we must NOT pefree the key here.
+	 * The key will be freed when the HashTable is destroyed. */
 }
 /* }}} */
 
