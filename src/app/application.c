@@ -424,19 +424,37 @@ PHP_METHOD(gene_application, load) {
 	char *cache_key;
 	int validity = 10;
 	size_t cache_key_len;
+	char cache_key_buf[512];
+	int cache_key_heap = 0;
 	if (zend_parse_parameters(ZEND_NUM_ARGS(), "S|Sl", &file, &path, &validity) == FAILURE) {
 		return;
 	}
 	if (path && ZSTR_LEN(path) > 0) {
-		cache_key_len = spprintf(&cache_key, 0, "%s/%s", ZSTR_VAL(path), ZSTR_VAL(file));
+		cache_key_len = ZSTR_LEN(path) + 1 + ZSTR_LEN(file);
+		if (cache_key_len >= sizeof(cache_key_buf)) {
+			cache_key = emalloc(cache_key_len + 1);
+			cache_key_heap = 1;
+		} else {
+			cache_key = cache_key_buf;
+		}
+		snprintf(cache_key, cache_key_len + 1, "%s/%s", ZSTR_VAL(path), ZSTR_VAL(file));
 	} else if (GENE_G(app_root) && strlen(GENE_G(app_root)) > 0) {
-		cache_key_len = spprintf(&cache_key, 0, "%s/Config/%s", GENE_G(app_root), ZSTR_VAL(file));
+		cache_key_len = strlen(GENE_G(app_root)) + strlen("/Config/") + ZSTR_LEN(file);
+		if (cache_key_len >= sizeof(cache_key_buf)) {
+			cache_key = emalloc(cache_key_len + 1);
+			cache_key_heap = 1;
+		} else {
+			cache_key = cache_key_buf;
+		}
+		snprintf(cache_key, cache_key_len + 1, "%s/Config/%s", GENE_G(app_root), ZSTR_VAL(file));
 	} else {
 		php_error_docref(NULL, E_WARNING, "app_root is not set, call autoload() first or pass an explicit path");
 		RETURN_ZVAL(self, 1, 0);
 	}
 	load_file(cache_key, cache_key_len, cache_key, validity);
-	efree(cache_key);
+	if (cache_key_heap) {
+		efree(cache_key);
+	}
 	RETURN_ZVAL(self, 1, 0);
 }
 /* }}} */
