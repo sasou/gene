@@ -133,19 +133,48 @@ void gene_load_file_by_class_name (char *className) {
 		replaceAll(fileNmae, '_', '/');
 	}
 
+	size_t file_path_len = 0;
+	char file_path_buf[512];
+	int file_path_heap = 0;
 	if (GENE_G(app_root)) {
-		spprintf(&filePath, 0, "%s/%s.php", GENE_G(app_root), fileNmae);
+		file_path_len = strlen(GENE_G(app_root)) + strlen(fileNmae) + 6;
+		if (file_path_len >= sizeof(file_path_buf)) {
+			filePath = emalloc(file_path_len + 1);
+			file_path_heap = 1;
+		} else {
+			filePath = file_path_buf;
+		}
+		snprintf(filePath, file_path_len + 1, "%s/%s.php", GENE_G(app_root), fileNmae);
 	} else {
-		spprintf(&filePath, 0, "%s.php", fileNmae);
+		file_path_len = strlen(fileNmae) + 5;
+		if (file_path_len >= sizeof(file_path_buf)) {
+			filePath = emalloc(file_path_len + 1);
+			file_path_heap = 1;
+		} else {
+			filePath = file_path_buf;
+		}
+		snprintf(filePath, file_path_len + 1, "%s.php", fileNmae);
 	}
 	if (!gene_load_import(filePath, NULL, NULL)) {
 		if (GENE_G(use_library)) {
-			efree(filePath);
-			spprintf(&filePath, 0, "%s/%s.php", GENE_G(library_root), fileNmae);
+			if (file_path_heap) {
+				efree(filePath);
+			}
+			file_path_len = strlen(GENE_G(library_root)) + strlen(fileNmae) + 6;
+			if (file_path_len >= sizeof(file_path_buf)) {
+				filePath = emalloc(file_path_len + 1);
+				file_path_heap = 1;
+			} else {
+				filePath = file_path_buf;
+				file_path_heap = 0;
+			}
+			snprintf(filePath, file_path_len + 1, "%s/%s.php", GENE_G(library_root), fileNmae);
 			gene_load_import(filePath, NULL, NULL);
 		}
 	}
-	efree(filePath);
+	if (file_path_heap) {
+		efree(filePath);
+	}
 	efree(fileNmae);
 }
 

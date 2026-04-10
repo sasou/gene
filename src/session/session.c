@@ -522,15 +522,24 @@ PHP_METHOD(gene_session, get) {
 	zend_string *name = NULL;
 	zval *self = getThis(),*data = NULL;
 	char *path = NULL;
+	char path_buf[256];
+	int path_heap = 0;
 	if (zend_parse_parameters(ZEND_NUM_ARGS(), "|S", &name) == FAILURE) {
 		RETURN_NULL();
 	}
 	if (name) {
-		spprintf(&path, 0, "%s", ZSTR_VAL(name));
+		size_t name_len = ZSTR_LEN(name);
+		if (name_len >= sizeof(path_buf)) {
+			path = emalloc(name_len + 1);
+			path_heap = 1;
+		} else {
+			path = path_buf;
+		}
+		memcpy(path, ZSTR_VAL(name), name_len + 1);
 	}
 
 	data = gene_session_get_by_path(self, path);
-	if (path) {
+	if (path_heap) {
 		efree(path);
 	}
 	if (data) {
@@ -547,14 +556,25 @@ PHP_METHOD(gene_session, set) {
 	zval *self = getThis(),*value = NULL;
 	zend_string *name;
 	char *path = NULL;
+	char path_buf[256];
+	int path_heap = 0;
 
 	if (zend_parse_parameters(ZEND_NUM_ARGS(), "Sz", &name, &value) == FAILURE) {
 		RETURN_NULL();
 	}
 
-	spprintf(&path, 0, "%s", ZSTR_VAL(name));
+	size_t name_len = ZSTR_LEN(name);
+	if (name_len >= sizeof(path_buf)) {
+		path = emalloc(name_len + 1);
+		path_heap = 1;
+	} else {
+		path = path_buf;
+	}
+	memcpy(path, ZSTR_VAL(name), name_len + 1);
 	gene_session_set_by_path(self, path, value);
-	efree(path);
+	if (path_heap) {
+		efree(path);
+	}
 
 	RETURN_TRUE;
 }
@@ -566,15 +586,26 @@ PHP_METHOD(gene_session, del) {
 	zval *self = getThis();
 	zend_string *name;
 	char *path = NULL;
+	char path_buf[256];
+	int path_heap = 0;
 	bool ret = 0;
 
 	if (zend_parse_parameters(ZEND_NUM_ARGS(), "S", &name) == FAILURE) {
 		RETURN_NULL();
 	}
 
-	spprintf(&path, 0, "%s", ZSTR_VAL(name));
+	size_t name_len = ZSTR_LEN(name);
+	if (name_len >= sizeof(path_buf)) {
+		path = emalloc(name_len + 1);
+		path_heap = 1;
+	} else {
+		path = path_buf;
+	}
+	memcpy(path, ZSTR_VAL(name), name_len + 1);
 	ret = gene_session_del_by_path(self, path);
-	efree(path);
+	if (path_heap) {
+		efree(path);
+	}
 
 	RETURN_BOOL(ret);
 }
@@ -597,16 +628,25 @@ PHP_METHOD(gene_session, has) {
 	zend_string *name;
 	zval *self = getThis(), *data = NULL;
 	char *path = NULL;
+	char path_buf[256];
+	int path_heap = 0;
 	if (zend_parse_parameters(ZEND_NUM_ARGS(), "S", &name) == FAILURE) {
 		RETURN_NULL();
 	}
 
 	if (name) {
-		spprintf(&path, 0, "%s", ZSTR_VAL(name));
+		size_t name_len = ZSTR_LEN(name);
+		if (name_len >= sizeof(path_buf)) {
+			path = emalloc(name_len + 1);
+			path_heap = 1;
+		} else {
+			path = path_buf;
+		}
+		memcpy(path, ZSTR_VAL(name), name_len + 1);
 	}
 
 	data = gene_session_get_by_path(self, path);
-	if (path) {
+	if (path_heap) {
 		efree(path);
 	}
 	if (data) {
