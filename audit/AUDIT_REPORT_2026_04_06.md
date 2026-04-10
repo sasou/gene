@@ -47,7 +47,8 @@
 - Controller/Service/Model __get/__set：使用 gene_get_class_name_fast()（内部字符串，无需分配）
 
 **冷路径分配**
-- `spprintf` 用于：log.c（日志）、exception.c（HTML格式化）、db/*.c（SQL构造）、application.c load 方法
+- `spprintf` 用于：log.c（日志）、exception.c（HTML格式化）、db/*.c（SQL构造）
+- application.c load 方法：已优化为使用栈缓冲区 `cache_key_buf[512]` 替代 spprintf
 - 这些是可以接受的，因为它们不在请求热路径中
 
 ### 1.3 性能瓶颈
@@ -58,6 +59,7 @@
 - ✅ gene_get_class_name_fast() 使用 zend_get_called_scope()
 - ✅ Swoole模式的协程ID缓存
 - ✅ DI容器键构造使用栈缓冲区
+- ✅ application.c load 方法使用栈缓冲区替代 spprintf
 
 **未发现关键瓶颈**
 - 所有热路径使用栈缓冲区或直接API调用
@@ -136,9 +138,9 @@ zend_long gene_get_coroutine_id(void) {
 - **验证：** Grep分析显示所有分配都有匹配的 efree 调用
 
 **spprintf 使用**
-- **位置：** log.c（3个实例）、exception.c（10个实例）、db/*.c（20+实例）、response.c（1个实例）、application.c（2个实例）
+- **位置：** log.c（3个实例）、exception.c（10个实例）、db/*.c（20+实例）、response.c（1个实例）
 - **模式：** 所有 spprintf 调用都有对应的 efree
-- **注意：** 热路径中的 spprintf 已被栈缓冲区替换（router.c）
+- **注意：** 热路径中的 spprintf 已被栈缓冲区替换（router.c, application.c）
 
 **emalloc/ecalloc/erealloc 使用**
 - **位置：** 遍及所有源文件
@@ -239,8 +241,8 @@ if (GENE_G(config_cache_key)) { efree(GENE_G(config_cache_key)); }
 - **安全性：** 检查 `sizeof(buf)`，回退到堆分配
 
 **应用 (application.c)**
-- `stack_buf[256]`: 配置键构造
-- **安全性：** 检查 `sizeof(stack_buf)`，回退到堆分配
+- `cache_key_buf[512]`: 配置加载缓存键构造
+- **安全性：** 检查 `sizeof(cache_key_buf)`，回退到堆分配
 
 **日志 (log.c)**
 - `buf[64]`: 日期/时间格式化
