@@ -710,12 +710,12 @@ int validCheck(zval *self, zval *date_field, zval *rules, int is_group) {
 						zval_ptr_dtor(&ret);
 					}
 				} else {
-					char *name = NULL;
+					char name_buf[64];
 					size_t name_len = 0;
-					name_len = spprintf(&name, 0, "rule_%s", ZSTR_VAL(method));
-					if (zend_hash_str_exists(&(Z_OBJCE_P(self)->function_table), name, name_len)) {
+					name_len = snprintf(name_buf, sizeof(name_buf), "rule_%s", ZSTR_VAL(method));
+					if (zend_hash_str_exists(&(Z_OBJCE_P(self)->function_table), name_buf, name_len)) {
 						zval ret, *msg = NULL;
-						gene_factory_call(self, name, name_len, args, &ret);
+						gene_factory_call(self, name_buf, name_len, args, &ret);
 						if (Z_TYPE(ret) == IS_FALSE) {
 							setFefCount(values);
 							zend_hash_str_del(Z_ARRVAL_P(values), Z_STRVAL_P(date_field), Z_STRLEN_P(date_field));
@@ -736,7 +736,6 @@ int validCheck(zval *self, zval *date_field, zval *rules, int is_group) {
 							isValid = 0;
 							if (is_group == 0) {
 								zval_ptr_dtor(&ret);
-								efree(name);
 								return isValid;
 							}
 						} else {
@@ -747,10 +746,8 @@ int validCheck(zval *self, zval *date_field, zval *rules, int is_group) {
 							}
 						}
 						zval_ptr_dtor(&ret);
-						efree(name);
 					} else {
 						php_error_docref(NULL, E_WARNING, "Executed method:%s does not exist.", ZSTR_VAL(method));
-						efree(name);
 					}
 				}
 			}ZEND_HASH_FOREACH_END();

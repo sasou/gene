@@ -366,21 +366,53 @@ PHP_METHOD(gene_hook, url) {
 	for (; path_len > 0 && *p == '/'; p++, path_len--) {}
 	if (path_len == 0) {
 		if (GENE_REQ(lang) && GENE_REQ(lang)[0] != '\0') {
-			spprintf(&out, 0, "/%s/", GENE_REQ(lang));
-			RETVAL_STRING(out);
-			efree(out);
+			size_t out_len = strlen(GENE_REQ(lang)) + 2;
+			char out_buf[256];
+			char *out_ptr = out_buf;
+			int out_heap = 0;
+			if (out_len >= sizeof(out_buf)) {
+				out_ptr = emalloc(out_len + 1);
+				out_heap = 1;
+			}
+			snprintf(out_ptr, out_len + 1, "/%s/", GENE_REQ(lang));
+			RETVAL_STRING(out_ptr);
+			if (out_heap) {
+				efree(out_ptr);
+			}
 		} else {
 			RETURN_STRING("/");
 		}
 		return;
 	}
 	if (GENE_REQ(lang) && GENE_REQ(lang)[0] != '\0') {
-		spprintf(&out, 0, "/%s/%.*s", GENE_REQ(lang), (int)path_len, p);
+		size_t out_len = strlen(GENE_REQ(lang)) + path_len + 2;
+		char out_buf[512];
+		char *out_ptr = out_buf;
+		int out_heap = 0;
+		if (out_len >= sizeof(out_buf)) {
+			out_ptr = emalloc(out_len + 1);
+			out_heap = 1;
+		}
+		snprintf(out_ptr, out_len + 1, "/%s/%.*s", GENE_REQ(lang), (int)path_len, p);
+		RETVAL_STRING(out_ptr);
+		if (out_heap) {
+			efree(out_ptr);
+		}
 	} else {
-		spprintf(&out, 0, "/%.*s", (int)path_len, p);
+		size_t out_len = path_len + 1;
+		char out_buf[512];
+		char *out_ptr = out_buf;
+		int out_heap = 0;
+		if (out_len >= sizeof(out_buf)) {
+			out_ptr = emalloc(out_len + 1);
+			out_heap = 1;
+		}
+		snprintf(out_ptr, out_len + 1, "/%.*s", (int)path_len, p);
+		RETVAL_STRING(out_ptr);
+		if (out_heap) {
+			efree(out_ptr);
+		}
 	}
-	RETVAL_STRING(out);
-	efree(out);
 }
 /* }}} */
 

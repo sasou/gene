@@ -631,16 +631,41 @@ static zend_long pool_increment_count_get(zval *self) {
      /* --- Read DB config from persistent cache (same path as Gene\Config) --- */
      char *router_e = NULL;
      size_t router_e_len = 0;
+     char router_e_buf[256];
+     int router_e_heap = 0;
      if (GENE_G(app_key) && strlen(GENE_G(app_key)) > 0) {
-         router_e_len = spprintf(&router_e, 0, "%s%s", GENE_G(app_key), GENE_CONFIG_CACHE);
+         router_e_len = strlen(GENE_G(app_key)) + strlen(GENE_CONFIG_CACHE);
+         if (router_e_len >= sizeof(router_e_buf)) {
+             router_e = emalloc(router_e_len + 1);
+             router_e_heap = 1;
+         } else {
+             router_e = router_e_buf;
+         }
+         snprintf(router_e, router_e_len + 1, "%s%s", GENE_G(app_key), GENE_CONFIG_CACHE);
      } else if (GENE_G(app_root) && strlen(GENE_G(app_root)) > 0) {
-         router_e_len = spprintf(&router_e, 0, "%s%s", GENE_G(app_root), GENE_CONFIG_CACHE);
+         router_e_len = strlen(GENE_G(app_root)) + strlen(GENE_CONFIG_CACHE);
+         if (router_e_len >= sizeof(router_e_buf)) {
+             router_e = emalloc(router_e_len + 1);
+             router_e_heap = 1;
+         } else {
+             router_e = router_e_buf;
+         }
+         snprintf(router_e, router_e_len + 1, "%s%s", GENE_G(app_root), GENE_CONFIG_CACHE);
      } else {
-         router_e_len = spprintf(&router_e, 0, "%s", GENE_CONFIG_CACHE);
+         router_e_len = strlen(GENE_CONFIG_CACHE);
+         if (router_e_len >= sizeof(router_e_buf)) {
+             router_e = emalloc(router_e_len + 1);
+             router_e_heap = 1;
+         } else {
+             router_e = router_e_buf;
+         }
+         snprintf(router_e, router_e_len + 1, "%s", GENE_CONFIG_CACHE);
      }
- 
+
      zval *di_config = gene_memory_get_by_config(router_e, router_e_len, config_key);
-     efree(router_e);
+     if (router_e_heap) {
+         efree(router_e);
+     }
      router_e = NULL;
  
      if (!di_config || Z_TYPE_P(di_config) != IS_ARRAY) {

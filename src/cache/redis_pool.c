@@ -747,17 +747,42 @@ PHP_METHOD(gene_redis_pool, create)
     /* Build the persistent config cache key */
     char  *cache_key     = NULL;
     size_t cache_key_len = 0;
+    char cache_key_buf[256];
+    int cache_key_heap = 0;
 
     if (GENE_G(app_key) && strlen(GENE_G(app_key)) > 0) {
-        cache_key_len = spprintf(&cache_key, 0, "%s%s", GENE_G(app_key), GENE_CONFIG_CACHE);
+        cache_key_len = strlen(GENE_G(app_key)) + strlen(GENE_CONFIG_CACHE);
+        if (cache_key_len >= sizeof(cache_key_buf)) {
+            cache_key = emalloc(cache_key_len + 1);
+            cache_key_heap = 1;
+        } else {
+            cache_key = cache_key_buf;
+        }
+        snprintf(cache_key, cache_key_len + 1, "%s%s", GENE_G(app_key), GENE_CONFIG_CACHE);
     } else if (GENE_G(app_root) && strlen(GENE_G(app_root)) > 0) {
-        cache_key_len = spprintf(&cache_key, 0, "%s%s", GENE_G(app_root), GENE_CONFIG_CACHE);
+        cache_key_len = strlen(GENE_G(app_root)) + strlen(GENE_CONFIG_CACHE);
+        if (cache_key_len >= sizeof(cache_key_buf)) {
+            cache_key = emalloc(cache_key_len + 1);
+            cache_key_heap = 1;
+        } else {
+            cache_key = cache_key_buf;
+        }
+        snprintf(cache_key, cache_key_len + 1, "%s%s", GENE_G(app_root), GENE_CONFIG_CACHE);
     } else {
-        cache_key_len = spprintf(&cache_key, 0, "%s", GENE_CONFIG_CACHE);
+        cache_key_len = strlen(GENE_CONFIG_CACHE);
+        if (cache_key_len >= sizeof(cache_key_buf)) {
+            cache_key = emalloc(cache_key_len + 1);
+            cache_key_heap = 1;
+        } else {
+            cache_key = cache_key_buf;
+        }
+        snprintf(cache_key, cache_key_len + 1, "%s", GENE_CONFIG_CACHE);
     }
 
     zval *di_config = gene_memory_get_by_config(cache_key, cache_key_len, config_key);
-    efree(cache_key);
+    if (cache_key_heap) {
+        efree(cache_key);
+    }
     cache_key = NULL;
 
     if (!di_config || Z_TYPE_P(di_config) != IS_ARRAY) {

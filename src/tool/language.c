@@ -254,10 +254,19 @@ PHP_METHOD(gene_language, __get) {
 
     if (dir_conf == NULL) {
         /* 相当于 init(): APP_ROOT/Language/Dir/Lang.php */
-        int len = spprintf(&file, 0, "%s/Language/%c%.*s/%c%.*s.php",
-                           GENE_G(app_root),
-                           toupper(Z_STRVAL_P(dir_zv)[0]), (int)(Z_STRLEN_P(dir_zv) - 1), Z_STRVAL_P(dir_zv) + 1,
-                           toupper(Z_STRVAL_P(lang_zv)[0]), (int)(Z_STRLEN_P(lang_zv) - 1), Z_STRVAL_P(lang_zv) + 1);
+        size_t len = strlen(GENE_G(app_root)) + 10 + Z_STRLEN_P(dir_zv) + Z_STRLEN_P(lang_zv) + 5;
+        char file_buf[512];
+        int file_heap = 0;
+        if (len >= sizeof(file_buf)) {
+            file = emalloc(len + 1);
+            file_heap = 1;
+        } else {
+            file = file_buf;
+        }
+        snprintf(file, len + 1, "%s/Language/%c%.*s/%c%.*s.php",
+                 GENE_G(app_root),
+                 toupper(Z_STRVAL_P(dir_zv)[0]), (int)(Z_STRLEN_P(dir_zv) - 1), Z_STRVAL_P(dir_zv) + 1,
+                 toupper(Z_STRVAL_P(lang_zv)[0]), (int)(Z_STRLEN_P(lang_zv) - 1), Z_STRVAL_P(lang_zv) + 1);
         if (len > 0) {
             zval retval;
             zend_file_handle file_handle;
@@ -282,6 +291,8 @@ PHP_METHOD(gene_language, __get) {
                 zval_ptr_dtor(&retval);
             }
             zend_destroy_file_handle(&file_handle);
+        }
+        if (file_heap) {
             efree(file);
         }
     }
