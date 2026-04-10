@@ -60,6 +60,7 @@ static void gene_log_get_datetime(char **datetime_str) {
 	time_t now;
 	struct tm *tm_info;
 	char buf[64];
+	char datetime_buf[32];
 
 #ifdef PHP_WIN32
 	{
@@ -79,7 +80,8 @@ static void gene_log_get_datetime(char **datetime_str) {
 	now = (time_t)tv.tv_sec;
 	tm_info = php_localtime_r(&now, &(struct tm){0});
 	strftime(buf, sizeof(buf), "%Y-%m-%d %H:%M:%S", tm_info);
-	spprintf(datetime_str, 0, "%s.%03d", buf, (int)(tv.tv_usec / 1000));
+	snprintf(datetime_buf, sizeof(datetime_buf), "%s.%03d", buf, (int)(tv.tv_usec / 1000));
+	*datetime_str = estrdup(datetime_buf);
 }
 /* }}} */
 

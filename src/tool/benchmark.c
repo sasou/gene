@@ -102,24 +102,28 @@ double difftimeval(const struct timeval *start, const struct timeval *end)
 
 void getBenchTime(struct timeval *start, struct timeval *end, char **ret, bool type) {
 	double time;
+	char time_buf[32];
 	time = difftimeval(start, end);
 
 	if (type) {
-		spprintf(ret, 0, "%f", time);
+		snprintf(time_buf, sizeof(time_buf), "%f", time);
 	} else {
-		spprintf(ret, 0, "%.3f", time);
+		snprintf(time_buf, sizeof(time_buf), "%.3f", time);
 	}
+	*ret = estrdup(time_buf);
 }
 
 void getBenchMemory(zend_long *memory_start, zend_long *memory_end, char **ret, bool type) {
 	zend_long memory;
+	char mem_buf[32];
 	memory = *memory_end - *memory_start;
 
 	if (type) {
-		spprintf(ret, 0, "%.3f", (double)memory / 1024.0);
+		snprintf(mem_buf, sizeof(mem_buf), "%.3f", (double)memory / 1024.0);
 	} else {
-		spprintf(ret, 0, "%.3f", (double)memory / 1048576.0);
+		snprintf(mem_buf, sizeof(mem_buf), "%.3f", (double)memory / 1048576.0);
 	}
+	*ret = estrdup(mem_buf);
 }
 
 /*

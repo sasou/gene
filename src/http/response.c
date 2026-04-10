@@ -119,10 +119,22 @@ void gene_response_set_redirect(char *url, zend_long code) {
 		return;
 	}
 	sapi_header_line ctr = { 0 };
-	ctr.line_len = spprintf((char**)&(ctr.line), 0, "%s %s", "Location:", url);
+	size_t header_len = strlen("Location:") + strlen(url) + 1;
+	char header_buf[512];
+	int header_heap = 0;
+	char *header_ptr = header_buf;
+	if (header_len >= sizeof(header_buf)) {
+		header_ptr = emalloc(header_len + 1);
+		header_heap = 1;
+	}
+	snprintf(header_ptr, header_len + 1, "%s %s", "Location:", url);
+	ctr.line = header_ptr;
+	ctr.line_len = header_len;
 	ctr.response_code = code;
 	sapi_header_op(SAPI_HEADER_REPLACE, &ctr);
-	efree((char*)ctr.line);
+	if (header_heap) {
+		efree(header_ptr);
+	}
 }
 /* }}} */
 
@@ -409,21 +421,53 @@ PHP_METHOD(gene_response, url) {
 	if (path_len == 0) {
 		/* 如果只有斜杠，也加上语言前缀 */
 		if (GENE_REQ(lang) && GENE_REQ(lang)[0] != '\0') {
-			spprintf(&out, 0, "/%s/", GENE_REQ(lang));
-			RETVAL_STRING(out);
-			efree(out);
+			size_t out_len = strlen(GENE_REQ(lang)) + 2;
+			char out_buf[256];
+			char *out_ptr = out_buf;
+			int out_heap = 0;
+			if (out_len >= sizeof(out_buf)) {
+				out_ptr = emalloc(out_len + 1);
+				out_heap = 1;
+			}
+			snprintf(out_ptr, out_len + 1, "/%s/", GENE_REQ(lang));
+			RETVAL_STRING(out_ptr);
+			if (out_heap) {
+				efree(out_ptr);
+			}
 		} else {
 			RETURN_STRING("/");
 		}
 		return;
 	}
 	if (GENE_REQ(lang) && GENE_REQ(lang)[0] != '\0') {
-		spprintf(&out, 0, "/%s/%.*s", GENE_REQ(lang), (int)path_len, p);
+		size_t out_len = strlen(GENE_REQ(lang)) + path_len + 2;
+		char out_buf[512];
+		char *out_ptr = out_buf;
+		int out_heap = 0;
+		if (out_len >= sizeof(out_buf)) {
+			out_ptr = emalloc(out_len + 1);
+			out_heap = 1;
+		}
+		snprintf(out_ptr, out_len + 1, "/%s/%.*s", GENE_REQ(lang), (int)path_len, p);
+		RETVAL_STRING(out_ptr);
+		if (out_heap) {
+			efree(out_ptr);
+		}
 	} else {
-		spprintf(&out, 0, "/%.*s", (int)path_len, p);
+		size_t out_len = path_len + 1;
+		char out_buf[512];
+		char *out_ptr = out_buf;
+		int out_heap = 0;
+		if (out_len >= sizeof(out_buf)) {
+			out_ptr = emalloc(out_len + 1);
+			out_heap = 1;
+		}
+		snprintf(out_ptr, out_len + 1, "/%.*s", (int)path_len, p);
+		RETVAL_STRING(out_ptr);
+		if (out_heap) {
+			efree(out_ptr);
+		}
 	}
-	RETVAL_STRING(out);
-	efree(out);
 }
 /* }}} */
 
