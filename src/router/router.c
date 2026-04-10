@@ -1504,6 +1504,7 @@ PHP_METHOD(gene_router, __call) {
 	ZVAL_UNDEF(&fid_zv);
 	size_t router_e_len;
 	char *method, *path = NULL, *result = NULL, *tmp = NULL, *router_e, *key = NULL;
+	int path_heap = 0; /* 1: path from emalloc/estrdup; 0: stack path_buf in __call */
  
 	 if (zend_parse_parameters(ZEND_NUM_ARGS(), "sz", &method, &methodlen, &val) == FAILURE) {
 		 RETURN_NULL();
@@ -1516,17 +1517,18 @@ PHP_METHOD(gene_router, __call) {
 			 group = zend_read_property(gene_router_ce, gene_strip_obj(self),GENE_ROUTER_GROUP, strlen(GENE_ROUTER_GROUP), 1,NULL);
 			 size_t path_len = Z_STRLEN_P(group) + Z_STRLEN_P(pathVal);
 			 char path_buf[512];
-			 int path_heap = 0;
 			 if (path_len >= sizeof(path_buf)) {
 				 path = emalloc(path_len + 1);
 				 path_heap = 1;
 			 } else {
 				 path = path_buf;
+				 path_heap = 0;
 			 }
 			 snprintf(path, path_len + 1, "%s%s", Z_STRVAL_P(group),Z_STRVAL_P(pathVal));
 		 }
 		 if (path == NULL) {
 			 path = estrdup("");
+			 path_heap = 1;
 		 }
 		 contentval = zend_hash_index_find(Z_ARRVAL_P(val), 1);
 		 if (contentval != NULL) {
@@ -1767,7 +1769,7 @@ PHP_METHOD(gene_router, __call) {
 					 }
 				 }
 			if (router_e_heap) efree(router_e);
-			efree(path);
+			if (path_heap) efree(path);
 			zval_ptr_dtor(&content);
 			zval_ptr_dtor(&pathvals);
 			if (Z_TYPE(fid_zv) != IS_UNDEF) zval_ptr_dtor(&fid_zv);
@@ -1838,13 +1840,13 @@ PHP_METHOD(gene_router, __call) {
 					 if (key_heap) efree(key);
 				 }
 			 if (router_e_heap) efree(router_e);
-			 efree(path);
+			 if (path_heap) efree(path);
 			 zval_ptr_dtor(&content);
 			 if (Z_TYPE(fid_zv) != IS_UNDEF) zval_ptr_dtor(&fid_zv);
 			 RETURN_ZVAL(self, 1, 0);
 		 }
 	 }
-	 if (path) {
+	 if (path_heap) {
 		 efree(path);
 	 }
 	 if (Z_TYPE(content) == IS_STRING) {
