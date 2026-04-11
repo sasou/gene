@@ -43,14 +43,6 @@ static zval *gene_request_attr(void) {
 	return &ctx->request_attr;
 }
 
-static zend_string* gene_zend_string_toupper(zend_string *str) {
-	char *tmp = estrndup(ZSTR_VAL(str), ZSTR_LEN(str));
-	gene_strtoupper(tmp);
-	zend_string *result = zend_string_init(tmp, ZSTR_LEN(str), 0);
-	efree(tmp);
-	return result;
-}
-
 static void gene_request_set_server_val(zval *server) {
 	zval normalized;
 	zval *item;
@@ -101,6 +93,30 @@ static void gene_request_set_server_val(zval *server) {
 		}
 	}
 
+	zval_ptr_dtor(&normalized);
+}
+
+static void gene_request_set_header_val(zval *header) {
+	zval normalized;
+	zval *item;
+	zend_string *key;
+	zend_ulong idx;
+	zend_long total_keys = zend_hash_num_elements(Z_ARRVAL_P(header));
+
+	/* [GENE_PERF] Only copy original keys, no uppercase duplicates.
+	 * Case-insensitive lookup is handled at query time. */
+	array_init_size(&normalized, total_keys);
+
+	ZEND_HASH_FOREACH_KEY_VAL(Z_ARRVAL_P(header), idx, key, item) {
+		Z_TRY_ADDREF_P(item);
+		if (key) {
+			zend_hash_update(Z_ARRVAL(normalized), key, item);
+		} else {
+			zend_hash_index_update(Z_ARRVAL(normalized), idx, item);
+		}
+	} ZEND_HASH_FOREACH_END();
+
+	setVal(7, &normalized);
 	zval_ptr_dtor(&normalized);
 }
 
@@ -225,6 +241,14 @@ zval *getVal(zend_ulong type, char *name, size_t len) {
 			}
 			/* [GENE_PERF] For SERVER vars, try lowercase if uppercase lookup failed */
 			if (type == TRACK_VARS_SERVER && len > 0 && len < 256) {
+				char lower_name[256];
+				memcpy(lower_name, name, len);
+				lower_name[len] = '\0';
+				gene_strtolower(lower_name);
+				return zend_hash_str_find(Z_ARRVAL_P(val), lower_name, len);
+			}
+			/* [GENE_PERF] For HEADER vars, try lowercase if uppercase lookup failed */
+			if (type == 7 && len > 0 && len < 256) {
 				char lower_name[256];
 				memcpy(lower_name, name, len);
 				lower_name[len] = '\0';
@@ -401,38 +425,24 @@ PHP_METHOD(gene_request, init) {
 		setVal(6, request);
 	} else {
 		zval merged;
-		array_init(&merged);
+		zend_long get_count = (get && Z_TYPE_P(get) == IS_ARRAY) ? zend_hash_num_elements(Z_ARRVAL_P(get)) : 0;
+		zend_long post_count = (post && Z_TYPE_P(post) == IS_ARRAY) ? zend_hash_num_elements(Z_ARRVAL_P(post)) : 0;
+		zend_long total_count = get_count + post_count;
+
+		/* [GENE_PERF] Pre-allocate array size to avoid reallocation */
+		array_init_size(&merged, total_count);
+
 		if (get && Z_TYPE_P(get) == IS_ARRAY) {
-			zend_hash_merge(Z_ARRVAL(merged), Z_ARRVAL_P(get), zval_add_ref, 1);
+			zend_hash_copy(Z_ARRVAL(merged), Z_ARRVAL_P(get), (copy_ctor_func_t) zval_add_ref);
 		}
 		if (post && Z_TYPE_P(post) == IS_ARRAY) {
-			zend_hash_merge(Z_ARRVAL(merged), Z_ARRVAL_P(post), zval_add_ref, 1);
+			zend_hash_copy(Z_ARRVAL(merged), Z_ARRVAL_P(post), (copy_ctor_func_t) zval_add_ref);
 		}
 		setVal(6, &merged);
 		zval_ptr_dtor(&merged);
 	}
 	if (header && Z_TYPE_P(header) == IS_ARRAY) {
-		zval normalized;
-		zval *item;
-		zend_string *key, *upper_key;
-		zend_ulong idx;
-		array_init_size(&normalized, zend_hash_num_elements(Z_ARRVAL_P(header)) * 2);
-		ZEND_HASH_FOREACH_KEY_VAL(Z_ARRVAL_P(header), idx, key, item) {
-			Z_TRY_ADDREF_P(item);
-			if (key) {
-				zend_hash_update(Z_ARRVAL(normalized), key, item);
-				upper_key = gene_zend_string_toupper(key);
-				if (!zend_hash_exists(Z_ARRVAL(normalized), upper_key)) {
-					Z_TRY_ADDREF_P(item);
-					zend_hash_update(Z_ARRVAL(normalized), upper_key, item);
-				}
-				zend_string_release(upper_key);
-			} else {
-				zend_hash_index_update(Z_ARRVAL(normalized), idx, item);
-			}
-		} ZEND_HASH_FOREACH_END();
-		setVal(7, &normalized);
-		zval_ptr_dtor(&normalized);
+		gene_request_set_header_val(header);
 	}
 	RETURN_TRUE;
 }
