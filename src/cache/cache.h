@@ -20,6 +20,7 @@
 #define GENE_CACHE_TMP "tmp:"
 
 extern zend_class_entry *gene_cache_ce;
+extern uint32_t gene_cache_offset_config;
 
 void makeArgsArr(zval *arr, smart_str *tmp_s);
 void makeArgsKey(zend_ulong indexs, zend_string *id, zval *element, smart_str *tmp_s);
