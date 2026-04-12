@@ -32,6 +32,7 @@
 #include "../factory/factory.h"
 
 zend_class_entry * gene_cache_ce;
+uint32_t gene_cache_offset_config;
 
 ZEND_BEGIN_ARG_INFO_EX(gene_cache_construct_arginfo, 0, 0, 1)
 	ZEND_ARG_INFO(0, configs)
@@ -491,7 +492,9 @@ PHP_METHOD(gene_cache, __construct)
     }
 
     if (Z_TYPE_P(config) == IS_ARRAY) {
-    	zend_update_property(gene_cache_ce, gene_strip_obj(self), ZEND_STRL(GENE_CACHE_CONFIG), config);
+        zval *slot = OBJ_PROP(Z_OBJ_P(self), gene_cache_offset_config);
+        zval_ptr_dtor(slot);
+        ZVAL_COPY(slot, config);
     }
     RETURN_ZVAL(self, 1, 0);
 }
@@ -507,7 +510,7 @@ PHP_METHOD(gene_cache, cached)
 	if (zend_parse_parameters(ZEND_NUM_ARGS(), "zz|z", &obj, &args, &ttl) == FAILURE) {
 		return;
 	}
-	config =  zend_read_property(gene_cache_ce, gene_strip_obj(self), ZEND_STRL(GENE_CACHE_CONFIG), 1, NULL);
+	config = OBJ_PROP(Z_OBJ_P(self), gene_cache_offset_config);
 	if (!config || Z_TYPE_P(config) != IS_ARRAY) {
 		RETURN_NULL();
 	}
@@ -551,7 +554,7 @@ PHP_METHOD(gene_cache, localCached)
 	if (zend_parse_parameters(ZEND_NUM_ARGS(), "zz|z", &obj, &args, &ttl) == FAILURE) {
 		return;
 	}
-	config =  zend_read_property(gene_cache_ce, gene_strip_obj(self), ZEND_STRL(GENE_CACHE_CONFIG), 1, NULL);
+	config = OBJ_PROP(Z_OBJ_P(self), gene_cache_offset_config);
 	if (!config || Z_TYPE_P(config) != IS_ARRAY) {
 		RETURN_NULL();
 	}
@@ -585,7 +588,7 @@ PHP_METHOD(gene_cache, unsetCached)
 	if (zend_parse_parameters(ZEND_NUM_ARGS(), "zz|z", &obj, &args, &ttl) == FAILURE) {
 		return;
 	}
-	config =  zend_read_property(gene_cache_ce, gene_strip_obj(self), ZEND_STRL(GENE_CACHE_CONFIG), 1, NULL);
+	config = OBJ_PROP(Z_OBJ_P(self), gene_cache_offset_config);
 	if (!config || Z_TYPE_P(config) != IS_ARRAY) {
 		RETURN_NULL();
 	}
@@ -615,7 +618,7 @@ PHP_METHOD(gene_cache, unsetLocalCached)
 	if (zend_parse_parameters(ZEND_NUM_ARGS(), "zz|z", &obj, &args, &ttl) == FAILURE) {
 		return;
 	}
-	config =  zend_read_property(gene_cache_ce, gene_strip_obj(self), ZEND_STRL(GENE_CACHE_CONFIG), 1, NULL);
+	config = OBJ_PROP(Z_OBJ_P(self), gene_cache_offset_config);
 	if (!config || Z_TYPE_P(config) != IS_ARRAY) {
 		RETURN_NULL();
 	}
@@ -640,7 +643,7 @@ PHP_METHOD(gene_cache, cachedVersion)
 	if (zend_parse_parameters(ZEND_NUM_ARGS(), "zzz|zz", &obj, &args, &versionField, &ttl, &mode) == FAILURE) {
 		return;
 	}
-	config =  zend_read_property(gene_cache_ce, gene_strip_obj(self), ZEND_STRL(GENE_CACHE_CONFIG), 1, NULL);
+	config = OBJ_PROP(Z_OBJ_P(self), gene_cache_offset_config);
 	if (!config || Z_TYPE_P(config) != IS_ARRAY) {
 		RETURN_NULL();
 	}
@@ -727,7 +730,7 @@ PHP_METHOD(gene_cache, localCachedVersion)
 	if (zend_parse_parameters(ZEND_NUM_ARGS(), "zzz|zz", &obj, &args, &versionField, &ttl, &mode) == FAILURE) {
 		return;
 	}
-	config =  zend_read_property(gene_cache_ce, gene_strip_obj(self), ZEND_STRL(GENE_CACHE_CONFIG), 1, NULL);
+	config = OBJ_PROP(Z_OBJ_P(self), gene_cache_offset_config);
 	if (!config || Z_TYPE_P(config) != IS_ARRAY) {
 		RETURN_NULL();
 	}
@@ -805,7 +808,7 @@ PHP_METHOD(gene_cache, getVersion)
 	if (zend_parse_parameters(ZEND_NUM_ARGS(), "z", &versionField) == FAILURE) {
 		return;
 	}
-	config =  zend_read_property(gene_cache_ce, gene_strip_obj(self), ZEND_STRL(GENE_CACHE_CONFIG), 1, NULL);
+	config = OBJ_PROP(Z_OBJ_P(self), gene_cache_offset_config);
 	if (!config || Z_TYPE_P(config) != IS_ARRAY) {
 		RETURN_NULL();
 	}
@@ -837,7 +840,7 @@ PHP_METHOD(gene_cache, updateVersion)
 	if (zend_parse_parameters(ZEND_NUM_ARGS(), "z", &versionField) == FAILURE) {
 		return;
 	}
-	config =  zend_read_property(gene_cache_ce, gene_strip_obj(self), ZEND_STRL(GENE_CACHE_CONFIG), 1, NULL);
+	config = OBJ_PROP(Z_OBJ_P(self), gene_cache_offset_config);
 	if (!config || Z_TYPE_P(config) != IS_ARRAY) {
 		RETURN_NULL();
 	}
@@ -888,6 +891,13 @@ GENE_MINIT_FUNCTION(cache)
 #endif
 
     zend_declare_property_null(gene_cache_ce, ZEND_STRL(GENE_CACHE_CONFIG), ZEND_ACC_PUBLIC);
+
+    {
+        zend_property_info *pi = zend_hash_str_find_ptr(
+            &gene_cache_ce->properties_info,
+            GENE_CACHE_CONFIG, sizeof(GENE_CACHE_CONFIG) - 1);
+        gene_cache_offset_config = pi->offset;
+    }
 	return SUCCESS; // @suppress("Symbol is not resolved")
 }
 /* }}} */
