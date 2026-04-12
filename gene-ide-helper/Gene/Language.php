@@ -71,5 +71,33 @@ class Language
     {
 
     }
+
+    /**
+     * get
+     *
+     * 直接方法调用，等价于 __get 但跳过 Zend 魔术方法分发开销。
+     * 在模板中大量调用时比 `->key` 语法更高效。
+     *
+     * @param string $name 语言键名
+     * @return string
+     */
+    public function get($name)
+    {
+
+    }
+
+    /**
+     * getAll
+     *
+     * 返回当前 dir+lang 对应的完整语言数组。
+     * 建议在 Controller 层调用一次，将整个数组传入模板，
+     * 替代模板中 N 次 `->key` 调用（N 次 __get → 1 次数组访问）。
+     *
+     * @return array
+     */
+    public function getAll()
+    {
+
+    }
 }
 
