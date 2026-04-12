@@ -527,7 +527,9 @@ PHP_METHOD(gene_cache, cached)
 	if (Z_TYPE(ret) == IS_FALSE) {
 		zval data;
 		gene_cache_call(obj, args, &data);
-		hook = gene_di_get(Z_STR_P(hookName));
+		if (GENE_G(runtime_type) >= 2) {
+			hook = gene_di_get(Z_STR_P(hookName));
+		}
 		if (hook) {
 			hook_cache_set(hook, &key, &data, ttl);
 		}
@@ -673,7 +675,9 @@ PHP_METHOD(gene_cache, cachedVersion)
 				Z_TRY_ADDREF(cur_data);
 				add_assoc_zval_ex(&data_new, ZEND_STRL("data"), &cur_data);
 				add_assoc_zval_ex(&data_new, ZEND_STRL("version"), &cur_version);
-				hook = gene_di_get(Z_STR_P(hookName));
+				if (GENE_G(runtime_type) >= 2) {
+					hook = gene_di_get(Z_STR_P(hookName));
+				}
 				if (hook) {
 					hook_cache_set(hook, &key, &data_new, ttl);
 				}
@@ -695,7 +699,9 @@ PHP_METHOD(gene_cache, cachedVersion)
 			Z_TRY_ADDREF(cur_data);
 			add_assoc_zval_ex(&data_new, ZEND_STRL("data"), &cur_data);
 			add_assoc_zval_ex(&data_new, ZEND_STRL("version"), &cur_version);
-			hook = gene_di_get(Z_STR_P(hookName));
+			if (GENE_G(runtime_type) >= 2) {
+				hook = gene_di_get(Z_STR_P(hookName));
+			}
 			if (hook) {
 				hook_cache_set(hook, &key, &data_new, ttl);
 			}

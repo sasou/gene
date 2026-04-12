@@ -70,6 +70,13 @@ ZEND_END_ARG_INFO()
 ZEND_BEGIN_ARG_INFO_EX(gene_language_get_arginfo, 0, 0, 1)
     ZEND_ARG_INFO(0, name)
 ZEND_END_ARG_INFO()
+
+ZEND_BEGIN_ARG_INFO_EX(gene_language_getone_arginfo, 0, 0, 1)
+    ZEND_ARG_INFO(0, name)
+ZEND_END_ARG_INFO()
+
+ZEND_BEGIN_ARG_INFO_EX(gene_language_getall_arginfo, 0, 0, 0)
+ZEND_END_ARG_INFO()
 /* }}} */
 
 /*
@@ -209,6 +216,9 @@ PHP_METHOD(gene_language, __get) {
     if (Z_TYPE_P(cached) == IS_ARRAY) {
         val = zend_hash_find(Z_ARRVAL_P(cached), name);
         if (val) {
+            if (Z_TYPE_P(val) == IS_STRING) {
+                RETURN_STR_COPY(Z_STR_P(val));
+            }
             RETURN_ZVAL(val, 1, 0);
         }
         ZVAL_EMPTY_STRING(return_value);
@@ -304,12 +314,96 @@ PHP_METHOD(gene_language, __get) {
         val = zend_hash_find(Z_ARRVAL_P(dir_conf), name);
         if (val) {
             if (key_heap) efree(key_ptr);
+            if (Z_TYPE_P(val) == IS_STRING) {
+                RETURN_STR_COPY(Z_STR_P(val));
+            }
             RETURN_ZVAL(val, 1, 0);
         }
     }
 
     if (key_heap) efree(key_ptr);
     ZVAL_EMPTY_STRING(return_value);
+}
+/* }}} */
+
+/*
+ * {{{ public Gene\Language::get($name)
+ * Direct lookup — same logic as __get but called as a normal method,
+ * avoiding the Zend magic-dispatch overhead on every property access.
+ */
+PHP_METHOD(gene_language, get) {
+    zend_string *name = NULL;
+    zval *self = getThis();
+    zend_object *obj = Z_OBJ_P(self);
+    zval *cached, *val;
+
+    if (zend_parse_parameters(ZEND_NUM_ARGS(), "S", &name) == FAILURE) {
+        RETURN_NULL();
+    }
+
+    cached = OBJ_PROP(obj, gene_language_offset_cached);
+    if (Z_TYPE_P(cached) == IS_ARRAY) {
+        val = zend_hash_find(Z_ARRVAL_P(cached), name);
+        if (val) {
+            if (Z_TYPE_P(val) == IS_STRING) {
+                RETURN_STR_COPY(Z_STR_P(val));
+            }
+            RETURN_ZVAL(val, 1, 0);
+        }
+        ZVAL_EMPTY_STRING(return_value);
+        return;
+    }
+
+    /* _cached not yet warm — delegate to __get to load the file */
+    {
+        zval name_zv;
+        ZVAL_STR(&name_zv, name);
+        zend_call_method_with_1_params(
+            Z_OBJ_P(self), gene_language_ce,
+            NULL, "__get", return_value, &name_zv
+        );
+    }
+}
+/* }}} */
+
+/*
+ * {{{ public Gene\Language::getAll()
+ * Returns the full language array for the current dir+lang combination.
+ * Use this in controllers to pass the entire array to a template,
+ * replacing N __get calls with a single array lookup per key.
+ */
+PHP_METHOD(gene_language, getAll) {
+    zval *self = getThis();
+    zend_object *obj = Z_OBJ_P(self);
+    zval *cached;
+
+    if (zend_parse_parameters_none() == FAILURE) {
+        RETURN_NULL();
+    }
+
+    cached = OBJ_PROP(obj, gene_language_offset_cached);
+    if (Z_TYPE_P(cached) == IS_ARRAY) {
+        RETURN_ZVAL(cached, 1, 0);
+    }
+
+    /* _cached not yet warm — trigger a dummy __get to load & warm the cache */
+    {
+        zval dummy_key, dummy_ret;
+        ZVAL_STRING(&dummy_key, "");
+        zend_call_method_with_1_params(
+            Z_OBJ_P(self), gene_language_ce,
+            NULL, "__get", &dummy_ret, &dummy_key
+        );
+        zval_ptr_dtor(&dummy_key);
+        zval_ptr_dtor(&dummy_ret);
+    }
+
+    cached = OBJ_PROP(obj, gene_language_offset_cached);
+    if (Z_TYPE_P(cached) == IS_ARRAY) {
+        RETURN_ZVAL(cached, 1, 0);
+    }
+
+    array_init(return_value);
 }
 /* }}} */
 
@@ -321,6 +415,8 @@ const zend_function_entry gene_language_methods[] = {
     PHP_ME(gene_language, lang,        gene_language_lang_arginfo,      ZEND_ACC_PUBLIC)
     PHP_ME(gene_language, __call,      gene_language_call_arginfo,      ZEND_ACC_PUBLIC)
     PHP_ME(gene_language, __get,       gene_language_get_arginfo,       ZEND_ACC_PUBLIC)
+    PHP_ME(gene_language, get,         gene_language_getone_arginfo,    ZEND_ACC_PUBLIC)
+    PHP_ME(gene_language, getAll,      gene_language_getall_arginfo,    ZEND_ACC_PUBLIC)
     {NULL, NULL, NULL}
 };
 /* }}} */
