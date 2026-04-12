@@ -10,8 +10,8 @@ namespace Gene;
  * 示例：
  *
  *  $language = new \Gene\Language('web', 'en');
- *  $language->web('zh');        // 切换到 Language/Web/Zh.php
- *  echo $language->login_title; // 读取语言键
+ *  $language->lang('zh');   或 $language->web('zh');    // 切换到 Language/Web/Zh.php，前者高性能
+ *  echo $language->get('login_title');  或 echo $language->login_title; //  读取语言键，前者高性能
  *
  * @author  sasou<admin@php-gene.com>
  * @version 5.4.3
