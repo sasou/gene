@@ -354,14 +354,13 @@ PHP_METHOD(gene_language, get) {
         return;
     }
 
-    /* _cached not yet warm — delegate to __get to load the file */
+    /* _cached not yet warm — call __get via call_user_function to load the file */
     {
-        zval name_zv;
+        zval func_name, name_zv;
+        ZVAL_STRING(&func_name, "__get");
         ZVAL_STR(&name_zv, name);
-        zend_call_method_with_1_params(
-            Z_OBJ_P(self), gene_language_ce,
-            NULL, "__get", return_value, &name_zv
-        );
+        call_user_function(NULL, self, &func_name, return_value, 1, &name_zv);
+        zval_ptr_dtor(&func_name);
     }
 }
 /* }}} */
@@ -386,14 +385,13 @@ PHP_METHOD(gene_language, getAll) {
         RETURN_ZVAL(cached, 1, 0);
     }
 
-    /* _cached not yet warm — trigger a dummy __get to load & warm the cache */
+    /* _cached not yet warm — call __get via call_user_function to load & warm the cache */
     {
-        zval dummy_key, dummy_ret;
+        zval func_name, dummy_key, dummy_ret;
+        ZVAL_STRING(&func_name, "__get");
         ZVAL_STRING(&dummy_key, "");
-        zend_call_method_with_1_params(
-            Z_OBJ_P(self), gene_language_ce,
-            NULL, "__get", &dummy_ret, &dummy_key
-        );
+        call_user_function(NULL, self, &func_name, &dummy_ret, 1, &dummy_key);
+        zval_ptr_dtor(&func_name);
         zval_ptr_dtor(&dummy_key);
         zval_ptr_dtor(&dummy_ret);
     }
