@@ -41,6 +41,8 @@ PHPAPI int gettimeofday(struct timeval *time_Info, struct timezone *timezone_Inf
 
 zend_class_entry * gene_session_ce;
 
+void gene_cookie(zval *self);
+
 /* spl_ce_Countable is globally available since PHP 7.2+ */
 
 /* {{{ ARG_INFO
@@ -258,6 +260,42 @@ ZEND_END_ARG_INFO()
 	return (sent && zend_is_true(sent)) ? 1 : 0;
  }
 
+ static void gene_data_save_ex(zval *obj, zval *data, zend_bool send_cookie)
+ {
+	zval *session_id = NULL, *hook = NULL;
+
+	session_id = zend_read_property(gene_session_ce, gene_strip_obj(obj), ZEND_STRL(GENE_SESSION_ID), 1, NULL);
+	if (session_id && Z_TYPE_P(session_id) == IS_STRING) {
+		if (data == NULL) {
+			data = zend_read_property(gene_session_ce, gene_strip_obj(obj), ZEND_STRL(GENE_SESSION_DATA), 1, NULL);
+		}
+		if (data && Z_TYPE_P(data) == IS_ARRAY) {
+			zval time;
+			ZVAL_LONG(&time, gene_session_now());
+			Z_TRY_ADDREF_P(&time);
+			zend_hash_str_update(Z_ARRVAL_P(data), ZEND_STRL("stime"), &time);
+			zval_ptr_dtor(&time);
+		}
+
+		hook = gene_session_get_handler(obj);
+		if (hook) {
+			zval params[] = { *session_id,*data };
+			zval function_name,ret;
+			ZVAL_STR(&function_name, zend_string_copy(gene_session_method_set()));
+			call_user_function(NULL, hook, &function_name, &ret, 2, params);
+			zval_ptr_dtor(&function_name);
+			zend_update_property(gene_session_ce, gene_strip_obj(obj), ZEND_STRL(GENE_SESSION_DATA), data);
+			zval_ptr_dtor(&ret);
+			gene_session_mark_clean(obj);
+			if (send_cookie && !gene_session_cookie_sent(obj)) {
+				gene_cookie(obj);
+			}
+		} else {
+			php_error_docref(NULL, E_WARNING, "Configure or inject the session storage plug-in");
+		}
+	}
+ }
+
 void gene_cookie(zval *self) /*{{{*/
 {
 	zval *name = NULL, *cookie_id = NULL, *lifetime = NULL, *path = NULL, *domain = NULL, *secure = NULL, *httponly = NULL;
@@ -406,39 +444,7 @@ void gene_data_load(zval *obj) { /*{{{*/
 }/*}}}*/
 
 void gene_data_save(zval *obj, zval *data) { /*{{{*/
-	zval *session_id = NULL, *hook = NULL;
-
-	session_id = zend_read_property(gene_session_ce, gene_strip_obj(obj), ZEND_STRL(GENE_SESSION_ID), 1, NULL);
-	if (session_id && Z_TYPE_P(session_id) == IS_STRING) {
-		if (data == NULL) {
-			data = zend_read_property(gene_session_ce, gene_strip_obj(obj), ZEND_STRL(GENE_SESSION_DATA), 1, NULL);
-		}
-		if (data && Z_TYPE_P(data) == IS_ARRAY) {
-			zval time;
-			ZVAL_LONG(&time, gene_session_now());
-			Z_TRY_ADDREF_P(&time);
-			zend_hash_str_update(Z_ARRVAL_P(data), ZEND_STRL("stime"), &time);
-			zval_ptr_dtor(&time);
-		}
-
-		hook = gene_session_get_handler(obj);
-		if (hook) {
-			zval params[] = { *session_id,*data };
-			zval function_name,ret;
-			ZVAL_STR(&function_name, zend_string_copy(gene_session_method_set()));
-			call_user_function(NULL, hook, &function_name, &ret, 2, params);
-			zval_ptr_dtor(&function_name);
-			zend_update_property(gene_session_ce, gene_strip_obj(obj), ZEND_STRL(GENE_SESSION_DATA), data);
-			zval_ptr_dtor(&ret);
-			gene_session_mark_clean(obj);
-			if (!gene_session_cookie_sent(obj)) {
-				gene_cookie(obj);
-			}
-		} else {
-			php_error_docref(NULL, E_WARNING, "Configure or inject the session storage plug-in");
-		}
-	}
-
+	gene_data_save_ex(obj, data, 1);
 }/*}}}*/
 
 /** {{{ void gene_data_clear(zval *obj)
@@ -724,7 +730,7 @@ PHP_METHOD(gene_session, save) {
 PHP_METHOD(gene_session, __destruct) {
 	zval *self = getThis();
 	if (self && gene_session_is_dirty(self) && gene_session_get_handler(self)) {
-		gene_data_save(self, NULL);
+		gene_data_save_ex(self, NULL, 0);
 	}
 }
 /* }}} */
