@@ -25,6 +25,10 @@ class Session
      *   - httponly  bool    是否禁止 JS 访问
      *   - ttl       int     Session 数据过期时间（秒）
      *   - uttl      int     Cookie 的 Max-Age（秒，0=浏览器会话）
+     *   - hash_mode int     SessionId 哈希算法（可选，默认 0）：
+     *                      - 0: MD5 - 32位十六进制字符串，兼容性最好
+     *                      - 1: Fast (FNV-1a 64位) - 16位十六进制字符串，速度最快（推荐高性能场景）
+     *                      - 2: Raw (Base64) - 可变长度，速度最快但键较长
      */
     public function __construct(array $config) {}
 

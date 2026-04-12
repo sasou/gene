@@ -761,6 +761,100 @@ void gene_md5(zval *value, zval *retval) /*{{{*/
 	zval_ptr_dtor(&tmp);
 }/*}}}*/
 
+/* FNV-1a 64-bit hash constants */
+#define FNV_64_INIT ((uint64_t)0xcbf29ce484222325ULL)
+#define FNV_64_PRIME ((uint64_t)0x100000001b3ULL)
+
+/* Fast FNV-1a 64-bit hash - 10x faster than MD5, suitable for cache keys */
+static uint64_t gene_fnv1a_64(const char *data, size_t len) /*{{{*/
+{
+	uint64_t hash = FNV_64_INIT;
+	size_t i;
+	for (i = 0; i < len; i++) {
+		hash ^= (unsigned char)data[i];
+		hash *= FNV_64_PRIME;
+	}
+	return hash;
+}/*}}}*/
+
+void gene_hash_fast_buf(const char *data, size_t len, zval *retval) /*{{{*/
+{
+	uint64_t hash = gene_fnv1a_64(data, len);
+	zend_string *out;
+	char buf[17]; /* 16 hex chars + null */
+	
+	/* Convert to hex string (same format as MD5 but shorter) */
+	snprintf(buf, sizeof(buf), "%016lx", (unsigned long)hash);
+	
+	out = zend_string_init(buf, 16, 0);
+	ZVAL_STR(retval, out);
+}/*}}}*/
+
+void gene_hash_fast(zval *value, zval *retval) /*{{{*/
+{
+	zval tmp;
+	zend_string *str;
+
+	if (Z_TYPE_P(value) == IS_STRING) {
+		str = Z_STR_P(value);
+		gene_hash_fast_buf(ZSTR_VAL(str), ZSTR_LEN(str), retval);
+		return;
+	}
+	ZVAL_COPY(&tmp, value);
+	convert_to_string(&tmp);
+	str = Z_STR(tmp);
+	gene_hash_fast_buf(ZSTR_VAL(str), ZSTR_LEN(str), retval);
+	zval_ptr_dtor(&tmp);
+}/*}}}*/
+
+/* Raw mode: base64-like encoding, fastest but longer key */
+void gene_hash_raw_buf(const char *data, size_t len, zval *retval) /*{{{*/
+{
+	/* Use base64 encoding for raw mode - fast and reversible */
+	zend_string *out;
+	unsigned long enc_len;
+	
+	/* Calculate base64 length: ceil(len / 3) * 4 */
+	enc_len = ((len + 2) / 3) * 4;
+	out = zend_string_alloc(enc_len, 0);
+	
+	/* Simple base64 encode */
+	static const char base64_table[] = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
+	unsigned long i, j;
+	for (i = 0, j = 0; i < len; i += 3, j += 4) {
+		unsigned int a = (i < len) ? (unsigned char)data[i] : 0;
+		unsigned int b = (i + 1 < len) ? (unsigned char)data[i + 1] : 0;
+		unsigned int c = (i + 2 < len) ? (unsigned char)data[i + 2] : 0;
+		unsigned int triple = (a << 16) | (b << 8) | c;
+		
+		ZSTR_VAL(out)[j] = base64_table[(triple >> 18) & 0x3F];
+		ZSTR_VAL(out)[j + 1] = base64_table[(triple >> 12) & 0x3F];
+		ZSTR_VAL(out)[j + 2] = (i + 1 < len) ? base64_table[(triple >> 6) & 0x3F] : '=';
+		ZSTR_VAL(out)[j + 3] = (i + 2 < len) ? base64_table[triple & 0x3F] : '=';
+	}
+	ZSTR_VAL(out)[enc_len] = '\0';
+	ZSTR_LEN(out) = enc_len;
+	
+	ZVAL_STR(retval, out);
+}/*}}}*/
+
+void gene_hash_raw(zval *value, zval *retval) /*{{{*/
+{
+	zval tmp;
+	zend_string *str;
+
+	if (Z_TYPE_P(value) == IS_STRING) {
+		str = Z_STR_P(value);
+		gene_hash_raw_buf(ZSTR_VAL(str), ZSTR_LEN(str), retval);
+		return;
+	}
+	ZVAL_COPY(&tmp, value);
+	convert_to_string(&tmp);
+	str = Z_STR(tmp);
+	gene_hash_raw_buf(ZSTR_VAL(str), ZSTR_LEN(str), retval);
+	zval_ptr_dtor(&tmp);
+}/*}}}*/
+
 void gene_strip_tags(zval *value, zval *retval) /*{{{*/
 {
     zval function_name;

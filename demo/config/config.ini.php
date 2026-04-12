@@ -23,10 +23,15 @@ $config->set("validate", [
 ]);
 
 //http响应类注入配置
+// hash_mode: SessionId 哈希算法选择（可选）
+//   - 0 (默认): MD5 - 32位十六进制字符串，兼容性最好
+//   - 1: Fast (FNV-1a 64位) - 16位十六进制字符串，速度最快（推荐高性能场景）
+//   - 2: Raw (Base64) - 可变长度，速度最快但键较长
 $config->set("session", [
     'class' => '\Ext\Session',
     'params' => [[
-    'driver' => "memcache"
+    'driver' => "memcache",
+    'hash_mode' => 0,  // 默认使用 MD5，可改为 1 或 2 以提升性能
         ]],
 ]);
 
@@ -93,12 +98,17 @@ $config->set("redis", [
 ]);
 
 //框架方法级缓存模块注入配置
+// hash_mode: 缓存键哈希算法选择（可选）
+//   - 0 (默认): MD5 - 32位十六进制字符串，兼容性最好
+//   - 1: Fast (FNV-1a 64位) - 16位十六进制字符串，速度最快（推荐高性能场景）
+//   - 2: Raw (Base64) - 可变长度，速度最快但键较长
 $config->set("cache", [
     'class' => '\Gene\Cache\Cache',
     'params' => [[
     'hook' => 'memcache',
     'sign' => 'demo:',
     'versionSign' => 'database:',
+    'hash_mode' => 0,  // 默认使用 MD5，可改为 1 或 2 以提升性能
         ]],
     'instance' => false
 ]);

@@ -129,10 +129,9 @@ ZEND_END_ARG_INFO()
 	return out;
  }
 
- static void gene_session_generate_cookie_id(zval *retval)
+/* hash_mode: 0=MD5 (default), 1=fast FNV-1a, 2=raw/base64-like */
+ static void gene_session_generate_cookie_id(zval *retval, int hash_mode)
  {
-	PHP_MD5_CTX ctx;
-	unsigned char digest[16];
 	char seed[96];
 	size_t seed_len;
 	struct timeval tv;
@@ -142,14 +141,26 @@ ZEND_END_ARG_INFO()
 	if (seed_len >= sizeof(seed)) {
 		seed_len = sizeof(seed) - 1;
 	}
-	PHP_MD5Init(&ctx);
-	PHP_MD5Update(&ctx, (unsigned char *)seed, seed_len);
-	PHP_MD5Final(digest, &ctx);
-	{
-		zend_string *out = zend_string_alloc(32, 0);
-		make_digest_ex(ZSTR_VAL(out), digest, 16);
-		ZSTR_VAL(out)[32] = '\0';
-		ZVAL_STR(retval, out);
+	
+	if (hash_mode == 1) {
+		/* Fast mode - FNV-1a 64-bit */
+		gene_hash_fast_buf(seed, seed_len, retval);
+	} else if (hash_mode == 2) {
+		/* Raw mode - base64 encode */
+		gene_hash_raw_buf(seed, seed_len, retval);
+	} else {
+		/* Default MD5 mode */
+		PHP_MD5_CTX ctx;
+		unsigned char digest[16];
+		PHP_MD5Init(&ctx);
+		PHP_MD5Update(&ctx, (unsigned char *)seed, seed_len);
+		PHP_MD5Final(digest, &ctx);
+		{
+			zend_string *out = zend_string_alloc(32, 0);
+			make_digest_ex(ZSTR_VAL(out), digest, 16);
+			ZSTR_VAL(out)[32] = '\0';
+			ZVAL_STR(retval, out);
+		}
 	}
  }
 
@@ -389,6 +400,12 @@ void gene_set_cookie(zval *self, zval *name, zval *value, zval *time) /*{{{*/
 void gene_init_ssid(zval *obj) {
 	zval *cookie_id = NULL;
 	zval *name = zend_read_property(gene_session_ce, gene_strip_obj(obj), ZEND_STRL(GENE_SESSION_NAME), 1, NULL);
+	zval *hash_mode_zv = zend_read_property(gene_session_ce, gene_strip_obj(obj), ZEND_STRL(GENE_SESSION_HASH_MODE), 1, NULL);
+	zend_long hash_mode = 0;
+	if (hash_mode_zv && Z_TYPE_P(hash_mode_zv) == IS_LONG) {
+		hash_mode = Z_LVAL_P(hash_mode_zv);
+	}
+	
 	cookie_id = getVal(TRACK_VARS_COOKIE, Z_STRVAL_P(name), Z_STRLEN_P(name));
 	if (cookie_id && Z_TYPE_P(cookie_id) == IS_STRING) {
 		zend_string *filtered = gene_session_sanitize_cookie_id(Z_STR_P(cookie_id));
@@ -397,10 +414,10 @@ void gene_init_ssid(zval *obj) {
 			zend_string_release(filtered);
 		}
 	} else {
-		zval md5;
-		gene_session_generate_cookie_id(&md5);
-		gene_session_update_ids(obj, Z_STR(md5));
-		zval_ptr_dtor(&md5);
+		zval hash_val;
+		gene_session_generate_cookie_id(&hash_val, (int)hash_mode);
+		gene_session_update_ids(obj, Z_STR(hash_val));
+		zval_ptr_dtor(&hash_val);
 	}
 }
 /* }}} */
@@ -408,10 +425,16 @@ void gene_init_ssid(zval *obj) {
 /** {{{ void gene_update_ssid(zval *obj)
  */
 void gene_update_ssid(zval *obj) {
-	zval md5;
-	gene_session_generate_cookie_id(&md5);
-	gene_session_update_ids(obj, Z_STR(md5));
-	zval_ptr_dtor(&md5);
+	zval *hash_mode_zv = zend_read_property(gene_session_ce, gene_strip_obj(obj), ZEND_STRL(GENE_SESSION_HASH_MODE), 1, NULL);
+	zend_long hash_mode = 0;
+	if (hash_mode_zv && Z_TYPE_P(hash_mode_zv) == IS_LONG) {
+		hash_mode = Z_LVAL_P(hash_mode_zv);
+	}
+	
+	zval hash_val;
+	gene_session_generate_cookie_id(&hash_val, (int)hash_mode);
+	gene_session_update_ids(obj, Z_STR(hash_val));
+	zval_ptr_dtor(&hash_val);
 }
 /* }}} */
 
@@ -688,6 +711,10 @@ PHP_METHOD(gene_session, __construct) {
 		val = zend_hash_str_find(Z_ARRVAL_P(config), ZEND_STRL("uttl"));
 		if (val && Z_TYPE_P(val) == IS_LONG) {
 			zend_update_property_long(gene_session_ce, gene_strip_obj(self), ZEND_STRL(GENE_SESSION_COOKIE_UPTIME), Z_LVAL_P(val));
+		}
+		val = zend_hash_str_find(Z_ARRVAL_P(config), ZEND_STRL("hash_mode"));
+		if (val && Z_TYPE_P(val) == IS_LONG) {
+			zend_update_property_long(gene_session_ce, gene_strip_obj(self), ZEND_STRL(GENE_SESSION_HASH_MODE), Z_LVAL_P(val));
 		}
 	}
 
@@ -994,6 +1021,7 @@ GENE_MINIT_FUNCTION(session) {
 	zend_declare_property_null(gene_session_ce, ZEND_STRL(GENE_SESSION_HANDLER), ZEND_ACC_PROTECTED);
 	zend_declare_property_bool(gene_session_ce, ZEND_STRL(GENE_SESSION_DIRTY), 0, ZEND_ACC_PROTECTED);
 	zend_declare_property_bool(gene_session_ce, ZEND_STRL(GENE_SESSION_COOKIE_SENT), 0, ZEND_ACC_PROTECTED);
+	zend_declare_property_long(gene_session_ce, ZEND_STRL(GENE_SESSION_HASH_MODE), 0, ZEND_ACC_PROTECTED);
 
 	return SUCCESS; // @suppress("Symbol is not resolved")
 }

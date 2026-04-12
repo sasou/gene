@@ -28,6 +28,7 @@
 #define GENE_SESSION_COOKIE_PATH  "cookie_path"
 #define GENE_SESSION_SECURE  "secure"
 #define GENE_SESSION_HTTPONLY  "httponly"
+#define GENE_SESSION_HASH_MODE  "hash_mode"
 #define GENE_SESSION_HANDLER  "_handler"
 #define GENE_SESSION_DIRTY  "_dirty"
 #define GENE_SESSION_COOKIE_SENT  "_cookie_sent"

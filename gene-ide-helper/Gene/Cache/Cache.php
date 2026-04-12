@@ -28,6 +28,10 @@ class Cache
      *   - hook         string  DI 中注册的外部缓存组件名（如 "redis"/"memcache"）
      *   - sign         string  缓存 key 前缀
      *   - versionSign  string  版本号 key 前缀
+     *   - hash_mode    int     缓存键哈希算法（可选，默认 0）：
+     *                          - 0: MD5 - 32位十六进制字符串，兼容性最好
+     *                          - 1: Fast (FNV-1a 64位) - 16位十六进制字符串，速度最快（推荐高性能场景）
+     *                          - 2: Raw (Base64) - 可变长度，速度最快但键较长
      */
     public function __construct($configs) {}
 
