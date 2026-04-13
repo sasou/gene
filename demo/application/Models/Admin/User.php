@@ -147,6 +147,50 @@ class User extends \Gene\Model
     }
     
     /**
+     * 按主键取登录名（直连库，供缓存失效用）
+     *
+     * @param int $id
+     * @return string
+     */
+    function userNameById($id)
+    {
+        $id = (int) $id;
+        if ($id <= 0) {
+            return '';
+        }
+        $v = $this->db
+            ->select('sys_user', 'user_name')
+            ->where('user_id=?', $id)
+            ->limit(1)
+            ->cell();
+        return $v !== null && $v !== false ? (string) $v : '';
+    }
+
+    /**
+     * 批量主键取登录名（删除前解析，供缓存失效用）
+     *
+     * @param array $id_arr
+     * @return array
+     */
+    function userNamesByIds(array $id_arr)
+    {
+        if (!$id_arr) {
+            return [];
+        }
+        $list = $this->db
+            ->select('sys_user', 'user_name')
+            ->in('user_id in(?)', $id_arr)
+            ->all();
+        $names = [];
+        foreach ($list as $row) {
+            if (!empty($row['user_name'])) {
+                $names[] = $row['user_name'];
+            }
+        }
+        return array_values(array_unique($names));
+    }
+
+    /**
      * 检查登录
      * 
      * @param string $username 用户名
