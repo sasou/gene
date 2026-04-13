@@ -1,5 +1,13 @@
 # Gene Framework Changelog
 
+## [5.5.0] - 2026-04-13
+
+### 🔧 Improvements
+- **版本更新**: 增加小版本号至 5.5.0
+- **文档同步**: 更新 README 和 README_EN 中的版本号
+
+---
+
 ## [5.4.6] - 2026-04-09
 
 ### 🔧 Improvements
