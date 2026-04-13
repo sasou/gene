@@ -52,6 +52,7 @@ void gene_igbinary_serialize(zval *value, zval *retval);
 void gene_igbinary_unserialize(zval *value, zval *retval);
 void gene_md5_buf(const char *data, size_t len, zval *retval);
 void gene_md5(zval *value, zval *retval);
+uint64_t gene_fnv1a_64(const char *data, size_t len);
 void gene_hash_fast_buf(const char *data, size_t len, zval *retval);
 void gene_hash_fast(zval *value, zval *retval);
 void gene_hash_raw_buf(const char *data, size_t len, zval *retval);

@@ -25,11 +25,74 @@
 #include "zend_exceptions.h"
 #include "zend_smart_str.h" /* for smart_str */
 
+#include "ext/standard/md5.h"
+
 #include "../gene.h"
 #include "../cache/cache.h"
 #include "../common/common.h"
 #include "../di/di.h"
 #include "../factory/factory.h"
+
+/* Direct-write hash helpers: write hash output directly into dst buffer,
+ * avoiding intermediate zend_string + zval allocation. Return bytes written. */
+
+static size_t gene_md5_write(const char *data, size_t len, char *dst) /*{{{*/
+{
+	PHP_MD5_CTX ctx;
+	unsigned char digest[16];
+	PHP_MD5Init(&ctx);
+	if (len != 0) {
+		PHP_MD5Update(&ctx, data, len);
+	}
+	PHP_MD5Final(digest, &ctx);
+	make_digest_ex(dst, digest, 16);
+	return 32;
+}/*}}}*/
+
+static const char gene_hex_chars[] = "0123456789abcdef";
+
+static size_t gene_hash_fast_write(const char *data, size_t len, char *dst) /*{{{*/
+{
+	uint64_t hash = gene_fnv1a_64(data, len);
+	int i;
+	for (i = 15; i >= 0; i--) {
+		dst[i] = gene_hex_chars[hash & 0xF];
+		hash >>= 4;
+	}
+	return 16;
+}/*}}}*/
+
+static size_t gene_hash_raw_write(const char *data, size_t len, char *dst) /*{{{*/
+{
+	static const char b64[] = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
+	size_t enc_len = ((len + 2) / 3) * 4;
+	size_t i, j;
+	for (i = 0, j = 0; i < len; i += 3, j += 4) {
+		unsigned int a = (unsigned char)data[i];
+		unsigned int b = (i + 1 < len) ? (unsigned char)data[i + 1] : 0;
+		unsigned int c = (i + 2 < len) ? (unsigned char)data[i + 2] : 0;
+		unsigned int triple = (a << 16) | (b << 8) | c;
+		dst[j]     = b64[(triple >> 18) & 0x3F];
+		dst[j + 1] = b64[(triple >> 12) & 0x3F];
+		dst[j + 2] = (i + 1 < len) ? b64[(triple >> 6) & 0x3F] : '=';
+		dst[j + 3] = (i + 2 < len) ? b64[triple & 0x3F] : '=';
+	}
+	return enc_len;
+}/*}}}*/
+
+/* Compute hash output length for given mode and input length */
+static inline size_t gene_hash_len(int hash_mode, size_t input_len) {
+	if (hash_mode == 2) return ((input_len + 2) / 3) * 4;
+	if (hash_mode == 1) return 16;
+	return 32;
+}
+
+/* Write hash into dst using given mode. Returns bytes written. */
+static inline size_t gene_hash_write(int hash_mode, const char *data, size_t len, char *dst) {
+	if (hash_mode == 2) return gene_hash_raw_write(data, len, dst);
+	if (hash_mode == 1) return gene_hash_fast_write(data, len, dst);
+	return gene_md5_write(data, len, dst);
+}
 
 zend_class_entry * gene_cache_ce;
 uint32_t gene_cache_offset_config;
@@ -190,26 +253,12 @@ void gene_cache_key(zval *sign, int type, zval *object, zval *args, zval *ttl, z
 	}
 	smart_str_0(&tmp_s);
 	
-	zval hash_val;
-	/* Choose hash algorithm based on hash_mode */
-	if (hash_mode == 2) {
-		/* raw mode - base64 encode */
-		gene_hash_raw_buf(ZSTR_VAL(tmp_s.s), ZSTR_LEN(tmp_s.s), &hash_val);
-	} else if (hash_mode == 1) {
-		/* fast mode - FNV-1a 64-bit */
-		gene_hash_fast_buf(ZSTR_VAL(tmp_s.s), ZSTR_LEN(tmp_s.s), &hash_val);
-	} else {
-		/* default md5 mode */
-		gene_md5_buf(ZSTR_VAL(tmp_s.s), ZSTR_LEN(tmp_s.s), &hash_val);
-	}
-	smart_str_free(&tmp_s);
-	
+	/* Compute final key = sign + [prefix] + hash, writing hash directly into result */
 	size_t sign_len = Z_STRLEN_P(sign);
-	size_t hash_len = Z_STRLEN(hash_val);
-	size_t total_len = sign_len + hash_len;
-	if (type > 0) {
-		total_len += sizeof(GENE_CACHE_TMP) - 1;
-	}
+	size_t prefix_len = (type > 0) ? (sizeof(GENE_CACHE_TMP) - 1) : 0;
+	size_t input_len = tmp_s.s ? ZSTR_LEN(tmp_s.s) : 0;
+	size_t hash_len = gene_hash_len(hash_mode, input_len);
+	size_t total_len = sign_len + prefix_len + hash_len;
 	
 	zend_string *result = zend_string_alloc(total_len, 0);
 	char *p = ZSTR_VAL(result);
@@ -219,10 +268,10 @@ void gene_cache_key(zval *sign, int type, zval *object, zval *args, zval *ttl, z
 		memcpy(p, GENE_CACHE_TMP, sizeof(GENE_CACHE_TMP) - 1);
 		p += sizeof(GENE_CACHE_TMP) - 1;
 	}
-	memcpy(p, Z_STRVAL(hash_val), hash_len);
+	gene_hash_write(hash_mode, tmp_s.s ? ZSTR_VAL(tmp_s.s) : "", input_len, p);
 	ZSTR_VAL(result)[total_len] = '\0';
 	
-	zval_ptr_dtor(&hash_val);
+	smart_str_free(&tmp_s);
 	ZVAL_STR(retval, result);
 }/*}}}*/
 
@@ -238,11 +287,30 @@ void makeArgsArr(zval *arr, smart_str *tmp_s) { /*{{{*/
 }
 /*}}}*/
 void convert_val_to_string(zval *element, smart_str *tmp_s) { /*{{{*/
-	zval tmp;
-	ZVAL_COPY(&tmp, element);
-	convert_to_string(&tmp);
-	smart_str_appendl(tmp_s,  Z_STRVAL(tmp), Z_STRLEN(tmp));
-	zval_ptr_dtor(&tmp);
+	switch (Z_TYPE_P(element)) {
+		case IS_LONG:
+			smart_str_append_long(tmp_s, Z_LVAL_P(element));
+			return;
+		case IS_DOUBLE: {
+			char buf[64];
+			int len = snprintf(buf, sizeof(buf), "%.*G", 14, Z_DVAL_P(element));
+			smart_str_appendl(tmp_s, buf, (size_t)len);
+			return;
+		}
+		case IS_TRUE:
+			smart_str_appendc(tmp_s, '1');
+			return;
+		case IS_FALSE:
+		case IS_NULL:
+			return;
+		default: {
+			zval tmp;
+			ZVAL_COPY(&tmp, element);
+			convert_to_string(&tmp);
+			smart_str_appendl(tmp_s, Z_STRVAL(tmp), Z_STRLEN(tmp));
+			zval_ptr_dtor(&tmp);
+		}
+	}
 }
 /*}}}*/
 void makeArgsKey(zend_ulong indexs, zend_string *id, zval *element, smart_str *tmp_s) { /*{{{*/
@@ -303,78 +371,72 @@ void gene_cache_call(zval *object, zval *args, zval *retval) /*{{{*/
 /* hash_mode: 0=MD5 (default), 1=fast FNV-1a, 2=raw base64 */
 void makeKey(zval *versionSign, zend_string *id, zval *element, zval *retval, int hash_mode) {
 	char stack_buf[256];
-	char *buf = stack_buf;
-	int heap = 0;
 	size_t buf_len = 0;
 	size_t sign_len = Z_STRLEN_P(versionSign);
-	zval hash_val;
+
+	/* Convert non-string element ONCE (fixes double conversion) */
+	zval tmp_conv;
+	const char *elem_str = NULL;
+	size_t elem_len = 0;
+	ZVAL_UNDEF(&tmp_conv);
+
+	if (Z_TYPE_P(element) != IS_NULL) {
+		if (Z_TYPE_P(element) == IS_STRING) {
+			elem_str = Z_STRVAL_P(element);
+			elem_len = Z_STRLEN_P(element);
+		} else if (Z_TYPE_P(element) == IS_LONG) {
+			elem_len = snprintf(stack_buf, sizeof(stack_buf), ZEND_LONG_FMT, Z_LVAL_P(element));
+			elem_str = stack_buf;
+		} else {
+			ZVAL_COPY(&tmp_conv, element);
+			convert_to_string(&tmp_conv);
+			elem_str = Z_STRVAL(tmp_conv);
+			elem_len = Z_STRLEN(tmp_conv);
+		}
+	}
 
 	/* Calculate total length needed */
 	if (id) {
 		buf_len += ZSTR_LEN(id);
 	}
-	if (Z_TYPE_P(element) != IS_NULL) {
-		buf_len += 1; /* for '.' */
-		if (Z_TYPE_P(element) == IS_STRING) {
-			buf_len += Z_STRLEN_P(element);
-		} else {
-			zval tmp;
-			ZVAL_COPY(&tmp, element);
-			convert_to_string(&tmp);
-			buf_len += Z_STRLEN(tmp);
-			zval_ptr_dtor(&tmp);
-		}
+	if (elem_str) {
+		buf_len += 1 + elem_len; /* '.' + element */
 	}
 
-	/* Allocate buffer */
-	if (buf_len >= sizeof(stack_buf)) {
-		buf = emalloc(buf_len + 1);
-		heap = 1;
+	/* Use a separate buffer if IS_LONG already consumed stack_buf or length exceeds it */
+	char content_buf[256];
+	char *cbuf = content_buf;
+	int cheap = 0;
+	if (buf_len >= sizeof(content_buf)) {
+		cbuf = emalloc(buf_len + 1);
+		cheap = 1;
 	}
 
-	/* Build buffer */
-	char *p = buf;
+	/* Build content buffer */
+	char *p = cbuf;
 	if (id) {
 		memcpy(p, ZSTR_VAL(id), ZSTR_LEN(id));
 		p += ZSTR_LEN(id);
 	}
-	if (Z_TYPE_P(element) != IS_NULL) {
+	if (elem_str) {
 		*p++ = '.';
-		if (Z_TYPE_P(element) == IS_STRING) {
-			memcpy(p, Z_STRVAL_P(element), Z_STRLEN_P(element));
-			p += Z_STRLEN_P(element);
-		} else {
-			zval tmp;
-			ZVAL_COPY(&tmp, element);
-			convert_to_string(&tmp);
-			memcpy(p, Z_STRVAL(tmp), Z_STRLEN(tmp));
-			p += Z_STRLEN(tmp);
-			zval_ptr_dtor(&tmp);
-		}
+		memcpy(p, elem_str, elem_len);
+		p += elem_len;
 	}
 	*p = '\0';
 
-	/* Calculate hash based on hash_mode */
-	if (hash_mode == 2) {
-		/* raw mode - base64 encode */
-		gene_hash_raw_buf(buf, buf_len, &hash_val);
-	} else if (hash_mode == 1) {
-		/* fast mode - FNV-1a 64-bit */
-		gene_hash_fast_buf(buf, buf_len, &hash_val);
-	} else {
-		/* default md5 mode */
-		gene_md5_buf(buf, buf_len, &hash_val);
+	if (Z_TYPE(tmp_conv) != IS_UNDEF) {
+		zval_ptr_dtor(&tmp_conv);
 	}
 
-	/* Build final key */
-	size_t hash_len = Z_STRLEN(hash_val);
+	/* Build final key = sign + hash, writing hash directly into result */
+	size_t hash_len = gene_hash_len(hash_mode, buf_len);
 	zend_string *result = zend_string_alloc(sign_len + hash_len, 0);
 	memcpy(ZSTR_VAL(result), Z_STRVAL_P(versionSign), sign_len);
-	memcpy(ZSTR_VAL(result) + sign_len, Z_STRVAL(hash_val), hash_len);
+	gene_hash_write(hash_mode, cbuf, buf_len, ZSTR_VAL(result) + sign_len);
 	ZSTR_VAL(result)[sign_len + hash_len] = '\0';
 
-	if (heap) efree(buf);
-	zval_ptr_dtor(&hash_val);
+	if (cheap) efree(cbuf);
 	ZVAL_STR(retval, result);
 }
 
@@ -411,6 +473,8 @@ void gene_cache_update_version(zval *versionSign, zval *versionField, zval *obje
 {
 	zval *value = NULL;
 	zend_string *key = NULL;
+	zval incr_val;
+	ZVAL_LONG(&incr_val, 1);
 	if (versionField != NULL && Z_TYPE_P(versionField) == IS_ARRAY) {
 		ZEND_HASH_FOREACH_STR_KEY_VAL(Z_ARRVAL_P(versionField), key, value)
 		{
@@ -418,21 +482,17 @@ void gene_cache_update_version(zval *versionSign, zval *versionField, zval *obje
 				zval *sub_value = NULL;
 				ZEND_HASH_FOREACH_VAL(Z_ARRVAL_P(value), sub_value)
 				{
-					zval tmp_key, ret, incr_val;
+					zval tmp_key, ret;
 					makeKey(versionSign, key, sub_value, &tmp_key, 0);
-					ZVAL_STRING(&incr_val, "1");
 					gene_cache_incr(object, &tmp_key, &incr_val, &ret);
 					zval_ptr_dtor(&ret);
-					zval_ptr_dtor(&incr_val);
 					zval_ptr_dtor(&tmp_key);
 				}ZEND_HASH_FOREACH_END();
 			} else {
-				zval tmp_key, ret, incr_val;
+				zval tmp_key, ret;
 				makeKey(versionSign, key, value, &tmp_key, 0);
-				ZVAL_STRING(&incr_val, "1");
 				gene_cache_incr(object, &tmp_key, &incr_val, &ret);
 				zval_ptr_dtor(&ret);
-				zval_ptr_dtor(&incr_val);
 				zval_ptr_dtor(&tmp_key);
 			}
 		}ZEND_HASH_FOREACH_END();

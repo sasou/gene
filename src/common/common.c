@@ -766,7 +766,7 @@ void gene_md5(zval *value, zval *retval) /*{{{*/
 #define FNV_64_PRIME ((uint64_t)0x100000001b3ULL)
 
 /* Fast FNV-1a 64-bit hash - 10x faster than MD5, suitable for cache keys */
-static uint64_t gene_fnv1a_64(const char *data, size_t len) /*{{{*/
+uint64_t gene_fnv1a_64(const char *data, size_t len) /*{{{*/
 {
 	uint64_t hash = FNV_64_INIT;
 	size_t i;
