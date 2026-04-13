@@ -466,9 +466,7 @@ ZEND_END_ARG_INFO()
 		if (data && Z_TYPE_P(data) == IS_ARRAY) {
 			zval time;
 			ZVAL_LONG(&time, gene_session_now());
-			Z_TRY_ADDREF_P(&time);
 			zend_hash_str_update(Z_ARRVAL_P(data), ZEND_STRL("stime"), &time);
-			zval_ptr_dtor(&time);
 		}
 
 		hook = gene_session_get_handler(obj);
