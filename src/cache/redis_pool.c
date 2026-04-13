@@ -986,13 +986,12 @@ PHP_METHOD(gene_redis_pool, get)
                 if (Z_TYPE(item) == IS_ARRAY) {
                     zval *conn = zend_hash_str_find(Z_ARRVAL(item), ZEND_STRL("conn"));
                     if (conn && Z_TYPE_P(conn) == IS_OBJECT) {
-                        if (rpool_is_alive(conn)) {
-                            RETVAL_ZVAL(conn, 1, 0);
-                            zval_ptr_dtor(&item);
-                            return;
-                        }
-                        /* Dead connection — discard */
-                        rpool_decrement_count(self);
+                        /* Skip liveness check — dead connections are handled
+                         * by the caller (catch → remove → re-get) and by
+                         * the periodic recycleIdle() timer. */
+                        RETVAL_ZVAL(conn, 1, 0);
+                        zval_ptr_dtor(&item);
+                        return;
                     }
                 }
                 zval_ptr_dtor(&item);
@@ -1025,12 +1024,9 @@ PHP_METHOD(gene_redis_pool, get)
                 if (Z_TYPE(item) == IS_ARRAY) {
                     zval *conn = zend_hash_str_find(Z_ARRVAL(item), ZEND_STRL("conn"));
                     if (conn && Z_TYPE_P(conn) == IS_OBJECT) {
-                        if (rpool_is_alive(conn)) {
-                            RETVAL_ZVAL(conn, 1, 0);
-                            zval_ptr_dtor(&item);
-                            return;
-                        }
-                        rpool_decrement_count(self);
+                        RETVAL_ZVAL(conn, 1, 0);
+                        zval_ptr_dtor(&item);
+                        return;
                     }
                 }
                 zval_ptr_dtor(&item);
@@ -1087,11 +1083,8 @@ PHP_METHOD(gene_redis_pool, put)
         return;
     }
 
-    /* Liveness check — avoids re-queuing dead connections */
-    if (!rpool_is_alive(redis)) {
-        rpool_decrement_count(self);
-        return;
-    }
+    /* Skip liveness check — dead connections are caught by recycleIdle().
+     * Avoiding Redis::ping() saves one network RT per put(). */
 
     /* Auto-shrink overflow: discard connections above max */
     if (rpool_get_count(self) > rpool_get_max(self)) {
