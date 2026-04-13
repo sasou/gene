@@ -836,13 +836,12 @@ static zend_long pool_increment_count_get(zval *self) {
                  if (Z_TYPE(item) == IS_ARRAY) {
                      zval *conn = zend_hash_str_find(Z_ARRVAL(item), ZEND_STRL("conn"));
                      if (conn && Z_TYPE_P(conn) == IS_OBJECT) {
-                         if (pool_is_alive(conn)) {
-                             RETVAL_ZVAL(conn, 1, 0);
-                             zval_ptr_dtor(&item);
-                             return;
-                         }
-                         /* Dead connection, discard */
-                         pool_decrement_count(self);
+                         /* Skip liveness check — dead connections are handled
+                         * by the caller (catch → remove → re-get) and by
+                         * the periodic recycleIdle() timer. */
+                        RETVAL_ZVAL(conn, 1, 0);
+                        zval_ptr_dtor(&item);
+                        return;
                      }
                  }
                  zval_ptr_dtor(&item);
@@ -876,12 +875,9 @@ static zend_long pool_increment_count_get(zval *self) {
                  if (Z_TYPE(item) == IS_ARRAY) {
                      zval *conn = zend_hash_str_find(Z_ARRVAL(item), ZEND_STRL("conn"));
                      if (conn && Z_TYPE_P(conn) == IS_OBJECT) {
-                         if (pool_is_alive(conn)) {
-                             RETVAL_ZVAL(conn, 1, 0);
-                             zval_ptr_dtor(&item);
-                             return;
-                         }
-                         pool_decrement_count(self);
+                         RETVAL_ZVAL(conn, 1, 0);
+                        zval_ptr_dtor(&item);
+                        return;
                      }
                  }
                  zval_ptr_dtor(&item);
@@ -936,14 +932,10 @@ static zend_long pool_increment_count_get(zval *self) {
          return;
      }
   
-     /* Validate connection is still alive before returning to pool.
-      * Returning a dead connection wastes a get() caller's retry. */
-     if (!pool_is_alive(pdo)) {
-         pool_decrement_count(self);
-         return;
-     }
- 
-     /* Auto-shrink overflow: if currentCount exceeds max, discard this
+     /* Skip liveness check — dead connections are caught by recycleIdle().
+     * Avoiding PDO::getAttribute() saves one network RT per put(). */
+
+    /* Auto-shrink overflow: if currentCount exceeds max, discard this
       * connection instead of pushing it back. This naturally heals the
       * pool after overflow connections (created when pool was exhausted)
       * are returned. */
