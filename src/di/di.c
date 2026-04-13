@@ -216,6 +216,7 @@ zval *gene_class_instance(zval *obj, zval *class_name, zval *params) {
 		}
 
 		if ((ppzval = zend_hash_str_update(Z_ARRVAL_P(entrys), Z_STRVAL_P(class_name), Z_STRLEN_P(class_name), obj)) != NULL ) {
+			ZVAL_UNDEF(obj);
 			return ppzval;
 		}
 		return obj;
