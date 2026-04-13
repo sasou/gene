@@ -1146,12 +1146,14 @@ PHP_METHOD(gene_cache, cachedVersion)
 				zval_ptr_dtor(&data_new);
 				zval_ptr_dtor(&cache_key);
 				zval_ptr_dtor(&cache);
+				zval_ptr_dtor(&key);
 				RETURN_ZVAL(&cur_data, 1, 1);
 			}
 			Z_TRY_ADDREF_P(cacheData);
 			zval_ptr_dtor(&cache);
 			zval_ptr_dtor(&cache_key);
 			zval_ptr_dtor(&cur_version);
+			zval_ptr_dtor(&key);
 			RETURN_ZVAL(cacheData, 1, 1);
 		} else {
 			zval data_new,cur_data,cur_version;
@@ -1165,11 +1167,13 @@ PHP_METHOD(gene_cache, cachedVersion)
 			zval_ptr_dtor(&data_new);
 			zval_ptr_dtor(&cache_key);
 			zval_ptr_dtor(&cache);
+			zval_ptr_dtor(&key);
 			RETURN_ZVAL(&cur_data, 1, 1);
 		}
 	}
 	zval_ptr_dtor(&cache_key);
 	zval_ptr_dtor(&cache);
+	zval_ptr_dtor(&key);
 	RETURN_NULL();
 }
 /* }}} */
