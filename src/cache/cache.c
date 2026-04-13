@@ -470,15 +470,6 @@ void gene_apcu_fetch(zval *key, zval *retval) /*{{{*/
 	 zval_ptr_dtor(&function_name);
 }/*}}}*/
 
-void gene_get_class(zval *key, zval *retval) /*{{{*/
-{
-    zval function_name;
-    ZVAL_STRING(&function_name, "get_class");
-	zval params[] = { *key };
-    call_user_function(NULL, NULL, &function_name, retval, 1, params);
-    zval_ptr_dtor(&function_name);
-}/*}}}*/
-
 void gene_apcu_del(zval *key, zval *retval) /*{{{*/
 {
 	 zval function_name;
@@ -621,6 +612,7 @@ void gene_cache_call(zval *object, zval *args, zval *retval) /*{{{*/
 	uint32_t argc = 0, i = 0;
 	int use_heap = 0;
 	ZVAL_UNDEF(&tmp_class);
+	ZVAL_NULL(retval);
 
 	if (Z_TYPE_P(object) != IS_ARRAY || Z_TYPE_P(args) != IS_ARRAY) {
 		return;
