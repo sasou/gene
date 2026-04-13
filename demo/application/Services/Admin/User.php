@@ -10,6 +10,65 @@ namespace Services\Admin;
 class User extends \Gene\Service
 {
 
+    /**
+     * 用户行缓存版本键（sys_user.user_id）
+     *
+     * @param int $id
+     * @return array
+     */
+    protected function userRowVersion($id)
+    {
+        return ['db.sys_user.user_id' => $id];
+    }
+
+    /**
+     * 登录查询缓存版本键（按登录名）
+     *
+     * @param string $username
+     * @return array
+     */
+    protected function userLoginVersion($username)
+    {
+        return ['db.sys_user.user_name' => $username];
+    }
+
+    /**
+     * 写库后失效：该行 user_id + 当前库中 user_name，及可选曾用登录名（如改名）
+     *
+     * @param int   $id
+     * @param array $extraLoginNames
+     */
+    protected function bumpUserCacheForUser($id, array $extraLoginNames = [])
+    {
+        $name = \Models\Admin\User::getInstance()->userNameById($id);
+        $names = $extraLoginNames;
+        if ($name !== '') {
+            $names[] = $name;
+        }
+        $names = array_values(array_unique(array_filter($names, function ($n) {
+            return $n !== null && $n !== '';
+        })));
+        $ver = $this->userRowVersion($id);
+        if ($names) {
+            $ver['db.sys_user.user_name'] = count($names) === 1 ? $names[0] : $names;
+        }
+        $this->cache->updateVersion($ver);
+    }
+
+    /**
+     * 删除后失效（库中已无该行，登录名须调用方预先取出）
+     *
+     * @param int $id
+     * @param string|null $loginName
+     */
+    protected function bumpUserCacheDeleted($id, $loginName)
+    {
+        $ver = $this->userRowVersion($id);
+        if ($loginName !== null && $loginName !== '') {
+            $ver['db.sys_user.user_name'] = $loginName;
+        }
+        $this->cache->updateVersion($ver);
+    }
 
     /**
      * 检查登录
@@ -23,7 +82,12 @@ class User extends \Gene\Service
         if (!$username || !$password) {
             return $this->error('用户名或者密码为空！');
         }
-        $result = \Models\Admin\User::getInstance()->getUserInfoByName($username);
+        $result = $this->cache->cachedVersion(
+            ["\Models\Admin\User", 'getUserInfoByName'],
+            [$username],
+            $this->userLoginVersion($username),
+            3600
+        );
         if (!$result) {
             return $this->error('用户名不存在');
         }
@@ -74,7 +138,12 @@ class User extends \Gene\Service
      */
     function row($id)
     {
-        return \Models\Admin\User::getInstance()->row($id);
+        return $this->cache->cachedVersion(
+            ["\Models\Admin\User", 'row'],
+            [$id],
+            $this->userRowVersion($id),
+            3600
+        );
     }
 
 	/**
@@ -86,7 +155,12 @@ class User extends \Gene\Service
      */
     public function getField($id, $field ='user_name')
     {
-        return \Models\Admin\User::getInstance()->getField($id, $field);
+        return $this->cache->cachedVersion(
+            ["\Models\Admin\User", 'getField'],
+            [$id, $field],
+            $this->userRowVersion($id),
+            3600
+        );
     }
     
     /**
@@ -102,7 +176,11 @@ class User extends \Gene\Service
             $data['user_pass'] = $this->generatePasswordHash($data['user_pass'], $data['user_salt']);
         }
         $data['status'] = isset($data['status']) && $data['status'] == 'on' ? 1 : 0;
-        return \Models\Admin\User::getInstance()->add($data);
+        $id = \Models\Admin\User::getInstance()->add($data);
+        if ($id) {
+            $this->bumpUserCacheForUser($id);
+        }
+        return $id;
     }
 
     /**
@@ -121,7 +199,16 @@ class User extends \Gene\Service
             unset($data['user_pass']);
         }
         $data['status'] = isset($data['status']) && $data['status'] == 'on' ? 1 : 0;
-        return \Models\Admin\User::getInstance()->edit($id, $data);
+        $oldLoginName = null;
+        if (isset($data['user_name'])) {
+            $oldLoginName = \Models\Admin\User::getInstance()->userNameById($id);
+        }
+        $count = \Models\Admin\User::getInstance()->edit($id, $data);
+        if ($count) {
+            $extra = ($oldLoginName !== null && $oldLoginName !== '') ? [$oldLoginName] : [];
+            $this->bumpUserCacheForUser($id, $extra);
+        }
+        return $count;
     }
 
     /**
@@ -132,7 +219,11 @@ class User extends \Gene\Service
      */
     function status($id)
     {
-        return \Models\Admin\User::getInstance()->status($id);
+        $count = \Models\Admin\User::getInstance()->status($id);
+        if ($count) {
+            $this->bumpUserCacheForUser($id);
+        }
+        return $count;
     }
     
     /**
@@ -143,7 +234,13 @@ class User extends \Gene\Service
      */
     function del($id)
     {
-        return \Models\Admin\User::getInstance()->del($id);
+        $model = \Models\Admin\User::getInstance();
+        $loginName = $model->userNameById($id);
+        $count = $model->del($id);
+        if ($count) {
+            $this->bumpUserCacheDeleted($id, $loginName);
+        }
+        return $count;
     }
 
     /**
@@ -154,7 +251,17 @@ class User extends \Gene\Service
      */
     function delAll($id_arr)
     {
-        return \Models\Admin\User::getInstance()->delAll($id_arr);
+        $model = \Models\Admin\User::getInstance();
+        $loginNames = $model->userNamesByIds($id_arr);
+        $count = $model->delAll($id_arr);
+        if ($count) {
+            $ver = ['db.sys_user.user_id' => $id_arr];
+            if ($loginNames) {
+                $ver['db.sys_user.user_name'] = count($loginNames) === 1 ? $loginNames[0] : $loginNames;
+            }
+            $this->cache->updateVersion($ver);
+        }
+        return $count;
     }
     
     /**
