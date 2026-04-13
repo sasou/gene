@@ -28,11 +28,16 @@ $config->set("validate", [
 //   - 1: Fast (FNV-1a 64位) - 16位十六进制字符串，速度最快（推荐高性能场景）
 //   - 2: Raw (Base64) - 可变长度，速度最快但键较长
 $config->set("session", [
-    'class' => '\Ext\Session',
+    'class' => '\Gene\Session',
     'params' => [[
     'driver' => "memcache",
-    'hash_mode' => 0,  // 默认使用 MD5，可改为 1 或 2 以提升性能
+    'prefix' => 'memc.sess.key.',
+    'name' => 'SSID',
+    'domain' => '',
+    'path' => '/',
+    'hash_mode' => 1,  // 默认使用 MD5，可改为 1 或 2 以提升性能
         ]],
+    'instance' => false
 ]);
 
 //Redis类注入配置
