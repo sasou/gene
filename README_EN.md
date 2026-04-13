@@ -4,7 +4,7 @@
 
 **A high-performance PHP extension framework developed in C**
 
-[![Version](https://img.shields.io/badge/version-5.4.6-blue.svg)](https://github.com/sasou/php-gene)
+[![Version](https://img.shields.io/badge/version-5.5.0-blue.svg)](https://github.com/sasou/php-gene)
 [![License](https://img.shields.io/badge/license-PHP%203.01-green.svg)](http://www.php.net/license/3_01.txt)
 [![Website](https://img.shields.io/badge/website-1xm.net-orange.svg)](https://www.1xm.net/)
 
