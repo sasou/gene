@@ -1149,12 +1149,13 @@ PHP_METHOD(gene_cache, cachedVersion)
 				zval_ptr_dtor(&key);
 				RETURN_ZVAL(&cur_data, 1, 1);
 			}
-			Z_TRY_ADDREF_P(cacheData);
+			zval saved_data;
+			ZVAL_COPY(&saved_data, cacheData);
 			zval_ptr_dtor(&cache);
 			zval_ptr_dtor(&cache_key);
 			zval_ptr_dtor(&cur_version);
 			zval_ptr_dtor(&key);
-			RETURN_ZVAL(cacheData, 1, 1);
+			RETURN_ZVAL(&saved_data, 0, 1);
 		} else {
 			zval data_new,cur_data,cur_version;
 			gene_cache_call(obj, args, &cur_data);
@@ -1233,12 +1234,13 @@ PHP_METHOD(gene_cache, localCachedVersion)
 			zval_ptr_dtor(&cache);
 			RETURN_ZVAL(&cur_data, 1, 1);
 		}
-		Z_TRY_ADDREF_P(cacheData);
+		zval saved_data;
+		ZVAL_COPY(&saved_data, cacheData);
 		zval_ptr_dtor(&key);
 		zval_ptr_dtor(&cache);
 		zval_ptr_dtor(&cache_key);
 		zval_ptr_dtor(&cur_version);
-		RETURN_ZVAL(cacheData, 1, 1);
+		RETURN_ZVAL(&saved_data, 0, 1);
 	} else {
 		zval data_new,cur_data;
 		gene_cache_call(obj, args, &cur_data);
