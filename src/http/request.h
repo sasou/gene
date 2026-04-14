@@ -10,7 +10,7 @@
  | obtain it through the world-wide-web, please send a note to          |
  | license@php.net so we can mail you a copy immediately.               |
  +----------------------------------------------------------------------+
- | Author: Sasou  <admin@php-gene.com> web:www.php-gene.com             |
+ | Author: Sasou  <zohocodes@outlook.com> web:www.1xm.net             |
  +----------------------------------------------------------------------+
  */
 
@@ -23,16 +23,12 @@ zval *getVal(zend_ulong type, char *name, size_t len);
 
 #define GENE_REQUEST_IS_METHOD(ce, x) \
 PHP_METHOD(ce, is##x) {\
-	zend_string *me;\
 	if (!GENE_REQ(method)) { \
 		RETURN_FALSE; \
 	} \
-	me = zend_string_init(GENE_REQ(method), strlen(GENE_REQ(method))+1, 0);\
-	if (strncasecmp(#x, ZSTR_VAL(me), ZSTR_LEN(me)) == 0) { \
-		zend_string_release(me);\
+	if (strcasecmp(#x, GENE_REQ(method)) == 0) { \
 		RETURN_TRUE; \
 	} \
-	zend_string_release(me);\
 	RETURN_FALSE; \
 }
 

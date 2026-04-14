@@ -153,97 +153,113 @@ void reset_params(zval *self)
 	zval_ptr_dtor(&closure_tmp);
 }
 
-void gene_explode(char const *separator_str, char *string_str, zval *retval) /*{{{*/
+static void gene_split_comma(const char *str, size_t str_len, zval *retval) /*{{{*/
 {
-    zval function_name, separator, string;
-    ZVAL_STRING(&function_name, "explode");
-    ZVAL_STRING(&separator, separator_str);
-    ZVAL_STRING(&string, string_str);
-	zval params[] = { separator, string };
-    call_user_function(NULL, NULL, &function_name, retval, 2, params);
-    zval_ptr_dtor(&function_name);
-    zval_ptr_dtor(&separator);
-    zval_ptr_dtor(&string);
+	array_init(retval);
+	const char *start = str;
+	const char *end = str + str_len;
+	const char *p = str;
+	while (p < end) {
+		if (*p == ',') {
+			add_next_index_stringl(retval, start, p - start);
+			start = p + 1;
+		}
+		p++;
+	}
+	add_next_index_stringl(retval, start, end - start);
 }/*}}}*/
 
 void gene_vsprintf(char *msg, zval *args, zval *retval) /*{{{*/
 {
-    zval function_name, strings;
-    ZVAL_STRING(&function_name, "vsprintf");
-    ZVAL_STRING(&strings, msg);
+	static zend_function *fn = NULL;
+	if (UNEXPECTED(!fn)) {
+		fn = zend_hash_str_find_ptr(CG(function_table), ZEND_STRL("vsprintf"));
+	}
+	zval strings;
+	ZVAL_STRING(&strings, msg);
 	zval params[] = { strings, *args };
-    call_user_function(NULL, NULL, &function_name, retval, 2, params);
-    zval_ptr_dtor(&function_name);
-    zval_ptr_dtor(&strings);
+	zend_call_known_function(fn, NULL, NULL, retval, 2, params, NULL);
+	zval_ptr_dtor(&strings);
 }/*}}}*/
 
 void gene_preg_match(zval *regex, zval *val, zval *retval) /*{{{*/
 {
-	zval function_name;
-	ZVAL_STRING(&function_name, "preg_match");
+	static zend_function *fn = NULL;
+	if (UNEXPECTED(!fn)) {
+		fn = zend_hash_str_find_ptr(CG(function_table), ZEND_STRL("preg_match"));
+	}
 	zval params[] = { *regex, *val };
-	call_user_function(NULL, NULL, &function_name, retval, 2, params);
-	zval_ptr_dtor(&function_name);
+	zend_call_known_function(fn, NULL, NULL, retval, 2, params, NULL);
 }/*}}}*/
 
 void gene_mb_strlen(zval *val, char *bm, zval *retval) /*{{{*/
 {
-	zval function_name,bm_z;
-	ZVAL_STRING(&function_name, "mb_strlen");
+	static zend_function *fn = NULL;
+	if (UNEXPECTED(!fn)) {
+		fn = zend_hash_str_find_ptr(CG(function_table), ZEND_STRL("mb_strlen"));
+	}
+	if (UNEXPECTED(!fn)) {
+		ZVAL_LONG(retval, 0);
+		return;
+	}
+	zval bm_z;
 	ZVAL_STRING(&bm_z, bm);
 	zval params[] = { *val, bm_z };
-	call_user_function(NULL, NULL, &function_name, retval, 2, params);
-	zval_ptr_dtor(&function_name);
+	zend_call_known_function(fn, NULL, NULL, retval, 2, params, NULL);
 	zval_ptr_dtor(&bm_z);
 }/*}}}*/
 
 void gene_in_array(zval *in, zval *array, zval *retval) /*{{{*/
 {
-	zval function_name;
-	ZVAL_STRING(&function_name, "in_array");
+	static zend_function *fn = NULL;
+	if (UNEXPECTED(!fn)) {
+		fn = zend_hash_str_find_ptr(CG(function_table), ZEND_STRL("in_array"));
+	}
 	zval params[] = { *in, *array };
-	call_user_function(NULL, NULL, &function_name, retval, 2, params);
-	zval_ptr_dtor(&function_name);
+	zend_call_known_function(fn, NULL, NULL, retval, 2, params, NULL);
 }/*}}}*/
 
 void gene_preg_match_str(char *regexStr, zval *val, zval *retval) /*{{{*/
 {
-	zval function_name, regex;
-	ZVAL_STRING(&function_name, "preg_match");
+	static zend_function *fn = NULL;
+	if (UNEXPECTED(!fn)) {
+		fn = zend_hash_str_find_ptr(CG(function_table), ZEND_STRL("preg_match"));
+	}
+	zval regex;
 	ZVAL_STRING(&regex, regexStr);
 	zval params[] = { regex, *val };
-	call_user_function(NULL, NULL, &function_name, retval, 2, params);
-	zval_ptr_dtor(&function_name);
+	zend_call_known_function(fn, NULL, NULL, retval, 2, params, NULL);
 	zval_ptr_dtor(&regex);
 }/*}}}*/
 
 void gene_date(zval *format, zval *time, zval *retval) /*{{{*/
 {
-	zval function_name;
-	ZVAL_STRING(&function_name, "date");
+	static zend_function *fn = NULL;
+	if (UNEXPECTED(!fn)) {
+		fn = zend_hash_str_find_ptr(CG(function_table), ZEND_STRL("date"));
+	}
 	zval params[] = { *format, *time };
-	call_user_function(NULL, NULL, &function_name, retval, 2, params);
-	zval_ptr_dtor(&function_name);
+	zend_call_known_function(fn, NULL, NULL, retval, 2, params, NULL);
 }/*}}}*/
 
 
 void gene_filter(zval *value, zend_long filter_l, zend_long options_l, zval *retval) /*{{{*/
 {
-	zval function_name, filter;
-	ZVAL_STRING(&function_name, "filter_var");
+	static zend_function *fn = NULL;
+	if (UNEXPECTED(!fn)) {
+		fn = zend_hash_str_find_ptr(CG(function_table), ZEND_STRL("filter_var"));
+	}
+	zval filter;
 	ZVAL_LONG(&filter, filter_l);
 	if (options_l > 0) {
 		zval options;
 		ZVAL_LONG(&options, options_l);
 		zval params[] = { *value, filter, options };
-		call_user_function(NULL, NULL, &function_name, retval, 3, params);
-		zval_ptr_dtor(&options);
+		zend_call_known_function(fn, NULL, NULL, retval, 3, params, NULL);
 	} else {
 		zval params[] = { *value, filter };
-		call_user_function(NULL, NULL, &function_name, retval, 2, params);
+		zend_call_known_function(fn, NULL, NULL, retval, 2, params, NULL);
 	}
-	zval_ptr_dtor(&function_name);
-	zval_ptr_dtor(&filter);
 }/*}}}*/
 
 
@@ -282,7 +298,6 @@ int required (zval *self){
 }
 
 int compareSizeMax(zval *val, zend_long max) {
-	zval a_new;
 	switch(Z_TYPE_P(val)) {
 	case IS_LONG:
 		if (Z_LVAL_P(val) <= max) {
@@ -300,13 +315,12 @@ int compareSizeMax(zval *val, zend_long max) {
 		}
 		break;
 	case IS_STRING:
-		ZVAL_STRING(&a_new, Z_STRVAL_P(val));
-		convert_to_long(&a_new);
-		if (Z_LVAL(a_new) <= max) {
-			zval_ptr_dtor(&a_new);
-			return 1;
+		{
+			zend_long lval = ZEND_STRTOL(Z_STRVAL_P(val), NULL, 10);
+			if (lval <= max) {
+				return 1;
+			}
 		}
-		zval_ptr_dtor(&a_new);
 		break;
 	default:
 		if (0 <= max) {
@@ -318,7 +332,6 @@ int compareSizeMax(zval *val, zend_long max) {
 }
 
 int compareSizeMin(zval *val, zend_long min) {
-	zval a_new;
 	switch(Z_TYPE_P(val)) {
 	case IS_LONG:
 		if (Z_LVAL_P(val) >= min) {
@@ -336,13 +349,12 @@ int compareSizeMin(zval *val, zend_long min) {
 		}
 		break;
 	case IS_STRING:
-		ZVAL_STRING(&a_new, Z_STRVAL_P(val));
-		convert_to_long(&a_new);
-		if (Z_LVAL(a_new) >= min) {
-			zval_ptr_dtor(&a_new);
-			return 1;
+		{
+			zend_long lval = ZEND_STRTOL(Z_STRVAL_P(val), NULL, 10);
+			if (lval >= min) {
+				return 1;
+			}
 		}
-		zval_ptr_dtor(&a_new);
 		break;
 	default:
 		if (0 >= min) {
@@ -456,7 +468,7 @@ PHP_METHOD(gene_validate, filter)
 	}
 
 	zval fieldArr;
-	gene_explode(",", Z_STRVAL_P(key), &fieldArr);
+	gene_split_comma(Z_STRVAL_P(key), Z_STRLEN_P(key), &fieldArr);
 	if (Z_TYPE(fieldArr) == IS_ARRAY) {
 		zval *val = NULL, *key_one = NULL;
 		data = zend_read_property(gene_validate_ce, gene_strip_obj(self), ZEND_STRL(GENE_VALIDATE_DATA), 1, NULL);
@@ -633,20 +645,41 @@ PHP_METHOD(gene_validate, msg)
 }
 /* }}} */
 
+typedef struct { const char *name; const char *desc; } gene_validate_msg_entry;
+static const gene_validate_msg_entry gene_validate_msgs[] = {
+	{"date",     "Please input the correct date"},
+	{"datetime", "Please input the correct time"},
+	{"digit",    "Please enter a string Numbers"},
+	{"email",    "Please enter the correct email address"},
+	{"equal",    "Please enter the same value as %s"},
+	{"equals",   "Please enter a same value"},
+	{"in",       "The field value is not allowed within the input range"},
+	{"int",      "Please enter an integer"},
+	{"ip",       "Please input the correct IP address"},
+	{"length",   "The length of the string of mistakes"},
+	{"match",    "Value is not in conformity with the regular expression"},
+	{"max",      "Please enter a value less than %s"},
+	{"min",      "Please enter a value greater than %s"},
+	{"mobile",   "Please enter the correct phone number"},
+	{"number",   "Please enter the Numbers"},
+	{"range",    "Please input greater than %s, less than the value of %s"},
+	{"required", "This field is required"},
+	{"size",     "The array size error"},
+	{"string",   "Please enter a string"},
+	{"url",      "Please input the correct url"},
+};
+#define GENE_VALIDATE_MSG_COUNT (sizeof(gene_validate_msgs) / sizeof(gene_validate_msgs[0]))
+
 char *getErrorMsg(char *method) {
-    char* names[]={"required","match","min","max","range","length","size","in","url","email","ip","mobile","date","datetime","int","number","digit","string","equal","equals"};
-    char* descs[]={"This field is required","Value is not in conformity with the regular expression","Please enter a value greater than %s","Please enter a value less than %s",
-    		"Please input greater than %s, less than the value of %s","The length of the string of mistakes","The array size error",
-    		"The field value is not allowed within the input range","Please input the correct url","Please enter the correct email address",
-			"Please input the correct IP address","Please enter the correct phone number","Please input the correct date","Please input the correct time",
-			"Please enter an integer","Please enter the Numbers","Please enter a string Numbers","Please enter a string","Please enter the same value as %s","Please enter a same value"};
-	int i = 0;
-    for (i = 0; i < 19; i++) {
-		if (strcmp(names[i], method) == 0) {
-			break;
-		}
+	int lo = 0, hi = GENE_VALIDATE_MSG_COUNT - 1;
+	while (lo <= hi) {
+		int mid = (lo + hi) >> 1;
+		int cmp = strcmp(method, gene_validate_msgs[mid].name);
+		if (cmp == 0) return (char *)gene_validate_msgs[mid].desc;
+		if (cmp < 0) hi = mid - 1;
+		else lo = mid + 1;
 	}
-    return descs[i];
+	return "Validation error";
 }
 
 int validCheck(zval *self, zval *date_field, zval *rules, int is_group) {
@@ -769,7 +802,7 @@ PHP_METHOD(gene_validate, valid)
 
 		ZEND_HASH_FOREACH_STR_KEY_VAL_IND(Z_ARRVAL_P(config), key, rules) {
 			zval fieldArr;
-			gene_explode(",", ZSTR_VAL(key), &fieldArr);
+				gene_split_comma(ZSTR_VAL(key), ZSTR_LEN(key), &fieldArr);
 			if (Z_TYPE(fieldArr) == IS_ARRAY) {
 				zval *v = NULL;
 				ZEND_HASH_FOREACH_VAL(Z_ARRVAL(fieldArr), v) {
@@ -808,7 +841,7 @@ PHP_METHOD(gene_validate, groupValid)
 
 		ZEND_HASH_FOREACH_STR_KEY_VAL_IND(Z_ARRVAL_P(config), key, rules) {
 			zval fieldArr;
-			gene_explode(",", ZSTR_VAL(key), &fieldArr);
+				gene_split_comma(ZSTR_VAL(key), ZSTR_LEN(key), &fieldArr);
 			if (Z_TYPE(fieldArr) == IS_ARRAY) {
 				zval *v = NULL;
 				ZEND_HASH_FOREACH_VAL(Z_ARRVAL(fieldArr), v) {
@@ -1313,13 +1346,16 @@ PHP_METHOD(gene_validate, rule_number)
 		RETURN_FALSE;
 	}
 
-	zval ret;
-	gene_factory_call_2("is_numeric", val, &ret);
-	if (Z_TYPE(ret) == IS_TRUE) {
-		zval_ptr_dtor(&ret);
+	if (Z_TYPE_P(val) == IS_LONG || Z_TYPE_P(val) == IS_DOUBLE) {
 		RETURN_TRUE;
 	}
-	zval_ptr_dtor(&ret);
+	if (Z_TYPE_P(val) == IS_STRING) {
+		zend_long lval;
+		double dval;
+		if (is_numeric_string(Z_STRVAL_P(val), Z_STRLEN_P(val), &lval, &dval, 0) != 0) {
+			RETURN_TRUE;
+		}
+	}
 	RETURN_FALSE;
 }
 /* }}} */
@@ -1335,13 +1371,9 @@ PHP_METHOD(gene_validate, rule_int)
 		RETURN_FALSE;
 	}
 
-	zval ret;
-	gene_factory_call_2("is_int", val, &ret);
-	if (Z_TYPE(ret) == IS_TRUE) {
-		zval_ptr_dtor(&ret);
+	if (Z_TYPE_P(val) == IS_LONG) {
 		RETURN_TRUE;
 	}
-	zval_ptr_dtor(&ret);
 	RETURN_FALSE;
 }
 /* }}} */
@@ -1356,22 +1388,19 @@ PHP_METHOD(gene_validate, rule_digit)
 	if ((val = getFieldVal(self)) == NULL) {
 		RETURN_FALSE;
 	}
-	zval ret1;
-	gene_factory_call_2("is_int", val, &ret1);
-	if (Z_TYPE(ret1) == IS_TRUE) {
-		zval_ptr_dtor(&ret1);
+
+	if (Z_TYPE_P(val) == IS_LONG) {
 		RETURN_TRUE;
 	}
-	zval_ptr_dtor(&ret1);
-
-	if (Z_TYPE_P(val) == IS_STRING) {
-		zval ret2;
-		gene_factory_call_2("ctype_digit", val, &ret2);
-		if (Z_TYPE(ret2) == IS_TRUE) {
-			zval_ptr_dtor(&ret2);
-			RETURN_TRUE;
+	if (Z_TYPE_P(val) == IS_STRING && Z_STRLEN_P(val) > 0) {
+		const char *s = Z_STRVAL_P(val);
+		size_t i;
+		for (i = 0; i < Z_STRLEN_P(val); i++) {
+			if (s[i] < '0' || s[i] > '9') {
+				RETURN_FALSE;
+			}
 		}
-		zval_ptr_dtor(&ret2);
+		RETURN_TRUE;
 	}
 	RETURN_FALSE;
 }
@@ -1387,13 +1416,10 @@ PHP_METHOD(gene_validate, rule_string)
 	if ((val = getFieldVal(self)) == NULL) {
 		RETURN_FALSE;
 	}
-	zval ret;
-	gene_factory_call_2("is_string", val, &ret);
-	if (Z_TYPE(ret) == IS_TRUE) {
-		zval_ptr_dtor(&ret);
+
+	if (Z_TYPE_P(val) == IS_STRING) {
 		RETURN_TRUE;
 	}
-	zval_ptr_dtor(&ret);
 	RETURN_FALSE;
 }
 /* }}} */

@@ -10,7 +10,7 @@
  | obtain it through the world-wide-web, please send a note to          |
  | license@php.net so we can mail you a copy immediately.               |
  +----------------------------------------------------------------------+
- | Author: Sasou  <admin@php-gene.com> web:www.php-gene.com             |
+ | Author: Sasou  <zohocodes@outlook.com> web:www.1xm.net             |
  +----------------------------------------------------------------------+
  */
 
@@ -189,9 +189,8 @@ PHP_METHOD(gene_model, getInstance)
 	}
 	zend_string *cn = gene_get_class_name_fast();
 	if (!cn) { RETURN_NULL(); }
-	ZVAL_STR_COPY(&class_name_zval, cn);
+	ZVAL_STR(&class_name_zval, cn);
 	zval *ret = gene_class_instance(&obj, &class_name_zval, params);
-	zval_ptr_dtor(&class_name_zval);
 	if (ret) {
 		RETURN_ZVAL(ret, 1, 0);
 	}

@@ -10,7 +10,7 @@
  | obtain it through the world-wide-web, please send a note to          |
  | license@php.net so we can mail you a copy immediately.               |
  +----------------------------------------------------------------------+
- | Author: Sasou  <admin@php-gene.com> web:www.php-gene.com             |
+ | Author: Sasou  <zohocodes@outlook.com> web:www.1xm.net             |
  +----------------------------------------------------------------------+
  */
 
@@ -192,8 +192,10 @@ void gene_response_cookie(zval *name, zval *value, zval *expires, zval *path, zv
 		zval_ptr_dtor(&method);
 		return;
 	}
-    zval function_name;
-    ZVAL_STRING(&function_name, "setcookie");
+    static zend_function *fn = NULL;
+    if (UNEXPECTED(!fn)) {
+        fn = zend_hash_str_find_ptr(CG(function_table), ZEND_STRL("setcookie"));
+    }
     zval params[7];
     int num = 1;
     params[0] = *name;
@@ -221,8 +223,7 @@ void gene_response_cookie(zval *name, zval *value, zval *expires, zval *path, zv
     	num = 7;
         params[6] = *httponly;
     }
-    call_user_function(NULL, NULL, &function_name, retval, num, params);
-    zval_ptr_dtor(&function_name);
+    zend_call_known_function(fn, NULL, NULL, retval, num, params, NULL);
 }/*}}}*/
 
 /*

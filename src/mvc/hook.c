@@ -10,7 +10,7 @@
  | obtain it through the world-wide-web, please send a note to          |
  | license@php.net so we can mail you a copy immediately.               |
  +----------------------------------------------------------------------+
- | Author: Sasou  <admin@php-gene.com> web:www.php-gene.com             |
+ | Author: Sasou  <zohocodes@outlook.com> web:www.1xm.net             |
  +----------------------------------------------------------------------+
  */
 
@@ -23,7 +23,6 @@
 #include "main/SAPI.h"
 #include "Zend/zend_API.h"
 #include "zend_exceptions.h"
-#include "Zend/zend_smart_str.h"
 #include "Zend/zend_interfaces.h"
 
 #include "../gene.h"

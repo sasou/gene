@@ -427,66 +427,99 @@ ZEND_END_ARG_INFO()
 
 void gene_cache_get(zval *object, zval *key, zval *retval) /*{{{*/
 {
-	 zval function_name;
-	 ZVAL_STR(&function_name, zend_string_copy(gene_cache_method_get_name()));
+	zend_string *method = gene_cache_method_get_name();
+	zend_function *fn = zend_hash_find_ptr(&Z_OBJCE_P(object)->function_table, method);
 	zval params[] = { *key };
-	 call_user_function(NULL, object, &function_name, retval, 1, params);
-	 zval_ptr_dtor(&function_name);
+	if (EXPECTED(fn)) {
+		zend_call_known_function(fn, Z_OBJ_P(object), Z_OBJCE_P(object), retval, 1, params, NULL);
+	} else {
+		zval function_name;
+		ZVAL_STR(&function_name, zend_string_copy(method));
+		call_user_function(NULL, object, &function_name, retval, 1, params);
+		zval_ptr_dtor(&function_name);
+	}
 }/*}}}*/
 
 void gene_cache_set(zval *object, zval *key, zval *value, zval *ttl, zval *retval) /*{{{*/
 {
-	 zval function_name;
-	 ZVAL_STR(&function_name, zend_string_copy(gene_cache_method_set_name()));
-	zval params[] = { *key,*value,*ttl };
-	 call_user_function(NULL, object, &function_name, retval, 3, params);
-	 zval_ptr_dtor(&function_name);
+	zend_string *method = gene_cache_method_set_name();
+	zend_function *fn = zend_hash_find_ptr(&Z_OBJCE_P(object)->function_table, method);
+	zval params[] = { *key, *value, *ttl };
+	if (EXPECTED(fn)) {
+		zend_call_known_function(fn, Z_OBJ_P(object), Z_OBJCE_P(object), retval, 3, params, NULL);
+	} else {
+		zval function_name;
+		ZVAL_STR(&function_name, zend_string_copy(method));
+		call_user_function(NULL, object, &function_name, retval, 3, params);
+		zval_ptr_dtor(&function_name);
+	}
 }/*}}}*/
 
 void gene_cache_incr(zval *object, zval *key, zval *val, zval *retval) /*{{{*/
 {
-	 zval function_name;
-	 ZVAL_STR(&function_name, zend_string_copy(gene_cache_method_incr_name()));
+	zend_string *method = gene_cache_method_incr_name();
+	zend_function *fn = zend_hash_find_ptr(&Z_OBJCE_P(object)->function_table, method);
 	zval params[] = { *key, *val };
-	 call_user_function(NULL, object, &function_name, retval, 2, params);
-	 zval_ptr_dtor(&function_name);
+	if (EXPECTED(fn)) {
+		zend_call_known_function(fn, Z_OBJ_P(object), Z_OBJCE_P(object), retval, 2, params, NULL);
+	} else {
+		zval function_name;
+		ZVAL_STR(&function_name, zend_string_copy(method));
+		call_user_function(NULL, object, &function_name, retval, 2, params);
+		zval_ptr_dtor(&function_name);
+	}
 }/*}}}*/
 
 void gene_cache_del(zval *object, zval *key, zval *retval) /*{{{*/
 {
-	 zval function_name;
-	 ZVAL_STR(&function_name, zend_string_copy(gene_cache_method_delete_name()));
+	zend_string *method = gene_cache_method_delete_name();
+	zend_function *fn = zend_hash_find_ptr(&Z_OBJCE_P(object)->function_table, method);
 	zval params[] = { *key };
-	 call_user_function(NULL, object, &function_name, retval, 1, params);
-	 zval_ptr_dtor(&function_name);
+	if (EXPECTED(fn)) {
+		zend_call_known_function(fn, Z_OBJ_P(object), Z_OBJCE_P(object), retval, 1, params, NULL);
+	} else {
+		zval function_name;
+		ZVAL_STR(&function_name, zend_string_copy(method));
+		call_user_function(NULL, object, &function_name, retval, 1, params);
+		zval_ptr_dtor(&function_name);
+	}
 }/*}}}*/
 
 void gene_apcu_store(zval *key, zval *value, zval *ttl, zval *retval) /*{{{*/
 {
-	 zval function_name;
-	 ZVAL_STR(&function_name, zend_string_copy(gene_cache_function_apcu_store_name()));
-	 zval params[] = { *key, *value, *ttl };
-	 call_user_function(NULL, NULL, &function_name, retval, 3, params);
-	 zval_ptr_dtor(&function_name);
+	zend_string *name = gene_cache_function_apcu_store_name();
+	zend_function *fn = zend_hash_find_ptr(CG(function_table), name);
+	zval params[] = { *key, *value, *ttl };
+	if (EXPECTED(fn)) {
+		zend_call_known_function(fn, NULL, NULL, retval, 3, params, NULL);
+	} else {
+		ZVAL_FALSE(retval);
+	}
 }/*}}}*/
 
 
 void gene_apcu_fetch(zval *key, zval *retval) /*{{{*/
 {
-	 zval function_name;
-	 ZVAL_STR(&function_name, zend_string_copy(gene_cache_function_apcu_fetch_name()));
-	 zval params[] = { *key };
-	 call_user_function(NULL, NULL, &function_name, retval, 1, params);
-	 zval_ptr_dtor(&function_name);
+	zend_string *name = gene_cache_function_apcu_fetch_name();
+	zend_function *fn = zend_hash_find_ptr(CG(function_table), name);
+	zval params[] = { *key };
+	if (EXPECTED(fn)) {
+		zend_call_known_function(fn, NULL, NULL, retval, 1, params, NULL);
+	} else {
+		ZVAL_FALSE(retval);
+	}
 }/*}}}*/
 
 void gene_apcu_del(zval *key, zval *retval) /*{{{*/
 {
-	 zval function_name;
-	 ZVAL_STR(&function_name, zend_string_copy(gene_cache_function_apcu_delete_name()));
+	zend_string *name = gene_cache_function_apcu_delete_name();
+	zend_function *fn = zend_hash_find_ptr(CG(function_table), name);
 	zval params[] = { *key };
-	 call_user_function(NULL, NULL, &function_name, retval, 1, params);
-	 zval_ptr_dtor(&function_name);
+	if (EXPECTED(fn)) {
+		zend_call_known_function(fn, NULL, NULL, retval, 1, params, NULL);
+	} else {
+		ZVAL_FALSE(retval);
+	}
 }/*}}}*/
 
 /* hash_mode: 0=MD5 (default), 1=fast FNV-1a, 2=xxHash64, 3=FarmHash64, 4=MurmurHash3, 5=TurboHash32 */

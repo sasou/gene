@@ -10,7 +10,7 @@
  | obtain it through the world-wide-web, please send a note to          |
  | license@php.net so we can mail you a copy immediately.               |
  +----------------------------------------------------------------------+
- | Author: Sasou  <admin@php-gene.com> web:www.php-gene.com             |
+ | Author: Sasou  <zohocodes@outlook.com> web:www.1xm.net             |
  +----------------------------------------------------------------------+
  */
 
@@ -53,88 +53,88 @@ ZEND_BEGIN_ARG_INFO_EX(gene_exception_do_error, 0, 0, 2)
 ZEND_END_ARG_INFO()
 
 
+static inline void gene_exception_call_method(zval *object, const char *name, size_t name_len, zval *retval) /*{{{*/
+{
+	zend_function *fn = zend_hash_str_find_ptr(&Z_OBJCE_P(object)->function_table, name, name_len);
+	if (EXPECTED(fn)) {
+		zend_call_known_function(fn, Z_OBJ_P(object), Z_OBJCE_P(object), retval, 0, NULL, NULL);
+	} else {
+		ZVAL_NULL(retval);
+	}
+}/*}}}*/
+
 void gene_exception_getCode(zval *object, zval *retval) /*{{{*/
 {
-    zval function_name;
-    ZVAL_STRING(&function_name, "getCode");
-    call_user_function(NULL, object, &function_name, retval, 0, NULL);
-    zval_ptr_dtor(&function_name);
+	gene_exception_call_method(object, ZEND_STRL("getcode"), retval);
 }/*}}}*/
 
 void gene_exception_getLine(zval *object, zval *retval) /*{{{*/
 {
-    zval function_name;
-    ZVAL_STRING(&function_name, "getLine");
-    call_user_function(NULL, object, &function_name, retval, 0, NULL);
-    zval_ptr_dtor(&function_name);
+	gene_exception_call_method(object, ZEND_STRL("getline"), retval);
 }/*}}}*/
 
 void gene_exception_getFile(zval *object, zval *retval) /*{{{*/
 {
-    zval function_name;
-    ZVAL_STRING(&function_name, "getFile");
-    call_user_function(NULL, object, &function_name, retval, 0, NULL);
-    zval_ptr_dtor(&function_name);
+	gene_exception_call_method(object, ZEND_STRL("getfile"), retval);
 }/*}}}*/
 
 void gene_exception_getMessage(zval *object, zval *retval) /*{{{*/
 {
-    zval function_name;
-    ZVAL_STRING(&function_name, "getMessage");
-    call_user_function(NULL, object, &function_name, retval, 0, NULL);
-    zval_ptr_dtor(&function_name);
+	gene_exception_call_method(object, ZEND_STRL("getmessage"), retval);
 }/*}}}*/
 
 void gene_exception_getTrace(zval *object, zval *retval) /*{{{*/
 {
-    zval function_name;
-    ZVAL_STRING(&function_name, "getTrace");
-    call_user_function(NULL, object, &function_name, retval, 0, NULL);
-    zval_ptr_dtor(&function_name);
+	gene_exception_call_method(object, ZEND_STRL("gettrace"), retval);
 }/*}}}*/
 
 static void gene_html_escape(const char *input, zval *retval) /*{{{*/
 {
-    zval function_name, zv_input, zv_flags, zv_encoding;
-    ZVAL_STRING(&function_name, "htmlspecialchars");
+    static zend_function *fn = NULL;
+    if (UNEXPECTED(!fn)) {
+        fn = zend_hash_str_find_ptr(CG(function_table), ZEND_STRL("htmlspecialchars"));
+    }
+    zval zv_input, zv_flags, zv_encoding;
     ZVAL_STRING(&zv_input, input);
     ZVAL_LONG(&zv_flags, 3 /* ENT_QUOTES */);
     ZVAL_STRING(&zv_encoding, "UTF-8");
     zval params[] = { zv_input, zv_flags, zv_encoding };
     ZVAL_UNDEF(retval);
-    call_user_function(NULL, NULL, &function_name, retval, 3, params);
-    zval_ptr_dtor(&function_name);
+    zend_call_known_function(fn, NULL, NULL, retval, 3, params, NULL);
     zval_ptr_dtor(&zv_input);
     zval_ptr_dtor(&zv_encoding);
 }/*}}}*/
 
 void gene_file_codes(zval *file, zval *retval) /*{{{*/
 {
-    zval function_name;
-    ZVAL_STRING(&function_name, "file");
+    static zend_function *fn = NULL;
+    if (UNEXPECTED(!fn)) {
+        fn = zend_hash_str_find_ptr(CG(function_table), ZEND_STRL("file"));
+    }
     zval params[] = { *file };
-    call_user_function(NULL, NULL, &function_name, retval, 1, params);
-    zval_ptr_dtor(&function_name);
+    zend_call_known_function(fn, NULL, NULL, retval, 1, params, NULL);
 }/*}}}*/
 
 void gene_file_gettype(zval *var, zval *retval) /*{{{*/
 {
-    zval function_name;
-    ZVAL_STRING(&function_name, "gettype");
+    static zend_function *fn = NULL;
+    if (UNEXPECTED(!fn)) {
+        fn = zend_hash_str_find_ptr(CG(function_table), ZEND_STRL("gettype"));
+    }
     zval params[] = { *var };
-    call_user_function(NULL, NULL, &function_name, retval, 1, params);
-    zval_ptr_dtor(&function_name);
+    zend_call_known_function(fn, NULL, NULL, retval, 1, params, NULL);
 }/*}}}*/
 
 void gene_file_var_export(zval *var, zval *retval) /*{{{*/
 {
-    zval function_name, arg;
-    ZVAL_STRING(&function_name, "print_r");
+    static zend_function *fn = NULL;
+    if (UNEXPECTED(!fn)) {
+        fn = zend_hash_str_find_ptr(CG(function_table), ZEND_STRL("print_r"));
+    }
+    zval arg;
     ZVAL_TRUE(&arg);
     zval params[] = { *var, arg };
-    call_user_function(NULL, NULL, &function_name, retval, 2, params);
-    zval_ptr_dtor(&function_name);
-    zval_ptr_dtor(&arg);
+    zend_call_known_function(fn, NULL, NULL, retval, 2, params, NULL);
 }/*}}}*/
 
 #define HTML_EXCEPTION_HEADER  \
