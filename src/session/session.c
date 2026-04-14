@@ -312,7 +312,7 @@ ZEND_END_ARG_INFO()
 	return out;
  }
 
-/* hash_mode: 0=MD5 (default), 1=fast FNV-1a, 2=raw/base64-like */
+/* hash_mode: 0=MD5 (default), 1=fast FNV-1a, 2=xxHash64, 3=FarmHash64, 4=MurmurHash3, 5=TurboHash64 */
  static void gene_session_generate_cookie_id(zval *retval, int hash_mode)
  {
 	char seed[96];
@@ -329,8 +329,17 @@ ZEND_END_ARG_INFO()
 		/* Fast mode - FNV-1a 64-bit */
 		gene_hash_fast_buf(seed, seed_len, retval);
 	} else if (hash_mode == 2) {
-		/* Raw mode - base64 encode */
-		gene_hash_raw_buf(seed, seed_len, retval);
+		/* xxHash64 mode */
+		gene_hash_xxhash64_buf(seed, seed_len, retval);
+	} else if (hash_mode == 3) {
+		/* FarmHash64 mode */
+		gene_hash_farmhash64_buf(seed, seed_len, retval);
+	} else if (hash_mode == 4) {
+		/* MurmurHash3 mode */
+		gene_hash_murmur3_32_buf(seed, seed_len, retval);
+	} else if (hash_mode == 5) {
+		/* TurboHash64 mode */
+		gene_hash_turbo_hash64_buf(seed, seed_len, retval);
 	} else {
 		/* Default MD5 mode */
 		PHP_MD5_CTX ctx;
