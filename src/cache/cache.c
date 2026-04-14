@@ -342,16 +342,16 @@ static size_t gene_murmur3_32_write(const char *data, size_t len, char *dst) /*{
 	return 8;
 }/*}}}*/
 
-static size_t gene_turbo_hash64_write(const char *data, size_t len, char *dst) /*{{{*/
+static size_t gene_turbo_hash32_write(const char *data, size_t len, char *dst) /*{{{*/
 {
-	uint64_t hash = gene_turbo_hash64(data, len);
-	gene_u64_to_hex(hash, dst);
-	return 16;
+	uint32_t hash = gene_turbo_hash32(data, len);
+	gene_u32_to_hex(hash, dst);
+	return 8;
 }/*}}}*/
 
 /* Compute hash output length for given mode and input length */
 static inline size_t gene_hash_len(int hash_mode, size_t input_len) {
-	if (hash_mode == 5) return 16; /* TurboHash64 */
+	if (hash_mode == 5) return 8; /* TurboHash32 */
 	if (hash_mode == 4) return 8; /* MurmurHash3 */
 	if (hash_mode == 3) return 16; /* FarmHash64 */
 	if (hash_mode == 2) return 16; /* xxHash64 */
@@ -361,7 +361,7 @@ static inline size_t gene_hash_len(int hash_mode, size_t input_len) {
 
 /* Write hash into dst using given mode. Returns bytes written. */
 static inline size_t gene_hash_write(int hash_mode, const char *data, size_t len, char *dst) {
-	if (hash_mode == 5) return gene_turbo_hash64_write(data, len, dst);
+	if (hash_mode == 5) return gene_turbo_hash32_write(data, len, dst);
 	if (hash_mode == 4) return gene_murmur3_32_write(data, len, dst);
 	if (hash_mode == 3) return gene_farmhash64_write(data, len, dst);
 	if (hash_mode == 2) return gene_xxhash64_write(data, len, dst);
@@ -489,7 +489,7 @@ void gene_apcu_del(zval *key, zval *retval) /*{{{*/
 	 zval_ptr_dtor(&function_name);
 }/*}}}*/
 
-/* hash_mode: 0=MD5 (default), 1=fast FNV-1a, 2=xxHash64, 3=FarmHash64, 4=MurmurHash3, 5=TurboHash64 */
+/* hash_mode: 0=MD5 (default), 1=fast FNV-1a, 2=xxHash64, 3=FarmHash64, 4=MurmurHash3, 5=TurboHash32 */
 void gene_cache_key(zval *sign, int type, zval *object, zval *args, zval *ttl, zval *retval, int hash_mode) /*{{{*/
 {
 	smart_str tmp_s = {0};
@@ -656,7 +656,7 @@ void gene_cache_call(zval *object, zval *args, zval *retval) /*{{{*/
 	}
 }/*}}}*/
 
-/* hash_mode: 0=MD5 (default), 1=fast FNV-1a, 2=xxHash64, 3=FarmHash64, 4=MurmurHash3, 5=TurboHash64 */
+/* hash_mode: 0=MD5 (default), 1=fast FNV-1a, 2=xxHash64, 3=FarmHash64, 4=MurmurHash3, 5=TurboHash32 */
 void makeKey(zval *versionSign, zend_string *id, zval *element, zval *retval, int hash_mode) {
 	char stack_buf[256];
 	char *buf = stack_buf;
