@@ -113,7 +113,6 @@ void gene_factory_call(zval *object, char *action, size_t action_len, zval *para
 
 void gene_factory_function_call(char *action, zval *param_key, zval *param_arr, zval *retval) /*{{{*/
 {
-    zval function_name;
     uint32_t param_count = 0;
 	zval *element;
 	zend_string *key = NULL;
@@ -122,7 +121,6 @@ void gene_factory_function_call(char *action, zval *param_key, zval *param_arr, 
 	uint32_t total;
 	zval *params;
 
-    ZVAL_STRING(&function_name, action);
     if (retval) {
         ZVAL_UNDEF(retval);
     }
@@ -141,9 +139,16 @@ void gene_factory_function_call(char *action, zval *param_key, zval *param_arr, 
     		}
     	}ZEND_HASH_FOREACH_END();
     }
-    call_user_function(NULL, NULL, &function_name, retval, num, params);
+    zend_function *fn = zend_hash_str_find_ptr(CG(function_table), action, strlen(action));
+    if (fn) {
+        zend_call_known_function(fn, NULL, NULL, retval, num, params, NULL);
+    } else {
+        zval function_name;
+        ZVAL_STRING(&function_name, action);
+        call_user_function(NULL, NULL, &function_name, retval, num, params);
+        zval_ptr_dtor(&function_name);
+    }
     efree(params);
-    zval_ptr_dtor(&function_name);
 }/*}}}*/
 
 void gene_factory_function_call_1(zval *function_name, zval *param_key, zval *param_arr, zval *retval) /*{{{*/
@@ -246,19 +251,30 @@ void gene_factory_call_1(zval *object, char *action, size_t action_len, zval *pa
 
 void gene_factory_call_2(char *method, zval *key, zval *retval) /*{{{*/
 {
-    zval function_name;
-    ZVAL_STRING(&function_name, method);
     if (retval) {
         ZVAL_UNDEF(retval);
     }
-    if (key) {
-    	zval params[1];
-    	params[0] = *key;
-        call_user_function(NULL, NULL, &function_name, retval, 1, params);
+    zend_function *fn = zend_hash_str_find_ptr(CG(function_table), method, strlen(method));
+    if (fn) {
+        if (key) {
+            zval params[1];
+            params[0] = *key;
+            zend_call_known_function(fn, NULL, NULL, retval, 1, params, NULL);
+        } else {
+            zend_call_known_function(fn, NULL, NULL, retval, 0, NULL, NULL);
+        }
     } else {
-    	call_user_function(NULL, NULL, &function_name, retval, 0, NULL);
+        zval function_name;
+        ZVAL_STRING(&function_name, method);
+        if (key) {
+            zval params[1];
+            params[0] = *key;
+            call_user_function(NULL, NULL, &function_name, retval, 1, params);
+        } else {
+            call_user_function(NULL, NULL, &function_name, retval, 0, NULL);
+        }
+        zval_ptr_dtor(&function_name);
     }
-    zval_ptr_dtor(&function_name);
 }/*}}}*/
 
 /*
