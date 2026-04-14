@@ -314,47 +314,57 @@ static size_t gene_md5_write(const char *data, size_t len, char *dst) /*{{{*/
 	return 32;
 }/*}}}*/
 
-static const char gene_hex_chars[] = "0123456789abcdef";
-
 static size_t gene_hash_fast_write(const char *data, size_t len, char *dst) /*{{{*/
 {
 	uint64_t hash = gene_fnv1a_64(data, len);
-	int i;
-	for (i = 15; i >= 0; i--) {
-		dst[i] = gene_hex_chars[hash & 0xF];
-		hash >>= 4;
-	}
+	gene_u64_to_hex(hash, dst);
 	return 16;
 }/*}}}*/
 
-static size_t gene_hash_raw_write(const char *data, size_t len, char *dst) /*{{{*/
+static size_t gene_xxhash64_write(const char *data, size_t len, char *dst) /*{{{*/
 {
-	static const char b64[] = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
-	size_t enc_len = ((len + 2) / 3) * 4;
-	size_t i, j;
-	for (i = 0, j = 0; i < len; i += 3, j += 4) {
-		unsigned int a = (unsigned char)data[i];
-		unsigned int b = (i + 1 < len) ? (unsigned char)data[i + 1] : 0;
-		unsigned int c = (i + 2 < len) ? (unsigned char)data[i + 2] : 0;
-		unsigned int triple = (a << 16) | (b << 8) | c;
-		dst[j]     = b64[(triple >> 18) & 0x3F];
-		dst[j + 1] = b64[(triple >> 12) & 0x3F];
-		dst[j + 2] = (i + 1 < len) ? b64[(triple >> 6) & 0x3F] : '=';
-		dst[j + 3] = (i + 2 < len) ? b64[triple & 0x3F] : '=';
-	}
-	return enc_len;
+	uint64_t hash = gene_xxhash64(data, len);
+	gene_u64_to_hex(hash, dst);
+	return 16;
+}/*}}}*/
+
+static size_t gene_farmhash64_write(const char *data, size_t len, char *dst) /*{{{*/
+{
+	uint64_t hash = gene_farmhash64(data, len);
+	gene_u64_to_hex(hash, dst);
+	return 16;
+}/*}}}*/
+
+static size_t gene_murmur3_32_write(const char *data, size_t len, char *dst) /*{{{*/
+{
+	uint32_t hash = gene_murmur3_32(data, len);
+	gene_u32_to_hex(hash, dst);
+	return 8;
+}/*}}}*/
+
+static size_t gene_turbo_hash64_write(const char *data, size_t len, char *dst) /*{{{*/
+{
+	uint64_t hash = gene_turbo_hash64(data, len);
+	gene_u64_to_hex(hash, dst);
+	return 16;
 }/*}}}*/
 
 /* Compute hash output length for given mode and input length */
 static inline size_t gene_hash_len(int hash_mode, size_t input_len) {
-	if (hash_mode == 2) return ((input_len + 2) / 3) * 4;
-	if (hash_mode == 1) return 16;
-	return 32;
+	if (hash_mode == 5) return 16; /* TurboHash64 */
+	if (hash_mode == 4) return 8; /* MurmurHash3 */
+	if (hash_mode == 3) return 16; /* FarmHash64 */
+	if (hash_mode == 2) return 16; /* xxHash64 */
+	if (hash_mode == 1) return 16; /* FNV-1a */
+	return 32; /* MD5 */
 }
 
 /* Write hash into dst using given mode. Returns bytes written. */
 static inline size_t gene_hash_write(int hash_mode, const char *data, size_t len, char *dst) {
-	if (hash_mode == 2) return gene_hash_raw_write(data, len, dst);
+	if (hash_mode == 5) return gene_turbo_hash64_write(data, len, dst);
+	if (hash_mode == 4) return gene_murmur3_32_write(data, len, dst);
+	if (hash_mode == 3) return gene_farmhash64_write(data, len, dst);
+	if (hash_mode == 2) return gene_xxhash64_write(data, len, dst);
 	if (hash_mode == 1) return gene_hash_fast_write(data, len, dst);
 	return gene_md5_write(data, len, dst);
 }
@@ -479,7 +489,7 @@ void gene_apcu_del(zval *key, zval *retval) /*{{{*/
 	 zval_ptr_dtor(&function_name);
 }/*}}}*/
 
-/* hash_mode: 0=MD5 (default), 1=fast FNV-1a, 2=raw base64 */
+/* hash_mode: 0=MD5 (default), 1=fast FNV-1a, 2=xxHash64, 3=FarmHash64, 4=MurmurHash3, 5=TurboHash64 */
 void gene_cache_key(zval *sign, int type, zval *object, zval *args, zval *ttl, zval *retval, int hash_mode) /*{{{*/
 {
 	smart_str tmp_s = {0};
@@ -646,7 +656,7 @@ void gene_cache_call(zval *object, zval *args, zval *retval) /*{{{*/
 	}
 }/*}}}*/
 
-/* hash_mode: 0=MD5 (default), 1=fast FNV-1a, 2=raw base64 */
+/* hash_mode: 0=MD5 (default), 1=fast FNV-1a, 2=xxHash64, 3=FarmHash64, 4=MurmurHash3, 5=TurboHash64 */
 void makeKey(zval *versionSign, zend_string *id, zval *element, zval *retval, int hash_mode) {
 	char stack_buf[256];
 	char *buf = stack_buf;

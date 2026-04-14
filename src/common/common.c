@@ -22,6 +22,7 @@
 #include <stdlib.h>
 #include "php.h"
 #include "php_streams.h"
+#include <stdint.h>
 #include "ext/standard/md5.h"
 #include "string.h"
 #include <ctype.h>
@@ -769,9 +770,10 @@ void gene_md5(zval *value, zval *retval) /*{{{*/
 uint64_t gene_fnv1a_64(const char *data, size_t len) /*{{{*/
 {
 	uint64_t hash = FNV_64_INIT;
-	size_t i;
-	for (i = 0; i < len; i++) {
-		hash ^= (unsigned char)data[i];
+	const unsigned char *p = (const unsigned char *)data;
+	const unsigned char *end = p + len;
+	while (p < end) {
+		hash ^= *p++;
 		hash *= FNV_64_PRIME;
 	}
 	return hash;
@@ -780,14 +782,7 @@ uint64_t gene_fnv1a_64(const char *data, size_t len) /*{{{*/
 void gene_hash_fast_buf(const char *data, size_t len, zval *retval) /*{{{*/
 {
 	uint64_t hash = gene_fnv1a_64(data, len);
-	zend_string *out;
-	char buf[17]; /* 16 hex chars + null */
-	
-	/* Convert to hex string (same format as MD5 but shorter) */
-	snprintf(buf, sizeof(buf), "%016lx", (unsigned long)hash);
-	
-	out = zend_string_init(buf, 16, 0);
-	ZVAL_STR(retval, out);
+	gene_set_u64_hex_result(hash, retval);
 }/*}}}*/
 
 void gene_hash_fast(zval *value, zval *retval) /*{{{*/
@@ -807,51 +802,419 @@ void gene_hash_fast(zval *value, zval *retval) /*{{{*/
 	zval_ptr_dtor(&tmp);
 }/*}}}*/
 
-/* Raw mode: base64-like encoding, fastest but longer key */
-void gene_hash_raw_buf(const char *data, size_t len, zval *retval) /*{{{*/
+static zend_always_inline uint32_t gene_read32le(const void *ptr)
 {
-	/* Use base64 encoding for raw mode - fast and reversible */
-	zend_string *out;
-	unsigned long enc_len;
-	
-	/* Calculate base64 length: ceil(len / 3) * 4 */
-	enc_len = ((len + 2) / 3) * 4;
-	out = zend_string_alloc(enc_len, 0);
-	
-	/* Simple base64 encode */
-	static const char base64_table[] = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
-	unsigned long i, j;
-	for (i = 0, j = 0; i < len; i += 3, j += 4) {
-		unsigned int a = (i < len) ? (unsigned char)data[i] : 0;
-		unsigned int b = (i + 1 < len) ? (unsigned char)data[i + 1] : 0;
-		unsigned int c = (i + 2 < len) ? (unsigned char)data[i + 2] : 0;
-		unsigned int triple = (a << 16) | (b << 8) | c;
-		
-		ZSTR_VAL(out)[j] = base64_table[(triple >> 18) & 0x3F];
-		ZSTR_VAL(out)[j + 1] = base64_table[(triple >> 12) & 0x3F];
-		ZSTR_VAL(out)[j + 2] = (i + 1 < len) ? base64_table[(triple >> 6) & 0x3F] : '=';
-		ZSTR_VAL(out)[j + 3] = (i + 2 < len) ? base64_table[triple & 0x3F] : '=';
+	uint32_t v;
+	memcpy(&v, ptr, sizeof(v));
+	return v;
+}
+
+static zend_always_inline uint64_t gene_read64le(const void *ptr)
+{
+	uint64_t v;
+	memcpy(&v, ptr, sizeof(v));
+	return v;
+}
+
+static zend_always_inline uint64_t gene_rotl64(uint64_t value, int count)
+{
+	return (value << count) | (value >> (64 - count));
+}
+
+static zend_always_inline uint32_t gene_rotl32(uint32_t value, int count)
+{
+	return (value << count) | (value >> (32 - count));
+}
+
+static zend_always_inline uint64_t gene_hash_avalanche64(uint64_t h)
+{
+	h ^= h >> 33;
+	h *= 0xff51afd7ed558ccdULL;
+	h ^= h >> 33;
+	h *= 0xc4ceb9fe1a85ec53ULL;
+	h ^= h >> 33;
+	return h;
+}
+
+static zend_always_inline uint64_t gene_hash_len16_mix(uint64_t u, uint64_t v, uint64_t mul)
+{
+	uint64_t a = (u ^ v) * mul;
+	a ^= a >> 47;
+	uint64_t b = (v ^ a) * mul;
+	b ^= b >> 47;
+	b *= mul;
+	return b;
+}
+
+/* xxHash64 - extremely fast non-cryptographic hash */
+#define XXH_PRIME64_1 11400714785074694791ULL
+#define XXH_PRIME64_2 14029467366897019727ULL
+#define XXH_PRIME64_3 1609587929392839161ULL
+#define XXH_PRIME64_4 9650029242287828579ULL
+#define XXH_PRIME64_5 2870177450012600261ULL
+
+static zend_always_inline uint64_t xxh64_round(uint64_t acc, uint64_t input)
+{
+	acc += input * XXH_PRIME64_2;
+	acc = gene_rotl64(acc, 31);
+	acc *= XXH_PRIME64_1;
+	return acc;
+}
+
+static zend_always_inline uint64_t xxh64_merge_round(uint64_t acc, uint64_t val)
+{
+	val = xxh64_round(0, val);
+	acc ^= val;
+	acc = acc * XXH_PRIME64_1 + XXH_PRIME64_4;
+	return acc;
+}
+
+uint64_t gene_xxhash64(const char *data, size_t len) /*{{{*/
+{
+	const uint8_t *p = (const uint8_t *)data;
+	const uint8_t *end = p + len;
+	uint64_t h64;
+	if (len >= 32) {
+		const uint8_t *limit = end - 32;
+		uint64_t v1 = XXH_PRIME64_1 + XXH_PRIME64_2;
+		uint64_t v2 = XXH_PRIME64_2;
+		uint64_t v3 = 0;
+		uint64_t v4 = 0 - XXH_PRIME64_1;
+		do {
+			v1 = xxh64_round(v1, gene_read64le(p)); p += 8;
+			v2 = xxh64_round(v2, gene_read64le(p)); p += 8;
+			v3 = xxh64_round(v3, gene_read64le(p)); p += 8;
+			v4 = xxh64_round(v4, gene_read64le(p)); p += 8;
+		} while (p <= limit);
+		h64 = gene_rotl64(v1, 1) + gene_rotl64(v2, 7) + gene_rotl64(v3, 12) + gene_rotl64(v4, 18);
+		h64 = xxh64_merge_round(h64, v1);
+		h64 = xxh64_merge_round(h64, v2);
+		h64 = xxh64_merge_round(h64, v3);
+		h64 = xxh64_merge_round(h64, v4);
+	} else {
+		h64 = XXH_PRIME64_5;
 	}
-	ZSTR_VAL(out)[enc_len] = '\0';
-	ZSTR_LEN(out) = enc_len;
-	
-	ZVAL_STR(retval, out);
+	h64 += (uint64_t)len;
+	while (p + 8 <= end) {
+		uint64_t k1 = xxh64_round(0, gene_read64le(p));
+		h64 ^= k1;
+		h64 = gene_rotl64(h64, 27) * XXH_PRIME64_1 + XXH_PRIME64_4;
+		p += 8;
+	}
+	if (p + 4 <= end) {
+		h64 ^= (uint64_t)gene_read32le(p) * XXH_PRIME64_1;
+		h64 = gene_rotl64(h64, 23) * XXH_PRIME64_2 + XXH_PRIME64_3;
+		p += 4;
+	}
+	while (p < end) {
+		h64 ^= ((uint64_t)*p++) * XXH_PRIME64_5;
+		h64 = gene_rotl64(h64, 11) * XXH_PRIME64_1;
+	}
+	h64 ^= h64 >> 33;
+	h64 *= XXH_PRIME64_2;
+	h64 ^= h64 >> 29;
+	h64 *= XXH_PRIME64_3;
+	h64 ^= h64 >> 32;
+	return h64;
 }/*}}}*/
 
-void gene_hash_raw(zval *value, zval *retval) /*{{{*/
+void gene_hash_xxhash64_buf(const char *data, size_t len, zval *retval) /*{{{*/
+{
+	uint64_t hash = gene_xxhash64(data, len);
+	gene_set_u64_hex_result(hash, retval);
+}/*}}}*/
+
+void gene_hash_xxhash64(zval *value, zval *retval) /*{{{*/
 {
 	zval tmp;
 	zend_string *str;
 
 	if (Z_TYPE_P(value) == IS_STRING) {
 		str = Z_STR_P(value);
-		gene_hash_raw_buf(ZSTR_VAL(str), ZSTR_LEN(str), retval);
+		gene_hash_xxhash64_buf(ZSTR_VAL(str), ZSTR_LEN(str), retval);
 		return;
 	}
 	ZVAL_COPY(&tmp, value);
 	convert_to_string(&tmp);
 	str = Z_STR(tmp);
-	gene_hash_raw_buf(ZSTR_VAL(str), ZSTR_LEN(str), retval);
+	gene_hash_xxhash64_buf(ZSTR_VAL(str), ZSTR_LEN(str), retval);
+	zval_ptr_dtor(&tmp);
+}/*}}}*/
+
+/* MurmurHash3 32-bit - fast non-cryptographic hash */
+#define MURMUR3_C1 0xcc9e2d51
+#define MURMUR3_C2 0x1b873593
+#define MURMUR3_R1 15
+#define MURMUR3_R2 13
+#define MURMUR3_M 5
+#define MURMUR3_N 0xe6546b64
+
+uint32_t gene_murmur3_32(const char *data, size_t len) /*{{{*/
+{
+	const uint8_t *p = (const uint8_t *)data;
+	const uint8_t *end = p + (len & ~(size_t)3);
+	uint32_t h1 = 0;
+
+	while (p < end) {
+		uint32_t k1 = gene_read32le(p);
+		k1 *= MURMUR3_C1;
+		k1 = gene_rotl32(k1, MURMUR3_R1);
+		k1 *= MURMUR3_C2;
+		h1 ^= k1;
+		h1 = gene_rotl32(h1, MURMUR3_R2);
+		h1 = h1 * MURMUR3_M + MURMUR3_N;
+		p += 4;
+	}
+
+	uint32_t k1 = 0;
+	switch (len & 3) {
+		case 3: k1 ^= ((uint32_t)p[2]) << 16;
+		case 2: k1 ^= ((uint32_t)p[1]) << 8;
+		case 1: k1 ^= ((uint32_t)p[0]);
+			k1 *= MURMUR3_C1;
+			k1 = gene_rotl32(k1, MURMUR3_R1);
+			k1 *= MURMUR3_C2;
+			h1 ^= k1;
+	}
+
+	h1 ^= (uint32_t)len;
+	h1 ^= h1 >> 16;
+	h1 *= 0x85ebca6b;
+	h1 ^= h1 >> 13;
+	h1 *= 0xc2b2ae35;
+	h1 ^= h1 >> 16;
+	return h1;
+}/*}}}*/
+
+void gene_hash_murmur3_32_buf(const char *data, size_t len, zval *retval) /*{{{*/
+{
+	uint32_t hash = gene_murmur3_32(data, len);
+	gene_set_u32_hex_result(hash, retval);
+}/*}}}*/
+
+void gene_hash_murmur3_32(zval *value, zval *retval) /*{{{*/
+{
+	zval tmp;
+	zend_string *str;
+
+	if (Z_TYPE_P(value) == IS_STRING) {
+		str = Z_STR_P(value);
+		gene_hash_murmur3_32_buf(ZSTR_VAL(str), ZSTR_LEN(str), retval);
+		return;
+	}
+	ZVAL_COPY(&tmp, value);
+	convert_to_string(&tmp);
+	str = Z_STR(tmp);
+	gene_hash_murmur3_32_buf(ZSTR_VAL(str), ZSTR_LEN(str), retval);
+	zval_ptr_dtor(&tmp);
+}/*}}}*/
+
+ /* FarmHash64 - Google's fast hash */
+ #define FARMHASH64_INIT ((uint64_t)0x9E3779B97F4A7C15ULL)
+ #define FARMHASH64_PRIME ((uint64_t)0x9E3779B97F4A7C15ULL)
+ 
+ static zend_always_inline uint64_t farmhash_mix(uint64_t u, uint64_t v) {
+ 	return gene_hash_len16_mix(u, v, 0x9ddfea08eb382d69ULL);
+ }
+ 
+ static zend_always_inline uint64_t farmhash_shift_mix(uint64_t val) {
+ 	return val ^ (val >> 47);
+ }
+ 
+ uint64_t gene_farmhash64(const char *data, size_t len) /*{{{*/
+ {
+ 	const uint8_t *s = (const uint8_t *)data;
+ 	const uint64_t k0 = 0xc3a5c85c97cb3127ULL;
+ 	const uint64_t k1 = 0xb492b66fbe98f273ULL;
+ 	const uint64_t k2 = 0x9ae16a3b2f90404fULL;
+ 	if (len <= 16) {
+ 		if (len >= 8) {
+ 			uint64_t mul = k2 + len * 2;
+ 			uint64_t a = gene_read64le(s) + k2;
+ 			uint64_t b = gene_read64le(s + len - 8);
+ 			uint64_t c = gene_rotl64(b, 37) * mul + a;
+ 			uint64_t d = (gene_rotl64(a, 25) + b) * mul;
+ 			return gene_hash_len16_mix(c, d, mul);
+ 		}
+ 		if (len >= 4) {
+ 			uint64_t mul = k2 + len * 2;
+ 			uint64_t a = gene_read32le(s);
+ 			return gene_hash_len16_mix(len + (a << 3), gene_read32le(s + len - 4), mul);
+ 		}
+ 		if (len > 0) {
+ 			uint64_t a = s[0];
+ 			uint64_t b = s[len >> 1];
+ 			uint64_t c = s[len - 1];
+ 			uint64_t y = a + (b << 8);
+ 			uint64_t z = len + (c << 2);
+ 			return farmhash_shift_mix(y * k2 ^ z * k0) * k2;
+ 		}
+ 		return k2;
+ 	}
+ 	if (len <= 32) {
+ 		uint64_t mul = k2 + len * 2;
+ 		uint64_t a = gene_read64le(s) * k1;
+ 		uint64_t b = gene_read64le(s + 8);
+ 		uint64_t c = gene_read64le(s + len - 8) * mul;
+ 		uint64_t d = gene_read64le(s + len - 16) * k2;
+ 		return gene_hash_len16_mix(gene_rotl64(a + b, 43) + gene_rotl64(c, 30) + d,
+ 				a + gene_rotl64(b + k2, 18) + c, mul);
+ 	}
+ 	if (len <= 64) {
+ 		uint64_t mul = k2 + len * 2;
+ 		uint64_t a = gene_read64le(s) * k2;
+ 		uint64_t b = gene_read64le(s + 8);
+ 		uint64_t c = gene_read64le(s + len - 8) * mul;
+ 		uint64_t d = gene_read64le(s + len - 16) * k2;
+ 		uint64_t y = gene_rotl64(a + b, 43) + gene_rotl64(c, 30) + d;
+ 		uint64_t z = gene_hash_len16_mix(y, a + gene_rotl64(b + k2, 18) + c, mul);
+ 		uint64_t e = gene_read64le(s + 16) * mul;
+ 		uint64_t f = gene_read64le(s + 24);
+ 		uint64_t g = (y + gene_read64le(s + len - 32)) * mul;
+ 		uint64_t h = (z + gene_read64le(s + len - 24)) * mul;
+ 		return gene_hash_len16_mix(gene_rotl64(e + f, 43) + gene_rotl64(g, 30) + h,
+ 				e + gene_rotl64(f + a, 18) + g, mul);
+ 	}
+ 	{
+ 		const uint8_t *p = s;
+ 		const uint8_t *end = s + len;
+ 		uint64_t x = gene_read64le(end - 40);
+ 		uint64_t y = gene_read64le(end - 16) + gene_read64le(end - 56);
+ 		uint64_t z = gene_hash_len16_mix(gene_read64le(end - 48) + len, gene_read64le(end - 24), k2);
+ 		uint64_t v_low = gene_hash_len16_mix(gene_read64le(end - 64) + len, x, k2);
+ 		uint64_t v_high = gene_hash_len16_mix(y + k1, gene_read64le(end - 32), k2);
+ 		uint64_t w_low = gene_hash_len16_mix(gene_read64le(end - 32) + z, gene_read64le(end - 8), k2);
+ 		uint64_t w_high = gene_hash_len16_mix(x + gene_read64le(end - 24), y + gene_read64le(end - 40), k2);
+ 		x = x * k1 + gene_read64le(p);
+ 		len = (len - 1) & ~(size_t)63;
+ 		do {
+ 			x = gene_rotl64(x + y + v_low + gene_read64le(p + 8), 37) * k1;
+ 			y = gene_rotl64(y + v_high + gene_read64le(p + 48), 42) * k1;
+ 			x ^= w_high;
+ 			y += v_low + gene_read64le(p + 40);
+ 			z = gene_rotl64(z + w_low, 33) * k1;
+ 			v_low = gene_hash_len16_mix(gene_read64le(p), v_high + z, k1);
+ 			v_high = gene_hash_len16_mix(gene_read64le(p + 32) + y, x + gene_read64le(p + 16), k1);
+ 			w_low = gene_hash_len16_mix(gene_read64le(p + 32) + w_high, z + gene_read64le(p + 48), k1);
+ 			w_high = gene_hash_len16_mix(x + gene_read64le(p + 24), y + gene_read64le(p + 56), k1);
+ 			{
+ 				uint64_t tmp = x;
+ 				x = z;
+ 				z = tmp;
+ 			}
+ 			p += 64;
+ 			len -= 64;
+ 		} while (len != 0);
+ 		return gene_hash_len16_mix(gene_hash_len16_mix(v_low, w_low, k1) + farmhash_shift_mix(y) * k1 + z,
+ 				gene_hash_len16_mix(v_high, w_high, k1) + x, k1);
+ 	}
+ }/*}}}*/
+
+void gene_hash_farmhash64_buf(const char *data, size_t len, zval *retval) /*{{{*/
+{
+	uint64_t hash = gene_farmhash64(data, len);
+	gene_set_u64_hex_result(hash, retval);
+}/*}}}*/
+
+void gene_hash_farmhash64(zval *value, zval *retval) /*{{{*/
+{
+	zval tmp;
+	zend_string *str;
+
+	if (Z_TYPE_P(value) == IS_STRING) {
+		str = Z_STR_P(value);
+		gene_hash_farmhash64_buf(ZSTR_VAL(str), ZSTR_LEN(str), retval);
+		return;
+	}
+	ZVAL_COPY(&tmp, value);
+	convert_to_string(&tmp);
+	str = Z_STR(tmp);
+	gene_hash_farmhash64_buf(ZSTR_VAL(str), ZSTR_LEN(str), retval);
+	zval_ptr_dtor(&tmp);
+}/*}}}*/
+
+ /* TurboHash64 - optimized 64-bit hash with dual-channel interleaving */
+ static inline uint64_t turbo_read_le64(const uint8_t* p) {
+     return gene_read64le(p);
+ }
+
+static zend_always_inline uint64_t turbo_mix64(uint64_t h, uint64_t k) {
+    k *= 0x87c37b91114253d5ULL;
+    k = gene_rotl64(k, 31);
+    k *= 0x4cf5ad432745937fULL;
+    h ^= k;
+    h = gene_rotl64(h, 27);
+    h = h * 5 + 0x52dce729964a2d9bULL;
+    return h;
+}
+
+uint64_t gene_turbo_hash64(const char *data, size_t len) /*{{{*/
+{
+    const uint8_t* p = (const uint8_t*)data;
+    const uint8_t* end = p + len;
+    uint64_t h1 = 0x9368e53c2f6af274ULL ^ (uint64_t)len;
+    uint64_t h2 = 0x586dcd208f7cd3fdULL + ((uint64_t)len << 1);
+    while (p + 64 <= end) {
+        h1 = turbo_mix64(h1, turbo_read_le64(p));
+        h2 = turbo_mix64(h2, turbo_read_le64(p + 8));
+        h1 = turbo_mix64(h1, turbo_read_le64(p + 16));
+        h2 = turbo_mix64(h2, turbo_read_le64(p + 24));
+        h1 = turbo_mix64(h1, turbo_read_le64(p + 32));
+        h2 = turbo_mix64(h2, turbo_read_le64(p + 40));
+        h1 = turbo_mix64(h1, turbo_read_le64(p + 48));
+        h2 = turbo_mix64(h2, turbo_read_le64(p + 56));
+        p += 64;
+    }
+    uint64_t h = gene_hash_len16_mix(h1, h2, 0x9ddfea08eb382d69ULL);
+    while (p + 32 <= end) {
+        h = turbo_mix64(h, turbo_read_le64(p));
+        h = turbo_mix64(h, turbo_read_le64(p + 8));
+        h = turbo_mix64(h, turbo_read_le64(p + 16));
+        h = turbo_mix64(h, turbo_read_le64(p + 24));
+        p += 32;
+    }
+    while (p + 8 <= end) {
+        h = turbo_mix64(h, turbo_read_le64(p));
+        p += 8;
+    }
+    if (p < end) {
+        uint64_t k = 0;
+        size_t remaining = (size_t)(end - p);
+        switch (remaining) {
+            case 7: k |= (uint64_t)p[6] << 48;
+            case 6: k |= (uint64_t)p[5] << 40;
+            case 5: k |= (uint64_t)p[4] << 32;
+            case 4: k |= (uint64_t)p[3] << 24;
+            case 3: k |= (uint64_t)p[2] << 16;
+            case 2: k |= (uint64_t)p[1] << 8;
+            case 1: k |= (uint64_t)p[0];
+        }
+        h ^= gene_rotl64(k * 0x87c37b91114253d5ULL, 23) * 0x4cf5ad432745937fULL;
+    }
+    h ^= (uint64_t)len + (h1 << 1);
+    return gene_hash_avalanche64(h);
+}/*}}}*/
+
+void gene_hash_turbo_hash64_buf(const char *data, size_t len, zval *retval) /*{{{*/
+{
+	uint64_t hash = gene_turbo_hash64(data, len);
+	gene_set_u64_hex_result(hash, retval);
+}/*}}}*/
+
+void gene_hash_turbo_hash64(zval *value, zval *retval) /*{{{*/
+{
+	zval tmp;
+	zend_string *str;
+
+	if (Z_TYPE_P(value) == IS_STRING) {
+		str = Z_STR_P(value);
+		gene_hash_turbo_hash64_buf(ZSTR_VAL(str), ZSTR_LEN(str), retval);
+		return;
+	}
+	ZVAL_COPY(&tmp, value);
+	convert_to_string(&tmp);
+	str = Z_STR(tmp);
+	gene_hash_turbo_hash64_buf(ZSTR_VAL(str), ZSTR_LEN(str), retval);
 	zval_ptr_dtor(&tmp);
 }/*}}}*/
 
