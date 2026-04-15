@@ -18,6 +18,7 @@
 #define GENE_REQUEST_H
 extern zend_class_entry *gene_request_ce;
 zval * request_query(zend_ulong type, char * name, size_t len);
+void gene_merge_query_into_get(const char *qs, size_t qs_len);
 void setVal(zend_ulong type, zval *value);
 zval *getVal(zend_ulong type, char *name, size_t len);
 

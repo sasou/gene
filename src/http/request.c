@@ -22,6 +22,7 @@
 #include "php_ini.h"
 #include "php_globals.h"
 #include "main/SAPI.h"
+#include "main/php_variables.h"
 #include "Zend/zend_API.h"
 #include "zend_exceptions.h"
 
@@ -207,6 +208,38 @@ zval * request_query(zend_ulong type, char * name, size_t len) {
 	}
 	return ret;
 }
+
+/** {{{ void gene_merge_query_into_get(const char *qs, size_t qs_len)
+ * Merge a raw query string into PHP's $_GET (same path as parse_str(): treat_data).
+ * Direct treat_data avoids call_user_function / EG(function_table) lookup per request.
+ */
+void gene_merge_query_into_get(const char *qs, size_t qs_len)
+{
+	char *buf;
+	zval *get_carrier;
+	void (*treat_data)(int arg, char *str, zval *dest_array);
+
+	if (!qs || qs_len == 0) {
+		return;
+	}
+
+	get_carrier = request_query(TRACK_VARS_GET, NULL, 0);
+	if (!get_carrier || Z_TYPE_P(get_carrier) != IS_ARRAY) {
+		return;
+	}
+
+	buf = estrndup(qs, qs_len);
+	if (UNEXPECTED(!buf)) {
+		return;
+	}
+
+	treat_data = sapi_module.treat_data;
+	if (UNEXPECTED(!treat_data)) {
+		treat_data = php_default_treat_data;
+	}
+	treat_data(PARSE_STRING, buf, get_carrier);
+}
+/* }}} */
 
 void setVal(zend_ulong type, zval *value) {
 	zval *attr = gene_request_attr();
