@@ -1101,6 +1101,8 @@ PHP_METHOD(gene_application, workerReady) {
 
 /*
  * {{{ public gene_application::run($method,$path)
+ * $path may include a query string, e.g. /cli/test/run?mode=1 (routed path only;
+ * query is merged into $_GET inside the router).
  */
 PHP_METHOD(gene_application, run) {
 	zend_string *methodin = NULL, *pathin = NULL;
