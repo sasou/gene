@@ -27,12 +27,13 @@
  #include "Zend/zend_interfaces.h"
  #include "ext/pcre/php_pcre.h"
  
- #include "../gene.h"
- #include "../factory/factory.h"
- #include "../router/router.h"
- #include "../cache/memory.h"
- #include "../common/common.h"
- #include "../app/application.h"
+#include "../gene.h"
+#include "../factory/factory.h"
+#include "../router/router.h"
+#include "../cache/memory.h"
+#include "../common/common.h"
+#include "../app/application.h"
+#include "../http/request.h"
  #include "../mvc/view.h"
  #include "../mvc/hook.h"
  #include "zend_smart_str.h"
@@ -1251,6 +1252,13 @@ void get_router_content_run(char *methodin, char *pathin, const char *safe_str, 
 		 method = str_init(methodin);
 		 gene_strtolower(method);
 		 path = str_init(pathin);
+		 {
+			 char *q = strchr(path, '?');
+			 if (q) {
+				 *q = '\0';
+				 gene_merge_query_into_get(q + 1, strlen(q + 1));
+			 }
+		 }
 	 }
  
 	 if (method == NULL || path == NULL) {
