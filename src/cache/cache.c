@@ -32,6 +32,7 @@
 #include "../common/common.h"
 #include "../di/di.h"
 #include "../factory/factory.h"
+#include "../cache/memory.h"
 
  static zend_string *gene_cache_method_get_name(void) /*{{{*/
  {
@@ -422,6 +423,38 @@ ZEND_END_ARG_INFO()
 
 ZEND_BEGIN_ARG_INFO_EX(gene_cache_updateversion_arginfo, 0, 0, 1)
 	ZEND_ARG_INFO(0, version)
+ZEND_END_ARG_INFO()
+
+ZEND_BEGIN_ARG_INFO_EX(gene_cache_processcached_arginfo, 0, 0, 2)
+	ZEND_ARG_INFO(0, obj)
+	ZEND_ARG_INFO(0, args)
+	ZEND_ARG_INFO(0, ttl)
+ZEND_END_ARG_INFO()
+
+ZEND_BEGIN_ARG_INFO_EX(gene_cache_unsetprocesscached_arginfo, 0, 0, 2)
+	ZEND_ARG_INFO(0, obj)
+	ZEND_ARG_INFO(0, args)
+	ZEND_ARG_INFO(0, ttl)
+ZEND_END_ARG_INFO()
+
+ZEND_BEGIN_ARG_INFO_EX(gene_cache_processcachedversion_arginfo, 0, 0, 3)
+	ZEND_ARG_INFO(0, obj)
+	ZEND_ARG_INFO(0, args)
+	ZEND_ARG_INFO(0, version)
+	ZEND_ARG_INFO(0, ttl)
+	ZEND_ARG_INFO(0, mode)
+ZEND_END_ARG_INFO()
+
+ZEND_BEGIN_ARG_INFO_EX(gene_cache_batch_arginfo, 0, 0, 1)
+	ZEND_ARG_INFO(0, items)
+	ZEND_ARG_INFO(0, ttl)
+ZEND_END_ARG_INFO()
+
+ZEND_BEGIN_ARG_INFO_EX(gene_cache_versionbatch_arginfo, 0, 0, 2)
+	ZEND_ARG_INFO(0, items)
+	ZEND_ARG_INFO(0, version)
+	ZEND_ARG_INFO(0, ttl)
+	ZEND_ARG_INFO(0, mode)
 ZEND_END_ARG_INFO()
 
 
@@ -1364,6 +1397,765 @@ PHP_METHOD(gene_cache, updateVersion)
 
 
 /*
+ * {{{ public gene_cache::processCached($obj, $args, $ttl)
+ */
+PHP_METHOD(gene_cache, processCached)
+{
+	zval *self = getThis(), *config = NULL, *sign = NULL, *obj = NULL, *args = NULL, *ttl = NULL, *hash_mode_zv = NULL;
+	zend_long hash_mode = 0;
+	if (zend_parse_parameters(ZEND_NUM_ARGS(), "zz|z", &obj, &args, &ttl) == FAILURE) {
+		return;
+	}
+	config = OBJ_PROP(Z_OBJ_P(self), gene_cache_offset_config);
+	if (!config || Z_TYPE_P(config) != IS_ARRAY) {
+		RETURN_NULL();
+	}
+	sign = zend_hash_str_find(Z_ARRVAL_P(config), ZEND_STRL("sign"));
+	hash_mode_zv = zend_hash_str_find(Z_ARRVAL_P(config), ZEND_STRL("hash_mode"));
+	if (hash_mode_zv && Z_TYPE_P(hash_mode_zv) == IS_LONG) {
+		hash_mode = Z_LVAL_P(hash_mode_zv);
+	}
+	if (!sign) {
+		RETURN_NULL();
+	}
+
+	zval key;
+	zval *cached_val;
+	gene_cache_key(sign, 1, obj, args, ttl, &key, (int)hash_mode);
+	cached_val = gene_memory_get(Z_STRVAL(key), Z_STRLEN(key));
+	if (cached_val) {
+		gene_memory_zval_local(return_value, cached_val);
+		zval_ptr_dtor(&key);
+		return;
+	}
+	zval data;
+	gene_cache_call(obj, args, &data);
+	gene_memory_set(Z_STRVAL(key), Z_STRLEN(key), &data, 0);
+	zval_ptr_dtor(&key);
+	RETURN_ZVAL(&data, 1, 1);
+}
+/* }}} */
+
+/*
+ * {{{ public gene_cache::unsetProcessCached($obj, $args, $ttl)
+ */
+PHP_METHOD(gene_cache, unsetProcessCached)
+{
+	zval *self = getThis(), *config = NULL, *sign = NULL, *obj = NULL, *args = NULL, *ttl = NULL, *hash_mode_zv = NULL;
+	zend_long hash_mode = 0;
+	if (zend_parse_parameters(ZEND_NUM_ARGS(), "zz|z", &obj, &args, &ttl) == FAILURE) {
+		return;
+	}
+	config = OBJ_PROP(Z_OBJ_P(self), gene_cache_offset_config);
+	if (!config || Z_TYPE_P(config) != IS_ARRAY) {
+		RETURN_NULL();
+	}
+	sign = zend_hash_str_find(Z_ARRVAL_P(config), ZEND_STRL("sign"));
+	hash_mode_zv = zend_hash_str_find(Z_ARRVAL_P(config), ZEND_STRL("hash_mode"));
+	if (hash_mode_zv && Z_TYPE_P(hash_mode_zv) == IS_LONG) {
+		hash_mode = Z_LVAL_P(hash_mode_zv);
+	}
+	if (!sign) {
+		RETURN_NULL();
+	}
+
+	zval key;
+	gene_cache_key(sign, 1, obj, args, ttl, &key, (int)hash_mode);
+	RETVAL_BOOL(gene_memory_del(Z_STRVAL(key), Z_STRLEN(key)));
+	zval_ptr_dtor(&key);
+}
+/* }}} */
+
+/*
+ * {{{ public gene_cache::processCachedVersion($obj, $args, $versionField, $ttl, $mode)
+ */
+PHP_METHOD(gene_cache, processCachedVersion)
+{
+	zval *self = getThis(), *config = NULL, *hook = NULL, *hookName = NULL, *sign = NULL, *versionSign = NULL;
+	zval *obj = NULL, *args = NULL, *versionField = NULL, *ttl = NULL, *mode = NULL, *hash_mode_zv = NULL;
+	zend_long hash_mode = 0;
+	if (zend_parse_parameters(ZEND_NUM_ARGS(), "zzz|zz", &obj, &args, &versionField, &ttl, &mode) == FAILURE) {
+		return;
+	}
+	config = OBJ_PROP(Z_OBJ_P(self), gene_cache_offset_config);
+	if (!config || Z_TYPE_P(config) != IS_ARRAY) {
+		RETURN_NULL();
+	}
+	hookName = zend_hash_str_find(Z_ARRVAL_P(config), ZEND_STRL("hook"));
+	sign = zend_hash_str_find(Z_ARRVAL_P(config), ZEND_STRL("sign"));
+	versionSign = zend_hash_str_find(Z_ARRVAL_P(config), ZEND_STRL("versionSign"));
+	hash_mode_zv = zend_hash_str_find(Z_ARRVAL_P(config), ZEND_STRL("hash_mode"));
+	if (hash_mode_zv && Z_TYPE_P(hash_mode_zv) == IS_LONG) {
+		hash_mode = Z_LVAL_P(hash_mode_zv);
+	}
+	if (!hookName || !sign || !versionSign) {
+		RETURN_NULL();
+	}
+
+	zval key, cache_key, cur_version;
+	zval *cached_val;
+	gene_cache_key(sign, 0, obj, args, ttl, &key, (int)hash_mode);
+	gene_cache_get_version_arr(versionSign, versionField, &cache_key, NULL, (int)hash_mode);
+	hook = gene_di_get(Z_STR_P(hookName));
+	if (!hook) {
+		zval_ptr_dtor(&key);
+		zval_ptr_dtor(&cache_key);
+		RETURN_NULL();
+	}
+	gene_cache_get(hook, &cache_key, &cur_version);
+
+	cached_val = gene_memory_get(Z_STRVAL(key), Z_STRLEN(key));
+	if (cached_val && Z_TYPE_P(cached_val) == IS_ARRAY) {
+		zval *cacheData = zend_hash_str_find(Z_ARRVAL_P(cached_val), ZEND_STRL("data"));
+		zval *cacheVersion = zend_hash_str_find(Z_ARRVAL_P(cached_val), ZEND_STRL("version"));
+		if (cacheVersion == NULL || checkVersion(cacheVersion, &cur_version, mode) == 0) {
+			zval data_new, cur_data;
+			gene_cache_call(obj, args, &cur_data);
+			gene_cache_build_version_payload(&data_new, &cur_data, &cur_version);
+			gene_memory_set(Z_STRVAL(key), Z_STRLEN(key), &data_new, 0);
+			zval_ptr_dtor(&data_new);
+			zval_ptr_dtor(&cache_key);
+			zval_ptr_dtor(&key);
+			RETURN_ZVAL(&cur_data, 1, 1);
+		}
+		gene_memory_zval_local(return_value, cacheData);
+		zval_ptr_dtor(&key);
+		zval_ptr_dtor(&cache_key);
+		zval_ptr_dtor(&cur_version);
+		return;
+	}
+
+	zval data_new, cur_data;
+	gene_cache_call(obj, args, &cur_data);
+	gene_cache_build_version_payload(&data_new, &cur_data, &cur_version);
+	gene_memory_set(Z_STRVAL(key), Z_STRLEN(key), &data_new, 0);
+	zval_ptr_dtor(&data_new);
+	zval_ptr_dtor(&cache_key);
+	zval_ptr_dtor(&key);
+	RETURN_ZVAL(&cur_data, 1, 1);
+}
+/* }}} */
+
+/*
+ * {{{ public gene_cache::cachedBatch($items, $ttl)
+ */
+PHP_METHOD(gene_cache, cachedBatch)
+{
+	zval *self = getThis(), *config = NULL, *hook = NULL, *hookName = NULL, *sign = NULL;
+	zval *items = NULL, *ttl = NULL, *hash_mode_zv = NULL;
+	zend_long hash_mode = 0;
+	if (zend_parse_parameters(ZEND_NUM_ARGS(), "z|z", &items, &ttl) == FAILURE) {
+		return;
+	}
+	if (!items || Z_TYPE_P(items) != IS_ARRAY || zend_hash_num_elements(Z_ARRVAL_P(items)) == 0) {
+		array_init(return_value);
+		return;
+	}
+	config = OBJ_PROP(Z_OBJ_P(self), gene_cache_offset_config);
+	if (!config || Z_TYPE_P(config) != IS_ARRAY) {
+		RETURN_NULL();
+	}
+	sign = zend_hash_str_find(Z_ARRVAL_P(config), ZEND_STRL("sign"));
+	hookName = zend_hash_str_find(Z_ARRVAL_P(config), ZEND_STRL("hook"));
+	hash_mode_zv = zend_hash_str_find(Z_ARRVAL_P(config), ZEND_STRL("hash_mode"));
+	if (hash_mode_zv && Z_TYPE_P(hash_mode_zv) == IS_LONG) {
+		hash_mode = Z_LVAL_P(hash_mode_zv);
+	}
+	if (!sign || !hookName) {
+		RETURN_NULL();
+	}
+	hook = gene_di_get(Z_STR_P(hookName));
+	if (!hook) {
+		RETURN_NULL();
+	}
+
+	uint32_t count = zend_hash_num_elements(Z_ARRVAL_P(items));
+	zval *keys, *objs, *args_arr;
+	zval keys_batch, *item;
+	uint32_t i = 0;
+
+	keys = safe_emalloc(count, sizeof(zval), 0);
+	objs = safe_emalloc(count, sizeof(zval), 0);
+	args_arr = safe_emalloc(count, sizeof(zval), 0);
+	array_init_size(&keys_batch, count);
+
+	ZEND_HASH_FOREACH_VAL(Z_ARRVAL_P(items), item) {
+		zval *obj_val, *args_val;
+		if (Z_TYPE_P(item) != IS_ARRAY
+			|| !(obj_val = zend_hash_index_find(Z_ARRVAL_P(item), 0))
+			|| !(args_val = zend_hash_index_find(Z_ARRVAL_P(item), 1))) {
+			ZVAL_NULL(&keys[i]);
+			ZVAL_NULL(&objs[i]);
+			ZVAL_NULL(&args_arr[i]);
+			i++;
+			continue;
+		}
+		ZVAL_COPY_VALUE(&objs[i], obj_val);
+		ZVAL_COPY_VALUE(&args_arr[i], args_val);
+		gene_cache_key(sign, 1, obj_val, args_val, ttl, &keys[i], (int)hash_mode);
+		Z_TRY_ADDREF(keys[i]);
+		add_next_index_zval(&keys_batch, &keys[i]);
+		i++;
+	} ZEND_HASH_FOREACH_END();
+
+	zval cache_result;
+	gene_cache_get(hook, &keys_batch, &cache_result);
+	zval_ptr_dtor(&keys_batch);
+
+	array_init_size(return_value, count);
+	for (i = 0; i < count; i++) {
+		if (Z_TYPE(keys[i]) == IS_NULL) {
+			add_next_index_null(return_value);
+			continue;
+		}
+		zval *cached = NULL;
+		if (Z_TYPE(cache_result) == IS_ARRAY) {
+			cached = zend_hash_find(Z_ARRVAL(cache_result), Z_STR(keys[i]));
+			if (cached && (Z_TYPE_P(cached) == IS_FALSE || Z_TYPE_P(cached) == IS_NULL)) {
+				cached = NULL;
+			}
+		}
+		if (cached) {
+			Z_TRY_ADDREF_P(cached);
+			add_next_index_zval(return_value, cached);
+		} else {
+			zval data;
+			gene_cache_call(&objs[i], &args_arr[i], &data);
+			hook = gene_di_get(Z_STR_P(hookName));
+			if (hook) {
+				hook_cache_set(hook, &keys[i], &data, ttl);
+			}
+			add_next_index_zval(return_value, &data);
+		}
+		zval_ptr_dtor(&keys[i]);
+	}
+	zval_ptr_dtor(&cache_result);
+	efree(keys);
+	efree(objs);
+	efree(args_arr);
+}
+/* }}} */
+
+/*
+ * {{{ public gene_cache::localCachedBatch($items, $ttl)
+ */
+PHP_METHOD(gene_cache, localCachedBatch)
+{
+	zval *self = getThis(), *config = NULL, *sign = NULL;
+	zval *items = NULL, *ttl = NULL, *hash_mode_zv = NULL;
+	zend_long hash_mode = 0;
+	zval ttl_default;
+	if (zend_parse_parameters(ZEND_NUM_ARGS(), "z|z", &items, &ttl) == FAILURE) {
+		return;
+	}
+	if (!ttl) {
+		ZVAL_LONG(&ttl_default, 0);
+		ttl = &ttl_default;
+	}
+	if (!items || Z_TYPE_P(items) != IS_ARRAY || zend_hash_num_elements(Z_ARRVAL_P(items)) == 0) {
+		array_init(return_value);
+		return;
+	}
+	config = OBJ_PROP(Z_OBJ_P(self), gene_cache_offset_config);
+	if (!config || Z_TYPE_P(config) != IS_ARRAY) {
+		RETURN_NULL();
+	}
+	sign = zend_hash_str_find(Z_ARRVAL_P(config), ZEND_STRL("sign"));
+	hash_mode_zv = zend_hash_str_find(Z_ARRVAL_P(config), ZEND_STRL("hash_mode"));
+	if (hash_mode_zv && Z_TYPE_P(hash_mode_zv) == IS_LONG) {
+		hash_mode = Z_LVAL_P(hash_mode_zv);
+	}
+	if (!sign) {
+		RETURN_NULL();
+	}
+
+	uint32_t count = zend_hash_num_elements(Z_ARRVAL_P(items));
+	zval *keys, *objs, *args_arr;
+	zval keys_batch, *item;
+	uint32_t i = 0;
+
+	keys = safe_emalloc(count, sizeof(zval), 0);
+	objs = safe_emalloc(count, sizeof(zval), 0);
+	args_arr = safe_emalloc(count, sizeof(zval), 0);
+	array_init_size(&keys_batch, count);
+
+	ZEND_HASH_FOREACH_VAL(Z_ARRVAL_P(items), item) {
+		zval *obj_val, *args_val;
+		if (Z_TYPE_P(item) != IS_ARRAY
+			|| !(obj_val = zend_hash_index_find(Z_ARRVAL_P(item), 0))
+			|| !(args_val = zend_hash_index_find(Z_ARRVAL_P(item), 1))) {
+			ZVAL_NULL(&keys[i]);
+			ZVAL_NULL(&objs[i]);
+			ZVAL_NULL(&args_arr[i]);
+			i++;
+			continue;
+		}
+		ZVAL_COPY_VALUE(&objs[i], obj_val);
+		ZVAL_COPY_VALUE(&args_arr[i], args_val);
+		gene_cache_key(sign, 1, obj_val, args_val, ttl, &keys[i], (int)hash_mode);
+		Z_TRY_ADDREF(keys[i]);
+		add_next_index_zval(&keys_batch, &keys[i]);
+		i++;
+	} ZEND_HASH_FOREACH_END();
+
+	zval apcu_result;
+	gene_apcu_fetch(&keys_batch, &apcu_result);
+	zval_ptr_dtor(&keys_batch);
+
+	array_init_size(return_value, count);
+	for (i = 0; i < count; i++) {
+		if (Z_TYPE(keys[i]) == IS_NULL) {
+			add_next_index_null(return_value);
+			continue;
+		}
+		zval *cached = NULL;
+		if (Z_TYPE(apcu_result) == IS_ARRAY) {
+			cached = zend_hash_find(Z_ARRVAL(apcu_result), Z_STR(keys[i]));
+		}
+		if (cached) {
+			Z_TRY_ADDREF_P(cached);
+			add_next_index_zval(return_value, cached);
+		} else {
+			zval data, ret;
+			gene_cache_call(&objs[i], &args_arr[i], &data);
+			gene_apcu_store(&keys[i], &data, ttl, &ret);
+			zval_ptr_dtor(&ret);
+			add_next_index_zval(return_value, &data);
+		}
+		zval_ptr_dtor(&keys[i]);
+	}
+	zval_ptr_dtor(&apcu_result);
+	efree(keys);
+	efree(objs);
+	efree(args_arr);
+}
+/* }}} */
+
+/*
+ * {{{ public gene_cache::processCachedBatch($items, $ttl)
+ */
+PHP_METHOD(gene_cache, processCachedBatch)
+{
+	zval *self = getThis(), *config = NULL, *sign = NULL;
+	zval *items = NULL, *ttl = NULL, *hash_mode_zv = NULL;
+	zend_long hash_mode = 0;
+	if (zend_parse_parameters(ZEND_NUM_ARGS(), "z|z", &items, &ttl) == FAILURE) {
+		return;
+	}
+	if (!items || Z_TYPE_P(items) != IS_ARRAY || zend_hash_num_elements(Z_ARRVAL_P(items)) == 0) {
+		array_init(return_value);
+		return;
+	}
+	config = OBJ_PROP(Z_OBJ_P(self), gene_cache_offset_config);
+	if (!config || Z_TYPE_P(config) != IS_ARRAY) {
+		RETURN_NULL();
+	}
+	sign = zend_hash_str_find(Z_ARRVAL_P(config), ZEND_STRL("sign"));
+	hash_mode_zv = zend_hash_str_find(Z_ARRVAL_P(config), ZEND_STRL("hash_mode"));
+	if (hash_mode_zv && Z_TYPE_P(hash_mode_zv) == IS_LONG) {
+		hash_mode = Z_LVAL_P(hash_mode_zv);
+	}
+	if (!sign) {
+		RETURN_NULL();
+	}
+
+	uint32_t count = zend_hash_num_elements(Z_ARRVAL_P(items));
+	zval *keys, *objs, *args_arr;
+	zval *item;
+	uint32_t i = 0;
+
+	keys = safe_emalloc(count, sizeof(zval), 0);
+	objs = safe_emalloc(count, sizeof(zval), 0);
+	args_arr = safe_emalloc(count, sizeof(zval), 0);
+
+	ZEND_HASH_FOREACH_VAL(Z_ARRVAL_P(items), item) {
+		zval *obj_val, *args_val;
+		if (Z_TYPE_P(item) != IS_ARRAY
+			|| !(obj_val = zend_hash_index_find(Z_ARRVAL_P(item), 0))
+			|| !(args_val = zend_hash_index_find(Z_ARRVAL_P(item), 1))) {
+			ZVAL_NULL(&keys[i]);
+			ZVAL_NULL(&objs[i]);
+			ZVAL_NULL(&args_arr[i]);
+			i++;
+			continue;
+		}
+		ZVAL_COPY_VALUE(&objs[i], obj_val);
+		ZVAL_COPY_VALUE(&args_arr[i], args_val);
+		gene_cache_key(sign, 1, obj_val, args_val, ttl, &keys[i], (int)hash_mode);
+		i++;
+	} ZEND_HASH_FOREACH_END();
+
+	array_init_size(return_value, count);
+	for (i = 0; i < count; i++) {
+		if (Z_TYPE(keys[i]) == IS_NULL) {
+			add_next_index_null(return_value);
+			continue;
+		}
+		zval *cached_val = gene_memory_get(Z_STRVAL(keys[i]), Z_STRLEN(keys[i]));
+		if (cached_val) {
+			zval local_val;
+			gene_memory_zval_local(&local_val, cached_val);
+			add_next_index_zval(return_value, &local_val);
+		} else {
+			zval data;
+			gene_cache_call(&objs[i], &args_arr[i], &data);
+			gene_memory_set(Z_STRVAL(keys[i]), Z_STRLEN(keys[i]), &data, 0);
+			add_next_index_zval(return_value, &data);
+		}
+		zval_ptr_dtor(&keys[i]);
+	}
+	efree(keys);
+	efree(objs);
+	efree(args_arr);
+}
+/* }}} */
+
+/*
+ * {{{ public gene_cache::cachedVersionBatch($items, $versionField, $ttl, $mode)
+ */
+PHP_METHOD(gene_cache, cachedVersionBatch)
+{
+	zval *self = getThis(), *config = NULL, *hook = NULL, *hookName = NULL, *sign = NULL, *versionSign = NULL;
+	zval *items = NULL, *versionField = NULL, *ttl = NULL, *mode = NULL, *hash_mode_zv = NULL;
+	zend_long hash_mode = 0;
+	if (zend_parse_parameters(ZEND_NUM_ARGS(), "zz|zz", &items, &versionField, &ttl, &mode) == FAILURE) {
+		return;
+	}
+	if (!items || Z_TYPE_P(items) != IS_ARRAY || zend_hash_num_elements(Z_ARRVAL_P(items)) == 0) {
+		array_init(return_value);
+		return;
+	}
+	config = OBJ_PROP(Z_OBJ_P(self), gene_cache_offset_config);
+	if (!config || Z_TYPE_P(config) != IS_ARRAY) {
+		RETURN_NULL();
+	}
+	hookName = zend_hash_str_find(Z_ARRVAL_P(config), ZEND_STRL("hook"));
+	sign = zend_hash_str_find(Z_ARRVAL_P(config), ZEND_STRL("sign"));
+	versionSign = zend_hash_str_find(Z_ARRVAL_P(config), ZEND_STRL("versionSign"));
+	hash_mode_zv = zend_hash_str_find(Z_ARRVAL_P(config), ZEND_STRL("hash_mode"));
+	if (hash_mode_zv && Z_TYPE_P(hash_mode_zv) == IS_LONG) {
+		hash_mode = Z_LVAL_P(hash_mode_zv);
+	}
+	if (!hookName || !sign || !versionSign) {
+		RETURN_NULL();
+	}
+	hook = gene_di_get(Z_STR_P(hookName));
+	if (!hook) {
+		RETURN_NULL();
+	}
+
+	uint32_t count = zend_hash_num_elements(Z_ARRVAL_P(items));
+	zval *data_keys, *objs, *args_arr;
+	zval version_keys, batch_keys, *item;
+	uint32_t i = 0;
+
+	data_keys = safe_emalloc(count, sizeof(zval), 0);
+	objs = safe_emalloc(count, sizeof(zval), 0);
+	args_arr = safe_emalloc(count, sizeof(zval), 0);
+
+	gene_cache_get_version_arr(versionSign, versionField, &version_keys, NULL, (int)hash_mode);
+	uint32_t ver_count = zend_hash_num_elements(Z_ARRVAL(version_keys));
+	array_init_size(&batch_keys, count + ver_count);
+
+	ZEND_HASH_FOREACH_VAL(Z_ARRVAL_P(items), item) {
+		zval *obj_val, *args_val;
+		if (Z_TYPE_P(item) != IS_ARRAY
+			|| !(obj_val = zend_hash_index_find(Z_ARRVAL_P(item), 0))
+			|| !(args_val = zend_hash_index_find(Z_ARRVAL_P(item), 1))) {
+			ZVAL_NULL(&data_keys[i]);
+			ZVAL_NULL(&objs[i]);
+			ZVAL_NULL(&args_arr[i]);
+			i++;
+			continue;
+		}
+		ZVAL_COPY_VALUE(&objs[i], obj_val);
+		ZVAL_COPY_VALUE(&args_arr[i], args_val);
+		gene_cache_key(sign, 0, obj_val, args_val, ttl, &data_keys[i], (int)hash_mode);
+		Z_TRY_ADDREF(data_keys[i]);
+		add_next_index_zval(&batch_keys, &data_keys[i]);
+		i++;
+	} ZEND_HASH_FOREACH_END();
+
+	zval *ver_elem;
+	ZEND_HASH_FOREACH_VAL(Z_ARRVAL(version_keys), ver_elem) {
+		Z_TRY_ADDREF_P(ver_elem);
+		add_next_index_zval(&batch_keys, ver_elem);
+	} ZEND_HASH_FOREACH_END();
+
+	zval cache_result;
+	gene_cache_get(hook, &batch_keys, &cache_result);
+	zval_ptr_dtor(&batch_keys);
+
+	zval cur_version;
+	array_init_size(&cur_version, ver_count);
+	ZEND_HASH_FOREACH_VAL(Z_ARRVAL(version_keys), ver_elem) {
+		if (Z_TYPE_P(ver_elem) == IS_STRING) {
+			zval *val = zend_hash_find(Z_ARRVAL(cache_result), Z_STR_P(ver_elem));
+			if (val) {
+				Z_TRY_ADDREF_P(val);
+				add_assoc_zval_ex(&cur_version, Z_STRVAL_P(ver_elem), Z_STRLEN_P(ver_elem), val);
+			}
+		}
+	} ZEND_HASH_FOREACH_END();
+
+	array_init_size(return_value, count);
+	for (i = 0; i < count; i++) {
+		if (Z_TYPE(data_keys[i]) == IS_NULL) {
+			add_next_index_null(return_value);
+			continue;
+		}
+		zval *data_entry = NULL;
+		if (Z_TYPE(cache_result) == IS_ARRAY) {
+			data_entry = zend_hash_find(Z_ARRVAL(cache_result), Z_STR(data_keys[i]));
+		}
+		if (data_entry && Z_TYPE_P(data_entry) == IS_ARRAY) {
+			zval *cacheData = zend_hash_str_find(Z_ARRVAL_P(data_entry), ZEND_STRL("data"));
+			zval *cacheVersion = zend_hash_str_find(Z_ARRVAL_P(data_entry), ZEND_STRL("version"));
+			if (cacheVersion && checkVersion(cacheVersion, &cur_version, mode)) {
+				Z_TRY_ADDREF_P(cacheData);
+				add_next_index_zval(return_value, cacheData);
+				zval_ptr_dtor(&data_keys[i]);
+				continue;
+			}
+		}
+		zval cur_data, data_new;
+		gene_cache_call(&objs[i], &args_arr[i], &cur_data);
+		Z_TRY_ADDREF(cur_version);
+		gene_cache_build_version_payload(&data_new, &cur_data, &cur_version);
+		hook = gene_di_get(Z_STR_P(hookName));
+		if (hook) {
+			hook_cache_set(hook, &data_keys[i], &data_new, ttl);
+		}
+		zval_ptr_dtor(&data_new);
+		add_next_index_zval(return_value, &cur_data);
+		zval_ptr_dtor(&data_keys[i]);
+	}
+	zval_ptr_dtor(&cache_result);
+	zval_ptr_dtor(&cur_version);
+	zval_ptr_dtor(&version_keys);
+	efree(data_keys);
+	efree(objs);
+	efree(args_arr);
+}
+/* }}} */
+
+/*
+ * {{{ public gene_cache::localCachedVersionBatch($items, $versionField, $ttl, $mode)
+ */
+PHP_METHOD(gene_cache, localCachedVersionBatch)
+{
+	zval *self = getThis(), *config = NULL, *hook = NULL, *hookName = NULL, *sign = NULL, *versionSign = NULL;
+	zval *items = NULL, *versionField = NULL, *ttl = NULL, *mode = NULL, *hash_mode_zv = NULL;
+	zend_long hash_mode = 0;
+	zval ttl_default;
+	if (zend_parse_parameters(ZEND_NUM_ARGS(), "zz|zz", &items, &versionField, &ttl, &mode) == FAILURE) {
+		return;
+	}
+	if (!ttl) {
+		ZVAL_LONG(&ttl_default, 0);
+		ttl = &ttl_default;
+	}
+	if (!items || Z_TYPE_P(items) != IS_ARRAY || zend_hash_num_elements(Z_ARRVAL_P(items)) == 0) {
+		array_init(return_value);
+		return;
+	}
+	config = OBJ_PROP(Z_OBJ_P(self), gene_cache_offset_config);
+	if (!config || Z_TYPE_P(config) != IS_ARRAY) {
+		RETURN_NULL();
+	}
+	hookName = zend_hash_str_find(Z_ARRVAL_P(config), ZEND_STRL("hook"));
+	sign = zend_hash_str_find(Z_ARRVAL_P(config), ZEND_STRL("sign"));
+	versionSign = zend_hash_str_find(Z_ARRVAL_P(config), ZEND_STRL("versionSign"));
+	hash_mode_zv = zend_hash_str_find(Z_ARRVAL_P(config), ZEND_STRL("hash_mode"));
+	if (hash_mode_zv && Z_TYPE_P(hash_mode_zv) == IS_LONG) {
+		hash_mode = Z_LVAL_P(hash_mode_zv);
+	}
+	if (!hookName || !sign || !versionSign) {
+		RETURN_NULL();
+	}
+	hook = gene_di_get(Z_STR_P(hookName));
+	if (!hook) {
+		RETURN_NULL();
+	}
+
+	uint32_t count = zend_hash_num_elements(Z_ARRVAL_P(items));
+	zval *data_keys, *objs, *args_arr;
+	zval apcu_batch, version_keys, *item;
+	uint32_t i = 0;
+
+	data_keys = safe_emalloc(count, sizeof(zval), 0);
+	objs = safe_emalloc(count, sizeof(zval), 0);
+	args_arr = safe_emalloc(count, sizeof(zval), 0);
+	array_init_size(&apcu_batch, count);
+
+	ZEND_HASH_FOREACH_VAL(Z_ARRVAL_P(items), item) {
+		zval *obj_val, *args_val;
+		if (Z_TYPE_P(item) != IS_ARRAY
+			|| !(obj_val = zend_hash_index_find(Z_ARRVAL_P(item), 0))
+			|| !(args_val = zend_hash_index_find(Z_ARRVAL_P(item), 1))) {
+			ZVAL_NULL(&data_keys[i]);
+			ZVAL_NULL(&objs[i]);
+			ZVAL_NULL(&args_arr[i]);
+			i++;
+			continue;
+		}
+		ZVAL_COPY_VALUE(&objs[i], obj_val);
+		ZVAL_COPY_VALUE(&args_arr[i], args_val);
+		gene_cache_key(sign, 0, obj_val, args_val, ttl, &data_keys[i], (int)hash_mode);
+		Z_TRY_ADDREF(data_keys[i]);
+		add_next_index_zval(&apcu_batch, &data_keys[i]);
+		i++;
+	} ZEND_HASH_FOREACH_END();
+
+	zval apcu_result;
+	gene_apcu_fetch(&apcu_batch, &apcu_result);
+	zval_ptr_dtor(&apcu_batch);
+
+	gene_cache_get_version_arr(versionSign, versionField, &version_keys, NULL, (int)hash_mode);
+	zval cur_version;
+	gene_cache_get(hook, &version_keys, &cur_version);
+
+	array_init_size(return_value, count);
+	for (i = 0; i < count; i++) {
+		if (Z_TYPE(data_keys[i]) == IS_NULL) {
+			add_next_index_null(return_value);
+			continue;
+		}
+		zval *data_entry = NULL;
+		if (Z_TYPE(apcu_result) == IS_ARRAY) {
+			data_entry = zend_hash_find(Z_ARRVAL(apcu_result), Z_STR(data_keys[i]));
+		}
+		if (data_entry && Z_TYPE_P(data_entry) == IS_ARRAY) {
+			zval *cacheData = zend_hash_str_find(Z_ARRVAL_P(data_entry), ZEND_STRL("data"));
+			zval *cacheVersion = zend_hash_str_find(Z_ARRVAL_P(data_entry), ZEND_STRL("version"));
+			if (cacheVersion && checkVersion(cacheVersion, &cur_version, mode)) {
+				Z_TRY_ADDREF_P(cacheData);
+				add_next_index_zval(return_value, cacheData);
+				zval_ptr_dtor(&data_keys[i]);
+				continue;
+			}
+		}
+		zval cur_data, data_new;
+		gene_cache_call(&objs[i], &args_arr[i], &cur_data);
+		Z_TRY_ADDREF(cur_version);
+		gene_cache_build_version_payload(&data_new, &cur_data, &cur_version);
+		zval ret;
+		gene_apcu_store(&data_keys[i], &data_new, ttl, &ret);
+		zval_ptr_dtor(&ret);
+		zval_ptr_dtor(&data_new);
+		add_next_index_zval(return_value, &cur_data);
+		zval_ptr_dtor(&data_keys[i]);
+	}
+	zval_ptr_dtor(&apcu_result);
+	zval_ptr_dtor(&cur_version);
+	zval_ptr_dtor(&version_keys);
+	efree(data_keys);
+	efree(objs);
+	efree(args_arr);
+}
+/* }}} */
+
+/*
+ * {{{ public gene_cache::processCachedVersionBatch($items, $versionField, $ttl, $mode)
+ */
+PHP_METHOD(gene_cache, processCachedVersionBatch)
+{
+	zval *self = getThis(), *config = NULL, *hook = NULL, *hookName = NULL, *sign = NULL, *versionSign = NULL;
+	zval *items = NULL, *versionField = NULL, *ttl = NULL, *mode = NULL, *hash_mode_zv = NULL;
+	zend_long hash_mode = 0;
+	if (zend_parse_parameters(ZEND_NUM_ARGS(), "zz|zz", &items, &versionField, &ttl, &mode) == FAILURE) {
+		return;
+	}
+	if (!items || Z_TYPE_P(items) != IS_ARRAY || zend_hash_num_elements(Z_ARRVAL_P(items)) == 0) {
+		array_init(return_value);
+		return;
+	}
+	config = OBJ_PROP(Z_OBJ_P(self), gene_cache_offset_config);
+	if (!config || Z_TYPE_P(config) != IS_ARRAY) {
+		RETURN_NULL();
+	}
+	hookName = zend_hash_str_find(Z_ARRVAL_P(config), ZEND_STRL("hook"));
+	sign = zend_hash_str_find(Z_ARRVAL_P(config), ZEND_STRL("sign"));
+	versionSign = zend_hash_str_find(Z_ARRVAL_P(config), ZEND_STRL("versionSign"));
+	hash_mode_zv = zend_hash_str_find(Z_ARRVAL_P(config), ZEND_STRL("hash_mode"));
+	if (hash_mode_zv && Z_TYPE_P(hash_mode_zv) == IS_LONG) {
+		hash_mode = Z_LVAL_P(hash_mode_zv);
+	}
+	if (!hookName || !sign || !versionSign) {
+		RETURN_NULL();
+	}
+	hook = gene_di_get(Z_STR_P(hookName));
+	if (!hook) {
+		RETURN_NULL();
+	}
+
+	uint32_t count = zend_hash_num_elements(Z_ARRVAL_P(items));
+	zval *data_keys, *objs, *args_arr;
+	zval version_keys, *item;
+	uint32_t i = 0;
+
+	data_keys = safe_emalloc(count, sizeof(zval), 0);
+	objs = safe_emalloc(count, sizeof(zval), 0);
+	args_arr = safe_emalloc(count, sizeof(zval), 0);
+
+	ZEND_HASH_FOREACH_VAL(Z_ARRVAL_P(items), item) {
+		zval *obj_val, *args_val;
+		if (Z_TYPE_P(item) != IS_ARRAY
+			|| !(obj_val = zend_hash_index_find(Z_ARRVAL_P(item), 0))
+			|| !(args_val = zend_hash_index_find(Z_ARRVAL_P(item), 1))) {
+			ZVAL_NULL(&data_keys[i]);
+			ZVAL_NULL(&objs[i]);
+			ZVAL_NULL(&args_arr[i]);
+			i++;
+			continue;
+		}
+		ZVAL_COPY_VALUE(&objs[i], obj_val);
+		ZVAL_COPY_VALUE(&args_arr[i], args_val);
+		gene_cache_key(sign, 0, obj_val, args_val, ttl, &data_keys[i], (int)hash_mode);
+		i++;
+	} ZEND_HASH_FOREACH_END();
+
+	gene_cache_get_version_arr(versionSign, versionField, &version_keys, NULL, (int)hash_mode);
+	zval cur_version;
+	gene_cache_get(hook, &version_keys, &cur_version);
+
+	array_init_size(return_value, count);
+	for (i = 0; i < count; i++) {
+		if (Z_TYPE(data_keys[i]) == IS_NULL) {
+			add_next_index_null(return_value);
+			continue;
+		}
+		zval *cached_val = gene_memory_get(Z_STRVAL(data_keys[i]), Z_STRLEN(data_keys[i]));
+		if (cached_val && Z_TYPE_P(cached_val) == IS_ARRAY) {
+			zval *cacheData = zend_hash_str_find(Z_ARRVAL_P(cached_val), ZEND_STRL("data"));
+			zval *cacheVersion = zend_hash_str_find(Z_ARRVAL_P(cached_val), ZEND_STRL("version"));
+			if (cacheVersion && checkVersion(cacheVersion, &cur_version, mode)) {
+				zval local_val;
+				gene_memory_zval_local(&local_val, cacheData);
+				add_next_index_zval(return_value, &local_val);
+				zval_ptr_dtor(&data_keys[i]);
+				continue;
+			}
+		}
+		zval cur_data, data_new;
+		gene_cache_call(&objs[i], &args_arr[i], &cur_data);
+		Z_TRY_ADDREF(cur_version);
+		gene_cache_build_version_payload(&data_new, &cur_data, &cur_version);
+		gene_memory_set(Z_STRVAL(data_keys[i]), Z_STRLEN(data_keys[i]), &data_new, 0);
+		zval_ptr_dtor(&data_new);
+		add_next_index_zval(return_value, &cur_data);
+		zval_ptr_dtor(&data_keys[i]);
+	}
+	zval_ptr_dtor(&cur_version);
+	zval_ptr_dtor(&version_keys);
+	efree(data_keys);
+	efree(objs);
+	efree(args_arr);
+}
+/* }}} */
+
+
+/*
  * {{{ gene_cache_methods
  */
 const zend_function_entry gene_cache_methods[] = {
@@ -1375,6 +2167,15 @@ const zend_function_entry gene_cache_methods[] = {
 		PHP_ME(gene_cache, localCachedVersion, gene_cache_localcachedversion_arginfo, ZEND_ACC_PUBLIC)
 		PHP_ME(gene_cache, getVersion, gene_cache_getversion_arginfo, ZEND_ACC_PUBLIC)
 		PHP_ME(gene_cache, updateVersion, gene_cache_updateversion_arginfo, ZEND_ACC_PUBLIC)
+		PHP_ME(gene_cache, processCached, gene_cache_processcached_arginfo, ZEND_ACC_PUBLIC)
+		PHP_ME(gene_cache, unsetProcessCached, gene_cache_unsetprocesscached_arginfo, ZEND_ACC_PUBLIC)
+		PHP_ME(gene_cache, processCachedVersion, gene_cache_processcachedversion_arginfo, ZEND_ACC_PUBLIC)
+		PHP_ME(gene_cache, cachedBatch, gene_cache_batch_arginfo, ZEND_ACC_PUBLIC)
+		PHP_ME(gene_cache, localCachedBatch, gene_cache_batch_arginfo, ZEND_ACC_PUBLIC)
+		PHP_ME(gene_cache, processCachedBatch, gene_cache_batch_arginfo, ZEND_ACC_PUBLIC)
+		PHP_ME(gene_cache, cachedVersionBatch, gene_cache_versionbatch_arginfo, ZEND_ACC_PUBLIC)
+		PHP_ME(gene_cache, localCachedVersionBatch, gene_cache_versionbatch_arginfo, ZEND_ACC_PUBLIC)
+		PHP_ME(gene_cache, processCachedVersionBatch, gene_cache_versionbatch_arginfo, ZEND_ACC_PUBLIC)
 		PHP_ME(gene_cache, __construct, gene_cache_construct_arginfo, ZEND_ACC_PUBLIC)
 		{NULL, NULL, NULL}
 };
