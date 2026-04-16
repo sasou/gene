@@ -1212,6 +1212,7 @@ PHP_METHOD(gene_cache, cachedVersion)
 					hook_cache_set(hook, &key, &data_new, ttl);
 				}
 				zval_ptr_dtor(&data_new);
+				zval_ptr_dtor(&cur_version);
 				zval_ptr_dtor(&cache_key);
 				zval_ptr_dtor(&cache);
 				zval_ptr_dtor(&key);
@@ -1234,6 +1235,7 @@ PHP_METHOD(gene_cache, cachedVersion)
 				hook_cache_set(hook, &key, &data_new, ttl);
 			}
 			zval_ptr_dtor(&data_new);
+			zval_ptr_dtor(&cur_version);
 			zval_ptr_dtor(&cache_key);
 			zval_ptr_dtor(&cache);
 			zval_ptr_dtor(&key);
@@ -1298,6 +1300,7 @@ PHP_METHOD(gene_cache, localCachedVersion)
 			zval_ptr_dtor(&ret);
 			zval_ptr_dtor(&key);
 			zval_ptr_dtor(&data_new);
+			zval_ptr_dtor(&cur_version);
 			zval_ptr_dtor(&cache_key);
 			zval_ptr_dtor(&cache);
 			RETURN_ZVAL(&cur_data, 1, 1);
@@ -1318,6 +1321,7 @@ PHP_METHOD(gene_cache, localCachedVersion)
 		zval_ptr_dtor(&ret);
 		zval_ptr_dtor(&key);
 		zval_ptr_dtor(&data_new);
+		zval_ptr_dtor(&cur_version);
 		zval_ptr_dtor(&cache_key);
 		zval_ptr_dtor(&cache);
 		RETURN_ZVAL(&cur_data, 1, 1);
@@ -1514,6 +1518,7 @@ PHP_METHOD(gene_cache, processCachedVersion)
 			gene_cache_build_version_payload(&data_new, &cur_data, &cur_version);
 			gene_memory_set(Z_STRVAL(key), Z_STRLEN(key), &data_new, 0);
 			zval_ptr_dtor(&data_new);
+			zval_ptr_dtor(&cur_version);
 			zval_ptr_dtor(&cache_key);
 			zval_ptr_dtor(&key);
 			RETURN_ZVAL(&cur_data, 1, 1);
@@ -1530,6 +1535,7 @@ PHP_METHOD(gene_cache, processCachedVersion)
 	gene_cache_build_version_payload(&data_new, &cur_data, &cur_version);
 	gene_memory_set(Z_STRVAL(key), Z_STRLEN(key), &data_new, 0);
 	zval_ptr_dtor(&data_new);
+	zval_ptr_dtor(&cur_version);
 	zval_ptr_dtor(&cache_key);
 	zval_ptr_dtor(&key);
 	RETURN_ZVAL(&cur_data, 1, 1);

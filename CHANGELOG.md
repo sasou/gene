@@ -1,5 +1,37 @@
 # Gene Framework Changelog
 
+## [5.5.2] - 2026-04-16
+
+### 🐛 Bug Fixes
+#### 💾 内存泄漏修复 (cache.c)
+- **cachedVersion()**: 修复缓存未命中/版本不匹配时 `cur_version` 泄漏
+  - 位置: cache/cache.c:1204-1240
+  - 路径A (1206-1218行): 版本不匹配时未释放 cur_version
+  - 路径B (1228-1240行): 缓存数据缺失时未释放 cur_version
+  - 修复: 在提前返回前添加 `zval_ptr_dtor(&cur_version)`
+
+- **localCachedVersion()**: 修复缓存未命中/版本不匹配时 `cur_version` 泄漏
+  - 位置: cache/cache.c:1275-1323
+  - 路径A (1292-1303行): 版本不匹配时未释放 cur_version
+  - 路径B (1312-1323行): 无缓存时未释放 cur_version
+  - 修复: 在提前返回前添加 `zval_ptr_dtor(&cur_version)`
+
+- **processCachedVersion()**: 修复缓存未命中/版本不匹配时 `cur_version` 泄漏
+  - 位置: cache/cache.c:1495-1535
+  - 路径A (1511-1519行): 版本不匹配时未释放 cur_version
+  - 路径B (1528-1535行): 无缓存时未释放 cur_version
+  - 修复: 在提前返回前添加 `zval_ptr_dtor(&cur_version)`
+
+#### 📊 严重性评估
+这些泄漏在版本化缓存操作的**每次缓存未命中**时都会发生。在高流量应用中，每次未命中都会泄漏一个包含版本数据（通常是版本字符串数组）的 zval。在持续负载下，这会在 FPM 模式下按请求累积，在 Swoole 模式下按协程累积。
+
+### ✅ 代码质量验证
+- **批量方法**: cachedVersionBatch, localCachedVersionBatch, processCachedVersionBatch 已验证无泄漏
+- **审计范围**: cache.c, validate.c, factory.c, exception.c, common.c, common.h, gene.c, gene.h
+- **其他文件**: exception.c, factory.c, gene.c, common.c 均无需修改
+
+---
+
 ## [5.5.1] - 2026-04-14
 
 ### ⚡ Performance Optimizations
