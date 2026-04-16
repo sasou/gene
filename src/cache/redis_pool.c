@@ -512,7 +512,9 @@ static void rpool_recycle_idle(zval *self)
         /* Keep — verify liveness then push back */
         if (conn_zv && Z_TYPE_P(conn_zv) == IS_OBJECT) {
             if (rpool_is_alive(conn_zv)) {
-                rpool_channel_push(channel, conn_zv);
+                if (!rpool_channel_push(channel, conn_zv)) {
+                    rpool_decrement_count(self);
+                }
             } else {
                 rpool_decrement_count(self);
             }
@@ -526,8 +528,9 @@ static void rpool_recycle_idle(zval *self)
         zval conn;
         rpool_create_connection(self, &conn);
         if (Z_TYPE(conn) == IS_OBJECT) {
-            rpool_increment_count(self);
-            rpool_channel_push(channel, &conn);
+            if (rpool_channel_push(channel, &conn)) {
+                rpool_increment_count(self);
+            }
             zval_ptr_dtor(&conn);
         } else {
             break;

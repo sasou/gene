@@ -278,8 +278,10 @@ bool gene_mysql_pdo_execute (zval *self, zval *statement)
     			gene_pool_notify_remove(gene_db_mysql_ce, self, ZEND_STRL(GENE_DB_MYSQL_POOL));
     			mysqlInitPdo (self, NULL);
     			pdo_object = zend_read_property(gene_db_mysql_ce, gene_strip_obj(self), ZEND_STRL(GENE_DB_MYSQL_PDO), 1, NULL);
+    			/* Free old PDOStatement before re-prepare to prevent leak */
+    			zval_ptr_dtor(statement);
     			gene_pdo_prepare(pdo_object, ZSTR_VAL(sql.s), statement);
-    			ZVAL_NULL(&retval);
+    			zval_ptr_dtor(&retval);
     			gene_pdo_statement_execute(statement, params, &retval);
     		}
     	}
