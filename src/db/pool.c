@@ -408,7 +408,9 @@ static zend_long pool_increment_count_get(zval *self) {
          /* Connection is still needed - check alive and push back immediately */
          if (conn_zv && Z_TYPE_P(conn_zv) == IS_OBJECT) {
              if (pool_is_alive(conn_zv)) {
-                 pool_channel_push(channel, conn_zv);
+                 if (!pool_channel_push(channel, conn_zv)) {
+                     pool_decrement_count(self);
+                 }
              } else {
                  pool_decrement_count(self);
              }
@@ -421,8 +423,9 @@ static zend_long pool_increment_count_get(zval *self) {
          zval conn;
          pool_create_connection(self, &conn);
          if (Z_TYPE(conn) == IS_OBJECT) {
-             pool_increment_count(self);
-             pool_channel_push(channel, &conn);
+             if (pool_channel_push(channel, &conn)) {
+                 pool_increment_count(self);
+             }
              zval_ptr_dtor(&conn);
          } else {
              break;
