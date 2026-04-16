@@ -113,6 +113,109 @@ class Cache
     public function localCachedVersion($obj, $args, $versionField, $ttl = null, $mode = null) {}
 
     /**
+     * processCached
+     * 代理调用对象方法并将结果缓存到进程级持久内存 Gene\Memory（未命中时执行调用）
+     *
+     * 适用于 Swoole 常驻进程模式，数据在进程生命周期内持久化，无需网络访问。
+     *
+     * @param array $obj 被代理的可调用，格式 [$instance_or_class, 'methodName']
+     * @param array $args 传递给被代理方法的参数数组
+     * @param int|null $ttl 保留参数（进程内存不支持 TTL 过期）
+     * @return mixed
+     */
+    public function processCached($obj, $args, $ttl = null) {}
+
+    /**
+     * unsetProcessCached
+     * 删除进程级持久内存中对应的缓存项
+     *
+     * @param array $obj 被代理的可调用，格式 [$instance_or_class, 'methodName']
+     * @param array $args 传递给被代理方法的参数数组（用于计算缓存 key）
+     * @param int|null $ttl 忽略，保留参数兼容性
+     * @return bool
+     */
+    public function unsetProcessCached($obj, $args, $ttl = null) {}
+
+    /**
+     * processCachedVersion
+     * 带版本号控制的进程级持久内存缓存；数据存储在 Gene\Memory，版本从外部缓存读取
+     *
+     * @param array $obj 被代理的可调用，格式 [$instance_or_class, 'methodName']
+     * @param array $args 传递给被代理方法的参数数组
+     * @param array $versionField 关联的版本字段数组
+     * @param int|null $ttl 保留参数
+     * @param mixed|null $mode 保留参数
+     * @return mixed
+     */
+    public function processCachedVersion($obj, $args, $versionField, $ttl = null, $mode = null) {}
+
+    /**
+     * cachedBatch
+     * 批量代理调用：一次网络请求获取所有缓存项，未命中项逐个调用并存储
+     *
+     * @param array $items 批量项数组，每项格式 [[$instance_or_class, 'method'], $args]
+     * @param int|null $ttl 缓存时间（秒）
+     * @return array 与 $items 顺序对应的结果数组
+     */
+    public function cachedBatch($items, $ttl = null) {}
+
+    /**
+     * localCachedBatch
+     * 批量代理调用：一次 APCu 请求获取所有缓存项，未命中项逐个调用并存储
+     *
+     * @param array $items 批量项数组，每项格式 [[$instance_or_class, 'method'], $args]
+     * @param int|null $ttl 缓存时间（秒）
+     * @return array 与 $items 顺序对应的结果数组
+     */
+    public function localCachedBatch($items, $ttl = null) {}
+
+    /**
+     * processCachedBatch
+     * 批量代理调用：逐个从进程级持久内存获取缓存项，未命中项逐个调用并存储
+     *
+     * @param array $items 批量项数组，每项格式 [[$instance_or_class, 'method'], $args]
+     * @param int|null $ttl 保留参数
+     * @return array 与 $items 顺序对应的结果数组
+     */
+    public function processCachedBatch($items, $ttl = null) {}
+
+    /**
+     * cachedVersionBatch
+     * 带版本号控制的批量外部缓存：一次网络请求获取所有数据项和版本号
+     *
+     * @param array $items 批量项数组，每项格式 [[$instance_or_class, 'method'], $args]
+     * @param array $versionField 关联的版本字段数组（所有项共享）
+     * @param int|null $ttl 缓存时间（秒）
+     * @param mixed|null $mode 保留参数
+     * @return array 与 $items 顺序对应的结果数组
+     */
+    public function cachedVersionBatch($items, $versionField, $ttl = null, $mode = null) {}
+
+    /**
+     * localCachedVersionBatch
+     * 带版本号控制的批量 APCu 缓存：数据从 APCu 批量获取，版本从外部缓存一次获取
+     *
+     * @param array $items 批量项数组，每项格式 [[$instance_or_class, 'method'], $args]
+     * @param array $versionField 关联的版本字段数组（所有项共享）
+     * @param int|null $ttl 缓存时间（秒）
+     * @param mixed|null $mode 保留参数
+     * @return array 与 $items 顺序对应的结果数组
+     */
+    public function localCachedVersionBatch($items, $versionField, $ttl = null, $mode = null) {}
+
+    /**
+     * processCachedVersionBatch
+     * 带版本号控制的批量进程级缓存：数据从 Gene\Memory 获取，版本从外部缓存一次获取
+     *
+     * @param array $items 批量项数组，每项格式 [[$instance_or_class, 'method'], $args]
+     * @param array $versionField 关联的版本字段数组（所有项共享）
+     * @param int|null $ttl 保留参数
+     * @param mixed|null $mode 保留参数
+     * @return array 与 $items 顺序对应的结果数组
+     */
+    public function processCachedVersionBatch($items, $versionField, $ttl = null, $mode = null) {}
+
+    /**
      * getVersion
      * 从外部缓存读取指定版本字段的当前版本值
      *
