@@ -79,9 +79,11 @@ static void rpool_create_connection(zval *self, zval *retval)
     }
 
     /* Locate the phpredis extension class */
-    zend_string *redis_cls_str = zend_string_init(ZEND_STRL("Redis"), 0);
+    static zend_string *redis_cls_str = NULL;
+    if (UNEXPECTED(!redis_cls_str)) {
+        redis_cls_str = zend_string_init_interned(ZEND_STRL("Redis"), 1);
+    }
     zend_class_entry *redis_cls = zend_lookup_class(redis_cls_str);
-    zend_string_release(redis_cls_str);
 
     if (!redis_cls) {
         php_error_docref(NULL, E_WARNING,
@@ -121,15 +123,16 @@ static void rpool_create_connection(zval *self, zval *retval)
 
     /* connect() — never pconnect() in pool / Swoole mode */
     {
-        zval fn, rv;
+        zval rv;
         zval params[3];
-        ZVAL_STRING(&fn, "connect");
+        zend_function *connect_fn = zend_hash_str_find_ptr(&Z_OBJCE(redis_obj)->function_table, ZEND_STRL("connect"));
         ZVAL_COPY(&params[0], host);
         ZVAL_COPY(&params[1], port);
         ZVAL_COPY(&params[2], timeout);
         ZVAL_UNDEF(&rv);
-        call_user_function(NULL, &redis_obj, &fn, &rv, 3, params);
-        zval_ptr_dtor(&fn);
+        if (EXPECTED(connect_fn)) {
+            zend_call_known_function(connect_fn, Z_OBJ(redis_obj), Z_OBJCE(redis_obj), &rv, 3, params, NULL);
+        }
         zval_ptr_dtor(&params[0]);
         zval_ptr_dtor(&params[1]);
         zval_ptr_dtor(&params[2]);
@@ -150,13 +153,14 @@ static void rpool_create_connection(zval *self, zval *retval)
     /* Auth — supports string password and array [user, pass] (Redis 6 ACL) */
     zval *password = zend_hash_str_find(Z_ARRVAL_P(config), ZEND_STRL("password"));
     if (password && Z_TYPE_P(password) != IS_NULL && Z_TYPE_P(password) != IS_FALSE) {
-        zval fn, rv;
+        zval rv;
         zval param;
-        ZVAL_STRING(&fn, "auth");
+        zend_function *auth_fn = zend_hash_str_find_ptr(&Z_OBJCE(redis_obj)->function_table, ZEND_STRL("auth"));
         ZVAL_COPY(&param, password);
         ZVAL_UNDEF(&rv);
-        call_user_function(NULL, &redis_obj, &fn, &rv, 1, &param);
-        zval_ptr_dtor(&fn);
+        if (EXPECTED(auth_fn)) {
+            zend_call_known_function(auth_fn, Z_OBJ(redis_obj), Z_OBJCE(redis_obj), &rv, 1, &param, NULL);
+        }
         zval_ptr_dtor(&param);
         if (!Z_ISUNDEF(rv)) zval_ptr_dtor(&rv);
 
@@ -175,14 +179,15 @@ static void rpool_create_connection(zval *self, zval *retval)
         zval        *opt_val;
         ZEND_HASH_FOREACH_KEY_VAL(Z_ARRVAL_P(options), opt_id, opt_key, opt_val) {
             if (!opt_key) { /* numeric key == option constant */
-                zval fn, rv;
+                zval rv;
                 zval params[2];
-                ZVAL_STRING(&fn, "setOption");
+                zend_function *setopt_fn = zend_hash_str_find_ptr(&Z_OBJCE(redis_obj)->function_table, ZEND_STRL("setoption"));
                 ZVAL_LONG(&params[0], opt_id);
                 ZVAL_COPY(&params[1], opt_val);
                 ZVAL_UNDEF(&rv);
-                call_user_function(NULL, &redis_obj, &fn, &rv, 2, params);
-                zval_ptr_dtor(&fn);
+                if (EXPECTED(setopt_fn)) {
+                    zend_call_known_function(setopt_fn, Z_OBJ(redis_obj), Z_OBJCE(redis_obj), &rv, 2, params, NULL);
+                }
                 /* params[0] is IS_LONG — no dtor needed */
                 zval_ptr_dtor(&params[1]);
                 if (!Z_ISUNDEF(rv)) zval_ptr_dtor(&rv);
@@ -201,11 +206,12 @@ static void rpool_create_connection(zval *self, zval *retval)
  */
 static bool rpool_is_alive(zval *redis_obj)
 {
-    zval fn, rv;
-    ZVAL_STRING(&fn, "ping");
+    zval rv;
+    zend_function *ping_fn = zend_hash_str_find_ptr(&Z_OBJCE_P(redis_obj)->function_table, ZEND_STRL("ping"));
     ZVAL_UNDEF(&rv);
-    call_user_function(NULL, redis_obj, &fn, &rv, 0, NULL);
-    zval_ptr_dtor(&fn);
+    if (EXPECTED(ping_fn)) {
+        zend_call_known_function(ping_fn, Z_OBJ_P(redis_obj), Z_OBJCE_P(redis_obj), &rv, 0, NULL, NULL);
+    }
 
     if (EG(exception)) {
         zend_clear_exception();
@@ -234,18 +240,19 @@ static bool rpool_is_alive(zval *redis_obj)
 
 static bool rpool_channel_push(zval *channel, zval *redis_obj)
 {
-    zval fn, rv, item;
+    zval rv, item;
     array_init(&item);
     Z_TRY_ADDREF_P(redis_obj);
     add_assoc_zval(&item, "conn", redis_obj);
     add_assoc_long(&item, "lastUsed", (zend_long)time(NULL));
 
-    ZVAL_STRING(&fn, "push");
+    zend_function *push_fn = zend_hash_str_find_ptr(&Z_OBJCE_P(channel)->function_table, ZEND_STRL("push"));
     zval param;
     ZVAL_COPY_VALUE(&param, &item);
     ZVAL_UNDEF(&rv);
-    call_user_function(NULL, channel, &fn, &rv, 1, &param);
-    zval_ptr_dtor(&fn);
+    if (EXPECTED(push_fn)) {
+        zend_call_known_function(push_fn, Z_OBJ_P(channel), Z_OBJCE_P(channel), &rv, 1, &param, NULL);
+    }
     bool ok = (Z_TYPE(rv) == IS_TRUE);
     if (!Z_ISUNDEF(rv)) zval_ptr_dtor(&rv);
     zval_ptr_dtor(&item);
@@ -254,12 +261,13 @@ static bool rpool_channel_push(zval *channel, zval *redis_obj)
 
 static bool rpool_channel_pop(zval *channel, double timeout, zval *result)
 {
-    zval fn, rv, param;
-    ZVAL_STRING(&fn, "pop");
+    zval rv, param;
+    zend_function *pop_fn = zend_hash_str_find_ptr(&Z_OBJCE_P(channel)->function_table, ZEND_STRL("pop"));
     ZVAL_DOUBLE(&param, timeout);
     ZVAL_UNDEF(&rv);
-    call_user_function(NULL, channel, &fn, &rv, 1, &param);
-    zval_ptr_dtor(&fn);
+    if (EXPECTED(pop_fn)) {
+        zend_call_known_function(pop_fn, Z_OBJ_P(channel), Z_OBJCE_P(channel), &rv, 1, &param, NULL);
+    }
     /* param is IS_DOUBLE — no dtor needed */
 
     if (Z_ISUNDEF(rv) || Z_TYPE(rv) == IS_FALSE || Z_TYPE(rv) == IS_NULL) {
@@ -273,14 +281,11 @@ static bool rpool_channel_pop(zval *channel, double timeout, zval *result)
 
 static bool rpool_channel_is_empty(zval *channel)
 {
-    zval fn, rv;
-    ZVAL_STRING(&fn, "isEmpty");
+    zend_function *fn = zend_hash_str_find_ptr(&Z_OBJCE_P(channel)->function_table, ZEND_STRL("isempty"));
+    if (!fn) return 1;
+    zval rv;
     ZVAL_UNDEF(&rv);
-    if (call_user_function(NULL, channel, &fn, &rv, 0, NULL) != SUCCESS) {
-        zval_ptr_dtor(&fn);
-        return 1;
-    }
-    zval_ptr_dtor(&fn);
+    zend_call_known_function(fn, Z_OBJ_P(channel), Z_OBJCE_P(channel), &rv, 0, NULL, NULL);
     bool empty = (Z_TYPE(rv) == IS_TRUE);
     if (!Z_ISUNDEF(rv)) zval_ptr_dtor(&rv);
     return empty;
@@ -288,14 +293,11 @@ static bool rpool_channel_is_empty(zval *channel)
 
 static bool rpool_channel_is_full(zval *channel)
 {
-    zval fn, rv;
-    ZVAL_STRING(&fn, "isFull");
+    zend_function *fn = zend_hash_str_find_ptr(&Z_OBJCE_P(channel)->function_table, ZEND_STRL("isfull"));
+    if (!fn) return 1;
+    zval rv;
     ZVAL_UNDEF(&rv);
-    if (call_user_function(NULL, channel, &fn, &rv, 0, NULL) != SUCCESS) {
-        zval_ptr_dtor(&fn);
-        return 1;
-    }
-    zval_ptr_dtor(&fn);
+    zend_call_known_function(fn, Z_OBJ_P(channel), Z_OBJCE_P(channel), &rv, 0, NULL, NULL);
     bool full = (Z_TYPE(rv) == IS_TRUE);
     if (!Z_ISUNDEF(rv)) zval_ptr_dtor(&rv);
     return full;
@@ -303,14 +305,11 @@ static bool rpool_channel_is_full(zval *channel)
 
 static zend_long rpool_channel_length(zval *channel)
 {
-    zval fn, rv;
-    ZVAL_STRING(&fn, "length");
+    zend_function *fn = zend_hash_str_find_ptr(&Z_OBJCE_P(channel)->function_table, ZEND_STRL("length"));
+    if (!fn) return 0;
+    zval rv;
     ZVAL_UNDEF(&rv);
-    if (call_user_function(NULL, channel, &fn, &rv, 0, NULL) != SUCCESS) {
-        zval_ptr_dtor(&fn);
-        return 0;
-    }
-    zval_ptr_dtor(&fn);
+    zend_call_known_function(fn, Z_OBJ_P(channel), Z_OBJCE_P(channel), &rv, 0, NULL, NULL);
     zend_long len = (Z_TYPE(rv) == IS_LONG) ? Z_LVAL(rv) : 0;
     if (!Z_ISUNDEF(rv)) zval_ptr_dtor(&rv);
     return len;
@@ -320,13 +319,14 @@ static zend_long rpool_channel_length(zval *channel)
 
 static void rpool_atomic_call(zval *atomic, const char *method, zend_long arg, zval *retval)
 {
-    zval fn, param, ret_local;
+    zval param, ret_local;
     if (!retval) retval = &ret_local;
-    ZVAL_STRING(&fn, method);
+    zend_function *fn = zend_hash_str_find_ptr(&Z_OBJCE_P(atomic)->function_table, method, strlen(method));
     ZVAL_LONG(&param, arg);
     ZVAL_UNDEF(retval);
-    call_user_function(NULL, atomic, &fn, retval, 1, &param);
-    zval_ptr_dtor(&fn);
+    if (EXPECTED(fn)) {
+        zend_call_known_function(fn, Z_OBJ_P(atomic), Z_OBJCE_P(atomic), retval, 1, &param, NULL);
+    }
     /* param is IS_LONG — no dtor needed */
     if (retval == &ret_local) {
         if (!Z_ISUNDEF(ret_local)) zval_ptr_dtor(&ret_local);
@@ -656,18 +656,20 @@ PHP_METHOD(gene_redis_pool, __construct)
 
     /* Swoole\Atomic for thread-safe connection counting */
     {
-        zend_string *atomic_str = zend_string_init(ZEND_STRL("Swoole\\Atomic"), 0);
+        static zend_string *atomic_str = NULL;
+        if (UNEXPECTED(!atomic_str)) {
+            atomic_str = zend_string_init_interned(ZEND_STRL("Swoole\\Atomic"), 1);
+        }
         zend_class_entry *atomic_ce = zend_lookup_class(atomic_str);
-        zend_string_release(atomic_str);
 
         if (atomic_ce) {
-            zval atomic_obj, atomic_fn, atomic_ret, atomic_param;
+            zval atomic_obj, atomic_ret, atomic_param;
             object_init_ex(&atomic_obj, atomic_ce);
-            ZVAL_STRING(&atomic_fn, "__construct");
             ZVAL_LONG(&atomic_param, 0);
             ZVAL_UNDEF(&atomic_ret);
-            call_user_function(NULL, &atomic_obj, &atomic_fn, &atomic_ret, 1, &atomic_param);
-            zval_ptr_dtor(&atomic_fn);
+            if (EXPECTED(atomic_ce->constructor)) {
+                zend_call_known_function(atomic_ce->constructor, Z_OBJ(atomic_obj), atomic_ce, &atomic_ret, 1, &atomic_param, NULL);
+            }
             if (!Z_ISUNDEF(atomic_ret)) zval_ptr_dtor(&atomic_ret);
             zend_update_property(gene_redis_pool_ce, gene_strip_obj(self),
                                   ZEND_STRL(GENE_REDIS_POOL_PROPERTY_COUNT), &atomic_obj);
@@ -688,9 +690,11 @@ PHP_METHOD(gene_redis_pool, __construct)
 
     /* Swoole\Coroutine\Channel as the idle connection queue */
     {
-        zend_string *ch_str = zend_string_init(ZEND_STRL("Swoole\\Coroutine\\Channel"), 0);
+        static zend_string *ch_str = NULL;
+        if (UNEXPECTED(!ch_str)) {
+            ch_str = zend_string_init_interned(ZEND_STRL("Swoole\\Coroutine\\Channel"), 1);
+        }
         zend_class_entry *ch_ce = zend_lookup_class(ch_str);
-        zend_string_release(ch_str);
 
         if (!ch_ce) {
             php_error_docref(NULL, E_WARNING,
@@ -699,13 +703,13 @@ PHP_METHOD(gene_redis_pool, __construct)
             return;
         }
 
-        zval channel, ch_fn, ch_ret, ch_param;
+        zval channel, ch_ret, ch_param;
         object_init_ex(&channel, ch_ce);
-        ZVAL_STRING(&ch_fn, "__construct");
         ZVAL_LONG(&ch_param, max_val);
         ZVAL_UNDEF(&ch_ret);
-        call_user_function(NULL, &channel, &ch_fn, &ch_ret, 1, &ch_param);
-        zval_ptr_dtor(&ch_fn);
+        if (EXPECTED(ch_ce->constructor)) {
+            zend_call_known_function(ch_ce->constructor, Z_OBJ(channel), ch_ce, &ch_ret, 1, &ch_param, NULL);
+        }
         if (!Z_ISUNDEF(ch_ret)) zval_ptr_dtor(&ch_ret);
 
         zend_update_property(gene_redis_pool_ce, gene_strip_obj(self),
@@ -1164,11 +1168,12 @@ PHP_METHOD(gene_redis_pool, close)
             }
 
             /* c) close channel — wakes any remaining blocked get() coroutines */
-            zval close_fn, close_rv;
-            ZVAL_STRING(&close_fn, "close");
+            zval close_rv;
+            zend_function *close_func = zend_hash_str_find_ptr(&Z_OBJCE_P(channel)->function_table, ZEND_STRL("close"));
             ZVAL_UNDEF(&close_rv);
-            call_user_function(NULL, channel, &close_fn, &close_rv, 0, NULL);
-            zval_ptr_dtor(&close_fn);
+            if (EXPECTED(close_func)) {
+                zend_call_known_function(close_func, Z_OBJ_P(channel), Z_OBJCE_P(channel), &close_rv, 0, NULL, NULL);
+            }
             if (!Z_ISUNDEF(close_rv)) zval_ptr_dtor(&close_rv);
         }
         /* d) force-reset count; in-use connections self-discard via put() */

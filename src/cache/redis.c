@@ -53,85 +53,96 @@ ZEND_END_ARG_INFO()
 
 int gene_redis_connect(zval *object, zval *host, zval *port, zval *timeout) /*{{{*/
 {
-    zval function_name,retval;
-    ZVAL_STRING(&function_name, "connect");
+    zval retval;
+    zend_function *fn = zend_hash_str_find_ptr(&Z_OBJCE_P(object)->function_table, ZEND_STRL("connect"));
 	zval params[] = { *host, *port, *timeout };
-    call_user_function(NULL, object, &function_name, &retval, 3, params);
+    ZVAL_UNDEF(&retval);
+    if (EXPECTED(fn)) {
+        zend_call_known_function(fn, Z_OBJ_P(object), Z_OBJCE_P(object), &retval, 3, params, NULL);
+    }
     int ret =  (Z_TYPE(retval) == IS_TRUE ) ? 1 : 0;
     zval_ptr_dtor(&retval);
-    zval_ptr_dtor(&function_name);
     return ret;
 }/*}}}*/
 
 
 int gene_redis_pconnect(zval *object, zval *host, zval *port, zval *timeout, zval *persistent) /*{{{*/
 {
-    zval function_name,retval;
-    ZVAL_STRING(&function_name, "pconnect");
+    zval retval;
+    zend_function *fn = zend_hash_str_find_ptr(&Z_OBJCE_P(object)->function_table, ZEND_STRL("pconnect"));
 	zval params[] = { *host, *port, *timeout, *persistent };
-    call_user_function(NULL, object, &function_name, &retval, 4, params);
+    ZVAL_UNDEF(&retval);
+    if (EXPECTED(fn)) {
+        zend_call_known_function(fn, Z_OBJ_P(object), Z_OBJCE_P(object), &retval, 4, params, NULL);
+    }
     int ret =  (Z_TYPE(retval) == IS_TRUE ) ? 1 : 0;
     zval_ptr_dtor(&retval);
-    zval_ptr_dtor(&function_name);
     return ret;
 }/*}}}*/
 
 int gene_redis_setOption(zval *object, zval *key, zval *value) /*{{{*/
 {
-    zval function_name,retval;
-    ZVAL_STRING(&function_name, "setOption");
+    zval retval;
+    zend_function *fn = zend_hash_str_find_ptr(&Z_OBJCE_P(object)->function_table, ZEND_STRL("setoption"));
 	zval params[] = { *key, *value };
-    call_user_function(NULL, object, &function_name, &retval, 2, params);
+    ZVAL_UNDEF(&retval);
+    if (EXPECTED(fn)) {
+        zend_call_known_function(fn, Z_OBJ_P(object), Z_OBJCE_P(object), &retval, 2, params, NULL);
+    }
     int ret =  (Z_TYPE(retval) == IS_TRUE ) ? 1 : 0;
     zval_ptr_dtor(&retval);
-    zval_ptr_dtor(&function_name);
     return ret;
 }/*}}}*/
 
 void gene_redis_set(zval *object, zval *key, zval *value, zval *retval) /*{{{*/
 {
-    zval function_name;
-    ZVAL_STRING(&function_name, "set");
+    ZVAL_UNDEF(retval);
+    zend_function *fn = zend_hash_str_find_ptr(&Z_OBJCE_P(object)->function_table, ZEND_STRL("set"));
 	zval params[] = { *key, *value };
-    call_user_function(NULL, object, &function_name, retval, 2, params);
-    zval_ptr_dtor(&function_name);
+    if (EXPECTED(fn)) {
+        zend_call_known_function(fn, Z_OBJ_P(object), Z_OBJCE_P(object), retval, 2, params, NULL);
+    }
 }/*}}}*/
 
 void gene_redis_auth(zval *object, zval *value, zval *retval) /*{{{*/
 {
-    zval function_name;
-    ZVAL_STRING(&function_name, "auth");
+    ZVAL_UNDEF(retval);
+    zend_function *fn = zend_hash_str_find_ptr(&Z_OBJCE_P(object)->function_table, ZEND_STRL("auth"));
 	zval params[] = { *value };
-    call_user_function(NULL, object, &function_name, retval, 1, params);
-    zval_ptr_dtor(&function_name);
+    if (EXPECTED(fn)) {
+        zend_call_known_function(fn, Z_OBJ_P(object), Z_OBJCE_P(object), retval, 1, params, NULL);
+    }
 }/*}}}*/
 
 void gene_redis_setEx(zval *object, zval *key, zval *ttl, zval *value, zval *retval) /*{{{*/
 {
-    zval function_name;
-    ZVAL_STRING(&function_name, "setEx");
+    ZVAL_UNDEF(retval);
+    zend_function *fn = zend_hash_str_find_ptr(&Z_OBJCE_P(object)->function_table, ZEND_STRL("setex"));
 	zval params[] = { *key, *ttl, *value };
-    call_user_function(NULL, object, &function_name, retval, 3, params);
-    zval_ptr_dtor(&function_name);
+    if (EXPECTED(fn)) {
+        zend_call_known_function(fn, Z_OBJ_P(object), Z_OBJCE_P(object), retval, 3, params, NULL);
+    }
 }/*}}}*/
 
 
 void gene_redis_get(zval *object, zval *key, zval *retval) /*{{{*/
 {
-    zval function_name;
-    ZVAL_STRING(&function_name, "get");
+    ZVAL_UNDEF(retval);
+    zend_function *fn = zend_hash_str_find_ptr(&Z_OBJCE_P(object)->function_table, ZEND_STRL("get"));
 	zval params[] = { *key };
-    call_user_function(NULL, object, &function_name, retval, 1, params);
-    zval_ptr_dtor(&function_name);
+    if (EXPECTED(fn)) {
+        zend_call_known_function(fn, Z_OBJ_P(object), Z_OBJCE_P(object), retval, 1, params, NULL);
+    }
 }/*}}}*/
 
 void gene_redis_mGet(zval *object, zval *key, zval *retval) /*{{{*/
 {
-    zval function_name;
-    ZVAL_STRING(&function_name, "mGet");
+    ZVAL_UNDEF(retval);
+    zend_function *fn = zend_hash_str_find_ptr(&Z_OBJCE_P(object)->function_table, ZEND_STRL("mget"));
 	zval params[] = { *key };
-    call_user_function(NULL, object, &function_name, retval, 1, params);
-    zval_ptr_dtor(&function_name);
+    if (EXPECTED(fn)) {
+        zend_call_known_function(fn, Z_OBJ_P(object), Z_OBJCE_P(object), retval, 1, params, NULL);
+    }
 }/*}}}*/
 
 bool checkError (zend_object *ex) {
@@ -175,9 +186,11 @@ bool initRObj (zval * self, zval *config) {
 	if (config == NULL) {
 		config =  zend_read_property(gene_redis_ce, gene_strip_obj(self), ZEND_STRL(GENE_REDIS_CONFIG), 1, NULL);
 	}
-	zend_string *c_key = zend_string_init(ZEND_STRL("Redis"), 0);
+	static zend_string *c_key = NULL;
+	if (UNEXPECTED(!c_key)) {
+		c_key = zend_string_init_interned(ZEND_STRL("Redis"), 1);
+	}
 	zend_class_entry *obj_ptr = zend_lookup_class(c_key);
-	zend_string_release(c_key);
 
 	if (!obj_ptr) {
 		/* E_WARNING instead of E_ERROR: E_ERROR kills the Swoole worker process */

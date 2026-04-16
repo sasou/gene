@@ -107,13 +107,15 @@ zval *gene_response_context_obj(void) {
 void gene_response_set_redirect(char *url, zend_long code) {
 	zval *swoole_resp = gene_response_context_obj();
 	if (swoole_resp) {
-		zval method, retval, zurl, zcode;
+		zval retval, zurl, zcode;
+		ZVAL_UNDEF(&retval);
 		ZVAL_STRING(&zurl, url);
 		ZVAL_LONG(&zcode, code);
-		ZVAL_STRING(&method, "redirect");
+		zend_function *fn = zend_hash_str_find_ptr(&Z_OBJCE_P(swoole_resp)->function_table, ZEND_STRL("redirect"));
 		zval params[] = { zurl, zcode };
-		call_user_function(NULL, swoole_resp, &method, &retval, 2, params);
-		zval_ptr_dtor(&method);
+		if (EXPECTED(fn)) {
+			zend_call_known_function(fn, Z_OBJ_P(swoole_resp), Z_OBJCE_P(swoole_resp), &retval, 2, params, NULL);
+		}
 		zval_ptr_dtor(&zurl);
 		zval_ptr_dtor(&retval);
 		return;
@@ -143,13 +145,15 @@ void gene_response_set_redirect(char *url, zend_long code) {
 void gene_response_set_header(char *key, char *value) {
 	zval *swoole_resp = gene_response_context_obj();
 	if (swoole_resp) {
-		zval method, retval, zkey, zval_v;
+		zval retval, zkey, zval_v;
+		ZVAL_UNDEF(&retval);
 		ZVAL_STRING(&zkey, key);
 		ZVAL_STRING(&zval_v, value);
-		ZVAL_STRING(&method, "header");
+		zend_function *fn = zend_hash_str_find_ptr(&Z_OBJCE_P(swoole_resp)->function_table, ZEND_STRL("header"));
 		zval params[] = { zkey, zval_v };
-		call_user_function(NULL, swoole_resp, &method, &retval, 2, params);
-		zval_ptr_dtor(&method);
+		if (EXPECTED(fn)) {
+			zend_call_known_function(fn, Z_OBJ_P(swoole_resp), Z_OBJCE_P(swoole_resp), &retval, 2, params, NULL);
+		}
 		zval_ptr_dtor(&zkey);
 		zval_ptr_dtor(&zval_v);
 		zval_ptr_dtor(&retval);
@@ -177,8 +181,7 @@ void gene_response_cookie(zval *name, zval *value, zval *expires, zval *path, zv
 {
 	zval *swoole_resp = gene_response_context_obj();
 	if (swoole_resp) {
-		zval method;
-		ZVAL_STRING(&method, "cookie");
+		zend_function *cookie_fn = zend_hash_str_find_ptr(&Z_OBJCE_P(swoole_resp)->function_table, ZEND_STRL("cookie"));
 		zval params[7];
 		int num = 1;
 		params[0] = *name;
@@ -188,8 +191,9 @@ void gene_response_cookie(zval *name, zval *value, zval *expires, zval *path, zv
 		if (domain) { num = 5; params[4] = *domain; }
 		if (secure) { num = 6; params[5] = *secure; }
 		if (httponly) { num = 7; params[6] = *httponly; }
-		call_user_function(NULL, swoole_resp, &method, retval, num, params);
-		zval_ptr_dtor(&method);
+		if (EXPECTED(cookie_fn)) {
+			zend_call_known_function(cookie_fn, Z_OBJ_P(swoole_resp), Z_OBJCE_P(swoole_resp), retval, num, params, NULL);
+		}
 		return;
 	}
     static zend_function *fn = NULL;
@@ -351,15 +355,25 @@ PHP_METHOD(gene_response, json) {
 	zval *data = NULL;
 	char *callback = NULL;
 	zend_long code = 256;
-    zval ret, json_opt;
+    zval json_opt;
+    zval ret;
     zend_long callback_len = 0;
 
 	if (zend_parse_parameters(ZEND_NUM_ARGS(), "z|sl", &data, &callback, &callback_len, &code) == FAILURE) {
 		return;
 	}
 	ZVAL_LONG(&json_opt, code);
-	zend_call_method_with_2_params(NULL, NULL, NULL, "json_encode", &ret, data, &json_opt);
-	zval_ptr_dtor(&json_opt);
+	ZVAL_UNDEF(&ret);
+	{
+		static zend_function *json_fn = NULL;
+		if (UNEXPECTED(!json_fn)) {
+			json_fn = zend_hash_str_find_ptr(CG(function_table), ZEND_STRL("json_encode"));
+		}
+		if (EXPECTED(json_fn)) {
+			zval params[] = { *data, json_opt };
+			zend_call_known_function(json_fn, NULL, NULL, &ret, 2, params, NULL);
+		}
+	}
 	if (Z_TYPE(ret) == IS_STRING) {
 		if (callback_len) {
 			php_write(callback, callback_len);
@@ -483,18 +497,20 @@ PHP_METHOD(gene_response, end) {
 
 	zval *swoole_resp = gene_response_context_obj();
 	if (swoole_resp) {
-		zval method, retval;
-		ZVAL_STRING(&method, "end");
-		if (data && ZSTR_LEN(data) > 0) {
-			zval zdata;
-			ZVAL_STR_COPY(&zdata, data);
-			zval params[] = { zdata };
-			call_user_function(NULL, swoole_resp, &method, &retval, 1, params);
-			zval_ptr_dtor(&zdata);
-		} else {
-			call_user_function(NULL, swoole_resp, &method, &retval, 0, NULL);
+		zval retval;
+		ZVAL_UNDEF(&retval);
+		zend_function *end_fn = zend_hash_str_find_ptr(&Z_OBJCE_P(swoole_resp)->function_table, ZEND_STRL("end"));
+		if (EXPECTED(end_fn)) {
+			if (data && ZSTR_LEN(data) > 0) {
+				zval zdata;
+				ZVAL_STR_COPY(&zdata, data);
+				zval params[] = { zdata };
+				zend_call_known_function(end_fn, Z_OBJ_P(swoole_resp), Z_OBJCE_P(swoole_resp), &retval, 1, params, NULL);
+				zval_ptr_dtor(&zdata);
+			} else {
+				zend_call_known_function(end_fn, Z_OBJ_P(swoole_resp), Z_OBJCE_P(swoole_resp), &retval, 0, NULL, NULL);
+			}
 		}
-		zval_ptr_dtor(&method);
 		zval_ptr_dtor(&retval);
 		RETURN_TRUE;
 	}

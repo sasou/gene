@@ -79,15 +79,17 @@
          return;
      }
   
-     zend_string *pdo_key = zend_string_init(ZEND_STRL("PDO"), 0);
+     static zend_string *pdo_key = NULL;
+     if (UNEXPECTED(!pdo_key)) {
+         pdo_key = zend_string_init_interned(ZEND_STRL("PDO"), 1);
+     }
      zend_class_entry *pdo_ce = zend_lookup_class(pdo_key);
-     zend_string_release(pdo_key);
   
      if (!pdo_ce) {
          return;
      }
   
-     zval pdo_object, option, func_name, construct_ret;
+     zval pdo_object, option, construct_ret;
      object_init_ex(&pdo_object, pdo_ce);
   
      if (options && Z_TYPE_P(options) == IS_ARRAY) {
@@ -105,32 +107,31 @@
         add_index_bool(&option, 12, 0);
     }
   
-     ZVAL_STRING(&func_name, "__construct");
-     {
-         zval params[4];
-         ZVAL_COPY(&params[0], dsn);
-         if (user && Z_TYPE_P(user) == IS_STRING) {
-             ZVAL_COPY(&params[1], user);
-         } else {
-             ZVAL_STRING(&params[1], "");
-         }
-         if (pass && Z_TYPE_P(pass) == IS_STRING) {
-             ZVAL_COPY(&params[2], pass);
-         } else {
-             ZVAL_STRING(&params[2], "");
-         }
-         ZVAL_COPY(&params[3], &option);
-         ZVAL_UNDEF(&construct_ret);
-         call_user_function(NULL, &pdo_object, &func_name, &construct_ret, 4, params);
-         zval_ptr_dtor(&params[0]);
-         zval_ptr_dtor(&params[1]);
-         zval_ptr_dtor(&params[2]);
-         zval_ptr_dtor(&params[3]);
-         if (!Z_ISUNDEF(construct_ret)) {
-             zval_ptr_dtor(&construct_ret);
-         }
+     zend_function *ctor = pdo_ce->constructor;
+     zval params[4];
+     ZVAL_COPY(&params[0], dsn);
+     if (user && Z_TYPE_P(user) == IS_STRING) {
+         ZVAL_COPY(&params[1], user);
+     } else {
+         ZVAL_STRING(&params[1], "");
      }
-     zval_ptr_dtor(&func_name);
+     if (pass && Z_TYPE_P(pass) == IS_STRING) {
+         ZVAL_COPY(&params[2], pass);
+     } else {
+         ZVAL_STRING(&params[2], "");
+     }
+     ZVAL_COPY(&params[3], &option);
+     ZVAL_UNDEF(&construct_ret);
+     if (EXPECTED(ctor)) {
+         zend_call_known_function(ctor, Z_OBJ(pdo_object), pdo_ce, &construct_ret, 4, params, NULL);
+     }
+     zval_ptr_dtor(&params[0]);
+     zval_ptr_dtor(&params[1]);
+     zval_ptr_dtor(&params[2]);
+     zval_ptr_dtor(&params[3]);
+     if (!Z_ISUNDEF(construct_ret)) {
+         zval_ptr_dtor(&construct_ret);
+     }
      zval_ptr_dtor(&option);
   
      if (EG(exception)) {
@@ -143,14 +144,15 @@
  }
   
  static bool pool_is_alive(zval *pdo) {
-     zval func_name, retval;
-     ZVAL_STRING(&func_name, "getAttribute");
+     zval retval;
+     zend_function *fn = zend_hash_str_find_ptr(&Z_OBJCE_P(pdo)->function_table, ZEND_STRL("getattribute"));
      zval params[1];
      /* PDO::ATTR_SERVER_INFO = 6 */
      ZVAL_LONG(&params[0], 6);
      ZVAL_UNDEF(&retval);
-     call_user_function(NULL, pdo, &func_name, &retval, 1, params);
-     zval_ptr_dtor(&func_name);
+     if (EXPECTED(fn)) {
+         zend_call_known_function(fn, Z_OBJ_P(pdo), Z_OBJCE_P(pdo), &retval, 1, params, NULL);
+     }
   
      if (EG(exception)) {
          zend_clear_exception();
@@ -166,18 +168,20 @@
  }
   
  static bool pool_channel_push(zval *channel, zval *pdo) {
-     zval func_name, retval, item;
+     zval retval, item;
      bool success;
      array_init(&item);
      Z_TRY_ADDREF_P(pdo);
      add_assoc_zval(&item, "conn", pdo);
      add_assoc_long(&item, "lastUsed", (zend_long)time(NULL));
   
-     ZVAL_STRING(&func_name, "push");
-     zval params[1];
-     ZVAL_COPY_VALUE(&params[0], &item);
-     call_user_function(NULL, channel, &func_name, &retval, 1, params);
-     zval_ptr_dtor(&func_name);
+     zend_function *fn = zend_hash_str_find_ptr(&Z_OBJCE_P(channel)->function_table, ZEND_STRL("push"));
+     ZVAL_FALSE(&retval);
+     if (EXPECTED(fn)) {
+         zval params[1];
+         ZVAL_COPY_VALUE(&params[0], &item);
+         zend_call_known_function(fn, Z_OBJ_P(channel), Z_OBJCE_P(channel), &retval, 1, params, NULL);
+     }
      success = (Z_TYPE(retval) == IS_TRUE);
      if (!Z_ISUNDEF(retval)) {
          zval_ptr_dtor(&retval);
@@ -187,13 +191,15 @@
  }
   
  static bool pool_channel_pop(zval *channel, double timeout, zval *result) {
-     zval func_name, retval;
-     ZVAL_STRING(&func_name, "pop");
-     zval params[1];
+     zend_function *fn = zend_hash_str_find_ptr(&Z_OBJCE_P(channel)->function_table, ZEND_STRL("pop"));
+     if (!fn) {
+         ZVAL_NULL(result);
+         return 0;
+     }
+     zval retval, params[1];
      ZVAL_DOUBLE(&params[0], timeout);
      ZVAL_UNDEF(&retval);
-     call_user_function(NULL, channel, &func_name, &retval, 1, params);
-     zval_ptr_dtor(&func_name);
+     zend_call_known_function(fn, Z_OBJ_P(channel), Z_OBJCE_P(channel), &retval, 1, params, NULL);
   
      if (Z_TYPE(retval) == IS_FALSE || Z_TYPE(retval) == IS_NULL) {
          zval_ptr_dtor(&retval);
@@ -205,55 +211,47 @@
  }
   
  static bool pool_channel_is_empty(zval *channel) {
-     zval func_name, retval;
-     ZVAL_STRING(&func_name, "isEmpty");
+     zend_function *fn = zend_hash_str_find_ptr(&Z_OBJCE_P(channel)->function_table, ZEND_STRL("isempty"));
+     if (!fn) return true;
+     zval retval;
      ZVAL_UNDEF(&retval);
-     if (call_user_function(NULL, channel, &func_name, &retval, 0, NULL) != SUCCESS) {
-         zval_ptr_dtor(&func_name);
-         return true;
-     }
-     zval_ptr_dtor(&func_name);
+     zend_call_known_function(fn, Z_OBJ_P(channel), Z_OBJCE_P(channel), &retval, 0, NULL, NULL);
      bool empty = (Z_TYPE(retval) == IS_TRUE);
      zval_ptr_dtor(&retval);
      return empty;
  }
   
  static bool pool_channel_is_full(zval *channel) {
-     zval func_name, retval;
-     ZVAL_STRING(&func_name, "isFull");
+     zend_function *fn = zend_hash_str_find_ptr(&Z_OBJCE_P(channel)->function_table, ZEND_STRL("isfull"));
+     if (!fn) return true;
+     zval retval;
      ZVAL_UNDEF(&retval);
-     if (call_user_function(NULL, channel, &func_name, &retval, 0, NULL) != SUCCESS) {
-         zval_ptr_dtor(&func_name);
-         return true;
-     }
-     zval_ptr_dtor(&func_name);
+     zend_call_known_function(fn, Z_OBJ_P(channel), Z_OBJCE_P(channel), &retval, 0, NULL, NULL);
      bool full = (Z_TYPE(retval) == IS_TRUE);
      zval_ptr_dtor(&retval);
      return full;
  }
   
  static zend_long pool_channel_length(zval *channel) {
-     zval func_name, retval;
-     ZVAL_STRING(&func_name, "length");
+     zend_function *fn = zend_hash_str_find_ptr(&Z_OBJCE_P(channel)->function_table, ZEND_STRL("length"));
+     if (!fn) return 0;
+     zval retval;
      ZVAL_UNDEF(&retval);
-     if (call_user_function(NULL, channel, &func_name, &retval, 0, NULL) != SUCCESS) {
-         zval_ptr_dtor(&func_name);
-         return 0;
-     }
-     zval_ptr_dtor(&func_name);
+     zend_call_known_function(fn, Z_OBJ_P(channel), Z_OBJCE_P(channel), &retval, 0, NULL, NULL);
      zend_long len = (Z_TYPE(retval) == IS_LONG) ? Z_LVAL(retval) : 0;
      zval_ptr_dtor(&retval);
      return len;
  }
   
  static void pool_atomic_call(zval *atomic, const char *method, zend_long arg, zval *retval) {
-     zval func_name, params[1], ret_local;
+     zval params[1], ret_local;
      if (!retval) retval = &ret_local;
-     ZVAL_STRING(&func_name, method);
+     zend_function *fn = zend_hash_str_find_ptr(&Z_OBJCE_P(atomic)->function_table, method, strlen(method));
      ZVAL_LONG(&params[0], arg);
      ZVAL_UNDEF(retval);
-     call_user_function(NULL, atomic, &func_name, retval, 1, params);
-     zval_ptr_dtor(&func_name);
+     if (EXPECTED(fn)) {
+         zend_call_known_function(fn, Z_OBJ_P(atomic), Z_OBJCE_P(atomic), retval, 1, params, NULL);
+     }
      if (!retval || retval == &ret_local) {
          if (!Z_ISUNDEF(ret_local)) zval_ptr_dtor(&ret_local);
      }
@@ -547,18 +545,20 @@ static zend_long pool_increment_count_get(zval *self) {
      zend_update_property_double(gene_pool_ce, gene_strip_obj(self), ZEND_STRL(GENE_POOL_PROPERTY_WAIT_TIME), wait_val);
      /* Create Swoole\Atomic for thread-safe counting */
      {
-         zend_string *atomic_str = zend_string_init(ZEND_STRL("Swoole\\Atomic"), 0);
+         static zend_string *atomic_str = NULL;
+         if (UNEXPECTED(!atomic_str)) {
+             atomic_str = zend_string_init_interned(ZEND_STRL("Swoole\\Atomic"), 1);
+         }
          zend_class_entry *atomic_ce = zend_lookup_class(atomic_str);
-         zend_string_release(atomic_str);
          if (atomic_ce) {
-             zval atomic_obj, atomic_func, atomic_ret;
+             zval atomic_obj, atomic_ret;
              object_init_ex(&atomic_obj, atomic_ce);
-             ZVAL_STRING(&atomic_func, "__construct");
              zval atomic_params[1];
              ZVAL_LONG(&atomic_params[0], 0);
              ZVAL_UNDEF(&atomic_ret);
-             call_user_function(NULL, &atomic_obj, &atomic_func, &atomic_ret, 1, atomic_params);
-             zval_ptr_dtor(&atomic_func);
+             if (EXPECTED(atomic_ce->constructor)) {
+                 zend_call_known_function(atomic_ce->constructor, Z_OBJ(atomic_obj), atomic_ce, &atomic_ret, 1, atomic_params, NULL);
+             }
              if (!Z_ISUNDEF(atomic_ret)) zval_ptr_dtor(&atomic_ret);
              zend_update_property(gene_pool_ce, gene_strip_obj(self), ZEND_STRL(GENE_POOL_PROPERTY_COUNT), &atomic_obj);
              zval_ptr_dtor(&atomic_obj);
@@ -572,24 +572,25 @@ static zend_long pool_increment_count_get(zval *self) {
   
      /* Create Swoole\Coroutine\Channel */
      {
-         zend_string *ch_class_str = zend_string_init(ZEND_STRL("Swoole\\Coroutine\\Channel"), 0);
+         static zend_string *ch_class_str = NULL;
+         if (UNEXPECTED(!ch_class_str)) {
+             ch_class_str = zend_string_init_interned(ZEND_STRL("Swoole\\Coroutine\\Channel"), 1);
+         }
          zend_class_entry *ch_ce = zend_lookup_class(ch_class_str);
-         zend_string_release(ch_class_str);
   
          if (!ch_ce) {
              php_error_docref(NULL, E_WARNING, "Gene\\Pool requires Swoole extension (Swoole\\Coroutine\\Channel not found).");
              return;
          }
   
-         zval channel;
+         zval channel, ch_ret;
          object_init_ex(&channel, ch_ce);
-  
-         zval ch_func, ch_ret;
-         ZVAL_STRING(&ch_func, "__construct");
          zval ch_params[1];
          ZVAL_LONG(&ch_params[0], max_val);
-         call_user_function(NULL, &channel, &ch_func, &ch_ret, 1, ch_params);
-         zval_ptr_dtor(&ch_func);
+         ZVAL_UNDEF(&ch_ret);
+         if (EXPECTED(ch_ce->constructor)) {
+             zend_call_known_function(ch_ce->constructor, Z_OBJ(channel), ch_ce, &ch_ret, 1, ch_params, NULL);
+         }
          if (!Z_ISUNDEF(ch_ret)) {
              zval_ptr_dtor(&ch_ret);
          }
@@ -1018,10 +1019,12 @@ static zend_long pool_increment_count_get(zval *self) {
              }
  
              /* Close channel — wakes any remaining blocked coroutines with false */
-             zval close_func, close_ret;
-             ZVAL_STRING(&close_func, "close");
-             call_user_function(NULL, channel, &close_func, &close_ret, 0, NULL);
-             zval_ptr_dtor(&close_func);
+             zval close_ret;
+             zend_function *close_fn = zend_hash_str_find_ptr(&Z_OBJCE_P(channel)->function_table, ZEND_STRL("close"));
+             ZVAL_UNDEF(&close_ret);
+             if (EXPECTED(close_fn)) {
+                 zend_call_known_function(close_fn, Z_OBJ_P(channel), Z_OBJCE_P(channel), &close_ret, 0, NULL, NULL);
+             }
              if (!Z_ISUNDEF(close_ret)) {
                  zval_ptr_dtor(&close_ret);
              }

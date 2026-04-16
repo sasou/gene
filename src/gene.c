@@ -84,9 +84,11 @@ zend_long gene_get_coroutine_id(void) {
 
 	if (!GENE_G(swoole_getcid_resolved)) {
 		zend_class_entry *co_ce = NULL;
-		zend_string *class_name = zend_string_init(ZEND_STRL("swoole\\coroutine"), 0);
+		static zend_string *class_name = NULL;
+		if (UNEXPECTED(!class_name)) {
+			class_name = zend_string_init_interned(ZEND_STRL("swoole\\coroutine"), 1);
+		}
 		co_ce = zend_lookup_class(class_name);
-		zend_string_release(class_name);
 		if (co_ce) {
 			GENE_G(swoole_getcid_func) = zend_hash_str_find_ptr(
 				&co_ce->function_table, ZEND_STRL("getcid"));

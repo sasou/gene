@@ -170,9 +170,11 @@ bool mssqlInitPdo (zval * self, zval *config) {
 		return 0;
 	}
 
-	zend_string *c_key = zend_string_init(ZEND_STRL("PDO"), 0);
+	static zend_string *c_key = NULL;
+	if (UNEXPECTED(!c_key)) {
+		c_key = zend_string_init_interned(ZEND_STRL("PDO"), 1);
+	}
 	zend_class_entry *pdo_ptr = zend_lookup_class(c_key);
-	zend_string_release(c_key);
 
 	if (!pdo_ptr) {
 		php_error_docref(NULL, E_ERROR, "PDO extension is not loaded.");

@@ -303,9 +303,12 @@ static int gene_application_webscan_check()
 		return 0;
 	}
 
-	class_name = zend_string_init(ZEND_STRL("Gene\\Webscan"), 0);
+	static zend_string *ws_key = NULL;
+	if (UNEXPECTED(!ws_key)) {
+		ws_key = zend_string_init_interned(ZEND_STRL("Gene\\Webscan"), 1);
+	}
+	class_name = ws_key;
 	webscan_ce = zend_lookup_class(class_name);
-	zend_string_release(class_name);
 	if (!webscan_ce) {
 		php_error_docref(NULL, E_WARNING, "Unable to load security scanner class Gene\\Webscan");
 		return 0;
@@ -841,10 +844,12 @@ PHP_METHOD(gene_application, setResponse) {
 		return;
 	}
 	zval *entrys = gene_di_regs();
-	zend_string *key = zend_string_init("response", sizeof("response") - 1, 0);
+	static zend_string *resp_key = NULL;
+	if (UNEXPECTED(!resp_key)) {
+		resp_key = zend_string_init_interned("response", sizeof("response") - 1, 1);
+	}
 	Z_TRY_ADDREF_P(resp);
-	zend_hash_update(Z_ARRVAL_P(entrys), key, resp);
-	zend_string_release(key);
+	zend_hash_update(Z_ARRVAL_P(entrys), resp_key, resp);
 	RETURN_TRUE;
 }
 /* }}} */

@@ -97,111 +97,100 @@ void mssql_array_to_string(zval *array, char **result, char oq, char cq)
 void gene_pdo_construct(zval *pdo_object, zval *dsn, zval *user, zval *pass, zval *options) /*{{{*/
 {
     zval retval;
-    zval function_name;
     ZVAL_UNDEF(&retval);
-    ZVAL_STRING(&function_name, "__construct");
-    if (options) {
-        zval params[4] = { *dsn, *user, *pass, *options };
-        uint32_t param_count = 4;
-        call_user_function(NULL, pdo_object, &function_name, &retval, param_count, params);
-    } else {
-        zval params[3] = { *dsn, *user, *pass};
-        uint32_t param_count = 3;
-        call_user_function(NULL, pdo_object, &function_name, &retval, param_count, params);
+    zend_class_entry *ce = Z_OBJCE_P(pdo_object);
+    zend_function *fn = ce->constructor;
+    if (EXPECTED(fn)) {
+        if (options) {
+            zval params[4] = { *dsn, *user, *pass, *options };
+            zend_call_known_function(fn, Z_OBJ_P(pdo_object), ce, &retval, 4, params, NULL);
+        } else {
+            zval params[3] = { *dsn, *user, *pass };
+            zend_call_known_function(fn, Z_OBJ_P(pdo_object), ce, &retval, 3, params, NULL);
+        }
     }
     if (!Z_ISUNDEF(retval)) {
         zval_ptr_dtor(&retval);
     }
-    zval_ptr_dtor(&function_name);
 }/*}}}*/
 
 void gene_pdo_begin_transaction(zval *pdo_object, zval *retval) /*{{{*/
 {
-    zval function_name;
-    ZVAL_STRING(&function_name, "beginTransaction");
-    uint32_t param_count = 0;
-    zval *params = NULL;
-    call_user_function(NULL, pdo_object, &function_name, retval, param_count, params);
-    zval_ptr_dtor(&function_name);
+    ZVAL_UNDEF(retval);
+    zend_function *fn = zend_hash_str_find_ptr(&Z_OBJCE_P(pdo_object)->function_table, ZEND_STRL("begintransaction"));
+    if (EXPECTED(fn)) {
+        zend_call_known_function(fn, Z_OBJ_P(pdo_object), Z_OBJCE_P(pdo_object), retval, 0, NULL, NULL);
+    }
 }/*}}}*/
 
 void gene_pdo_commit(zval *pdo_object, zval *retval)/*{{{*/
 {
-    zval function_name;
-    ZVAL_STRING(&function_name, "commit");
-    uint32_t param_count = 0;
-    zval *params = NULL;
-    call_user_function(NULL, pdo_object, &function_name, retval, param_count, params);
-    zval_ptr_dtor(&function_name);
+    ZVAL_UNDEF(retval);
+    zend_function *fn = zend_hash_str_find_ptr(&Z_OBJCE_P(pdo_object)->function_table, ZEND_STRL("commit"));
+    if (EXPECTED(fn)) {
+        zend_call_known_function(fn, Z_OBJ_P(pdo_object), Z_OBJCE_P(pdo_object), retval, 0, NULL, NULL);
+    }
 }/*}}}*/
 
 
 void gene_pdo_exec(zval *pdo_object, char *sql, zval *retval) /*{{{*/
 {
-    zval function_name;
-    ZVAL_STRING(&function_name, "exec");
-    uint32_t param_count = 1;
-    zval pdo_sql;
-    ZVAL_STRING(&pdo_sql, sql);
-    zval params[] = { pdo_sql };
-    call_user_function(NULL, pdo_object, &function_name, retval, param_count, params);
-    zval_ptr_dtor(&pdo_sql);
-    zval_ptr_dtor(&function_name);
+    ZVAL_UNDEF(retval);
+    zend_function *fn = zend_hash_str_find_ptr(&Z_OBJCE_P(pdo_object)->function_table, ZEND_STRL("exec"));
+    if (EXPECTED(fn)) {
+        zval pdo_sql;
+        ZVAL_STRING(&pdo_sql, sql);
+        zend_call_known_function(fn, Z_OBJ_P(pdo_object), Z_OBJCE_P(pdo_object), retval, 1, &pdo_sql, NULL);
+        zval_ptr_dtor(&pdo_sql);
+    }
 }/*}}}*/
 
 void gene_pdo_in_transaction(zval *pdo_object, zval *retval) /*{{{*/
 {
-    zval function_name;
-    ZVAL_STRING(&function_name, "inTransaction");
-    uint32_t param_count = 0;
-    zval *params = NULL;
-    call_user_function(NULL, pdo_object, &function_name, retval, param_count, params);
-    zval_ptr_dtor(&function_name);
+    ZVAL_UNDEF(retval);
+    zend_function *fn = zend_hash_str_find_ptr(&Z_OBJCE_P(pdo_object)->function_table, ZEND_STRL("intransaction"));
+    if (EXPECTED(fn)) {
+        zend_call_known_function(fn, Z_OBJ_P(pdo_object), Z_OBJCE_P(pdo_object), retval, 0, NULL, NULL);
+    }
 }/*}}}*/
 
 void gene_pdo_last_insert_id(zval *pdo_object, char *name, zval *retval) /*{{{*/
 {
-    zval function_name;
-    ZVAL_STRING(&function_name, "lastInsertId");
-    if (name) {
-        uint32_t param_count = 1;
-        zval id_name;
-        ZVAL_STRING(&id_name, name);
-        zval params[] = { id_name };
-        call_user_function(NULL, pdo_object, &function_name, retval, param_count, params);
-        zval_ptr_dtor(&id_name);
-    } else {
-        uint32_t param_count = 0;
-        zval *params = NULL;
-        call_user_function(NULL, pdo_object, &function_name, retval, param_count, params);
+    ZVAL_UNDEF(retval);
+    zend_function *fn = zend_hash_str_find_ptr(&Z_OBJCE_P(pdo_object)->function_table, ZEND_STRL("lastinsertid"));
+    if (EXPECTED(fn)) {
+        if (name) {
+            zval id_name;
+            ZVAL_STRING(&id_name, name);
+            zend_call_known_function(fn, Z_OBJ_P(pdo_object), Z_OBJCE_P(pdo_object), retval, 1, &id_name, NULL);
+            zval_ptr_dtor(&id_name);
+        } else {
+            zend_call_known_function(fn, Z_OBJ_P(pdo_object), Z_OBJCE_P(pdo_object), retval, 0, NULL, NULL);
+        }
     }
-    zval_ptr_dtor(&function_name);
 }/*}}}*/
 
 void gene_pdo_error_code(zval *pdo_object, zval *retval) /*{{{*/
 {
-    zval function_name;
-    ZVAL_STRING(&function_name, "errorCode");
-    uint32_t param_count = 0;
-    zval *params = NULL;
-    call_user_function(NULL, pdo_object, &function_name, retval, param_count, params);
-    zval_ptr_dtor(&function_name);
+    ZVAL_UNDEF(retval);
+    zend_function *fn = zend_hash_str_find_ptr(&Z_OBJCE_P(pdo_object)->function_table, ZEND_STRL("errorcode"));
+    if (EXPECTED(fn)) {
+        zend_call_known_function(fn, Z_OBJ_P(pdo_object), Z_OBJCE_P(pdo_object), retval, 0, NULL, NULL);
+    }
 }/*}}}*/
 
 void gene_pdo_error_info(zval *pdo_object, zval *retval) /*{{{*/
 {
-    zval function_name;
-    ZVAL_STRING(&function_name, "errorInfo");
-    uint32_t param_count = 0;
-    zval *params = NULL;
-    call_user_function(NULL, pdo_object, &function_name, retval, param_count, params);
-    zval_ptr_dtor(&function_name);
+    ZVAL_UNDEF(retval);
+    zend_function *fn = zend_hash_str_find_ptr(&Z_OBJCE_P(pdo_object)->function_table, ZEND_STRL("errorinfo"));
+    if (EXPECTED(fn)) {
+        zend_call_known_function(fn, Z_OBJ_P(pdo_object), Z_OBJCE_P(pdo_object), retval, 0, NULL, NULL);
+    }
 }/*}}}*/
 
 bool show_sql_errors(zval *pdo_object)
 {
     zval retval;
-    zend_string *ok_state;
     gene_pdo_error_info(pdo_object, &retval);
     if (Z_TYPE(retval) != IS_ARRAY) {
     	zval_ptr_dtor(&retval);
@@ -214,142 +203,131 @@ bool show_sql_errors(zval *pdo_object)
     	zval_ptr_dtor(&retval);
     	return 0;
     }
-    ok_state = zend_string_init(ZEND_STRL("00000"), 0);
-    if (!zend_string_equals(Z_STR_P(sql_state), ok_state)) {
-    	zend_string_release(ok_state);
+    if (Z_STRLEN_P(sql_state) != 5 || memcmp(Z_STRVAL_P(sql_state), "00000", 5) != 0) {
     	zend_long code = (sql_code && Z_TYPE_P(sql_code) == IS_LONG) ? Z_LVAL_P(sql_code) : 0;
     	char *info = (sql_info && Z_TYPE_P(sql_info) == IS_STRING) ? Z_STRVAL_P(sql_info) : "Unknown error";
     	zval_ptr_dtor(&retval);
     	php_error_docref(NULL, E_ERROR, "SQL: " ZEND_LONG_FMT " %s", code, info);
         return 1;
     }
-    zend_string_release(ok_state);
     zval_ptr_dtor(&retval);
     return 0;
 }/*}}}*/
 
 void gene_pdo_prepare(zval *pdo_object, char *sql, zval *retval) /*{{{ RETURN a PDOStatement */
 {
-    zval function_name;
-    ZVAL_STRING(&function_name, "prepare");
-    if (sql) {
-        uint32_t param_count = 1;
-        zval prepare_sql;
-        ZVAL_STRING(&prepare_sql, sql);
-        zval params[1];
-        ZVAL_COPY(&params[0], &prepare_sql);
-        call_user_function(NULL, pdo_object, &function_name, retval, param_count, params);
-        zval_ptr_dtor(&params[0]);
-        zval_ptr_dtor(&prepare_sql);
+    ZVAL_UNDEF(retval);
+    zend_function *fn = zend_hash_str_find_ptr(&Z_OBJCE_P(pdo_object)->function_table, ZEND_STRL("prepare"));
+    if (EXPECTED(fn) && sql) {
+        zval param;
+        ZVAL_STRING(&param, sql);
+        zend_call_known_function(fn, Z_OBJ_P(pdo_object), Z_OBJCE_P(pdo_object), retval, 1, &param, NULL);
+        zval_ptr_dtor(&param);
     }
-    zval_ptr_dtor(&function_name);
 }/*}}}*/
 
 void gene_pdo_rollback(zval *pdo_object, zval *retval) /*{{{*/
 {
-    zval function_name;
-    ZVAL_STRING(&function_name, "rollBack");
-    uint32_t param_count = 0;
-    zval *params = NULL;
-    call_user_function(NULL, pdo_object, &function_name, retval, param_count, params);
-    zval_ptr_dtor(&function_name);
+    ZVAL_UNDEF(retval);
+    zend_function *fn = zend_hash_str_find_ptr(&Z_OBJCE_P(pdo_object)->function_table, ZEND_STRL("rollback"));
+    if (EXPECTED(fn)) {
+        zend_call_known_function(fn, Z_OBJ_P(pdo_object), Z_OBJCE_P(pdo_object), retval, 0, NULL, NULL);
+    }
 }/*}}}*/
 
 void gene_pdo_statement_execute(zval *pdostatement_obj, zval *bind_parameters, zval *retval)/*{{{*/
 {
-    zval function_name;
-    ZVAL_STRING(&function_name, "execute");
-    if (bind_parameters){
-        uint32_t param_count = 1;
-        zval params[1];
-        ZVAL_COPY(&params[0], bind_parameters);
-        call_user_function(NULL, pdostatement_obj, &function_name, retval, param_count, params);
-        zval_ptr_dtor(&params[0]);
-    } else {
-        uint32_t param_count = 0;
-        zval *params = NULL;
-        call_user_function(NULL, pdostatement_obj, &function_name, retval, param_count, params);
+    ZVAL_UNDEF(retval);
+    zend_function *fn = zend_hash_str_find_ptr(&Z_OBJCE_P(pdostatement_obj)->function_table, ZEND_STRL("execute"));
+    if (EXPECTED(fn)) {
+        if (bind_parameters) {
+            zval params[1];
+            ZVAL_COPY(&params[0], bind_parameters);
+            zend_call_known_function(fn, Z_OBJ_P(pdostatement_obj), Z_OBJCE_P(pdostatement_obj), retval, 1, params, NULL);
+            zval_ptr_dtor(&params[0]);
+        } else {
+            zend_call_known_function(fn, Z_OBJ_P(pdostatement_obj), Z_OBJCE_P(pdostatement_obj), retval, 0, NULL, NULL);
+        }
     }
-    zval_ptr_dtor(&function_name);
 }/*}}}*/
 
 void gene_pdo_statement_fetch(zval *pdostatement_obj, zval *retval)/*{{{*/
 {
-    zval function_name;
-    ZVAL_STRING(&function_name, "fetch");
-    uint32_t param_count = 0;
-    zval *params = NULL;
-    call_user_function(NULL, pdostatement_obj, &function_name, retval, param_count, params);
-    zval_ptr_dtor(&function_name);
+    ZVAL_UNDEF(retval);
+    zend_function *fn = zend_hash_str_find_ptr(&Z_OBJCE_P(pdostatement_obj)->function_table, ZEND_STRL("fetch"));
+    if (EXPECTED(fn)) {
+        zend_call_known_function(fn, Z_OBJ_P(pdostatement_obj), Z_OBJCE_P(pdostatement_obj), retval, 0, NULL, NULL);
+    }
 }/*}}}*/
 
 void gene_pdo_statement_fetch_all(zval *pdostatement_obj, zval *retval)/*{{{*/
 {
-    zval function_name;
-    ZVAL_STRING(&function_name, "fetchAll");
-    uint32_t param_count = 0;
-    zval *params = NULL;
-    call_user_function(NULL, pdostatement_obj, &function_name, retval, param_count, params);
-    zval_ptr_dtor(&function_name);
+    ZVAL_UNDEF(retval);
+    zend_function *fn = zend_hash_str_find_ptr(&Z_OBJCE_P(pdostatement_obj)->function_table, ZEND_STRL("fetchall"));
+    if (EXPECTED(fn)) {
+        zend_call_known_function(fn, Z_OBJ_P(pdostatement_obj), Z_OBJCE_P(pdostatement_obj), retval, 0, NULL, NULL);
+    }
 }/*}}}*/
 
 void gene_pdo_statement_fetch_column(zval *pdostatement_obj, zval *retval)/*{{{*/
 {
-    zval function_name;
-    ZVAL_STRING(&function_name, "fetchColumn");
-    uint32_t param_count = 0;
-    zval *params = NULL;
-    call_user_function(NULL, pdostatement_obj, &function_name, retval, param_count, params);
-    zval_ptr_dtor(&function_name);
+    ZVAL_UNDEF(retval);
+    zend_function *fn = zend_hash_str_find_ptr(&Z_OBJCE_P(pdostatement_obj)->function_table, ZEND_STRL("fetchcolumn"));
+    if (EXPECTED(fn)) {
+        zend_call_known_function(fn, Z_OBJ_P(pdostatement_obj), Z_OBJCE_P(pdostatement_obj), retval, 0, NULL, NULL);
+    }
 }/*}}}*/
 
 void gene_pdo_statement_fetch_object(zval *pdostatement_obj, zval *retval)/*{{{*/
 {
-    zval function_name;
-    ZVAL_STRING(&function_name, "fetchObject");
-    uint32_t param_count = 0;
-    zval *params = NULL;
-    call_user_function(NULL, pdostatement_obj, &function_name, retval, param_count, params);
-    zval_ptr_dtor(&function_name);
+    ZVAL_UNDEF(retval);
+    zend_function *fn = zend_hash_str_find_ptr(&Z_OBJCE_P(pdostatement_obj)->function_table, ZEND_STRL("fetchobject"));
+    if (EXPECTED(fn)) {
+        zend_call_known_function(fn, Z_OBJ_P(pdostatement_obj), Z_OBJCE_P(pdostatement_obj), retval, 0, NULL, NULL);
+    }
 }/*}}}*/
 
 
 void gene_pdo_statement_row_count(zval *pdostatement_obj, zval *retval)/*{{{*/
 {
-    zval function_name;
-    ZVAL_STRING(&function_name, "rowCount");
-    uint32_t param_count = 0;
-    zval *params = NULL;
-    call_user_function(NULL, pdostatement_obj, &function_name, retval, param_count, params);
-    zval_ptr_dtor(&function_name);
+    ZVAL_UNDEF(retval);
+    zend_function *fn = zend_hash_str_find_ptr(&Z_OBJCE_P(pdostatement_obj)->function_table, ZEND_STRL("rowcount"));
+    if (EXPECTED(fn)) {
+        zend_call_known_function(fn, Z_OBJ_P(pdostatement_obj), Z_OBJCE_P(pdostatement_obj), retval, 0, NULL, NULL);
+    }
 }/*}}}*/
 
 void gene_pdo_statement_set_fetch_mode(zval *pdostatement_obj, int fetch_style, zval *retval)/*{{{*/
 {
-    zval function_name;
-    ZVAL_STRING(&function_name, "setFetchMode");
-    uint32_t param_count = 1;
-    zval pdo_fetch_style;
-    ZVAL_LONG(&pdo_fetch_style, fetch_style);
-    zval params[] = { pdo_fetch_style };
-    call_user_function(NULL, pdostatement_obj, &function_name, retval, param_count, params);
-    zval_ptr_dtor(&function_name);
+    ZVAL_UNDEF(retval);
+    zend_function *fn = zend_hash_str_find_ptr(&Z_OBJCE_P(pdostatement_obj)->function_table, ZEND_STRL("setfetchmode"));
+    if (EXPECTED(fn)) {
+        zval param;
+        ZVAL_LONG(&param, fetch_style);
+        zend_call_known_function(fn, Z_OBJ_P(pdostatement_obj), Z_OBJCE_P(pdostatement_obj), retval, 1, &param, NULL);
+    }
 }/*}}}*/
 
 void jsonEncode(zval *data, zval *param) {
-	zval func, ret;
-	ZVAL_STRING(&func, "json_encode");
-	ZVAL_NULL(&ret);
 	if (Z_TYPE_P(param) == IS_ARRAY) {
-		call_user_function(EG(function_table), NULL, &func, &ret, 1, param);
+		static zend_function *fn = NULL;
+		if (UNEXPECTED(!fn)) {
+			fn = zend_hash_str_find_ptr(CG(function_table), ZEND_STRL("json_encode"));
+		}
+		zval ret;
+		ZVAL_NULL(&ret);
+		if (EXPECTED(fn)) {
+			zend_call_known_function(fn, NULL, NULL, &ret, 1, param, NULL);
+		}
 		if (Z_TYPE(ret) == IS_STRING) {
 			ZVAL_STRING(data, Z_STRVAL(ret));
+		} else {
+			ZVAL_NULL(data);
 		}
+		zval_ptr_dtor(&ret);
 	} else {
 		ZVAL_NULL(data);
 	}
-	zval_ptr_dtor(&func);
-	zval_ptr_dtor(&ret);
 }
 
 void gene_insert_field_value(zval *fields, smart_str *field_str, smart_str *value_str, zval *field_value, char oq, char cq){
