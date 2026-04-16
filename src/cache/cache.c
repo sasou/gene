@@ -918,6 +918,7 @@ static zend_always_inline void gene_cache_build_version_payload(zval *payload, z
 	array_init_size(payload, 2);
 	Z_TRY_ADDREF_P(data);
 	add_assoc_zval_ex(payload, ZEND_STRL("data"), data);
+	Z_TRY_ADDREF_P(version);
 	add_assoc_zval_ex(payload, ZEND_STRL("version"), version);
 }
 
@@ -1064,8 +1065,13 @@ PHP_METHOD(gene_cache, localCached)
 {
 	zval *self = getThis(), *config = NULL, *hook = NULL, *hookName = NULL,*sign = NULL,*obj = NULL, *args = NULL, *ttl = NULL, *hash_mode_zv = NULL;
 	zend_long hash_mode = 0;
+	zval ttl_default;
 	if (zend_parse_parameters(ZEND_NUM_ARGS(), "zz|z", &obj, &args, &ttl) == FAILURE) {
 		return;
+	}
+	if (!ttl) {
+		ZVAL_LONG(&ttl_default, 0);
+		ttl = &ttl_default;
 	}
 	config = OBJ_PROP(Z_OBJ_P(self), gene_cache_offset_config);
 	if (!config || Z_TYPE_P(config) != IS_ARRAY) {
@@ -1256,8 +1262,13 @@ PHP_METHOD(gene_cache, localCachedVersion)
 {
 	zval *self = getThis(), *config = NULL, *hook = NULL, *hookName = NULL,*sign = NULL,*versionSign = NULL, *obj = NULL, *args = NULL,*versionField = NULL, *ttl = NULL, *mode = NULL, *hash_mode_zv = NULL;
 	zend_long hash_mode = 0;
+	zval ttl_default;
 	if (zend_parse_parameters(ZEND_NUM_ARGS(), "zzz|zz", &obj, &args, &versionField, &ttl, &mode) == FAILURE) {
 		return;
+	}
+	if (!ttl) {
+		ZVAL_LONG(&ttl_default, 0);
+		ttl = &ttl_default;
 	}
 	config = OBJ_PROP(Z_OBJ_P(self), gene_cache_offset_config);
 	if (!config || Z_TYPE_P(config) != IS_ARRAY) {
@@ -1926,7 +1937,6 @@ PHP_METHOD(gene_cache, cachedVersionBatch)
 		}
 		zval cur_data, data_new;
 		gene_cache_call(&objs[i], &args_arr[i], &cur_data);
-		Z_TRY_ADDREF(cur_version);
 		gene_cache_build_version_payload(&data_new, &cur_data, &cur_version);
 		hook = gene_di_get(Z_STR_P(hookName));
 		if (hook) {
@@ -2043,7 +2053,6 @@ PHP_METHOD(gene_cache, localCachedVersionBatch)
 		}
 		zval cur_data, data_new;
 		gene_cache_call(&objs[i], &args_arr[i], &cur_data);
-		Z_TRY_ADDREF(cur_version);
 		gene_cache_build_version_payload(&data_new, &cur_data, &cur_version);
 		zval ret;
 		gene_apcu_store(&data_keys[i], &data_new, ttl, &ret);
@@ -2145,7 +2154,6 @@ PHP_METHOD(gene_cache, processCachedVersionBatch)
 		}
 		zval cur_data, data_new;
 		gene_cache_call(&objs[i], &args_arr[i], &cur_data);
-		Z_TRY_ADDREF(cur_version);
 		gene_cache_build_version_payload(&data_new, &cur_data, &cur_version);
 		gene_memory_set(Z_STRVAL(data_keys[i]), Z_STRLEN(data_keys[i]), &data_new, 0);
 		zval_ptr_dtor(&data_new);
