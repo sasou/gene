@@ -1,4 +1,4 @@
-/*
+﻿/*
   +----------------------------------------------------------------------+
   | gene                                                                 |
   +----------------------------------------------------------------------+
@@ -130,6 +130,35 @@ static const char *gene_log_get_effective_file(void) {
 }
 /* }}} */
 
+/* {{{ gene_log_get_error_log_fn — cached error_log function pointer */
+static inline zend_function *gene_log_get_error_log_fn(void) {
+	static zend_function *fn = NULL;
+	if (UNEXPECTED(!fn)) {
+		fn = zend_hash_str_find_ptr(CG(function_table), ZEND_STRL("error_log"));
+	}
+	return fn;
+}
+/* }}} */
+
+/* {{{ gene_log_call_error_log — write via cached error_log function */
+static void gene_log_call_error_log(const char *log_line, const char *effective_file) {
+	zend_function *fn = gene_log_get_error_log_fn();
+	if (UNEXPECTED(!fn)) return;
+	zval retval, params[3];
+	ZVAL_STRING(&params[0], log_line);
+	if (effective_file) {
+		ZVAL_LONG(&params[1], 3);
+		ZVAL_STRING(&params[2], effective_file);
+		zend_call_known_function(fn, NULL, NULL, &retval, 3, params, NULL);
+		zval_ptr_dtor(&params[2]);
+	} else {
+		zend_call_known_function(fn, NULL, NULL, &retval, 1, params, NULL);
+	}
+	zval_ptr_dtor(&params[0]);
+	zval_ptr_dtor(&retval);
+}
+/* }}} */
+
 /* {{{ gene_log_write_message */
 static void gene_log_write_message(zend_long level, const char *msg) {
 	char *datetime = NULL;
@@ -150,30 +179,7 @@ static void gene_log_write_message(zend_long level, const char *msg) {
 
 	/* Check if custom log file is set */
 	effective_file = gene_log_get_effective_file();
-	if (effective_file) {
-		/* Write to custom file */
-		zval func_name, retval;
-		zval params[3];
-		ZVAL_STRING(&func_name, "error_log");
-		ZVAL_STRING(&params[0], log_line);
-		ZVAL_LONG(&params[1], 3);
-		ZVAL_STRING(&params[2], effective_file);
-		call_user_function(EG(function_table), NULL, &func_name, &retval, 3, params);
-		zval_ptr_dtor(&func_name);
-		zval_ptr_dtor(&params[0]);
-		zval_ptr_dtor(&params[2]);
-		zval_ptr_dtor(&retval);
-	} else {
-		/* Write to default error_log */
-		zval func_name, retval;
-		zval params[1];
-		ZVAL_STRING(&func_name, "error_log");
-		ZVAL_STRING(&params[0], log_line);
-		call_user_function(EG(function_table), NULL, &func_name, &retval, 1, params);
-		zval_ptr_dtor(&func_name);
-		zval_ptr_dtor(&params[0]);
-		zval_ptr_dtor(&retval);
-	}
+	gene_log_call_error_log(log_line, effective_file);
 
 	efree(log_line);
 }
@@ -251,29 +257,24 @@ PHP_METHOD(gene_log, exception) {
 		return;
 	}
 
-	/* Get exception info */
+	/* Get exception info via direct property reads (avoids 3× call_user_function overhead).
+	 * message, file, line are standard Throwable properties readable via zend_read_property.
+	 * getTraceAsString() must remain a method call (it computes the string). */
 	{
-		zval func_name;
+		zval rv1, rv2, rv3;
+		zval *msg_prop  = zend_read_property(Z_OBJCE_P(ex), gene_strip_obj(ex), ZEND_STRL("message"), 1, &rv1);
+		zval *file_prop = zend_read_property(Z_OBJCE_P(ex), gene_strip_obj(ex), ZEND_STRL("file"), 1, &rv2);
+		zval *line_prop = zend_read_property(Z_OBJCE_P(ex), gene_strip_obj(ex), ZEND_STRL("line"), 1, &rv3);
 
-		ZVAL_STRING(&func_name, "getMessage");
-		ZVAL_UNDEF(&msg_val);
-		call_user_function(NULL, ex, &func_name, &msg_val, 0, NULL);
-		zval_ptr_dtor(&func_name);
+		if (msg_prop && Z_TYPE_P(msg_prop) == IS_STRING) { ZVAL_COPY(&msg_val, msg_prop); } else { ZVAL_EMPTY_STRING(&msg_val); }
+		if (file_prop && Z_TYPE_P(file_prop) == IS_STRING) { ZVAL_COPY(&file_val, file_prop); } else { ZVAL_EMPTY_STRING(&file_val); }
+		if (line_prop && Z_TYPE_P(line_prop) == IS_LONG) { ZVAL_COPY(&line_val, line_prop); } else { ZVAL_LONG(&line_val, 0); }
 
-		ZVAL_STRING(&func_name, "getFile");
-		ZVAL_UNDEF(&file_val);
-		call_user_function(NULL, ex, &func_name, &file_val, 0, NULL);
-		zval_ptr_dtor(&func_name);
-
-		ZVAL_STRING(&func_name, "getLine");
-		ZVAL_UNDEF(&line_val);
-		call_user_function(NULL, ex, &func_name, &line_val, 0, NULL);
-		zval_ptr_dtor(&func_name);
-
-		ZVAL_STRING(&func_name, "getTraceAsString");
 		ZVAL_UNDEF(&trace_val);
-		call_user_function(NULL, ex, &func_name, &trace_val, 0, NULL);
-		zval_ptr_dtor(&func_name);
+		zend_function *trace_fn = zend_hash_str_find_ptr(&Z_OBJCE_P(ex)->function_table, ZEND_STRL("gettraceasstring"));
+		if (EXPECTED(trace_fn)) {
+			zend_call_known_function(trace_fn, Z_OBJ_P(ex), Z_OBJCE_P(ex), &trace_val, 0, NULL, NULL);
+		}
 	}
 
 	gene_log_get_datetime(&datetime);
@@ -299,31 +300,7 @@ PHP_METHOD(gene_log, exception) {
 	efree(datetime);
 
 	/* Write log */
-	{
-	const char *effective_file = gene_log_get_effective_file();
-	if (effective_file) {
-		zval func_name, retval;
-		zval params[3];
-		ZVAL_STRING(&func_name, "error_log");
-		ZVAL_STRING(&params[0], log_line);
-		ZVAL_LONG(&params[1], 3);
-		ZVAL_STRING(&params[2], effective_file);
-		call_user_function(EG(function_table), NULL, &func_name, &retval, 3, params);
-		zval_ptr_dtor(&func_name);
-		zval_ptr_dtor(&params[0]);
-		zval_ptr_dtor(&params[2]);
-		zval_ptr_dtor(&retval);
-	} else {
-		zval func_name, retval;
-		zval params[1];
-		ZVAL_STRING(&func_name, "error_log");
-		ZVAL_STRING(&params[0], log_line);
-		call_user_function(EG(function_table), NULL, &func_name, &retval, 1, params);
-		zval_ptr_dtor(&func_name);
-		zval_ptr_dtor(&params[0]);
-		zval_ptr_dtor(&retval);
-	}
-	}
+	gene_log_call_error_log(log_line, gene_log_get_effective_file());
 
 	efree(log_line);
 	zval_ptr_dtor(&msg_val);

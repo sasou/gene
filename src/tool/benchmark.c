@@ -57,16 +57,20 @@ ZEND_END_ARG_INFO()
  * {{{ void markStart(timeval *start, zend_long *memory_start)
  */
 void markStart(struct timeval *start, zend_long *memory_start) {
-	zval func, ret;
+	zval ret;
 	gettimeofday( start, NULL );
 
-	ZVAL_STRING(&func, "memory_get_peak_usage");
-	ZVAL_NULL(&ret);
-	call_user_function(EG(function_table), NULL, &func, &ret, 0, NULL);
+	static zend_function *mem_fn = NULL;
+	if (UNEXPECTED(!mem_fn)) {
+		mem_fn = zend_hash_str_find_ptr(CG(function_table), ZEND_STRL("memory_get_peak_usage"));
+	}
+	ZVAL_UNDEF(&ret);
+	if (EXPECTED(mem_fn)) {
+		zend_call_known_function(mem_fn, NULL, NULL, &ret, 0, NULL, NULL);
+	}
 	if (Z_TYPE(ret) == IS_LONG) {
 		*memory_start = Z_LVAL(ret);
 	}
-	zval_ptr_dtor(&func);
 	zval_ptr_dtor(&ret);
 }
 /* }}} */
@@ -75,16 +79,20 @@ void markStart(struct timeval *start, zend_long *memory_start) {
  * {{{ void markEnd()
  */
 void markEnd(struct timeval *end, zend_long *memory_end) {
-	zval func, ret;
+	zval ret;
     gettimeofday( end, NULL );
 
-	ZVAL_STRING(&func, "memory_get_peak_usage");
-	ZVAL_NULL(&ret);
-	call_user_function(EG(function_table), NULL, &func, &ret, 0, NULL);
+	static zend_function *mem_fn = NULL;
+	if (UNEXPECTED(!mem_fn)) {
+		mem_fn = zend_hash_str_find_ptr(CG(function_table), ZEND_STRL("memory_get_peak_usage"));
+	}
+	ZVAL_UNDEF(&ret);
+	if (EXPECTED(mem_fn)) {
+		zend_call_known_function(mem_fn, NULL, NULL, &ret, 0, NULL, NULL);
+	}
 	if (Z_TYPE(ret) == IS_LONG) {
 		*memory_end = Z_LVAL(ret);
 	}
-	zval_ptr_dtor(&func);
 	zval_ptr_dtor(&ret);
 }
 /* }}} */

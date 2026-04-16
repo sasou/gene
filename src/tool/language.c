@@ -96,12 +96,14 @@ PHP_METHOD(gene_language, __construct) {
 
     /* self::$lang = \Gene\Di::get('lang') ?? 'en'; */
     {
-        zend_string *name = zend_string_init(ZEND_STRL("lang"), 0);
-        zval *val = gene_di_get(name);
+        static zend_string *lang_key = NULL;
+        if (UNEXPECTED(!lang_key)) {
+            lang_key = zend_string_init_interned(ZEND_STRL("lang"), 1);
+        }
+        zval *val = gene_di_get(lang_key);
         if (val && Z_TYPE_P(val) == IS_STRING && Z_STRLEN_P(val) > 0) {
             lang_zv = val;
         }
-        zend_string_release(name);
     }
 
     slot = OBJ_PROP(obj, gene_language_offset_lang);
@@ -354,13 +356,14 @@ PHP_METHOD(gene_language, get) {
         return;
     }
 
-    /* _cached not yet warm — call __get via call_user_function to load the file */
+    /* _cached not yet warm — call __get via direct dispatch to load the file */
     {
-        zval func_name, name_zv;
-        ZVAL_STRING(&func_name, "__get");
-        ZVAL_STR(&name_zv, name);
-        call_user_function(NULL, self, &func_name, return_value, 1, &name_zv);
-        zval_ptr_dtor(&func_name);
+        zend_function *get_fn = zend_hash_str_find_ptr(&Z_OBJCE_P(self)->function_table, ZEND_STRL("__get"));
+        if (EXPECTED(get_fn)) {
+            zval name_zv;
+            ZVAL_STR(&name_zv, name);
+            zend_call_known_function(get_fn, Z_OBJ_P(self), Z_OBJCE_P(self), return_value, 1, &name_zv, NULL);
+        }
     }
 }
 /* }}} */
@@ -385,15 +388,16 @@ PHP_METHOD(gene_language, getAll) {
         RETURN_ZVAL(cached, 1, 0);
     }
 
-    /* _cached not yet warm — call __get via call_user_function to load & warm the cache */
+    /* _cached not yet warm — call __get via direct dispatch to load & warm the cache */
     {
-        zval func_name, dummy_key, dummy_ret;
-        ZVAL_STRING(&func_name, "__get");
-        ZVAL_STRING(&dummy_key, "");
-        call_user_function(NULL, self, &func_name, &dummy_ret, 1, &dummy_key);
-        zval_ptr_dtor(&func_name);
-        zval_ptr_dtor(&dummy_key);
-        zval_ptr_dtor(&dummy_ret);
+        zend_function *get_fn = zend_hash_str_find_ptr(&Z_OBJCE_P(self)->function_table, ZEND_STRL("__get"));
+        if (EXPECTED(get_fn)) {
+            zval dummy_key, dummy_ret;
+            ZVAL_EMPTY_STRING(&dummy_key);
+            ZVAL_UNDEF(&dummy_ret);
+            zend_call_known_function(get_fn, Z_OBJ_P(self), Z_OBJCE_P(self), &dummy_ret, 1, &dummy_key, NULL);
+            zval_ptr_dtor(&dummy_ret);
+        }
     }
 
     cached = OBJ_PROP(obj, gene_language_offset_cached);

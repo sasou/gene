@@ -169,27 +169,31 @@ zval * request_query(zend_ulong type, char * name, size_t len) {
 		break;
 	case TRACK_VARS_ENV:
 		if (jit_initialization) {
-			zend_string *env_str = zend_string_init("_ENV", sizeof("_ENV") - 1, 0);
+			static zend_string *env_str = NULL;
+			if (UNEXPECTED(!env_str)) {
+				env_str = zend_string_init_interned("_ENV", sizeof("_ENV") - 1, 1);
+			}
 			zend_is_auto_global(env_str);
-			zend_string_release(env_str);
 		}
 		carrier = &PG(http_globals)[type];
 		break;
 	case TRACK_VARS_SERVER:
 		if (jit_initialization) {
-			zend_string *server_str = zend_string_init("_SERVER",
-					sizeof("_SERVER") - 1, 0);
+			static zend_string *server_str = NULL;
+			if (UNEXPECTED(!server_str)) {
+				server_str = zend_string_init_interned("_SERVER", sizeof("_SERVER") - 1, 1);
+			}
 			zend_is_auto_global(server_str);
-			zend_string_release(server_str);
 		}
 		carrier = &PG(http_globals)[type];
 		break;
 	case TRACK_VARS_REQUEST:
 		if (jit_initialization) {
-			zend_string *request_str = zend_string_init("_REQUEST",
-					sizeof("_REQUEST") - 1, 0);
+			static zend_string *request_str = NULL;
+			if (UNEXPECTED(!request_str)) {
+				request_str = zend_string_init_interned("_REQUEST", sizeof("_REQUEST") - 1, 1);
+			}
 			zend_is_auto_global(request_str);
-			zend_string_release(request_str);
 		}
 		carrier = zend_hash_str_find(&EG(symbol_table), ZEND_STRL("_REQUEST"));
 		break;
