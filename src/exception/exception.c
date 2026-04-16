@@ -205,7 +205,6 @@ void gene_file_var_export(zval *var, zval *retval) /*{{{*/
  */
 int gene_exception_error_register(zval *callback, zval *error_type) {
 	zval ret, bak;
-	zval function;
 	int arg_num = 1;
 	int used_bak = 0;
 	zval params[2];
@@ -224,15 +223,18 @@ int gene_exception_error_register(zval *callback, zval *error_type) {
 		params[1] = *error_type;
 		arg_num = 2;
 	}
-	ZVAL_STRING(&function, "set_error_handler");
-	if (call_user_function(EG(function_table), NULL, &function, &ret, arg_num, params) == FAILURE) {
-		zval_ptr_dtor(&ret);
-		zval_ptr_dtor(&function);
+	static zend_function *seh_fn = NULL;
+	if (UNEXPECTED(!seh_fn)) {
+		seh_fn = zend_hash_str_find_ptr(CG(function_table), ZEND_STRL("set_error_handler"));
+	}
+	ZVAL_UNDEF(&ret);
+	if (EXPECTED(seh_fn)) {
+		zend_call_known_function(seh_fn, NULL, NULL, &ret, arg_num, params, NULL);
+	} else {
 		if (used_bak) zval_ptr_dtor(&bak);
 		php_error_docref(NULL, E_WARNING, "Call to set_error_handler failed");
 		return 0;
 	}
-	zval_ptr_dtor(&function);
 	zval_ptr_dtor(&ret);
 	if (used_bak) zval_ptr_dtor(&bak);
 	return 1;
@@ -242,7 +244,6 @@ int gene_exception_error_register(zval *callback, zval *error_type) {
  */
 int gene_exception_register(zval *callback) {
 	zval ret, bak;
-	zval function;
 	int arg_num = 1;
 	int used_bak = 0;
 	zval params[1];
@@ -257,15 +258,18 @@ int gene_exception_register(zval *callback) {
 		used_bak = 1;
 	}
 	params[0] = *callback;
-	ZVAL_STRING(&function, "set_exception_handler");
-	if (call_user_function(EG(function_table), NULL, &function, &ret, arg_num, params) == FAILURE) {
-		zval_ptr_dtor(&ret);
-		zval_ptr_dtor(&function);
+	static zend_function *sexh_fn = NULL;
+	if (UNEXPECTED(!sexh_fn)) {
+		sexh_fn = zend_hash_str_find_ptr(CG(function_table), ZEND_STRL("set_exception_handler"));
+	}
+	ZVAL_UNDEF(&ret);
+	if (EXPECTED(sexh_fn)) {
+		zend_call_known_function(sexh_fn, NULL, NULL, &ret, arg_num, params, NULL);
+	} else {
 		if (used_bak) zval_ptr_dtor(&bak);
 		php_error_docref(NULL, E_WARNING, "Call to set_exception_handler failed");
 		return 0;
 	}
-	zval_ptr_dtor(&function);
 	zval_ptr_dtor(&ret);
 	if (used_bak) zval_ptr_dtor(&bak);
 	return 1;

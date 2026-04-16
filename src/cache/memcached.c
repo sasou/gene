@@ -63,53 +63,58 @@ ZEND_END_ARG_INFO()
 
 void gene_memcached_construct(zval *object, zval *persistent_id) /*{{{*/
 {
-    zval function_name, retval;
-    ZVAL_STRING(&function_name, "__construct");
-    if (persistent_id) {
-    	zval params[] = { *persistent_id };
-    	call_user_function(NULL, object, &function_name, &retval, 1, params);
-    } else {
-        call_user_function(NULL, object, &function_name, &retval, 0, NULL);
+    zval retval;
+    zend_class_entry *ce = Z_OBJCE_P(object);
+    zend_function *fn = ce->constructor;
+    ZVAL_UNDEF(&retval);
+    if (EXPECTED(fn)) {
+        if (persistent_id) {
+            zval params[] = { *persistent_id };
+            zend_call_known_function(fn, Z_OBJ_P(object), ce, &retval, 1, params, NULL);
+        } else {
+            zend_call_known_function(fn, Z_OBJ_P(object), ce, &retval, 0, NULL, NULL);
+        }
     }
-    zval_ptr_dtor(&retval);
-    zval_ptr_dtor(&function_name);
+    if (!Z_ISUNDEF(retval)) zval_ptr_dtor(&retval);
 }/*}}}*/
 
 
 void gene_memcached_getServerList(zval *object, zval *retval) /*{{{*/
 {
-    zval function_name;
-    ZVAL_STRING(&function_name, "getServerList");
-    call_user_function(NULL, object, &function_name, retval, 0, NULL);
-    zval_ptr_dtor(&function_name);
+    ZVAL_UNDEF(retval);
+    zend_function *fn = zend_hash_str_find_ptr(&Z_OBJCE_P(object)->function_table, ZEND_STRL("getserverlist"));
+    if (EXPECTED(fn)) {
+        zend_call_known_function(fn, Z_OBJ_P(object), Z_OBJCE_P(object), retval, 0, NULL, NULL);
+    }
 }/*}}}*/
 
 
 void gene_memcached_resetServerList(zval *object) /*{{{*/
 {
-    zval function_name, retval;
-    ZVAL_STRING(&function_name, "resetServerList");
-    call_user_function(NULL, object, &function_name, &retval, 0, NULL);
-    zval_ptr_dtor(&function_name);
-    zval_ptr_dtor(&retval);
+    zend_function *fn = zend_hash_str_find_ptr(&Z_OBJCE_P(object)->function_table, ZEND_STRL("resetserverlist"));
+    if (EXPECTED(fn)) {
+        zval retval;
+        zend_call_known_function(fn, Z_OBJ_P(object), Z_OBJCE_P(object), &retval, 0, NULL, NULL);
+        zval_ptr_dtor(&retval);
+    }
 }/*}}}*/
 
 
 void gene_memcached_addServers(zval *object, zval *servers) /*{{{*/
 {
-    zval function_name, retval;
-    ZVAL_STRING(&function_name, "addServers");
+    zend_function *fn = zend_hash_str_find_ptr(&Z_OBJCE_P(object)->function_table, ZEND_STRL("addservers"));
 	zval params[] = { *servers };
-    call_user_function(NULL, object, &function_name, &retval, 1, params);
-    zval_ptr_dtor(&function_name);
-    zval_ptr_dtor(&retval);
-
+    if (EXPECTED(fn)) {
+        zval retval;
+        zend_call_known_function(fn, Z_OBJ_P(object), Z_OBJCE_P(object), &retval, 1, params, NULL);
+        zval_ptr_dtor(&retval);
+    }
 }/*}}}*/
 
 void gene_memcached_set(zval *object, zval *key, zval *value, zval *ttl, zval *retval) /*{{{*/
 {
-    zval function_name;
-    ZVAL_STRING(&function_name, "set");
+    ZVAL_UNDEF(retval);
+    zend_function *fn = zend_hash_str_find_ptr(&Z_OBJCE_P(object)->function_table, ZEND_STRL("set"));
     zval params[3];
     int num = 2;
     params[0] = *key;
@@ -118,61 +123,68 @@ void gene_memcached_set(zval *object, zval *key, zval *value, zval *ttl, zval *r
     	num = 3;
     	params[2] = *ttl;
     }
-    call_user_function(NULL, object, &function_name, retval, num, params);
-    zval_ptr_dtor(&function_name);
+    if (EXPECTED(fn)) {
+        zend_call_known_function(fn, Z_OBJ_P(object), Z_OBJCE_P(object), retval, num, params, NULL);
+    }
 }/*}}}*/
 
 void gene_memcached_increment(zval *object, zval *key, zval *value, zval *retval) /*{{{*/
 {
-    zval function_name;
-    ZVAL_STRING(&function_name, "increment");
+    ZVAL_UNDEF(retval);
+    zend_function *fn = zend_hash_str_find_ptr(&Z_OBJCE_P(object)->function_table, ZEND_STRL("increment"));
 	zval params[] = { *key, *value };
-    call_user_function(NULL, object, &function_name, retval, 2, params);
-    zval_ptr_dtor(&function_name);
+    if (EXPECTED(fn)) {
+        zend_call_known_function(fn, Z_OBJ_P(object), Z_OBJCE_P(object), retval, 2, params, NULL);
+    }
 }/*}}}*/
 
 void gene_memcached_get(zval *object, zval *key, zval *retval) /*{{{*/
 {
-    zval function_name, callback;
-    ZVAL_STRING(&function_name, "get");
+    ZVAL_UNDEF(retval);
+    zend_function *fn = zend_hash_str_find_ptr(&Z_OBJCE_P(object)->function_table, ZEND_STRL("get"));
+    zval callback;
 	ZVAL_NULL(&callback);
 	zval params[] = { *key , callback};
-    call_user_function(NULL, object, &function_name, retval, 2, params);
-    zval_ptr_dtor(&function_name);
+    if (EXPECTED(fn)) {
+        zend_call_known_function(fn, Z_OBJ_P(object), Z_OBJCE_P(object), retval, 2, params, NULL);
+    }
 	zval_ptr_dtor(&callback);
 }/*}}}*/
 
 void gene_memcached_getMulti(zval *object, zval *key, zval *retval) /*{{{*/
 {
-    zval function_name;
-    ZVAL_STRING(&function_name, "getMulti");
+    ZVAL_UNDEF(retval);
+    zend_function *fn = zend_hash_str_find_ptr(&Z_OBJCE_P(object)->function_table, ZEND_STRL("getmulti"));
 	zval params[] = { *key };
-    call_user_function(NULL, object, &function_name, retval, 1, params);
-    zval_ptr_dtor(&function_name);
+    if (EXPECTED(fn)) {
+        zend_call_known_function(fn, Z_OBJ_P(object), Z_OBJCE_P(object), retval, 1, params, NULL);
+    }
 }/*}}}*/
 
 void gene_memcached_decrement(zval *object, zval *key, zval *value, zval *retval) /*{{{*/
 {
-    zval function_name;
-    ZVAL_STRING(&function_name, "decrement");
+    ZVAL_UNDEF(retval);
+    zend_function *fn = zend_hash_str_find_ptr(&Z_OBJCE_P(object)->function_table, ZEND_STRL("decrement"));
 	zval params[] = { *key, *value };
-    call_user_function(NULL, object, &function_name, retval, 2, params);
-    zval_ptr_dtor(&function_name);
+    if (EXPECTED(fn)) {
+        zend_call_known_function(fn, Z_OBJ_P(object), Z_OBJCE_P(object), retval, 2, params, NULL);
+    }
 }/*}}}*/
 
 void gene_memcache_get(zval *object, zval *key, zval *retval) /*{{{*/
 {
-    zval function_name;
-    ZVAL_STRING(&function_name, "get");
+    ZVAL_UNDEF(retval);
+    zend_function *fn = zend_hash_str_find_ptr(&Z_OBJCE_P(object)->function_table, ZEND_STRL("get"));
 	zval params[] = { *key };
-    call_user_function(NULL, object, &function_name, retval, 1, params);
-    zval_ptr_dtor(&function_name);
+    if (EXPECTED(fn)) {
+        zend_call_known_function(fn, Z_OBJ_P(object), Z_OBJCE_P(object), retval, 1, params, NULL);
+    }
 }/*}}}*/
 
 void gene_memcache_set(zval *object, zval *key, zval *value, zval *ttl, zval *flag,zval *retval) /*{{{*/
 {
-    zval function_name;
-    ZVAL_STRING(&function_name, "set");
+    ZVAL_UNDEF(retval);
+    zend_function *fn = zend_hash_str_find_ptr(&Z_OBJCE_P(object)->function_table, ZEND_STRL("set"));
     zval params[4],tmp_flag;
     int num = 2;
     params[0] = *key;
@@ -186,19 +198,21 @@ void gene_memcache_set(zval *object, zval *key, zval *value, zval *ttl, zval *fl
     	params[2] = *flag;
     	params[3] = *ttl;
     }
-    call_user_function(NULL, object, &function_name, retval, num, params);
+    if (EXPECTED(fn)) {
+        zend_call_known_function(fn, Z_OBJ_P(object), Z_OBJCE_P(object), retval, num, params, NULL);
+    }
     zval_ptr_dtor(&tmp_flag);
-    zval_ptr_dtor(&function_name);
 }/*}}}*/
 
 void gene_memcached_setOptions(zval *object, zval *options) /*{{{*/
 {
-    zval function_name, retval;
-    ZVAL_STRING(&function_name, "setOptions");
+    zend_function *fn = zend_hash_str_find_ptr(&Z_OBJCE_P(object)->function_table, ZEND_STRL("setoptions"));
 	zval params[] = { *options };
-    call_user_function(NULL, object, &function_name, &retval, 1, params);
-    zval_ptr_dtor(&function_name);
-    zval_ptr_dtor(&retval);
+    if (EXPECTED(fn)) {
+        zval retval;
+        zend_call_known_function(fn, Z_OBJ_P(object), Z_OBJCE_P(object), &retval, 1, params, NULL);
+        zval_ptr_dtor(&retval);
+    }
 }/*}}}*/
 
 
@@ -210,9 +224,11 @@ bool initObj (zval * self, zval *config) {
 	if (config == NULL) {
 		config =  zend_read_property(gene_memcached_ce, gene_strip_obj(self), ZEND_STRL(GENE_MEM_CONFIG), 1, NULL);
 	}
-	zend_string *c_key = zend_string_init(ZEND_STRL("Memcached"), 0);
+	static zend_string *c_key = NULL;
+	if (UNEXPECTED(!c_key)) {
+		c_key = zend_string_init_interned(ZEND_STRL("Memcached"), 1);
+	}
 	zend_class_entry *obj_ptr = zend_lookup_class(c_key);
-	zend_string_release(c_key);
 
 	if (!obj_ptr) {
 		php_error_docref(NULL, E_ERROR, "Memcached class not found, please install the Memcached extension.");
@@ -256,9 +272,11 @@ bool initObjWin (zval * self, zval *config) {
 	if (config == NULL) {
 		config =  zend_read_property(gene_memcached_ce, gene_strip_obj(self), ZEND_STRL(GENE_MEM_CONFIG), 1, NULL);
 	}
-	zend_string *c_key = zend_string_init(ZEND_STRL("Memcache"), 0);
+	static zend_string *c_key = NULL;
+	if (UNEXPECTED(!c_key)) {
+		c_key = zend_string_init_interned(ZEND_STRL("Memcache"), 1);
+	}
 	zend_class_entry *obj_ptr = zend_lookup_class(c_key);
-	zend_string_release(c_key);
 
 	if (!obj_ptr) {
 		php_error_docref(NULL, E_ERROR, "Memcache class not found, please install the Memcache extension.");
@@ -440,11 +458,13 @@ PHP_METHOD(gene_memcached, incr) {
 		if (Z_TYPE(ret) != IS_FALSE) {
 			RETURN_ZVAL(&ret, 1, 1);
 		}
-	    zval function_name, retval;
-	    ZVAL_STRING(&function_name, "set");
+	    zval retval;
+	    zend_function *set_fn = zend_hash_str_find_ptr(&Z_OBJCE_P(object)->function_table, ZEND_STRL("set"));
 		zval params[] = { *key, *value };
-	    call_user_function(NULL, object, &function_name, &retval, 2, params);
-	    zval_ptr_dtor(&function_name);
+	    ZVAL_UNDEF(&retval);
+	    if (EXPECTED(set_fn)) {
+	        zend_call_known_function(set_fn, Z_OBJ_P(object), Z_OBJCE_P(object), &retval, 2, params, NULL);
+	    }
 	    if (Z_TYPE(retval) == IS_TRUE) {
 	    	zval_ptr_dtor(&retval);
 	    	RETURN_LONG(1);
@@ -475,11 +495,13 @@ PHP_METHOD(gene_memcached, decr) {
 			RETURN_ZVAL(&ret, 1, 1);
 		}
 		zval_ptr_dtor(&ret);
-	    zval function_name, retval;
-	    ZVAL_STRING(&function_name, "set");
+	    zval retval;
+	    zend_function *set_fn = zend_hash_str_find_ptr(&Z_OBJCE_P(object)->function_table, ZEND_STRL("set"));
 		zval params[] = { *key, *value };
-	    call_user_function(NULL, object, &function_name, &retval, 2, params);
-	    zval_ptr_dtor(&function_name);
+	    ZVAL_UNDEF(&retval);
+	    if (EXPECTED(set_fn)) {
+	        zend_call_known_function(set_fn, Z_OBJ_P(object), Z_OBJCE_P(object), &retval, 2, params, NULL);
+	    }
 	    if (Z_TYPE(retval) == IS_TRUE) {
 	    	zval_ptr_dtor(&retval);
 	    	RETURN_LONG(0);

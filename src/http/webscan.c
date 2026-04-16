@@ -65,24 +65,27 @@ static void gene_webscan_flatten(zval *value, smart_str *buf)
 
 static int gene_webscan_match_pattern(const char *pattern, zval *value)
 {
-    zval function_name, regex, retval, params[2];
+    zval retval, params[2];
     zend_string *regex_str;
     int matched = 0;
 
-    ZVAL_STRING(&function_name, "preg_match");
+    static zend_function *preg_fn = NULL;
+    if (UNEXPECTED(!preg_fn)) {
+        preg_fn = zend_hash_str_find_ptr(CG(function_table), ZEND_STRL("preg_match"));
+    }
     regex_str = strpprintf(0, "/%s/is", pattern);
-    ZVAL_STR(&regex, regex_str);
-    ZVAL_COPY(&params[0], &regex);
+    ZVAL_STR(&params[0], regex_str);
     ZVAL_COPY(&params[1], value);
 
-    if (call_user_function(NULL, NULL, &function_name, &retval, 2, params) == SUCCESS) {
+    ZVAL_UNDEF(&retval);
+    if (EXPECTED(preg_fn)) {
+        zend_call_known_function(preg_fn, NULL, NULL, &retval, 2, params, NULL);
         matched = zend_is_true(&retval);
         zval_ptr_dtor(&retval);
     }
 
     zval_ptr_dtor(&params[1]);
-    zval_ptr_dtor(&regex);
-    zval_ptr_dtor(&function_name);
+    zval_ptr_dtor(&params[0]);
     return matched;
 }
 

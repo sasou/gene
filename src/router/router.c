@@ -1026,15 +1026,16 @@ char * get_function_content(zval *content) {
 	zend_long startline, endline;
 	size_t size;
 	char *result = NULL, *tmp = NULL;
-	zend_string *c_key = zend_string_init(ZEND_STRL("ReflectionFunction"), 0);
-	zend_class_entry *reflection_ptr = zend_lookup_class(c_key);
+	static zend_string *rf_key = NULL;
+	if (UNEXPECTED(!rf_key)) {
+		rf_key = zend_string_init_interned(ZEND_STRL("ReflectionFunction"), 1);
+	}
+	zend_class_entry *reflection_ptr = zend_lookup_class(rf_key);
 
 	if (reflection_ptr == NULL) {
-		zend_string_release(c_key);
 		php_error_docref(NULL, E_WARNING, "Unable to start ReflectionFunction");
 		return NULL;
 	}
-	zend_string_release(c_key);
 	//get file info
 	object_init_ex(&objEx, reflection_ptr);
 	zend_call_method_with_1_params(gene_strip_obj(&objEx), NULL, NULL, "__construct", NULL,
@@ -1077,15 +1078,16 @@ char * get_function_content(zval *content) {
 	}
 
 	//get codestartline
-	c_key = zend_string_init(ZEND_STRL("SplFileObject"), 0);
-	zend_class_entry *spl_file_ptr = zend_lookup_class(c_key);
+	static zend_string *spl_key = NULL;
+	if (UNEXPECTED(!spl_key)) {
+		spl_key = zend_string_init_interned(ZEND_STRL("SplFileObject"), 1);
+	}
+	zend_class_entry *spl_file_ptr = zend_lookup_class(spl_key);
 	if (spl_file_ptr == NULL) {
-		zend_string_release(c_key);
 		zval_ptr_dtor(&fileName);
 		php_error_docref(NULL, E_WARNING, "Unable to start SplFileObject");
 		return NULL;
 	}
-	zend_string_release(c_key);
 	object_init_ex(&objEx, spl_file_ptr);
 
 	zend_call_method_with_1_params(gene_strip_obj(&objEx), NULL, NULL, "__construct", NULL,
