@@ -215,7 +215,30 @@ class Controller
     public function redirect($url, $code = null) {
 
     }
-    
+
+    /**
+     * redirectJs
+     * JavaScript 跳转
+     *
+     * @param string $url url
+     * @return mixed
+     */
+    public function redirectJs($url) {
+
+    }
+
+    /**
+     * alert
+     * JavaScript 弹窗提示
+     *
+     * @param string $text text
+     * @param string|null $url url
+     * @return mixed
+     */
+    public function alert($text, $url = null) {
+
+    }
+
     /**
      * assign
      * 
