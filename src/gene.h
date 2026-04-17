@@ -20,7 +20,7 @@
  extern zend_module_entry gene_module_entry;
  #define phpext_gene_ptr &gene_module_entry
  
- #define PHP_GENE_VERSION "5.5.2"
+ #define PHP_GENE_VERSION "5.5.3"
  
  #ifdef PHP_WIN32
  #	define PHP_GENE_API __declspec(dllexport)
@@ -134,6 +134,11 @@
  HashTable *co_contexts;
  gene_request_context *current_ctx;
  zend_long current_cid;
+ /* [GENE_PERF:2026-04-17] VM stack pointer snapshot at the time current_ctx/current_cid
+  * was cached. Swoole swaps EG(vm_stack) on every coroutine switch, so if the current
+  * EG(vm_stack) equals this snapshot we know we're still in the same coroutine and can
+  * skip the Swoole getcid() PHP call entirely. Reset to NULL on request/context clear. */
+ void *current_vm_stack;
  zend_function *swoole_getcid_func;
  zend_bool swoole_getcid_resolved;
  zend_bool autoload_registered;

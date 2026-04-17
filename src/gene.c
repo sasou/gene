@@ -225,6 +225,7 @@ static void gene_co_context_dtor(zval *zv) {
 		if (GENE_G(current_ctx) == ctx) {
 			GENE_G(current_ctx) = NULL;
 			GENE_G(current_cid) = -1;
+			GENE_G(current_vm_stack) = NULL;
 		}
 		gene_request_context_destroy(ctx);
 		efree(ctx);
@@ -249,14 +250,20 @@ gene_request_context *gene_request_ctx(void) {
 	if (EXPECTED(GENE_G(runtime_type) < 2)) {
 		return &GENE_G(default_ctx);
 	}
-	/* Fast path: cached coroutine context still valid */
-	if (EXPECTED(GENE_G(current_ctx) != NULL)) {
-		cid = gene_get_coroutine_id();
-		if (EXPECTED(cid >= 0 && cid == GENE_G(current_cid))) {
-			return GENE_G(current_ctx);
-		}
-	} else {
-		cid = gene_get_coroutine_id();
+	/* [GENE_PERF:2026-04-17] Ultra-fast path: same vm_stack pointer ⇒ same coroutine.
+	 * Swoole saves/restores EG(vm_stack) on every coroutine switch, so identity holds
+	 * as long as we haven't yielded. This skips the Swoole getcid() PHP call entirely
+	 * for every GENE_REQ() access inside a non-yielding C call chain (the common case). */
+	if (EXPECTED(GENE_G(current_ctx) != NULL && GENE_G(current_vm_stack) == (void *)EG(vm_stack))) {
+		return GENE_G(current_ctx);
+	}
+	/* Slow path: resolve coroutine id via Swoole */
+	cid = gene_get_coroutine_id();
+	/* Second-chance fast path: cid matches cached one (e.g. first call after vm_stack
+	 * pointer became stale due to nested Swoole internals but coroutine is unchanged) */
+	if (EXPECTED(GENE_G(current_ctx) != NULL && cid >= 0 && cid == GENE_G(current_cid))) {
+		GENE_G(current_vm_stack) = (void *)EG(vm_stack);
+		return GENE_G(current_ctx);
 	}
 	gene_init_co_contexts();
 	if (UNEXPECTED(cid < 0)) {
@@ -266,6 +273,7 @@ gene_request_context *gene_request_ctx(void) {
 		}
 		GENE_G(current_cid) = -2;
 		GENE_G(current_ctx) = GENE_G(resident_ctx);
+		GENE_G(current_vm_stack) = (void *)EG(vm_stack);
 		return GENE_G(resident_ctx);
 	}
 	ctx = zend_hash_index_find_ptr(GENE_G(co_contexts), (zend_ulong)cid);
@@ -276,6 +284,7 @@ gene_request_context *gene_request_ctx(void) {
 	}
 	GENE_G(current_cid) = cid;
 	GENE_G(current_ctx) = ctx;
+	GENE_G(current_vm_stack) = (void *)EG(vm_stack);
 	return ctx;
 }
 /* }}} */
@@ -295,6 +304,7 @@ static void php_gene_init_globals() {
 	GENE_G(co_contexts) = NULL;
 	GENE_G(current_ctx) = NULL;
 	GENE_G(current_cid) = -1;
+	GENE_G(current_vm_stack) = NULL;
 	GENE_G(swoole_getcid_func) = NULL;
 	GENE_G(swoole_getcid_resolved) = 0;
 	GENE_G(autoload_registered) = 0;
@@ -345,6 +355,7 @@ static void php_gene_close_request_globals() {
 	}
 	GENE_G(current_ctx) = NULL;
 	GENE_G(current_cid) = -1;
+	GENE_G(current_vm_stack) = NULL;
 	if (GENE_G(resident_ctx)) {
 		gene_request_context *tmp = GENE_G(resident_ctx);
 		GENE_G(resident_ctx) = NULL;
@@ -478,6 +489,7 @@ PHP_RINIT_FUNCTION(gene) {
 	}
 	GENE_G(current_ctx) = NULL;
 	GENE_G(current_cid) = -1;
+	GENE_G(current_vm_stack) = NULL;
 	GENE_G(autoload_registered) = 0;
 	return SUCCESS; // @suppress("Symbol is not resolved")
 }

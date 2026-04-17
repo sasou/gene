@@ -707,13 +707,59 @@ void gene_cache_call(zval *object, zval *args, zval *retval) /*{{{*/
 
 	class = zend_hash_index_find(Z_ARRVAL_P(object), 0);
 	method = zend_hash_index_find(Z_ARRVAL_P(object), 1);
-	if (Z_TYPE_P(class) == IS_STRING ) {
+	if (UNEXPECTED(!class || !method)) {
+		if (use_heap) efree(params);
+		return;
+	}
+	if (Z_TYPE_P(class) == IS_STRING) {
 		class = gene_class_instance(&tmp_class, class, NULL);
-		call_user_function(NULL, class, method, retval, argc, params);
-	} else {
-	    call_user_function(NULL, class, method, retval, argc, params);
 	}
 
+	/* [GENE_PERF:2026-04-17] Fast path: resolve method via the class's function_table and
+	 * use zend_call_known_function to skip fci/fcc construction inside call_user_function.
+	 * A tiny per-process LRU (4 slots) keyed by (ce, method zend_string*) avoids repeatedly
+	 * lowercasing interned method names — typical cache callbacks hit this nearly 100%.
+	 * Fallback to call_user_function preserves full semantics (closures, magic methods,
+	 * non-array callables, etc.). */
+	if (EXPECTED(class && Z_TYPE_P(class) == IS_OBJECT && Z_TYPE_P(method) == IS_STRING)) {
+		zend_class_entry *ce = Z_OBJCE_P(class);
+		zend_string *mname = Z_STR_P(method);
+		zend_function *fn = NULL;
+
+		struct gene_fn_slot { zend_class_entry *ce; zend_string *m; zend_function *fn; };
+		static struct gene_fn_slot slots[4] = {{0}};
+		static unsigned int rr = 0;
+		unsigned int s;
+		for (s = 0; s < 4; s++) {
+			if (slots[s].ce == ce && slots[s].m == mname) { fn = slots[s].fn; break; }
+		}
+		if (!fn) {
+			char lc_stack[128];
+			char *lc = lc_stack;
+			size_t mlen = ZSTR_LEN(mname);
+			int lc_heap = 0;
+			if (mlen >= sizeof(lc_stack)) {
+				lc = emalloc(mlen + 1);
+				lc_heap = 1;
+			}
+			zend_str_tolower_copy(lc, ZSTR_VAL(mname), mlen);
+			fn = zend_hash_str_find_ptr(&ce->function_table, lc, mlen);
+			if (lc_heap) efree(lc);
+			if (fn && ZSTR_IS_INTERNED(mname)) {
+				unsigned int idx = (rr++) & 3;
+				slots[idx].ce = ce;
+				slots[idx].m = mname;
+				slots[idx].fn = fn;
+			}
+		}
+		if (fn) {
+			zend_call_known_function(fn, Z_OBJ_P(class), ce, retval, argc, params, NULL);
+			goto done;
+		}
+	}
+	call_user_function(NULL, class, method, retval, argc, params);
+
+done:
 	if (use_heap) {
 		efree(params);
 	}
