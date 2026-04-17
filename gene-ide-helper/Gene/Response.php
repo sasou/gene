@@ -127,6 +127,17 @@ class Response
     }
 
     /**
+     * end
+     * 结束响应并发送数据（Swoole模式下调用Swoole\Response::end）
+     *
+     * @param string|null $data 响应数据
+     * @return bool
+     */
+    public static function end($data = null) {
+
+    }
+
+    /**
      * setJsonHeader
      * 
      * @return mixed
