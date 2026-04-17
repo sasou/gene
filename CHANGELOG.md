@@ -1,5 +1,55 @@
 # Gene Framework Changelog
 
+## [5.5.3] - 2026-04-17
+
+### ⚡ Performance Optimizations (FPM / Swoole 并发热路径)
+
+#### 🛡️ Webscan 检查零分配化 (app/application.c)
+- `gene_application_webscan_check()`: 每请求调用，原实现开销：
+  1. `zend_lookup_class()` 每请求一次 HashTable 查找
+  2. `ZVAL_STRING(&ctor_name, "__construct")` + `ZVAL_STRING(&check_name, "check")` → 每请求 2 次堆分配
+  3. `call_user_function()` 走慢路径（fci/fcc 构建 + 方法名再查表）
+  4. 7 个 `ZVAL_COPY(&params[i], ...)` 对数组/对象深拷贝
+- 优化后：
+  1. **进程级缓存** `cached_ce / cached_ctor / cached_check`：首次解析后常驻
+  2. 直接 `zend_call_known_function(cached_fn, ...)` 调用，消除 fci/fcc
+  3. `Z_TRY_ADDREF_P` 替代 `ZVAL_COPY`：config 参数零深拷贝
+  4. 仅在首次（未缓存）走 fallback，普通请求热路径零堆分配
+- 每请求节省：1 次类查找 + 2 次 ZVAL_STRING 堆分配 + 2 次方法名查表 + 最多 7 次数组/对象深拷贝
+
+#### 🧠 gene_cache_call 方法解析加速 (cache/cache.c)
+- 缓存回源调用 `[$class, $method]` 每次都走 `call_user_function` 慢路径（fci/fcc 构建 + 函数名 tolower + function_table 查找）
+- 优化：
+  1. 直接在 `Z_OBJCE_P(class)->function_table` 中查 `zend_function*`，用 `zend_call_known_function` 调用
+  2. **4 槽进程级 LRU** 缓存 `(ce, method zend_string*) → zend_function*`，interned 方法名下几乎 100% 命中
+  3. 仅在 interned zend_string 时写入缓存，避免缓存失效指针
+  4. 小于 128 字节的方法名使用栈缓冲 `zend_str_tolower_copy`，零堆分配
+  5. 非对象/非字符串方法名时回退 `call_user_function`，完整语义兼容（闭包、魔术方法、callable 数组等）
+- 同时修复了 `object` 数组长度 < 2 时的潜在空指针解引用
+- 每次缓存未命中节省：1 次 fci/fcc 构建 + 1 次 tolower 堆分配 + 1 次 function_table 查找（命中 LRU 时）
+
+#### 🧵 GENE_REQ() 协程身份零调用缓存 (gene.c/gene.h)
+- **原快路径**：即使 `current_ctx` 已缓存，每次 `GENE_REQ()` 仍会调用 `gene_get_coroutine_id()` → 内部 `zend_call_known_function` 触发 Swoole `Coroutine::getCid()` PHP 调用
+- 在 168+ 个 `GENE_REQ(...)` 调用点下，Swoole 单请求累计产生大量冗余 PHP 调用
+- **优化**：新增 `current_vm_stack` 字段保存缓存建立时的 `EG(vm_stack)` 指针
+  - Swoole 协程切换必然交换 `EG(vm_stack)`，同一协程内 `EG(vm_stack)` 恒定
+  - 快路径只做 2 次指针比较（`current_ctx != NULL` + `current_vm_stack == EG(vm_stack)`），**完全消除 PHP 函数调用**
+  - 协程切换或首次进入时走慢路径（调 getcid 建立缓存），并额外提供 cid 二次快速通道应对 vm_stack 指针偶发失效
+- 所有 `current_ctx`/`current_cid` 重置点同步清除 `current_vm_stack`（RINIT、destroy、cleanup、context dtor 等）
+- **效果**：Swoole 模式下，单协程内稳态 GENE_REQ 访问从「每次 1 次 PHP 调用」降到「2 次指针比较」
+
+#### 🔒 load_file 锁周期合并 (app/application.c)
+- `load_file()` 过期重载路径：3 次 WRLOCK/UNLOCK 合并为 2 次
+- 先加锁发布 `status=1` 阻止并发重载 → 释放锁做 `stat` syscall → 再加锁一次性提交 `ftime`/`status`
+- Swoole ZTS 下显著减少 rwlock 争用；FPM 下节省 1 对原子操作
+
+#### 📊 影响评估
+- **FPM**: 每请求减少 ≈ 2 次堆分配、1 次类查找、数组深拷贝开销
+- **Swoole**: 每协程请求减少写锁争用，webscan 热路径全程零 ZMM 分配
+- **兼容性**: 保留所有语义与 fallback 分支；API 无变化
+
+---
+
 ## [5.5.2] - 2026-04-16
 
 ### 🐛 Bug Fixes
