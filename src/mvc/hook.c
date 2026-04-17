@@ -58,6 +58,15 @@ ZEND_BEGIN_ARG_INFO_EX(gene_hook_redirect, 0, 0, 2)
     ZEND_ARG_INFO(0, code)
 ZEND_END_ARG_INFO()
 
+ZEND_BEGIN_ARG_INFO_EX(gene_hook_redirect_js, 0, 0, 1)
+    ZEND_ARG_INFO(0, url)
+ZEND_END_ARG_INFO()
+
+ZEND_BEGIN_ARG_INFO_EX(gene_hook_alert, 0, 0, 2)
+    ZEND_ARG_INFO(0, text)
+    ZEND_ARG_INFO(0, url)
+ZEND_END_ARG_INFO()
+
 ZEND_BEGIN_ARG_INFO_EX(gene_hook_display, 0, 0, 2)
     ZEND_ARG_INFO(0, file)
     ZEND_ARG_INFO(0, parent_file)
@@ -263,6 +272,30 @@ PHP_METHOD(gene_hook, redirect) {
 	}
 	gene_response_set_redirect(ZSTR_VAL(url), code);
 	RETURN_TRUE;
+}
+/* }}} */
+
+/** {{{ proto public gene_hook::redirectJs(string $url)
+ */
+PHP_METHOD(gene_hook, redirectJs) {
+	zend_string *url;
+
+	if (zend_parse_parameters(ZEND_NUM_ARGS(), "S", &url) == FAILURE) {
+		return;
+	}
+	gene_response_redirect_js(url);
+}
+/* }}} */
+
+/** {{{ proto public gene_hook::alert(string $text, string $url = NULL)
+ */
+PHP_METHOD(gene_hook, alert) {
+	zend_string *text, *url = NULL;
+
+	if (zend_parse_parameters(ZEND_NUM_ARGS(), "S|S", &text, &url) == FAILURE) {
+		return;
+	}
+	gene_response_alert(text, url);
 }
 /* }}} */
 
@@ -616,6 +649,8 @@ const zend_function_entry gene_hook_methods[] = {
 	PHP_ME(gene_hook, isDelete, gene_hook_void_arginfo, ZEND_ACC_PUBLIC|ZEND_ACC_STATIC)
 	PHP_ME(gene_hook, isCli, gene_hook_void_arginfo, ZEND_ACC_PUBLIC|ZEND_ACC_STATIC)
 	PHP_ME(gene_hook, redirect, gene_hook_redirect, ZEND_ACC_PUBLIC)
+	PHP_ME(gene_hook, redirectJs, gene_hook_redirect_js, ZEND_ACC_PUBLIC)
+	PHP_ME(gene_hook, alert, gene_hook_alert, ZEND_ACC_PUBLIC)
 	PHP_ME(gene_hook, display, gene_hook_display, ZEND_ACC_PUBLIC)
 	PHP_ME(gene_hook, displayExt, gene_hook_display_ext, ZEND_ACC_PUBLIC)
 	PHP_ME(gene_hook, contains, gene_hook_void_arginfo, ZEND_ACC_PUBLIC|ZEND_ACC_STATIC)
