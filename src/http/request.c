@@ -164,7 +164,20 @@ zval * request_query(zend_ulong type, char * name, size_t len) {
 	case TRACK_VARS_POST:
 	case TRACK_VARS_GET:
 	case TRACK_VARS_FILES:
+		carrier = &PG(http_globals)[type];
+		break;
 	case TRACK_VARS_COOKIE:
+		/* PHP 8+ auto_globals_jit: $_COOKIE is populated on first use. Reading
+		 * PG(http_globals)[TRACK_VARS_COOKIE] from C without activating the
+		 * autoglobal left the array empty (e.g. Gene_Session ctor before any
+		 * userland $_COOKIE access), breaking session id under php-cgi. */
+		if (jit_initialization) {
+			static zend_string *cookie_str = NULL;
+			if (UNEXPECTED(!cookie_str)) {
+				cookie_str = zend_string_init_interned("_COOKIE", sizeof("_COOKIE") - 1, 1);
+			}
+			zend_is_auto_global(cookie_str);
+		}
 		carrier = &PG(http_globals)[type];
 		break;
 	case TRACK_VARS_ENV:
