@@ -181,6 +181,28 @@ class Request
     }
 
     /**
+     * header
+     * 获取 HTTP 请求头
+     *
+     * @param mixed $key key
+     * @param mixed $value default value
+     * @return mixed
+     */
+    public static function header($key, $value = null) {
+
+    }
+
+    /**
+     * clear
+     * 清除请求数据缓存
+     *
+     * @return bool
+     */
+    public static function clear() {
+
+    }
+
+    /**
      * init
      * 
      * 初始化请求数据（Swoole模式下替代PHP超全局变量）
