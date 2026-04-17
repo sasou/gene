@@ -60,6 +60,10 @@ ZEND_BEGIN_ARG_INFO_EX(gene_response_arg_redirect, 0, 0, 2)
     ZEND_ARG_INFO(0, code)
 ZEND_END_ARG_INFO()
 
+ZEND_BEGIN_ARG_INFO_EX(gene_response_arg_redirect_js, 0, 0, 1)
+    ZEND_ARG_INFO(0, url)
+ZEND_END_ARG_INFO()
+
 ZEND_BEGIN_ARG_INFO_EX(gene_response_arg_alert, 0, 0, 2)
     ZEND_ARG_INFO(0, text)
     ZEND_ARG_INFO(0, url)
@@ -254,7 +258,18 @@ PHP_METHOD(gene_response, redirect) {
 	gene_response_set_redirect(ZSTR_VAL(url), code);
 	RETURN_TRUE;
 }
+/* }}} */
 
+/** {{{ void gene_response_redirect_js(zend_string *url)
+ */
+void gene_response_redirect_js(zend_string *url) {
+	zend_string *escaped_url = php_addslashes(url);
+	php_printf("<script type=\"text/javascript\">\n");
+	php_printf("window.location.href=\"%s\";\n", ZSTR_VAL(escaped_url));
+	php_printf("</script>\n");
+	zend_string_release(escaped_url);
+}
+/* }}} */
 
 /** {{{ proto public gene_response::redirectJs(string $url)
  */
@@ -264,14 +279,25 @@ PHP_METHOD(gene_response, redirectJs) {
 	if (zend_parse_parameters(ZEND_NUM_ARGS(), "S", &url) == FAILURE) {
 		return;
 	}
-	zend_string *escaped_url = php_addslashes(url);
-	php_printf("<script type=\"text/javascript\">\n");
-	php_printf("window.location.href=\"%s\";\n", ZSTR_VAL(escaped_url));
-	php_printf("</script>\n");
-	zend_string_release(escaped_url);
+	gene_response_redirect_js(url);
 }
 
 
+/* }}} */
+
+/** {{{ void gene_response_alert(zend_string *text, zend_string *url)
+ */
+void gene_response_alert(zend_string *text, zend_string *url) {
+	zend_string *escaped_text = php_addslashes(text);
+	php_printf("\n<script type=\"text/javascript\">\nalert(\"%s\");\n", ZSTR_VAL(escaped_text));
+	zend_string_release(escaped_text);
+	if (url && ZSTR_LEN(url)) {
+		zend_string *escaped_url = php_addslashes(url);
+		php_printf("window.location.href=\"%s\";\n", ZSTR_VAL(escaped_url));
+		zend_string_release(escaped_url);
+	}
+	php_printf("</script>\n");
+}
 /* }}} */
 
 /** {{{ proto public gene_response::alert(string $text, string $url = NULL)
@@ -282,15 +308,7 @@ PHP_METHOD(gene_response, alert) {
 	if (zend_parse_parameters(ZEND_NUM_ARGS(), "S|S", &text, &url) == FAILURE) {
 		return;
 	}
-	zend_string *escaped_text = php_addslashes(text);
-	php_printf("\n<script type=\"text/javascript\">\nalert(\"%s\");\n", ZSTR_VAL(escaped_text));
-	zend_string_release(escaped_text);
-	if (url && ZSTR_LEN(url)) {
-		zend_string *escaped_url = php_addslashes(url);
-		php_printf("window.location.href=\"%s\";\n", ZSTR_VAL(escaped_url));
-		zend_string_release(escaped_url);
-	}
-	php_printf("</script>\n");
+	gene_response_alert(text, url);
 }
 /* }}} */
 
@@ -542,7 +560,7 @@ PHP_METHOD(gene_response, setHtmlHeader) {
  */
 const zend_function_entry gene_response_methods[] = {
 	PHP_ME(gene_response, redirect, gene_response_arg_redirect, ZEND_ACC_PUBLIC|ZEND_ACC_STATIC)
-	PHP_ME(gene_response, redirectJs, gene_response_arg_redirect, ZEND_ACC_PUBLIC|ZEND_ACC_STATIC)
+	PHP_ME(gene_response, redirectJs, gene_response_arg_redirect_js, ZEND_ACC_PUBLIC|ZEND_ACC_STATIC)
 	PHP_ME(gene_response, alert, gene_response_arg_alert, ZEND_ACC_PUBLIC|ZEND_ACC_STATIC)
 	PHP_ME(gene_response, success, gene_response_arg_se, ZEND_ACC_PUBLIC|ZEND_ACC_STATIC)
 	PHP_ME(gene_response, error, gene_response_arg_se, ZEND_ACC_PUBLIC|ZEND_ACC_STATIC)
