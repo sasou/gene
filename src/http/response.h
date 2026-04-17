@@ -24,6 +24,8 @@
 extern zend_class_entry *gene_response_ce;
 
 void gene_response_set_redirect(char *url, zend_long code);
+void gene_response_redirect_js(zend_string *url);
+void gene_response_alert(zend_string *text, zend_string *url);
 zval *gene_response_context_obj(void);
 
 GENE_MINIT_FUNCTION (response);
