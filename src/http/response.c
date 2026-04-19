@@ -440,7 +440,6 @@ PHP_METHOD(gene_response, cookie) {
  */
 PHP_METHOD(gene_response, url) {
 	zend_string *path_str;
-	char *out = NULL;
 	const char *p;
 	size_t path_len;
 	gene_request_context *ctx;
