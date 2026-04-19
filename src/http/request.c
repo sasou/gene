@@ -414,8 +414,9 @@ PHP_METHOD(gene_request, isAjax) {
  * {{{ public gene_request::getMethod()
  */
 PHP_METHOD(gene_request, getMethod) {
-	if (GENE_REQ(method)) {
-		RETURN_STRING(GENE_REQ(method));
+	gene_request_context *ctx = gene_request_ctx();
+	if (ctx->method) {
+		RETURN_STRING(ctx->method);
 	}
 	RETURN_NULL();
 }
@@ -428,13 +429,15 @@ PHP_METHOD(gene_request, params) {
 	char *name = NULL;
 	zend_long name_len = 0;
 	zval *params = NULL;
+	gene_request_context *ctx;
 	if (zend_parse_parameters(ZEND_NUM_ARGS(), "|s", &name, &name_len) == FAILURE) {
 		return;
 	}
 
-	params = GENE_REQ(path_params);
+	ctx = gene_request_ctx();
+	params = ctx->path_params;
 	if (name_len == 0) {
-		RETURN_ZVAL(GENE_REQ(path_params), 1, 0);
+		RETURN_ZVAL(ctx->path_params, 1, 0);
 	} else {
 		zval *val = zend_symtable_str_find(Z_ARRVAL_P(params), name, name_len);
 		if (val) {
