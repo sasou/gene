@@ -331,13 +331,8 @@ zval * gene_memory_get(char *keyString, size_t keyString_len) {
 }
 /* }}} */
 
-/** {{{ gene_memory_get_quick — now an inline alias of gene_memory_get.
- * Kept as a thin wrapper for ABI compatibility with existing callers.
- */
-zval * gene_memory_get_quick(char *keyString, size_t keyString_len) {
-	return gene_memory_get(keyString, keyString_len);
-}
-/* }}} */
+/* [GENE_PERF:2026-04-19] gene_memory_get_quick is now a macro in memory.h
+ * (collapsed to gene_memory_get) — no function definition needed here. */
 
 /** {{{ zval * gene_memory_get_by_config(char *keyString, int keyString_len,char *path)
  * [GENE_AUDIT:2026-03-25] Returns pointer to nested value inside persistent cache.

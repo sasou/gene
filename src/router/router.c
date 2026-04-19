@@ -105,35 +105,44 @@
  /* }}} */
  
  /** {{{ int setMca(zend_string *key)
+  * [GENE_PERF:2026-04-19] Inline strlen + emalloc + memcpy + uppercase-first into
+  * a single pass. Called once per path segment (m/c/a) during router dispatch, so
+  * shaving an emalloc+3 function-call overhead per segment compounds across all
+  * matched routes (typically 3 calls per request: module, controller, action).
   */
  int setMca(zend_string *key, char *val) {
 	 zval sval, *params = NULL;
 	 gene_request_context *ctx = gene_request_ctx();
 	 if (key->len == 1) {
-		 switch (key->val[0]) {
-		 case 'm':
-			 if (ctx->module) {
-				 efree(ctx->module);
-				 ctx->module = NULL;
+		 char c0 = key->val[0];
+		 if (c0 == 'm' || c0 == 'c' || c0 == 'a') {
+			 size_t vlen = strlen(val);
+			 char *buf = emalloc(vlen + 1);
+			 if (vlen > 0) {
+				 unsigned char first = (unsigned char)val[0];
+				 /* uppercase first char only for module/controller; action stays verbatim */
+				 if ((c0 == 'm' || c0 == 'c') && first >= 'a' && first <= 'z') {
+					 buf[0] = (char)(first & ~0x20);
+				 } else {
+					 buf[0] = (char)first;
+				 }
+				 if (vlen > 1) memcpy(buf + 1, val + 1, vlen - 1);
 			 }
-			 ctx->module = str_init(val);
-			 firstToUpper(ctx->module);
-			 break;
-		 case 'c':
-			 if (ctx->controller) {
-				 efree(ctx->controller);
-				 ctx->controller = NULL;
+			 buf[vlen] = '\0';
+			 switch (c0) {
+			 case 'm':
+				 if (ctx->module) efree(ctx->module);
+				 ctx->module = buf;
+				 break;
+			 case 'c':
+				 if (ctx->controller) efree(ctx->controller);
+				 ctx->controller = buf;
+				 break;
+			 case 'a':
+				 if (ctx->action) efree(ctx->action);
+				 ctx->action = buf;
+				 break;
 			 }
-			 ctx->controller = str_init(val);
-			 firstToUpper(ctx->controller);
-			 break;
-		 case 'a':
-			 if (ctx->action) {
-				 efree(ctx->action);
-				 ctx->action = NULL;
-			 }
-			 ctx->action = str_init(val);
-			 break;
 		 }
 	 } else {
 		 params = ctx->path_params;
@@ -1235,24 +1244,49 @@ char* get_router_content(zval **content, char *method, char *path) {
  *  {{{ void get_router_content_run(char *methodin, char *pathin, const char *safe_str, size_t safe_len)
  */
 void get_router_content_run(char *methodin, char *pathin, const char *safe_str, size_t safe_len) {
-	 char *method = NULL, *path = NULL, *run = NULL, *hook = NULL;
+	 /* [GENE_PERF:2026-04-19] Hot request dispatch path. Two optimizations:
+	  *  1. When methodin==NULL (internal dispatch from Application::run), ctx->method is
+	  *     already lowercased by gene_ini_router() — use it directly, no emalloc+copy.
+	  *  2. Cache method_len once instead of calling strlen() at every hash lookup.
+	  * When methodin!=NULL (explicit method in user Router::run), use a 32-byte stack
+	  * buffer for the lowercased copy to skip heap alloc for typical HTTP verbs. */
+	 const char *method = NULL;
+	 char *path = NULL, *run = NULL, *hook = NULL;
+	 size_t method_len = 0;
+	 int method_heap = 0;
+	 char method_buf[32];
 	 char router_e_buf[256];
 	 char *path_new = NULL;
 	 size_t router_e_len;
 	 zval *temp = NULL, *lead = NULL;
 	 zval *conf = NULL,*cache = NULL, *cacheHook = NULL;
 	 gene_request_context *ctx = gene_request_ctx();
- 
+
 	 if (methodin == NULL && pathin == NULL) {
 		 if (ctx->method) {
-			 method = str_init(ctx->method);
+			 method = ctx->method; /* already lowercased by gene_ini_router() */
+			 method_len = strlen(ctx->method);
 		 }
 		 if (ctx->path) {
 			 path = str_init(ctx->path);
 		 }
 	 } else {
-		 method = str_init(methodin);
-		 gene_strtolower(method);
+		 size_t mlen = methodin ? strlen(methodin) : 0;
+		 char *m;
+		 if (mlen < sizeof(method_buf)) {
+			 m = method_buf;
+		 } else {
+			 m = emalloc(mlen + 1);
+			 method_heap = 1;
+		 }
+		 /* Inline lowercase copy: fuses str_init + gene_strtolower into a single pass. */
+		 for (size_t i = 0; i < mlen; i++) {
+			 unsigned char c = (unsigned char)methodin[i];
+			 m[i] = (c >= 'A' && c <= 'Z') ? (char)(c | 0x20) : (char)c;
+		 }
+		 m[mlen] = '\0';
+		 method = m;
+		 method_len = mlen;
 		 path = str_init(pathin);
 		 {
 			 char *q = strchr(path, '?');
@@ -1262,28 +1296,28 @@ void get_router_content_run(char *methodin, char *pathin, const char *safe_str, 
 			 }
 		 }
 	 }
- 
-	 if (method == NULL || path == NULL) {
-		 if (method) efree(method);
+
+	 if (method == NULL || method_len == 0 || path == NULL) {
+		 if (method_heap) efree((char *)method);
 		 if (path) efree(path);
 		 php_error_docref(NULL, E_WARNING, "Gene Unknown Method And Url: NULL");
 		 return;
 	 }
- 
+
 	 gene_router_reset_path_params();
- 
+
 	 if (safe_str != NULL && safe_len > 0) {
 		 router_e_len = snprintf(router_e_buf, sizeof(router_e_buf), "%.*s%s", (int)safe_len, safe_str, GENE_ROUTER_ROUTER_TREE);
 	 } else {
 		 router_e_len = snprintf(router_e_buf, sizeof(router_e_buf), "%s", GENE_ROUTER_ROUTER_TREE);
 	 }
 	 cache = gene_memory_get_quick(router_e_buf, router_e_len);
- 
+
 	 if (cache) {
-		 temp = zend_symtable_str_find(Z_ARRVAL_P(cache), method, strlen(method));
+		 temp = zend_symtable_str_find(Z_ARRVAL_P(cache), (char *)method, method_len);
 		 if (temp == NULL) {
 			 php_error_docref(NULL, E_WARNING, "Gene Unknown Method Cache:%s", method);
-			 efree(method);
+			 if (method_heap) efree((char *)method);
 			 efree(path);
 			 cache = NULL;
 			 return;
@@ -1309,10 +1343,10 @@ void get_router_content_run(char *methodin, char *pathin, const char *safe_str, 
 			 }
 			 path = path_new;
 		 }
-		 
- 
+
+
 		 lead = get_path_router(temp, path);
- 
+
 		 if (lead) {
 			 get_router_info(&lead, &cacheHook);
 			 lead = NULL;
@@ -1330,7 +1364,7 @@ void get_router_content_run(char *methodin, char *pathin, const char *safe_str, 
 	 } else {
 		 php_error_docref(NULL, E_WARNING, "Gene Unknown Router Cache");
 	 }
-	 efree(method);
+	 if (method_heap) efree((char *)method);
 	 efree(path);
 	 temp = NULL;
 	 return;
