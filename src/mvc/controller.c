@@ -211,8 +211,9 @@ PHP_METHOD(gene_controller, isAjax) {
  * {{{ public gene_controller::getMethod()
  */
 PHP_METHOD(gene_controller, getMethod) {
-	if (GENE_REQ(method)) {
-		RETURN_STRING(GENE_REQ(method));
+	gene_request_context *ctx = gene_request_ctx();
+	if (ctx->method) {
+		RETURN_STRING(ctx->method);
 	}
 	RETURN_NULL();
 }
@@ -221,8 +222,9 @@ PHP_METHOD(gene_controller, getMethod) {
 /** {{{ public gene_controller::getLang()
  */
 PHP_METHOD(gene_controller, getLang) {
-	if (GENE_REQ(lang)) {
-		RETURN_STRING(GENE_REQ(lang));
+	gene_request_context *ctx = gene_request_ctx();
+	if (ctx->lang) {
+		RETURN_STRING(ctx->lang);
 	}
 	RETURN_NULL();
 }
@@ -235,13 +237,15 @@ PHP_METHOD(gene_controller, params) {
 	char *name = NULL;
 	zend_long name_len = 0;
 	zval *params = NULL;
+	gene_request_context *ctx;
 	if (zend_parse_parameters(ZEND_NUM_ARGS(), "|s", &name, &name_len) == FAILURE) {
 		return;
 	}
 
-	params = GENE_REQ(path_params);
+	ctx = gene_request_ctx();
+	params = ctx->path_params;
 	if (name_len == 0) {
-		RETURN_ZVAL(GENE_REQ(path_params), 1, 0);
+		RETURN_ZVAL(ctx->path_params, 1, 0);
 	} else {
 		zval *val = zend_symtable_str_find(Z_ARRVAL_P(params), name, name_len);
 		if (val) {
@@ -304,11 +308,12 @@ PHP_METHOD(gene_controller, display) {
 	table = gene_view_build_symbol_table(vars);
 
 	if (parent_file && ZSTR_LEN(parent_file) > 0) {
-		if (GENE_REQ(child_views)) {
-			efree(GENE_REQ(child_views));
-			GENE_REQ(child_views) = NULL;
+		gene_request_context *ctx = gene_request_ctx();
+		if (ctx->child_views) {
+			efree(ctx->child_views);
+			ctx->child_views = NULL;
 		}
-		GENE_REQ(child_views) = estrndup(ZSTR_VAL(file), ZSTR_LEN(file));
+		ctx->child_views = estrndup(ZSTR_VAL(file), ZSTR_LEN(file));
 		gene_view_display(ZSTR_VAL(parent_file), self, table);
 	} else {
 		gene_view_display(ZSTR_VAL(file), self, table);
@@ -336,11 +341,12 @@ PHP_METHOD(gene_controller, displayExt) {
 	table = gene_view_build_symbol_table(vars);
 
 	if (parent_file && ZSTR_LEN(parent_file) > 0) {
-		if (GENE_REQ(child_views)) {
-			efree(GENE_REQ(child_views));
-			GENE_REQ(child_views) = NULL;
+		gene_request_context *ctx = gene_request_ctx();
+		if (ctx->child_views) {
+			efree(ctx->child_views);
+			ctx->child_views = NULL;
 		}
-		GENE_REQ(child_views) = estrndup(ZSTR_VAL(file), ZSTR_LEN(file));
+		ctx->child_views = estrndup(ZSTR_VAL(file), ZSTR_LEN(file));
 		gene_view_display_ext(ZSTR_VAL(parent_file), isCompile, self, table);
 	} else {
 		gene_view_display_ext(ZSTR_VAL(file), isCompile, self, table);
@@ -356,20 +362,22 @@ PHP_METHOD(gene_controller, displayExt) {
 /** {{{ public gene_controller::contains(string $file)
  */
 PHP_METHOD(gene_controller, contains) {
-	if (!GENE_REQ(child_views) || GENE_REQ(child_views)[0] == '\0') {
+	gene_request_context *ctx = gene_request_ctx();
+	if (!ctx->child_views || ctx->child_views[0] == '\0') {
 		RETURN_FALSE;
 	}
-	gene_view_contains(GENE_REQ(child_views), return_value);
+	gene_view_contains(ctx->child_views, return_value);
 }
 /* }}} */
 
 /** {{{ public gene_controller::contains(string $file)
  */
 PHP_METHOD(gene_controller, containsExt) {
-	if (!GENE_REQ(child_views) || GENE_REQ(child_views)[0] == '\0') {
+	gene_request_context *ctx = gene_request_ctx();
+	if (!ctx->child_views || ctx->child_views[0] == '\0') {
 		RETURN_FALSE;
 	}
-	gene_view_contains_ext(GENE_REQ(child_views), 0, return_value);
+	gene_view_contains_ext(ctx->child_views, 0, return_value);
 }
 /* }}} */
 
@@ -381,6 +389,8 @@ PHP_METHOD(gene_controller, url) {
 	char *out = NULL;
 	const char *p;
 	size_t path_len;
+	gene_request_context *ctx;
+	const char *lang;
 
 	if (zend_parse_parameters(ZEND_NUM_ARGS(), "S", &path_str) == FAILURE) {
 		return;
@@ -389,10 +399,13 @@ PHP_METHOD(gene_controller, url) {
 	path_len = ZSTR_LEN(path_str);
 	/* 跳过 path 前导斜杠 */
 	for (; path_len > 0 && *p == '/'; p++, path_len--) {}
+	ctx = gene_request_ctx();
+	lang = (ctx->lang && ctx->lang[0] != '\0') ? ctx->lang : NULL;
 	if (path_len == 0) {
 		/* 如果只有斜杠，也加上语言前缀 */
-		if (GENE_REQ(lang) && GENE_REQ(lang)[0] != '\0') {
-			size_t out_len = strlen(GENE_REQ(lang)) + 2;
+		if (lang) {
+			size_t lang_len = strlen(lang);
+			size_t out_len = lang_len + 2;
 			char out_buf[256];
 			char *out_ptr = out_buf;
 			int out_heap = 0;
@@ -400,8 +413,11 @@ PHP_METHOD(gene_controller, url) {
 				out_ptr = emalloc(out_len + 1);
 				out_heap = 1;
 			}
-			snprintf(out_ptr, out_len + 1, "/%s/", GENE_REQ(lang));
-			RETVAL_STRING(out_ptr);
+			out_ptr[0] = '/';
+			memcpy(out_ptr + 1, lang, lang_len);
+			out_ptr[lang_len + 1] = '/';
+			out_ptr[lang_len + 2] = '\0';
+			RETVAL_STRINGL(out_ptr, out_len);
 			if (out_heap) {
 				efree(out_ptr);
 			}
@@ -410,8 +426,9 @@ PHP_METHOD(gene_controller, url) {
 		}
 		return;
 	}
-	if (GENE_REQ(lang) && GENE_REQ(lang)[0] != '\0') {
-		size_t out_len = strlen(GENE_REQ(lang)) + path_len + 2;
+	if (lang) {
+		size_t lang_len = strlen(lang);
+		size_t out_len = lang_len + path_len + 2;
 		char out_buf[512];
 		char *out_ptr = out_buf;
 		int out_heap = 0;
@@ -419,7 +436,7 @@ PHP_METHOD(gene_controller, url) {
 			out_ptr = emalloc(out_len + 1);
 			out_heap = 1;
 		}
-		snprintf(out_ptr, out_len + 1, "/%s/%.*s", GENE_REQ(lang), (int)path_len, p);
+		snprintf(out_ptr, out_len + 1, "/%s/%.*s", lang, (int)path_len, p);
 		RETVAL_STRING(out_ptr);
 		if (out_heap) {
 			efree(out_ptr);

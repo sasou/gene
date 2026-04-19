@@ -1,4 +1,4 @@
-/*
+﻿/*
  +----------------------------------------------------------------------+
  | gene                                                                 |
  +----------------------------------------------------------------------+
@@ -22,12 +22,17 @@ void gene_merge_query_into_get(const char *qs, size_t qs_len);
 void setVal(zend_ulong type, zval *value);
 zval *getVal(zend_ulong type, char *name, size_t len);
 
+/* [GENE_PERF:2026-04-19 #2] Cache ctx once per is-method call — previously issued
+ * 2 ctx lookups (one for NULL check, one for strcasecmp). Expanded across
+ * isGet/isPost/isPut/isDelete/isHead/isOptions/isPatch for both request &
+ * controller classes, so 14 methods all benefit. */
 #define GENE_REQUEST_IS_METHOD(ce, x) \
 PHP_METHOD(ce, is##x) {\
-	if (!GENE_REQ(method)) { \
+	gene_request_context *ctx = gene_request_ctx(); \
+	if (!ctx->method) { \
 		RETURN_FALSE; \
 	} \
-	if (strcasecmp(#x, GENE_REQ(method)) == 0) { \
+	if (strcasecmp(#x, ctx->method) == 0) { \
 		RETURN_TRUE; \
 	} \
 	RETURN_FALSE; \
