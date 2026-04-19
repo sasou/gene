@@ -1283,9 +1283,13 @@ void get_router_content_run(char *methodin, char *pathin, const char *safe_str, 
 			 method_heap = 1;
 		 }
 		 /* Inline lowercase copy: fuses str_init + gene_strtolower into a single pass. */
-		 for (size_t i = 0; i < mlen; i++) {
-			 unsigned char c = (unsigned char)methodin[i];
-			 m[i] = (c >= 'A' && c <= 'Z') ? (char)(c | 0x20) : (char)c;
+		 {
+			 size_t i;
+			 unsigned char c;
+			 for (i = 0; i < mlen; i++) {
+				 c = (unsigned char)methodin[i];
+				 m[i] = (c >= 'A' && c <= 'Z') ? (char)(c | 0x20) : (char)c;
+			 }
 		 }
 		 m[mlen] = '\0';
 		 method = m;
