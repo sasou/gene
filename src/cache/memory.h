@@ -1,4 +1,4 @@
-/*
+﻿/*
  +----------------------------------------------------------------------+
  | gene                                                                 |
  +----------------------------------------------------------------------+
@@ -49,7 +49,11 @@ void gene_memory_init();
 void gene_hash_destroy(HashTable *ht);
 void gene_memory_set(char *keyString, size_t keyString_len, zval *zvalue, int validity);
 zval * gene_memory_get(char *keyString, size_t keyString_len);
-zval * gene_memory_get_quick(char *keyString, size_t keyString_len);
+/* [GENE_PERF:2026-04-19] gene_memory_get_quick collapsed to macro — it was an alias
+ * of gene_memory_get. Macro expansion eliminates one function call per lookup on
+ * the hottest router dispatch path (router_tree/router_event/router_conf lookups
+ * per request). Signature preserved for source-level compatibility. */
+#define gene_memory_get_quick(k, l) gene_memory_get((k), (l))
 zval * gene_memory_get_by_config(char *keyString, size_t keyString_len,char *path);
 void gene_memory_set_by_router(char *keyString, size_t keyString_len, char *path, zval *zvalue, int validity);
 zend_long gene_memory_getTime(char *keyString, size_t keyString_len);

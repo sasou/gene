@@ -1,4 +1,4 @@
-/*
+﻿/*
  +----------------------------------------------------------------------+
  | gene                                                                 |
  +----------------------------------------------------------------------+
@@ -35,7 +35,9 @@ zend_class_entry *gene_di_ce;
 
 zval *gene_di_regs() {
 	gene_request_context *ctx = gene_request_ctx();
-	if (Z_TYPE(ctx->di_regs) == IS_UNDEF || Z_TYPE(ctx->di_regs) == IS_NULL) {
+	/* [GENE_PERF:2026-04-19] Hot path: di_regs is IS_ARRAY after the first
+	 * DI access per request. Hint the compiler to keep the init branch cold. */
+	if (UNEXPECTED(Z_TYPE(ctx->di_regs) == IS_UNDEF || Z_TYPE(ctx->di_regs) == IS_NULL)) {
 		if (Z_TYPE(ctx->di_regs) == IS_NULL) {
 			zval_ptr_dtor(&ctx->di_regs);
 		}
@@ -131,7 +133,12 @@ zval *gene_di_get(zend_string *name) {
     		type = 1;
     	}
 
-		zend_string *local_class_str = zend_string_init(Z_STRVAL_P(class), Z_STRLEN_P(class), 0);
+		/* [GENE_PERF:2026-04-19] Use the persistent interned zend_string directly from
+		 * the cache instead of allocating a fresh zend_string via zend_string_init.
+		 * The cache entry is created with IS_STR_INTERNED | IS_STR_PERMANENT flags at
+		 * config load time and its hash is precomputed, so zend_hash_find/update can
+		 * consume it without issue and without incurring an allocation per DI lookup. */
+		zend_string *class_str = Z_STR_P(class);
 		zval local_params;
 		if (params) {
 			gene_memory_zval_local(&local_params, params);
@@ -140,15 +147,14 @@ zval *gene_di_get(zend_string *name) {
 		}
 
 		if (type) {
-			if ((pzval = zend_hash_find(Z_ARRVAL_P(entrys), local_class_str)) != NULL) {
-				zend_string_release(local_class_str);
+			if ((pzval = zend_hash_find(Z_ARRVAL_P(entrys), class_str)) != NULL) {
 				zval_ptr_dtor(&local_params);
 				return pzval;
 			}
 		}
 
 		zval classObject;
-		if (gene_factory_load_class(ZSTR_VAL(local_class_str), ZSTR_LEN(local_class_str), &classObject)) {
+		if (gene_factory_load_class(ZSTR_VAL(class_str), ZSTR_LEN(class_str), &classObject)) {
 			if (Z_OBJCE(classObject)->constructor) {
 				zval tmp;
 				ZVAL_UNDEF(&tmp);
@@ -172,15 +178,13 @@ zval *gene_di_get(zend_string *name) {
 
 			if (type) {
 				Z_TRY_ADDREF(classObject);
-				zend_hash_update(Z_ARRVAL_P(entrys), local_class_str, &classObject);
+				zend_hash_update(Z_ARRVAL_P(entrys), class_str, &classObject);
 			}
 		    if ((pzval = zend_hash_update(Z_ARRVAL_P(entrys), name, &classObject)) != NULL ) {
-		    	zend_string_release(local_class_str);
 		    	zval_ptr_dtor(&local_params);
 		    	return pzval;
 		    }
 		}
-		zend_string_release(local_class_str);
 		zval_ptr_dtor(&local_params);
 	}
 	return NULL;
