@@ -324,10 +324,13 @@ PHP_METHOD(gene_db_mysql, __construct)
         return;
     }
 
-    if (Z_TYPE(GENE_REQ(db_mysql_history)) != IS_UNDEF) {
-    	zval_ptr_dtor(&GENE_REQ(db_mysql_history));
+    {
+    	gene_request_context *ctx = gene_request_ctx();
+    	if (Z_TYPE(ctx->db_mysql_history) != IS_UNDEF) {
+    		zval_ptr_dtor(&ctx->db_mysql_history);
+    	}
+    	ZVAL_UNDEF(&ctx->db_mysql_history);
     }
-    ZVAL_UNDEF(&GENE_REQ(db_mysql_history));
 
     if (config) {
     	zend_update_property(gene_db_mysql_ce, gene_strip_obj(self), ZEND_STRL(GENE_DB_MYSQL_CONFIG), config);
@@ -1139,10 +1142,11 @@ PHP_METHOD(gene_db_mysql, __destruct)
  */
 PHP_METHOD(gene_db_mysql, history)
 {
-	if (Z_TYPE(GENE_REQ(db_mysql_history)) == IS_UNDEF) {
+	gene_request_context *ctx = gene_request_ctx();
+	if (Z_TYPE(ctx->db_mysql_history) == IS_UNDEF) {
 		RETURN_NULL();
 	}
-	RETURN_ZVAL(&GENE_REQ(db_mysql_history), 1, 0);
+	RETURN_ZVAL(&ctx->db_mysql_history, 1, 0);
 }
 /* }}} */
 

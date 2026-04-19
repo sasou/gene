@@ -92,10 +92,10 @@ zval *gene_di_get(zend_string *name) {
 		size_t prefix_len = 0;
 		if (GENE_G(app_key) && GENE_G(app_key)[0] != '\0') {
 			prefix = GENE_G(app_key);
-			prefix_len = strlen(GENE_G(app_key));
+			prefix_len = GENE_G(app_key_len);
 		} else if (GENE_G(app_root) && GENE_G(app_root)[0] != '\0') {
 			prefix = GENE_G(app_root);
-			prefix_len = strlen(GENE_G(app_root));
+			prefix_len = GENE_G(app_root_len);
 		}
 		if (prefix) {
 			cache_key_len = prefix_len + sizeof(GENE_CONFIG_CACHE) - 1;

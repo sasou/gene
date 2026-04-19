@@ -118,6 +118,12 @@
  char *app_view;
  char *app_ext;
  char *app_key;
+ /* [GENE_PERF:2026-04-19 #2] Cache strlen of app_key/app_root populated at set-time
+  * (autoload(), __construct safe arg) so per-request dispatch can look up the
+  * persistent cache key prefix length directly instead of calling strlen() each
+  * time. Populated by gene_application_instance() and gene_application::autoload(). */
+ size_t app_key_len;
+ size_t app_root_len;
  char *auto_load_fun;
  char *config_cache_key;
  size_t config_cache_key_len;

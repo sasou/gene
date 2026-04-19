@@ -139,7 +139,8 @@ void getBenchMemory(zend_long *memory_start, zend_long *memory_end, char **ret, 
  */
 PHP_METHOD(gene_benchmark, start)
 {
-	markStart(&GENE_REQ(bench_start), &GENE_REQ(bench_memory_start));
+	gene_request_context *ctx = gene_request_ctx();
+	markStart(&ctx->bench_start, &ctx->bench_memory_start);
 }
 /* }}} */
 
@@ -149,7 +150,8 @@ PHP_METHOD(gene_benchmark, start)
  */
 PHP_METHOD(gene_benchmark, end)
 {
-	markEnd(&GENE_REQ(bench_end), &GENE_REQ(bench_memory_end));
+	gene_request_context *ctx = gene_request_ctx();
+	markEnd(&ctx->bench_end, &ctx->bench_memory_end);
 }
 /* }}} */
 
@@ -160,12 +162,14 @@ PHP_METHOD(gene_benchmark, time)
 {
 	char *ret = NULL;
 	bool type = 0;
+	gene_request_context *ctx;
 
 	if (zend_parse_parameters(ZEND_NUM_ARGS(), "|b", &type) == FAILURE) {
 		return;
 	}
 
-	getBenchTime(&GENE_REQ(bench_start), &GENE_REQ(bench_end), &ret, type);
+	ctx = gene_request_ctx();
+	getBenchTime(&ctx->bench_start, &ctx->bench_end, &ret, type);
 
 	ZVAL_STRING(return_value, ret);
 	efree(ret);
@@ -180,15 +184,17 @@ PHP_METHOD(gene_benchmark, memory)
 {
 	char *ret = NULL;
 	bool type = 0;
+	gene_request_context *ctx;
 
 	if (zend_parse_parameters(ZEND_NUM_ARGS(), "|b", &type) == FAILURE) {
 		return;
 	}
 
-    if (!GENE_REQ(bench_memory_start) || !GENE_REQ(bench_memory_end)) {
+	ctx = gene_request_ctx();
+    if (!ctx->bench_memory_start || !ctx->bench_memory_end) {
     	RETURN_NULL();
     }
-    getBenchMemory(&GENE_REQ(bench_memory_start), &GENE_REQ(bench_memory_end), &ret, type);
+    getBenchMemory(&ctx->bench_memory_start, &ctx->bench_memory_end, &ret, type);
 
 	ZVAL_STRING(return_value, ret);
 	efree(ret);

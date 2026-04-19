@@ -317,10 +317,13 @@ PHP_METHOD(gene_db_mssql, __construct)
         return;
     }
 
-    if (Z_TYPE(GENE_REQ(db_mssql_history)) != IS_UNDEF) {
-    	zval_ptr_dtor(&GENE_REQ(db_mssql_history));
+    {
+    	gene_request_context *ctx = gene_request_ctx();
+    	if (Z_TYPE(ctx->db_mssql_history) != IS_UNDEF) {
+    		zval_ptr_dtor(&ctx->db_mssql_history);
+    	}
+    	ZVAL_UNDEF(&ctx->db_mssql_history);
     }
-    ZVAL_UNDEF(&GENE_REQ(db_mssql_history));
 
     if (config) {
     	zend_update_property(gene_db_mssql_ce, gene_strip_obj(self), ZEND_STRL(GENE_DB_MSSQL_CONFIG), config);
@@ -1133,10 +1136,11 @@ PHP_METHOD(gene_db_mssql, __destruct)
  */
 PHP_METHOD(gene_db_mssql, history)
 {
-	if (Z_TYPE(GENE_REQ(db_mssql_history)) == IS_UNDEF) {
+	gene_request_context *ctx = gene_request_ctx();
+	if (Z_TYPE(ctx->db_mssql_history) == IS_UNDEF) {
 		RETURN_NULL();
 	}
-	RETURN_ZVAL(&GENE_REQ(db_mssql_history), 1, 0);
+	RETURN_ZVAL(&ctx->db_mssql_history, 1, 0);
 }
 /* }}} */
 

@@ -443,6 +443,8 @@ PHP_METHOD(gene_response, url) {
 	char *out = NULL;
 	const char *p;
 	size_t path_len;
+	gene_request_context *ctx;
+	const char *lang;
 
 	if (zend_parse_parameters(ZEND_NUM_ARGS(), "S", &path_str) == FAILURE) {
 		return;
@@ -451,10 +453,13 @@ PHP_METHOD(gene_response, url) {
 	path_len = ZSTR_LEN(path_str);
 	/* 跳过 path 前导斜杠 */
 	for (; path_len > 0 && *p == '/'; p++, path_len--) {}
+	ctx = gene_request_ctx();
+	lang = (ctx->lang && ctx->lang[0] != '\0') ? ctx->lang : NULL;
 	if (path_len == 0) {
 		/* 如果只有斜杠，也加上语言前缀 */
-		if (GENE_REQ(lang) && GENE_REQ(lang)[0] != '\0') {
-			size_t out_len = strlen(GENE_REQ(lang)) + 2;
+		if (lang) {
+			size_t lang_len = strlen(lang);
+			size_t out_len = lang_len + 2;
 			char out_buf[256];
 			char *out_ptr = out_buf;
 			int out_heap = 0;
@@ -462,8 +467,11 @@ PHP_METHOD(gene_response, url) {
 				out_ptr = emalloc(out_len + 1);
 				out_heap = 1;
 			}
-			snprintf(out_ptr, out_len + 1, "/%s/", GENE_REQ(lang));
-			RETVAL_STRING(out_ptr);
+			out_ptr[0] = '/';
+			memcpy(out_ptr + 1, lang, lang_len);
+			out_ptr[lang_len + 1] = '/';
+			out_ptr[lang_len + 2] = '\0';
+			RETVAL_STRINGL(out_ptr, out_len);
 			if (out_heap) {
 				efree(out_ptr);
 			}
@@ -472,8 +480,9 @@ PHP_METHOD(gene_response, url) {
 		}
 		return;
 	}
-	if (GENE_REQ(lang) && GENE_REQ(lang)[0] != '\0') {
-		size_t out_len = strlen(GENE_REQ(lang)) + path_len + 2;
+	if (lang) {
+		size_t lang_len = strlen(lang);
+		size_t out_len = lang_len + path_len + 2;
 		char out_buf[512];
 		char *out_ptr = out_buf;
 		int out_heap = 0;
@@ -481,7 +490,7 @@ PHP_METHOD(gene_response, url) {
 			out_ptr = emalloc(out_len + 1);
 			out_heap = 1;
 		}
-		snprintf(out_ptr, out_len + 1, "/%s/%.*s", GENE_REQ(lang), (int)path_len, p);
+		snprintf(out_ptr, out_len + 1, "/%s/%.*s", lang, (int)path_len, p);
 		RETVAL_STRING(out_ptr);
 		if (out_heap) {
 			efree(out_ptr);
