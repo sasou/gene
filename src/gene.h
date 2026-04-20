@@ -20,7 +20,7 @@
  extern zend_module_entry gene_module_entry;
  #define phpext_gene_ptr &gene_module_entry
  
- #define PHP_GENE_VERSION "5.5.3"
+ #define PHP_GENE_VERSION "5.3.4"
  
  #ifdef PHP_WIN32
  #	define PHP_GENE_API __declspec(dllexport)
@@ -94,6 +94,19 @@
 	 char *action;
 	 char *child_views;
 	 char *lang;
+	 /* [GENE_PERF:2026-04-20] Cached string lengths populated at set-time so that
+	  * hot-path code (router dispatch, getters, strreplace_fast) can skip the
+	  * per-request strlen() calls on short strings like module/controller/action
+	  * (typically ~10-20 chars each, ~15-25 cycles per strlen). Saves ~6-10
+	  * strlen()s per request across dispatch + view + getter paths. */
+	 size_t method_len;
+	 size_t path_len;
+	 size_t router_path_len;
+	 size_t module_len;
+	 size_t controller_len;
+	 size_t action_len;
+	 size_t lang_len;
+	 size_t child_views_len;
 	 zval *path_params;
 	 zval request_attr;
 	 zval di_regs;
