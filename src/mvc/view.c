@@ -590,7 +590,9 @@ PHP_METHOD(gene_view, display) {
 			efree(ctx->child_views);
 			ctx->child_views = NULL;
 		}
+		/* [GENE_PERF:2026-04-20] Cache child_views_len alongside child_views. */
 		ctx->child_views = estrndup(ZSTR_VAL(file), ZSTR_LEN(file));
+		ctx->child_views_len = ZSTR_LEN(file);
 		gene_view_display(ZSTR_VAL(parent_file), self, table);
 	} else {
 		gene_view_display(ZSTR_VAL(file), self, table);
@@ -624,6 +626,7 @@ PHP_METHOD(gene_view, displayExt) {
 			ctx->child_views = NULL;
 		}
 		ctx->child_views = estrndup(ZSTR_VAL(file), ZSTR_LEN(file));
+		ctx->child_views_len = ZSTR_LEN(file);
 		gene_view_display_ext(ZSTR_VAL(parent_file), isCompile , self, table);
 	} else {
 		gene_view_display_ext(ZSTR_VAL(file), isCompile, self, table);

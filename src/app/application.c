@@ -233,6 +233,25 @@ zend_long gene_file_modified(char *file, zend_long ctime) {
 }
 /* }}} */
 
+/** {{{ gene_ini_copy_method_lower
+ * [GENE_PERF:2026-04-20] Fused copy-and-lowercase for the HTTP method string.
+ * Replaces estrndup()+gene_strtolower() two-pass pattern with a single pass so
+ * the buffer is written exactly once (half the cache line traffic on a 3-10 byte
+ * method string). Returns the emalloc'd buffer (caller owns it).
+ */
+static zend_always_inline char *gene_ini_copy_method_lower(const char *src, size_t len) {
+	char *dst = (char *)emalloc(len + 1);
+	size_t i;
+	unsigned char c;
+	for (i = 0; i < len; i++) {
+		c = (unsigned char)src[i];
+		dst[i] = (c >= 'A' && c <= 'Z') ? (char)(c | 0x20) : (char)c;
+	}
+	dst[len] = '\0';
+	return dst;
+}
+/* }}} */
+
 /** {{{ int gene_ini_router()
  * Returns 1 on success (method + path all available), 0 on failure.
  * [GENE_PERF:2026-04-19 #2] Cache gene_request_ctx() once at entry — the previous
@@ -240,6 +259,10 @@ zend_long gene_file_modified(char *file, zend_long ctime) {
  * or, in Swoole mode, at least several globals loads + branches). With one local
  * load, the whole routine becomes tight field accesses on `ctx->...`. Safe because
  * this function never yields (only SAPI globals + strcpy/lowercase).
+ * [GENE_PERF:2026-04-20] Fused method copy+lowercase into one pass; populate
+ * ctx->method_len and ctx->path_len from leftByChar's return so later dispatch
+ * code can skip repeated strlen() on these strings. emalloc instead of ecalloc
+ * for ctx->path since leftByChar writes its own null terminator.
  */
 int gene_ini_router() {
 	zval *server = NULL, *temp = NULL;
@@ -254,8 +277,8 @@ int gene_ini_router() {
 						temp = zend_hash_str_find(Z_ARRVAL_P(attr_server), ZEND_STRL("request_method"));
 					}
 					if (temp && Z_TYPE_P(temp) == IS_STRING) {
-						ctx->method = estrndup(Z_STRVAL_P(temp), Z_STRLEN_P(temp));
-						gene_strtolower(ctx->method);
+						ctx->method = gene_ini_copy_method_lower(Z_STRVAL_P(temp), Z_STRLEN_P(temp));
+						ctx->method_len = Z_STRLEN_P(temp);
 					}
 				}
 				if (!ctx->path) {
@@ -264,8 +287,8 @@ int gene_ini_router() {
 						temp = zend_hash_str_find(Z_ARRVAL_P(attr_server), ZEND_STRL("request_uri"));
 					}
 					if (temp && Z_TYPE_P(temp) == IS_STRING) {
-						ctx->path = ecalloc(Z_STRLEN_P(temp)+1, sizeof(char));
-						leftByChar(ctx->path, Z_STRVAL_P(temp), '?');
+						ctx->path = emalloc(Z_STRLEN_P(temp) + 1);
+						ctx->path_len = leftByChar(ctx->path, Z_STRVAL_P(temp), '?');
 					}
 				}
 				temp = NULL;
@@ -275,12 +298,12 @@ int gene_ini_router() {
 			server = request_query(TRACK_VARS_SERVER, NULL, 0);
 			if (server) {
 				if (!ctx->method && (temp = zend_hash_str_find(HASH_OF(server), ZEND_STRL("REQUEST_METHOD"))) != NULL) {
-					ctx->method = estrndup(Z_STRVAL_P(temp), Z_STRLEN_P(temp));
-					gene_strtolower(ctx->method);
+					ctx->method = gene_ini_copy_method_lower(Z_STRVAL_P(temp), Z_STRLEN_P(temp));
+					ctx->method_len = Z_STRLEN_P(temp);
 				}
 				if (!ctx->path && (temp = zend_hash_str_find(HASH_OF(server), ZEND_STRL("REQUEST_URI"))) != NULL) {
-					ctx->path = ecalloc(Z_STRLEN_P(temp)+1, sizeof(char));
-					leftByChar(ctx->path, Z_STRVAL_P(temp), '?');
+					ctx->path = emalloc(Z_STRLEN_P(temp) + 1);
+					ctx->path_len = leftByChar(ctx->path, Z_STRVAL_P(temp), '?');
 				}
 			}
 			server = NULL;
@@ -498,11 +521,13 @@ PHP_METHOD(gene_application, load) {
 
 /*
  * {{{ public gene_application::getMethod()
+ * [GENE_PERF:2026-04-20] RETURN_STRINGL with cached length avoids the strlen()
+ * call inside RETURN_STRING — same optimization applies to all context getters below.
  */
 PHP_METHOD(gene_application, getMethod) {
 	gene_request_context *ctx = gene_request_ctx();
 	if (ctx->method) {
-		RETURN_STRING(ctx->method);
+		RETURN_STRINGL(ctx->method, ctx->method_len);
 	}
 	RETURN_NULL();
 }
@@ -514,7 +539,7 @@ PHP_METHOD(gene_application, getMethod) {
 PHP_METHOD(gene_application, getPath) {
 	gene_request_context *ctx = gene_request_ctx();
 	if (ctx->path) {
-		RETURN_STRING(ctx->path);
+		RETURN_STRINGL(ctx->path, ctx->path_len);
 	}
 	RETURN_NULL();
 }
@@ -526,7 +551,7 @@ PHP_METHOD(gene_application, getPath) {
 PHP_METHOD(gene_application, getModule) {
 	gene_request_context *ctx = gene_request_ctx();
 	if (ctx->module) {
-		RETURN_STRING(ctx->module);
+		RETURN_STRINGL(ctx->module, ctx->module_len);
 	}
 	RETURN_NULL();
 }
@@ -538,7 +563,7 @@ PHP_METHOD(gene_application, getModule) {
 PHP_METHOD(gene_application, getController) {
 	gene_request_context *ctx = gene_request_ctx();
 	if (ctx->controller) {
-		RETURN_STRING(ctx->controller);
+		RETURN_STRINGL(ctx->controller, ctx->controller_len);
 	}
 	RETURN_NULL();
 }
@@ -550,7 +575,7 @@ PHP_METHOD(gene_application, getController) {
 PHP_METHOD(gene_application, getAction) {
 	gene_request_context *ctx = gene_request_ctx();
 	if (ctx->action) {
-		RETURN_STRING(ctx->action);
+		RETURN_STRINGL(ctx->action, ctx->action_len);
 	}
 	RETURN_NULL();
 }
@@ -562,7 +587,7 @@ PHP_METHOD(gene_application, getAction) {
 PHP_METHOD(gene_application, getLang) {
 	gene_request_context *ctx = gene_request_ctx();
 	if (ctx->lang) {
-		RETURN_STRING(ctx->lang);
+		RETURN_STRINGL(ctx->lang, ctx->lang_len);
 	}
 	RETURN_NULL();
 }
@@ -570,6 +595,9 @@ PHP_METHOD(gene_application, getLang) {
 
 /*
  * {{{ public gene_application::getRouterUri()
+ * [GENE_PERF:2026-04-20] Use cached module_len/controller_len/action_len so
+ * each strreplace_fast skips a per-length strlen(). router_path_len is also
+ * cached; copy via emalloc+memcpy instead of str_init (avoids one extra strlen).
  */
 PHP_METHOD(gene_application, getRouterUri) {
 	char *path = NULL, *new_path = NULL;
@@ -579,31 +607,32 @@ PHP_METHOD(gene_application, getRouterUri) {
 		RETURN_NULL();
 	}
 
-	path = str_init(ctx->router_path);
-	path_len = strlen(path);
+	path_len = ctx->router_path_len;
+	path = emalloc(path_len + 1);
+	memcpy(path, ctx->router_path, path_len + 1);
 	if (ctx->module != NULL) {
-		new_path = gene_strreplace_fast(path, path_len, ":m", 2, ctx->module, strlen(ctx->module), &path_len);
+		new_path = gene_strreplace_fast(path, path_len, ":m", 2, ctx->module, ctx->module_len, &path_len);
 		if (new_path) {
 			efree(path);
 			path = new_path;
 		}
 	}
 	if (ctx->controller != NULL) {
-		new_path = gene_strreplace_fast(path, path_len, ":c", 2, ctx->controller, strlen(ctx->controller), &path_len);
+		new_path = gene_strreplace_fast(path, path_len, ":c", 2, ctx->controller, ctx->controller_len, &path_len);
 		if (new_path) {
 			efree(path);
 			path = new_path;
 		}
 	}
 	if (ctx->action != NULL) {
-		new_path = gene_strreplace_fast(path, path_len, ":a", 2, ctx->action, strlen(ctx->action), &path_len);
+		new_path = gene_strreplace_fast(path, path_len, ":a", 2, ctx->action, ctx->action_len, &path_len);
 		if (new_path) {
 			efree(path);
 			path = new_path;
 		}
 	}
 	gene_strtolower(path);
-	RETVAL_STRING(path);
+	RETVAL_STRINGL(path, path_len);
 	efree(path);
 }
 /* }}} */

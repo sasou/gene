@@ -151,16 +151,21 @@ void left(char *dst, char *src, size_t n) {
 /* }}} */
 
 /*
- * {{{ void leftByChar(char *dst, char *src, char val)
+ * {{{ size_t leftByChar(char *dst, char *src, char val)
+ * [GENE_PERF:2026-04-20] Returns the number of bytes copied (length of dst,
+ * excluding the null terminator). Callers can use this to populate a
+ * pre-known length cache without a subsequent strlen() pass.
+ * Always writes a null terminator even when src is empty or starts with val.
  */
-void leftByChar(char *dst, char *src, char val) {
+size_t leftByChar(char *dst, char *src, char val) {
 	char *q = dst;
 	while (*src != '\0') {
 		if (*src == val)
 			break;
 		*(q++) = *(src++);
 	}
-	return;
+	*q = '\0';
+	return (size_t)(q - dst);
 }
 /* }}} */
 
