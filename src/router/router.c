@@ -1034,7 +1034,7 @@ static int gene_router_exec_error_direct(const char *class_method) {
  /** {{{ static void get_function_content(char *keyString, int keyString_len)
  */
 char * get_function_content(zval *content) {
-	zval objEx, ret, fileName, arg, arg1;
+	zval objEx, ret, fileName, arg1;
 	zend_long startline, endline;
 	size_t size;
 	char *result = NULL, *tmp = NULL;
@@ -1155,14 +1155,12 @@ char * get_function_content(zval *content) {
 	zval_ptr_dtor(&ret);
 	zval_ptr_dtor(&fileName);
 
-	ZVAL_STRING(&arg, "strrpos");
 	ZVAL_STRING(&fileName, "}");
 	zend_call_method_with_2_params(NULL, NULL, NULL, "strrpos", &ret, &arg1,
 			&fileName);
 	if (Z_TYPE(ret) == IS_FALSE) {
 		zval_ptr_dtor(&ret);
 		zval_ptr_dtor(&fileName);
-		zval_ptr_dtor(&arg);
 		zval_ptr_dtor(&arg1);
 		efree(result);
 		return NULL;
@@ -1170,7 +1168,6 @@ char * get_function_content(zval *content) {
 	endline = Z_LVAL(ret);
 	zval_ptr_dtor(&ret);
 	zval_ptr_dtor(&fileName);
-	zval_ptr_dtor(&arg);
 	zval_ptr_dtor(&arg1);
 
 	if (endline < startline) {
