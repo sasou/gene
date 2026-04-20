@@ -103,91 +103,115 @@ bool gene_factory_load_class(char *className, size_t tmp_len, zval *classObject)
 	return 0;
 }
 
+#define GENE_FACTORY_STACK_PARAM_CAP 8
+
+static zend_always_inline zval *gene_factory_pack_array_params(zval *param_arr, uint32_t *param_count, zval *stack_buf, uint32_t stack_cap, int *heap_allocated) {
+	zval *params = NULL, *element;
+	uint32_t count = 0, i = 0;
+
+	*param_count = 0;
+	*heap_allocated = 0;
+	if (!param_arr || Z_TYPE_P(param_arr) != IS_ARRAY) {
+		return NULL;
+	}
+
+	count = zend_hash_num_elements(Z_ARRVAL_P(param_arr));
+	*param_count = count;
+	if (count == 0) {
+		return NULL;
+	}
+
+	params = (count <= stack_cap) ? stack_buf : (zval *)safe_emalloc(count, sizeof(zval), 0);
+	*heap_allocated = (count > stack_cap);
+	ZEND_HASH_FOREACH_VAL(Z_ARRVAL_P(param_arr), element) {
+		if (i < count) {
+			params[i++] = *element;
+		}
+	} ZEND_HASH_FOREACH_END();
+	return params;
+}
+
+static zend_always_inline zval *gene_factory_pack_call_params(zval *head, zval *param_arr, uint32_t *param_count, zval *stack_buf, uint32_t stack_cap, int *heap_allocated) {
+	zval *params = NULL, *element;
+	uint32_t extra_count = 0, total, i = 1;
+
+	*param_count = 0;
+	*heap_allocated = 0;
+	if (!head) {
+		return NULL;
+	}
+
+	if (param_arr && Z_TYPE_P(param_arr) == IS_ARRAY) {
+		extra_count = zend_hash_num_elements(Z_ARRVAL_P(param_arr));
+	}
+	total = 1 + extra_count;
+	*param_count = total;
+	params = (total <= stack_cap) ? stack_buf : (zval *)safe_emalloc(total, sizeof(zval), 0);
+	*heap_allocated = (total > stack_cap);
+	params[0] = *head;
+	if (extra_count > 0) {
+		ZEND_HASH_FOREACH_VAL(Z_ARRVAL_P(param_arr), element) {
+			if (i < total) {
+				params[i++] = *element;
+			}
+		} ZEND_HASH_FOREACH_END();
+	}
+	return params;
+}
+
 void gene_factory_call(zval *object, char *action, size_t action_len, zval *param, zval *retval) /*{{{*/
 {
-    uint32_t param_count = 0;
-	zval *element;
-	zend_string *key = NULL;
-	zend_long id;
-	uint32_t num = 0;
+	uint32_t param_count = 0;
+	zval *params = NULL;
+	zval params_stack[GENE_FACTORY_STACK_PARAM_CAP];
+	int params_heap = 0;
 	zend_function *fn = NULL;
 	zend_class_entry *ce = Z_OBJCE_P(object);
 
-    if (retval) {
-        ZVAL_UNDEF(retval);
-    }
-    fn = (zend_function *)zend_hash_str_find_ptr(&ce->function_table, action, action_len);
-    if (param && Z_TYPE_P(param) == IS_ARRAY) {
-    	param_count = zend_hash_num_elements(Z_ARRVAL_P(param));
-    	if (param_count > 0) {
-        	zval *params = (zval *) safe_emalloc(param_count, sizeof(zval), 0);
-        	ZEND_HASH_FOREACH_KEY_VAL(Z_ARRVAL_P(param), id, key, element)
-        	{
-        		if (num < param_count) {
-        			params[num] = *element;
-        			num++;
-        		}
-        	}ZEND_HASH_FOREACH_END();
-        	if (fn) {
-        		zend_call_known_function(fn, Z_OBJ_P(object), ce, retval, param_count, params, NULL);
-        	} else {
-        		zval function_name;
-        		ZVAL_STRINGL(&function_name, action, action_len);
-        		call_user_function(NULL, object, &function_name, retval, param_count, params);
-        		zval_ptr_dtor(&function_name);
-        	}
-            efree(params);
-    	} else {
-    		if (fn) {
-    			zend_call_known_function(fn, Z_OBJ_P(object), ce, retval, 0, NULL, NULL);
-    		} else {
-    			zval function_name;
-    			ZVAL_STRINGL(&function_name, action, action_len);
-    			call_user_function(NULL, object, &function_name, retval, 0, NULL);
-    			zval_ptr_dtor(&function_name);
-    		}
-    	}
-    } else {
-    	if (fn) {
-    		zend_call_known_function(fn, Z_OBJ_P(object), ce, retval, 0, NULL, NULL);
-    	} else {
-    		zval function_name;
-    		ZVAL_STRINGL(&function_name, action, action_len);
-    		call_user_function(NULL, object, &function_name, retval, 0, NULL);
-    		zval_ptr_dtor(&function_name);
-    	}
-    }
+	if (retval) {
+		ZVAL_UNDEF(retval);
+	}
+	fn = (zend_function *)zend_hash_str_find_ptr(&ce->function_table, action, action_len);
+	params = gene_factory_pack_array_params(param, &param_count, params_stack, GENE_FACTORY_STACK_PARAM_CAP, &params_heap);
+	if (param_count > 0) {
+		if (fn) {
+			zend_call_known_function(fn, Z_OBJ_P(object), ce, retval, param_count, params, NULL);
+		} else {
+			zval function_name;
+			ZVAL_STRINGL(&function_name, action, action_len);
+			call_user_function(NULL, object, &function_name, retval, param_count, params);
+			zval_ptr_dtor(&function_name);
+		}
+		if (params_heap) {
+			efree(params);
+		}
+	} else {
+		if (fn) {
+			zend_call_known_function(fn, Z_OBJ_P(object), ce, retval, 0, NULL, NULL);
+		} else {
+			zval function_name;
+			ZVAL_STRINGL(&function_name, action, action_len);
+			call_user_function(NULL, object, &function_name, retval, 0, NULL);
+			zval_ptr_dtor(&function_name);
+		}
+	}
 }/*}}}*/
 
 void gene_factory_function_call(char *action, zval *param_key, zval *param_arr, zval *retval) /*{{{*/
 {
-    uint32_t param_count = 0;
-	zval *element;
-	zend_string *key = NULL;
-	zend_long id;
-	uint32_t num = 1;
-	uint32_t total;
+	uint32_t num = 0;
 	zval *params;
+	zval params_stack[GENE_FACTORY_STACK_PARAM_CAP + 1];
+	int params_heap = 0;
+	size_t action_len;
+	zend_function *fn = NULL;
 
     if (retval) {
         ZVAL_UNDEF(retval);
     }
-    if (param_arr && Z_TYPE_P(param_arr) == IS_ARRAY) {
-    	param_count = zend_hash_num_elements(Z_ARRVAL_P(param_arr));
-    }
-    total = 1 + param_count;
-    params = (zval *) safe_emalloc(total, sizeof(zval), 0);
-    params[0] = *param_key;
-    if (param_count > 0) {
-    	ZEND_HASH_FOREACH_KEY_VAL(Z_ARRVAL_P(param_arr), id, key, element)
-    	{
-    		if (num < total) {
-    			params[num] = *element;
-    			num++;
-    		}
-    	}ZEND_HASH_FOREACH_END();
-    }
-    zend_function *fn = zend_hash_str_find_ptr(CG(function_table), action, strlen(action));
+    params = gene_factory_pack_call_params(param_key, param_arr, &num, params_stack, GENE_FACTORY_STACK_PARAM_CAP + 1, &params_heap);
+    action_len = strlen(action);
+    fn = zend_hash_str_find_ptr(CG(function_table), action, action_len);
     if (fn) {
         zend_call_known_function(fn, NULL, NULL, retval, num, params, NULL);
     } else {
@@ -196,40 +220,27 @@ void gene_factory_function_call(char *action, zval *param_key, zval *param_arr, 
         call_user_function(NULL, NULL, &function_name, retval, num, params);
         zval_ptr_dtor(&function_name);
     }
-    efree(params);
+    if (params_heap) {
+	    efree(params);
+    }
 }/*}}}*/
 
 void gene_factory_function_call_1(zval *function_name, zval *param_key, zval *param_arr, zval *retval) /*{{{*/
 {
-	uint32_t param_count = 0;
-	zval *element;
-	zend_string *key = NULL;
-	zend_long id;
-	uint32_t num = 1;
-	uint32_t total;
+	uint32_t num = 0;
     if (param_key) {
-        if (param_arr && Z_TYPE_P(param_arr) == IS_ARRAY) {
-        	param_count = zend_hash_num_elements(Z_ARRVAL_P(param_arr));
-        }
-        total = 1 + param_count;
-        zval *params = (zval *) safe_emalloc(total, sizeof(zval), 0);
-        params[0] = *param_key;
-        if (param_count > 0) {
-        	ZEND_HASH_FOREACH_KEY_VAL(Z_ARRVAL_P(param_arr), id, key, element)
-        	{
-        		if (num < total) {
-        			params[num] = *element;
-        			num++;
-        		}
-        	}ZEND_HASH_FOREACH_END();
-        }
+		zval *params;
+		zval params_stack[GENE_FACTORY_STACK_PARAM_CAP + 1];
+		int params_heap = 0;
+	        params = gene_factory_pack_call_params(param_key, param_arr, &num, params_stack, GENE_FACTORY_STACK_PARAM_CAP + 1, &params_heap);
         call_user_function(NULL, NULL, function_name, retval, num, params);
-        efree(params);
+		if (params_heap) {
+			efree(params);
+		}
     } else {
-    	call_user_function(NULL, NULL, function_name, retval, 0, NULL);
+		call_user_function(NULL, NULL, function_name, retval, 0, NULL);
     }
 }/*}}}*/
-
 
 bool gene_factory(char *className, size_t tmp_len, zval *params, zval *classObject) {
 	/* [GENE_PERF:2026-04-19] Reuse gene_fast_lookup_class to skip zend_string_init
@@ -243,19 +254,11 @@ bool gene_factory(char *className, size_t tmp_len, zval *params, zval *classObje
 			ZVAL_UNDEF(&ret);
 			uint32_t param_count = 0;
 			zval *call_params = NULL;
-			if (params && Z_TYPE_P(params) == IS_ARRAY) {
-				param_count = zend_hash_num_elements(Z_ARRVAL_P(params));
-				if (param_count > 0) {
-					call_params = (zval *)safe_emalloc(param_count, sizeof(zval), 0);
-					uint32_t i = 0;
-					zval *el;
-					ZEND_HASH_FOREACH_VAL(Z_ARRVAL_P(params), el) {
-						if (i < param_count) call_params[i++] = *el;
-					} ZEND_HASH_FOREACH_END();
-				}
-			}
+			zval param_stack[GENE_FACTORY_STACK_PARAM_CAP];
+			int call_params_heap = 0;
+			call_params = gene_factory_pack_array_params(params, &param_count, param_stack, GENE_FACTORY_STACK_PARAM_CAP, &call_params_heap);
 			zend_call_known_function(pdo_ptr->constructor, Z_OBJ_P(classObject), pdo_ptr, &ret, param_count, call_params, NULL);
-			if (call_params) efree(call_params);
+			if (call_params_heap) efree(call_params);
 			if (!Z_ISUNDEF(ret)) zval_ptr_dtor(&ret);
 		}
 		return 1;

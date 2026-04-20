@@ -653,6 +653,59 @@ char *strreplace2(char *src, char *from, char *to)
    return value;
 }
 
+char *gene_strreplace_fast(const char *src, size_t src_len, const char *from, size_t from_len, const char *to, size_t to_len, size_t *out_len)
+{
+	const char *p, *match;
+	char *dst, *d;
+	size_t count = 0, tail_len, new_len;
+
+	if (!src || !from || !to || from_len == 0) {
+		return NULL;
+	}
+
+	p = src;
+	while ((match = strstr(p, from)) != NULL) {
+		count++;
+		p = match + from_len;
+	}
+
+	if (count == 0) {
+		return NULL;
+	}
+
+	if (to_len >= from_len) {
+		new_len = src_len + count * (to_len - from_len);
+	} else {
+		new_len = src_len - count * (from_len - to_len);
+	}
+
+	dst = emalloc(new_len + 1);
+	d = dst;
+	p = src;
+	while ((match = strstr(p, from)) != NULL) {
+		tail_len = (size_t)(match - p);
+		if (tail_len > 0) {
+			memcpy(d, p, tail_len);
+			d += tail_len;
+		}
+		if (to_len > 0) {
+			memcpy(d, to, to_len);
+			d += to_len;
+		}
+		p = match + from_len;
+	}
+	tail_len = src_len - (size_t)(p - src);
+	if (tail_len > 0) {
+		memcpy(d, p, tail_len);
+		d += tail_len;
+	}
+	*d = '\0';
+	if (out_len) {
+		*out_len = new_len;
+	}
+	return dst;
+}
+
 /* [GENE_AUDIT:2026-03-25] Kept call_user_function wrappers instead of direct Zend
  * internal APIs (php_json_encode, php_json_decode, php_var_serialize, etc.).
  * Reason: these internal APIs change signatures across PHP minor versions (e.g.

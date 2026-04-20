@@ -41,6 +41,7 @@ void remove_extra_space(char *str);
 char *readfilecontent(char *file);
 char *strreplace(char *original, char *pattern, char *replacement);
 char *strreplace2(char *src, char *from, char *to);
+char *gene_strreplace_fast(const char *src, size_t src_len, const char *from, size_t from_len, const char *to, size_t to_len, size_t *out_len);
 char *str_concat(char *s, const char *t);
 void gene_json_encode(zval *value, zval *options, zval *retval);
 void gene_json_decode(zval *value, zval *options, zval *retval);
