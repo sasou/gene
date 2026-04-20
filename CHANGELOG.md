@@ -1,5 +1,64 @@
 # Gene Framework Changelog
 
+## [5.5.4] - 2026-04-20
+
+### ⚡ Performance Optimizations (第二轮优化 - FPM/Swoole/PHP-CGI 热路径)
+
+#### 🚀 gene_memory_get_quick 宏化 (memory.h + memory.c)
+- 原函数转发改为宏定义：`#define gene_memory_get_quick(k, l) gene_memory_get((k), (l))`
+- 每次路由分派消除 3-4 次函数调用开销（router_tree/router_event/router_conf）
+- 零运行时成本，编译期展开
+
+#### 🧠 类加载快速路径 gene_fast_lookup_class (factory.c)
+- 新增静态内联函数替代 `gene_factory_load_class` 和 `gene_factory` 中的完整类查找流程
+- **快速路径**：256字节栈缓冲区 + 直接 `zend_hash_str_find_ptr(EG(class_table), lc_buf, src_len)` 查找
+- 处理 `\` 前缀去除（FQN 规范化），零堆分配
+- **慢速路径**：类未加载时回退到 `zend_lookup_class`（保留自动加载能力）
+- 收益：每次 DI 解析 / Hook 分派 / 路由分派节省 1 次 emalloc + memcpy + hash 计算
+
+#### 💾 gene_di_get 直接使用持久 interned 字符串 (di.c)
+- 移除 `zend_string_init(Z_STRVAL_P(class), Z_STRLEN_P(class), 0)` 堆分配
+- 直接 `zend_string *class_str = Z_STR_P(class)` 使用缓存中的持久 interned 字符串
+- 持久字符串带 `IS_STR_INTERNED | IS_STR_PERMANENT` 标志，在非持久 HashTable 中作 key 安全（release 是 no-op）
+- 每次 type=1 的 DI 解析节省 1 次 emalloc
+
+#### 🔀 gene_di_regs 分支预测提示 (di.c)
+- 为首次初始化分支添加 `UNEXPECTED` 提示
+- di_regs 在首次 DI 访问后即为 IS_ARRAY，命中率接近 100%
+- 提升分支预测准确率，减少流水线冲刷
+
+#### 📝 get_router_content_run 方法复制消除 (router.c)
+- `methodin==NULL` 时（内部分派）直接使用 `ctx->method`（已被 `gene_ini_router` 小写化）
+- `methodin!=NULL` 时用 32 字节栈缓冲区内联 lowercase+copy 融合
+- 缓存 `method_len` 避免每次 hash 查找都调用 strlen
+- 每次请求节省 1 次 emalloc+efree
+
+#### 🔧 setMca 合并分配 (router.c)
+- 原来：`efree(old) + str_init(val) + firstToUpper(ctx->x)` = 3 次函数调用 + 1 次 strlen + 1 次 emalloc + 1 次 memcpy + 1 次字符赋值
+- 现在：单次 emalloc + 内联 uppercase 第一个字符 + memcpy 剩余
+- action 不做 uppercase（与原逻辑一致）
+- 每次路由参数匹配节省 2-3 次函数调用开销
+
+#### 📏 减少 get_router_content_run 热路径上的 strlen
+- `method_len` 一次算好复用
+- 传给 `zend_symtable_str_find` 等 API 时直接用缓存值
+- 消除重复 strlen 调用
+
+### 📊 性能影响
+- **FPM/CGI 模式**：每请求节省约 5-8 次堆分配 + 2-3 次函数调用
+- **Swoole 协程模式**：单 worker 每秒数千请求，累积效益显著
+- **类查找快速路径**：对 DI 密集应用提升最显著
+- **兼容性**：所有优化对 runtime_type=1（FPM/CGI）和 >=2（Swoole/Coroutine）模式均生效
+
+### 🔧 修改文件
+- `src/cache/memory.h` - gene_memory_get_quick 宏定义
+- `src/cache/memory.c` - 删除 gene_memory_get_quick 函数定义
+- `src/factory/factory.c` - 新增 gene_fast_lookup_class 内联函数，重构 gene_factory_load_class 和 gene_factory
+- `src/di/di.c` - gene_di_get 使用持久字符串直接引用，gene_di_regs 添加 UNEXPECTED
+- `src/router/router.c` - get_router_content_run 和 setMca 优化
+
+---
+
 ## [5.5.3] - 2026-04-17
 
 ### ⚡ Performance Optimizations (FPM / Swoole 并发热路径)
@@ -530,65 +589,6 @@ if (heap) efree(ptr);  // 条件清理
 - 新增完整的测试框架
 - 添加性能基准测试
 - 覆盖核心功能单元测试
-
----
-
-## [5.3.4] - 2026-04-20
-
-### ⚡ Performance Optimizations (第二轮优化 - FPM/Swoole/PHP-CGI 热路径)
-
-#### 🚀 gene_memory_get_quick 宏化 (memory.h + memory.c)
-- 原函数转发改为宏定义：`#define gene_memory_get_quick(k, l) gene_memory_get((k), (l))`
-- 每次路由分派消除 3-4 次函数调用开销（router_tree/router_event/router_conf）
-- 零运行时成本，编译期展开
-
-#### 🧠 类加载快速路径 gene_fast_lookup_class (factory.c)
-- 新增静态内联函数替代 `gene_factory_load_class` 和 `gene_factory` 中的完整类查找流程
-- **快速路径**：256字节栈缓冲区 + 直接 `zend_hash_str_find_ptr(EG(class_table), lc_buf, src_len)` 查找
-- 处理 `\` 前缀去除（FQN 规范化），零堆分配
-- **慢速路径**：类未加载时回退到 `zend_lookup_class`（保留自动加载能力）
-- 收益：每次 DI 解析 / Hook 分派 / 路由分派节省 1 次 emalloc + memcpy + hash 计算
-
-#### 💾 gene_di_get 直接使用持久 interned 字符串 (di.c)
-- 移除 `zend_string_init(Z_STRVAL_P(class), Z_STRLEN_P(class), 0)` 堆分配
-- 直接 `zend_string *class_str = Z_STR_P(class)` 使用缓存中的持久 interned 字符串
-- 持久字符串带 `IS_STR_INTERNED | IS_STR_PERMANENT` 标志，在非持久 HashTable 中作 key 安全（release 是 no-op）
-- 每次 type=1 的 DI 解析节省 1 次 emalloc
-
-#### 🔀 gene_di_regs 分支预测提示 (di.c)
-- 为首次初始化分支添加 `UNEXPECTED` 提示
-- di_regs 在首次 DI 访问后即为 IS_ARRAY，命中率接近 100%
-- 提升分支预测准确率，减少流水线冲刷
-
-#### 📝 get_router_content_run 方法复制消除 (router.c)
-- `methodin==NULL` 时（内部分派）直接使用 `ctx->method`（已被 `gene_ini_router` 小写化）
-- `methodin!=NULL` 时用 32 字节栈缓冲区内联 lowercase+copy 融合
-- 缓存 `method_len` 避免每次 hash 查找都调用 strlen
-- 每次请求节省 1 次 emalloc+efree
-
-#### 🔧 setMca 合并分配 (router.c)
-- 原来：`efree(old) + str_init(val) + firstToUpper(ctx->x)` = 3 次函数调用 + 1 次 strlen + 1 次 emalloc + 1 次 memcpy + 1 次字符赋值
-- 现在：单次 emalloc + 内联 uppercase 第一个字符 + memcpy 剩余
-- action 不做 uppercase（与原逻辑一致）
-- 每次路由参数匹配节省 2-3 次函数调用开销
-
-#### 📏 减少 get_router_content_run 热路径上的 strlen
-- `method_len` 一次算好复用
-- 传给 `zend_symtable_str_find` 等 API 时直接用缓存值
-- 消除重复 strlen 调用
-
-### 📊 性能影响
-- **FPM/CGI 模式**：每请求节省约 5-8 次堆分配 + 2-3 次函数调用
-- **Swoole 协程模式**：单 worker 每秒数千请求，累积效益显著
-- **类查找快速路径**：对 DI 密集应用提升最显著
-- **兼容性**：所有优化对 runtime_type=1（FPM/CGI）和 >=2（Swoole/Coroutine）模式均生效
-
-### 🔧 修改文件
-- `src/cache/memory.h` - gene_memory_get_quick 宏定义
-- `src/cache/memory.c` - 删除 gene_memory_get_quick 函数定义
-- `src/factory/factory.c` - 新增 gene_fast_lookup_class 内联函数，重构 gene_factory_load_class 和 gene_factory
-- `src/di/di.c` - gene_di_get 使用持久字符串直接引用，gene_di_regs 添加 UNEXPECTED
-- `src/router/router.c` - get_router_content_run 和 setMca 优化
 
 ---
 
