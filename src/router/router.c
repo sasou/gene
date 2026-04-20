@@ -110,15 +110,14 @@
   * shaving an emalloc+3 function-call overhead per segment compounds across all
   * matched routes (typically 3 calls per request: module, controller, action).
   */
- int setMca(zend_string *key, char *val) {
+ int setMca(zend_string *key, const char *val, size_t val_len) {
 	 zval sval, *params = NULL;
 	 gene_request_context *ctx = gene_request_ctx();
 	 if (key->len == 1) {
 		 char c0 = key->val[0];
 		 if (c0 == 'm' || c0 == 'c' || c0 == 'a') {
-			 size_t vlen = strlen(val);
-			 char *buf = emalloc(vlen + 1);
-			 if (vlen > 0) {
+			 char *buf = emalloc(val_len + 1);
+			 if (val_len > 0) {
 				 unsigned char first = (unsigned char)val[0];
 				 /* uppercase first char only for module/controller; action stays verbatim */
 				 if ((c0 == 'm' || c0 == 'c') && first >= 'a' && first <= 'z') {
@@ -126,9 +125,9 @@
 				 } else {
 					 buf[0] = (char)first;
 				 }
-				 if (vlen > 1) memcpy(buf + 1, val + 1, vlen - 1);
+				 if (val_len > 1) memcpy(buf + 1, val + 1, val_len - 1);
 			 }
-			 buf[vlen] = '\0';
+			 buf[val_len] = '\0';
 			 switch (c0) {
 			 case 'm':
 				 if (ctx->module) efree(ctx->module);
@@ -147,7 +146,7 @@
 	 } else {
 		 params = ctx->path_params;
 		 if (params != NULL) {
-			 ZVAL_STRING(&sval, val);
+			 ZVAL_STRINGL(&sval, val, val_len);
 			 zend_symtable_update(Z_ARRVAL_P(params), key, &sval);
 		 }
 	 }
@@ -299,14 +298,14 @@
 					 ZEND_HASH_FOREACH_KEY_VAL(Z_ARRVAL_P(ret), idx, key, tmp) {
 						 if (key) {
 							 if (tmp != NULL) {
-								 leaf = get_path_router_inner(tmp, next_slash + 1);
-								 if (leaf) {
-									 setMca(key, seg);
-									 break;
-								 }
+							 leaf = get_path_router_inner(tmp, next_slash + 1);
+							 if (leaf) {
+								 setMca(key, seg, seg_len);
+								 break;
 							 }
+						 }
 
-						 } else {
+					 } else {
 							 if (tmp != NULL) {
 								 leaf = get_path_router_inner(tmp, next_slash + 1);
 								 if (leaf) {
@@ -332,14 +331,14 @@
 					 ZEND_HASH_FOREACH_KEY_VAL(Z_ARRVAL_P(ret), idx, key, tmp) {
 						 if (key) {
 							 if (tmp != NULL) {
-								 leaf = zend_symtable_str_find(Z_ARRVAL_P(tmp), "leaf", 4);
-								 if (leaf) {
-									 setMca(key, seg);
-									 break;
-								 }
+							 leaf = zend_symtable_str_find(Z_ARRVAL_P(tmp), "leaf", 4);
+							 if (leaf) {
+								 setMca(key, seg, seg_len);
+								 break;
 							 }
-						 } else {
-							 if (tmp != NULL) {
+						 }
+					 } else {
+						 if (tmp != NULL) {
 								 leaf = zend_symtable_str_find(Z_ARRVAL_P(tmp), "leaf", 4);
 								 if (leaf) {
 									 break;
@@ -357,13 +356,10 @@
 
 zval *get_path_router(zval *val, char *paths) {
 	 zval *leaf;
-	 char *path;
-	if (strlen(paths) == 0) {
+	if (paths[0] == '\0') {
 		return zend_symtable_str_find(Z_ARRVAL_P(val), "leaf", 4);
 	}
-	path = estrdup(paths);
-	leaf = get_path_router_inner(val, path);
-	efree(path);
+	leaf = get_path_router_inner(val, paths);
 	return leaf;
  }
  /* }}} */
@@ -409,18 +405,20 @@ static int gene_router_dispatch_direct(const char *class_method, zval *retval) {
 	 }
 
 	 if (ctx->module != NULL) {
-		 char *tmp_m = strreplace2(class_name, ":m", ctx->module);
-		 if (class_alloc) efree(class_alloc);
-		 class_alloc = tmp_m;
-		 class_name = class_alloc;
-		 class_name_len = strlen(class_name);
+		 char *tmp_m = gene_strreplace_fast(class_name, class_name_len, ":m", 2, ctx->module, strlen(ctx->module), &class_name_len);
+		 if (tmp_m) {
+			 if (class_alloc) efree(class_alloc);
+			 class_alloc = tmp_m;
+			 class_name = class_alloc;
+		 }
 	 }
 	 if (ctx->controller != NULL) {
-		 tmp_alloc = strreplace2(class_name, ":c", ctx->controller);
-		 if (class_alloc) efree(class_alloc);
-		 class_alloc = tmp_alloc;
-		 class_name = class_alloc;
-		 class_name_len = strlen(class_name);
+		 tmp_alloc = gene_strreplace_fast(class_name, class_name_len, ":c", 2, ctx->controller, strlen(ctx->controller), &class_name_len);
+		 if (tmp_alloc) {
+			 if (class_alloc) efree(class_alloc);
+			 class_alloc = tmp_alloc;
+			 class_name = class_alloc;
+		 }
 	 }
 
 	 if (!gene_factory(class_name, class_name_len, NULL, &classObject)) {
@@ -431,13 +429,14 @@ static int gene_router_dispatch_direct(const char *class_method, zval *retval) {
 	 }
 
 	 if (ctx->action != NULL) {
-		 char *tmp = strreplace2(action, ":a", ctx->action);
-		 if (action_alloc) efree(action_alloc);
-		 action_alloc = tmp;
-		 action = action_alloc;
+		 char *tmp = gene_strreplace_fast(action, action_len, ":a", 2, ctx->action, strlen(ctx->action), &action_len);
+		 if (tmp) {
+			 if (action_alloc) efree(action_alloc);
+			 action_alloc = tmp;
+			 action = action_alloc;
+		 }
 	 }
 	 gene_strtolower(action);
-	 action_len = strlen(action);
 
 	 if (Z_TYPE(classObject) == IS_OBJECT
 			 && zend_hash_str_exists(&(Z_OBJCE(classObject)->function_table), action, action_len)) {
@@ -2312,34 +2311,43 @@ PHP_METHOD(gene_router, __call) {
 	 char *class = NULL, *action = NULL;
 	 char *class_alloc = NULL, *action_alloc = NULL, *tmp_alloc = NULL;
 	 zend_long class_len = 0, action_len = 0;
+	 size_t class_name_len = 0, action_name_len = 0;
 	 zval *params = NULL, classObject;
 	 gene_request_context *ctx;
 	 if (zend_parse_parameters(ZEND_NUM_ARGS(), "ssz", &class, &class_len, &action, &action_len, &params) == FAILURE) {
 		 return;
 	 }
+	 class_name_len = (size_t)class_len;
+	 action_name_len = (size_t)action_len;
 	 ctx = gene_request_ctx();
 	 if (ctx->module != NULL) {
-		 class_alloc = strreplace2(class, ":m", ctx->module);
-		 class = class_alloc;
+		 class_alloc = gene_strreplace_fast(class, class_name_len, ":m", 2, ctx->module, strlen(ctx->module), &class_name_len);
+		 if (class_alloc) {
+			 class = class_alloc;
+		 }
 	 }
 	 if (ctx->controller != NULL) {
-		 tmp_alloc = strreplace2(class, ":c", ctx->controller);
-		 if (class_alloc) efree(class_alloc);
-		 class_alloc = tmp_alloc;
-		 class = class_alloc;
+		 tmp_alloc = gene_strreplace_fast(class, class_name_len, ":c", 2, ctx->controller, strlen(ctx->controller), &class_name_len);
+		 if (tmp_alloc) {
+			 if (class_alloc) efree(class_alloc);
+			 class_alloc = tmp_alloc;
+			 class = class_alloc;
+		 }
 	 }
  
-	 if (gene_factory(class, strlen(class), NULL, &classObject)) {
+	 if (gene_factory(class, class_name_len, NULL, &classObject)) {
 		 if (ctx->action != NULL) {
-			 action_alloc = strreplace2(action, ":a", ctx->action);
-			 action = action_alloc;
+			 action_alloc = gene_strreplace_fast(action, action_name_len, ":a", 2, ctx->action, strlen(ctx->action), &action_name_len);
+			 if (action_alloc) {
+				 action = action_alloc;
+			 }
 		 }
 		 gene_strtolower(action);
-		 action_len = strlen(action);
+		 action_len = (zend_long)action_name_len;
 		 if (Z_TYPE(classObject) == IS_OBJECT
-				 && zend_hash_str_exists(&(Z_OBJCE(classObject)->function_table), action, action_len)) {
+				 && zend_hash_str_exists(&(Z_OBJCE(classObject)->function_table), action, action_name_len)) {
 			 zval ret;
-			 gene_factory_call_1(&classObject, action, action_len, params, &ret);
+			 gene_factory_call_1(&classObject, action, action_name_len, params, &ret);
 			 zval_ptr_dtor(&classObject);
 			 if (class_alloc) efree(class_alloc);
 			 if (action_alloc) efree(action_alloc);

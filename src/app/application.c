@@ -573,26 +573,34 @@ PHP_METHOD(gene_application, getLang) {
  */
 PHP_METHOD(gene_application, getRouterUri) {
 	char *path = NULL, *new_path = NULL;
+	size_t path_len;
 	gene_request_context *ctx = gene_request_ctx();
 	if (!ctx->router_path) {
 		RETURN_NULL();
 	}
 
 	path = str_init(ctx->router_path);
+	path_len = strlen(path);
 	if (ctx->module != NULL) {
-		new_path = strreplace2(path, ":m", ctx->module);
-		efree(path);
-		path = new_path;
+		new_path = gene_strreplace_fast(path, path_len, ":m", 2, ctx->module, strlen(ctx->module), &path_len);
+		if (new_path) {
+			efree(path);
+			path = new_path;
+		}
 	}
 	if (ctx->controller != NULL) {
-		new_path = strreplace2(path, ":c", ctx->controller);
-		efree(path);
-		path = new_path;
+		new_path = gene_strreplace_fast(path, path_len, ":c", 2, ctx->controller, strlen(ctx->controller), &path_len);
+		if (new_path) {
+			efree(path);
+			path = new_path;
+		}
 	}
 	if (ctx->action != NULL) {
-		new_path = strreplace2(path, ":a", ctx->action);
-		efree(path);
-		path = new_path;
+		new_path = gene_strreplace_fast(path, path_len, ":a", 2, ctx->action, strlen(ctx->action), &path_len);
+		if (new_path) {
+			efree(path);
+			path = new_path;
+		}
 	}
 	gene_strtolower(path);
 	RETVAL_STRING(path);
