@@ -533,8 +533,7 @@ PHP_METHOD(gene_hook, json) {
 		return;
 	}
 	ZVAL_LONG(&json_opt, code);
-	zend_call_method_with_2_params(NULL, NULL, NULL, "json_encode", &ret, data, &json_opt);
-	zval_ptr_dtor(&json_opt);
+	gene_json_encode(data, &json_opt, &ret);
 	if (Z_TYPE(ret) == IS_STRING) {
 		if (callback_len) {
 			php_write(callback, callback_len);
