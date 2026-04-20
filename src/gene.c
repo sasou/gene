@@ -156,13 +156,21 @@ static void gene_request_context_reset_path_params(gene_request_context *ctx) {
 static void gene_request_context_free_fields(gene_request_context *ctx, int preserve_path_params) {
 	zval *pp;
 	if (ctx->method) { efree(ctx->method); ctx->method = NULL; }
+	ctx->method_len = 0;
 	if (ctx->path) { efree(ctx->path); ctx->path = NULL; }
+	ctx->path_len = 0;
 	if (ctx->router_path) { efree(ctx->router_path); ctx->router_path = NULL; }
+	ctx->router_path_len = 0;
 	if (ctx->module) { efree(ctx->module); ctx->module = NULL; }
+	ctx->module_len = 0;
 	if (ctx->controller) { efree(ctx->controller); ctx->controller = NULL; }
+	ctx->controller_len = 0;
 	if (ctx->action) { efree(ctx->action); ctx->action = NULL; }
+	ctx->action_len = 0;
 	if (ctx->child_views) { efree(ctx->child_views); ctx->child_views = NULL; }
+	ctx->child_views_len = 0;
 	if (ctx->lang) { efree(ctx->lang); ctx->lang = NULL; }
+	ctx->lang_len = 0;
 	if (ctx->log_file) { efree(ctx->log_file); ctx->log_file = NULL; }
 	if (!preserve_path_params) {
 		pp = ctx->path_params;

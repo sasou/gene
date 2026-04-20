@@ -213,7 +213,8 @@ PHP_METHOD(gene_controller, isAjax) {
 PHP_METHOD(gene_controller, getMethod) {
 	gene_request_context *ctx = gene_request_ctx();
 	if (ctx->method) {
-		RETURN_STRING(ctx->method);
+		/* [GENE_PERF:2026-04-20] RETURN_STRINGL with cached length avoids strlen(). */
+		RETURN_STRINGL(ctx->method, ctx->method_len);
 	}
 	RETURN_NULL();
 }
@@ -224,7 +225,7 @@ PHP_METHOD(gene_controller, getMethod) {
 PHP_METHOD(gene_controller, getLang) {
 	gene_request_context *ctx = gene_request_ctx();
 	if (ctx->lang) {
-		RETURN_STRING(ctx->lang);
+		RETURN_STRINGL(ctx->lang, ctx->lang_len);
 	}
 	RETURN_NULL();
 }
@@ -313,7 +314,9 @@ PHP_METHOD(gene_controller, display) {
 			efree(ctx->child_views);
 			ctx->child_views = NULL;
 		}
+		/* [GENE_PERF:2026-04-20] Cache child_views_len so downstream lookups skip strlen(). */
 		ctx->child_views = estrndup(ZSTR_VAL(file), ZSTR_LEN(file));
+		ctx->child_views_len = ZSTR_LEN(file);
 		gene_view_display(ZSTR_VAL(parent_file), self, table);
 	} else {
 		gene_view_display(ZSTR_VAL(file), self, table);
@@ -347,6 +350,7 @@ PHP_METHOD(gene_controller, displayExt) {
 			ctx->child_views = NULL;
 		}
 		ctx->child_views = estrndup(ZSTR_VAL(file), ZSTR_LEN(file));
+		ctx->child_views_len = ZSTR_LEN(file);
 		gene_view_display_ext(ZSTR_VAL(parent_file), isCompile, self, table);
 	} else {
 		gene_view_display_ext(ZSTR_VAL(file), isCompile, self, table);
@@ -390,6 +394,7 @@ PHP_METHOD(gene_controller, url) {
 	size_t path_len;
 	gene_request_context *ctx;
 	const char *lang;
+	size_t lang_len;
 
 	if (zend_parse_parameters(ZEND_NUM_ARGS(), "S", &path_str) == FAILURE) {
 		return;
@@ -399,11 +404,17 @@ PHP_METHOD(gene_controller, url) {
 	/* 跳过 path 前导斜杠 */
 	for (; path_len > 0 && *p == '/'; p++, path_len--) {}
 	ctx = gene_request_ctx();
-	lang = (ctx->lang && ctx->lang[0] != '\0') ? ctx->lang : NULL;
+	/* [GENE_PERF:2026-04-20] Use cached ctx->lang_len instead of strlen(lang). */
+	if (ctx->lang && ctx->lang[0] != '\0') {
+		lang = ctx->lang;
+		lang_len = ctx->lang_len;
+	} else {
+		lang = NULL;
+		lang_len = 0;
+	}
 	if (path_len == 0) {
 		/* 如果只有斜杠，也加上语言前缀 */
 		if (lang) {
-			size_t lang_len = strlen(lang);
 			size_t out_len = lang_len + 2;
 			char out_buf[256];
 			char *out_ptr = out_buf;
@@ -426,7 +437,9 @@ PHP_METHOD(gene_controller, url) {
 		return;
 	}
 	if (lang) {
-		size_t lang_len = strlen(lang);
+		/* [GENE_PERF:2026-04-20] Build output via memcpy instead of snprintf("/%s/%.*s"):
+		 * snprintf parses the format string and invokes vsnprintf's variadic handling
+		 * for each call; direct memcpy is ~5-10x faster for this well-known layout. */
 		size_t out_len = lang_len + path_len + 2;
 		char out_buf[512];
 		char *out_ptr = out_buf;
@@ -435,8 +448,12 @@ PHP_METHOD(gene_controller, url) {
 			out_ptr = emalloc(out_len + 1);
 			out_heap = 1;
 		}
-		snprintf(out_ptr, out_len + 1, "/%s/%.*s", lang, (int)path_len, p);
-		RETVAL_STRING(out_ptr);
+		out_ptr[0] = '/';
+		memcpy(out_ptr + 1, lang, lang_len);
+		out_ptr[lang_len + 1] = '/';
+		memcpy(out_ptr + lang_len + 2, p, path_len);
+		out_ptr[out_len] = '\0';
+		RETVAL_STRINGL(out_ptr, out_len);
 		if (out_heap) {
 			efree(out_ptr);
 		}
@@ -449,8 +466,10 @@ PHP_METHOD(gene_controller, url) {
 			out_ptr = emalloc(out_len + 1);
 			out_heap = 1;
 		}
-		snprintf(out_ptr, out_len + 1, "/%.*s", (int)path_len, p);
-		RETVAL_STRING(out_ptr);
+		out_ptr[0] = '/';
+		memcpy(out_ptr + 1, p, path_len);
+		out_ptr[out_len] = '\0';
+		RETVAL_STRINGL(out_ptr, out_len);
 		if (out_heap) {
 			efree(out_ptr);
 		}

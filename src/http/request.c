@@ -69,7 +69,9 @@ static void gene_request_set_server_val(zval *server) {
 	/* Directly populate ctx->method and ctx->path from the normalized server
 	 * data so that gene_ini_router() finds them already set.  This avoids
 	 * the indirect getVal(TRACK_VARS_SERVER) lookup which can occasionally
-	 * miss in high-concurrency Swoole scenarios. */
+	 * miss in high-concurrency Swoole scenarios.
+	 * [GENE_PERF:2026-04-20] Fused copy+lowercase via single-pass loop for
+	 * method, and capture leftByChar's return for path_len (avoids later strlen). */
 	if (GENE_G(runtime_type) >= 2) {
 		gene_request_context *ctx = gene_request_ctx();
 		if (!ctx->method) {
@@ -78,8 +80,18 @@ static void gene_request_set_server_val(zval *server) {
 				rm = zend_hash_str_find(Z_ARRVAL(normalized), ZEND_STRL("request_method"));
 			}
 			if (rm && Z_TYPE_P(rm) == IS_STRING) {
-				ctx->method = estrndup(Z_STRVAL_P(rm), Z_STRLEN_P(rm));
-				gene_strtolower(ctx->method);
+				size_t mlen = Z_STRLEN_P(rm);
+				const char *msrc = Z_STRVAL_P(rm);
+				char *mdst = emalloc(mlen + 1);
+				size_t mi;
+				unsigned char mc;
+				for (mi = 0; mi < mlen; mi++) {
+					mc = (unsigned char)msrc[mi];
+					mdst[mi] = (mc >= 'A' && mc <= 'Z') ? (char)(mc | 0x20) : (char)mc;
+				}
+				mdst[mlen] = '\0';
+				ctx->method = mdst;
+				ctx->method_len = mlen;
 			}
 		}
 		if (!ctx->path) {
@@ -88,8 +100,8 @@ static void gene_request_set_server_val(zval *server) {
 				ru = zend_hash_str_find(Z_ARRVAL(normalized), ZEND_STRL("request_uri"));
 			}
 			if (ru && Z_TYPE_P(ru) == IS_STRING) {
-				ctx->path = ecalloc(Z_STRLEN_P(ru) + 1, sizeof(char));
-				leftByChar(ctx->path, Z_STRVAL_P(ru), '?');
+				ctx->path = emalloc(Z_STRLEN_P(ru) + 1);
+				ctx->path_len = leftByChar(ctx->path, Z_STRVAL_P(ru), '?');
 			}
 		}
 	}
@@ -416,7 +428,8 @@ PHP_METHOD(gene_request, isAjax) {
 PHP_METHOD(gene_request, getMethod) {
 	gene_request_context *ctx = gene_request_ctx();
 	if (ctx->method) {
-		RETURN_STRING(ctx->method);
+		/* [GENE_PERF:2026-04-20] RETURN_STRINGL with cached length avoids strlen(). */
+		RETURN_STRINGL(ctx->method, ctx->method_len);
 	}
 	RETURN_NULL();
 }
