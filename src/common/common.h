@@ -25,7 +25,7 @@ char *firstToUpper(char *str);
 char *gene_strtoupper(char *str);
 char *gene_strtolower(char *str);
 void left(char *dst, char *src, size_t n);
-void leftByChar(char *dst, char *src, char val);
+size_t leftByChar(char *dst, char *src, char val);
 void mid(char *dst, char *src, size_t n, size_t m);
 void right(char *dst, char *src, size_t n);
 char *replaceAll(char * src, const char oldChar, const char newChar);

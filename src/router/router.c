@@ -109,6 +109,8 @@
   * a single pass. Called once per path segment (m/c/a) during router dispatch, so
   * shaving an emalloc+3 function-call overhead per segment compounds across all
   * matched routes (typically 3 calls per request: module, controller, action).
+  * [GENE_PERF:2026-04-20] Populate cached length fields (module_len/controller_len/
+  * action_len) so downstream strreplace_fast and dispatch-direct can skip strlen().
   */
  int setMca(zend_string *key, const char *val, size_t val_len) {
 	 zval sval, *params = NULL;
@@ -132,14 +134,17 @@
 			 case 'm':
 				 if (ctx->module) efree(ctx->module);
 				 ctx->module = buf;
+				 ctx->module_len = val_len;
 				 break;
 			 case 'c':
 				 if (ctx->controller) efree(ctx->controller);
 				 ctx->controller = buf;
+				 ctx->controller_len = val_len;
 				 break;
 			 case 'a':
 				 if (ctx->action) efree(ctx->action);
 				 ctx->action = buf;
+				 ctx->action_len = val_len;
 				 break;
 			 }
 		 }
@@ -177,6 +182,8 @@
  /* }}} */
  
  /** {{{ void gene_router_set_uri(zval **leaf)
+  * [GENE_PERF:2026-04-20] Populate ctx->router_path_len so getRouterUri() and
+  * later consumers can skip a strlen() on the cached router path.
   */
  void gene_router_set_uri(zval **leaf) {
 	 zval *key = NULL;
@@ -188,8 +195,10 @@
 		 }
 		 if (Z_STRLEN_P(key)) {
 			 ctx->router_path = estrndup(Z_STRVAL_P(key), Z_STRLEN_P(key));
+			 ctx->router_path_len = Z_STRLEN_P(key);
 		 } else {
 			 ctx->router_path = estrndup("", 0);
+			 ctx->router_path_len = 0;
 		 }
 	 }
  }
@@ -198,10 +207,15 @@
  /** {{{ static void get_path_router(char *keyString, int keyString_len)
   * [GENE_PERF:2026-04-19 #2] Cache gene_request_ctx() once — prior code invoked
   * GENE_REQ(lang) up to 4 times per request when a language prefix matched.
+  * [GENE_PERF:2026-04-20] Replaced str_sub+strcmp pair (one emalloc+efree per
+  * request when prefix matched) with a direct memcmp against path. Also capture
+  * seg_len from the first tokenizer pass to set ctx->lang_len directly,
+  * avoiding a downstream strlen() when lang is later read by getLang().
   */
  char *get_path_router_init(zval *conf, char *path) {
 	 zval *prefix = NULL, *langs = NULL;
-	 char *seg = NULL, *ptr = NULL, *path_prefix = NULL, *result = NULL, *search = NULL, *work = NULL;
+	 char *seg = NULL, *ptr = NULL, *result = NULL, *search = NULL, *work = NULL;
+	 size_t seg_len = 0;
 	 zend_long path_len = 0;
 	 path_len = strlen(path);
 	 if (path_len == 0) {
@@ -211,29 +225,25 @@
 	 result = NULL;
 	 prefix = zend_symtable_str_find(Z_ARRVAL_P(conf), "prefix", 6);
 	 if (prefix) {
-		 if (Z_STRLEN_P(prefix) <= path_len) {
-			 path_prefix = str_sub(path, Z_STRLEN_P(prefix));
-			 if (strcmp(path_prefix, Z_STRVAL_P(prefix)) == 0) {
-				 result = str_sub_len(path, Z_STRLEN_P(prefix), path_len - Z_STRLEN_P(prefix));
-				 trim(result, '/');
-				 if (strlen(result) < 1) {
-					 efree(path_prefix);
-					 return result;
-				 }
+		 size_t prefix_len = Z_STRLEN_P(prefix);
+		 if (prefix_len <= (size_t)path_len
+				 && memcmp(path, Z_STRVAL_P(prefix), prefix_len) == 0) {
+			 result = str_sub_len(path, prefix_len, (size_t)path_len - prefix_len);
+			 trim(result, '/');
+			 if (result[0] == '\0') {
+				 return result;
 			 }
-			 efree(path_prefix);
 		 }
 	 }
 	 langs = zend_symtable_str_find(Z_ARRVAL_P(conf), "langs", 5);
 	 if (langs) {
 		 work = str_init(result ? result : path);
 		 seg = php_strtok_r(work, "/", &ptr);
-		 if (seg && strlen(seg) > 0) {
+		 if (seg && (seg_len = strlen(seg)) > 0) {
 			 if (ptr == NULL) {
 				 ptr = "";
 			 }
 			 {
-				 size_t seg_len = strlen(seg);
 				 char lang_buf[128];
 				 char *lang_p = (seg_len + 3 <= sizeof(lang_buf)) ? lang_buf : emalloc(seg_len + 3);
 				 lang_p[0] = ',';
@@ -249,12 +259,13 @@
 					 efree(ctx->lang);
 					 ctx->lang = NULL;
 				 }
-				 ctx->lang = str_init(seg);
+				 ctx->lang = estrndup(seg, seg_len);
+				 ctx->lang_len = seg_len;
 				 if (result) {
 					 efree(result);
 				 }
 				 result = estrdup(ptr);
-				 if (strlen(result) > 0) {
+				 if (result[0] != '\0') {
 					 trim(result, '/');
 				 }
 			 }
@@ -404,8 +415,11 @@ static int gene_router_dispatch_direct(const char *class_method, zval *retval) {
 		 action_alloc = action;
 	 }
 
+	 /* [GENE_PERF:2026-04-20] Use cached module_len/controller_len/action_len
+	  * instead of calling strlen() on each dispatch. These fields are populated
+	  * by setMca() when the route matches, before dispatch_direct is invoked. */
 	 if (ctx->module != NULL) {
-		 char *tmp_m = gene_strreplace_fast(class_name, class_name_len, ":m", 2, ctx->module, strlen(ctx->module), &class_name_len);
+		 char *tmp_m = gene_strreplace_fast(class_name, class_name_len, ":m", 2, ctx->module, ctx->module_len, &class_name_len);
 		 if (tmp_m) {
 			 if (class_alloc) efree(class_alloc);
 			 class_alloc = tmp_m;
@@ -413,7 +427,7 @@ static int gene_router_dispatch_direct(const char *class_method, zval *retval) {
 		 }
 	 }
 	 if (ctx->controller != NULL) {
-		 tmp_alloc = gene_strreplace_fast(class_name, class_name_len, ":c", 2, ctx->controller, strlen(ctx->controller), &class_name_len);
+		 tmp_alloc = gene_strreplace_fast(class_name, class_name_len, ":c", 2, ctx->controller, ctx->controller_len, &class_name_len);
 		 if (tmp_alloc) {
 			 if (class_alloc) efree(class_alloc);
 			 class_alloc = tmp_alloc;
@@ -429,7 +443,7 @@ static int gene_router_dispatch_direct(const char *class_method, zval *retval) {
 	 }
 
 	 if (ctx->action != NULL) {
-		 char *tmp = gene_strreplace_fast(action, action_len, ":a", 2, ctx->action, strlen(ctx->action), &action_len);
+		 char *tmp = gene_strreplace_fast(action, action_len, ":a", 2, ctx->action, ctx->action_len, &action_len);
 		 if (tmp) {
 			 if (action_alloc) efree(action_alloc);
 			 action_alloc = tmp;
@@ -1264,10 +1278,17 @@ void get_router_content_run(char *methodin, char *pathin, const char *safe_str, 
 	 if (methodin == NULL && pathin == NULL) {
 		 if (ctx->method) {
 			 method = ctx->method; /* already lowercased by gene_ini_router() */
-			 method_len = strlen(ctx->method);
+			 /* [GENE_PERF:2026-04-20] Use cached method_len set by gene_ini_router()
+			  * — avoids an strlen() scan of a 3-10 byte method string per request. */
+			 method_len = ctx->method_len;
 		 }
 		 if (ctx->path) {
-			 path = str_init(ctx->path);
+			 /* [GENE_PERF:2026-04-20] Inline emalloc+memcpy avoids str_init()'s
+			  * internal strlen() since ctx->path_len is already cached by the
+			  * gene_ini_router()/request_set_server_val() path populators. */
+			 size_t plen = ctx->path_len;
+			 path = (char *)emalloc(plen + 1);
+			 memcpy(path, ctx->path, plen + 1);
 		 }
 	 } else {
 		 size_t mlen = methodin ? strlen(methodin) : 0;
@@ -2258,7 +2279,9 @@ PHP_METHOD(gene_router, __call) {
 			 efree(ctx->child_views);
 			 ctx->child_views = NULL;
 		 }
+		 /* [GENE_PERF:2026-04-20] Cache child_views_len alongside child_views. */
 		 ctx->child_views = estrndup(ZSTR_VAL(file), ZSTR_LEN(file));
+		 ctx->child_views_len = ZSTR_LEN(file);
 		 gene_view_display(ZSTR_VAL(parent_file), self, table);
 	 } else {
 		 gene_view_display(ZSTR_VAL(file), self, table);
@@ -2292,6 +2315,7 @@ PHP_METHOD(gene_router, __call) {
 			 ctx->child_views = NULL;
 		 }
 		 ctx->child_views = estrndup(ZSTR_VAL(file), ZSTR_LEN(file));
+		 ctx->child_views_len = ZSTR_LEN(file);
 		 gene_view_display_ext(ZSTR_VAL(parent_file), isCompile, self, table);
 	 } else {
 		 gene_view_display_ext(ZSTR_VAL(file), isCompile, self, table);
@@ -2320,14 +2344,16 @@ PHP_METHOD(gene_router, __call) {
 	 class_name_len = (size_t)class_len;
 	 action_name_len = (size_t)action_len;
 	 ctx = gene_request_ctx();
+	 /* [GENE_PERF:2026-04-20] Use cached length fields for module/controller/
+	  * action to avoid repeated strlen() on the dispatch hot path. */
 	 if (ctx->module != NULL) {
-		 class_alloc = gene_strreplace_fast(class, class_name_len, ":m", 2, ctx->module, strlen(ctx->module), &class_name_len);
+		 class_alloc = gene_strreplace_fast(class, class_name_len, ":m", 2, ctx->module, ctx->module_len, &class_name_len);
 		 if (class_alloc) {
 			 class = class_alloc;
 		 }
 	 }
 	 if (ctx->controller != NULL) {
-		 tmp_alloc = gene_strreplace_fast(class, class_name_len, ":c", 2, ctx->controller, strlen(ctx->controller), &class_name_len);
+		 tmp_alloc = gene_strreplace_fast(class, class_name_len, ":c", 2, ctx->controller, ctx->controller_len, &class_name_len);
 		 if (tmp_alloc) {
 			 if (class_alloc) efree(class_alloc);
 			 class_alloc = tmp_alloc;
@@ -2337,7 +2363,7 @@ PHP_METHOD(gene_router, __call) {
  
 	 if (gene_factory(class, class_name_len, NULL, &classObject)) {
 		 if (ctx->action != NULL) {
-			 action_alloc = gene_strreplace_fast(action, action_name_len, ":a", 2, ctx->action, strlen(ctx->action), &action_name_len);
+			 action_alloc = gene_strreplace_fast(action, action_name_len, ":a", 2, ctx->action, ctx->action_len, &action_name_len);
 			 if (action_alloc) {
 				 action = action_alloc;
 			 }
@@ -2544,7 +2570,7 @@ PHP_METHOD(gene_router, __call) {
  PHP_METHOD(gene_router, getLang) {
 	 gene_request_context *ctx = gene_request_ctx();
 	 if (ctx->lang) {
-		 RETURN_STRING(ctx->lang);
+		 RETURN_STRINGL(ctx->lang, ctx->lang_len);
 	 }
 	 RETURN_NULL();
  }
