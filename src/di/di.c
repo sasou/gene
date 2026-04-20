@@ -46,6 +46,34 @@ zval *gene_di_regs() {
 	return &ctx->di_regs;
 }
 
+#define GENE_DI_STACK_PARAM_CAP 8
+
+static zend_always_inline zval *gene_di_pack_array_params(zval *param_arr, uint32_t *param_count, zval *stack_buf, uint32_t stack_cap, int *heap_allocated) {
+	zval *params = NULL, *element;
+	uint32_t count = 0, i = 0;
+
+	*param_count = 0;
+	*heap_allocated = 0;
+	if (!param_arr || Z_TYPE_P(param_arr) != IS_ARRAY) {
+		return NULL;
+	}
+
+	count = zend_hash_num_elements(Z_ARRVAL_P(param_arr));
+	*param_count = count;
+	if (count == 0) {
+		return NULL;
+	}
+
+	params = (count <= stack_cap) ? stack_buf : (zval *)safe_emalloc(count, sizeof(zval), 0);
+	*heap_allocated = (count > stack_cap);
+	ZEND_HASH_FOREACH_VAL(Z_ARRVAL_P(param_arr), element) {
+		if (i < count) {
+			params[i++] = *element;
+		}
+	} ZEND_HASH_FOREACH_END();
+	return params;
+}
+
 /* {{{ ARG_INFO
  */
 ZEND_BEGIN_ARG_INFO_EX(gene_di_void_arginfo, 0, 0, 0)
@@ -160,19 +188,11 @@ zval *gene_di_get(zend_string *name) {
 				ZVAL_UNDEF(&tmp);
 				uint32_t ctor_argc = 0;
 				zval *ctor_params = NULL;
-				if (Z_TYPE(local_params) == IS_ARRAY) {
-					ctor_argc = zend_hash_num_elements(Z_ARRVAL(local_params));
-					if (ctor_argc > 0) {
-						ctor_params = (zval *)safe_emalloc(ctor_argc, sizeof(zval), 0);
-						uint32_t ci = 0;
-						zval *el;
-						ZEND_HASH_FOREACH_VAL(Z_ARRVAL(local_params), el) {
-							if (ci < ctor_argc) ctor_params[ci++] = *el;
-						} ZEND_HASH_FOREACH_END();
-					}
-				}
+				zval ctor_stack[GENE_DI_STACK_PARAM_CAP];
+				int ctor_params_heap = 0;
+				ctor_params = gene_di_pack_array_params(&local_params, &ctor_argc, ctor_stack, GENE_DI_STACK_PARAM_CAP, &ctor_params_heap);
 				zend_call_known_function(Z_OBJCE(classObject)->constructor, Z_OBJ(classObject), Z_OBJCE(classObject), &tmp, ctor_argc, ctor_params, NULL);
-				if (ctor_params) efree(ctor_params);
+				if (ctor_params_heap) efree(ctor_params);
 				if (!Z_ISUNDEF(tmp)) zval_ptr_dtor(&tmp);
 			}
 
@@ -203,19 +223,11 @@ zval *gene_class_instance(zval *obj, zval *class_name, zval *params) {
 			ZVAL_UNDEF(&tmp);
 			uint32_t ctor_argc = 0;
 			zval *ctor_params = NULL;
-			if (params && Z_TYPE_P(params) == IS_ARRAY) {
-				ctor_argc = zend_hash_num_elements(Z_ARRVAL_P(params));
-				if (ctor_argc > 0) {
-					ctor_params = (zval *)safe_emalloc(ctor_argc, sizeof(zval), 0);
-					uint32_t ci = 0;
-					zval *el;
-					ZEND_HASH_FOREACH_VAL(Z_ARRVAL_P(params), el) {
-						if (ci < ctor_argc) ctor_params[ci++] = *el;
-					} ZEND_HASH_FOREACH_END();
-				}
-			}
+			zval ctor_stack[GENE_DI_STACK_PARAM_CAP];
+			int ctor_params_heap = 0;
+			ctor_params = gene_di_pack_array_params(params, &ctor_argc, ctor_stack, GENE_DI_STACK_PARAM_CAP, &ctor_params_heap);
 			zend_call_known_function(Z_OBJCE_P(obj)->constructor, Z_OBJ_P(obj), Z_OBJCE_P(obj), &tmp, ctor_argc, ctor_params, NULL);
-			if (ctor_params) efree(ctor_params);
+			if (ctor_params_heap) efree(ctor_params);
 			if (!Z_ISUNDEF(tmp)) zval_ptr_dtor(&tmp);
 		}
 
