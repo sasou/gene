@@ -1,4 +1,4 @@
-/*
+﻿/*
  +----------------------------------------------------------------------+
  | gene                                                                 |
  +----------------------------------------------------------------------+
@@ -77,7 +77,7 @@ PHP_METHOD(gene_config, __construct) {
  * {{{ public gene_config::set()
  */
 PHP_METHOD(gene_config, set) {
-	char *keyString, *path;
+	char *keyString;
 	size_t keyString_len;
 	int validity = 0;
 	char router_e_stack[256];
@@ -103,10 +103,27 @@ PHP_METHOD(gene_config, set) {
 		memcpy(router_e, GENE_CONFIG_CACHE, sizeof(GENE_CONFIG_CACHE));
 	}
 	if (zvalue) {
-		path = estrndup(keyString, keyString_len);
-		replaceAll(path, '.', '/');
-		gene_memory_set_by_router(router_e, router_e_len, path, zvalue, validity);
-		efree(path);
+		/* [GENE_PERF:2026-04-23] Fuse estrndup + replaceAll('.','/') into a
+		 * single-pass stack copy for keys that fit path_stack (the overwhelming
+		 * common case — config keys are typically short, e.g. "db.mysql.host").
+		 * Saves 1 emalloc/efree pair + 1 extra scan per call. */
+		char path_stack[256];
+		char *path_buf = path_stack;
+		int path_heap = 0;
+		if (UNEXPECTED(keyString_len >= sizeof(path_stack))) {
+			path_buf = emalloc(keyString_len + 1);
+			path_heap = 1;
+		}
+		{
+			size_t i;
+			for (i = 0; i < keyString_len; i++) {
+				char c = keyString[i];
+				path_buf[i] = (c == '.') ? '/' : c;
+			}
+			path_buf[keyString_len] = '\0';
+		}
+		gene_memory_set_by_router(router_e, router_e_len, path_buf, zvalue, validity);
+		if (path_heap) efree(path_buf);
 	}
 	if (router_e_heap) efree(router_e);
 	RETURN_BOOL(1);
@@ -122,8 +139,11 @@ PHP_METHOD(gene_config, get) {
 	char *router_e = router_e_stack;
 	size_t router_e_len;
 	int router_e_heap = 0;
-	char *path;
+	char path_stack[256];
+	char *path_buf = path_stack;
+	int path_heap = 0;
 	zend_string *keyString;
+	size_t key_len;
 	if (zend_parse_parameters(ZEND_NUM_ARGS(), "S", &keyString)
 			== FAILURE) {
 		return;
@@ -141,11 +161,25 @@ PHP_METHOD(gene_config, get) {
 		router_e_len = sizeof(GENE_CONFIG_CACHE) - 1;
 		memcpy(router_e, GENE_CONFIG_CACHE, sizeof(GENE_CONFIG_CACHE));
 	}
-	path = estrndup(ZSTR_VAL(keyString), ZSTR_LEN(keyString));
-	replaceAll(path, '.', '/');
-	cache = gene_memory_get_by_config(router_e, router_e_len, path);
+	/* [GENE_PERF:2026-04-23] Zero-alloc path: fuse estrndup + replaceAll
+	 * into a single-pass stack copy. See matching comment in set(). */
+	key_len = ZSTR_LEN(keyString);
+	if (UNEXPECTED(key_len >= sizeof(path_stack))) {
+		path_buf = emalloc(key_len + 1);
+		path_heap = 1;
+	}
+	{
+		const char *src = ZSTR_VAL(keyString);
+		size_t i;
+		for (i = 0; i < key_len; i++) {
+			char c = src[i];
+			path_buf[i] = (c == '.') ? '/' : c;
+		}
+		path_buf[key_len] = '\0';
+	}
+	cache = gene_memory_get_by_config(router_e, router_e_len, path_buf);
 	if (router_e_heap) efree(router_e);
-	efree(path);
+	if (path_heap) efree(path_buf);
 	if (cache) {
 		gene_memory_zval_local(return_value, cache);
 		return;

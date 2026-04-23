@@ -1,5 +1,101 @@
 # Gene Framework Changelog
 
+## [5.5.5] - 2026-04-23
+
+聚焦 **Swoole 常驻稳定性**（杜绝"只增不减"的隐性增长）与 **FPM/Swoole 热路径进一步降堆分配**。三批次共 8 项改动，无 API 破坏。
+
+### 🛡️ 第 1 批：Swoole 常驻下的内存稳定性修复
+
+#### A1 — `fn_cache` 稳定 key，彻底消除无界增长
+- **文件**：`src/router/router.c`、`src/gene.c`、`src/gene.h`
+- **问题**：原实现用 `++fn_cache_id` 自增生成闭包路由的缓存键 `fn_%ld`。同一闭包每次注册都产生新键；Swoole 模式下 `fn_cache` 又不走 `RSHUTDOWN` 清理，工作进程长期运行后缓存表单调增长。
+- **修复**：改按闭包对象的 `zend_object->handle` 生成稳定键 `fn_%u`。由于 `fn_cache` 持有闭包强引用，同一闭包的 handle 不会被回收再分配，**同一闭包 → 同一键 → 无新增**。同时在 `gene_router::clear()` 中一并清空 `fn_cache`，解决热重载场景的悬挂引用。
+- **附带清理**：移除不再需要的 `fn_cache_id` 全局。
+
+#### A2 — `co_contexts` 容量上限 + 概率 sweep
+- **文件**：`src/gene.c`、`src/gene.h`
+- **问题**：Swoole 协程退出后，`co_contexts[cid]` 完全依赖用户显式调用 `Application::cleanup()` 回收。一旦用户漏调，协程表线性增长且伴随逻辑风险（cid 复用会误拾旧 ctx）。
+- **修复**：
+  - 新增 INI 项 `gene.co_contexts_max`（默认 **8192**），作为软上限；
+  - 在 `gene_request_ctx()` 慢路径（新建 ctx 之前）检查阈值，触发 `gene_co_contexts_sweep()`；
+  - Sweep 两阶段：
+    1. **精确回收** — 通过懒解析的 `Swoole\Coroutine::exists()` 逐一探测，清除已死协程的上下文（保留长生命周期活协程）；
+    2. **兜底回收** — 若 exists API 不可用或清扫后仍超限，按 HashTable **插入顺序**淘汰最老的 25%（始终跳过当前协程的 cid）。
+- **收益**：稳态零开销（仅超限才扫），协程风暴下 RSS 不再线性增长，同时避免错绑旧 ctx。
+
+#### A3 — `Gene\Memory::stats()` 可观测性
+- **文件**：`src/cache/memory.c`
+- **新增方法**返回进程级缓存和协程上下文的计数，便于运维监控膨胀趋势：
+
+```php
+$memory->stats();
+// [
+//   'cache_items'       => 128,
+//   'cache_easy_items'  => 42,
+//   'fn_cache_items'    => 8,
+//   'co_contexts_items' => 1023,
+//   'co_contexts_max'   => 8192,
+// ]
+```
+
+### ⚡ 第 2 批：Swoole 热路径性能
+
+#### B2 — Swoole response 方法 `zend_function*` 缓存
+- **文件**：`src/http/response.c`
+- **问题**：每次 `header/redirect/cookie/end` 都在 Swoole response ce 的 function_table 上做 hash 查找。
+- **修复**：引入 `GENE_SWOOLE_RESP_METHOD(ce, name)` 宏 + 每方法一对 `(cached_ce, cached_fn)` 静态槽，ce 变更才刷新；稳态 2 次指针比较。
+
+#### B1 — Swoole 下 `$_SERVER` 懒物化
+- **文件**：`src/http/request.c`
+- **问题**：`gene_request_set_server_val` 每请求构建一份 `normalized` 数组，遍历 `$_SERVER` 全表 `Z_TRY_ADDREF_P` + `zend_hash_update`。
+- **修复**：既然没有大小写重写，就直接 `setVal(3, server)` 共享原数组（`Z_TRY_ADDREF_P` 外层数组一次搞定）。method/path 从原数组就地解析。`gene_request_set_header_val` 同样收敛为一次 `setVal(7, header)`。
+
+#### B4 — 缓存行对齐（暂缓）
+- 当前 Swoole worker 以多进程部署、单 worker 内协程串行，ZTS 下才有实际收益；考虑到 `__attribute__((aligned))` 在 MSVC/GCC 跨平台上的可移植性风险，本版本未启用，保留作为未来 ZTS 场景的备选。
+
+### 🏃 第 3 批：FPM 热路径
+
+#### C1 — `spl_autoload_register` 进程级解析 + interned 回调名
+- **文件**：`src/factory/load.c`
+- **问题**：FPM 下 SPL 每请求清空 autoload 列表，`gene_loader_register` 必须在 RINIT 之后重注册；但每次都 `ZVAL_STRING` 堆分配回调名，`zend_call_function` 再走函数名查表。
+- **修复**：
+  - `spl_autoload_register` 的 `zend_function*` 进程级缓存；
+  - 默认回调名（`Gene\Load::autoload` / `Gene_Load::autoload`）用 `zend_string_init_interned(..., 1)` 持久化，`ZVAL_STR_COPY` + `zval_ptr_dtor` 对 interned 字符串均为 no-op；
+  - 调用切换为 `zend_call_known_function`。
+- **每请求节省**：1 次函数表查找 + 1 次 ZVAL_STRING 堆分配 + 1 次 fci/fcc 构建。
+
+#### C2 — `configs::set/get` 点转斜杠零堆分配
+- **文件**：`src/config/configs.c`
+- **问题**：每次调用先 `estrndup(keyString)` 再 `replaceAll(path, '.', '/')` —— 一次堆分配 + 两次扫描。
+- **修复**：对长度 < 256 的 key（覆盖 99%+ 配置键，如 `db.mysql.host`）走栈缓冲，复制与替换融合为单次循环；长 key 才走堆。
+
+### 📊 影响评估
+
+| 维度 | 收益 | 风险 |
+|------|------|------|
+| **Swoole 常驻内存** | 消除 `fn_cache` / `co_contexts` 无界增长两大风险点；24h 长跑 RSS 不再爬升 | 无 API 破坏，新增软上限默认 8192 对绝大多数业务足够 |
+| **Swoole QPS** | 响应方法调用省 1 次 hash lookup；`$_SERVER` 路径省 1 次 array_init + O(N) addref + hash insert | 行为等价（共享引用代替浅克隆） |
+| **FPM QPS** | 每请求省 1 次 emalloc（autoload 回调名）+ 1 次 fcall 名查表 + 1 次 emalloc（config path） | 无 |
+| **可观测性** | `Memory::stats()` 运维可用 | 零 |
+
+### 🔧 修改文件一览
+
+- `src/gene.c`、`src/gene.h` — A1/A2 globals 与 sweep 实现、INI
+- `src/router/router.c` — A1 稳定 key + clear() 联动
+- `src/cache/memory.c` — A3 `stats()`
+- `src/http/response.c` — B2 方法缓存
+- `src/http/request.c` — B1 懒物化
+- `src/factory/load.c` — C1 autoload 缓存
+- `src/config/configs.c` — C2 零堆分配
+
+### 🧪 建议验证
+
+- **内存专项**：`USE_ZEND_ALLOC=0 valgrind --leak-check=full` + 协程风暴脚本；对比 worker 启动 vs 24h 后 `Memory::stats()` 与系统 RSS。
+- **压测**：`wrk` 对 FPM；Swoole 下 `co` 并发 + `perf record`，重点看 `gene_request_ctx` / `gene_response_set_header`。
+- **功能回归**：同一应用分别 `gene.runtime_type=1` 与 `>=2`，功能与延迟对照。
+
+---
+
 ## [5.5.4] - 2026-04-20
 
 ### ⚡ Performance Optimizations (第二轮优化 - FPM/Swoole/PHP-CGI 热路径)

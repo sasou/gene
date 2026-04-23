@@ -72,6 +72,7 @@ STD_PHP_INI_BOOLEAN("gene.use_namespace", "1", PHP_INI_SYSTEM, OnUpdateBool, use
 STD_PHP_INI_BOOLEAN("gene.view_compile", "0", PHP_INI_SYSTEM, OnUpdateBool, view_compile, zend_gene_globals, gene_globals) // @suppress("Symbol is not resolved")
 STD_PHP_INI_BOOLEAN("gene.use_library", "0", PHP_INI_SYSTEM, OnUpdateBool, use_library, zend_gene_globals, gene_globals) // @suppress("Symbol is not resolved")
 STD_PHP_INI_ENTRY("gene.library_root", "", PHP_INI_SYSTEM, OnUpdateString, library_root, zend_gene_globals, gene_globals) // @suppress("Symbol is not resolved")
+STD_PHP_INI_ENTRY("gene.co_contexts_max", "8192", PHP_INI_SYSTEM, OnUpdateLong, co_contexts_max, zend_gene_globals, gene_globals) // @suppress("Symbol is not resolved")
 PHP_INI_END();
 /* }}} */
 
@@ -250,6 +251,132 @@ void gene_init_co_contexts(void) {
 }
 /* }}} */
 
+/* {{{ gene_swoole_co_exists_resolve — one-shot lazy resolve of exists()
+ * Populates GENE_G(swoole_co_exists_func). Returns non-zero if available. */
+static int gene_swoole_co_exists_resolve(void) {
+	if (!GENE_G(swoole_co_exists_resolved)) {
+		zend_class_entry *co_ce = NULL;
+		static zend_string *class_name = NULL;
+		if (UNEXPECTED(!class_name)) {
+			class_name = zend_string_init_interned(ZEND_STRL("swoole\\coroutine"), 1);
+		}
+		co_ce = zend_lookup_class(class_name);
+		if (co_ce) {
+			GENE_G(swoole_co_exists_func) = zend_hash_str_find_ptr(
+				&co_ce->function_table, ZEND_STRL("exists"));
+		}
+		GENE_G(swoole_co_exists_resolved) = 1;
+	}
+	return GENE_G(swoole_co_exists_func) != NULL;
+}
+/* }}} */
+
+/* {{{ gene_swoole_co_exists
+ * Returns 1 if coroutine cid is still alive, 0 if known-dead, -1 if unknown
+ * (Swoole not loaded / no exists() API). Assumes the resolver has been
+ * warmed up by gene_swoole_co_exists_resolve() — cheap inner loop.
+ */
+static int gene_swoole_co_exists(zend_long cid) {
+	zval cid_zv, retval;
+	int res = -1;
+
+	if (!GENE_G(swoole_co_exists_func)) {
+		return -1;
+	}
+	ZVAL_LONG(&cid_zv, cid);
+	ZVAL_UNDEF(&retval);
+	zend_call_known_function(GENE_G(swoole_co_exists_func), NULL, NULL,
+		&retval, 1, &cid_zv, NULL);
+	if (Z_TYPE(retval) == IS_TRUE) {
+		res = 1;
+	} else if (Z_TYPE(retval) == IS_FALSE) {
+		res = 0;
+	}
+	if (Z_TYPE(retval) != IS_UNDEF) {
+		zval_ptr_dtor(&retval);
+	}
+	return res;
+}
+/* }}} */
+
+/* {{{ gene_co_contexts_sweep
+ * Reclaim memory from dead-coroutine entries in GENE_G(co_contexts).
+ *
+ * Called from the slow path of gene_request_ctx() when the table size is
+ * at or above the configured cap (gene.co_contexts_max, default 8192).
+ *
+ * Two-stage strategy (bounded work per invocation):
+ *   1) If Swoole\Coroutine::exists() is available, probe each non-current
+ *      cid — drop entries the runtime reports as dead. This is the precise
+ *      path and does NOT evict long-running live coroutines.
+ *   2) If still over the cap (or Swoole API unavailable), evict by HashTable
+ *      insertion order (oldest first, skipping the current cid) until we
+ *      drop ~25% below the cap. This is a last-resort backstop only reached
+ *      when exists() can't tell us.
+ *
+ * Never touches GENE_G(current_ctx) / GENE_G(current_cid).
+ */
+void gene_co_contexts_sweep(void) {
+	HashTable *ht = GENE_G(co_contexts);
+	zend_ulong idx;
+	zend_ulong cur_cid;
+	zend_ulong *victims = NULL;
+	uint32_t victim_count = 0;
+	uint32_t total;
+	uint32_t cap;
+	uint32_t target_evict;
+	uint32_t i;
+	int have_exists;
+
+	if (!ht) return;
+	total = zend_hash_num_elements(ht);
+	if (total < 16) return; /* not worth the walk */
+
+	cap = (uint32_t)(GENE_G(co_contexts_max) > 0 ? GENE_G(co_contexts_max) : 8192);
+	cur_cid = (GENE_G(current_cid) >= 0) ? (zend_ulong)GENE_G(current_cid) : ~(zend_ulong)0;
+
+	/* Stage 1: precise eviction via Swoole\Coroutine::exists (if present).
+	 * Collect dead cids first, then delete — iterating with concurrent delete
+	 * is fragile across PHP versions. */
+	have_exists = gene_swoole_co_exists_resolve();
+	if (have_exists) {
+		victims = (zend_ulong *)emalloc(sizeof(zend_ulong) * total);
+		ZEND_HASH_FOREACH_NUM_KEY(ht, idx) {
+			if (idx == cur_cid) continue;
+			if (gene_swoole_co_exists((zend_long)idx) == 0) {
+				victims[victim_count++] = idx;
+			}
+		} ZEND_HASH_FOREACH_END();
+		for (i = 0; i < victim_count; i++) {
+			zend_hash_index_del(ht, victims[i]);
+		}
+		efree(victims);
+		victims = NULL;
+		victim_count = 0;
+	}
+
+	/* Stage 2: if still above cap, evict oldest insertion-order entries.
+	 * This only hits when exists() can't decide (unknown / API absent) or
+	 * when every cid is reported alive but still blowing the cap — in which
+	 * case the framework's bound takes precedence over strict correctness. */
+	total = zend_hash_num_elements(ht);
+	if (total <= cap) return;
+	target_evict = total - (cap * 3 / 4); /* trim back to 75% of cap */
+	if (target_evict == 0) return;
+
+	victims = (zend_ulong *)emalloc(sizeof(zend_ulong) * target_evict);
+	ZEND_HASH_FOREACH_NUM_KEY(ht, idx) {
+		if (idx == cur_cid) continue;
+		victims[victim_count++] = idx;
+		if (victim_count >= target_evict) break;
+	} ZEND_HASH_FOREACH_END();
+	for (i = 0; i < victim_count; i++) {
+		zend_hash_index_del(ht, victims[i]);
+	}
+	efree(victims);
+}
+/* }}} */
+
 /* {{{ gene_request_ctx */
 gene_request_context *gene_request_ctx(void) {
 	gene_request_context *ctx;
@@ -286,6 +413,15 @@ gene_request_context *gene_request_ctx(void) {
 	}
 	ctx = zend_hash_index_find_ptr(GENE_G(co_contexts), (zend_ulong)cid);
 	if (!ctx) {
+		/* [GENE_MEM:2026-04-23] Soft cap + probabilistic sweep. In Swoole
+		 * long-running workers users sometimes forget to defer cleanup();
+		 * without a backstop co_contexts would grow unboundedly. We run
+		 * the sweep only when the cap is hit, so the steady-state cost
+		 * is zero for well-behaved apps. */
+		if (UNEXPECTED(GENE_G(co_contexts_max) > 0
+			&& (zend_long)zend_hash_num_elements(GENE_G(co_contexts)) >= GENE_G(co_contexts_max))) {
+			gene_co_contexts_sweep();
+		}
 		ctx = ecalloc(1, sizeof(gene_request_context));
 		gene_request_context_init(ctx);
 		zend_hash_index_update_ptr(GENE_G(co_contexts), (zend_ulong)cid, ctx);
@@ -317,10 +453,11 @@ static void php_gene_init_globals() {
 	GENE_G(current_vm_stack) = NULL;
 	GENE_G(swoole_getcid_func) = NULL;
 	GENE_G(swoole_getcid_resolved) = 0;
+	GENE_G(swoole_co_exists_func) = NULL;
+	GENE_G(swoole_co_exists_resolved) = 0;
 	GENE_G(autoload_registered) = 0;
 	GENE_G(worker_ready) = 0;
 	GENE_G(fn_cache) = NULL;
-	GENE_G(fn_cache_id) = 0;
 	GENE_G(cache) = NULL;
 	GENE_G(cache_easy) = NULL;
 	gene_rwlock_init(&GENE_G(cache_lock));
@@ -335,7 +472,6 @@ static void php_gene_close_request_globals() {
 		zend_hash_destroy(GENE_G(fn_cache));
 		FREE_HASHTABLE(GENE_G(fn_cache));
 		GENE_G(fn_cache) = NULL;
-		GENE_G(fn_cache_id) = 0;
 	}
 	gene_request_context_destroy(&GENE_G(default_ctx));
 	if (GENE_G(app_root)) {

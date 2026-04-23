@@ -20,7 +20,7 @@
  extern zend_module_entry gene_module_entry;
  #define phpext_gene_ptr &gene_module_entry
  
- #define PHP_GENE_VERSION "5.5.4"
+ #define PHP_GENE_VERSION "5.5.5"
  
  #ifdef PHP_WIN32
  #	define PHP_GENE_API __declspec(dllexport)
@@ -158,22 +158,34 @@
   * EG(vm_stack) equals this snapshot we know we're still in the same coroutine and can
   * skip the Swoole getcid() PHP call entirely. Reset to NULL on request/context clear. */
  void *current_vm_stack;
- zend_function *swoole_getcid_func;
- zend_bool swoole_getcid_resolved;
- zend_bool autoload_registered;
- zend_bool worker_ready;
- HashTable *fn_cache;
- zend_long fn_cache_id;
- ZEND_END_MODULE_GLOBALS (gene)
+zend_function *swoole_getcid_func;
+zend_bool swoole_getcid_resolved;
+/* [GENE_MEM:2026-04-23] Cached Swoole\Coroutine::exists resolver used by
+ * gene_co_contexts_sweep() to reclaim contexts of already-dead coroutines
+ * in long-running workers where users may forget to call cleanup(). */
+zend_function *swoole_co_exists_func;
+zend_bool swoole_co_exists_resolved;
+/* [GENE_MEM:2026-04-23] Soft cap on co_contexts size. When exceeded we run
+ * a sweep (exists() check + insertion-order fallback) in the slow path of
+ * gene_request_ctx(). Configurable via gene.co_contexts_max ini. */
+zend_long co_contexts_max;
+zend_bool autoload_registered;
+zend_bool worker_ready;
+HashTable *fn_cache;
+/* [GENE_MEM:2026-04-23] fn_cache_id removed. Keys are now derived from the
+ * closure's zend_object->handle so re-registering the same closure doesn't
+ * grow the table. See gene_fn_cache_store() in router.c. */
+ZEND_END_MODULE_GLOBALS (gene)
  
  extern ZEND_DECLARE_MODULE_GLOBALS (gene);
  
- gene_request_context *gene_request_ctx(void);
- void gene_request_context_init(gene_request_context *ctx);
- void gene_request_context_reset(gene_request_context *ctx);
- void gene_request_context_destroy(gene_request_context *ctx);
- zend_long gene_get_coroutine_id(void);
- void gene_init_co_contexts(void);
+gene_request_context *gene_request_ctx(void);
+void gene_request_context_init(gene_request_context *ctx);
+void gene_request_context_reset(gene_request_context *ctx);
+void gene_request_context_destroy(gene_request_context *ctx);
+zend_long gene_get_coroutine_id(void);
+void gene_init_co_contexts(void);
+void gene_co_contexts_sweep(void);
  
  #define GENE_REQ(v) (gene_request_ctx()->v)
 
