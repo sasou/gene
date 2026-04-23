@@ -819,6 +819,38 @@ PHP_METHOD(gene_memory, clean) {
 /* }}} */
 
 /*
+ * {{{ public gene_memory::stats()
+ * [GENE_MEM:2026-04-23] Observability backstop for long-running workers.
+ * Exposes counters for the persistent process-level caches and Swoole
+ * coroutine context table so operators can detect unexpected growth
+ * before it turns into OOM. Read-only; zero side effects.
+ *
+ * Return shape:
+ *   [
+ *     'cache_items'       => int,   // main process cache entry count
+ *     'cache_easy_items'  => int,   // file cache entry count
+ *     'fn_cache_items'    => int,   // closure router dispatch cache
+ *     'co_contexts_items' => int,   // live Swoole coroutine contexts
+ *     'co_contexts_max'   => int,   // configured soft cap
+ *   ]
+ */
+PHP_METHOD(gene_memory, stats) {
+	array_init(return_value);
+	GENE_CACHE_RDLOCK();
+	add_assoc_long(return_value, "cache_items",
+		GENE_G(cache) ? (zend_long)zend_hash_num_elements(GENE_G(cache)) : 0);
+	add_assoc_long(return_value, "cache_easy_items",
+		GENE_G(cache_easy) ? (zend_long)zend_hash_num_elements(GENE_G(cache_easy)) : 0);
+	GENE_CACHE_RDUNLOCK();
+	add_assoc_long(return_value, "fn_cache_items",
+		GENE_G(fn_cache) ? (zend_long)zend_hash_num_elements(GENE_G(fn_cache)) : 0);
+	add_assoc_long(return_value, "co_contexts_items",
+		GENE_G(co_contexts) ? (zend_long)zend_hash_num_elements(GENE_G(co_contexts)) : 0);
+	add_assoc_long(return_value, "co_contexts_max", GENE_G(co_contexts_max));
+}
+/* }}} */
+
+/*
  * {{{ gene_memory_methods
  */
 const zend_function_entry gene_memory_methods[] = {
@@ -829,6 +861,7 @@ const zend_function_entry gene_memory_methods[] = {
 	PHP_ME(gene_memory, exists, gene_memory_arg_get, ZEND_ACC_PUBLIC)
 	PHP_ME(gene_memory, del, gene_memory_arg_del, ZEND_ACC_PUBLIC)
 	PHP_ME(gene_memory, clean, gene_memory_void_arginfo, ZEND_ACC_PUBLIC)
+	PHP_ME(gene_memory, stats, gene_memory_void_arginfo, ZEND_ACC_PUBLIC)
 	{ NULL, NULL, NULL }
 };
 /* }}} */

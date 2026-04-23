@@ -635,19 +635,32 @@ static int gene_router_exec_error_direct(const char *class_method) {
  }
  /* }}} */
 
- /* {{{ gene_fn_cache_store — store closure in fn_cache, set fid_zv to the ID string */
- static void gene_fn_cache_store(zval *closure, zval *fid_zv) {
+/* {{{ gene_fn_cache_store — store closure in fn_cache, set fid_zv to the ID string
+ * [GENE_PERF:2026-04-23] Stable key by closure object handle instead of
+ * monotonic fn_cache_id. Re-registering the same closure hits the same key
+ * so fn_cache size is bounded by the number of distinct live closures,
+ * eliminating the previous unbounded-growth risk in long-running (Swoole)
+ * workers. Because the hash table holds a strong ref to the closure, its
+ * object handle cannot be reused while cached, so the key is collision-free. */
+static void gene_fn_cache_store(zval *closure, zval *fid_zv) {
 	 char fid[32];
 	 size_t fid_len;
+	 zval *existing;
+	 uint32_t handle;
 	 if (!GENE_G(fn_cache)) {
 		 ALLOC_HASHTABLE(GENE_G(fn_cache));
 		 zend_hash_init(GENE_G(fn_cache), 16, NULL, ZVAL_PTR_DTOR, 0);
 	 }
-	 fid_len = snprintf(fid, sizeof(fid), "fn_%ld", ++GENE_G(fn_cache_id));
-	 Z_TRY_ADDREF_P(closure);
-	 zend_hash_str_update(GENE_G(fn_cache), fid, fid_len, closure);
+	 handle = (uint32_t)Z_OBJ_P(closure)->handle;
+	 fid_len = snprintf(fid, sizeof(fid), "fn_%u", handle);
+	 existing = zend_hash_str_find(GENE_G(fn_cache), fid, fid_len);
+	 if (existing == NULL) {
+		 Z_TRY_ADDREF_P(closure);
+		 zend_hash_str_add_new(GENE_G(fn_cache), fid, fid_len, closure);
+	 }
+	 /* else: same closure already cached; skip refcount churn + replace */
 	 ZVAL_STRINGL(fid_zv, fid, fid_len);
- }
+}
  /* }}} */
 
  /* {{{ gene_router_exec_closure_hook — execute closure as hook, returns 1=continue, 0=abort */
@@ -2161,12 +2174,21 @@ PHP_METHOD(gene_router, __call) {
 	 }
 	 ret = gene_memory_del(router_e, router_e_len);
 	 if (router_e_heap) efree(router_e);
+	 /* [GENE_MEM:2026-04-23] Rebuilding the router tree orphans any closure
+	  * refs previously stored in fn_cache (the tree string keys "fn_<handle>"
+	  * become unreachable). Wipe fn_cache here to release those refs and
+	  * keep long-running workers bounded across reloads. */
+	 if (GENE_G(fn_cache)) {
+		 zend_hash_destroy(GENE_G(fn_cache));
+		 FREE_HASHTABLE(GENE_G(fn_cache));
+		 GENE_G(fn_cache) = NULL;
+	 }
 	 RETURN_ZVAL(self, 1, 0);
- }
- /* }}} */
- 
- /*
-  * {{{ public gene_router::getTime()
+}
+/* }}} */
+
+/*
+ * {{{ public gene_router::getTime()
   */
  PHP_METHOD(gene_router, getTime) {
 	 zval *self = getThis(), *safe;
