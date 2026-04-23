@@ -106,16 +106,49 @@ zval *gene_response_context_obj(void) {
 }
 /* }}} */
 
+/* [GENE_PERF:2026-04-23] Per-method zend_function* cache for Swoole response
+ * dispatch. Keyed by (class_entry*, cached fn*) so it invalidates if Swoole
+ * is somehow reloaded inside the same process (test doubles etc.). Steady
+ * state in a production worker: single load + pointer compare per call.
+ * Replaces a zend_hash_str_find_ptr HashTable walk on every response.header/
+ * redirect/cookie/end call — those run on the hot path of every Swoole
+ * request response. */
+#define GENE_SWOOLE_RESP_METHOD(ce, name_tok) \
+	gene_swoole_resp_method_cached((ce), #name_tok, sizeof(#name_tok) - 1, \
+		&gene_swoole_resp_cache_##name_tok##_ce, \
+		&gene_swoole_resp_cache_##name_tok##_fn)
+
+static inline zend_function *gene_swoole_resp_method_cached(
+		zend_class_entry *ce, const char *name, size_t name_len,
+		zend_class_entry **cached_ce, zend_function **cached_fn) {
+	if (EXPECTED(*cached_ce == ce && *cached_fn != NULL)) {
+		return *cached_fn;
+	}
+	*cached_fn = zend_hash_str_find_ptr(&ce->function_table, name, name_len);
+	*cached_ce = ce;
+	return *cached_fn;
+}
+
+static zend_class_entry *gene_swoole_resp_cache_redirect_ce = NULL;
+static zend_function    *gene_swoole_resp_cache_redirect_fn = NULL;
+static zend_class_entry *gene_swoole_resp_cache_header_ce = NULL;
+static zend_function    *gene_swoole_resp_cache_header_fn = NULL;
+static zend_class_entry *gene_swoole_resp_cache_cookie_ce = NULL;
+static zend_function    *gene_swoole_resp_cache_cookie_fn = NULL;
+static zend_class_entry *gene_swoole_resp_cache_end_ce = NULL;
+static zend_function    *gene_swoole_resp_cache_end_fn = NULL;
+
 /** {{{ void gene_response_set_redirect(char *url, zend_long code)
  */
 void gene_response_set_redirect(char *url, zend_long code) {
 	zval *swoole_resp = gene_response_context_obj();
 	if (swoole_resp) {
 		zval retval, zurl, zcode;
+		zend_function *fn;
 		ZVAL_UNDEF(&retval);
 		ZVAL_STRING(&zurl, url);
 		ZVAL_LONG(&zcode, code);
-		zend_function *fn = zend_hash_str_find_ptr(&Z_OBJCE_P(swoole_resp)->function_table, ZEND_STRL("redirect"));
+		fn = GENE_SWOOLE_RESP_METHOD(Z_OBJCE_P(swoole_resp), redirect);
 		zval params[] = { zurl, zcode };
 		if (EXPECTED(fn)) {
 			zend_call_known_function(fn, Z_OBJ_P(swoole_resp), Z_OBJCE_P(swoole_resp), &retval, 2, params, NULL);
@@ -150,10 +183,11 @@ void gene_response_set_header(char *key, char *value) {
 	zval *swoole_resp = gene_response_context_obj();
 	if (swoole_resp) {
 		zval retval, zkey, zval_v;
+		zend_function *fn;
 		ZVAL_UNDEF(&retval);
 		ZVAL_STRING(&zkey, key);
 		ZVAL_STRING(&zval_v, value);
-		zend_function *fn = zend_hash_str_find_ptr(&Z_OBJCE_P(swoole_resp)->function_table, ZEND_STRL("header"));
+		fn = GENE_SWOOLE_RESP_METHOD(Z_OBJCE_P(swoole_resp), header);
 		zval params[] = { zkey, zval_v };
 		if (EXPECTED(fn)) {
 			zend_call_known_function(fn, Z_OBJ_P(swoole_resp), Z_OBJCE_P(swoole_resp), &retval, 2, params, NULL);
@@ -185,7 +219,7 @@ void gene_response_cookie(zval *name, zval *value, zval *expires, zval *path, zv
 {
 	zval *swoole_resp = gene_response_context_obj();
 	if (swoole_resp) {
-		zend_function *cookie_fn = zend_hash_str_find_ptr(&Z_OBJCE_P(swoole_resp)->function_table, ZEND_STRL("cookie"));
+		zend_function *cookie_fn = GENE_SWOOLE_RESP_METHOD(Z_OBJCE_P(swoole_resp), cookie);
 		zval params[7];
 		int num = 1;
 		params[0] = *name;
@@ -524,8 +558,9 @@ PHP_METHOD(gene_response, end) {
 	zval *swoole_resp = gene_response_context_obj();
 	if (swoole_resp) {
 		zval retval;
+		zend_function *end_fn;
 		ZVAL_UNDEF(&retval);
-		zend_function *end_fn = zend_hash_str_find_ptr(&Z_OBJCE_P(swoole_resp)->function_table, ZEND_STRL("end"));
+		end_fn = GENE_SWOOLE_RESP_METHOD(Z_OBJCE_P(swoole_resp), end);
 		if (EXPECTED(end_fn)) {
 			if (data && ZSTR_LEN(data) > 0) {
 				zval zdata;

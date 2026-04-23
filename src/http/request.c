@@ -44,40 +44,28 @@ static zval *gene_request_attr(void) {
 	return &ctx->request_attr;
 }
 
+/* [GENE_PERF:2026-04-23] In the previous implementation we rebuilt a brand-
+ * new HashTable by iterating $server and adding every item refcounted into
+ * a fresh array. With the move away from case-normalization that's become
+ * a pure shallow clone — setVal() already bumps the outer array refcount,
+ * so we can simply share Swoole's original server HashTable. This removes
+ * O(N) hash inserts + array allocation from every Swoole request. Behavior
+ * is preserved because no write path mutates the stored array after init(). */
 static void gene_request_set_server_val(zval *server) {
-	zval normalized;
-	zval *item;
-	zend_string *key;
-	zend_ulong idx;
-	zend_long total_keys = zend_hash_num_elements(Z_ARRVAL_P(server));
+	setVal(3, server);
 
-	/* [GENE_PERF] Only copy original keys, no uppercase duplicates.
-	 * Case-insensitive lookup is handled at query time. */
-	array_init_size(&normalized, total_keys);
-
-	ZEND_HASH_FOREACH_KEY_VAL(Z_ARRVAL_P(server), idx, key, item) {
-		Z_TRY_ADDREF_P(item);
-		if (key) {
-			zend_hash_update(Z_ARRVAL(normalized), key, item);
-		} else {
-			zend_hash_index_update(Z_ARRVAL(normalized), idx, item);
-		}
-	} ZEND_HASH_FOREACH_END();
-
-	setVal(3, &normalized);
-
-	/* Directly populate ctx->method and ctx->path from the normalized server
-	 * data so that gene_ini_router() finds them already set.  This avoids
-	 * the indirect getVal(TRACK_VARS_SERVER) lookup which can occasionally
-	 * miss in high-concurrency Swoole scenarios.
+	/* Populate ctx->method and ctx->path directly from the server array so
+	 * gene_ini_router() finds them preset.  This avoids the indirect
+	 * getVal(TRACK_VARS_SERVER) lookup which can occasionally miss in
+	 * high-concurrency Swoole scenarios.
 	 * [GENE_PERF:2026-04-20] Fused copy+lowercase via single-pass loop for
 	 * method, and capture leftByChar's return for path_len (avoids later strlen). */
 	if (GENE_G(runtime_type) >= 2) {
 		gene_request_context *ctx = gene_request_ctx();
 		if (!ctx->method) {
-			zval *rm = zend_hash_str_find(Z_ARRVAL(normalized), ZEND_STRL("REQUEST_METHOD"));
+			zval *rm = zend_hash_str_find(Z_ARRVAL_P(server), ZEND_STRL("REQUEST_METHOD"));
 			if (!rm) {
-				rm = zend_hash_str_find(Z_ARRVAL(normalized), ZEND_STRL("request_method"));
+				rm = zend_hash_str_find(Z_ARRVAL_P(server), ZEND_STRL("request_method"));
 			}
 			if (rm && Z_TYPE_P(rm) == IS_STRING) {
 				size_t mlen = Z_STRLEN_P(rm);
@@ -95,9 +83,9 @@ static void gene_request_set_server_val(zval *server) {
 			}
 		}
 		if (!ctx->path) {
-			zval *ru = zend_hash_str_find(Z_ARRVAL(normalized), ZEND_STRL("REQUEST_URI"));
+			zval *ru = zend_hash_str_find(Z_ARRVAL_P(server), ZEND_STRL("REQUEST_URI"));
 			if (!ru) {
-				ru = zend_hash_str_find(Z_ARRVAL(normalized), ZEND_STRL("request_uri"));
+				ru = zend_hash_str_find(Z_ARRVAL_P(server), ZEND_STRL("request_uri"));
 			}
 			if (ru && Z_TYPE_P(ru) == IS_STRING) {
 				ctx->path = emalloc(Z_STRLEN_P(ru) + 1);
@@ -105,32 +93,11 @@ static void gene_request_set_server_val(zval *server) {
 			}
 		}
 	}
-
-	zval_ptr_dtor(&normalized);
 }
 
+/* [GENE_PERF:2026-04-23] Same shallow-share rationale as set_server_val. */
 static void gene_request_set_header_val(zval *header) {
-	zval normalized;
-	zval *item;
-	zend_string *key;
-	zend_ulong idx;
-	zend_long total_keys = zend_hash_num_elements(Z_ARRVAL_P(header));
-
-	/* [GENE_PERF] Only copy original keys, no uppercase duplicates.
-	 * Case-insensitive lookup is handled at query time. */
-	array_init_size(&normalized, total_keys);
-
-	ZEND_HASH_FOREACH_KEY_VAL(Z_ARRVAL_P(header), idx, key, item) {
-		Z_TRY_ADDREF_P(item);
-		if (key) {
-			zend_hash_update(Z_ARRVAL(normalized), key, item);
-		} else {
-			zend_hash_index_update(Z_ARRVAL(normalized), idx, item);
-		}
-	} ZEND_HASH_FOREACH_END();
-
-	setVal(7, &normalized);
-	zval_ptr_dtor(&normalized);
+	setVal(7, header);
 }
 
 /** {{{ ARG_INFO

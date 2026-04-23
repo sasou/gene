@@ -1,4 +1,4 @@
-/*
+﻿/*
  +----------------------------------------------------------------------+
  | gene                                                                 |
  +----------------------------------------------------------------------+
@@ -206,48 +206,73 @@ zval *gene_load_instance(zval *this_ptr) {
 /* }}} */
 
 /** {{{ int gene_loader_register(zval *loader,char *methodName)
+ *
+ * [GENE_PERF:2026-04-23] Per-FPM-request re-registration is required because
+ * ext/spl clears SPL_G(autoload_functions) in RSHUTDOWN, so we cannot skip
+ * the call. What we CAN skip is the cost of resolving "spl_autoload_register"
+ * from CG(function_table) on every request and allocating a fresh zval for
+ * the callback name. Both are now resolved once per process and cached:
+ *   - spl_autoload_register zend_function* — cached via static local
+ *   - The default callback name — persistent interned zend_string
+ *
+ * Net savings per FPM request: 1 function_table lookup + 1 ZVAL_STRING
+ * heap alloc + fci/fcc setup overhead replaced by zend_call_known_function.
  */
 int gene_loader_register() {
-	zval autoload, function, ret;
+	static zend_function *spl_register_fn = NULL;
+	static zend_string *default_cb_ns = NULL;
+	static zend_string *default_cb = NULL;
+	zval autoload, ret;
 
 	if (GENE_G(autoload_registered)) {
 		return 1;
 	}
 
+	if (UNEXPECTED(!spl_register_fn)) {
+		spl_register_fn = zend_hash_str_find_ptr(CG(function_table),
+			ZEND_STRL(GENE_SPL_AUTOLOAD_REGISTER_NAME));
+	}
+	if (UNEXPECTED(!spl_register_fn)) {
+		php_error_docref(NULL, E_WARNING,
+			"spl_autoload_register() is not available — required by Gene");
+		return 0;
+	}
+
 	if (GENE_G(auto_load_fun)) {
+		/* Custom callback name from userland — can't safely intern, keep ZVAL_STRING. */
 		ZVAL_STRING(&autoload, GENE_G(auto_load_fun));
 	} else {
 		if (GENE_G(use_namespace)) {
-			ZVAL_STRING(&autoload, GENE_AUTOLOAD_FUNC_NAME_NS);
+			if (UNEXPECTED(!default_cb_ns)) {
+				default_cb_ns = zend_string_init_interned(
+					GENE_AUTOLOAD_FUNC_NAME_NS,
+					sizeof(GENE_AUTOLOAD_FUNC_NAME_NS) - 1, 1);
+			}
+			ZVAL_STR_COPY(&autoload, default_cb_ns);
 		} else {
-			ZVAL_STRING(&autoload, GENE_AUTOLOAD_FUNC_NAME);
+			if (UNEXPECTED(!default_cb)) {
+				default_cb = zend_string_init_interned(
+					GENE_AUTOLOAD_FUNC_NAME,
+					sizeof(GENE_AUTOLOAD_FUNC_NAME) - 1, 1);
+			}
+			ZVAL_STR_COPY(&autoload, default_cb);
 		}
 	}
-	ZVAL_STRING(&function, GENE_SPL_AUTOLOAD_REGISTER_NAME);
-	do {
-		zend_fcall_info fci = {
-			sizeof(fci),
-			function,
-			&ret,
-			&autoload,
-			NULL,
-			1,
-			NULL
-		};
+	ZVAL_UNDEF(&ret);
 
+	zend_call_known_function(spl_register_fn, NULL, NULL, &ret, 1, &autoload, NULL);
 
-		if (zend_call_function(&fci, NULL) == FAILURE) {
-			zval_ptr_dtor(&function);
-			zval_ptr_dtor(&autoload);
-			zval_ptr_dtor(&ret);
-			php_error_docref(NULL, E_WARNING, "Unable to register autoload function %s", GENE_AUTOLOAD_FUNC_NAME);
-			return 0;
-		}
-
-		zval_ptr_dtor(&function);
+	if (UNEXPECTED(EG(exception))) {
 		zval_ptr_dtor(&autoload);
 		zval_ptr_dtor(&ret);
-	} while (0);
+		php_error_docref(NULL, E_WARNING,
+			"Unable to register autoload function %s",
+			GENE_G(auto_load_fun) ? GENE_G(auto_load_fun) : GENE_AUTOLOAD_FUNC_NAME);
+		return 0;
+	}
+
+	zval_ptr_dtor(&autoload);
+	zval_ptr_dtor(&ret);
 	GENE_G(autoload_registered) = 1;
 	return 1;
 }
