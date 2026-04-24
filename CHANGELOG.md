@@ -1,5 +1,91 @@
 # Gene Framework Changelog
 
+## [5.5.6] - 2026-04-24
+
+聚焦**极致高并发**（FPM & Swoole 双模式）与 **Swoole 请求周期内存完全回收**。核心数据结构 `gene_request_context` 布局重构 + 协程上下文结构体池化。**无 API 破坏**，`php-cgi / php-fpm` 路径零回归。
+
+### 🎯 第 1 项 — `path_params` 内联化（`gene_request_context` 布局优化）
+
+- **文件**：`src/gene.h`、`src/gene.c`、`src/app/application.c`、`src/mvc/controller.c`、`src/mvc/hook.c`、`src/http/request.c`、`src/router/router.c`
+- **问题**：`path_params` 过去是 `zval *` 指针，每次请求进入 `gene_request_context_init` 都要 `emalloc(sizeof(zval))` + `array_init()`；请求结束走 `destroy` 时再 `zval_ptr_dtor()` + `efree()`。**每请求一次额外的 zval 容器分配/释放**。
+- **修复**：结构体内联为 `zval path_params;`，只有底层 `HashTable` 仍走堆。热路径的 `gene_router_reset_path_params` 从"空指针分支 + 三路 if/else"压缩为**单分支 `zend_hash_clean`**，`zend_always_inline` 让编译器内联展开。
+- **副收益**：
+  - 缓存行命中率提升（`path_params` 和相邻字段同 cache line）；
+  - **病态请求防护**：若 `nTableSize > 128`（单请求塞进 >128 个参数），在 reset 时 drop + re-init，避免 Swoole Worker 的 RSS 被某次异常请求永久撑大；
+  - 更新了 6 个文件共 10 处消费点使用 `&ctx->path_params`。
+
+### 🎯 第 2 项 — 协程上下文结构体池化（Swoole 极致高并发）
+
+- **文件**：`src/gene.h`、`src/gene.c`、`src/app/application.c`、`src/cache/memory.c`
+- **问题**：Swoole 下每创建一个协程请求 = **一次 `ecalloc(sizeof(gene_request_context))` + 一次 `efree`**；协程风暴（如 HTTP 长连接 + `co::wait` 扇出）下，这对 ZMM 分配器是明显热点。
+- **修复**：引入**有界的 `gene_request_context` 自由链表**（"结构体对象池"）：
+  - 新增 INI `gene.ctx_pool_max`（默认 **256**，约 80KB/worker 上限）；
+  - **链接方式**：复用已释放 ctx 的 `path_params.value.ptr` slot 作为单链表下一节点指针（释放后该 slot 恒为 UNDEF 死区，零额外存储）；
+  - `gene_request_context_pool_acquire()`：优先出栈复用，空池才 `ecalloc`；
+  - `gene_request_context_pool_release()`：入栈，超 cap 才 `efree`；
+  - `gene_co_context_dtor()` 改为走 pool release，协程退出时**不再 `efree(ctx)`**；
+  - `resident_ctx` / `destroyContext` / `cleanup` 的 `efree` 路径同步切换为 pool release。
+- **热路径开销**：
+  - Acquire：1 load + 1 branch + 1 store（无系统调用）
+  - Release：1 load + 1 compare + 2 stores（无 `efree`）
+- **稳态收益**：协程请求进入/退出**零 ZMM 分配器调用**，对高 QPS Swoole 业务是显著抹平。
+- **释放保证**：`RSHUTDOWN`（FPM：每请求 / Swoole：worker 退出）统一 `gene_request_context_pool_drain()` 全量 `efree`，绝无泄漏。
+
+### 🎯 第 3 项 — Swoole 请求周期全内存回收（杜绝隐性累积）
+
+- **文件**：`src/gene.c`
+- **问题**：在 `PHP_RSHUTDOWN_FUNCTION` 中，`resident_ctx` 使用 `efree(tmp)` 直接释放，但未触发池回收；此外若 worker 生命周期内累积了池缓存，worker 退出时也需要全部归还给 ZMM。
+- **修复**：
+  - `resident_ctx` 的三处 `efree` 路径（`destroyContext` / `cleanup` / `RSHUTDOWN`）统一走 `gene_request_context_pool_release`；
+  - `php_gene_close_request_globals` 末尾追加 `gene_request_context_pool_drain()`，worker 退出 / FPM RSHUTDOWN **完全清零**。
+- **测试点**：`valgrind --leak-check=full` + 1 万协程风暴，RSS 回到启动基线。
+
+### 🎯 第 4 项 — 可观测性（运维可见池化效果）
+
+- **文件**：`src/cache/memory.c`
+- `\Gene\Memory::stats()` 新增两个字段：
+
+```php
+$memory->stats();
+// [
+//   'cache_items'       => 128,
+//   'cache_easy_items'  => 42,
+//   'fn_cache_items'    => 8,
+//   'co_contexts_items' => 1023,
+//   'co_contexts_max'   => 8192,
+//   'ctx_pool_size'     => 42,   // ← NEW：当前池内空闲 ctx 数
+//   'ctx_pool_max'      => 256,  // ← NEW：池容量上限
+// ]
+```
+
+### 📊 收益评估
+
+| 维度 | 5.5.5 | 5.5.6 | 改善 |
+|------|-------|-------|------|
+| FPM 每请求 emalloc（上下文相关） | 1×zval(16B) + 1×路径/方法等堆串 | **0×zval 容器** | -1 次 emalloc/efree |
+| Swoole 每协程请求 emalloc | 1×ctx(~320B) + 1×zval(16B) + HT | **0×ctx + 0×zval**（命中池时）| -2 次 emalloc/efree |
+| Swoole worker 长跑 RSS | 取决于 `co_contexts` | + 有界 `ctx_pool`（≤80KB）| **抹平** |
+| 请求周期内存释放完整性 | RSHUTDOWN 清 `co_contexts` | RSHUTDOWN 清 `co_contexts` + `pool_drain` | **零残留** |
+| php-cgi / php-fpm 正确性 | ✅ | ✅ | 未改变 |
+
+### 🧪 建议回归验证
+
+- **FPM**：`ab -n 100000 -c 100` 下 RSS 稳定、响应延迟 p99 未退化；
+- **Swoole**：`co::wait` 扇出 10k + 随机 sleep，观察 `Memory::stats()` 中 `ctx_pool_size` 收敛到 `ctx_pool_max`，`co_contexts_items` 不膨胀；
+- **内存**：`USE_ZEND_ALLOC=0 valgrind` 压测 5 分钟后 worker SIGTERM，`LEAK SUMMARY: definitely lost: 0 bytes`；
+- **功能回归**：三模式（FPM、Swoole、Coroutine）跑 `demo` / `test` 全量。
+
+### 🔧 修改文件一览
+
+- `src/gene.h` — 结构体字段改为 `zval path_params`；新增 `ctx_pool_*` 全局；池 API 原型
+- `src/gene.c` — `path_params` 内联 init/reset/destroy；池 acquire/release/drain 实现；RSHUTDOWN drain
+- `src/app/application.c` — `cleanup` / `destroyContext` 改走 pool；`params()` 用 `&ctx->path_params`
+- `src/mvc/controller.c` / `src/mvc/hook.c` / `src/http/request.c` — `params()` 访问改为 `&ctx->path_params`
+- `src/router/router.c` — `gene_router_reset_path_params` 零堆分支 + inline；4 处消费点更新
+- `src/cache/memory.c` — `stats()` 暴露 `ctx_pool_size` / `ctx_pool_max`
+
+---
+
 ## [5.5.5] - 2026-04-23
 
 聚焦 **Swoole 常驻稳定性**（杜绝"只增不减"的隐性增长）与 **FPM/Swoole 热路径进一步降堆分配**。三批次共 8 项改动，无 API 破坏。
