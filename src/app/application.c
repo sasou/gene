@@ -1285,10 +1285,27 @@ PHP_METHOD(gene_application, webscan) {
 
 /*
  * {{{ public gene_application::workerReady()
+ * [GENE_PERF:2026-04-24 v5.5.8] In addition to flipping the read-side lock-
+ * skip flag, workerReady() now also auto-populates the context struct pool
+ * when running in Swoole / coroutine mode (runtime_type >= 2) and the pool
+ * is currently empty. This collapses the canonical "Swoole bootstrap"
+ * idiom into a single call:
+ *
+ *     $server->on('WorkerStart', function () {
+ *         \Gene\Application::getInstance()->workerReady();
+ *     });
+ *
+ * Without this, users had to pair workerReady() + prewarmCtxPool() or rely
+ * on gene.ctx_pool_prewarm INI. The auto-fill respects ctx_pool_max and is
+ * guarded on pool_size == 0 so repeated workerReady() calls stay idempotent.
+ * FPM/cgi path: this is a no-op (runtime_type<2 + pool isn't used there).
  */
 PHP_METHOD(gene_application, workerReady) {
 	zval *self = getThis();
 	GENE_G(worker_ready) = 1;
+	if (GENE_G(runtime_type) >= 2 && GENE_G(ctx_pool_size) == 0) {
+		gene_request_context_pool_prewarm(-1);
+	}
 	if (self) {
 		RETURN_ZVAL(self, 1, 0);
 	}

@@ -1281,15 +1281,14 @@ void get_router_content_run(char *methodin, char *pathin, const char *safe_str, 
 	  * When methodin!=NULL (explicit method in user Router::run), use a 32-byte stack
 	  * buffer for the lowercased copy to skip heap alloc for typical HTTP verbs. */
 	 const char *method = NULL;
-	 char *path = NULL, *run = NULL, *hook = NULL;
+	 char *path = NULL;
 	 size_t method_len = 0;
 	 int method_heap = 0;
 	 char method_buf[32];
-	 char router_e_buf[256];
 	 char *path_new = NULL;
 	 size_t router_e_len;
 	 zval *temp = NULL, *lead = NULL;
-	 zval *conf = NULL,*cache = NULL, *cacheHook = NULL;
+	 zval *conf = NULL, *cache = NULL, *cacheHook = NULL;
 	 gene_request_context *ctx = gene_request_ctx();
 
 	 if (methodin == NULL && pathin == NULL) {
@@ -1351,30 +1350,64 @@ void get_router_content_run(char *methodin, char *pathin, const char *safe_str, 
 	  * prefix, then for each of the 3 consecutive lookups (tree/event/conf) just
 	  * swap the 3-byte suffix via memcpy. Replaces 3 snprintf calls (~100+ cycles
 	  * each, format-string parsing) with 3 x memcpy(3) operations (~3 cycles each).
-	  * The three suffixes ":rt", ":re", ":cf" are all exactly 3 bytes. */
+	  * The three suffixes ":rt", ":re", ":cf" are all exactly 3 bytes.
+	  * [GENE_PERF:2026-04-24 v5.5.8] All three keys now resolve under a SINGLE
+	  * cache RDLOCK via gene_memory_get_triple() — prior versions took/released
+	  * the rwlock three separate times. Under ZTS (or non-ZTS with workerReady
+	  * not yet signalled) the contended-atomic cost of the dispatcher hot path
+	  * drops from 3× to 1×. Under workerReady==1 non-ZTS the lock is already a
+	  * no-op, so the merge is neutral there. */
 	 {
 		 size_t prefix_len;
-		 char *router_key;
-		 int router_key_heap = 0;
+		 char *rkey_tree, *rkey_event, *rkey_conf;
+		 char rkey_tree_buf[256], rkey_event_buf[256], rkey_conf_buf[256];
+		 int rkey_tree_heap = 0, rkey_event_heap = 0, rkey_conf_heap = 0;
+		 size_t alloc_len;
+
 		 if (safe_str != NULL && safe_len > 0) {
 			 prefix_len = safe_len;
-			 if (prefix_len + 4 > sizeof(router_e_buf)) {
-				 router_key = emalloc(prefix_len + 4);
-				 router_key_heap = 1;
-			 } else {
-				 router_key = router_e_buf;
-			 }
-			 memcpy(router_key, safe_str, prefix_len);
 		 } else {
 			 prefix_len = 0;
-			 router_key = router_e_buf;
 		 }
 		 router_e_len = prefix_len + 3;
+		 alloc_len = router_e_len + 1;
 
-		 /* TREE lookup: prefix + ":rt" */
-		 memcpy(router_key + prefix_len, GENE_ROUTER_ROUTER_TREE, 3);
-		 router_key[router_e_len] = '\0';
-		 cache = gene_memory_get_quick(router_key, router_e_len);
+		 if (alloc_len > sizeof(rkey_tree_buf)) {
+			 rkey_tree = emalloc(alloc_len);
+			 rkey_tree_heap = 1;
+		 } else {
+			 rkey_tree = rkey_tree_buf;
+		 }
+		 if (alloc_len > sizeof(rkey_event_buf)) {
+			 rkey_event = emalloc(alloc_len);
+			 rkey_event_heap = 1;
+		 } else {
+			 rkey_event = rkey_event_buf;
+		 }
+		 if (alloc_len > sizeof(rkey_conf_buf)) {
+			 rkey_conf = emalloc(alloc_len);
+			 rkey_conf_heap = 1;
+		 } else {
+			 rkey_conf = rkey_conf_buf;
+		 }
+
+		 if (prefix_len > 0) {
+			 memcpy(rkey_tree,  safe_str, prefix_len);
+			 memcpy(rkey_event, safe_str, prefix_len);
+			 memcpy(rkey_conf,  safe_str, prefix_len);
+		 }
+		 memcpy(rkey_tree  + prefix_len, GENE_ROUTER_ROUTER_TREE,  3);
+		 memcpy(rkey_event + prefix_len, GENE_ROUTER_ROUTER_EVENT, 3);
+		 memcpy(rkey_conf  + prefix_len, GENE_ROUTER_ROUTER_CONF,  3);
+		 rkey_tree[router_e_len]  = '\0';
+		 rkey_event[router_e_len] = '\0';
+		 rkey_conf[router_e_len]  = '\0';
+
+		 /* Single lock: tree/event/conf resolved in one rwlock span. */
+		 gene_memory_get_triple(
+			 rkey_tree,  router_e_len, &cache,
+			 rkey_event, router_e_len, &cacheHook,
+			 rkey_conf,  router_e_len, &conf);
 
 		 if (cache) {
 			 temp = zend_symtable_str_find(Z_ARRVAL_P(cache), (char *)method, method_len);
@@ -1382,18 +1415,14 @@ void get_router_content_run(char *methodin, char *pathin, const char *safe_str, 
 				 php_error_docref(NULL, E_WARNING, "Gene Unknown Method Cache:%s", method);
 				 if (method_heap) efree((char *)method);
 				 efree(path);
-				 if (router_key_heap) efree(router_key);
+				 if (rkey_tree_heap)  efree(rkey_tree);
+				 if (rkey_event_heap) efree(rkey_event);
+				 if (rkey_conf_heap)  efree(rkey_conf);
 				 cache = NULL;
 				 return;
 			 }
-			 /* EVENT lookup: prefix + ":re" */
-			 memcpy(router_key + prefix_len, GENE_ROUTER_ROUTER_EVENT, 3);
-			 cacheHook = gene_memory_get_quick(router_key, router_e_len);
 			 trim(path, '/');
 			 replaceAll(path, '.', '/');
-			 /* CONF lookup: prefix + ":cf" */
-			 memcpy(router_key + prefix_len, GENE_ROUTER_ROUTER_CONF, 3);
-			 conf = gene_memory_get_quick(router_key, router_e_len);
 			 if (conf && Z_TYPE_P(conf) == IS_ARRAY) {
 				 path_new = get_path_router_init(conf, path);
 				 if (path_new != path) {
@@ -1401,7 +1430,6 @@ void get_router_content_run(char *methodin, char *pathin, const char *safe_str, 
 				 }
 				 path = path_new;
 			 }
-
 
 			 lead = get_path_router(temp, path);
 
@@ -1422,7 +1450,9 @@ void get_router_content_run(char *methodin, char *pathin, const char *safe_str, 
 		 } else {
 			 php_error_docref(NULL, E_WARNING, "Gene Unknown Router Cache");
 		 }
-		 if (router_key_heap) efree(router_key);
+		 if (rkey_tree_heap)  efree(rkey_tree);
+		 if (rkey_event_heap) efree(rkey_event);
+		 if (rkey_conf_heap)  efree(rkey_conf);
 	 }
 	 if (method_heap) efree((char *)method);
 	 efree(path);

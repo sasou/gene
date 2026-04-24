@@ -41,7 +41,12 @@ zval *gene_di_regs() {
 		if (Z_TYPE(ctx->di_regs) == IS_NULL) {
 			zval_ptr_dtor(&ctx->di_regs);
 		}
-		array_init(&ctx->di_regs);
+		/* [GENE_PERF:2026-04-24 v5.5.8] Typical DI graphs register ~8-20
+		 * services per request (db, redis, memcache, session, view, language,
+		 * validate, response, memory, plus class-qualified per-object keys).
+		 * Pre-size at 16 to skip the default-8 initial bucket grow that hits
+		 * on the 9th insert — a minor cache-hot rehash we can trivially avoid. */
+		array_init_size(&ctx->di_regs, 16);
 	}
 	return &ctx->di_regs;
 }

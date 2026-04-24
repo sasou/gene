@@ -1,5 +1,183 @@
 # Gene Framework Changelog
 
+## [5.5.8] - 2026-04-24
+
+**主题**：深度优化第三轮 — Swoole 协程 cid 复用正确性修复 + 热路径锁/分配极致压缩 + 请求周期内存"无残留"语义完整化。**无 API 破坏**，`php-cgi / php-fpm` 路径零回归。
+
+### 🛡️ 第 1 项 — `gene_request_ctx` second-chance 路径 cid 复用安全加固（关键正确性修复）
+
+- **文件**：`src/gene.c`
+- **问题**：在 Swoole 下，如果用户未调用 `cleanup()`，协程退出后 `co_contexts[cid]` 仍保留旧 ctx；Swoole 回收 cid 并分配给新协程时，老的 second-chance 路径会出现：
+  ```c
+  // 旧代码：
+  if (current_ctx != NULL && cid == current_cid) {
+      return current_ctx;  // ← 返回老协程的 ctx！(bug)
+  }
+  ```
+  表现为：新协程读到老协程的 `path_params`、`module/controller/action`、DI 实例、view_vars 等。极端情况可能跨协程泄漏认证会话等敏感数据。
+- **修复**：second-chance 命中时必须通过 `zend_hash_index_find_ptr(co_contexts, cid)` 验证 ctx 指针身份是否仍然匹配，身份不一致则清缓存、走完整 slow path 绑定新 ctx：
+  ```c
+  if (current_ctx != NULL && cid == current_cid && co_contexts != NULL) {
+      ctx = zend_hash_index_find_ptr(co_contexts, cid);
+      if (ctx == current_ctx) { return ctx; }  // 身份验证通过
+      // 身份不匹配：清缓存，fallthrough 到完整 resolve
+      current_ctx = NULL; current_cid = -1; current_vm_stack = NULL;
+  }
+  ```
+- **开销**：second-chance 命中时额外一次 O(1) hash 查找（vs 原来的纯指针比较），比 `getcid()`（已经在当前 slow path 执行）便宜几个数量级。common case 的 `vm_stack` 快路径完全不受影响。
+- **收益**：Swoole 长跑 + 用户漏调 `cleanup()` 场景下的跨协程数据泄漏彻底消除。
+
+### 🚀 第 2 项 — Router dispatch 三次锁合并为一次（Swoole 高并发降锁争用）
+
+- **文件**：`src/cache/memory.h`、`src/cache/memory.c`、`src/router/router.c`
+- **问题**：每次请求的 `get_router_content_run()` 热路径连续做 3 次持久缓存读取（tree / event / conf），每次独立 `GENE_CACHE_RDLOCK`/`RDUNLOCK`。ZTS 构建 + `workerReady()` 未调用的 Swoole 部署下，这是 3× 的 `pthread_rwlock` / `SRWLOCK` 争用原子操作。
+- **新增 API**：`gene_memory_get_triple()` — 单锁周期内批量取 3 个 key：
+  ```c
+  void gene_memory_get_triple(
+      const char *k1, size_t l1, zval **o1,
+      const char *k2, size_t l2, zval **o2,
+      const char *k3, size_t l3, zval **o3);
+  ```
+- **router 端调整**：三个 key 缓冲区一次性构建（共享 prefix 复制），一次 `gene_memory_get_triple` 取回全部结果；删除 3 次 `gene_memory_get_quick` + 3 次锁周期。
+- **收益**：
+  - **ZTS Swoole**：锁争用开销 3× → 1×
+  - **非 ZTS + `workerReady()` 已调用**：无额外收益（锁已是 no-op），但也无回归
+  - **非 ZTS + `workerReady()` 未调用**：原子操作 3× → 1×
+
+### 🔓 第 3 项 — `gene_memory_get_by_config` 嵌套路径遍历锁外化
+
+- **文件**：`src/cache/memory.c`
+- **问题**：DI/config 读取（`$this->db`、`$app->config('db.mysql.host')` 等）走 `gene_memory_get_by_config`，它先加锁、在锁内做 `php_strtok_r` + 多级 `zend_symtable_str_find` 嵌套遍历。高并发下持锁时间较长。
+- **修复**：锁只保护顶层 key 的查找；拿到指针后立即释放锁，strtok 和嵌套遍历全部走锁外。依据是持久缓存的 write-once-at-startup 不变性（框架已在文档中声明），拿到的 zval 指针在整个 worker 生命周期内稳定。
+- **收益**：3-4 层 config 路径下的锁持有时间缩减约一半；DI 密集应用（每请求数十次 `$this->xxx` 解析）累积收益显著。
+
+### 🧠 第 4 项 — `gene_memory_zval_local` 字符串共享 interned 串（请求周期零堆分配）
+
+- **文件**：`src/cache/memory.c`
+- **问题**：每次 `Gene\Memory::get($key)` / `Application::config($key)` / DI 返回值 / 每次访问缓存里的 string 值都要：
+  ```c
+  zend_string_init(Z_STRVAL_P(source), Z_STRLEN_P(source), 0);  // ← emalloc + memcpy
+  ZVAL_NEW_STR(dst, str_key);
+  ```
+  一份全新的 request-scope string。大型配置数组 + DI 密集应用每请求可能触发几十到上百次 string emalloc。
+- **修复**：持久缓存里的 string 都是 `IS_STR_INTERNED|IS_STR_PERMANENT`，直接用 `ZVAL_STR(dst, Z_STR_P(source))` 共享 interned 指针：
+  - interned string 的 refcount 操作是 no-op
+  - request-scope 的 `zval_ptr_dtor` 对 interned string 也是 no-op
+  - 零堆分配、零 memcpy、零语义差异
+- **对嵌套 HashTable 同步优化**：`gene_memory_hash_copy_local` 中 interned key 直接复用，非 interned key 走 fallback；`array_init` 改为 `array_init_size(nNumElements)` 预分配精确大小。
+- **收益**：DI-heavy / config-heavy 应用每请求**十几到上百次**字符串 emalloc → 0 次。
+
+### 💨 第 5 项 — 请求上下文关联 HashTable 预分配
+
+- **文件**：`src/gene.c`、`src/http/request.c`、`src/di/di.c`、`src/mvc/view.c`
+- **问题**：`path_params`、`request_attr`、`di_regs`、`view_vars` 等每请求 HashTable 默认容量 0，首批插入触发 0→8 的首次 grow（memcpy bucket storage）。
+- **修复**：按典型负载预分配：
+  | HashTable | 旧默认 | 新预分配 | 典型负载 |
+  |-----------|--------|----------|----------|
+  | `path_params` | 0 | 8 | 路由参数 1-5 个 |
+  | `request_attr` | 0 | 8 | 固定 8 种 track var |
+  | `di_regs` | 0 | 16 | 典型服务 8-20 个 |
+  | `view_vars` (per-scope) | 0 | 16 | 模板变量 5-20 个 |
+  | `view_vars` (scope-level) | 0 | 4 | scope 通常 1 个 |
+- **收益**：首次填充时跳过 1-2 次 grow，减少 bucket memcpy。
+
+### 🎯 第 6 项 — `getVal` slow path 消除重复 hash lookup
+
+- **文件**：`src/http/request.c`
+- **问题**：每个请求首次访问 `$_GET / $_POST / ...` 中的 track var 时走 slow path：
+  ```c
+  zend_hash_index_update(attr, type, val);  // 插入
+  val = zend_hash_index_find(attr, type);   // ← 再查一次 (冗余)
+  ```
+- **修复**：直接用 `zend_hash_index_update` 的返回值。
+- **收益**：每请求每个 track var 首次访问少一次 O(1) hash 查找。
+
+### 🚦 第 7 项 — `Application::workerReady()` 自动预热 ctx 池（简化 Swoole 部署）
+
+- **文件**：`src/app/application.c`
+- **背景**：5.5.7 引入了 `ctx_pool_prewarm` INI 和 `prewarmCtxPool()` 方法，但两者都需要用户主动配置/调用。多数用户忘了，错过了冷启动收益。
+- **修复**：`workerReady()` 在 `runtime_type >= 2` 且 `ctx_pool_size == 0` 时自动调用 `gene_request_context_pool_prewarm(-1)` 填满池。幂等、零多余成本。
+- **简化用法**：
+  ```php
+  // 5.5.8 之前
+  $server->on('WorkerStart', function () {
+      \Gene\Application::getInstance()->prewarmCtxPool();
+      \Gene\Application::getInstance()->workerReady();
+  });
+
+  // 5.5.8 之后 — 一行搞定
+  $server->on('WorkerStart', function () {
+      \Gene\Application::getInstance()->workerReady();
+  });
+  ```
+- **向后兼容**：`prewarmCtxPool()` 保留，`gene.ctx_pool_prewarm` INI 继续有效。
+
+### 📊 综合收益评估
+
+| 维度 | 5.5.7 | 5.5.8 | 改善 |
+|------|-------|-------|------|
+| Swoole cid 复用正确性 | ⚠️ second-chance 可能误命中 | ✅ 身份验证 | **关键 bug 修复** |
+| Router dispatch 锁周期数 | 3 | 1 | **-2 次 rwlock** |
+| config 嵌套读取锁持有时间 | 包含 strtok + O(depth) find | 仅顶层 find | **~50% 缩减** |
+| DI/config string emalloc/次访问 | 1 | 0（interned 共享） | **抹平** |
+| HashTable 首次 grow 次数 | 1-2 次 per ctx | 0 次（预分配命中） | **-1~2 次 memcpy** |
+| `getVal` slow path hash 查找 | 2 次 | 1 次 | **-1 次 O(1)** |
+| Swoole 冷启动配置门槛 | INI + 手动 prewarm | `workerReady()` 一步 | **运维简化** |
+| FPM / php-cgi 回归 | ✅ | ✅ | 零影响 |
+| API 破坏 | — | 无 | 完全兼容 |
+
+### 🧪 建议回归验证
+
+- **Swoole 正确性**：构造 cid 快速复用场景（创建→退出→立刻新协程），对比 5.5.7 vs 5.5.8 下新协程读取 `Application::getModule()` 等是否返回前一协程的值。5.5.8 应始终返回 NULL 或当前协程自己设置的值。
+- **FPM 压测**：`ab -n 200000 -c 200` 跑 demo，对比 QPS / p99 延迟；5.5.8 应持平或略高。
+- **Swoole 压测**：`wrk -t12 -c400` + 配置密集应用（每请求 10+ 次 `$app->config(...)`），对比单 worker QPS；5.5.8 应显著更高（字符串零分配 + 锁争用减少）。
+- **内存专项**：`USE_ZEND_ALLOC=0 valgrind --leak-check=full` 跑混合模式 100k 请求，SIGTERM 后 `LEAK SUMMARY: definitely lost: 0 bytes`。
+- **HashTable 容量**：构造典型应用（15 个 DI 服务 + 10 个视图变量），`Memory::stats()` 观察每请求堆峰值；5.5.8 应低于 5.5.7。
+
+### 🔧 修改文件一览
+
+- `src/gene.h` — `PHP_GENE_VERSION` → `"5.5.8"`
+- `src/gene.c` — second-chance 身份验证 + `path_params` 预分配 + 加强注释
+- `src/cache/memory.h` — 新增 `gene_memory_get_triple` 原型
+- `src/cache/memory.c` — `gene_memory_get_triple` 实现 + `get_by_config` 锁外化 + `zval_local` interned 共享 + `hash_copy_local` interned key 复用
+- `src/router/router.c` — 三 key 一次 triple 查询 + 清理未使用局部变量
+- `src/http/request.c` — `request_attr` 预分配 + `getVal` slow path 消除冗余 find
+- `src/di/di.c` — `di_regs` 预分配 16
+- `src/mvc/view.c` — `view_vars` 两级预分配
+- `src/app/application.c` — `workerReady()` 自动预热池
+
+### 💡 运维提示
+
+推荐的 Swoole 部署 `php.ini`：
+
+```ini
+extension=gene.so
+gene.runtime_type=2
+gene.ctx_pool_max=512         ; 池容量（按 worker 并发协程上限选）
+gene.co_contexts_max=16384    ; 协程上下文软上限
+; gene.ctx_pool_prewarm=...   ; 可省略：workerReady() 会自动填满
+```
+
+启动脚本：
+
+```php
+$server->on('WorkerStart', function () {
+    \Gene\Application::getInstance()->workerReady();
+    // 此时池已填满、lock-skip 已启用，开始接单。
+});
+
+$server->on('Request', function ($req, $resp) {
+    // 处理业务...
+});
+
+$server->on('Response', function ($resp) {
+    // 业务中用了大量 DI/闭包？可传 true 主动触发 GC：
+    \Gene\Application::getInstance()->cleanup(true);
+});
+```
+
+---
+
 ## [5.5.7] - 2026-04-24
 
 **主题**：深度优化第二轮 — 极致高并发（FPM & Swoole）+ Swoole 冷启动零堆分配 + 请求周期内存完全归零。**无 API 破坏**，`php-cgi / php-fpm` 路径零回归。

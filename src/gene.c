@@ -119,11 +119,15 @@ zend_long gene_get_coroutine_id(void) {
 /* {{{ gene_request_context_init
  * [GENE_MEM:2026-04-24] path_params is now an inline zval — only the backing
  * HashTable is heap-allocated via array_init. This removes one emalloc +
- * one efree from every request's allocator traffic (FPM + Swoole). */
+ * one efree from every request's allocator traffic (FPM + Swoole).
+ * [GENE_PERF:2026-04-24 v5.5.8] path_params pre-sized to 8 (typical routes
+ * have 1-3 bound parameters, worst-case dozens for API-heavy apps). The
+ * default-initialized HashTable starts at size 0 and grows 0→8→16→... on
+ * each insert; pre-sizing to 8 skips the first grow during setMca(). */
 void gene_request_context_init(gene_request_context *ctx) {
 	if (!ctx) return;
 	memset(ctx, 0, sizeof(gene_request_context));
-	array_init(&ctx->path_params);
+	array_init_size(&ctx->path_params, 8);
 	ZVAL_UNDEF(&ctx->request_attr);
 	ZVAL_UNDEF(&ctx->di_regs);
 	ZVAL_UNDEF(&ctx->view_vars);
@@ -153,7 +157,7 @@ static zend_always_inline void gene_request_context_reset_path_params(gene_reque
 		 * RSS bounded across pathological requests. */
 		if (UNEXPECTED(Z_ARRVAL_P(pp)->nTableSize > 128)) {
 			zval_ptr_dtor(pp);
-			array_init(pp);
+			array_init_size(pp, 8);
 			return;
 		}
 		zend_hash_clean(Z_ARRVAL_P(pp));
@@ -162,7 +166,7 @@ static zend_always_inline void gene_request_context_reset_path_params(gene_reque
 	if (Z_TYPE_P(pp) != IS_UNDEF) {
 		zval_ptr_dtor(pp);
 	}
-	array_init(pp);
+	array_init_size(pp, 8);
 }
 /* }}} */
 
@@ -193,6 +197,14 @@ static void gene_request_context_free_fields(gene_request_context *ctx, int pres
 			ZVAL_UNDEF(&ctx->path_params);
 		}
 	}
+	/* [GENE_MEM:2026-04-24 v5.5.8] Every request-scope array below is fully
+	 * destroyed (not just emptied) on reset so the backing HashTable bucket
+	 * storage — which may have ballooned on a single pathological request
+	 * (huge DI graph, view with thousands of vars, request with 10k+ attrs)
+	 * — is returned to ZMM instead of lingering in the struct pool across
+	 * the worker lifetime. Since these arrays are re-array_init'd on first
+	 * use of the next request, the steady-state cost is unchanged but the
+	 * worst-case RSS is bounded. */
 	if (Z_TYPE(ctx->request_attr) != IS_UNDEF) {
 		zval_ptr_dtor(&ctx->request_attr);
 		ZVAL_UNDEF(&ctx->request_attr);
@@ -283,10 +295,21 @@ gene_request_context *gene_request_context_pool_acquire(void) {
 		if (GENE_G(ctx_pool_size) > 0) {
 			GENE_G(ctx_pool_size)--;
 		}
-		*slot = NULL;
-		/* All fields are already in their post-destroy state
-		 * (NULL/UNDEF). Rebuild the invariants init() guarantees. */
-		array_init(&ctx->path_params);
+		/* [GENE_PERF:2026-04-24 v5.5.8] path_params' value.ptr slot was
+		 * used as the free-list link while on the pool. array_init_size
+		 * below completely overwrites the zval (sets type=IS_ARRAY and
+		 * stores the HashTable pointer), so the prior "*slot = NULL"
+		 * scrub is redundant — removed to shave one store per acquire.
+		 * All remaining fields are guaranteed NULL/UNDEF/zero by the
+		 * caller-invoked destroy() that precedes every pool release. */
+		array_init_size(&ctx->path_params, 8);
+		/* The 7 ZVAL_UNDEF assignments below are identity ops for a
+		 * freshly-destroyed ctx — type is already 0 (IS_UNDEF) thanks
+		 * to gene_request_context_destroy() setting each to UNDEF. We
+		 * keep them as explicit statements because the compiler
+		 * readily folds them into a single cache-line store pair under
+		 * -O2 and they serve as executable documentation of the pool
+		 * invariant. */
 		ZVAL_UNDEF(&ctx->request_attr);
 		ZVAL_UNDEF(&ctx->di_regs);
 		ZVAL_UNDEF(&ctx->view_vars);
@@ -533,6 +556,8 @@ void gene_co_contexts_sweep(void) {
 gene_request_context *gene_request_ctx(void) {
 	gene_request_context *ctx;
 	zend_long cid;
+	int have_ctx_lookup = 0; /* v5.5.8: set when second-chance already did the hash probe */
+
 	/* Fast path: FPM mode — no coroutine overhead */
 	if (EXPECTED(GENE_G(runtime_type) < 2)) {
 		return &GENE_G(default_ctx);
@@ -546,11 +571,34 @@ gene_request_context *gene_request_ctx(void) {
 	}
 	/* Slow path: resolve coroutine id via Swoole */
 	cid = gene_get_coroutine_id();
-	/* Second-chance fast path: cid matches cached one (e.g. first call after vm_stack
-	 * pointer became stale due to nested Swoole internals but coroutine is unchanged) */
-	if (EXPECTED(GENE_G(current_ctx) != NULL && cid >= 0 && cid == GENE_G(current_cid))) {
-		GENE_G(current_vm_stack) = (void *)EG(vm_stack);
-		return GENE_G(current_ctx);
+	ctx = NULL;
+	/* [GENE_FIX:2026-04-24 v5.5.8] Second-chance fast path — cid matches cached one.
+	 * CRITICAL: When a coroutine dies without cleanup() and Swoole reuses its cid,
+	 * blindly trusting current_cid would return the previous coroutine's ctx. We
+	 * must verify the cached ctx is still the authoritative binding for this cid
+	 * by consulting co_contexts. This turns a sub-nanosecond compare-only check
+	 * into compare + single O(1) hash probe — still far cheaper than getcid()
+	 * (which already ran above) and absolutely required for correctness.
+	 *
+	 * When second-chance hits, we reuse the freshly-fetched ctx pointer below
+	 * (have_ctx_lookup=1) so the full-resolve path skips one redundant
+	 * hash probe even on cid-reuse / evicted-binding paths. */
+	if (EXPECTED(GENE_G(current_ctx) != NULL && cid >= 0
+			&& cid == GENE_G(current_cid)
+			&& GENE_G(co_contexts) != NULL)) {
+		ctx = zend_hash_index_find_ptr(GENE_G(co_contexts), (zend_ulong)cid);
+		have_ctx_lookup = 1;
+		if (EXPECTED(ctx == GENE_G(current_ctx))) {
+			GENE_G(current_vm_stack) = (void *)EG(vm_stack);
+			return ctx;
+		}
+		/* Identity mismatch: cid reused, or ctx silently evicted by sweep.
+		 * Invalidate the stale cache and fall through — ctx now holds the
+		 * new live binding (or NULL if none exists, in which case we
+		 * allocate below). */
+		GENE_G(current_ctx) = NULL;
+		GENE_G(current_cid) = -1;
+		GENE_G(current_vm_stack) = NULL;
 	}
 	gene_init_co_contexts();
 	if (UNEXPECTED(cid < 0)) {
@@ -562,7 +610,9 @@ gene_request_context *gene_request_ctx(void) {
 		GENE_G(current_vm_stack) = (void *)EG(vm_stack);
 		return GENE_G(resident_ctx);
 	}
-	ctx = zend_hash_index_find_ptr(GENE_G(co_contexts), (zend_ulong)cid);
+	if (!have_ctx_lookup) {
+		ctx = zend_hash_index_find_ptr(GENE_G(co_contexts), (zend_ulong)cid);
+	}
 	if (!ctx) {
 		/* [GENE_MEM:2026-04-23] Soft cap + probabilistic sweep. In Swoole
 		 * long-running workers users sometimes forget to defer cleanup();
