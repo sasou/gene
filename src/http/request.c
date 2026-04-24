@@ -35,11 +35,16 @@ zend_class_entry * gene_request_ce;
 
 static zval *gene_request_attr(void) {
 	gene_request_context *ctx = gene_request_ctx();
-	if (Z_TYPE(ctx->request_attr) == IS_UNDEF || Z_TYPE(ctx->request_attr) == IS_NULL) {
+	if (UNEXPECTED(Z_TYPE(ctx->request_attr) == IS_UNDEF || Z_TYPE(ctx->request_attr) == IS_NULL)) {
 		if (Z_TYPE(ctx->request_attr) == IS_NULL) {
 			zval_ptr_dtor(&ctx->request_attr);
 		}
-		array_init(&ctx->request_attr);
+		/* [GENE_PERF:2026-04-24 v5.5.8] request_attr stores at most 8 track
+		 * vars (POST/GET/COOKIE/SERVER/ENV/FILES/REQUEST/HEADER, indices 0-7).
+		 * Pre-size the HashTable to 8 so the first burst of getVal()/setVal()
+		 * calls don't trigger rehashes (prior default init grew 0→8→... on
+		 * first insert). One-time cost: a handful of extra bucket slots. */
+		array_init_size(&ctx->request_attr, 8);
 	}
 	return &ctx->request_attr;
 }
@@ -248,17 +253,20 @@ void setVal(zend_ulong type, zval *value) {
 
 zval *getVal(zend_ulong type, char *name, size_t len) {
 	zval *attr = gene_request_attr();
-    zval *val = NULL;
+	zval *val = NULL;
 
-	if (Z_TYPE_P(attr) ==  IS_ARRAY) {
-		val =  zend_hash_index_find(Z_ARRVAL_P(attr), type);
-		if (val == NULL) {
-			val = request_query(type, NULL, 0);
-			if (val) {
-				Z_TRY_ADDREF_P(val);
-				zend_hash_index_update(Z_ARRVAL_P(attr), type, val);
+	if (EXPECTED(Z_TYPE_P(attr) == IS_ARRAY)) {
+		val = zend_hash_index_find(Z_ARRVAL_P(attr), type);
+		if (UNEXPECTED(val == NULL)) {
+			/* [GENE_PERF:2026-04-24 v5.5.8] Slow path (first touch of this
+			 * track-var per request). Use the zend_hash_index_update return
+			 * value directly instead of re-querying, shaving one hash probe
+			 * off every initial GET/POST/... access. */
+			zval *source = request_query(type, NULL, 0);
+			if (source) {
+				Z_TRY_ADDREF_P(source);
+				val = zend_hash_index_update(Z_ARRVAL_P(attr), type, source);
 			}
-			val = zend_hash_index_find(Z_ARRVAL_P(attr), type);
 		}
 		if (len == 0) {
 			return val;
@@ -288,7 +296,7 @@ zval *getVal(zend_ulong type, char *name, size_t len) {
 		}
 		return NULL;
 	}
-    return NULL;
+	return NULL;
 }
 
 /*
