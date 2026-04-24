@@ -60,22 +60,22 @@ class Service
     /**
      * success
      * 
-     * @param mixed $msg msg
-     * @param mixed $code code
+     * @param string $msg msg
+     * @param int $code code
      * @return mixed
      */
-    public function success($msg, $code = null) {
+    public function success($msg, $code = 2000) {
 
     }
 
     /**
      * error
      * 
-     * @param mixed $msg msg
-     * @param mixed $code code
+     * @param string $msg msg
+     * @param int $code code
      * @return mixed
      */
-    public function error($msg, $code = null) {
+    public function error($msg, $code = 4000) {
 
     }
 
@@ -83,12 +83,12 @@ class Service
      * data
      * 
      * @param mixed $data data
-     * @param mixed $count count
-     * @param mixed $msg msg
-     * @param mixed $code code
+     * @param int $count count
+     * @param string|null $msg msg
+     * @param int $code code
      * @return mixed
      */
-    public function data($data, $count = 0, $msg = null, $code = null) {
+    public function data($data, $count = -1, $msg = null, $code = 2000) {
 
     }
 
