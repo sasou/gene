@@ -157,6 +157,22 @@ ZEND_BEGIN_ARG_INFO_EX(gene_application_set, 0, 0, 2)
     ZEND_ARG_INFO(0, value)
 ZEND_END_ARG_INFO()
 
+/* [GENE_PERF:2026-04-24 #2] Optional bool $gc argument: when true, triggers
+ * a zend GC cycle collection after the request context is destroyed. Lets
+ * Swoole handlers that create deep object graphs (ORM, DI graphs, etc.)
+ * opt into cycle reclaim at the cleanup boundary. Defaults to false so the
+ * hot path stays cycle-collector-free. */
+ZEND_BEGIN_ARG_INFO_EX(gene_application_cleanup, 0, 0, 0)
+    ZEND_ARG_INFO(0, gc)
+ZEND_END_ARG_INFO()
+
+/* [GENE_PERF:2026-04-24 #2] prewarmCtxPool($count = -1): populate the
+ * gene_request_context struct pool up to $count (bounded by ctx_pool_max).
+ * Pass -1 or omit for "fill to max". Returns the number of contexts added. */
+ZEND_BEGIN_ARG_INFO_EX(gene_application_prewarm_ctx_pool, 0, 0, 0)
+    ZEND_ARG_INFO(0, count)
+ZEND_END_ARG_INFO()
+
 /*
  * {{{ void load_file(char *key, size_t key_len,char *php_script, int validity)
  */
@@ -905,7 +921,7 @@ PHP_METHOD(gene_application, destroyContext) {
 /* }}} */
 
 /*
- * {{{ public gene_application::cleanup()
+ * {{{ public gene_application::cleanup([bool $gc = false])
  * Combined clearState + destroyContext for Swoole mode.
  * Phase 1: destroy context fields (free user data, triggers object destructors
  *          while context struct is still alive).
@@ -913,9 +929,22 @@ PHP_METHOD(gene_application, destroyContext) {
  *          [GENE_PERF:2026-04-24] now recycles the struct through the
  *          bounded struct pool (gene_request_context_pool_release) instead
  *          of efree'ing — so the next coroutine spawn skips ecalloc entirely.
- * In FPM mode: behaves identically to clearState() alone.
+ * Phase 3 ([GENE_PERF:2026-04-24 #2]): if $gc truthy AND runtime_type >= 2,
+ *          trigger gc_collect_cycles() so that cyclic graphs built by the
+ *          handler (DI → Service → Model → DI back-refs; ORM lazy loaders)
+ *          are reclaimed at the request boundary instead of waiting for the
+ *          GC threshold to trip mid-next-request. Defaults to false (caller
+ *          opts in): the collector walks all live zvals and costs μs-ms
+ *          depending on live-heap size — only worth it for handlers that
+ *          demonstrably leak RSS without it.
+ * In FPM mode: behaves identically to clearState() alone; $gc is ignored
+ *              because the SAPI already frees the request arena next RSHUTDOWN.
  */
 PHP_METHOD(gene_application, cleanup) {
+	zend_bool gc = 0;
+	if (zend_parse_parameters(ZEND_NUM_ARGS(), "|b", &gc) == FAILURE) {
+		RETURN_FALSE;
+	}
 	if (GENE_G(runtime_type) >= 2 && GENE_G(co_contexts)) {
 		zend_long cid;
 		gene_request_context *ctx;
@@ -931,7 +960,7 @@ PHP_METHOD(gene_application, cleanup) {
 			GENE_G(current_vm_stack) = NULL;
 			gene_request_context_destroy(ctx);
 			zend_hash_index_del(GENE_G(co_contexts), (zend_ulong)cid);
-			RETURN_TRUE;
+			goto maybe_gc;
 		}
 		cid = gene_get_coroutine_id();
 		if (cid >= 0) {
@@ -957,10 +986,43 @@ PHP_METHOD(gene_application, cleanup) {
 				gene_request_context_pool_release(tmp);
 			}
 		}
+maybe_gc:
+		if (gc) {
+			/* [GENE_PERF:2026-04-24 #2] Opt-in cycle collector after all
+			 * handler-scoped zvals have been released above. GC is disabled
+			 * by default (gc_enabled()==1 by default, but gc_collect_cycles()
+			 * is safe to call unconditionally — it respects gc_disabled()). */
+			gc_collect_cycles();
+		}
 	} else {
 		gene_request_context_reset(gene_request_ctx());
 	}
 	RETURN_TRUE;
+}
+/* }}} */
+
+/*
+ * {{{ public gene_application::prewarmCtxPool([int $count = -1])
+ * [GENE_PERF:2026-04-24 #2] Populate the internal gene_request_context struct
+ * pool so the first N Swoole coroutine spawns find a ready-to-use context
+ * without hitting ZMM's ecalloc. Typically invoked from the Swoole server's
+ * onWorkerStart callback:
+ *
+ *     $server->on('WorkerStart', function () {
+ *         \Gene\Application::getInstance()->prewarmCtxPool();
+ *     });
+ *
+ * Bounded at ctx_pool_max (INI gene.ctx_pool_max, default 256). Returns the
+ * number of contexts actually added (0 if FPM / already warmed / count<=0).
+ */
+PHP_METHOD(gene_application, prewarmCtxPool) {
+	zend_long count = -1;
+	zend_long added;
+	if (zend_parse_parameters(ZEND_NUM_ARGS(), "|l", &count) == FAILURE) {
+		RETURN_LONG(0);
+	}
+	added = gene_request_context_pool_prewarm(count);
+	RETURN_LONG(added);
 }
 /* }}} */
 
@@ -1348,7 +1410,8 @@ const zend_function_entry gene_application_methods[] = {
 	PHP_ME(gene_application, waitWorkerReady, gene_application_wait_worker_ready, ZEND_ACC_PUBLIC|ZEND_ACC_STATIC)
 	PHP_ME(gene_application, clearState, gene_application_get_method, ZEND_ACC_PUBLIC|ZEND_ACC_STATIC)
 	PHP_ME(gene_application, destroyContext, gene_application_get_method, ZEND_ACC_PUBLIC|ZEND_ACC_STATIC)
-	PHP_ME(gene_application, cleanup, gene_application_get_method, ZEND_ACC_PUBLIC|ZEND_ACC_STATIC)
+	PHP_ME(gene_application, cleanup, gene_application_cleanup, ZEND_ACC_PUBLIC|ZEND_ACC_STATIC)
+	PHP_ME(gene_application, prewarmCtxPool, gene_application_prewarm_ctx_pool, ZEND_ACC_PUBLIC|ZEND_ACC_STATIC)
 	PHP_ME(gene_application, setResponse, gene_application_set_response, ZEND_ACC_PUBLIC|ZEND_ACC_STATIC)
 	PHP_ME(gene_application, getMethod, gene_application_get_method, ZEND_ACC_PUBLIC|ZEND_ACC_STATIC)
 	PHP_ME(gene_application, getPath, gene_application_get_path, ZEND_ACC_PUBLIC|ZEND_ACC_STATIC)

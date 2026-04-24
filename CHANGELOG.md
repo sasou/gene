@@ -1,5 +1,99 @@
 # Gene Framework Changelog
 
+## [5.5.7] - 2026-04-24
+
+**主题**：深度优化第二轮 — 极致高并发（FPM & Swoole）+ Swoole 冷启动零堆分配 + 请求周期内存完全归零。**无 API 破坏**，`php-cgi / php-fpm` 路径零回归。
+
+### 🎯 第 1 项 — `bench_*` 字段跨请求残留修复（Swoole 正确性 + 内存极致释放）
+
+- **文件**：`src/gene.c`
+- **问题**：`gene_request_context` 中的 `bench_start`、`bench_end`、`bench_memory_start`、`bench_memory_end` 四个内联标量，在 `gene_request_context_free_fields()` 中**没有被清零**。Swoole 模式下同一个 ctx 结构体被池化反复使用，上个请求的基准数据会污染下个请求中 `Gene\Benchmark::time()` / `memory()` 的返回（当本请求未调用 `Benchmark::start()` 时）。
+- **修复**：在 `free_fields` 中统一清零这 4 个标量字段。开销：4 次 8 字节 store，可忽略。
+- **副作用**：这是一个**正确性修复**，让"请求周期内存完全归零"名副其实。
+
+### 🎯 第 2 项 — 上下文结构体池预热（Swoole 冷启动零堆分配）
+
+- **文件**：`src/gene.h`、`src/gene.c`、`src/app/application.c`
+- **问题**：5.5.6 引入了 `ctx_pool`，但 Swoole worker 冷启动时池是空的，前 N 个协程请求仍会 `ecalloc(sizeof(gene_request_context))`。对于启动瞬间就打过来的流量洪峰，这 N 次分配是可见的抖动。
+- **新增 API**：
+  - `void gene_request_context_pool_prewarm(zend_long count)` — C 级预热函数（幂等，可重复调用，仅补齐增量）；
+  - **PHP 方法** `\Gene\Application::prewarmCtxPool(int $count = -1)` — 传 -1 或省略 = 填满到 `ctx_pool_max`；返回新增数量；
+  - **新增 INI** `gene.ctx_pool_prewarm`（默认 `0`）— 当 > 0 且 `runtime_type >= 2` 时，RINIT 自动预热到该数量，**无需改代码**即可启用。
+- **使用方式**：
+  ```ini
+  ; php.ini 自动预热 128 个（最多不超过 ctx_pool_max=256）
+  extension=gene.so
+  gene.runtime_type=2
+  gene.ctx_pool_prewarm=128
+  ```
+  或显式：
+  ```php
+  $server->on('WorkerStart', function () {
+      \Gene\Application::getInstance()->prewarmCtxPool();  // 填满
+      // 或 prewarmCtxPool(64);
+  });
+  ```
+- **收益**：冷启动 / 重启后第一波流量的 `ecalloc` 次数归零。默认禁用，不影响已有部署。
+
+### 🎯 第 3 项 — `co_contexts` 初始 HashTable 容量从 8 → 32
+
+- **文件**：`src/gene.c`（`gene_init_co_contexts` + `PHP_RINIT_FUNCTION`）
+- **问题**：`zend_hash_init(co_contexts, 8, ...)` 在协程风暴下会经历 `8 → 16 → 32` 两次 rehash，每次 rehash 是 O(N) 的 memcpy。
+- **修复**：初始容量提升到 32，覆盖典型 HTTP 服务的 worker 并发上限，消除冷启动后前 32 个协程期间的 2 次 rehash。
+- **成本**：一次性 ~512 字节的 bucket 存储差异，每 worker 可忽略。
+
+### 🎯 第 4 项 — `cleanup(bool $gc = false)` 可选 GC cycle 触发（Swoole 内存极致释放）
+
+- **文件**：`src/app/application.c`
+- **问题**：Swoole 常驻进程下，用户的 handler 如果构建了**循环引用图**（DI ↔ Service、ORM lazy loader 回指 Model、闭包捕获 $this 等），`zval_ptr_dtor` 只会把循环对象挂进 PHP GC 根队列，而不会立即回收。这部分内存要等 GC 根队列满（默认 10000）才触发 `gc_collect_cycles()`。一个请求结束时本来**想完全归零**，但可能有循环图残留。
+- **修复**：`cleanup()` 增加可选 `bool $gc` 参数（默认 `false` 保持热路径 0 额外开销）。传 `true` 时，在 context 销毁后显式 `gc_collect_cycles()`：
+  ```php
+  $response->on('Finish', function () {
+      \Gene\Application::getInstance()->cleanup(true);  // 主动回收循环图
+  });
+  ```
+- **成本**：`gc_collect_cycles()` 扫描 GC 根表，μs-ms 级（取决于活对象数）。推荐只在**压测观测到 RSS 缓慢增长**时启用。
+- **FPM 模式**：忽略 `$gc` 参数（RSHUTDOWN 会全盘归零，没必要提前 GC）。
+
+### 📊 综合收益评估
+
+| 维度 | 5.5.6 | 5.5.7 | 改善 |
+|------|-------|-------|------|
+| Swoole worker 冷启动 N 次 ecalloc | N × `sizeof(ctx)` | 0（预热后） | **抹平** |
+| 请求 `bench_*` 字段残留 | ⚠️ 污染 | ✅ 清零 | **正确性修复** |
+| `co_contexts` 首轮 rehash | 2 次（8→32） | 0 次 | **-2 次 O(N)** |
+| 循环图内存归零 | 等 GC 阈值 | 可选显式触发 | **用户可控** |
+| FPM/php-cgi 回归 | ✅ | ✅ | 零影响 |
+| API 破坏 | — | 无 | `cleanup()` 零参调用完全兼容 |
+
+### 🧪 建议回归验证
+
+- **FPM**：`ab -n 100000 -c 100` 跑全量 demo；RSS 与 p99 延迟应与 5.5.6 持平（FPM 路径没变）。
+- **Swoole 冷启动**：压测脚本在 worker 启动 100ms 内发 500 req，对比开启 `gene.ctx_pool_prewarm=256` vs 默认 0 的 `Memory::stats()['ctx_pool_size']` 演化曲线。
+- **Swoole 24h 长跑**：开启循环引用场景（DI + 闭包 + Service 互引），对比 `cleanup(true)` vs `cleanup(false)` 的 RSS 走势。
+- **Benchmark 正确性**：构造两个相邻请求，前一个调 `Benchmark::start/end`，后一个不调，验证后一个的 `memory()` 返回 0（而非前一个的残留）。
+- **内存**：`USE_ZEND_ALLOC=0 valgrind --leak-check=full` + `gene.ctx_pool_prewarm=64`，压测后 worker SIGTERM，`LEAK SUMMARY: definitely lost: 0 bytes`。
+
+### 🔧 修改文件一览
+
+- `src/gene.h` — `PHP_GENE_VERSION "5.5.7"`；新增 `ctx_pool_prewarm` 全局 + `gene_request_context_pool_prewarm` 原型
+- `src/gene.c` — `bench_*` 清零；INI `gene.ctx_pool_prewarm`；`pool_prewarm()` 实现；RINIT 自动预热；`co_contexts` 初始 32
+- `src/app/application.c` — `cleanup([bool $gc])` 可选 GC；新增 `prewarmCtxPool([int $count])` 方法
+
+### 💡 运维提示
+
+一键启用本版本全部收益（Swoole 场景）：
+
+```ini
+extension=gene.so
+gene.runtime_type=2
+gene.ctx_pool_max=512          ; 池容量（按 worker 并发协程上限选）
+gene.ctx_pool_prewarm=512      ; 启动预热满（冷启动零 emalloc）
+gene.co_contexts_max=16384     ; 协程上下文软上限
+```
+
+---
+
 ## [5.5.6] - 2026-04-24
 
 聚焦**极致高并发**（FPM & Swoole 双模式）与 **Swoole 请求周期内存完全回收**。核心数据结构 `gene_request_context` 布局重构 + 协程上下文结构体池化。**无 API 破坏**，`php-cgi / php-fpm` 路径零回归。

@@ -20,7 +20,7 @@
  extern zend_module_entry gene_module_entry;
  #define phpext_gene_ptr &gene_module_entry
  
- #define PHP_GENE_VERSION "5.5.6"
+ #define PHP_GENE_VERSION "5.5.7"
  
  #ifdef PHP_WIN32
  #	define PHP_GENE_API __declspec(dllexport)
@@ -184,6 +184,11 @@ zend_long co_contexts_max;
 void *ctx_pool_head;
 zend_long ctx_pool_size;
 zend_long ctx_pool_max;
+/* [GENE_PERF:2026-04-24 #2] Optional pre-warm count. When > 0 and
+ * runtime_type >= 2, RINIT fills the context struct pool up to this
+ * number so the first cold-start wave of Swoole coroutines pays zero
+ * allocator cost. Capped internally at ctx_pool_max. */
+zend_long ctx_pool_prewarm;
 zend_bool autoload_registered;
 zend_bool worker_ready;
 HashTable *fn_cache;
@@ -205,6 +210,11 @@ void gene_co_contexts_sweep(void);
 gene_request_context *gene_request_context_pool_acquire(void);
 void gene_request_context_pool_release(gene_request_context *ctx);
 void gene_request_context_pool_drain(void);
+/* [GENE_PERF:2026-04-24 #2] Pre-warm N contexts into the pool. Called by
+ * RINIT when gene.ctx_pool_prewarm > 0 (Swoole only), and optionally from
+ * userland via Application::prewarmCtxPool(). Returns the number of
+ * contexts actually added (bounded by ctx_pool_max). */
+zend_long gene_request_context_pool_prewarm(zend_long count);
  
  #define GENE_REQ(v) (gene_request_ctx()->v)
 
