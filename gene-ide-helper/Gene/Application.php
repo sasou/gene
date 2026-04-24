@@ -289,9 +289,10 @@ class Application
      * Phase 2: 从协程上下文哈希表中移除已清空的上下文结构体。
      * FPM模式下：行为与 clearState() 相同。
      *
+     * @param bool $gc 是否执行垃圾回收
      * @return bool
      */
-    public static function cleanup() {
+    public static function cleanup($gc = false) {
 
     }
 

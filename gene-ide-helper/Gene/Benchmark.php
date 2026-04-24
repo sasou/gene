@@ -32,20 +32,20 @@ class Benchmark
     /**
      * time
      * 
-     * @param mixed $type type
+     * @param bool $type type
      * @return mixed
      */
-    public static function time($type) {
+    public static function time($type = false) {
 
     }
 
     /**
      * memory
      * 
-     * @param mixed $type type
+     * @param bool $type type
      * @return mixed
      */
-    public static function memory($type) {
+    public static function memory($type = false) {
 
     }
 
