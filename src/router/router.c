@@ -149,8 +149,8 @@
 			 }
 		 }
 	 } else {
-		 params = ctx->path_params;
-		 if (params != NULL) {
+		 params = &ctx->path_params;
+		 if (Z_TYPE_P(params) == IS_ARRAY) {
 			 ZVAL_STRINGL(&sval, val, val_len);
 			 zend_symtable_update(Z_ARRVAL_P(params), key, &sval);
 		 }
@@ -160,24 +160,28 @@
  /* }}} */
  
  /** {{{ void gene_router_reset_path_params()
+  * [GENE_MEM:2026-04-24] path_params is inlined in gene_request_context; the
+  * outer zval is always present, only its array backing store is heap-backed.
+  * Fast path is a pure HashTable clean — no emalloc branch. If a prior request
+  * ballooned the table, drop+re-init to keep worker RSS bounded.
   */
- static void gene_router_reset_path_params() {
+ static zend_always_inline void gene_router_reset_path_params() {
 	 gene_request_context *ctx = gene_request_ctx();
-	 zval *params = ctx->path_params;
- 
-	 if (params == NULL) {
-		 ctx->path_params = (zval *) emalloc(sizeof(zval));
-		 array_init(ctx->path_params);
+	 zval *params = &ctx->path_params;
+
+	 if (EXPECTED(Z_TYPE_P(params) == IS_ARRAY)) {
+		 if (UNEXPECTED(Z_ARRVAL_P(params)->nTableSize > 128)) {
+			 zval_ptr_dtor(params);
+			 array_init(params);
+			 return;
+		 }
+		 zend_hash_clean(Z_ARRVAL_P(params));
 		 return;
 	 }
- 
-	 if (Z_TYPE_P(params) != IS_ARRAY) {
+	 if (Z_TYPE_P(params) != IS_UNDEF) {
 		 zval_ptr_dtor(params);
-		 array_init(params);
-		 return;
 	 }
- 
-	 zend_hash_clean(Z_ARRVAL_P(params));
+	 array_init(params);
  }
  /* }}} */
  
@@ -454,7 +458,7 @@ static int gene_router_dispatch_direct(const char *class_method, zval *retval) {
 
 	 if (Z_TYPE(classObject) == IS_OBJECT
 			 && zend_hash_str_exists(&(Z_OBJCE(classObject)->function_table), action, action_len)) {
-		 gene_factory_call_1(&classObject, action, action_len, ctx->path_params, retval);
+		 gene_factory_call_1(&classObject, action, action_len, &ctx->path_params, retval);
 		 zval_ptr_dtor(&classObject);
 		 if (class_alloc) efree(class_alloc);
 		 if (action_alloc) efree(action_alloc);
@@ -706,7 +710,7 @@ static void gene_fn_cache_store(zval *closure, zval *fid_zv) {
 		 || Z_OBJ_HANDLER_P(closure, get_closure)(Z_OBJ_P(closure), &called_scope, &func, &this_obj, 0) != SUCCESS)) {
 		 return 0;
 	 }
-	 params_zv = GENE_REQ(path_params);
+	 params_zv = &gene_request_ctx()->path_params;
 	 zend_try {
 		 zend_call_known_function(func, this_obj, called_scope, retval, 1, params_zv, NULL);
 	 } zend_catch {
@@ -2428,9 +2432,9 @@ PHP_METHOD(gene_router, __call) {
 	 }
  
 	 ctx = gene_request_ctx();
-	 params = ctx->path_params;
+	 params = &ctx->path_params;
 	 if (name == NULL) {
-		 RETURN_ZVAL(ctx->path_params, 1, 0);
+		 RETURN_ZVAL(&ctx->path_params, 1, 0);
 	 } else {
 		 zval *val = zend_symtable_str_find(Z_ARRVAL_P(params), ZSTR_VAL(name), ZSTR_LEN(name));
 		 if (val) {

@@ -415,9 +415,9 @@ PHP_METHOD(gene_request, params) {
 	}
 
 	ctx = gene_request_ctx();
-	params = ctx->path_params;
+	params = &ctx->path_params;
 	if (name_len == 0) {
-		RETURN_ZVAL(ctx->path_params, 1, 0);
+		RETURN_ZVAL(&ctx->path_params, 1, 0);
 	} else {
 		zval *val = zend_symtable_str_find(Z_ARRVAL_P(params), name, name_len);
 		if (val) {
