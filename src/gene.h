@@ -20,7 +20,7 @@
  extern zend_module_entry gene_module_entry;
  #define phpext_gene_ptr &gene_module_entry
  
- #define PHP_GENE_VERSION "5.5.5"
+ #define PHP_GENE_VERSION "5.5.6"
  
  #ifdef PHP_WIN32
  #	define PHP_GENE_API __declspec(dllexport)
@@ -107,7 +107,13 @@
 	 size_t action_len;
 	 size_t lang_len;
 	 size_t child_views_len;
-	 zval *path_params;
+	 /* [GENE_MEM:2026-04-24] path_params is now an inline zval (was a heap
+	  * pointer). Previously every request burned 1x emalloc(sizeof(zval)) +
+	  * 1x efree plus pointer chasing to reach the HashTable. The outer zval
+	  * now lives with the context struct; only the backing HashTable is
+	  * heap-allocated (via array_init). Consumers must use &ctx->path_params
+	  * everywhere a zval* is needed. */
+	 zval path_params;
 	 zval request_attr;
 	 zval di_regs;
 	 zval view_vars;
@@ -169,6 +175,15 @@ zend_bool swoole_co_exists_resolved;
  * a sweep (exists() check + insertion-order fallback) in the slow path of
  * gene_request_ctx(). Configurable via gene.co_contexts_max ini. */
 zend_long co_contexts_max;
+/* [GENE_PERF:2026-04-24] Free-list of recycled gene_request_context structs.
+ * Populated by gene_co_context_dtor() and consumed by gene_request_ctx() slow
+ * path when spawning a new coroutine context. Bounds request-cycle allocator
+ * traffic to ~zero under steady-state Swoole load: one ecalloc amortized over
+ * thousands of request scopes. Pool is capped via gene.ctx_pool_max (default
+ * 256) and fully drained in MSHUTDOWN / worker exit. */
+void *ctx_pool_head;
+zend_long ctx_pool_size;
+zend_long ctx_pool_max;
 zend_bool autoload_registered;
 zend_bool worker_ready;
 HashTable *fn_cache;
@@ -186,6 +201,10 @@ void gene_request_context_destroy(gene_request_context *ctx);
 zend_long gene_get_coroutine_id(void);
 void gene_init_co_contexts(void);
 void gene_co_contexts_sweep(void);
+/* [GENE_PERF:2026-04-24] Struct pool helpers (Swoole-only hot path). */
+gene_request_context *gene_request_context_pool_acquire(void);
+void gene_request_context_pool_release(gene_request_context *ctx);
+void gene_request_context_pool_drain(void);
  
  #define GENE_REQ(v) (gene_request_ctx()->v)
 

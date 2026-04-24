@@ -699,9 +699,9 @@ PHP_METHOD(gene_application, params) {
 	}
 
 	ctx = gene_request_ctx();
-	params = ctx->path_params;
+	params = &ctx->path_params;
 	if (name_len == 0) {
-		RETURN_ZVAL(ctx->path_params, 1, 0);
+		RETURN_ZVAL(&ctx->path_params, 1, 0);
 	} else {
 		zval *val = zend_symtable_str_find(Z_ARRVAL_P(params), name, name_len);
 		if (val) {
@@ -888,7 +888,8 @@ PHP_METHOD(gene_application, destroyContext) {
 				gene_request_context *tmp = GENE_G(resident_ctx);
 				GENE_G(resident_ctx) = NULL;
 				gene_request_context_destroy(tmp);
-				efree(tmp);
+				/* [GENE_PERF:2026-04-24] Recycle through the pool. */
+				gene_request_context_pool_release(tmp);
 			}
 			RETURN_TRUE;
 		}
@@ -907,11 +908,11 @@ PHP_METHOD(gene_application, destroyContext) {
  * {{{ public gene_application::cleanup()
  * Combined clearState + destroyContext for Swoole mode.
  * Phase 1: destroy context fields (free user data, triggers object destructors
- *          while context struct is still alive). Uses destroy instead of reset
- *          to avoid a wasteful path_params re-allocation that the dtor would
- *          immediately free again — eliminating ~80 bytes of ZMM churn per request.
- * Phase 2: remove the now-empty context from co_contexts
- *          (dtor only efree's the struct, all fields already NULL/UNDEF).
+ *          while context struct is still alive).
+ * Phase 2: remove the now-empty context from co_contexts. The dtor
+ *          [GENE_PERF:2026-04-24] now recycles the struct through the
+ *          bounded struct pool (gene_request_context_pool_release) instead
+ *          of efree'ing — so the next coroutine spawn skips ecalloc entirely.
  * In FPM mode: behaves identically to clearState() alone.
  */
 PHP_METHOD(gene_application, cleanup) {
@@ -952,7 +953,8 @@ PHP_METHOD(gene_application, cleanup) {
 				gene_request_context *tmp = GENE_G(resident_ctx);
 				GENE_G(resident_ctx) = NULL;
 				gene_request_context_destroy(tmp);
-				efree(tmp);
+				/* [GENE_PERF:2026-04-24] Recycle through the pool. */
+				gene_request_context_pool_release(tmp);
 			}
 		}
 	} else {

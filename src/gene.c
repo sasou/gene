@@ -73,6 +73,7 @@ STD_PHP_INI_BOOLEAN("gene.view_compile", "0", PHP_INI_SYSTEM, OnUpdateBool, view
 STD_PHP_INI_BOOLEAN("gene.use_library", "0", PHP_INI_SYSTEM, OnUpdateBool, use_library, zend_gene_globals, gene_globals) // @suppress("Symbol is not resolved")
 STD_PHP_INI_ENTRY("gene.library_root", "", PHP_INI_SYSTEM, OnUpdateString, library_root, zend_gene_globals, gene_globals) // @suppress("Symbol is not resolved")
 STD_PHP_INI_ENTRY("gene.co_contexts_max", "8192", PHP_INI_SYSTEM, OnUpdateLong, co_contexts_max, zend_gene_globals, gene_globals) // @suppress("Symbol is not resolved")
+STD_PHP_INI_ENTRY("gene.ctx_pool_max", "256", PHP_INI_SYSTEM, OnUpdateLong, ctx_pool_max, zend_gene_globals, gene_globals) // @suppress("Symbol is not resolved")
 PHP_INI_END();
 /* }}} */
 
@@ -114,12 +115,14 @@ zend_long gene_get_coroutine_id(void) {
 }
 /* }}} */
 
-/* {{{ gene_request_context_init */
+/* {{{ gene_request_context_init
+ * [GENE_MEM:2026-04-24] path_params is now an inline zval — only the backing
+ * HashTable is heap-allocated via array_init. This removes one emalloc +
+ * one efree from every request's allocator traffic (FPM + Swoole). */
 void gene_request_context_init(gene_request_context *ctx) {
 	if (!ctx) return;
 	memset(ctx, 0, sizeof(gene_request_context));
-	ctx->path_params = (zval*) emalloc(sizeof(zval));
-	array_init(ctx->path_params);
+	array_init(&ctx->path_params);
 	ZVAL_UNDEF(&ctx->request_attr);
 	ZVAL_UNDEF(&ctx->di_regs);
 	ZVAL_UNDEF(&ctx->view_vars);
@@ -134,28 +137,36 @@ void gene_request_context_init(gene_request_context *ctx) {
 }
 /* }}} */
 
-/* {{{ gene_request_context_reset_path_params */
-static void gene_request_context_reset_path_params(gene_request_context *ctx) {
+/* {{{ gene_request_context_reset_path_params
+ * [GENE_MEM:2026-04-24] With path_params inlined, reset is always an in-place
+ * HashTable clean — no emalloc branch, no pointer indirection. */
+static zend_always_inline void gene_request_context_reset_path_params(gene_request_context *ctx) {
 	zval *pp;
-	if (!ctx) return;
-	pp = ctx->path_params;
-	if (!pp) {
-		ctx->path_params = (zval*) emalloc(sizeof(zval));
-		array_init(ctx->path_params);
+	if (UNEXPECTED(!ctx)) return;
+	pp = &ctx->path_params;
+	if (EXPECTED(Z_TYPE_P(pp) == IS_ARRAY)) {
+		/* Fast path: live array → just clear entries. If the backing
+		 * HashTable has grown huge (e.g. a prior request stuffed 10k+
+		 * params into it), drop it entirely so the next array_init
+		 * starts at the minimum bucket footprint. Keeps Swoole worker
+		 * RSS bounded across pathological requests. */
+		if (UNEXPECTED(Z_ARRVAL_P(pp)->nTableSize > 128)) {
+			zval_ptr_dtor(pp);
+			array_init(pp);
+			return;
+		}
+		zend_hash_clean(Z_ARRVAL_P(pp));
 		return;
 	}
-	if (Z_TYPE_P(pp) != IS_ARRAY) {
+	if (Z_TYPE_P(pp) != IS_UNDEF) {
 		zval_ptr_dtor(pp);
-		array_init(pp);
-		return;
 	}
-	zend_hash_clean(Z_ARRVAL_P(pp));
+	array_init(pp);
 }
 /* }}} */
 
 /* {{{ gene_request_context_free_fields - shared cleanup for reset/destroy */
 static void gene_request_context_free_fields(gene_request_context *ctx, int preserve_path_params) {
-	zval *pp;
 	if (ctx->method) { efree(ctx->method); ctx->method = NULL; }
 	ctx->method_len = 0;
 	if (ctx->path) { efree(ctx->path); ctx->path = NULL; }
@@ -174,9 +185,12 @@ static void gene_request_context_free_fields(gene_request_context *ctx, int pres
 	ctx->lang_len = 0;
 	if (ctx->log_file) { efree(ctx->log_file); ctx->log_file = NULL; }
 	if (!preserve_path_params) {
-		pp = ctx->path_params;
-		ctx->path_params = NULL;
-		if (pp) { zval_ptr_dtor(pp); efree(pp); }
+		/* [GENE_MEM:2026-04-24] Inlined path_params: dtor the HashTable
+		 * only; the zval container itself lives with the struct. */
+		if (Z_TYPE(ctx->path_params) != IS_UNDEF) {
+			zval_ptr_dtor(&ctx->path_params);
+			ZVAL_UNDEF(&ctx->path_params);
+		}
 	}
 	if (Z_TYPE(ctx->request_attr) != IS_UNDEF) {
 		zval_ptr_dtor(&ctx->request_attr);
@@ -227,6 +241,86 @@ void gene_request_context_destroy(gene_request_context *ctx) {
 }
 /* }}} */
 
+/* {{{ gene_request_context_pool_*
+ * [GENE_PERF:2026-04-24] Bounded free-list of cleared gene_request_context
+ * structs. Singly-linked via the struct's path_params.value.ptr slot, which
+ * is guaranteed UNDEF at release time (free_fields clears it). Only used by
+ * the Swoole coroutine hot path; FPM default_ctx is a singleton and never
+ * enters the pool.
+ *
+ * Steady-state cost:
+ *   - Acquire: 1 load + 1 branch + 1 store (no syscall, no emalloc).
+ *   - Release: 1 load + 1 compare + 2 stores (no efree).
+ *
+ * Worst-case bound: ctx_pool_max (default 256) * sizeof(gene_request_context)
+ * ≈ 256 * ~320B ≈ 80KB per worker — negligible vs. a typical Swoole worker's
+ * RSS. Pool overflow falls back to efree so memory never leaks. */
+static zend_always_inline void **gene_ctx_pool_next_slot(gene_request_context *ctx) {
+	/* Reuse path_params.value.ptr as the free-list link. Safe because a
+	 * released context has path_params.u1.v.type == IS_UNDEF (ptr slot is
+	 * scratch storage for the dead zval). */
+	return (void **)&Z_PTR(ctx->path_params);
+}
+
+gene_request_context *gene_request_context_pool_acquire(void) {
+	gene_request_context *ctx = (gene_request_context *)GENE_G(ctx_pool_head);
+	if (ctx) {
+		void **slot = gene_ctx_pool_next_slot(ctx);
+		GENE_G(ctx_pool_head) = *slot;
+		if (GENE_G(ctx_pool_size) > 0) {
+			GENE_G(ctx_pool_size)--;
+		}
+		*slot = NULL;
+		/* All fields are already in their post-destroy state
+		 * (NULL/UNDEF). Rebuild the invariants init() guarantees. */
+		array_init(&ctx->path_params);
+		ZVAL_UNDEF(&ctx->request_attr);
+		ZVAL_UNDEF(&ctx->di_regs);
+		ZVAL_UNDEF(&ctx->view_vars);
+		ZVAL_UNDEF(&ctx->db_mysql_history);
+		ZVAL_UNDEF(&ctx->db_pgsql_history);
+		ZVAL_UNDEF(&ctx->db_sqlite_history);
+		ZVAL_UNDEF(&ctx->db_mssql_history);
+		ctx->view_scope_no = 0;
+		ctx->log_level = 0;
+		ctx->log_level_set = 0;
+		return ctx;
+	}
+	ctx = ecalloc(1, sizeof(gene_request_context));
+	gene_request_context_init(ctx);
+	return ctx;
+}
+
+void gene_request_context_pool_release(gene_request_context *ctx) {
+	zend_long cap;
+	void **slot;
+	if (!ctx) return;
+	cap = GENE_G(ctx_pool_max) > 0 ? GENE_G(ctx_pool_max) : 256;
+	if (GENE_G(ctx_pool_size) >= cap) {
+		/* Pool full: free outright. All fields already cleared by the
+		 * caller via gene_request_context_destroy(). */
+		efree(ctx);
+		return;
+	}
+	slot = gene_ctx_pool_next_slot(ctx);
+	*slot = GENE_G(ctx_pool_head);
+	GENE_G(ctx_pool_head) = ctx;
+	GENE_G(ctx_pool_size)++;
+}
+
+void gene_request_context_pool_drain(void) {
+	void *head = GENE_G(ctx_pool_head);
+	while (head) {
+		gene_request_context *ctx = (gene_request_context *)head;
+		void **slot = gene_ctx_pool_next_slot(ctx);
+		head = *slot;
+		efree(ctx);
+	}
+	GENE_G(ctx_pool_head) = NULL;
+	GENE_G(ctx_pool_size) = 0;
+}
+/* }}} */
+
 /* {{{ gene_co_context_dtor - destructor for co_contexts HashTable entries */
 static void gene_co_context_dtor(zval *zv) {
 	gene_request_context *ctx = (gene_request_context *)Z_PTR_P(zv);
@@ -237,7 +331,10 @@ static void gene_co_context_dtor(zval *zv) {
 			GENE_G(current_vm_stack) = NULL;
 		}
 		gene_request_context_destroy(ctx);
-		efree(ctx);
+		/* [GENE_PERF:2026-04-24] Recycle the struct through the pool to
+		 * amortize allocator traffic across the next wave of coroutines.
+		 * Overflow naturally falls back to efree inside _release(). */
+		gene_request_context_pool_release(ctx);
 	}
 }
 /* }}} */
@@ -403,8 +500,7 @@ gene_request_context *gene_request_ctx(void) {
 	gene_init_co_contexts();
 	if (UNEXPECTED(cid < 0)) {
 		if (!GENE_G(resident_ctx)) {
-			GENE_G(resident_ctx) = ecalloc(1, sizeof(gene_request_context));
-			gene_request_context_init(GENE_G(resident_ctx));
+			GENE_G(resident_ctx) = gene_request_context_pool_acquire();
 		}
 		GENE_G(current_cid) = -2;
 		GENE_G(current_ctx) = GENE_G(resident_ctx);
@@ -422,8 +518,10 @@ gene_request_context *gene_request_ctx(void) {
 			&& (zend_long)zend_hash_num_elements(GENE_G(co_contexts)) >= GENE_G(co_contexts_max))) {
 			gene_co_contexts_sweep();
 		}
-		ctx = ecalloc(1, sizeof(gene_request_context));
-		gene_request_context_init(ctx);
+		/* [GENE_PERF:2026-04-24] Acquire from the struct pool when available;
+		 * ecalloc only when the pool is empty. In Swoole steady state this
+		 * eliminates the per-coroutine-spawn allocator round trip. */
+		ctx = gene_request_context_pool_acquire();
 		zend_hash_index_update_ptr(GENE_G(co_contexts), (zend_ulong)cid, ctx);
 	}
 	GENE_G(current_cid) = cid;
@@ -455,6 +553,9 @@ static void php_gene_init_globals() {
 	GENE_G(swoole_getcid_resolved) = 0;
 	GENE_G(swoole_co_exists_func) = NULL;
 	GENE_G(swoole_co_exists_resolved) = 0;
+	/* [GENE_PERF:2026-04-24] Context struct pool init. */
+	GENE_G(ctx_pool_head) = NULL;
+	GENE_G(ctx_pool_size) = 0;
 	GENE_G(autoload_registered) = 0;
 	GENE_G(worker_ready) = 0;
 	GENE_G(fn_cache) = NULL;
@@ -508,13 +609,19 @@ static void php_gene_close_request_globals() {
 		gene_request_context *tmp = GENE_G(resident_ctx);
 		GENE_G(resident_ctx) = NULL;
 		gene_request_context_destroy(tmp);
-		efree(tmp);
+		/* [GENE_PERF:2026-04-24] Route through pool too — resident_ctx may
+		 * live across many lightweight calls in Swoole/Coroutine mode. */
+		gene_request_context_pool_release(tmp);
 	}
 	if (GENE_G(co_contexts)) {
 		zend_hash_destroy(GENE_G(co_contexts));
 		FREE_HASHTABLE(GENE_G(co_contexts));
 		GENE_G(co_contexts) = NULL;
 	}
+	/* [GENE_PERF:2026-04-24] Drain the struct pool on RSHUTDOWN for FPM so
+	 * request-scoped memory is fully reclaimed. In Swoole mode RSHUTDOWN
+	 * fires once at worker exit — same semantic. */
+	gene_request_context_pool_drain();
 }
 /* }}} */
 
@@ -621,7 +728,10 @@ PHP_MSHUTDOWN_FUNCTION(gene) {
  * {{{ PHP_RINIT_FUNCTION
  */
 PHP_RINIT_FUNCTION(gene) {
-	if (!GENE_G(default_ctx).path_params) {
+	/* [GENE_MEM:2026-04-24] default_ctx is zero-initialized by
+	 * php_gene_init_globals(); its inline path_params is IS_UNDEF until
+	 * init() populates it. */
+	if (Z_TYPE(GENE_G(default_ctx).path_params) == IS_UNDEF) {
 		gene_request_context_init(&GENE_G(default_ctx));
 	} else {
 		gene_request_context_reset(&GENE_G(default_ctx));
