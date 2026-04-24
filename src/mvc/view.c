@@ -528,6 +528,9 @@ zval *gene_view_get_vars() {
 
 /*
  *  {{{ int gene_view_set_vars(zend_string *name, zval *value)
+ * [GENE_PERF:2026-04-24 v5.5.8] Pre-size both HashTables to amortize the
+ * common 5-20 vars per scope / 1-3 scopes per render. Avoids default-8 initial
+ * grow on the 9th assign() call for modestly-sized templates.
  */
 int gene_view_set_vars(zend_string *name, zval *value) {
 	gene_request_context *ctx = gene_request_ctx();
@@ -536,8 +539,8 @@ int gene_view_set_vars(zend_string *name, zval *value) {
 
 	if (Z_TYPE_P(vars) != IS_ARRAY) {
 		zval params, nodata_tmp;
-		array_init(&params);
-		array_init(&nodata_tmp);
+		array_init_size(&params, 4);        /* scopes: usually 1, rarely > 4 */
+		array_init_size(&nodata_tmp, 16);   /* vars per scope: typical 5-20 */
 		Z_TRY_ADDREF_P(value);
 		zend_hash_update(Z_ARRVAL(nodata_tmp), name, value);
 		zend_hash_index_update(Z_ARRVAL(params), num, &nodata_tmp);
@@ -546,7 +549,7 @@ int gene_view_set_vars(zend_string *name, zval *value) {
 		nodata = zend_hash_index_find(Z_ARRVAL_P(vars), num);
 		if (nodata == NULL || Z_TYPE_P(nodata) != IS_ARRAY) {
 			zval nodata_tmp;
-			array_init(&nodata_tmp);
+			array_init_size(&nodata_tmp, 16);
 			Z_TRY_ADDREF_P(value);
 			zend_hash_update(Z_ARRVAL(nodata_tmp), name, value);
 			zend_hash_index_update(Z_ARRVAL_P(vars), num, &nodata_tmp);

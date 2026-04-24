@@ -243,15 +243,26 @@ void gene_memory_hash_copy_local(HashTable *target, HashTable *source) /* {{{ */
 	zend_string *key;
 	zend_long idx;
 	zval *element;
-	zend_string *str_key = NULL;
 	ZEND_HASH_FOREACH_KEY_VAL(source, idx, key, element)
 	{
 		zval rv;
 		gene_memory_zval_local(&rv, element);
 		if (key) {
-			str_key = zend_string_init(ZSTR_VAL(key), ZSTR_LEN(key), 0);
-			zend_symtable_update(target, str_key, &rv);
-			zend_string_release(str_key);
+			/* [GENE_PERF:2026-04-24 v5.5.8] Persistent cache keys are created
+			 * via gene_str_persistent() which sets IS_STR_INTERNED|IS_STR_PERMANENT.
+			 * PHP's hash_update/zend_string_release on such strings is a safe
+			 * no-op for refcount management, so we can hand the persistent
+			 * zend_string directly to the request-scope HashTable instead of
+			 * rebuilding a fresh request-scope copy via zend_string_init.
+			 * Saves one emalloc+memcpy per hash entry on every config read,
+			 * DI graph traversal, and Memory::get() on array values. */
+			if (GC_FLAGS(key) & IS_STR_INTERNED) {
+				zend_symtable_update(target, key, &rv);
+			} else {
+				zend_string *str_key = zend_string_init(ZSTR_VAL(key), ZSTR_LEN(key), 0);
+				zend_symtable_update(target, str_key, &rv);
+				zend_string_release(str_key);
+			}
 		} else {
 			zend_hash_index_update(target, idx, &rv);
 		}
@@ -260,14 +271,29 @@ void gene_memory_hash_copy_local(HashTable *target, HashTable *source) /* {{{ */
 
 zval *gene_memory_zval_local(zval *dst, zval *source) /* {{{ */
 {
-	zend_string *str_key = NULL;
 	switch (Z_TYPE_P(source)) {
 	case IS_STRING:
-		str_key = zend_string_init(Z_STRVAL_P(source), Z_STRLEN_P(source), 0);
-		ZVAL_NEW_STR(dst, str_key);
+		/* [GENE_PERF:2026-04-24 v5.5.8] Persistent cache entries are stored
+		 * as interned (IS_STR_INTERNED|IS_STR_PERMANENT) zend_strings. Share
+		 * the interned pointer into the request scope via ZVAL_STR — no ref
+		 * bump, no emalloc. The request-scope zval_ptr_dtor that eventually
+		 * frees this container is a no-op for interned strings (the string
+		 * header bypasses refcount release). This removes one emalloc +
+		 * memcpy per string value returned from Gene\Memory::get,
+		 * Gene\Application::config, and every DI/service config read, which
+		 * in the DI-heavy path compounds across dozens of entries per req.
+		 * Non-interned strings (shouldn't happen for values built via
+		 * gene_memory_zval_persistent, but defensive here) fall through to
+		 * the old-style fresh-copy path. */
+		if (EXPECTED(GC_FLAGS(Z_STR_P(source)) & IS_STR_INTERNED)) {
+			ZVAL_STR(dst, Z_STR_P(source));
+		} else {
+			zend_string *str_key = zend_string_init(Z_STRVAL_P(source), Z_STRLEN_P(source), 0);
+			ZVAL_NEW_STR(dst, str_key);
+		}
 		break;
 	case IS_ARRAY:
-		array_init(dst);
+		array_init_size(dst, zend_hash_num_elements(Z_ARRVAL_P(source)));
 		gene_memory_hash_copy_local(Z_ARRVAL_P(dst), Z_ARRVAL_P(source));
 		break;
 	case IS_TRUE:
@@ -334,9 +360,49 @@ zval * gene_memory_get(char *keyString, size_t keyString_len) {
 /* [GENE_PERF:2026-04-19] gene_memory_get_quick is now a macro in memory.h
  * (collapsed to gene_memory_get) — no function definition needed here. */
 
+/** {{{ void gene_memory_get_triple(...)
+ * [GENE_PERF:2026-04-24 v5.5.8] Single-lock batched lookup of up to three
+ * persistent-cache keys. Used by the router dispatch hot path which previously
+ * issued three back-to-back gene_memory_get_quick() calls — each taking and
+ * releasing the cache rwlock independently. On ZTS / worker_ready==0 Swoole
+ * builds that's 3× the atomic-contention footprint for a purely read-only
+ * operation. Merging them into a single RDLOCK span reduces contended atomic
+ * ops by 3× without changing correctness (all three reads observe the same
+ * consistent snapshot of GENE_G(cache)).
+ *
+ * Any of out1/out2/out3 may be NULL for unused slots. Keys of length 0 are
+ * likewise skipped. */
+void gene_memory_get_triple(
+	const char *k1, size_t k1_len, zval **out1,
+	const char *k2, size_t k2_len, zval **out2,
+	const char *k3, size_t k3_len, zval **out3)
+{
+	HashTable *ht;
+	GENE_CACHE_RDLOCK();
+	ht = GENE_G(cache);
+	if (out1) {
+		*out1 = (k1 && k1_len) ? zend_symtable_str_find(ht, (char *)k1, k1_len) : NULL;
+	}
+	if (out2) {
+		*out2 = (k2 && k2_len) ? zend_symtable_str_find(ht, (char *)k2, k2_len) : NULL;
+	}
+	if (out3) {
+		*out3 = (k3 && k3_len) ? zend_symtable_str_find(ht, (char *)k3, k3_len) : NULL;
+	}
+	GENE_CACHE_RDUNLOCK();
+}
+/* }}} */
+
 /** {{{ zval * gene_memory_get_by_config(char *keyString, int keyString_len,char *path)
  * [GENE_AUDIT:2026-03-25] Returns pointer to nested value inside persistent cache.
  * Same safety invariant as gene_memory_get — persistent cache is write-once at startup.
+ * [GENE_PERF:2026-04-24 v5.5.8] Walk the nested HashTable chain *outside* the
+ * rwlock. We only need the lock to fetch the top-level entry pointer; once
+ * obtained it remains valid under the documented write-once-at-startup
+ * invariant, so there's no reason to hold the rwlock while doing strtok +
+ * O(depth) hash lookups. For a 3-4 segment config path (e.g. `db/mysql/host`)
+ * this halves the average lock hold time and moves strtok / string copy
+ * entirely off the critical section — a sizable win under high concurrency.
  */
 zval * gene_memory_get_by_config(char *keyString, size_t keyString_len, char *path) {
 	char *ptr = NULL, *seg = NULL;
@@ -348,39 +414,41 @@ zval * gene_memory_get_by_config(char *keyString, size_t keyString_len, char *pa
 
 	GENE_CACHE_RDLOCK();
 	copyval = zend_symtable_str_find(GENE_G(cache), keyString, keyString_len);
-	if (copyval) {
-		tmp = copyval;
-		if (path != NULL) {
-			size_t path_len = strlen(path);
-			if (path_len < sizeof(path_stack)) {
-				memcpy(path_stack, path, path_len + 1);
-				path_copy = path_stack;
-			} else {
-				path_copy = estrndup(path, path_len);
-				path_heap = 1;
-			}
-			seg = php_strtok_r(path_copy, "/", &ptr);
-			while (seg) {
-				if (Z_TYPE_P(tmp) != IS_ARRAY) {
-					if (path_heap) efree(path_copy);
-					GENE_CACHE_RDUNLOCK();
-					return NULL;
-				}
-				tmp = zend_symtable_str_find(Z_ARRVAL_P(tmp), seg, strlen(seg));
-				if (tmp == NULL) {
-					if (path_heap) efree(path_copy);
-					GENE_CACHE_RDUNLOCK();
-					return NULL;
-				}
-				seg = php_strtok_r(NULL, "/", &ptr);
-			}
-			if (path_heap) efree(path_copy);
-		}
-		GENE_CACHE_RDUNLOCK();
-		return tmp;
-	}
 	GENE_CACHE_RDUNLOCK();
-	return NULL;
+
+	if (!copyval) {
+		return NULL;
+	}
+	if (path == NULL) {
+		return copyval;
+	}
+
+	tmp = copyval;
+	{
+		size_t path_len = strlen(path);
+		if (path_len < sizeof(path_stack)) {
+			memcpy(path_stack, path, path_len + 1);
+			path_copy = path_stack;
+		} else {
+			path_copy = estrndup(path, path_len);
+			path_heap = 1;
+		}
+	}
+	seg = php_strtok_r(path_copy, "/", &ptr);
+	while (seg) {
+		if (Z_TYPE_P(tmp) != IS_ARRAY) {
+			if (path_heap) efree(path_copy);
+			return NULL;
+		}
+		tmp = zend_symtable_str_find(Z_ARRVAL_P(tmp), seg, strlen(seg));
+		if (tmp == NULL) {
+			if (path_heap) efree(path_copy);
+			return NULL;
+		}
+		seg = php_strtok_r(NULL, "/", &ptr);
+	}
+	if (path_heap) efree(path_copy);
+	return tmp;
 }
 /* }}} */
 

@@ -54,6 +54,14 @@ zval * gene_memory_get(char *keyString, size_t keyString_len);
  * the hottest router dispatch path (router_tree/router_event/router_conf lookups
  * per request). Signature preserved for source-level compatibility. */
 #define gene_memory_get_quick(k, l) gene_memory_get((k), (l))
+/* [GENE_PERF:2026-04-24 v5.5.8] Batched single-lock lookup for the 3 consecutive
+ * persistent-cache reads that happen on every router dispatch (tree/event/conf).
+ * Reduces 3× RDLOCK/RDUNLOCK atomics to 1× under ZTS and under non-ZTS prior to
+ * workerReady(). Any out1/out2/out3 may be NULL if not needed. */
+void gene_memory_get_triple(
+	const char *k1, size_t k1_len, zval **out1,
+	const char *k2, size_t k2_len, zval **out2,
+	const char *k3, size_t k3_len, zval **out3);
 zval * gene_memory_get_by_config(char *keyString, size_t keyString_len,char *path);
 void gene_memory_set_by_router(char *keyString, size_t keyString_len, char *path, zval *zvalue, int validity);
 zend_long gene_memory_getTime(char *keyString, size_t keyString_len);
