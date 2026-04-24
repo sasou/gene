@@ -83,4 +83,20 @@ class Memory
      * @return bool
      */
     public function clean() {}
+
+    /**
+     * stats
+     * 获取共享内存统计信息
+     *
+     * @return array{
+     *     cache_items: int,        // 主缓存项数量
+     *     cache_easy_items: int,   // 简单缓存项数量
+     *     fn_cache_items: int,     // 闭包路由分发缓存项数量
+     *     co_contexts_items: int,  // 存活的 Swoole 协程上下文数量
+     *     co_contexts_max: int,    // 配置的软上限
+     *     ctx_pool_size: int,      // 回收的上下文结构池大小
+     *     ctx_pool_max: int       // 池容量
+     * }
+     */
+    public function stats() {}
 }

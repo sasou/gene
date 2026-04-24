@@ -27,10 +27,9 @@ class Response
      * JavaScript 跳转
      *
      * @param string $url url
-     * @param int $code code
      * @return mixed
      */
-    public static function redirectJs($url, $code = null) {
+    public static function redirectJs($url) {
 
     }
 
@@ -48,22 +47,22 @@ class Response
     /**
      * success
      * 
-     * @param mixed $msg msg
-     * @param mixed $code code
+     * @param string $msg msg
+     * @param int $code code
      * @return mixed
      */
-    public static function success($msg, $code = null) {
+    public static function success($msg, $code = 2000) {
 
     }
 
     /**
      * error
      * 
-     * @param mixed $msg msg
-     * @param mixed $code code
+     * @param string $msg msg
+     * @param int $code code
      * @return mixed
      */
-    public static function error($msg, $code = null) {
+    public static function error($msg, $code = 4000) {
 
     }
 
