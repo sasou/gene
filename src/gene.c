@@ -74,6 +74,7 @@ STD_PHP_INI_BOOLEAN("gene.use_library", "0", PHP_INI_SYSTEM, OnUpdateBool, use_l
 STD_PHP_INI_ENTRY("gene.library_root", "", PHP_INI_SYSTEM, OnUpdateString, library_root, zend_gene_globals, gene_globals) // @suppress("Symbol is not resolved")
 STD_PHP_INI_ENTRY("gene.co_contexts_max", "8192", PHP_INI_SYSTEM, OnUpdateLong, co_contexts_max, zend_gene_globals, gene_globals) // @suppress("Symbol is not resolved")
 STD_PHP_INI_ENTRY("gene.ctx_pool_max", "256", PHP_INI_SYSTEM, OnUpdateLong, ctx_pool_max, zend_gene_globals, gene_globals) // @suppress("Symbol is not resolved")
+STD_PHP_INI_ENTRY("gene.ctx_pool_prewarm", "0", PHP_INI_SYSTEM, OnUpdateLong, ctx_pool_prewarm, zend_gene_globals, gene_globals) // @suppress("Symbol is not resolved")
 PHP_INI_END();
 /* }}} */
 
@@ -223,6 +224,18 @@ static void gene_request_context_free_fields(gene_request_context *ctx, int pres
 	ctx->log_level = 0;
 	ctx->log_level_set = 0;
 	ctx->view_scope_no = 0;
+	/* [GENE_MEM:2026-04-24 #2] Reset Benchmark fields too. Previously these
+	 * 4 inline scalars were left with the prior request's values after
+	 * reset, so in Swoole where the same ctx is reused across many
+	 * requests / coroutines Gene\Benchmark::time()/memory() could report
+	 * bleed from the previous request when benchmark::start() was not
+	 * called by the current handler. Scalars → unconditional clears. */
+	ctx->bench_start.tv_sec = 0;
+	ctx->bench_start.tv_usec = 0;
+	ctx->bench_end.tv_sec = 0;
+	ctx->bench_end.tv_usec = 0;
+	ctx->bench_memory_start = 0;
+	ctx->bench_memory_end = 0;
 }
 /* }}} */
 
@@ -319,6 +332,46 @@ void gene_request_context_pool_drain(void) {
 	GENE_G(ctx_pool_head) = NULL;
 	GENE_G(ctx_pool_size) = 0;
 }
+
+/* {{{ gene_request_context_pool_prewarm
+ * [GENE_PERF:2026-04-24 #2] Populate the context pool up to `count` entries
+ * (bounded by ctx_pool_max). Contexts are built in the "already-destroyed"
+ * steady state — all zvals UNDEF, all string pointers NULL — so the next
+ * acquire skips zero-init and only pays for path_params' array_init.
+ *
+ * Idempotent: safe to call repeatedly; only tops up the delta.
+ * Swoole workflow:
+ *   Server::onWorkerStart { \Gene\Application::getInstance()->prewarmCtxPool(); }
+ * absorbs the cold-start allocator pressure BEFORE the first request hits.
+ *
+ * FPM mode is a no-op: default_ctx is a singleton that doesn't use the pool.
+ */
+zend_long gene_request_context_pool_prewarm(zend_long count) {
+	zend_long cap;
+	zend_long added = 0;
+	gene_request_context *ctx;
+	void **slot;
+
+	if (GENE_G(runtime_type) < 2) {
+		return 0;
+	}
+	cap = GENE_G(ctx_pool_max) > 0 ? GENE_G(ctx_pool_max) : 256;
+	if (count <= 0 || count > cap) {
+		count = cap;
+	}
+	while (GENE_G(ctx_pool_size) < count) {
+		ctx = (gene_request_context *)ecalloc(1, sizeof(gene_request_context));
+		/* The struct is zero-memset by ecalloc; all zvals are IS_UNDEF
+		 * (type=0), all string pointers NULL, all scalars 0 — exactly
+		 * the post-destroy() invariant the acquire path expects. */
+		slot = gene_ctx_pool_next_slot(ctx);
+		*slot = GENE_G(ctx_pool_head);
+		GENE_G(ctx_pool_head) = ctx;
+		GENE_G(ctx_pool_size)++;
+		added++;
+	}
+	return added;
+}
 /* }}} */
 
 /* {{{ gene_co_context_dtor - destructor for co_contexts HashTable entries */
@@ -343,7 +396,9 @@ static void gene_co_context_dtor(zval *zv) {
 void gene_init_co_contexts(void) {
 	if (!GENE_G(co_contexts)) {
 		ALLOC_HASHTABLE(GENE_G(co_contexts));
-		zend_hash_init(GENE_G(co_contexts), 8, NULL, gene_co_context_dtor, 0);
+		/* [GENE_PERF:2026-04-24 #2] 8 → 32 to skip rehashes on the first
+		 * wave of Swoole coroutines. See RINIT for detailed rationale. */
+		zend_hash_init(GENE_G(co_contexts), 32, NULL, gene_co_context_dtor, 0);
 	}
 }
 /* }}} */
@@ -556,6 +611,9 @@ static void php_gene_init_globals() {
 	/* [GENE_PERF:2026-04-24] Context struct pool init. */
 	GENE_G(ctx_pool_head) = NULL;
 	GENE_G(ctx_pool_size) = 0;
+	/* ctx_pool_prewarm is populated by PHP_INI loader before MINIT, so do
+	 * NOT zero it here — doing so would clobber the user's php.ini value.
+	 * (Leaving the field alone is safe: globals are zeroed by GINIT.) */
 	GENE_G(autoload_registered) = 0;
 	GENE_G(worker_ready) = 0;
 	GENE_G(fn_cache) = NULL;
@@ -739,10 +797,23 @@ PHP_RINIT_FUNCTION(gene) {
 	if (GENE_G(runtime_type) >= 2) {
 		if (!GENE_G(co_contexts)) {
 			ALLOC_HASHTABLE(GENE_G(co_contexts));
-			zend_hash_init(GENE_G(co_contexts), 8, NULL, gene_co_context_dtor, 0);
+			/* [GENE_PERF:2026-04-24 #2] Increased from 8 → 32. Early-phase
+			 * Swoole workers immediately hit multiple coroutines; pre-sizing
+			 * at 32 skips 2 rehashes on the first wave (8→16→32) for typical
+			 * HTTP services, at a one-time cost of a few hundred extra bytes
+			 * of HT bucket storage per worker. */
+			zend_hash_init(GENE_G(co_contexts), 32, NULL, gene_co_context_dtor, 0);
 		}
 		if (GENE_G(resident_ctx)) {
 			gene_request_context_reset(GENE_G(resident_ctx));
+		}
+		/* [GENE_PERF:2026-04-24 #2] Auto pre-warm the ctx struct pool on the
+		 * first RINIT after MINIT. This is a one-shot: subsequent requests
+		 * find ctx_pool_size > 0 and skip immediately. The guard is cheap
+		 * (one load) so the steady-state cost is zero. */
+		if (UNEXPECTED(GENE_G(ctx_pool_prewarm) > 0
+				&& GENE_G(ctx_pool_size) == 0)) {
+			gene_request_context_pool_prewarm(GENE_G(ctx_pool_prewarm));
 		}
 	}
 	GENE_G(current_ctx) = NULL;
