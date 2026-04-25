@@ -46,6 +46,7 @@ typedef struct _filenode filenode;
 extern zend_class_entry *gene_memory_ce;
 
 void gene_memory_init();
+int gene_memory_write_allowed(const char *op);
 void gene_hash_destroy(HashTable *ht);
 void gene_memory_set(char *keyString, size_t keyString_len, zval *zvalue, int validity);
 zval * gene_memory_get(char *keyString, size_t keyString_len);
