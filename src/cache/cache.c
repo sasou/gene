@@ -1491,7 +1491,9 @@ PHP_METHOD(gene_cache, processCached)
 	}
 	zval data;
 	gene_cache_call(obj, args, &data);
+	GENE_CACHE_LAYER_MEMORY_WRITE_ENTER();
 	gene_memory_set(Z_STRVAL(key), Z_STRLEN(key), &data, 0);
+	GENE_CACHE_LAYER_MEMORY_WRITE_LEAVE();
 	zval_ptr_dtor(&key);
 	RETURN_ZVAL(&data, 1, 1);
 }
@@ -1522,7 +1524,9 @@ PHP_METHOD(gene_cache, unsetProcessCached)
 
 	zval key;
 	gene_cache_key(sign, 1, obj, args, ttl, &key, (int)hash_mode);
+	GENE_CACHE_LAYER_MEMORY_WRITE_ENTER();
 	RETVAL_BOOL(gene_memory_del(Z_STRVAL(key), Z_STRLEN(key)));
+	GENE_CACHE_LAYER_MEMORY_WRITE_LEAVE();
 	zval_ptr_dtor(&key);
 }
 /* }}} */
@@ -1573,7 +1577,9 @@ PHP_METHOD(gene_cache, processCachedVersion)
 			zval data_new, cur_data;
 			gene_cache_call(obj, args, &cur_data);
 			gene_cache_build_version_payload(&data_new, &cur_data, &cur_version);
+			GENE_CACHE_LAYER_MEMORY_WRITE_ENTER();
 			gene_memory_set(Z_STRVAL(key), Z_STRLEN(key), &data_new, 0);
+			GENE_CACHE_LAYER_MEMORY_WRITE_LEAVE();
 			zval_ptr_dtor(&data_new);
 			zval_ptr_dtor(&cur_version);
 			zval_ptr_dtor(&cache_key);
@@ -1590,7 +1596,9 @@ PHP_METHOD(gene_cache, processCachedVersion)
 	zval data_new, cur_data;
 	gene_cache_call(obj, args, &cur_data);
 	gene_cache_build_version_payload(&data_new, &cur_data, &cur_version);
+	GENE_CACHE_LAYER_MEMORY_WRITE_ENTER();
 	gene_memory_set(Z_STRVAL(key), Z_STRLEN(key), &data_new, 0);
+	GENE_CACHE_LAYER_MEMORY_WRITE_LEAVE();
 	zval_ptr_dtor(&data_new);
 	zval_ptr_dtor(&cur_version);
 	zval_ptr_dtor(&cache_key);
@@ -1862,7 +1870,9 @@ PHP_METHOD(gene_cache, processCachedBatch)
 		} else {
 			zval data;
 			gene_cache_call(&objs[i], &args_arr[i], &data);
+			GENE_CACHE_LAYER_MEMORY_WRITE_ENTER();
 			gene_memory_set(Z_STRVAL(keys[i]), Z_STRLEN(keys[i]), &data, 0);
+			GENE_CACHE_LAYER_MEMORY_WRITE_LEAVE();
 			add_next_index_zval(return_value, &data);
 		}
 		zval_ptr_dtor(&keys[i]);
@@ -2201,7 +2211,9 @@ PHP_METHOD(gene_cache, processCachedVersionBatch)
 		zval cur_data, data_new;
 		gene_cache_call(&objs[i], &args_arr[i], &cur_data);
 		gene_cache_build_version_payload(&data_new, &cur_data, &cur_version);
+		GENE_CACHE_LAYER_MEMORY_WRITE_ENTER();
 		gene_memory_set(Z_STRVAL(data_keys[i]), Z_STRLEN(data_keys[i]), &data_new, 0);
+		GENE_CACHE_LAYER_MEMORY_WRITE_LEAVE();
 		zval_ptr_dtor(&data_new);
 		add_next_index_zval(return_value, &cur_data);
 		zval_ptr_dtor(&data_keys[i]);

@@ -1,4 +1,4 @@
-/*
+﻿/*
  +----------------------------------------------------------------------+
  | gene                                                                 |
  +----------------------------------------------------------------------+
@@ -191,6 +191,10 @@ zend_long ctx_pool_max;
 zend_long ctx_pool_prewarm;
 zend_bool autoload_registered;
 zend_bool worker_ready;
+/* [GENE_CACHE:2026-04-25] Incremented only around Gene\\Cache (cache.c) internal
+ * gene_memory_set/del calls. Lets process-level cache fill after workerReady()
+ * without opening userland Memory::set — enter/exit must not wrap user callbacks. */
+zend_ulong cache_layer_memory_write_depth;
 HashTable *fn_cache;
 /* [GENE_MEM:2026-04-23] fn_cache_id removed. Keys are now derived from the
  * closure's zend_object->handle so re-registering the same closure doesn't
