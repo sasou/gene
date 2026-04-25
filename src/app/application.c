@@ -181,6 +181,9 @@ void load_file(char *key, size_t key_len, char *php_script, int validity) {
 	int import = 0;
 	zend_long cur, times = 0;
 	filenode *val;
+	if (UNEXPECTED(!gene_memory_write_allowed("Application::load"))) {
+		return;
+	}
 	if (key_len) {
 		val = file_cache_get_easy(key, key_len);
 		if (val) {

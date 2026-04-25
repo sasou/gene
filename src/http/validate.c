@@ -122,7 +122,9 @@ ZEND_BEGIN_ARG_INFO_EX(gene_validate_call_arginfo, 0, 0, 2)
 ZEND_END_ARG_INFO()
 
 void setFefCount(zval *arr) {
-	GC_SET_REFCOUNT(Z_ARRVAL_P(arr), 1);
+	if (EXPECTED(arr && Z_TYPE_P(arr) == IS_ARRAY)) {
+		SEPARATE_ARRAY(arr);
+	}
 }
 
 void reset_params(zval *self)
