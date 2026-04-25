@@ -165,6 +165,9 @@ void gene_memory_init() {
  * Configuration/router loading still happens before workerReady(), while FPM
  * keeps the existing per-request mutable behavior. */
 int gene_memory_write_allowed(const char *op) {
+	if (UNEXPECTED(GENE_G(cache_layer_memory_write_depth) > 0)) {
+		return 1;
+	}
 	if (UNEXPECTED(GENE_G(runtime_type) >= 2 && GENE_G(worker_ready))) {
 		php_error_docref(NULL, E_WARNING,
 			"Gene memory cache is frozen after workerReady(); %s is not allowed in Swoole request runtime",

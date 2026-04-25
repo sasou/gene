@@ -27,6 +27,15 @@
 #define GENE_CACHE_WRLOCK()    gene_rwlock_wrlock(&GENE_G(cache_lock))
 #define GENE_CACHE_WRUNLOCK()  gene_rwlock_wrunlock(&GENE_G(cache_lock))
 
+/* Internal: cache.c only — bracket each gene_memory_set/del from Cache methods.
+ * Do not span gene_cache_call() or other userland; see gene_memory_write_allowed. */
+#define GENE_CACHE_LAYER_MEMORY_WRITE_ENTER() (GENE_G(cache_layer_memory_write_depth)++)
+#define GENE_CACHE_LAYER_MEMORY_WRITE_LEAVE() do { \
+	if (GENE_G(cache_layer_memory_write_depth) > 0) { \
+		GENE_G(cache_layer_memory_write_depth)--; \
+	} \
+} while (0)
+
 #define PALLOC_HASHTABLE(ht)   do {                                                       \
 	(ht) = (HashTable*) pemalloc(sizeof(HashTable), 1);                                    \
 	if ((ht) == NULL) {                                                                   \
