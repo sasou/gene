@@ -112,7 +112,7 @@ int gene_load_import(char *path , zval *obj, zend_array *symbol_table) {
 
 		destroy_op_array(op_array);
 		efree(op_array);
-		if (!EG(exception)) {
+		if (!Z_ISUNDEF(result)) {
 			zval_ptr_dtor(&result);
 		}
 		return 1;

@@ -159,6 +159,22 @@ void gene_memory_init() {
 }
 /* }}} */
 
+/* {{{ gene_memory_write_allowed
+ * In Swoole mode workerReady() is the freeze boundary for the process-level
+ * cache: read paths may skip RDLOCK after that point, so writes must stop.
+ * Configuration/router loading still happens before workerReady(), while FPM
+ * keeps the existing per-request mutable behavior. */
+int gene_memory_write_allowed(const char *op) {
+	if (UNEXPECTED(GENE_G(runtime_type) >= 2 && GENE_G(worker_ready))) {
+		php_error_docref(NULL, E_WARNING,
+			"Gene memory cache is frozen after workerReady(); %s is not allowed in Swoole request runtime",
+			op ? op : "write");
+		return 0;
+	}
+	return 1;
+}
+/* }}} */
+
 static void gene_memory_hash_copy(HashTable *target, HashTable *source) /* {{{ */{
 	zend_string *key;
 	zend_long idx;
@@ -321,6 +337,9 @@ void gene_memory_set(char *keyString, size_t keyString_len, zval *zvalue,
 	zval *copyval, ret;
 	zend_string *key;
 	if (zvalue) {
+		if (UNEXPECTED(!gene_memory_write_allowed("Memory::set"))) {
+			return;
+		}
 		GENE_CACHE_WRLOCK();
 		copyval = zend_symtable_str_find(GENE_G(cache), keyString, keyString_len);
 		if (copyval == NULL) {
@@ -469,6 +488,9 @@ void file_cache_set_val(char *val, size_t keyString_len, zend_long times,
 		int validity) {
 	filenode n;
 	zend_string *key;
+	if (UNEXPECTED(!gene_memory_write_allowed("file cache update"))) {
+		return;
+	}
 	n.stime = time(NULL);
 	n.ftime = times;
 	n.validity = validity;
@@ -524,9 +546,27 @@ static zval * gene_memory_set_val(zval *val, char *keyString, size_t keyString_l
  */
 void gene_memory_set_by_router(char *keyString, size_t keyString_len, char *path, zval *zvalue, int validity) {
 	char *ptr = NULL, *seg = NULL;
+	char path_stack[256];
+	char *path_copy = NULL;
+	int path_heap = 0;
+	size_t path_len;
 	zval *tmp;
 	zval *copyval = NULL, ret;
 	zend_string *keyS = NULL;
+	if (UNEXPECTED(!gene_memory_write_allowed("router/config cache update"))) {
+		return;
+	}
+	if (UNEXPECTED(!path)) {
+		return;
+	}
+	path_len = strlen(path);
+	if (path_len < sizeof(path_stack)) {
+		memcpy(path_stack, path, path_len + 1);
+		path_copy = path_stack;
+	} else {
+		path_copy = estrndup(path, path_len);
+		path_heap = 1;
+	}
 	GENE_CACHE_WRLOCK();
 	copyval = zend_symtable_str_find(GENE_G(cache), keyString, keyString_len);
 	if (copyval == NULL) {
@@ -534,7 +574,7 @@ void gene_memory_set_by_router(char *keyString, size_t keyString_len, char *path
 		keyS = gene_str_persistent(keyString, keyString_len);
 		gene_symtable_update(GENE_G(cache), keyS, &ret);
 		tmp = &ret;
-		seg = php_strtok_r(path, "/", &ptr);
+		seg = php_strtok_r(path_copy, "/", &ptr);
 		while (seg) {
 			if (ptr && strlen(ptr) > 0) {
 				tmp = gene_memory_set_val(tmp, seg, strlen(seg), NULL);
@@ -545,7 +585,7 @@ void gene_memory_set_by_router(char *keyString, size_t keyString_len, char *path
 		}
 	} else {
 		tmp = copyval;
-		seg = php_strtok_r(path, "/", &ptr);
+		seg = php_strtok_r(path_copy, "/", &ptr);
 		while (seg) {
 			if (ptr && strlen(ptr) > 0) {
 				tmp = gene_memory_set_val(tmp, seg, strlen(seg), NULL);
@@ -556,6 +596,7 @@ void gene_memory_set_by_router(char *keyString, size_t keyString_len, char *path
 		}
 	}
 	GENE_CACHE_WRUNLOCK();
+	if (path_heap) efree(path_copy);
 	return;
 }
 /* }}} */
@@ -595,6 +636,9 @@ int gene_memory_del(char *keyString, size_t keyString_len) {
 	zval *iter_val;
 	dtor_func_t orig_dtor;
 
+	if (UNEXPECTED(!gene_memory_write_allowed("Memory::del"))) {
+		return 0;
+	}
 	GENE_CACHE_WRLOCK();
 	/* Keys are allocated as persistent interned strings (IS_STR_INTERNED),
 	 * so zend_string_release() is a no-op for them. We must find the stored
@@ -875,6 +919,9 @@ PHP_METHOD(gene_memory, del) {
  * {{{ public gene_memory::clean()
  */
 PHP_METHOD(gene_memory, clean) {
+	if (UNEXPECTED(!gene_memory_write_allowed("Memory::clean"))) {
+		RETURN_FALSE;
+	}
 	GENE_CACHE_WRLOCK();
 	if (GENE_G(cache)) {
 		gene_hash_destroy(GENE_G(cache));
