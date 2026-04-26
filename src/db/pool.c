@@ -55,14 +55,33 @@ static bool pool_in_coroutine(void)
         return 0;
     }
 
+    /* Get current coroutine ID first */
+    zend_function *fn_getcid = zend_hash_str_find_ptr(&co_ce->function_table, ZEND_STRL("getCid"));
+    if (!fn_getcid) {
+        return 0;
+    }
+
+    zval cid_ret;
+    ZVAL_UNDEF(&cid_ret);
+    zend_call_known_function(fn_getcid, NULL, co_ce, &cid_ret, 0, NULL, NULL);
+
+    zend_long cid = (Z_TYPE(cid_ret) == IS_LONG) ? Z_LVAL(cid_ret) : -1;
+    if (!Z_ISUNDEF(cid_ret)) zval_ptr_dtor(&cid_ret);
+
+    if (cid < 0) {
+        return 0;
+    }
+
+    /* Check if this coroutine exists */
     zend_function *fn_exists = zend_hash_str_find_ptr(&co_ce->function_table, ZEND_STRL("exists"));
     if (!fn_exists) {
         return 0;
     }
 
-    zval ret;
+    zval ret, params[1];
+    ZVAL_LONG(&params[0], cid);
     ZVAL_UNDEF(&ret);
-    zend_call_known_function(fn_exists, NULL, co_ce, &ret, 0, NULL, NULL);
+    zend_call_known_function(fn_exists, NULL, co_ce, &ret, 1, params, NULL);
 
     bool in_co = (Z_TYPE(ret) == IS_TRUE);
     if (!Z_ISUNDEF(ret)) zval_ptr_dtor(&ret);
