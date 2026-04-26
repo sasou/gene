@@ -970,7 +970,8 @@ PHP_METHOD(gene_pool, get)
   */
  PHP_METHOD(gene_pool, create)
  {
-    zval *name = NULL, *configKey = NULL, *options = NULL;
+    zend_string *name = NULL, *configKey = NULL;
+    zval *options = NULL;
     zval *instances, pool_config, *config_data;
 
     if (zend_parse_parameters(ZEND_NUM_ARGS(), "SS|a!", &name, &configKey, &options) == FAILURE) {
@@ -982,29 +983,29 @@ PHP_METHOD(gene_pool, get)
     if (options && Z_TYPE_P(options) == IS_ARRAY) {
         zval *opt;
         if ((opt = zend_hash_str_find(Z_ARRVAL_P(options), ZEND_STRL("min"))) != NULL) {
-            add_assoc_zval(&pool_config, "min", opt);
             Z_TRY_ADDREF_P(opt);
+            add_assoc_zval(&pool_config, "min", opt);
         }
         if ((opt = zend_hash_str_find(Z_ARRVAL_P(options), ZEND_STRL("max"))) != NULL) {
-            add_assoc_zval(&pool_config, "max", opt);
             Z_TRY_ADDREF_P(opt);
+            add_assoc_zval(&pool_config, "max", opt);
         }
         if ((opt = zend_hash_str_find(Z_ARRVAL_P(options), ZEND_STRL("idleTimeout"))) != NULL) {
-            add_assoc_zval(&pool_config, "idleTimeout", opt);
             Z_TRY_ADDREF_P(opt);
+            add_assoc_zval(&pool_config, "idleTimeout", opt);
         }
         if ((opt = zend_hash_str_find(Z_ARRVAL_P(options), ZEND_STRL("waitTimeout"))) != NULL) {
-            add_assoc_zval(&pool_config, "waitTimeout", opt);
             Z_TRY_ADDREF_P(opt);
+            add_assoc_zval(&pool_config, "waitTimeout", opt);
         }
     }
 
     /* Read DB config from persistent cache using configKey */
     char cache_key[256];
-    size_t cache_key_len = Z_STRLEN_P(configKey) + sizeof(GENE_CONFIG_CACHE) - 1;
+    size_t cache_key_len = ZSTR_LEN(configKey) + sizeof(GENE_CONFIG_CACHE) - 1;
     if (cache_key_len < sizeof(cache_key)) {
-        memcpy(cache_key, Z_STRVAL_P(configKey), Z_STRLEN_P(configKey));
-        memcpy(cache_key + Z_STRLEN_P(configKey), GENE_CONFIG_CACHE, sizeof(GENE_CONFIG_CACHE) - 1);
+        memcpy(cache_key, ZSTR_VAL(configKey), ZSTR_LEN(configKey));
+        memcpy(cache_key + ZSTR_LEN(configKey), GENE_CONFIG_CACHE, sizeof(GENE_CONFIG_CACHE) - 1);
         config_data = gene_memory_get(cache_key, cache_key_len);
         if (config_data && Z_TYPE_P(config_data) == IS_ARRAY) {
             zval *params = zend_hash_str_find(Z_ARRVAL_P(config_data), ZEND_STRL("params"));
@@ -1017,28 +1018,38 @@ PHP_METHOD(gene_pool, get)
                     zval *db_options = zend_hash_index_find(Z_ARRVAL_P(first_param), 3);
 
                     if (dsn && Z_TYPE_P(dsn) == IS_STRING) {
+                        zend_string_addref(Z_STR_P(dsn));
                         add_assoc_str_ex(&pool_config, ZEND_STRL("dsn"), Z_STR_P(dsn));
                     }
                     if (username && Z_TYPE_P(username) == IS_STRING) {
+                        zend_string_addref(Z_STR_P(username));
                         add_assoc_str_ex(&pool_config, ZEND_STRL("username"), Z_STR_P(username));
                     }
                     if (password && Z_TYPE_P(password) == IS_STRING) {
+                        zend_string_addref(Z_STR_P(password));
                         add_assoc_str_ex(&pool_config, ZEND_STRL("password"), Z_STR_P(password));
                     }
                     if (db_options && Z_TYPE_P(db_options) == IS_ARRAY) {
-                        add_assoc_zval(&pool_config, "options", db_options);
                         Z_TRY_ADDREF_P(db_options);
+                        add_assoc_zval(&pool_config, "options", db_options);
                     }
                 }
             }
         }
     }
 
-    /* Create pool instance */
     object_init_ex(return_value, gene_pool_ce);
-    zval ctor_params[1];
-    ZVAL_COPY_VALUE(&ctor_params[0], &pool_config);
-    zend_call_known_function(gene_pool_ce->constructor, Z_OBJ_P(return_value), gene_pool_ce, return_value, 1, ctor_params, NULL);
+    {
+        zval ctor_params[1], ctor_ret;
+        ZVAL_COPY_VALUE(&ctor_params[0], &pool_config);
+        ZVAL_UNDEF(&ctor_ret);
+        zend_call_known_function(gene_pool_ce->constructor,
+            Z_OBJ_P(return_value), gene_pool_ce, &ctor_ret,
+            1, ctor_params, NULL);
+        if (!Z_ISUNDEF(ctor_ret)) {
+            zval_ptr_dtor(&ctor_ret);
+        }
+    }
     zval_ptr_dtor(&pool_config);
 
     /* Register in instances static property */
@@ -1051,8 +1062,8 @@ PHP_METHOD(gene_pool, get)
         instances = zend_read_static_property(gene_pool_ce, ZEND_STRL(GENE_POOL_PROPERTY_INSTANCES), 1);
     }
     if (instances && Z_TYPE_P(instances) == IS_ARRAY) {
-        zend_hash_str_update(Z_ARRVAL_P(instances), Z_STRVAL_P(name), Z_STRLEN_P(name), return_value);
         Z_TRY_ADDREF_P(return_value);
+        zend_hash_update(Z_ARRVAL_P(instances), name, return_value);
     }
 
     /* Fill pool to minimum size */
@@ -1065,7 +1076,8 @@ PHP_METHOD(gene_pool, get)
   */
  PHP_METHOD(gene_pool, getInstance)
  {
-    zval *name = NULL, *instances;
+    zend_string *name = NULL;
+    zval *instances;
 
     if (zend_parse_parameters(ZEND_NUM_ARGS(), "S", &name) == FAILURE) {
         return;
@@ -1073,7 +1085,7 @@ PHP_METHOD(gene_pool, get)
 
     instances = zend_read_static_property(gene_pool_ce, ZEND_STRL(GENE_POOL_PROPERTY_INSTANCES), 1);
     if (instances && Z_TYPE_P(instances) == IS_ARRAY) {
-        zval *pool = zend_hash_str_find(Z_ARRVAL_P(instances), Z_STRVAL_P(name), Z_STRLEN_P(name));
+        zval *pool = zend_hash_find(Z_ARRVAL_P(instances), name);
         if (pool && Z_TYPE_P(pool) == IS_OBJECT) {
             RETURN_ZVAL(pool, 1, 0);
         }
