@@ -755,7 +755,7 @@ PHP_METHOD(gene_db_sqlite, in)
 PHP_METHOD(gene_db_sqlite, sql)
 {
 	zval *self = getThis(), *fields = NULL, *data = NULL, *value = NULL;
-	char *sql = NULL, *pdo_sql = NULL;
+	char *sql = NULL;
 	size_t sql_len;// @suppress("Type cannot be resolved")
 	zval params;
 	if (zend_parse_parameters(ZEND_NUM_ARGS(), "s|z", &sql, &sql_len, &fields) == FAILURE) {
@@ -763,9 +763,7 @@ PHP_METHOD(gene_db_sqlite, sql)
 	}
 	sqlite_reset_sql_params(self);
     if (sql_len) {
-        spprintf(&pdo_sql, 0, "%s", sql);
-        zend_update_property_string(gene_db_sqlite_ce, gene_strip_obj(self), ZEND_STRL(GENE_DB_SQLITE_SQL), pdo_sql);
-        efree(pdo_sql);
+        zend_update_property_stringl(gene_db_sqlite_ce, gene_strip_obj(self), ZEND_STRL(GENE_DB_SQLITE_SQL), sql, sql_len);
     }
     if (fields) {
     	data = zend_read_property(gene_db_sqlite_ce, gene_strip_obj(self), ZEND_STRL(GENE_DB_SQLITE_DATA), 1, NULL);
