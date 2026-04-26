@@ -150,7 +150,7 @@ zend_call_known_function(Swoole\Atomic::add/sub/get, ...)
 |----|------|------|
 | P1 | ✅ 已落地 | `pool_in_coroutine` 移除 `Coroutine::exists` 冗余调用，缓存 `getCid` 函数指针 |
 | P2 | ✅ 已落地 | 新增 `pool_decrement_count_unchecked`，`pool::get` 两处回滚使用 unchecked 版 |
-| P3 | ✅ 已落地 | 三处 `pool_channel_pop(channel, 0.001, ...)` → `pool_channel_pop(channel, 0, ...)` |
+| P3 | ❌ 已回滚 | **Swoole `Channel::pop` 对 `timeout<=0` 为永久阻塞**（非"立即返回"），改 `0` 会导致 `Pool::get` 在空 channel 上死等。三处恢复为 `0.001` |
 | P4 | ✅ 已落地 | 新增 `gene_pool_named_cache` 模块级 HashTable；`Pool::create` 写入、`closeAll` 清空、`Pool::getInstance` 与 `gene_pool_get_pdo` 走快速路径 |
 | P5 | ⏸ 跳过 | 启动期成本，价值低 |
 | P6 | ⏸ 暂缓 | 编辑工具对 `pool.c` 的多点联动改写不稳定；原 `ZVAL_DUP(options)` 仍保留 |

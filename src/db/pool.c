@@ -531,7 +531,7 @@ static zend_long pool_increment_count_get(zval *self) {
         ZVAL_UNDEF(&item);
         /* [GENE_PERF:2026-04-26 P3] non-blocking pop (0) — pop(0.001) used to
          * register a 1ms timer and yield even when the channel was non-empty. */
-        if (!pool_channel_pop(channel, 0, &item)) {
+        if (!pool_channel_pop(channel, 0.001, &item)) {
             break;
         }
         if (Z_TYPE(item) != IS_ARRAY) {
@@ -603,7 +603,7 @@ PHP_METHOD(gene_pool, get)
          *    Skip isEmpty() check to avoid TOCTOU race — just pop directly. */
         {
             zval item;
-            if (pool_channel_pop(channel, 0, &item)) {
+            if (pool_channel_pop(channel, 0.001, &item)) {
                 if (Z_TYPE(item) == IS_ARRAY) {
                     /* [GENE_PERF:2026-04-26] packed indexed array: idx 0 = conn */
                     zval *conn = zend_hash_index_find(Z_ARRVAL(item), 0);
@@ -764,7 +764,7 @@ PHP_METHOD(gene_pool, get)
               * [GENE_PERF:2026-04-26 P3] non-blocking pop (0). */
              while (!pool_channel_is_empty(channel)) {
                  zval item;
-                 if (!pool_channel_pop(channel, 0, &item)) {
+                 if (!pool_channel_pop(channel, 0.001, &item)) {
                      break;
                  }
                  pool_decrement_count(self);
