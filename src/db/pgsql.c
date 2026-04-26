@@ -36,6 +36,15 @@
 
 zend_class_entry * gene_db_pgsql_ce;
 
+/* [GENE_PERF:2026-04-26] See mysql.c for rationale: strpprintf returns a
+ * zend_string* directly; zend_update_property_str only addrefs. Saves the
+ * extra strdup that the spprintf+update_property_string pattern incurred. */
+#define GENE_DB_PGSQL_SET_PROP(KEY, ...) do { \
+    zend_string *_gene_db_s_ = strpprintf(0, __VA_ARGS__); \
+    zend_update_property_str(gene_db_pgsql_ce, gene_strip_obj(self), ZEND_STRL(KEY), _gene_db_s_); \
+    zend_string_release(_gene_db_s_); \
+} while (0)
+
 /* Benchmark variables removed from file scope to avoid coroutine data races.
  * They are now local to gene_pgsql_pdo_execute and passed to pgsqlSaveHistory. */
 
@@ -353,7 +362,7 @@ PHP_METHOD(gene_db_pgsql, getPdo)
 PHP_METHOD(gene_db_pgsql, select)
 {
 	zval *self = getThis(),*fields = NULL;
-	char *table = NULL,*select = NULL, *sql = NULL;
+	char *table = NULL, *select = NULL;
 	size_t table_len; // @suppress("Type cannot be resolved")
 	if (zend_parse_parameters(ZEND_NUM_ARGS(), "s|z", &table, &table_len, &fields) == FAILURE) {
 		return;
@@ -365,7 +374,7 @@ PHP_METHOD(gene_db_pgsql, select)
     		mssql_array_to_string(fields, &select, '"', '"');
     		{
     			char *qt = gene_quote_table(table, '"', '"');
-    			spprintf(&sql, 0, "SELECT %s FROM %s", select, qt);
+    			GENE_DB_PGSQL_SET_PROP(GENE_DB_PGSQL_SQL, "SELECT %s FROM %s", select, qt);
     			efree(qt);
     		}
             efree(select);
@@ -374,7 +383,7 @@ PHP_METHOD(gene_db_pgsql, select)
     		{
     			char *qt = gene_quote_table(table, '"', '"');
     			char *qf = gene_quote_columns(Z_STRVAL_P(fields), '"', '"');
-    			spprintf(&sql, 0, "SELECT %s FROM %s", qf, qt);
+    			GENE_DB_PGSQL_SET_PROP(GENE_DB_PGSQL_SQL, "SELECT %s FROM %s", qf, qt);
     			efree(qf);
     			efree(qt);
     		}
@@ -386,11 +395,9 @@ PHP_METHOD(gene_db_pgsql, select)
 
     } else {
     	char *qt = gene_quote_table(table, '"', '"');
-    	spprintf(&sql, 0, "SELECT * FROM %s", qt);
+    	GENE_DB_PGSQL_SET_PROP(GENE_DB_PGSQL_SQL, "SELECT * FROM %s", qt);
     	efree(qt);
     }
-    zend_update_property_string(gene_db_pgsql_ce, gene_strip_obj(self), ZEND_STRL(GENE_DB_PGSQL_SQL), sql);
-    efree(sql);
 	RETURN_ZVAL(self, 1, 0);
 }
 /* }}} */
@@ -401,7 +408,6 @@ PHP_METHOD(gene_db_pgsql, select)
 PHP_METHOD(gene_db_pgsql, count)
 {
 	zval *self = getThis();
-	char *sql = NULL;
 	zend_string *table = NULL,*fields = NULL;
 	if (zend_parse_parameters(ZEND_NUM_ARGS(), "S|S", &table, &fields) == FAILURE) {
 		return;
@@ -411,15 +417,13 @@ PHP_METHOD(gene_db_pgsql, count)
     	char *qt = gene_quote_table(ZSTR_VAL(table), '"', '"');
     	if (fields) {
     		char *qf = gene_quote_columns(ZSTR_VAL(fields), '"', '"');
-    		spprintf(&sql, 0, "SELECT count(%s) AS count FROM %s", qf, qt);
+    		GENE_DB_PGSQL_SET_PROP(GENE_DB_PGSQL_SQL, "SELECT count(%s) AS count FROM %s", qf, qt);
     		efree(qf);
     	} else {
-    		spprintf(&sql, 0, "SELECT count(1) AS count FROM %s", qt);
+    		GENE_DB_PGSQL_SET_PROP(GENE_DB_PGSQL_SQL, "SELECT count(1) AS count FROM %s", qt);
     	}
     	efree(qt);
     }
-    zend_update_property_string(gene_db_pgsql_ce, gene_strip_obj(self), ZEND_STRL(GENE_DB_PGSQL_SQL), sql);
-    efree(sql);
 	RETURN_ZVAL(self, 1, 0);
 }
 /* }}} */
@@ -431,7 +435,7 @@ PHP_METHOD(gene_db_pgsql, count)
 PHP_METHOD(gene_db_pgsql, insert)
 {
 	zval *self = getThis(),*fields = NULL;
-	char *table = NULL,*select = NULL, *sql = NULL;
+	char *table = NULL;
 	size_t table_len;// @suppress("Type cannot be resolved")
 	smart_str field_str = {0} , value_str = {0};
 	zval field_value;
@@ -453,11 +457,9 @@ PHP_METHOD(gene_db_pgsql, insert)
 	smart_str_0(&value_str);
     {
     	char *qt = gene_quote_table(table, '"', '"');
-    	spprintf(&sql, 0, "INSERT INTO %s(%s) VALUES(%s)", qt, field_str.s->val, value_str.s->val);
+    	GENE_DB_PGSQL_SET_PROP(GENE_DB_PGSQL_SQL, "INSERT INTO %s(%s) VALUES(%s)", qt, field_str.s->val, value_str.s->val);
     	efree(qt);
     }
-    zend_update_property_string(gene_db_pgsql_ce, gene_strip_obj(self), ZEND_STRL(GENE_DB_PGSQL_SQL), sql);
-    efree(sql);
     smart_str_free(&field_str);
     smart_str_free(&value_str);
 	RETURN_ZVAL(self, 1, 0);
@@ -470,7 +472,7 @@ PHP_METHOD(gene_db_pgsql, insert)
 PHP_METHOD(gene_db_pgsql, batchInsert)
 {
 	zval *self = getThis(),*fields = NULL, *row = NULL;
-	char *table = NULL,*select = NULL, *sql = NULL;
+	char *table = NULL;
 	size_t table_len;// @suppress("Type cannot be resolved")
 	smart_str field_str = {0} , value_str = {0};
 	zval field_value;
@@ -501,11 +503,9 @@ PHP_METHOD(gene_db_pgsql, batchInsert)
 	smart_str_0(&value_str);
     {
     	char *qt = gene_quote_table(table, '"', '"');
-    	spprintf(&sql, 0, "INSERT INTO %s(%s) VALUES %s", qt, field_str.s->val, value_str.s->val);
+    	GENE_DB_PGSQL_SET_PROP(GENE_DB_PGSQL_SQL, "INSERT INTO %s(%s) VALUES %s", qt, field_str.s->val, value_str.s->val);
     	efree(qt);
     }
-    zend_update_property_string(gene_db_pgsql_ce, gene_strip_obj(self), ZEND_STRL(GENE_DB_PGSQL_SQL), sql);
-    efree(sql);
     smart_str_free(&field_str);
     smart_str_free(&value_str);
 	RETURN_ZVAL(self, 1, 0);
@@ -518,7 +518,7 @@ PHP_METHOD(gene_db_pgsql, batchInsert)
 PHP_METHOD(gene_db_pgsql, update)
 {
 	zval *self = getThis(),*fields = NULL;
-	char *table = NULL,*select = NULL, *sql = NULL;
+	char *table = NULL;
 	size_t table_len; // @suppress("Type cannot be resolved")
 	smart_str field_str = {0};
 	zval field_value;
@@ -538,11 +538,9 @@ PHP_METHOD(gene_db_pgsql, update)
 	smart_str_0(&field_str);
     {
     	char *qt = gene_quote_table(table, '"', '"');
-    	spprintf(&sql, 0, "UPDATE %s SET %s", qt, field_str.s->val);
+    	GENE_DB_PGSQL_SET_PROP(GENE_DB_PGSQL_SQL, "UPDATE %s SET %s", qt, field_str.s->val);
     	efree(qt);
     }
-    zend_update_property_string(gene_db_pgsql_ce, gene_strip_obj(self), ZEND_STRL(GENE_DB_PGSQL_SQL), sql);
-    efree(sql);
     smart_str_free(&field_str);
 	RETURN_ZVAL(self, 1, 0);
 }
@@ -555,7 +553,7 @@ PHP_METHOD(gene_db_pgsql, update)
 PHP_METHOD(gene_db_pgsql, delete)
 {
 	zval *self = getThis();
-	char *table = NULL, *sql = NULL;
+	char *table = NULL;
 	size_t table_len; // @suppress("Type cannot be resolved")
 	if (zend_parse_parameters(ZEND_NUM_ARGS(), "s", &table, &table_len) == FAILURE) {
 		return;
@@ -563,11 +561,9 @@ PHP_METHOD(gene_db_pgsql, delete)
 	pgsql_reset_sql_params(self);
     {
     	char *qt = gene_quote_table(table, '"', '"');
-    	spprintf(&sql, 0, "DELETE FROM %s", qt);
+    	GENE_DB_PGSQL_SET_PROP(GENE_DB_PGSQL_SQL, "DELETE FROM %s", qt);
     	efree(qt);
     }
-    zend_update_property_string(gene_db_pgsql_ce, gene_strip_obj(self), ZEND_STRL(GENE_DB_PGSQL_SQL), sql);
-    efree(sql);
 	RETURN_ZVAL(self, 1, 0);
 }
 /* }}} */
@@ -579,7 +575,6 @@ PHP_METHOD(gene_db_pgsql, delete)
 PHP_METHOD(gene_db_pgsql, where)
 {
 	zval *self = getThis(), *where = NULL, *fields = NULL, *data = NULL, *value = NULL;
-	char  *sql_where = NULL;
 	zval params;
 	smart_str where_str = {0};
 
@@ -652,7 +647,7 @@ PHP_METHOD(gene_db_pgsql, where)
 	}
 
     smart_str_0(&where_str);
-    zend_update_property_string(gene_db_pgsql_ce, gene_strip_obj(self), ZEND_STRL(GENE_DB_PGSQL_WHERE), ZSTR_VAL(where_str.s));
+    zend_update_property_str(gene_db_pgsql_ce, gene_strip_obj(self), ZEND_STRL(GENE_DB_PGSQL_WHERE), where_str.s);
     smart_str_free(&where_str);
 	RETURN_ZVAL(self, 1, 0);
 }
@@ -664,7 +659,7 @@ PHP_METHOD(gene_db_pgsql, where)
 PHP_METHOD(gene_db_pgsql, in)
 {
 	zval *self = getThis(), *fields = NULL, *data = NULL, *value = NULL;
-	char *in = NULL, *sql_in = NULL, *seg = NULL, *ptr = NULL, *in_tmp = NULL;
+	char *in = NULL, *seg = NULL, *ptr = NULL, *in_tmp = NULL;
 	size_t in_len;// @suppress("Type cannot be resolved")
 	zval params;
 	smart_str where_str = {0},value_str = {0};
@@ -679,7 +674,7 @@ PHP_METHOD(gene_db_pgsql, in)
 		if (ZSTR_LEN(where_str.s) == 0) {
 			smart_str_appends(&where_str, " WHERE ");
 		}
-		spprintf(&in_tmp, 0, "%s", in);
+		in_tmp = estrndup(in, in_len);
 	}
     if (fields) {
     	data = zend_read_property(gene_db_pgsql_ce, gene_strip_obj(self), ZEND_STRL(GENE_DB_PGSQL_DATA), 1, NULL);
@@ -748,7 +743,7 @@ PHP_METHOD(gene_db_pgsql, in)
     	efree(in_tmp);
     }
     smart_str_0(&where_str);
-    zend_update_property_string(gene_db_pgsql_ce, gene_strip_obj(self), ZEND_STRL(GENE_DB_PGSQL_WHERE), ZSTR_VAL(where_str.s));
+    zend_update_property_str(gene_db_pgsql_ce, gene_strip_obj(self), ZEND_STRL(GENE_DB_PGSQL_WHERE), where_str.s);
     smart_str_free(&where_str);
 	RETURN_ZVAL(self, 1, 0);
 }
@@ -832,14 +827,11 @@ PHP_METHOD(gene_db_pgsql, group)
 	zval *self = getThis();
 	char *group = NULL;
 	size_t group_len = 0;// @suppress("Type cannot be resolved")
-	char *group_tmp;
 	if (zend_parse_parameters(ZEND_NUM_ARGS(), "s", &group, &group_len) == FAILURE) {
 		return;
 	}
 	if (group_len) {
-		spprintf(&group_tmp, 0, " GROUP BY %s", group);
-		zend_update_property_string(gene_db_pgsql_ce, gene_strip_obj(self), ZEND_STRL(GENE_DB_PGSQL_GROUP), group_tmp);
-		efree(group_tmp);
+		GENE_DB_PGSQL_SET_PROP(GENE_DB_PGSQL_GROUP, " GROUP BY %s", group);
 	}
 	RETURN_ZVAL(self, 1, 0);
 }
@@ -854,14 +846,11 @@ PHP_METHOD(gene_db_pgsql, having)
 	zval *self = getThis();
 	char *having = NULL;
 	size_t having_len = 0;// @suppress("Type cannot be resolved")
-	char *having_tmp;
 	if (zend_parse_parameters(ZEND_NUM_ARGS(), "s", &having, &having_len) == FAILURE) {
 		return;
 	}
 	if (having_len) {
-		spprintf(&having_tmp, 0, " HAVING %s", having);
-		zend_update_property_string(gene_db_pgsql_ce, gene_strip_obj(self), ZEND_STRL(GENE_DB_PGSQL_HAVING), having_tmp);
-		efree(having_tmp);
+		GENE_DB_PGSQL_SET_PROP(GENE_DB_PGSQL_HAVING, " HAVING %s", having);
 	}
 	RETURN_ZVAL(self, 1, 0);
 }
@@ -876,16 +865,13 @@ PHP_METHOD(gene_db_pgsql, order)
 	zval *self = getThis();
 	char *order = NULL;
 	size_t order_len = 0;// @suppress("Type cannot be resolved")
-	char *order_tmp;
 	if (zend_parse_parameters(ZEND_NUM_ARGS(), "s", &order, &order_len) == FAILURE) {
 		return;
 	}
 	if (order_len) {
 		char *qo = gene_quote_order(order, '"', '"');
-		spprintf(&order_tmp, 0, " ORDER BY %s", qo);
-		zend_update_property_string(gene_db_pgsql_ce, gene_strip_obj(self), ZEND_STRL(GENE_DB_PGSQL_ORDER), order_tmp);
+		GENE_DB_PGSQL_SET_PROP(GENE_DB_PGSQL_ORDER, " ORDER BY %s", qo);
 		efree(qo);
-		efree(order_tmp);
 	}
 	RETURN_ZVAL(self, 1, 0);
 }
@@ -899,17 +885,14 @@ PHP_METHOD(gene_db_pgsql, limit)
 {
 	zval *self = getThis();
 	zend_long num, offset = 0;
-	char *limit;
 	if (zend_parse_parameters(ZEND_NUM_ARGS(), "l|l", &num, &offset) == FAILURE) {
 		return;
 	}
 	if (ZEND_NUM_ARGS() > 1) {
-		spprintf(&limit, 0, " limit " ZEND_LONG_FMT " offset " ZEND_LONG_FMT, num, offset);
+		GENE_DB_PGSQL_SET_PROP(GENE_DB_PGSQL_LIMIT, " limit " ZEND_LONG_FMT " offset " ZEND_LONG_FMT, num, offset);
 	} else {
-		spprintf(&limit, 0, " limit " ZEND_LONG_FMT, num);
+		GENE_DB_PGSQL_SET_PROP(GENE_DB_PGSQL_LIMIT, " limit " ZEND_LONG_FMT, num);
 	}
-	zend_update_property_string(gene_db_pgsql_ce, gene_strip_obj(self), ZEND_STRL(GENE_DB_PGSQL_LIMIT), limit);
-	efree(limit);
 	RETURN_ZVAL(self, 1, 0);
 }
 /* }}} */
