@@ -159,7 +159,7 @@ void gene_response_set_redirect(char *url, zend_long code) {
 	}
 	sapi_header_line ctr = { 0 };
 	size_t header_len = strlen("Location:") + strlen(url) + 1;
-	char header_buf[512];
+	char header_buf[1024];
 	int header_heap = 0;
 	char *header_ptr = header_buf;
 	if (header_len >= sizeof(header_buf)) {
@@ -200,7 +200,7 @@ void gene_response_set_header(char *key, char *value) {
 	sapi_header_line ctr = { 0 };
 	/* [GENE_PERF] Use stack buffer for common header sizes to avoid spprintf allocation.
 	 * Typical headers like "Content-Type: application/json" are well under 256 bytes. */
-	char header_buf[512];
+	char header_buf[1024];
 	int header_len = snprintf(header_buf, sizeof(header_buf), "%s:%s", key, value);
 	if (header_len > 0 && header_len < (int)sizeof(header_buf)) {
 		ctr.line = header_buf;
