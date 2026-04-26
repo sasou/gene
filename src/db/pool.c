@@ -31,7 +31,36 @@
  #include "../db/pool.h"
   
  zend_class_entry *gene_pool_ce;
- 
+
+ /* [GENE_PERF:2026-04-26 P4] C-layer named pool cache.
+  * Maps pool name (zend_string) -> zend_object* (borrowed reference).
+  * Avoids the Pool::getInstance() PHP call (static property + array hash
+  * lookup + zend_call_known_function) on every DB query. Lifetime is tied
+  * to the static instances registry: inserted in Pool::create, cleared in
+  * Pool::closeAll. Refcount is owned by the static `instances` array. */
+ static HashTable *gene_pool_named_cache = NULL;
+
+ static inline zend_object *gene_pool_named_cache_get(zend_string *name) {
+     if (!gene_pool_named_cache) return NULL;
+     return (zend_object *)zend_hash_find_ptr(gene_pool_named_cache, name);
+ }
+
+ static inline void gene_pool_named_cache_put(zend_string *name, zend_object *obj) {
+     if (!gene_pool_named_cache) {
+         ALLOC_HASHTABLE(gene_pool_named_cache);
+         zend_hash_init(gene_pool_named_cache, 8, NULL, NULL, 0);
+     }
+     zend_hash_update_ptr(gene_pool_named_cache, name, obj);
+ }
+
+ static inline void gene_pool_named_cache_clear(void) {
+     if (gene_pool_named_cache) {
+         zend_hash_destroy(gene_pool_named_cache);
+         FREE_HASHTABLE(gene_pool_named_cache);
+         gene_pool_named_cache = NULL;
+     }
+ }
+
  /* Forward declarations */
  static void pool_stop_timer(zval *self);
  static bool pool_in_coroutine(void);
@@ -55,10 +84,12 @@ static bool pool_in_coroutine(void)
         return 0;
     }
 
-    /* Get current coroutine ID first */
-    zend_function *fn_getcid = zend_hash_str_find_ptr(&co_ce->function_table, ZEND_STRL("getCid"));
-    if (!fn_getcid) {
-        return 0;
+    /* [GENE_PERF:2026-04-26 P1] getCid()>=0 already implies a live coroutine;
+     * the redundant Coroutine::exists($cid) call was removed. */
+    static zend_function *fn_getcid = NULL;
+    if (UNEXPECTED(!fn_getcid)) {
+        fn_getcid = zend_hash_str_find_ptr(&co_ce->function_table, ZEND_STRL("getCid"));
+        if (!fn_getcid) return 0;
     }
 
     zval cid_ret;
@@ -68,25 +99,7 @@ static bool pool_in_coroutine(void)
     zend_long cid = (Z_TYPE(cid_ret) == IS_LONG) ? Z_LVAL(cid_ret) : -1;
     if (!Z_ISUNDEF(cid_ret)) zval_ptr_dtor(&cid_ret);
 
-    if (cid < 0) {
-        return 0;
-    }
-
-    /* Check if this coroutine exists */
-    zend_function *fn_exists = zend_hash_str_find_ptr(&co_ce->function_table, ZEND_STRL("exists"));
-    if (!fn_exists) {
-        return 0;
-    }
-
-    zval ret, params[1];
-    ZVAL_LONG(&params[0], cid);
-    ZVAL_UNDEF(&ret);
-    zend_call_known_function(fn_exists, NULL, co_ce, &ret, 1, params, NULL);
-
-    bool in_co = (Z_TYPE(ret) == IS_TRUE);
-    if (!Z_ISUNDEF(ret)) zval_ptr_dtor(&ret);
-
-    return in_co;
+    return cid >= 0;
 }
 
 static void pool_stop_timer(zval *self)
@@ -385,7 +398,17 @@ static void pool_stop_timer(zval *self)
          }
      }
  }
-  
+
+ /* [GENE_PERF:2026-04-26 P2] Unchecked decrement — caller already knows it
+  * just incremented the counter (rollback path), so the floor check + extra
+  * atomic get() is redundant. Saves one zend_call_known_function per query. */
+ static inline void pool_decrement_count_unchecked(zval *self) {
+     zval *atomic = zend_read_property(gene_pool_ce, gene_strip_obj(self), ZEND_STRL(GENE_POOL_PROPERTY_COUNT), 1, NULL);
+     if (atomic && Z_TYPE_P(atomic) == IS_OBJECT) {
+         POOL_ATOMIC_CALL(atomic, "sub", 1, NULL);
+     }
+ }
+
  static zend_long pool_get_count(zval *self) {
      zval *atomic = zend_read_property(gene_pool_ce, gene_strip_obj(self), ZEND_STRL(GENE_POOL_PROPERTY_COUNT), 1, NULL);
      if (atomic && Z_TYPE_P(atomic) == IS_OBJECT) {
@@ -506,7 +529,9 @@ static zend_long pool_increment_count_get(zval *self) {
      * This prevents starving concurrent get() callers. */
     for (i = 0; i < size; i++) {
         ZVAL_UNDEF(&item);
-        if (!pool_channel_pop(channel, 0.001, &item)) {
+        /* [GENE_PERF:2026-04-26 P3] non-blocking pop (0) — pop(0.001) used to
+         * register a 1ms timer and yield even when the channel was non-empty. */
+        if (!pool_channel_pop(channel, 0, &item)) {
             break;
         }
         if (Z_TYPE(item) != IS_ARRAY) {
@@ -578,7 +603,7 @@ PHP_METHOD(gene_pool, get)
          *    Skip isEmpty() check to avoid TOCTOU race — just pop directly. */
         {
             zval item;
-            if (pool_channel_pop(channel, 0.001, &item)) {
+            if (pool_channel_pop(channel, 0, &item)) {
                 if (Z_TYPE(item) == IS_ARRAY) {
                     /* [GENE_PERF:2026-04-26] packed indexed array: idx 0 = conn */
                     zval *conn = zend_hash_index_find(Z_ARRVAL(item), 0);
@@ -608,11 +633,11 @@ PHP_METHOD(gene_pool, get)
                 if (Z_TYPE(conn) == IS_OBJECT) {
                     RETURN_ZVAL(&conn, 0, 0);
                 }
-                pool_decrement_count(self);
+                pool_decrement_count_unchecked(self);
                 retries++;
                 continue;
             }
-            pool_decrement_count(self);
+            pool_decrement_count_unchecked(self);
         }
 
         /* 3. At max, wait for return */
@@ -735,10 +760,11 @@ PHP_METHOD(gene_pool, get)
               *          by concurrent coroutines (up to waitTimeout total).
               * After drain, close the channel and force-reset count. */
  
-             /* Phase 1: drain idle connections (non-blocking) */
+             /* Phase 1: drain idle connections (non-blocking)
+              * [GENE_PERF:2026-04-26 P3] non-blocking pop (0). */
              while (!pool_channel_is_empty(channel)) {
                  zval item;
-                 if (!pool_channel_pop(channel, 0.001, &item)) {
+                 if (!pool_channel_pop(channel, 0, &item)) {
                      break;
                  }
                  pool_decrement_count(self);
@@ -833,6 +859,10 @@ PHP_METHOD(gene_pool, get)
          } ZEND_HASH_FOREACH_END();
      }
  
+     /* [GENE_PERF:2026-04-26 P4] Clear C-layer cache before dropping the
+      * instances array (which owns refcounts on the pool objects). */
+     gene_pool_named_cache_clear();
+
      /* Clear the static instances registry */
      zval empty_arr;
      array_init(&empty_arr);
@@ -840,7 +870,7 @@ PHP_METHOD(gene_pool, get)
      zval_ptr_dtor(&empty_arr);
  }
  /* }}} */
-  
+ 
  /*
   * {{{ public static Gene\Pool::stopTimers(): void
   *
@@ -1083,6 +1113,8 @@ PHP_METHOD(gene_pool, get)
     if (instances && Z_TYPE_P(instances) == IS_ARRAY) {
         Z_TRY_ADDREF_P(return_value);
         zend_hash_update(Z_ARRVAL_P(instances), name, return_value);
+        /* [GENE_PERF:2026-04-26 P4] mirror into C-layer cache for fast lookups. */
+        gene_pool_named_cache_put(name, Z_OBJ_P(return_value));
     }
 
     /* Fill pool to minimum size */
@@ -1100,6 +1132,16 @@ PHP_METHOD(gene_pool, get)
 
     if (zend_parse_parameters(ZEND_NUM_ARGS(), "S", &name) == FAILURE) {
         return;
+    }
+
+    /* [GENE_PERF:2026-04-26 P4] fast path — C-layer cache hit returns the
+     * borrowed object directly (one hash find, no PHP property read). */
+    {
+        zend_object *cached = gene_pool_named_cache_get(name);
+        if (EXPECTED(cached)) {
+            GC_ADDREF(cached);
+            RETURN_OBJ(cached);
+        }
     }
 
     instances = zend_read_static_property(gene_pool_ce, ZEND_STRL(GENE_POOL_PROPERTY_INSTANCES), 1);
@@ -1131,20 +1173,30 @@ PHP_METHOD(gene_pool, get)
          return 0;
      }
  
-     /* [GENE_PERF:2026-04-26] Direct method dispatch via cached zend_function*
-      * — avoids array_init+add_next_index_string×2+call_user_function and the
-      * gene_factory_call name lookup on every DB query. */
-     zend_function *fn_gi = pool_method(&fn_pool_getinstance, ZEND_STRL("getinstance"));
-     if (UNEXPECTED(!fn_gi)) {
-         return 0;
-     }
- 
-     zval pool_obj, gi_args[1];
-     ZVAL_COPY(&gi_args[0], pool_name);
+     zval pool_obj;
      ZVAL_UNDEF(&pool_obj);
-     zend_call_known_function(fn_gi, NULL, gene_pool_ce, &pool_obj, 1, gi_args, NULL);
-     zval_ptr_dtor(&gi_args[0]);
- 
+
+     /* [GENE_PERF:2026-04-26 P4] Fast path: direct C-layer cache lookup
+      * skips Pool::getInstance() entirely (no PHP frame, no static property
+      * read, no zend_call_known_function). */
+     {
+         zend_object *cached = gene_pool_named_cache_get(Z_STR_P(pool_name));
+         if (EXPECTED(cached)) {
+             GC_ADDREF(cached);
+             ZVAL_OBJ(&pool_obj, cached);
+         } else {
+             /* Slow path: call Pool::getInstance($name). */
+             zend_function *fn_gi = pool_method(&fn_pool_getinstance, ZEND_STRL("getinstance"));
+             if (UNEXPECTED(!fn_gi)) {
+                 return 0;
+             }
+             zval gi_args[1];
+             ZVAL_COPY(&gi_args[0], pool_name);
+             zend_call_known_function(fn_gi, NULL, gene_pool_ce, &pool_obj, 1, gi_args, NULL);
+             zval_ptr_dtor(&gi_args[0]);
+         }
+     }
+
      if (Z_TYPE(pool_obj) == IS_OBJECT) {
          zend_function *fn_get = pool_method(&fn_pool_get, ZEND_STRL("get"));
          zval pdo_obj;
