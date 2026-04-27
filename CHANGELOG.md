@@ -1,5 +1,52 @@
 # Gene Framework Changelog
 
+## [5.5.9] - 2026-04-27
+
+**主题**：性能优化第四轮 — 缓存函数调用模式全面应用 + 连接池泄漏修复 + 审计报告更新。**无 API 破坏**，`php-cgi / php-fpm / Swoole` 路径零回归。
+
+### 🚀 第 1 项 — 缓存函数调用模式全面应用（性能优化）
+
+- **文件**：`src/http/response.c`, `src/mvc/hook.c`, `src/mvc/view.c`, `src/common/common.c`, `src/http/validate.c`, `src/cache/cache.c`, `src/exception/exception.c`
+- **优化**：将 ~30 个 PHP 函数包装器从 `call_user_function` 改为缓存 `zend_function*` + `zend_call_known_function`
+- **影响**：消除每次调用的 `ZVAL_STRING` 堆分配 + 函数名查找开销
+- **示例**：
+  ```c
+  static zend_function *fn = NULL;
+  if (UNEXPECTED(!fn)) {
+      fn = zend_hash_str_find_ptr(CG(function_table), ZEND_STRL("json_encode"));
+  }
+  zend_call_known_function(fn, ...);
+  ```
+
+### 🐛 第 2 项 — 连接池泄漏修复（稳定性修复）
+
+- **文件**：`src/db/pool.c`, `src/cache/redis_pool.c`
+- **问题**：`pool_recycle_idle` / `rpool_recycle_idle` 中 `increment_count` 在 `channel_push` 前调用，push 失败时计数漂移；存活连接 push-back 失败未处理
+- **修复**：
+  - 移动 `increment_count` 到 `channel_push` 成功检查之后
+  - 对存活连接 push-back 添加失败处理：`if (!channel_push(...)) { decrement_count(self); }`
+- **影响**：消除连接池在高并发下的计数漂移和连接泄漏
+
+### 🔧 第 3 项 — MSHUTDOWN 清理修复（资源泄漏修复）
+
+- **文件**：`src/db/pool.c`, `src/db/pool.h`
+- **问题**：`gene_pool_named_cache` 在 MSHUTDOWN 时未清理
+- **修复**：添加 `gene_pool_named_cache_free()` 在 MSHUTDOWN 调用
+- **影响**：确保进程退出时所有命名池缓存正确释放
+
+### 📊 第 4 项 — 审计报告更新
+
+- **文件**：`audit/AUDIT_REPORT_2026_04_27.md`
+- **内容**：全面审计 FPM 与 Swoole 双模式下的三层资源回收（请求级、worker 级、process 级）
+- **结论**：所有路径均已闭环，无安全或稳定性影响
+
+### 📝 第 5 项 — 代码清理
+
+- **文件**：`src/mvc/controller.c`, `src/mvc/hook.c`
+- **清理**：移除未使用的 include 头文件
+
+---
+
 ## [5.5.8] - 2026-04-24
 
 **主题**：深度优化第三轮 — Swoole 协程 cid 复用正确性修复 + 热路径锁/分配极致压缩 + 请求周期内存"无残留"语义完整化。**无 API 破坏**，`php-cgi / php-fpm` 路径零回归。
