@@ -33,6 +33,57 @@
 
 zend_class_entry *gene_redis_pool_ce;
 
+/* [GENE_PERF:2026-04-27] C-layer named pool cache.
+ * Maps pool name (zend_string) -> zend_object* (borrowed reference).
+ * Avoids the RedisPool::getInstance() PHP call (call_user_function + static
+ * property read + array hash lookup) on every Redis command. Lifetime is tied
+ * to the static instances registry: inserted in create(), cleared in closeAll()
+ * and at MSHUTDOWN. Refcount is owned by the static `instances` array. */
+static HashTable *gene_redis_pool_named_cache = NULL;
+
+static inline zend_object *gene_redis_pool_named_cache_get(zend_string *name) {
+    if (!gene_redis_pool_named_cache) return NULL;
+    return (zend_object *)zend_hash_find_ptr(gene_redis_pool_named_cache, name);
+}
+
+static inline void gene_redis_pool_named_cache_put(zend_string *name, zend_object *obj) {
+    if (!gene_redis_pool_named_cache) {
+        ALLOC_HASHTABLE(gene_redis_pool_named_cache);
+        zend_hash_init(gene_redis_pool_named_cache, 8, NULL, NULL, 0);
+    }
+    zend_hash_update_ptr(gene_redis_pool_named_cache, name, obj);
+}
+
+static inline void gene_redis_pool_named_cache_clear(void) {
+    if (gene_redis_pool_named_cache) {
+        zend_hash_destroy(gene_redis_pool_named_cache);
+        FREE_HASHTABLE(gene_redis_pool_named_cache);
+        gene_redis_pool_named_cache = NULL;
+    }
+}
+
+/* [GENE_PERF:2026-04-27] Resolve a method on the dynamic class of `obj_zv`
+ * once per process. Internal classes (Swoole\Coroutine\Channel, Swoole\Atomic,
+ * Redis) never reload, so a one-shot lazy cache is safe. */
+#define RPOOL_OBJ_METHOD_CACHED(obj_zv, slot, mname) \
+    ((UNEXPECTED(!(slot))) \
+        ? ((slot) = zend_hash_str_find_ptr(&Z_OBJCE_P(obj_zv)->function_table, ZEND_STRL(mname))) \
+        : (slot))
+
+/* Cached zend_function* for Gene\Cache\RedisPool methods, used by the
+ * shared helpers (gene_redis_pool_get/return/notify_remove). */
+static zend_function *fn_rpool_getinstance = NULL;
+static zend_function *fn_rpool_get  = NULL;
+static zend_function *fn_rpool_put  = NULL;
+static zend_function *fn_rpool_remove = NULL;
+
+static inline zend_function *rpool_method(zend_function **slot, const char *name, size_t len) {
+    if (UNEXPECTED(!*slot)) {
+        *slot = zend_hash_str_find_ptr(&gene_redis_pool_ce->function_table, name, len);
+    }
+    return *slot;
+}
+
 /* Forward declaration */
 static void rpool_stop_timer(zval *self);
 
@@ -125,7 +176,8 @@ static void rpool_create_connection(zval *self, zval *retval)
     {
         zval rv;
         zval params[3];
-        zend_function *connect_fn = zend_hash_str_find_ptr(&Z_OBJCE(redis_obj)->function_table, ZEND_STRL("connect"));
+        static zend_function *fn_connect = NULL;
+        zend_function *connect_fn = RPOOL_OBJ_METHOD_CACHED(&redis_obj, fn_connect, "connect");
         ZVAL_COPY(&params[0], host);
         ZVAL_COPY(&params[1], port);
         ZVAL_COPY(&params[2], timeout);
@@ -155,7 +207,8 @@ static void rpool_create_connection(zval *self, zval *retval)
     if (password && Z_TYPE_P(password) != IS_NULL && Z_TYPE_P(password) != IS_FALSE) {
         zval rv;
         zval param;
-        zend_function *auth_fn = zend_hash_str_find_ptr(&Z_OBJCE(redis_obj)->function_table, ZEND_STRL("auth"));
+        static zend_function *fn_auth = NULL;
+        zend_function *auth_fn = RPOOL_OBJ_METHOD_CACHED(&redis_obj, fn_auth, "auth");
         ZVAL_COPY(&param, password);
         ZVAL_UNDEF(&rv);
         if (EXPECTED(auth_fn)) {
@@ -181,7 +234,8 @@ static void rpool_create_connection(zval *self, zval *retval)
             if (!opt_key) { /* numeric key == option constant */
                 zval rv;
                 zval params[2];
-                zend_function *setopt_fn = zend_hash_str_find_ptr(&Z_OBJCE(redis_obj)->function_table, ZEND_STRL("setoption"));
+                static zend_function *fn_setopt = NULL;
+                zend_function *setopt_fn = RPOOL_OBJ_METHOD_CACHED(&redis_obj, fn_setopt, "setoption");
                 ZVAL_LONG(&params[0], opt_id);
                 ZVAL_COPY(&params[1], opt_val);
                 ZVAL_UNDEF(&rv);
@@ -207,7 +261,8 @@ static void rpool_create_connection(zval *self, zval *retval)
 static bool rpool_is_alive(zval *redis_obj)
 {
     zval rv;
-    zend_function *ping_fn = zend_hash_str_find_ptr(&Z_OBJCE_P(redis_obj)->function_table, ZEND_STRL("ping"));
+    static zend_function *fn_ping = NULL;
+    zend_function *ping_fn = RPOOL_OBJ_METHOD_CACHED(redis_obj, fn_ping, "ping");
     ZVAL_UNDEF(&rv);
     if (EXPECTED(ping_fn)) {
         zend_call_known_function(ping_fn, Z_OBJ_P(redis_obj), Z_OBJCE_P(redis_obj), &rv, 0, NULL, NULL);
@@ -241,12 +296,15 @@ static bool rpool_is_alive(zval *redis_obj)
 static bool rpool_channel_push(zval *channel, zval *redis_obj)
 {
     zval rv, item;
-    array_init(&item);
+    /* [GENE_PERF:2026-04-27] packed indexed array {0:conn, 1:lastUsed}
+     * — faster than associative "conn"/"lastUsed" lookup on the consumer side. */
+    array_init_size(&item, 2);
     Z_TRY_ADDREF_P(redis_obj);
-    add_assoc_zval(&item, "conn", redis_obj);
-    add_assoc_long(&item, "lastUsed", (zend_long)time(NULL));
+    add_index_zval(&item, 0, redis_obj);
+    add_index_long(&item, 1, (zend_long)time(NULL));
 
-    zend_function *push_fn = zend_hash_str_find_ptr(&Z_OBJCE_P(channel)->function_table, ZEND_STRL("push"));
+    static zend_function *fn_push = NULL;
+    zend_function *push_fn = RPOOL_OBJ_METHOD_CACHED(channel, fn_push, "push");
     zval param;
     ZVAL_COPY_VALUE(&param, &item);
     ZVAL_UNDEF(&rv);
@@ -262,7 +320,8 @@ static bool rpool_channel_push(zval *channel, zval *redis_obj)
 static bool rpool_channel_pop(zval *channel, double timeout, zval *result)
 {
     zval rv, param;
-    zend_function *pop_fn = zend_hash_str_find_ptr(&Z_OBJCE_P(channel)->function_table, ZEND_STRL("pop"));
+    static zend_function *fn_pop = NULL;
+    zend_function *pop_fn = RPOOL_OBJ_METHOD_CACHED(channel, fn_pop, "pop");
     ZVAL_DOUBLE(&param, timeout);
     ZVAL_UNDEF(&rv);
     if (EXPECTED(pop_fn)) {
@@ -281,7 +340,8 @@ static bool rpool_channel_pop(zval *channel, double timeout, zval *result)
 
 static bool rpool_channel_is_empty(zval *channel)
 {
-    zend_function *fn = zend_hash_str_find_ptr(&Z_OBJCE_P(channel)->function_table, ZEND_STRL("isempty"));
+    static zend_function *fn_isempty = NULL;
+    zend_function *fn = RPOOL_OBJ_METHOD_CACHED(channel, fn_isempty, "isempty");
     if (!fn) return 1;
     zval rv;
     ZVAL_UNDEF(&rv);
@@ -293,7 +353,8 @@ static bool rpool_channel_is_empty(zval *channel)
 
 static bool rpool_channel_is_full(zval *channel)
 {
-    zend_function *fn = zend_hash_str_find_ptr(&Z_OBJCE_P(channel)->function_table, ZEND_STRL("isfull"));
+    static zend_function *fn_isfull = NULL;
+    zend_function *fn = RPOOL_OBJ_METHOD_CACHED(channel, fn_isfull, "isfull");
     if (!fn) return 1;
     zval rv;
     ZVAL_UNDEF(&rv);
@@ -305,7 +366,8 @@ static bool rpool_channel_is_full(zval *channel)
 
 static zend_long rpool_channel_length(zval *channel)
 {
-    zend_function *fn = zend_hash_str_find_ptr(&Z_OBJCE_P(channel)->function_table, ZEND_STRL("length"));
+    static zend_function *fn_length = NULL;
+    zend_function *fn = RPOOL_OBJ_METHOD_CACHED(channel, fn_length, "length");
     if (!fn) return 0;
     zval rv;
     ZVAL_UNDEF(&rv);
@@ -317,11 +379,13 @@ static zend_long rpool_channel_length(zval *channel)
 
 /* ---- Swoole\Atomic wrappers ---- */
 
-static void rpool_atomic_call(zval *atomic, const char *method, zend_long arg, zval *retval)
+/* [GENE_PERF:2026-04-27] Caller passes pre-cached zend_function* (one-shot lookup)
+ * — avoids strlen(method) + hash lookup on every atomic op. Internal classes never
+ * reload, so a one-shot lazy cache is safe. */
+static void rpool_atomic_call_fn(zval *atomic, zend_function *fn, zend_long arg, zval *retval)
 {
     zval param, ret_local;
     if (!retval) retval = &ret_local;
-    zend_function *fn = zend_hash_str_find_ptr(&Z_OBJCE_P(atomic)->function_table, method, strlen(method));
     ZVAL_LONG(&param, arg);
     ZVAL_UNDEF(retval);
     if (EXPECTED(fn)) {
@@ -333,6 +397,14 @@ static void rpool_atomic_call(zval *atomic, const char *method, zend_long arg, z
     }
 }
 
+#define RPOOL_ATOMIC_CALL(atomic, MNAME, arg, retval) do { \
+    static zend_function *_ra_fn = NULL; \
+    if (UNEXPECTED(!_ra_fn)) { \
+        _ra_fn = zend_hash_str_find_ptr(&Z_OBJCE_P(atomic)->function_table, ZEND_STRL(MNAME)); \
+    } \
+    rpool_atomic_call_fn((atomic), _ra_fn, (arg), (retval)); \
+} while (0)
+
 static void rpool_decrement_count(zval *self)
 {
     zval *atomic = zend_read_property(gene_redis_pool_ce, gene_strip_obj(self),
@@ -340,12 +412,23 @@ static void rpool_decrement_count(zval *self)
     if (atomic && Z_TYPE_P(atomic) == IS_OBJECT) {
         zval ret;
         ZVAL_UNDEF(&ret);
-        rpool_atomic_call(atomic, "get", 0, &ret);
+        RPOOL_ATOMIC_CALL(atomic, "get", 0, &ret);
         zend_long val = (Z_TYPE(ret) == IS_LONG) ? Z_LVAL(ret) : 0;
         if (!Z_ISUNDEF(ret)) zval_ptr_dtor(&ret);
         if (val > 0) {
-            rpool_atomic_call(atomic, "sub", 1, NULL);
+            RPOOL_ATOMIC_CALL(atomic, "sub", 1, NULL);
         }
+    }
+}
+
+/* [GENE_PERF:2026-04-27] Unchecked decrement — caller already knows it just
+ * incremented the counter (rollback path), so the floor check + extra atomic
+ * get() is redundant. Saves one zend_call_known_function per failed reserve. */
+static inline void rpool_decrement_count_unchecked(zval *self) {
+    zval *atomic = zend_read_property(gene_redis_pool_ce, gene_strip_obj(self),
+                                       ZEND_STRL(GENE_REDIS_POOL_PROPERTY_COUNT), 1, NULL);
+    if (atomic && Z_TYPE_P(atomic) == IS_OBJECT) {
+        RPOOL_ATOMIC_CALL(atomic, "sub", 1, NULL);
     }
 }
 
@@ -356,7 +439,7 @@ static zend_long rpool_get_count(zval *self)
     if (atomic && Z_TYPE_P(atomic) == IS_OBJECT) {
         zval ret;
         ZVAL_UNDEF(&ret);
-        rpool_atomic_call(atomic, "get", 0, &ret);
+        RPOOL_ATOMIC_CALL(atomic, "get", 0, &ret);
         zend_long val = (Z_TYPE(ret) == IS_LONG) ? Z_LVAL(ret) : 0;
         if (!Z_ISUNDEF(ret)) zval_ptr_dtor(&ret);
         return val;
@@ -364,42 +447,12 @@ static zend_long rpool_get_count(zval *self)
     return 0;
 }
 
-static zend_long rpool_get_max(zval *self)
-{
-    zval *v = zend_read_property(gene_redis_pool_ce, gene_strip_obj(self),
-                                  ZEND_STRL(GENE_REDIS_POOL_PROPERTY_MAX), 1, NULL);
-    return (v && Z_TYPE_P(v) == IS_LONG) ? Z_LVAL_P(v) : 10;
-}
-
-static zend_long rpool_get_min(zval *self)
-{
-    zval *v = zend_read_property(gene_redis_pool_ce, gene_strip_obj(self),
-                                  ZEND_STRL(GENE_REDIS_POOL_PROPERTY_MIN), 1, NULL);
-    return (v && Z_TYPE_P(v) == IS_LONG) ? Z_LVAL_P(v) : 1;
-}
-
-static bool rpool_is_closed(zval *self)
-{
-    zval *v = zend_read_property(gene_redis_pool_ce, gene_strip_obj(self),
-                                  ZEND_STRL(GENE_REDIS_POOL_PROPERTY_CLOSED), 1, NULL);
-    return (v && Z_TYPE_P(v) == IS_TRUE);
-}
-
-static double rpool_get_wait_timeout(zval *self)
-{
-    zval *v = zend_read_property(gene_redis_pool_ce, gene_strip_obj(self),
-                                  ZEND_STRL(GENE_REDIS_POOL_PROPERTY_WAIT_TIME), 1, NULL);
-    if (v && Z_TYPE_P(v) == IS_DOUBLE) return Z_DVAL_P(v);
-    if (v && Z_TYPE_P(v) == IS_LONG)   return (double)Z_LVAL_P(v);
-    return 3.0;
-}
-
 static void rpool_increment_count(zval *self)
 {
     zval *atomic = zend_read_property(gene_redis_pool_ce, gene_strip_obj(self),
                                        ZEND_STRL(GENE_REDIS_POOL_PROPERTY_COUNT), 1, NULL);
     if (atomic && Z_TYPE_P(atomic) == IS_OBJECT) {
-        rpool_atomic_call(atomic, "add", 1, NULL);
+        RPOOL_ATOMIC_CALL(atomic, "add", 1, NULL);
     }
 }
 
@@ -415,7 +468,7 @@ static zend_long rpool_increment_count_get(zval *self)
     if (atomic && Z_TYPE_P(atomic) == IS_OBJECT) {
         zval ret;
         ZVAL_UNDEF(&ret);
-        rpool_atomic_call(atomic, "add", 1, &ret);
+        RPOOL_ATOMIC_CALL(atomic, "add", 1, &ret);
         zend_long val = (Z_TYPE(ret) == IS_LONG) ? Z_LVAL(ret) : 0;
         if (!Z_ISUNDEF(ret)) zval_ptr_dtor(&ret);
         return val;
@@ -428,7 +481,7 @@ static void rpool_set_count(zval *self, zend_long val)
     zval *atomic = zend_read_property(gene_redis_pool_ce, gene_strip_obj(self),
                                        ZEND_STRL(GENE_REDIS_POOL_PROPERTY_COUNT), 1, NULL);
     if (atomic && Z_TYPE_P(atomic) == IS_OBJECT) {
-        rpool_atomic_call(atomic, "set", val, NULL);
+        RPOOL_ATOMIC_CALL(atomic, "set", val, NULL);
     }
 }
 
@@ -483,6 +536,8 @@ static void rpool_recycle_idle(zval *self)
     zend_long now  = (zend_long)time(NULL);
     zend_long size = rpool_channel_length(channel);
     zend_long i;
+    /* [GENE_PERF:2026-04-27] Cache min outside loop — cannot change while we iterate. */
+    zend_long min_cached = rpool_get_min(self);
 
     /* Pop-check-push pattern avoids starving concurrent get() callers */
     for (i = 0; i < size; i++) {
@@ -495,16 +550,16 @@ static void rpool_recycle_idle(zval *self)
             continue;
         }
 
-        zval *last_used_zv = zend_hash_str_find(Z_ARRVAL(item), ZEND_STRL("lastUsed"));
+        /* [GENE_PERF:2026-04-27] packed indexed array: idx 0 = conn, idx 1 = lastUsed. */
+        zval *conn_zv      = zend_hash_index_find(Z_ARRVAL(item), 0);
+        zval *last_used_zv = zend_hash_index_find(Z_ARRVAL(item), 1);
         zend_long last_used = (last_used_zv && Z_TYPE_P(last_used_zv) == IS_LONG)
                                ? Z_LVAL_P(last_used_zv) : now;
 
-        zval *conn_zv = zend_hash_str_find(Z_ARRVAL(item), ZEND_STRL("conn"));
-
-        if (rpool_get_count(self) > rpool_get_min(self) &&
+        if (rpool_get_count(self) > min_cached &&
             (now - last_used) > idle_timeout) {
             /* Idle beyond threshold — discard */
-            rpool_decrement_count(self);
+            rpool_decrement_count_unchecked(self);
             zval_ptr_dtor(&item);
             continue;
         }
@@ -513,17 +568,17 @@ static void rpool_recycle_idle(zval *self)
         if (conn_zv && Z_TYPE_P(conn_zv) == IS_OBJECT) {
             if (rpool_is_alive(conn_zv)) {
                 if (!rpool_channel_push(channel, conn_zv)) {
-                    rpool_decrement_count(self);
+                    rpool_decrement_count_unchecked(self);
                 }
             } else {
-                rpool_decrement_count(self);
+                rpool_decrement_count_unchecked(self);
             }
         }
         zval_ptr_dtor(&item);
     }
 
     /* Refill to minimum */
-    while (rpool_get_count(self) < rpool_get_min(self) &&
+    while (rpool_get_count(self) < min_cached &&
            !rpool_channel_is_full(channel)) {
         zval conn;
         rpool_create_connection(self, &conn);
@@ -582,6 +637,8 @@ static void rpool_start_idle_recycler(zval *self)
 
 static bool rpool_in_coroutine(void)
 {
+    /* If not in Swoole mode, definitely not in a coroutine. */
+    if (GENE_G(runtime_type) < 2) return 0;
     return gene_get_coroutine_id() >= 0;
 }
 
@@ -928,6 +985,8 @@ PHP_METHOD(gene_redis_pool, create)
     /* Register in the static instances registry */
     Z_TRY_ADDREF(new_pool);
     zend_hash_update(Z_ARRVAL_P(instances), name, &new_pool);
+    /* [GENE_PERF:2026-04-27] mirror into C-layer cache for fast lookups. */
+    gene_redis_pool_named_cache_put(name, Z_OBJ(new_pool));
 
     RETURN_ZVAL(&new_pool, 1, 1);
 }
@@ -941,6 +1000,15 @@ PHP_METHOD(gene_redis_pool, getInstance)
     zend_string *name;
     if (zend_parse_parameters(ZEND_NUM_ARGS(), "S", &name) == FAILURE) {
         RETURN_NULL();
+    }
+    /* [GENE_PERF:2026-04-27] fast path — C-layer cache hit returns the
+     * borrowed object directly (one hash find, no PHP property read). */
+    {
+        zend_object *cached = gene_redis_pool_named_cache_get(name);
+        if (EXPECTED(cached)) {
+            GC_ADDREF(cached);
+            RETURN_OBJ(cached);
+        }
     }
     zval *instances = zend_read_static_property(gene_redis_pool_ce,
                                                   ZEND_STRL(GENE_REDIS_POOL_PROPERTY_INSTANCES), 1);
@@ -991,7 +1059,8 @@ PHP_METHOD(gene_redis_pool, get)
             zval item;
             if (rpool_channel_pop(channel, 0.001, &item)) {
                 if (Z_TYPE(item) == IS_ARRAY) {
-                    zval *conn = zend_hash_str_find(Z_ARRVAL(item), ZEND_STRL("conn"));
+                    /* [GENE_PERF:2026-04-27] packed indexed array: idx 0 = conn */
+                    zval *conn = zend_hash_index_find(Z_ARRVAL(item), 0);
                     if (conn && Z_TYPE_P(conn) == IS_OBJECT) {
                         /* Skip liveness check — dead connections are handled
                          * by the caller (catch → remove → re-get) and by
@@ -1016,12 +1085,12 @@ PHP_METHOD(gene_redis_pool, get)
                 if (Z_TYPE(conn) == IS_OBJECT) {
                     RETURN_ZVAL(&conn, 0, 0);
                 }
-                rpool_decrement_count(self);
+                rpool_decrement_count_unchecked(self);
                 retries++;
                 continue;
             }
             /* Over max — roll back the reservation */
-            rpool_decrement_count(self);
+            rpool_decrement_count_unchecked(self);
         }
 
         /* 3. At max: block until a connection is returned or timeout */
@@ -1029,7 +1098,8 @@ PHP_METHOD(gene_redis_pool, get)
             zval item;
             if (rpool_channel_pop(channel, rpool_get_wait_timeout(self), &item)) {
                 if (Z_TYPE(item) == IS_ARRAY) {
-                    zval *conn = zend_hash_str_find(Z_ARRVAL(item), ZEND_STRL("conn"));
+                    /* [GENE_PERF:2026-04-27] packed indexed array: idx 0 = conn */
+                    zval *conn = zend_hash_index_find(Z_ARRVAL(item), 0);
                     if (conn && Z_TYPE_P(conn) == IS_OBJECT) {
                         RETVAL_ZVAL(conn, 1, 0);
                         zval_ptr_dtor(&item);
@@ -1064,60 +1134,6 @@ PHP_METHOD(gene_redis_pool, get)
 /* }}} */
 
 /*
- * {{{ public Gene\Cache\RedisPool::put(Redis $redis): void
- *
- * Return a borrowed connection to the pool.
- * Handles: pool closed, dead connection, overflow shrink, normal return.
- */
-PHP_METHOD(gene_redis_pool, put)
-{
-    zval *redis = NULL, *self = getThis();
-    zval *channel;
-
-    if (zend_parse_parameters(ZEND_NUM_ARGS(), "o", &redis) == FAILURE) {
-        return;
-    }
-
-    if (rpool_is_closed(self)) {
-        rpool_decrement_count(self);
-        return;
-    }
-
-    channel = zend_read_property(gene_redis_pool_ce, gene_strip_obj(self),
-                                  ZEND_STRL(GENE_REDIS_POOL_PROPERTY_CHANNEL), 1, NULL);
-    if (!channel || Z_TYPE_P(channel) != IS_OBJECT) {
-        rpool_decrement_count(self);
-        return;
-    }
-
-    /* Skip liveness check — dead connections are caught by recycleIdle().
-     * Avoiding Redis::ping() saves one network RT per put(). */
-
-    /* Auto-shrink overflow: discard connections above max */
-    if (rpool_get_count(self) > rpool_get_max(self)) {
-        rpool_decrement_count(self);
-        return;
-    }
-
-    if (!rpool_channel_push(channel, redis)) {
-        /* Push failed (e.g. channel already closed) */
-        rpool_decrement_count(self);
-    }
-}
-/* }}} */
-
-/*
- * {{{ public Gene\Cache\RedisPool::remove(): void
- * Caller discarded a borrowed connection (e.g. it died mid-use).
- * Decrements the pool count without a PING — the caller already knows it's dead.
- */
-PHP_METHOD(gene_redis_pool, remove)
-{
-    rpool_decrement_count(getThis());
-}
-/* }}} */
-
-/*
  * {{{ public Gene\Cache\RedisPool::close(): void
  *
  * Two-phase shutdown:
@@ -1125,7 +1141,7 @@ PHP_METHOD(gene_redis_pool, remove)
  *   (Coroutine only)
  *     a) drain idle connections;
  *     b) wait briefly for in-flight connections;
- *     c) Channel::close() — wakes blocked get() callers with false;
+ *     c) Channel::close() — wakes blocked get() coroutines with false;
  *     d) force-reset count.
  */
 PHP_METHOD(gene_redis_pool, close)
@@ -1172,7 +1188,8 @@ PHP_METHOD(gene_redis_pool, close)
 
             /* c) close channel — wakes any remaining blocked get() coroutines */
             zval close_rv;
-            zend_function *close_func = zend_hash_str_find_ptr(&Z_OBJCE_P(channel)->function_table, ZEND_STRL("close"));
+            static zend_function *fn_ch_close = NULL;
+            zend_function *close_func = RPOOL_OBJ_METHOD_CACHED(channel, fn_ch_close, "close");
             ZVAL_UNDEF(&close_rv);
             if (EXPECTED(close_func)) {
                 zend_call_known_function(close_func, Z_OBJ_P(channel), Z_OBJCE_P(channel), &close_rv, 0, NULL, NULL);
@@ -1182,16 +1199,6 @@ PHP_METHOD(gene_redis_pool, close)
         /* d) force-reset count; in-use connections self-discard via put() */
         rpool_set_count(self, 0);
     }
-}
-/* }}} */
-
-/*
- * {{{ public Gene\Cache\RedisPool::recycleIdle(): void
- * Timer callback — runs inside a Swoole coroutine.
- */
-PHP_METHOD(gene_redis_pool, recycleIdle)
-{
-    rpool_recycle_idle(getThis());
 }
 /* }}} */
 
@@ -1229,6 +1236,10 @@ PHP_METHOD(gene_redis_pool, closeAll)
         } ZEND_HASH_FOREACH_END();
     }
 
+    /* [GENE_PERF:2026-04-27] Clear C-layer cache before dropping the
+     * instances array (which owns refcounts on the pool objects). */
+    gene_redis_pool_named_cache_clear();
+
     zval empty;
     array_init(&empty);
     zend_update_static_property(gene_redis_pool_ce,
@@ -1260,47 +1271,6 @@ PHP_METHOD(gene_redis_pool, stopTimers)
 /* }}} */
 
 /*
- * {{{ public Gene\Cache\RedisPool::stats(): array
- */
-PHP_METHOD(gene_redis_pool, stats)
-{
-    zval *self    = getThis();
-    zval *channel = zend_read_property(gene_redis_pool_ce, gene_strip_obj(self),
-                                        ZEND_STRL(GENE_REDIS_POOL_PROPERTY_CHANNEL), 1, NULL);
-    zend_long count = rpool_get_count(self);
-    zend_long idle  = (channel && Z_TYPE_P(channel) == IS_OBJECT)
-                      ? rpool_channel_length(channel) : 0;
-    zend_long max      = rpool_get_max(self);
-    zend_long overflow = (count > max) ? (count - max) : 0;
-
-    array_init(return_value);
-    add_assoc_long(return_value,  "total",    count);
-    add_assoc_long(return_value,  "idle",     idle);
-    add_assoc_long(return_value,  "using",    count - idle);
-    add_assoc_long(return_value,  "overflow", overflow);
-    add_assoc_long(return_value,  "min",      rpool_get_min(self));
-    add_assoc_long(return_value,  "max",      max);
-    add_assoc_bool(return_value,  "closed",   rpool_is_closed(self));
-}
-/* }}} */
-
-/*
- * {{{ public Gene\Cache\RedisPool::__destruct()
- */
-PHP_METHOD(gene_redis_pool, __destruct)
-{
-    zval *self = getThis();
-    if (!rpool_is_closed(self)) {
-        zval close_ret;
-        gene_factory_call(self, "close", sizeof("close") - 1, NULL, &close_ret);
-        zval_ptr_dtor(&close_ret);
-    }
-}
-/* }}} */
-
-/* ====================== Shared helpers used by Gene\Cache\Redis ====================== */
-
-/*
  * Borrow a Redis connection from a named RedisPool instance and store it on $self.
  *
  * Reads config[$pool_key] as the pool name, calls RedisPool::getInstance($name),
@@ -1321,28 +1291,36 @@ bool gene_redis_pool_get(zend_class_entry *redis_ce, zval *self, zval *config,
         return 0;
     }
 
-    /* Gene\Cache\RedisPool::getInstance($name) */
-    zval callable, pool_obj;
-    array_init(&callable);
-    if (GENE_G(use_namespace)) {
-        add_next_index_string(&callable, "Gene\\Cache\\RedisPool");
-    } else {
-        add_next_index_string(&callable, "Gene_Cache_RedisPool");
-    }
-    add_next_index_string(&callable, "getInstance");
-
-    zval param;
-    ZVAL_COPY(&param, pool_name);
+    /* [GENE_PERF:2026-04-27] Fast path — direct C-layer cache lookup skips
+     * RedisPool::getInstance() entirely (no PHP frame, no static-property read,
+     * no call_user_function). */
+    zval pool_obj;
     ZVAL_UNDEF(&pool_obj);
-    call_user_function(NULL, NULL, &callable, &pool_obj, 1, &param);
-    zval_ptr_dtor(&param);
-    zval_ptr_dtor(&callable);
+    {
+        zend_object *cached = gene_redis_pool_named_cache_get(Z_STR_P(pool_name));
+        if (EXPECTED(cached)) {
+            GC_ADDREF(cached);
+            ZVAL_OBJ(&pool_obj, cached);
+        } else {
+            /* Slow path: call RedisPool::getInstance($name) directly. */
+            zend_function *fn_gi = rpool_method(&fn_rpool_getinstance, ZEND_STRL("getinstance"));
+            if (UNEXPECTED(!fn_gi)) {
+                return 0;
+            }
+            zval gi_args[1];
+            ZVAL_COPY(&gi_args[0], pool_name);
+            zend_call_known_function(fn_gi, NULL, gene_redis_pool_ce, &pool_obj, 1, gi_args, NULL);
+            zval_ptr_dtor(&gi_args[0]);
+        }
+    }
 
     if (Z_TYPE(pool_obj) == IS_OBJECT) {
-        zend_ulong obj_handle = self ? (zend_ulong)Z_OBJ_HANDLE_P(self) : 0;
         zval redis_conn;
         ZVAL_UNDEF(&redis_conn);
-        gene_factory_call(&pool_obj, "get", sizeof("get") - 1, NULL, &redis_conn);
+        zend_function *fn_get = rpool_method(&fn_rpool_get, ZEND_STRL("get"));
+        if (EXPECTED(fn_get)) {
+            zend_call_known_function(fn_get, Z_OBJ(pool_obj), gene_redis_pool_ce, &redis_conn, 0, NULL, NULL);
+        }
 
         if (Z_TYPE(redis_conn) == IS_OBJECT) {
             /* Store pool ref ONLY after successful get().
@@ -1361,6 +1339,7 @@ bool gene_redis_pool_get(zend_class_entry *redis_ce, zval *self, zval *config,
     zval_ptr_dtor(&pool_obj);
     return 0;
 }
+
 /*
  * re-use of the connection during the coroutine yield inside channel->push().
  * The pool property ($pool_key) is intentionally kept so that:
@@ -1384,12 +1363,16 @@ void gene_redis_pool_return(zend_class_entry *redis_ce, zval *self,
             zend_update_property_null(redis_ce, gene_strip_obj(self),
                                        obj_key, obj_key_len);
 
-            zval retval, params;
-            array_init(&params);
-            add_next_index_zval(&params, &obj_copy);
-            gene_factory_call(pool, "put", sizeof("put") - 1, &params, &retval);
-            zval_ptr_dtor(&retval);
-            zval_ptr_dtor(&params);
+            /* [GENE_PERF:2026-04-27] Direct call via cached fn ptr. */
+            zend_function *fn_put = rpool_method(&fn_rpool_put, ZEND_STRL("put"));
+            zval retval, args[1];
+            ZVAL_COPY_VALUE(&args[0], &obj_copy);
+            ZVAL_UNDEF(&retval);
+            if (EXPECTED(fn_put)) {
+                zend_call_known_function(fn_put, Z_OBJ_P(pool), gene_redis_pool_ce, &retval, 1, args, NULL);
+            }
+            zval_ptr_dtor(&obj_copy);
+            if (!Z_ISUNDEF(retval)) zval_ptr_dtor(&retval);
         } else {
             /* Already returned — just ensure property is null */
             zend_update_property_null(redis_ce, gene_strip_obj(self),
@@ -1409,9 +1392,14 @@ void gene_redis_pool_notify_remove(zend_class_entry *redis_ce, zval *self,
     zval *pool = zend_read_property(redis_ce, gene_strip_obj(self),
                                      pool_key, pool_key_len, 1, NULL);
     if (pool && Z_TYPE_P(pool) == IS_OBJECT) {
+        /* [GENE_PERF:2026-04-27] Direct call via cached fn ptr. */
+        zend_function *fn_rm = rpool_method(&fn_rpool_remove, ZEND_STRL("remove"));
         zval retval;
-        gene_factory_call(pool, "remove", sizeof("remove") - 1, NULL, &retval);
-        zval_ptr_dtor(&retval);
+        ZVAL_UNDEF(&retval);
+        if (EXPECTED(fn_rm)) {
+            zend_call_known_function(fn_rm, Z_OBJ_P(pool), gene_redis_pool_ce, &retval, 0, NULL, NULL);
+        }
+        if (!Z_ISUNDEF(retval)) zval_ptr_dtor(&retval);
     }
 }
 
@@ -1472,6 +1460,17 @@ GENE_MINIT_FUNCTION(redis_pool)
         ZEND_STRL(GENE_REDIS_POOL_PROPERTY_INSTANCES),
         ZEND_ACC_PROTECTED | ZEND_ACC_STATIC);
 
+    return SUCCESS;
+}
+
+/* [GENE_FIX:2026-04-27] Module-shutdown safety net for the C-layer named-pool
+ * cache. RedisPool::closeAll() already clears it during normal worker shutdown,
+ * but if the user forgets (or process aborts before then), the static HashTable
+ * would leak at process exit (visible in valgrind). Internal pointers borrowed
+ * from the static instances array — no per-entry destruction needed. */
+GENE_MSHUTDOWN_FUNCTION(redis_pool)
+{
+    gene_redis_pool_named_cache_clear();
     return SUCCESS;
 }
 
