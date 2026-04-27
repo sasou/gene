@@ -601,11 +601,10 @@ char *strreplace(char *original, char *pattern, char *replacement)
       for (oriptr = original; (patloc = strstr(oriptr, pattern)); oriptr = patloc + patlen)
       {
     	size_t skplen = patloc - oriptr;
-        // copy the section until the occurence of the pattern
-        strncpy(retptr, oriptr, skplen);
+        // [GENE_PERF:2026-04-27] memcpy: dest is ecalloc'd (zeroed); skip strncpy zero-fill.
+        memcpy(retptr, oriptr, skplen);
         retptr += skplen;
-        // copy the replacement
-        strncpy(retptr, replacement, replen);
+        memcpy(retptr, replacement, replen);
         retptr += replen;
       }
       // copy the rest of the string.

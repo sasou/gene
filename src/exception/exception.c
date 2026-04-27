@@ -88,18 +88,20 @@ void gene_exception_getTrace(zval *object, zval *retval) /*{{{*/
 	gene_exception_call_method(object, ZEND_STRL("gettrace"), retval);
 }/*}}}*/
 
+/* [GENE_FIX:2026-04-27] Removed process-wide static zend_function* caches
+ * across this file: under ZTS CG(function_table) is per-thread, so a
+ * pointer cached on thread A is invalid for thread B. The exception
+ * display path is cold; drop the caches and look up each call. */
 static void gene_html_escape(const char *input, zval *retval) /*{{{*/
 {
-    static zend_function *fn = NULL;
-    if (UNEXPECTED(!fn)) {
-        fn = zend_hash_str_find_ptr(CG(function_table), ZEND_STRL("htmlspecialchars"));
-    }
+    zend_function *fn = zend_hash_str_find_ptr(CG(function_table), ZEND_STRL("htmlspecialchars"));
+    ZVAL_UNDEF(retval);
+    if (UNEXPECTED(!fn)) { ZVAL_STRING(retval, input); return; }
     zval zv_input, zv_flags, zv_encoding;
     ZVAL_STRING(&zv_input, input);
     ZVAL_LONG(&zv_flags, 3 /* ENT_QUOTES */);
     ZVAL_STRING(&zv_encoding, "UTF-8");
     zval params[] = { zv_input, zv_flags, zv_encoding };
-    ZVAL_UNDEF(retval);
     zend_call_known_function(fn, NULL, NULL, retval, 3, params, NULL);
     zval_ptr_dtor(&zv_input);
     zval_ptr_dtor(&zv_encoding);
@@ -107,30 +109,27 @@ static void gene_html_escape(const char *input, zval *retval) /*{{{*/
 
 void gene_file_codes(zval *file, zval *retval) /*{{{*/
 {
-    static zend_function *fn = NULL;
-    if (UNEXPECTED(!fn)) {
-        fn = zend_hash_str_find_ptr(CG(function_table), ZEND_STRL("file"));
-    }
+    zend_function *fn = zend_hash_str_find_ptr(CG(function_table), ZEND_STRL("file"));
+    ZVAL_UNDEF(retval);
+    if (UNEXPECTED(!fn)) return;
     zval params[] = { *file };
     zend_call_known_function(fn, NULL, NULL, retval, 1, params, NULL);
 }/*}}}*/
 
 void gene_file_gettype(zval *var, zval *retval) /*{{{*/
 {
-    static zend_function *fn = NULL;
-    if (UNEXPECTED(!fn)) {
-        fn = zend_hash_str_find_ptr(CG(function_table), ZEND_STRL("gettype"));
-    }
+    zend_function *fn = zend_hash_str_find_ptr(CG(function_table), ZEND_STRL("gettype"));
+    ZVAL_UNDEF(retval);
+    if (UNEXPECTED(!fn)) { ZVAL_EMPTY_STRING(retval); return; }
     zval params[] = { *var };
     zend_call_known_function(fn, NULL, NULL, retval, 1, params, NULL);
 }/*}}}*/
 
 void gene_file_var_export(zval *var, zval *retval) /*{{{*/
 {
-    static zend_function *fn = NULL;
-    if (UNEXPECTED(!fn)) {
-        fn = zend_hash_str_find_ptr(CG(function_table), ZEND_STRL("print_r"));
-    }
+    zend_function *fn = zend_hash_str_find_ptr(CG(function_table), ZEND_STRL("print_r"));
+    ZVAL_UNDEF(retval);
+    if (UNEXPECTED(!fn)) { ZVAL_EMPTY_STRING(retval); return; }
     zval arg;
     ZVAL_TRUE(&arg);
     zval params[] = { *var, arg };
@@ -168,7 +167,7 @@ void gene_file_var_export(zval *var, zval *retval) /*{{{*/
 	"<h2>Where's happened:</h2>\n"
 
 #define HTML_EXCEPTION_FILE  \
-    "<code>File:<font color=\"red\">%s</font> Line:<font color=\"red\">%d</font></code>\n" \
+    "<code>File:<font color=\"red\">%s</font> Line:<font color=\"red\">" ZEND_LONG_FMT "</font></code>\n" \
 	"<ul class=\"code\">\n"
 
 #define HTML_EXCEPTION_CODE_LINE  \
@@ -188,7 +187,7 @@ void gene_file_var_export(zval *var, zval *retval) /*{{{*/
     "<td>%s</td>\n"
 
 #define HTML_EXCEPTION_TABLE_TD_INT  \
-    "<td>%d</td>\n"
+    "<td>" ZEND_LONG_FMT "</td>\n"
 
 #define HTML_EXCEPTION_TABLE_TD_SPAN  \
     "<span title=\"%s\">%s</span>\n"
@@ -223,10 +222,7 @@ int gene_exception_error_register(zval *callback, zval *error_type) {
 		params[1] = *error_type;
 		arg_num = 2;
 	}
-	static zend_function *seh_fn = NULL;
-	if (UNEXPECTED(!seh_fn)) {
-		seh_fn = zend_hash_str_find_ptr(CG(function_table), ZEND_STRL("set_error_handler"));
-	}
+	zend_function *seh_fn = zend_hash_str_find_ptr(CG(function_table), ZEND_STRL("set_error_handler"));
 	ZVAL_UNDEF(&ret);
 	if (EXPECTED(seh_fn)) {
 		zend_call_known_function(seh_fn, NULL, NULL, &ret, arg_num, params, NULL);
@@ -258,10 +254,7 @@ int gene_exception_register(zval *callback) {
 		used_bak = 1;
 	}
 	params[0] = *callback;
-	static zend_function *sexh_fn = NULL;
-	if (UNEXPECTED(!sexh_fn)) {
-		sexh_fn = zend_hash_str_find_ptr(CG(function_table), ZEND_STRL("set_exception_handler"));
-	}
+	zend_function *sexh_fn = zend_hash_str_find_ptr(CG(function_table), ZEND_STRL("set_exception_handler"));
 	ZVAL_UNDEF(&ret);
 	if (EXPECTED(sexh_fn)) {
 		zend_call_known_function(sexh_fn, NULL, NULL, &ret, arg_num, params, NULL);
@@ -349,7 +342,8 @@ void showCode(zval *file, zval *line) {
 	char *out = NULL;
 	zval codes;
 	size_t length = 0;
-	if (ZSTR_LEN(Z_STR_P(file)) > 0) {
+	if (Z_TYPE_P(file) == IS_STRING && Z_STRLEN_P(file) > 0
+		&& Z_TYPE_P(line) == IS_LONG) {
 		gene_file_codes(file, &codes);
 		if (Z_TYPE(codes) == IS_ARRAY) {
 			int size = zend_hash_num_elements(Z_ARRVAL(codes));
@@ -359,8 +353,9 @@ void showCode(zval *file, zval *line) {
 			end = Z_LVAL_P(line) + 8;
 			start = start < 0 ? 0 : start;
 			end = end > size ? size : end;
-			for(start; start < end; start++) {
+			for (; start < end; start++) {
 				ele = zend_hash_index_find(Z_ARRVAL(codes), start);
+				if (!ele || Z_TYPE_P(ele) != IS_STRING) continue;
 				if (start + 1 == Z_LVAL_P(line)) {
 					length = spprintf(&out, 0, HTML_EXCEPTION_CODE_LINE, Z_STRVAL_P(ele));
 				} else {
@@ -390,23 +385,23 @@ void showTrace(zval *ex) {
 				line = zend_hash_str_find(Z_ARRVAL_P(element), "line", 4);
 				func = zend_hash_str_find(Z_ARRVAL_P(element), "function", 8);
 				args = zend_hash_str_find(Z_ARRVAL_P(element), "args", 4);
-				PHPWRITE("<tr>\n", 6);
+				PHPWRITE("<tr>\n", 5);
 				{
 					zval esc;
-					gene_html_escape(file != NULL ? Z_STRVAL_P(file) : "", &esc);
+					gene_html_escape((file != NULL && Z_TYPE_P(file) == IS_STRING) ? Z_STRVAL_P(file) : "", &esc);
 					length = spprintf(&out, 0, HTML_EXCEPTION_TABLE_TD_STR, Z_TYPE(esc) == IS_STRING ? Z_STRVAL(esc) : "");
 					zval_ptr_dtor(&esc);
 				}
 				PHPWRITE(out, length);
 				efree(out);
 				out = NULL;
-				length = spprintf(&out, 0, HTML_EXCEPTION_TABLE_TD_INT, line != NULL ? Z_LVAL_P(line) : 0);
+				length = spprintf(&out, 0, HTML_EXCEPTION_TABLE_TD_INT, (zend_long)((line != NULL && Z_TYPE_P(line) == IS_LONG) ? Z_LVAL_P(line) : 0));
 				PHPWRITE(out, length);
 				efree(out);
 				out = NULL;
 				{
 					zval esc;
-					gene_html_escape(class != NULL ? Z_STRVAL_P(class) : "", &esc);
+					gene_html_escape((class != NULL && Z_TYPE_P(class) == IS_STRING) ? Z_STRVAL_P(class) : "", &esc);
 					length = spprintf(&out, 0, HTML_EXCEPTION_TABLE_TD_STR, Z_TYPE(esc) == IS_STRING ? Z_STRVAL(esc) : "");
 					zval_ptr_dtor(&esc);
 				}
@@ -415,7 +410,7 @@ void showTrace(zval *ex) {
 				out = NULL;
 				{
 					zval esc;
-					gene_html_escape(func != NULL ? Z_STRVAL_P(func) : "", &esc);
+					gene_html_escape((func != NULL && Z_TYPE_P(func) == IS_STRING) ? Z_STRVAL_P(func) : "", &esc);
 					length = spprintf(&out, 0, HTML_EXCEPTION_TABLE_TD_STR, Z_TYPE(esc) == IS_STRING ? Z_STRVAL(esc) : "");
 					zval_ptr_dtor(&esc);
 				}
@@ -441,7 +436,7 @@ void showTrace(zval *ex) {
 					}ZEND_HASH_FOREACH_END();
 				}
 				PHPWRITE("</td>", 5);
-				PHPWRITE("</tr>\n", 7);
+				PHPWRITE("</tr>\n", 6);
 			}
 		}ZEND_HASH_FOREACH_END();
 	}
@@ -462,7 +457,7 @@ PHP_METHOD(gene_exception, doException) {
 	gene_exception_getMessage(ex, &msg);
 	PHPWRITE(HTML_EXCEPTION_HEADER, sizeof(HTML_EXCEPTION_HEADER) - 1);
 
-	gene_html_escape(Z_STRVAL(msg), &msg_escaped);
+	gene_html_escape(Z_TYPE(msg) == IS_STRING ? Z_STRVAL(msg) : "", &msg_escaped);
 	zval_ptr_dtor(&msg);
 	length = spprintf(&out, 0, HTML_EXCEPTION_MSG, Z_TYPE(msg_escaped) == IS_STRING ? Z_STRVAL(msg_escaped) : "");
 	zval_ptr_dtor(&msg_escaped);
@@ -473,8 +468,10 @@ PHP_METHOD(gene_exception, doException) {
 	zval file, line, file_escaped;
 	gene_exception_getFile(ex, &file);
 	gene_exception_getLine(ex, &line);
-	gene_html_escape(Z_STRVAL(file), &file_escaped);
-	length = spprintf(&out, 0, HTML_EXCEPTION_FILE, Z_TYPE(file_escaped) == IS_STRING ? Z_STRVAL(file_escaped) : "", Z_LVAL(line));
+	gene_html_escape(Z_TYPE(file) == IS_STRING ? Z_STRVAL(file) : "", &file_escaped);
+	length = spprintf(&out, 0, HTML_EXCEPTION_FILE,
+		Z_TYPE(file_escaped) == IS_STRING ? Z_STRVAL(file_escaped) : "",
+		(zend_long)(Z_TYPE(line) == IS_LONG ? Z_LVAL(line) : 0));
 	zval_ptr_dtor(&file_escaped);
 	PHPWRITE(out, length);
 	efree(out);
