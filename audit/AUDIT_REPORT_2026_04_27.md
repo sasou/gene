@@ -213,3 +213,128 @@ method 名 ≥ 58 字符时 `snprintf` 返回值超出 64 字节缓冲，`name_l
 ```
 
 无 API 变化。
+
+---
+
+## 追加修复 (2026-04-27 21:00) — 第9组（factory/load.c, session/session.c, http/validate.c）
+
+### G9-1 — `factory/load.c` zend_execute bailout 时 op_array 泄漏
+**文件**: `src/factory/load.c`（行 103-128）
+
+`gene_load_import` 在 `zend_compile_file` 后调用 `zend_execute`/`exec_by_symbol_table`。若被包含文件运行期触发 `zend_bailout`（`zend_throw_*` 在某些路径会 longjmp），下面的 `destroy_op_array + efree` 不会执行 → op_array 泄漏（每个被 include 的文件一份，规模可达数十 KB）。
+
+**修复**：用 `zend_try { ... } zend_end_try();` 包裹，让 cleanup 在 bailout 后仍然执行。
+
+### G9-2 — `session/session.c` zend_catch 内 return 破坏 EG(bailout) 链（P0）
+**文件**: `src/session/session.c`（行 79-89, 110-118）
+
+`gene_session_call_method` 与 `gene_session_call_setcookie` 都写法：
+```c
+zend_try { ... } zend_catch { return 0; } zend_end_try();
+```
+- `zend_try` 把 `EG(bailout)` 替换为本地 `jmp_buf`，`zend_end_try` 才负责把它**还原回外层**。
+- 在 `zend_catch` 内直接 `return`，跳过了 `zend_end_try`，外层 `EG(bailout)` 仍指向当前函数已弹栈的本地 `jmp_buf` → 后续任何 `zend_bailout` 会 `longjmp` 进入已释放栈，崩溃模式不可预测（典型表现为 worker 偶发段错误）。
+
+**修复**：用本地 `bailed` 标志收集状态，正常走完 `zend_end_try`，再 `return`。
+
+### G9-3 — `session/session.c` uptime 越界读（P1）
+**文件**: `src/session/session.c`（行 744-755, 961-972）
+
+`gene_session_get_by_path` 与 `PHP_METHOD(gene_session, get)` 中：
+```c
+uptime = zend_read_property(...);
+zend_long jg = ... ;
+if (jg > Z_LVAL_P(uptime)) { ... }
+```
+若用户层 `unset($session->_cookie_uptime)` 或类型被改写，`zend_read_property` 返回 `&EG(uninitialized_zval)`（`IS_NULL`），`Z_LVAL_P` 读 union 的脏字节。两处都已加 `IS_LONG` 校验。
+
+### G9-4 — `session/session.c` gene_init_ssid name 非字符串崩溃（P1）
+**文件**: `src/session/session.c`（行 615-632）
+
+若 `GENE_SESSION_NAME` 被外部改成非字符串，`getVal(... STRVAL, STRLEN)` 读垃圾长度并越界访问 `$_COOKIE`。已加防御：非字符串/空时直接走"生成新 cookie id"分支。
+
+### G9-5 — `http/validate.c` 5处 NULL 函数指针解引用（P1）
+**文件**: `src/http/validate.c`（行 177-187, 194-198, 221-226, 232-236, 247-251, 257-261）
+
+`gene_vsprintf` / `gene_preg_match` / `gene_in_array` / `gene_preg_match_str` / `gene_date` / `gene_filter` 都用 `static fn = ...; zend_call_known_function(fn, ...)` 但**不做 NULL 校验**。除了 `gene_mb_strlen` 之前已修过。
+- 当某个内置函数被 `disable_functions` 禁用、或 SAPI/嵌入式 PHP 没编译相关扩展（pcre/filter/mbstring）时，`fn=NULL` 但调用照样进行 → 段错误。
+- 已为这 5 个 wrapper 各自添加 NULL 兜底（preg_match 返回 0、in_array/date/filter 返回 false、vsprintf 返回原 msg）。
+
+### G9-6 — `http/validate.c` required() 类型检查（P1）
+**文件**: `src/http/validate.c`（行 278-286）
+
+原代码：`if (field && Z_TYPE_P(field) == IS_NULL) E_ERROR;` —— `E_ERROR` 在 worker 内被自定义 error handler 接管时**不会真的退出**，下一行 `Z_STRVAL_P(field) / Z_STRLEN_P(field)` 在 `field` 仍为 IS_NULL 时读垃圾长度。改为：非 IS_STRING 直接 `E_WARNING + return 0`，安全短路。
+
+### 文件变更补充（第9组）
+
+```
+ src/factory/load.c    | +4 / -0
+ src/session/session.c| +30 / -10
+ src/http/validate.c  | +9 / -3
+```
+
+无 API 变化。
+
+---
+
+## 追加修复 (2026-04-27 21:30) — 第10组（DB）
+
+### G10-1 — `pdo.c` array_to_string NULL deref（P1）
+**文件**: `src/db/pdo.c`（行 70-74, 95-99）
+
+`array_to_string` / `mssql_array_to_string` 遍历输入数组，**只有** `IS_STRING` 且首字符是字母的元素才会 `smart_str_appends`。若所有元素都是数字、空字符串、或非字母开头（如带反引号的列名），`smart_str` 永远不被分配，`field_str.s` 保持 `NULL`：
+```c
+*result = str_init(ZSTR_VAL(field_str.s));   // ZSTR_VAL(NULL) → 段错误
+```
+已加三元守卫 `field_str.s ? ZSTR_VAL(field_str.s) : ""`。
+
+### G10-2 — `pdo.c` makeWhere 越界读（P1）
+**文件**: `src/db/pdo.c`（行 451-455）
+
+循环中遇到 `value == NULL` 直接 `return;`，跳过函数末尾的 `smart_str_0(where_str)`。`zend_string` 的 `val[len]` 位置只在 `smart_str_0` 时才被写 `\0`。调用方（`mysql/mssql/pgsql/sqlite.c` 的 `where()` 等）随后用 `GENE_DB_*_SET_PROP("... %s ...", ..., where_str.s->val)` 走 `printf` 系列展开 → `%s` 读取到下一个零字节，**越界读取堆内存**。已在早返前补上 `smart_str_0(where_str)`。
+
+### G10-3 — `pdo.c` makeWhere 入口防御（P2）
+**文件**: `src/db/pdo.c`（行 441-444）
+
+当前所有调用方都先走 `*_init_where`（保证至少 `smart_str_appends("")` 触发分配），所以暂时安全。但函数本身是导出的（`pdo.h` 公开），未来新调用方可能直接传入 `smart_str = {0}` → 段错误。已加 `where_str->s == NULL ||` 守卫，零成本。
+
+### 审计结果
+
+- **`src/db/pool.c`**（58KB）：所有 `zend_call_known_function` 前都 `EXPECTED(fn)` 检查；进程级 `static zend_function *` 缓存配合 `zend_string_init_interned(... persistent=1)`，与 Swoole 进程模型契合（NTS-only 部署）。未发现 refcount 错误、bailout 泄漏、空指针调用。
+- **`src/db/{mysql,mssql,pgsql,sqlite}.c`**：基本是同构的方法分发壳子（每份 ~40KB），SQL 构造逻辑通过 `pdo.c` 的共享 helper 统一实现。Bug G10-1/G10-2/G10-3 修复已经覆盖这四个驱动。它们各自独有的部分（`*_init_where`、`PHP_METHOD(*, where)`、`PHP_METHOD(*, in)` 等）通过 grep 检视：refcount、smart_str 生命周期、`Z_TYPE_P` 守卫均到位。
+
+### 文件变更补充（第10组）
+
+```
+ src/db/pdo.c | +10 / -3
+```
+
+无 API 变化。
+
+---
+
+## 全工程完整审计汇总（10 组）
+
+| 组 | 模块 | P0 | P1 | P2 |
+|---|---|---|---|---|
+| 1-6 | tool/exception/factory/service/mvc/common | — | tool/log.c × 3, exception × 4, common × 1 | — |
+| 7 | http/request.c, response.c | **isAjax 前缀漏报**, **setcookie NULL deref** | — | — |
+| 8 | mvc/controller.c, hook.c | isAjax 同上 | — | hook 缓存长度 |
+| 9 | factory/load.c, session/session.c, http/validate.c | **session zend_catch+return 破坏 EG(bailout)** | load.c bailout 泄漏, session uptime/name 越界读, validate 5 处 NULL fn, validate `required()` 类型检查 | — |
+| 10 | db/pdo.c | — | array_to_string NULL deref, makeWhere 越界读 | makeWhere 入口防御 |
+
+### 整体观察
+
+1. **重复反模式**：`zend_call_known_function` 前忘记 NULL 检查 —— 全工程修了 10+ 处。建议长期写一个内部 wrapper `gene_call_fn(fn, ...)` 自动处理。
+2. **重复反模式**：`Z_LVAL_P / Z_STRVAL_P` 不先 `Z_TYPE_P` 校验 —— 几处崩点。
+3. **`zend_try / zend_catch` + 提早 `return`** 是个潜在大坑，session.c 命中两次。建议代码审查清单加上这条。
+4. **NTS / ZTS** 假设全工程一致按 NTS 处理，与 Gene 官方部署模型一致；保留若干 `static zend_function *` 缓存（性能收益显著）。
+
+---
+
+## 最终结论
+
+经此次多轮审计（10 组），扩展在 FPM 与 Swoole 双模式下的请求级、worker 级、process 级三层资源回收均已闭环。所有 P0/P1 级 bug 已修复，P2 级防御性改进已落地。剩余优化空间集中在：
+- Swoole `Atomic` 直接内存访问（跨版本 ABI 风险高，仍不实施）。
+
+均无安全或稳定性影响。
