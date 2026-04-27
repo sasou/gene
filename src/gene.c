@@ -818,6 +818,7 @@ PHP_MSHUTDOWN_FUNCTION(gene) {
 	 * Pool::closeAll() user contract; this is a safety net for valgrind
 	 * cleanliness on abnormal shutdown. */
 	GENE_SHUTDOWN(pool);
+	GENE_SHUTDOWN(redis_pool);
 
 	if (GENE_G(cache)) {
 		gene_hash_destroy(GENE_G(cache));
