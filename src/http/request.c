@@ -36,9 +36,9 @@ zend_class_entry * gene_request_ce;
 static zval *gene_request_attr(void) {
 	gene_request_context *ctx = gene_request_ctx();
 	if (UNEXPECTED(Z_TYPE(ctx->request_attr) == IS_UNDEF || Z_TYPE(ctx->request_attr) == IS_NULL)) {
-		if (Z_TYPE(ctx->request_attr) == IS_NULL) {
-			zval_ptr_dtor(&ctx->request_attr);
-		}
+		/* [GENE_FIX:2026-04-27] IS_NULL is non-refcounted; the previous
+		 * zval_ptr_dtor on it was a no-op and immediately overwritten by
+		 * array_init_size below. Removed the dead branch. */
 		/* [GENE_PERF:2026-04-24 v5.5.8] request_attr stores at most 8 track
 		 * vars (POST/GET/COOKIE/SERVER/ENV/FILES/REQUEST/HEADER, indices 0-7).
 		 * Pre-size the HashTable to 8 so the first burst of getVal()/setVal()
