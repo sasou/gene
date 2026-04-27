@@ -813,6 +813,12 @@ PHP_MSHUTDOWN_FUNCTION(gene) {
 	UNREGISTER_INI_ENTRIES();
 	php_gene_close_globals();
 
+	/* [GENE_FIX:2026-04-27] Clear sub-module process-level resources.
+	 * Currently only `pool` carries a static HashTable that survives the
+	 * Pool::closeAll() user contract; this is a safety net for valgrind
+	 * cleanliness on abnormal shutdown. */
+	GENE_SHUTDOWN(pool);
+
 	if (GENE_G(cache)) {
 		gene_hash_destroy(GENE_G(cache));
 		GENE_G(cache) = NULL;
