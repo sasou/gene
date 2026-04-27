@@ -31,6 +31,7 @@
 extern zend_class_entry *gene_redis_pool_ce;
 
 GENE_MINIT_FUNCTION(redis_pool);
+GENE_MSHUTDOWN_FUNCTION(redis_pool);
 
 /* Shared helper functions used by Gene\Cache\Redis to integrate with the pool */
 bool gene_redis_pool_get(zend_class_entry *redis_ce, zval *self, zval *config,
