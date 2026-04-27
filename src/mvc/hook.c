@@ -1,4 +1,4 @@
-/*
+﻿/*
  +----------------------------------------------------------------------+
  | gene                                                                 |
  +----------------------------------------------------------------------+
@@ -401,6 +401,7 @@ PHP_METHOD(gene_hook, url) {
 	size_t path_len;
 	gene_request_context *ctx;
 	const char *lang;
+	size_t lang_len;
 
 	if (zend_parse_parameters(ZEND_NUM_ARGS(), "S", &path_str) == FAILURE) {
 		return;
@@ -409,10 +410,16 @@ PHP_METHOD(gene_hook, url) {
 	path_len = ZSTR_LEN(path_str);
 	for (; path_len > 0 && *p == '/'; p++, path_len--) {}
 	ctx = gene_request_ctx();
-	lang = (ctx->lang && ctx->lang[0] != '\0') ? ctx->lang : NULL;
+	/* [GENE_PERF:2026-04-27] Use cached ctx->lang_len; eliminates strlen per call. */
+	if (ctx->lang && ctx->lang[0] != '\0') {
+		lang = ctx->lang;
+		lang_len = ctx->lang_len;
+	} else {
+		lang = NULL;
+		lang_len = 0;
+	}
 	if (path_len == 0) {
 		if (lang) {
-			size_t lang_len = strlen(lang);
 			size_t out_len = lang_len + 2;
 			char out_buf[256];
 			char *out_ptr = out_buf;
@@ -435,7 +442,7 @@ PHP_METHOD(gene_hook, url) {
 		return;
 	}
 	if (lang) {
-		size_t lang_len = strlen(lang);
+		/* [GENE_PERF:2026-04-27] memcpy + RETVAL_STRINGL — same pattern as Gene\Controller::url(). */
 		size_t out_len = lang_len + path_len + 2;
 		char out_buf[512];
 		char *out_ptr = out_buf;
@@ -444,8 +451,12 @@ PHP_METHOD(gene_hook, url) {
 			out_ptr = emalloc(out_len + 1);
 			out_heap = 1;
 		}
-		snprintf(out_ptr, out_len + 1, "/%s/%.*s", lang, (int)path_len, p);
-		RETVAL_STRING(out_ptr);
+		out_ptr[0] = '/';
+		memcpy(out_ptr + 1, lang, lang_len);
+		out_ptr[lang_len + 1] = '/';
+		memcpy(out_ptr + lang_len + 2, p, path_len);
+		out_ptr[out_len] = '\0';
+		RETVAL_STRINGL(out_ptr, out_len);
 		if (out_heap) {
 			efree(out_ptr);
 		}
@@ -458,8 +469,10 @@ PHP_METHOD(gene_hook, url) {
 			out_ptr = emalloc(out_len + 1);
 			out_heap = 1;
 		}
-		snprintf(out_ptr, out_len + 1, "/%.*s", (int)path_len, p);
-		RETVAL_STRING(out_ptr);
+		out_ptr[0] = '/';
+		memcpy(out_ptr + 1, p, path_len);
+		out_ptr[out_len] = '\0';
+		RETVAL_STRINGL(out_ptr, out_len);
 		if (out_heap) {
 			efree(out_ptr);
 		}

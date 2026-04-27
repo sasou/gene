@@ -31,6 +31,7 @@
 extern zend_class_entry *gene_pool_ce;
 
 GENE_MINIT_FUNCTION(pool);
+GENE_MSHUTDOWN_FUNCTION(pool);
 
 /* Shared helper functions for all DB classes to use pool */
 bool gene_pool_get_pdo(zend_class_entry *db_ce, zval *self, zval *config, const char *pool_key, size_t pool_key_len, const char *pdo_key, size_t pdo_key_len);
