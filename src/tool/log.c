@@ -140,12 +140,17 @@ static inline zend_function *gene_log_get_error_log_fn(void) {
 }
 /* }}} */
 
-/* {{{ gene_log_call_error_log — write via cached error_log function */
-static void gene_log_call_error_log(const char *log_line, const char *effective_file) {
+/* {{{ gene_log_call_error_log — write via cached error_log function.
+ * Takes ownership of log_line (heap-allocated via spprintf). Avoids the
+ * extra emalloc+memcpy that ZVAL_STRING would incur by wrapping the buffer
+ * into a zend_string directly. */
+static void gene_log_call_error_log(char *log_line, size_t log_line_len, const char *effective_file) {
 	zend_function *fn = gene_log_get_error_log_fn();
-	if (UNEXPECTED(!fn)) return;
+	if (UNEXPECTED(!fn)) { efree(log_line); return; }
 	zval retval, params[3];
-	ZVAL_STRING(&params[0], log_line);
+	/* Build zend_string then free the spprintf buffer — one emalloc instead of two */
+	ZVAL_STR(&params[0], zend_string_init(log_line, log_line_len, 0));
+	efree(log_line);
 	if (effective_file) {
 		ZVAL_LONG(&params[1], 3);
 		ZVAL_STRING(&params[2], effective_file);
@@ -174,14 +179,13 @@ static void gene_log_write_message(zend_long level, const char *msg) {
 	gene_log_get_datetime(&datetime);
 	level_name = gene_log_level_name(level);
 
-	spprintf(&log_line, 0, "[%s] [Gene.%s] %s", datetime, level_name, msg);
+	size_t log_line_len = spprintf(&log_line, 0, "[%s] [Gene.%s] %s", datetime, level_name, msg);
 	efree(datetime);
 
 	/* Check if custom log file is set */
 	effective_file = gene_log_get_effective_file();
-	gene_log_call_error_log(log_line, effective_file);
-
-	efree(log_line);
+	/* ownership of log_line transferred to callee */
+	gene_log_call_error_log(log_line, log_line_len, effective_file);
 }
 /* }}} */
 
@@ -286,23 +290,22 @@ PHP_METHOD(gene_log, exception) {
 		zend_long line_num = (Z_TYPE(line_val) == IS_LONG) ? Z_LVAL(line_val) : 0;
 		const char *trace_str = (Z_TYPE(trace_val) == IS_STRING) ? Z_STRVAL(trace_val) : "";
 
+		size_t log_line_len;
 		if (extra_msg && ZSTR_LEN(extra_msg) > 0) {
-			spprintf(&log_line, 0,
+			log_line_len = spprintf(&log_line, 0,
 				"[%s] [Gene.ERROR] [%s] %s in %s:%ld\n%s\n%s",
 				datetime, class_name, msg_str, file_str, line_num, ZSTR_VAL(extra_msg), trace_str);
 		} else {
-			spprintf(&log_line, 0,
+			log_line_len = spprintf(&log_line, 0,
 				"[%s] [Gene.ERROR] [%s] %s in %s:%ld\n%s",
 				datetime, class_name, msg_str, file_str, line_num, trace_str);
 		}
+		efree(datetime);
+
+		/* Write log (ownership of log_line transferred) */
+		gene_log_call_error_log(log_line, log_line_len, gene_log_get_effective_file());
 	}
 
-	efree(datetime);
-
-	/* Write log */
-	gene_log_call_error_log(log_line, gene_log_get_effective_file());
-
-	efree(log_line);
 	zval_ptr_dtor(&msg_val);
 	zval_ptr_dtor(&file_val);
 	zval_ptr_dtor(&line_val);

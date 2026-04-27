@@ -288,7 +288,9 @@ PHP_METHOD(gene_language, __get) {
             if (zend_execute_scripts(ZEND_REQUIRE, &retval, 1, &file_handle) == SUCCESS) {
                 if (Z_TYPE(retval) == IS_ARRAY) {
                     zval tmp;
-                    ZVAL_COPY(&tmp, &retval);
+                    /* transfer ownership instead of addref+dtor */
+                    ZVAL_COPY_VALUE(&tmp, &retval);
+                    ZVAL_UNDEF(&retval);
                     cache_key_zstr = gene_language_build_cache_key_zstr(
                         Z_STRVAL_P(dir_zv), Z_STRLEN_P(dir_zv),
                         Z_STRVAL_P(lang_zv), Z_STRLEN_P(lang_zv));
