@@ -144,9 +144,36 @@ method 名 ≥ 58 字符时 `snprintf` 返回值超出 64 字节缓冲，`name_l
 
 `gene_log_call_error_log` 改签 `(char *log_line, size_t log_line_len, const char *effective_file)`，接管 spprintf 缓冲所有权，内部以 `zend_string_init(log_line, len, 0) + efree(log_line)` 替代 `ZVAL_STRING`，省一次 emalloc + memcpy + 一次 strlen；`gene_log_write_message` / `Gene\Log::exception` 调用点同步更新，并清理 `exception` 中 early-return 后的死代码尾段。
 
-### 留待下轮（5/6 — 属性偏移缓存）
+### F6 — `Gene\Log` 静态属性偏移缓存
+**文件**: `src/tool/log.c`
 
-`Gene\Log::*` 静态属性 `file/level` 与 `Gene\Session` 的 7 个 cookie 相关属性仍走 `zend_read_(static_)property` 哈希查找。此重构跨多函数（含 `gene_cookie / gene_set_cookie / gene_init_ssid / 各方法体`），需对每个属性分别在 MINIT 中通过 `zend_hash_str_find_ptr(&ce->properties_info, ...)` 取 `offset` 并改写所有读写点。本轮范围控制风险，不动；后续单独 PR。
+新增 `gene_log_sp_offset_file` / `gene_log_sp_offset_level`（`uint32_t`，static），MINIT 中所有 `zend_declare_property_*` 完成后通过 `zend_hash_str_find_ptr(&gene_log_ce->properties_info, ...)->offset` 一次性写入。新增内联函数 `gene_log_static_slot(offset)`：NTS 直接 `&gene_log_ce->static_members_table[offset]`，ZTS 走 `CE_STATIC_MEMBERS()`。
+
+替换 4 处属性访问：
+- `gene_log_get_effective_level` 读 `level` —— 移除 `zend_read_static_property` 的内部 hash 查找 + 继承链解析。
+- `gene_log_get_effective_file` 读 `file` —— 同上。
+- `Gene\Log::setFile` 写 `file` —— 替换 `zend_update_static_property_string`（一次 `zend_string_init` + 一次 hash 查找 + 一次 dtor）为直接 `ZVAL_STR_COPY`。
+- `Gene\Log::setLevel` 写 `level` —— 替换 `zend_update_static_property_long` 为直接 `ZVAL_LONG`。
+
+每次 `Gene\Log::debug/info/warning/error` 调用（FPM 模式）节省 2× hash 查找；Swoole 模式（命中 `ctx->log_*`）走协程上下文捷径，不受影响。
+
+### F7 — `Gene\Session` cookie 路径属性偏移缓存
+**文件**: `src/session/session.c`
+
+为最热的 7 个 cookie 相关实例属性（`session_name / cookie_id / cookie_lifetime / cookie_path / cookie_domain / secure / httponly`）新增 `static uint32_t gene_session_offset_*`，MINIT 末尾批量写入。
+
+替换：
+- `gene_cookie()`: 7 次 `zend_read_property` → 7 次 `OBJ_PROP(obj, offset)`（编译期常量偏移的指针加法）。每次会话写 cookie 节省 7× hash 查找 + 7× 继承链解析。
+- `gene_set_cookie()`: 4 次 `zend_read_property` → 4 次 `OBJ_PROP`。
+
+未改：其余 9 个属性（data/driver/session_id/cookie_uptime/handler/dirty/cookie_sent/hash_mode/prefix）涉及读写点分布广，且单次请求最多触发 1\~2 次（非热路径），收益不显著，保持现状。
+
+### 文件变更补充 (#5/#6 落地)
+
+```
+ src/tool/log.c       | +52 / -8  (F6)
+ src/session/session.c| +38 / -10 (F7)
+```
 
 ### 文件变更补充
 

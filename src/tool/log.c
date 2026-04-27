@@ -32,6 +32,18 @@
 
 zend_class_entry *gene_log_ce;
 
+/* [GENE_PERF:2026-04-27] Cached static-property offsets — set in MINIT after
+ * all zend_declare_property_* calls. Avoids the per-call hash lookup inside
+ * zend_read_static_property / zend_update_static_property. */
+static uint32_t gene_log_sp_offset_file = 0;
+static uint32_t gene_log_sp_offset_level = 0;
+
+/* Resolve a static-property slot for direct read/write. CE_STATIC_MEMBERS()
+ * abstracts NTS (direct pointer) vs ZTS (per-thread indirection). */
+static zend_always_inline zval *gene_log_static_slot(uint32_t offset) {
+	return &CE_STATIC_MEMBERS(gene_log_ce)[offset];
+}
+
 /* {{{ ARG_INFO */
 ZEND_BEGIN_ARG_INFO_EX(gene_log_void_arginfo, 0, 0, 0)
 ZEND_END_ARG_INFO()
@@ -106,9 +118,11 @@ static zend_long gene_log_get_effective_level(void) {
 			return ctx->log_level;
 		}
 	}
-	zval *prop_level = zend_read_static_property(gene_log_ce, ZEND_STRL("level"), 1);
-	if (prop_level && Z_TYPE_P(prop_level) == IS_LONG) {
-		return Z_LVAL_P(prop_level);
+	{
+		zval *prop_level = gene_log_static_slot(gene_log_sp_offset_level);
+		if (Z_TYPE_P(prop_level) == IS_LONG) {
+			return Z_LVAL_P(prop_level);
+		}
 	}
 	return GENE_LOG_LEVEL_DEBUG;
 }
@@ -122,9 +136,11 @@ static const char *gene_log_get_effective_file(void) {
 			return ctx->log_file;
 		}
 	}
-	zval *prop_file = zend_read_static_property(gene_log_ce, ZEND_STRL("file"), 1);
-	if (prop_file && Z_TYPE_P(prop_file) == IS_STRING && Z_STRLEN_P(prop_file) > 0) {
-		return Z_STRVAL_P(prop_file);
+	{
+		zval *prop_file = gene_log_static_slot(gene_log_sp_offset_file);
+		if (Z_TYPE_P(prop_file) == IS_STRING && Z_STRLEN_P(prop_file) > 0) {
+			return Z_STRVAL_P(prop_file);
+		}
 	}
 	return NULL;
 }
@@ -327,7 +343,11 @@ PHP_METHOD(gene_log, setFile) {
 			return;
 		}
 	}
-	zend_update_static_property_string(gene_log_ce, ZEND_STRL("file"), ZSTR_VAL(file));
+	{
+		zval *slot = gene_log_static_slot(gene_log_sp_offset_file);
+		zval_ptr_dtor(slot);
+		ZVAL_STR_COPY(slot, file);
+	}
 }
 /* }}} */
 
@@ -359,7 +379,11 @@ PHP_METHOD(gene_log, setLevel) {
 			return;
 		}
 	}
-	zend_update_static_property_long(gene_log_ce, ZEND_STRL("level"), level);
+	{
+		zval *slot = gene_log_static_slot(gene_log_sp_offset_level);
+		zval_ptr_dtor(slot);
+		ZVAL_LONG(slot, level);
+	}
 }
 /* }}} */
 
@@ -403,6 +427,15 @@ GENE_MINIT_FUNCTION(log)
 	/* static properties */
 	zend_declare_property_null(gene_log_ce, ZEND_STRL("file"), ZEND_ACC_PROTECTED|ZEND_ACC_STATIC);
 	zend_declare_property_long(gene_log_ce, ZEND_STRL("level"), GENE_LOG_LEVEL_DEBUG, ZEND_ACC_PROTECTED|ZEND_ACC_STATIC);
+
+	/* Cache static-property offsets for fast slot access (must be after all declares) */
+	{
+		zend_property_info *pi;
+		pi = zend_hash_str_find_ptr(&gene_log_ce->properties_info, ZEND_STRL("file"));
+		gene_log_sp_offset_file = pi->offset;
+		pi = zend_hash_str_find_ptr(&gene_log_ce->properties_info, ZEND_STRL("level"));
+		gene_log_sp_offset_level = pi->offset;
+	}
 
 	/* class constants for log levels */
 	zend_declare_class_constant_long(gene_log_ce, ZEND_STRL("LEVEL_DEBUG"),   GENE_LOG_LEVEL_DEBUG);
