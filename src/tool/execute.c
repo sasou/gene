@@ -47,13 +47,22 @@ ZEND_END_ARG_INFO()
 void *gene_execute_opcodes_run(zend_op_array *op_array) {
 	zend_op_array *orig_op_array = CG(active_op_array);
 	zval ret;
-	CG(active_op_array) = op_array;
-	if (CG(active_op_array)) {
-		zend_execute(CG(active_op_array), &ret);
-		zval_ptr_dtor(&ret);
-		destroy_op_array(CG(active_op_array));
-		efree(CG(active_op_array));
+	if (!op_array) {
+		return NULL;
 	}
+	ZVAL_UNDEF(&ret);
+	CG(active_op_array) = op_array;
+	/* [GENE_FIX:2026-04-27] Wrap zend_execute in zend_try so a bailout
+	 * (longjmp) does not leak op_array nor leave CG(active_op_array)
+	 * pointing to freed memory for outer compile/execute frames. */
+	zend_try {
+		zend_execute(op_array, &ret);
+	} zend_end_try();
+	if (Z_TYPE(ret) != IS_UNDEF) {
+		zval_ptr_dtor(&ret);
+	}
+	destroy_op_array(op_array);
+	efree(op_array);
 	CG(active_op_array) = orig_op_array;
 	return NULL;
 }
@@ -68,11 +77,7 @@ PHP_METHOD(gene_execute, __construct) {
 	if (zend_parse_parameters(ZEND_NUM_ARGS(), "|l", &debug) == FAILURE) {
 		RETURN_NULL();
 	}
-	if (debug) {
-		zend_update_property_long(gene_execute_ce, gene_strip_obj(self), GENE_EXECUTE_DEBUG, strlen(GENE_EXECUTE_DEBUG), debug);
-	} else {
-		zend_update_property_long(gene_execute_ce, gene_strip_obj(self), GENE_EXECUTE_DEBUG, strlen(GENE_EXECUTE_DEBUG), 0);
-	}
+	zend_update_property_long(gene_execute_ce, gene_strip_obj(self), GENE_EXECUTE_DEBUG, strlen(GENE_EXECUTE_DEBUG), debug);
 }
 /* }}} */
 
@@ -94,13 +99,13 @@ PHP_METHOD(gene_execute, GetOpcodes) {
 	array_init(&opcodes_array);
 
 	op_array = zend_compile_string(php_script, "");
-	if (!op_array) {
+	if (!op_array || EG(exception)) {
+		if (op_array) { destroy_op_array(op_array); efree(op_array); }
 		zval_ptr_dtor(&opcodes_array);
 		return;
 	}
 	for (i = 0; i < op_array->last; i++) {
-		zend_op op = op_array->opcodes[i];
-		add_index_long(&opcodes_array, i, op.lineno);
+		add_index_long(&opcodes_array, i, op_array->opcodes[i].lineno);
 	}
 	destroy_op_array(op_array);
 	efree(op_array);
