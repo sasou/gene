@@ -234,9 +234,13 @@ void gene_response_cookie(zval *name, zval *value, zval *expires, zval *path, zv
 		}
 		return;
 	}
-    static zend_function *fn = NULL;
+    /* [GENE_FIX:2026-04-27] Per-call lookup (CG(function_table) is per-thread
+     * under ZTS) + NULL guard: setcookie may be disabled / unavailable, and
+     * zend_call_known_function dereferences fn without checking. */
+    zend_function *fn = zend_hash_str_find_ptr(CG(function_table), ZEND_STRL("setcookie"));
     if (UNEXPECTED(!fn)) {
-        fn = zend_hash_str_find_ptr(CG(function_table), ZEND_STRL("setcookie"));
+        if (retval) ZVAL_FALSE(retval);
+        return;
     }
     zval params[7];
     int num = 1;
