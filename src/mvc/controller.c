@@ -200,7 +200,11 @@ GENE_REQUEST_IS_METHOD(gene_controller, Cli);
  */
 PHP_METHOD(gene_controller, isAjax) {
 	zval *header = request_query(TRACK_VARS_SERVER, ZEND_STRL("HTTP_X_REQUESTED_WITH"));
-	if (header && Z_TYPE_P(header) == IS_STRING && strncasecmp("XMLHttpRequest", Z_STRVAL_P(header), Z_STRLEN_P(header)) == 0) {
+	/* [GENE_FIX:2026-04-27] See gene_request::isAjax — require exact length
+	 * match to reject prefix false-positives like "XML". */
+	if (header && Z_TYPE_P(header) == IS_STRING
+		&& Z_STRLEN_P(header) == sizeof("XMLHttpRequest") - 1
+		&& strncasecmp("XMLHttpRequest", Z_STRVAL_P(header), sizeof("XMLHttpRequest") - 1) == 0) {
 		RETURN_TRUE;
 	}
 	RETURN_FALSE;
