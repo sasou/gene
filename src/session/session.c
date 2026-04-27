@@ -1,4 +1,4 @@
-/*
+﻿/*
  +----------------------------------------------------------------------+
  | gene                                                                 |
  +----------------------------------------------------------------------+
@@ -40,6 +40,18 @@ PHPAPI int gettimeofday(struct timeval *time_Info, struct timezone *timezone_Inf
 #include "../http/response.h"
 
 zend_class_entry * gene_session_ce;
+
+/* [GENE_PERF:2026-04-27] Cached instance-property byte offsets for the cookie
+ * hot path. Set in MINIT after all zend_declare_property_* calls so that
+ * gene_cookie() / gene_set_cookie() can read 4–7 properties via OBJ_PROP
+ * pointer arithmetic instead of zend_read_property hash lookups. */
+static uint32_t gene_session_offset_name = 0;
+static uint32_t gene_session_offset_cookie_id = 0;
+static uint32_t gene_session_offset_lifetime = 0;
+static uint32_t gene_session_offset_cookie_path = 0;
+static uint32_t gene_session_offset_cookie_domain = 0;
+static uint32_t gene_session_offset_secure = 0;
+static uint32_t gene_session_offset_httponly = 0;
 
 void gene_cookie(zval *self);
 void gene_data_load(zval *obj);
@@ -500,14 +512,14 @@ ZEND_END_ARG_INFO()
 
 void gene_cookie(zval *self) /*{{{*/
 {
-	zval *name = NULL, *cookie_id = NULL, *lifetime = NULL, *path = NULL, *domain = NULL, *secure = NULL, *httponly = NULL;
-	name = zend_read_property(gene_session_ce, gene_strip_obj(self), ZEND_STRL(GENE_SESSION_NAME), 1, NULL);
-	cookie_id = zend_read_property(gene_session_ce, gene_strip_obj(self), ZEND_STRL(GENE_SESSION_COOKIE_ID), 1, NULL);
-	lifetime = zend_read_property(gene_session_ce, gene_strip_obj(self), ZEND_STRL(GENE_SESSION_COOKIE_LIFTTIME), 1, NULL);
-	path = zend_read_property(gene_session_ce, gene_strip_obj(self), ZEND_STRL(GENE_SESSION_COOKIE_PATH), 1, NULL);
-	domain = zend_read_property(gene_session_ce, gene_strip_obj(self), ZEND_STRL(GENE_SESSION_COOKIE_DOMAIN), 1, NULL);
-	secure = zend_read_property(gene_session_ce, gene_strip_obj(self), ZEND_STRL(GENE_SESSION_SECURE), 1, NULL);
-	httponly = zend_read_property(gene_session_ce, gene_strip_obj(self), ZEND_STRL(GENE_SESSION_HTTPONLY), 1, NULL);
+	zend_object *obj = Z_OBJ_P(self);
+	zval *name      = OBJ_PROP(obj, gene_session_offset_name);
+	zval *cookie_id = OBJ_PROP(obj, gene_session_offset_cookie_id);
+	zval *lifetime  = OBJ_PROP(obj, gene_session_offset_lifetime);
+	zval *path      = OBJ_PROP(obj, gene_session_offset_cookie_path);
+	zval *domain    = OBJ_PROP(obj, gene_session_offset_cookie_domain);
+	zval *secure    = OBJ_PROP(obj, gene_session_offset_secure);
+	zval *httponly  = OBJ_PROP(obj, gene_session_offset_httponly);
 	if (!name || Z_TYPE_P(name) != IS_STRING || !cookie_id || Z_TYPE_P(cookie_id) != IS_STRING || !path || Z_TYPE_P(path) != IS_STRING || !domain || Z_TYPE_P(domain) != IS_STRING) {
 		return;
 	}
@@ -558,11 +570,11 @@ void gene_cookie(zval *self) /*{{{*/
 
 void gene_set_cookie(zval *self, zval *name, zval *value, zval *time) /*{{{*/
 {
-	zval *path = NULL, *domain = NULL, *secure = NULL, *httponly = NULL;
-	path = zend_read_property(gene_session_ce, gene_strip_obj(self), ZEND_STRL(GENE_SESSION_COOKIE_PATH), 1, NULL);
-	domain = zend_read_property(gene_session_ce, gene_strip_obj(self), ZEND_STRL(GENE_SESSION_COOKIE_DOMAIN), 1, NULL);
-	secure = zend_read_property(gene_session_ce, gene_strip_obj(self), ZEND_STRL(GENE_SESSION_SECURE), 1, NULL);
-	httponly = zend_read_property(gene_session_ce, gene_strip_obj(self), ZEND_STRL(GENE_SESSION_HTTPONLY), 1, NULL);
+	zend_object *obj = Z_OBJ_P(self);
+	zval *path     = OBJ_PROP(obj, gene_session_offset_cookie_path);
+	zval *domain   = OBJ_PROP(obj, gene_session_offset_cookie_domain);
+	zval *secure   = OBJ_PROP(obj, gene_session_offset_secure);
+	zval *httponly = OBJ_PROP(obj, gene_session_offset_httponly);
 
 	if (GENE_G(runtime_type) >= 2) {
 		zval *swoole_resp = gene_response_context_obj();
@@ -1147,6 +1159,25 @@ GENE_MINIT_FUNCTION(session) {
 	zend_declare_property_bool(gene_session_ce, ZEND_STRL(GENE_SESSION_DIRTY), 0, ZEND_ACC_PROTECTED);
 	zend_declare_property_bool(gene_session_ce, ZEND_STRL(GENE_SESSION_COOKIE_SENT), 0, ZEND_ACC_PROTECTED);
 	zend_declare_property_long(gene_session_ce, ZEND_STRL(GENE_SESSION_HASH_MODE), 0, ZEND_ACC_PROTECTED);
+
+	/* Cache instance-property offsets used in the cookie hot path */
+	{
+		zend_property_info *pi;
+		pi = zend_hash_str_find_ptr(&gene_session_ce->properties_info, ZEND_STRL(GENE_SESSION_NAME));
+		gene_session_offset_name = pi->offset;
+		pi = zend_hash_str_find_ptr(&gene_session_ce->properties_info, ZEND_STRL(GENE_SESSION_COOKIE_ID));
+		gene_session_offset_cookie_id = pi->offset;
+		pi = zend_hash_str_find_ptr(&gene_session_ce->properties_info, ZEND_STRL(GENE_SESSION_COOKIE_LIFTTIME));
+		gene_session_offset_lifetime = pi->offset;
+		pi = zend_hash_str_find_ptr(&gene_session_ce->properties_info, ZEND_STRL(GENE_SESSION_COOKIE_PATH));
+		gene_session_offset_cookie_path = pi->offset;
+		pi = zend_hash_str_find_ptr(&gene_session_ce->properties_info, ZEND_STRL(GENE_SESSION_COOKIE_DOMAIN));
+		gene_session_offset_cookie_domain = pi->offset;
+		pi = zend_hash_str_find_ptr(&gene_session_ce->properties_info, ZEND_STRL(GENE_SESSION_SECURE));
+		gene_session_offset_secure = pi->offset;
+		pi = zend_hash_str_find_ptr(&gene_session_ce->properties_info, ZEND_STRL(GENE_SESSION_HTTPONLY));
+		gene_session_offset_httponly = pi->offset;
+	}
 
 	return SUCCESS; // @suppress("Symbol is not resolved")
 }
