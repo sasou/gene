@@ -184,3 +184,32 @@ method 名 ≥ 58 字符时 `snprintf` 返回值超出 64 字节缓冲，`name_l
 ```
 
 无 API 变化。建议构建后跑 `demo/application/Validate` 用例覆盖 `validCheck` 多失败规则路径以验证 F1。
+
+---
+
+## 追加修复 (2026-04-27 20:30) — execute.c / request.c
+
+### E1 — `Gene\Execute::StringRun` 无效 try/catch
+**文件**: `src/tool/execute.c`
+
+`zend_try { zend_eval_stringl(...) } zend_catch { zend_bailout(); }` 在 catch 分支立即再次 `zend_bailout`，等价于完全没写保护，徒增噪音。删除整个 try/catch 包裹，让 bailout 自然向上传播。如需 worker-safe 变体应模仿 `router.c` Fix 8 在 catch 中先做实际清理再 bailout。
+
+### E2 — `Gene\Execute::GetOpcodes` 类型校验 + 多余字符串拷贝
+**文件**: `src/tool/execute.c`
+
+- `Z_LVAL_P(debug)` 缺少类型校验（`debug` 默认 `null`，未 `__construct` 的对象上读取为 UB）。改为 `debug && Z_TYPE_P(debug) == IS_LONG && Z_LVAL_P(debug)`。
+- 删除 `ZVAL_STRINGL(&zv, ...)` 临时 zval：`php_script` 已是 `zend_string *`，直接传给 `zend_compile_string(php_script, "")`，省一次 emalloc + memcpy + zval_ptr_dtor。
+
+### E3 — `request.c::gene_request_attr` 死分支
+**文件**: `src/http/request.c`
+
+`IS_NULL` 是非引用计数类型，`zval_ptr_dtor` 是 no-op，且紧接着被 `array_init_size` 覆写。移除内层 `if`，仅保留注释说明历史原因。
+
+### 文件变更补充 (E1/E2/E3)
+
+```
+ src/tool/execute.c | +6 / -10
+ src/http/request.c | +3 / -3
+```
+
+无 API 变化。
