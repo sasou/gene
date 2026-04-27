@@ -1282,6 +1282,14 @@ PHP_METHOD(gene_redis_pool, close)
         }
         /* d) force-reset count; in-use connections self-discard via put() */
         rpool_set_count(self, 0);
+
+        /* [GENE_FIX:2026-04-27] Null the channel property NOW so its refcount
+         * drops to 0 and any remaining Redis objects inside it are released
+         * within the worker's lifetime, not at process exit. Critical when
+         * close() is called from non-coroutine workerStop where channel drain
+         * was skipped. Mirrors the [GENE_FIX:2026-04-26] in db/pool.c. */
+        zend_update_property_null(gene_redis_pool_ce, gene_strip_obj(self),
+            ZEND_STRL(GENE_REDIS_POOL_PROPERTY_CHANNEL));
     }
 }
 /* }}} */

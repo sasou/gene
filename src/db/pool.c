@@ -64,6 +64,7 @@
  /* Forward declarations */
  static void pool_stop_timer(zval *self);
  static bool pool_in_coroutine(void);
+ static void pool_start_idle_recycler(zval *self);
 
 /* ====================== Timer management ====================== */
 
@@ -124,6 +125,55 @@ static void pool_stop_timer(zval *self)
         }
         zend_update_property_long(gene_pool_ce, gene_strip_obj(self), ZEND_STRL(GENE_POOL_PROPERTY_TIMER_ID), 0);
     }
+}
+
+ /* [GENE_FIX:2026-04-27] Register Swoole\Timer::tick to call recycleIdle()
+ * periodically. Without this, dead PDO connections accumulate in the channel
+ * (put/get skip the liveness check by design), idle connections above min are
+ * never reaped, and the min floor is not refilled after overflow auto-shrink.
+ * Mirrors rpool_start_idle_recycler in cache/redis_pool.c. */
+static void pool_start_idle_recycler(zval *self)
+{
+    if (GENE_G(runtime_type) < 2) return; /* Swoole-only */
+
+    zval *idle_zv = zend_read_property(gene_pool_ce, gene_strip_obj(self),
+        ZEND_STRL(GENE_POOL_PROPERTY_IDLE_TIME), 1, NULL);
+    zend_long idle_timeout = (idle_zv && Z_TYPE_P(idle_zv) == IS_LONG) ? Z_LVAL_P(idle_zv) : 60;
+    if (idle_timeout <= 0) return;
+
+    zend_long interval_ms = idle_timeout * 500; /* fire at half the idle timeout */
+    if (interval_ms < 1000) interval_ms = 1000;
+
+    /* Resolve Swoole\Timer::tick once per process. */
+    static zend_function *fn_tick = NULL;
+    static zend_class_entry *timer_ce_cached = NULL;
+    if (UNEXPECTED(!fn_tick)) {
+        zend_string *timer_key = zend_string_init_interned(ZEND_STRL("Swoole\\Timer"), 1);
+        timer_ce_cached = zend_lookup_class(timer_key);
+        if (!timer_ce_cached) return;
+        fn_tick = zend_hash_str_find_ptr(&timer_ce_cached->function_table, ZEND_STRL("tick"));
+        if (!fn_tick) return;
+    }
+
+    /* Build callback [$self, 'recycleIdle']. */
+    zval callback, params[2], timer_ret;
+    array_init_size(&callback, 2);
+    Z_TRY_ADDREF_P(self);
+    add_next_index_zval(&callback, self);
+    add_next_index_string(&callback, "recycleIdle");
+
+    ZVAL_LONG(&params[0], interval_ms);
+    ZVAL_COPY_VALUE(&params[1], &callback);
+    ZVAL_UNDEF(&timer_ret);
+
+    zend_call_known_function(fn_tick, NULL, timer_ce_cached, &timer_ret, 2, params, NULL);
+
+    zval_ptr_dtor(&callback);
+    if (Z_TYPE(timer_ret) == IS_LONG) {
+        zend_update_property_long(gene_pool_ce, gene_strip_obj(self),
+            ZEND_STRL(GENE_POOL_PROPERTY_TIMER_ID), Z_LVAL(timer_ret));
+    }
+    if (!Z_ISUNDEF(timer_ret)) zval_ptr_dtor(&timer_ret);
 }
 
  /* [GENE_PERF:2026-04-26] Cached zend_function pointers — avoid per-call hash
@@ -1036,6 +1086,12 @@ PHP_METHOD(gene_pool, get)
      zend_update_property_double(gene_pool_ce, gene_strip_obj(self), ZEND_STRL(GENE_POOL_PROPERTY_WAIT_TIME), wait_time);
      zend_update_property_long(gene_pool_ce, gene_strip_obj(self), ZEND_STRL(GENE_POOL_PROPERTY_TIMER_ID), 0);
      zend_update_property_bool(gene_pool_ce, gene_strip_obj(self), ZEND_STRL(GENE_POOL_PROPERTY_CLOSED), 0);
+
+     /* [GENE_FIX:2026-04-27] Start the idle-recycler timer in Swoole mode so
+      * dead/idle PDO connections are reaped periodically. No-op for FPM/CLI. */
+     if (idle_time > 0) {
+         pool_start_idle_recycler(self);
+     }
  }
  /* }}} */
 
