@@ -67,7 +67,10 @@ void array_to_string(zval *array, char **result, char oq, char cq)
         }
     } ZEND_HASH_FOREACH_END();
     smart_str_0(&field_str);
-    *result = str_init(ZSTR_VAL(field_str.s));
+    /* [GENE_FIX:2026-04-27] If no value in the array passed the filter
+     * (e.g. all numeric or all leading non-alpha), smart_str_appends was
+     * never called and field_str.s is NULL — ZSTR_VAL(NULL) segfaults. */
+    *result = str_init(field_str.s ? ZSTR_VAL(field_str.s) : "");
     smart_str_free(&field_str);
 }/*}}}*/
 
@@ -90,7 +93,8 @@ void mssql_array_to_string(zval *array, char **result, char oq, char cq)
         }
     } ZEND_HASH_FOREACH_END();
     smart_str_0(&field_str);
-    *result = str_init(ZSTR_VAL(field_str.s));
+    /* [GENE_FIX:2026-04-27] See array_to_string — same NULL-deref guard. */
+    *result = str_init(field_str.s ? ZSTR_VAL(field_str.s) : "");
     smart_str_free(&field_str);
 }/*}}}*/
 
@@ -431,7 +435,11 @@ void makeWhere(zval *self, smart_str *where_str, zval *where, zval *field_value)
 	bool pre = 0;
 	zend_string *key = NULL;
 	zend_long id;
-	if (ZSTR_LEN(where_str->s) == 0 && zend_hash_num_elements(Z_ARRVAL_P(where)) > 0) {
+	/* [GENE_FIX:2026-04-27] Defensive NULL guard: ZSTR_LEN(where_str->s)
+	 * dereferences ->s. All current callers go through *_init_where which
+	 * allocates, but this prevents a future regression. */
+	if ((where_str->s == NULL || ZSTR_LEN(where_str->s) == 0)
+	    && zend_hash_num_elements(Z_ARRVAL_P(where)) > 0) {
 		smart_str_appends(where_str, " WHERE ");
 	}
 	ZEND_HASH_FOREACH_KEY_VAL(Z_ARRVAL_P(where), id, key, obj) {
@@ -441,6 +449,9 @@ void makeWhere(zval *self, smart_str *where_str, zval *where, zval *field_value)
 			condition = zend_hash_index_find(Z_ARRVAL_P(obj), 2);
 			other = zend_hash_index_find(Z_ARRVAL_P(obj), 3);
 			if (value == NULL) {
+				/* [GENE_FIX:2026-04-27] Must null-terminate via smart_str_0
+				 * before bailing; callers pass where_str.s->val to %s. */
+				smart_str_0(where_str);
 				return;
 			}
 	        if (key) {
