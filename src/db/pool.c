@@ -74,27 +74,24 @@ static bool pool_in_coroutine(void)
         return 0;
     }
 
-    /* Check if Swoole\Coroutine::exists() returns true */
-    static zend_string *co_class = NULL;
-    if (UNEXPECTED(!co_class)) {
-        co_class = zend_string_init_interned(ZEND_STRL("Swoole\\Coroutine"), 1);
-    }
-    zend_class_entry *co_ce = zend_lookup_class(co_class);
-    if (!co_ce) {
-        return 0;
-    }
-
-    /* [GENE_PERF:2026-04-26 P1] getCid()>=0 already implies a live coroutine;
+    /* [GENE_PERF:2026-04-27] Cache class entry + getCid function pointer once;
+     * Swoole internal classes never reload, so a one-shot resolve avoids the
+     * per-call zend_lookup_class hash lookup.
+     * [GENE_PERF:2026-04-26 P1] getCid()>=0 already implies a live coroutine;
      * the redundant Coroutine::exists($cid) call was removed. */
     static zend_function *fn_getcid = NULL;
+    static zend_class_entry *co_ce_cached = NULL;
     if (UNEXPECTED(!fn_getcid)) {
-        fn_getcid = zend_hash_str_find_ptr(&co_ce->function_table, ZEND_STRL("getCid"));
+        zend_string *co_class = zend_string_init_interned(ZEND_STRL("Swoole\\Coroutine"), 1);
+        co_ce_cached = zend_lookup_class(co_class);
+        if (!co_ce_cached) return 0;
+        fn_getcid = zend_hash_str_find_ptr(&co_ce_cached->function_table, ZEND_STRL("getCid"));
         if (!fn_getcid) return 0;
     }
 
     zval cid_ret;
     ZVAL_UNDEF(&cid_ret);
-    zend_call_known_function(fn_getcid, NULL, co_ce, &cid_ret, 0, NULL, NULL);
+    zend_call_known_function(fn_getcid, NULL, co_ce_cached, &cid_ret, 0, NULL, NULL);
 
     zend_long cid = (Z_TYPE(cid_ret) == IS_LONG) ? Z_LVAL(cid_ret) : -1;
     if (!Z_ISUNDEF(cid_ret)) zval_ptr_dtor(&cid_ret);
@@ -108,20 +105,22 @@ static void pool_stop_timer(zval *self)
     zend_long timer_id = (timer_id_zv && Z_TYPE_P(timer_id_zv) == IS_LONG) ? Z_LVAL_P(timer_id_zv) : 0;
 
     if (timer_id != 0) {
-        static zend_string *timer_key = NULL;
-        if (UNEXPECTED(!timer_key)) {
-            timer_key = zend_string_init_interned(ZEND_STRL("Swoole\\Timer"), 1);
-        }
-        zend_class_entry *timer_ce = zend_lookup_class(timer_key);
-        if (timer_ce) {
-            zend_function *fn_clear = zend_hash_str_find_ptr(&timer_ce->function_table, ZEND_STRL("clear"));
-            if (fn_clear) {
-                zval params[1], ret;
-                ZVAL_LONG(&params[0], timer_id);
-                ZVAL_UNDEF(&ret);
-                zend_call_known_function(fn_clear, NULL, timer_ce, &ret, 1, params, NULL);
-                if (!Z_ISUNDEF(ret)) zval_ptr_dtor(&ret);
+        /* [GENE_PERF:2026-04-27] Cache Swoole\Timer + ::clear once per process. */
+        static zend_function *fn_clear = NULL;
+        static zend_class_entry *timer_ce_cached = NULL;
+        if (UNEXPECTED(!fn_clear)) {
+            zend_string *timer_key = zend_string_init_interned(ZEND_STRL("Swoole\\Timer"), 1);
+            timer_ce_cached = zend_lookup_class(timer_key);
+            if (timer_ce_cached) {
+                fn_clear = zend_hash_str_find_ptr(&timer_ce_cached->function_table, ZEND_STRL("clear"));
             }
+        }
+        if (fn_clear) {
+            zval params[1], ret;
+            ZVAL_LONG(&params[0], timer_id);
+            ZVAL_UNDEF(&ret);
+            zend_call_known_function(fn_clear, NULL, timer_ce_cached, &ret, 1, params, NULL);
+            if (!Z_ISUNDEF(ret)) zval_ptr_dtor(&ret);
         }
         zend_update_property_long(gene_pool_ce, gene_strip_obj(self), ZEND_STRL(GENE_POOL_PROPERTY_TIMER_ID), 0);
     }
@@ -363,7 +362,8 @@ static void pool_stop_timer(zval *self)
  }
   
  /* [GENE_PERF:2026-04-26] Caller passes pre-cached zend_function* (one-shot lookup)
-  * — avoids strlen(method) + hash lookup on every atomic op. */
+  * — avoids strlen(method) + hash lookup on every atomic op. Internal classes never reload
+  * within a process, so a one-shot lazy cache is safe. */
  static void pool_atomic_call_fn(zval *atomic, zend_function *fn, zend_long arg, zval *retval) {
      zval params[1], ret_local;
      if (!retval) retval = &ret_local;
@@ -529,8 +529,9 @@ static zend_long pool_increment_count_get(zval *self) {
      * This prevents starving concurrent get() callers. */
     for (i = 0; i < size; i++) {
         ZVAL_UNDEF(&item);
-        /* [GENE_PERF:2026-04-26 P3] non-blocking pop (0) — pop(0.001) used to
-         * register a 1ms timer and yield even when the channel was non-empty. */
+        /* [GENE_NOTE:2026-04-27] pop(0.001): Swoole\Channel::pop(<=0) blocks
+         * forever instead of returning immediately, so we use a 1ms grace.
+         * Original P3 (pop(0)) was rolled back for this reason. */
         if (!pool_channel_pop(channel, 0.001, &item)) {
             break;
         }
@@ -761,7 +762,7 @@ PHP_METHOD(gene_pool, get)
               * After drain, close the channel and force-reset count. */
  
              /* Phase 1: drain idle connections (non-blocking)
-              * [GENE_PERF:2026-04-26 P3] non-blocking pop (0). */
+              * [GENE_NOTE:2026-04-27] Channel::pop(<=0) blocks forever; 1ms grace. */
              while (!pool_channel_is_empty(channel)) {
                  zval item;
                  if (!pool_channel_pop(channel, 0.001, &item)) {
@@ -923,7 +924,7 @@ PHP_METHOD(gene_pool, get)
  PHP_METHOD(gene_pool, __construct)
  {
      zval *config = NULL, *self = getThis();
-     zval channel, atomic, timer_id;
+     zval channel, atomic;
 
      if (zend_parse_parameters(ZEND_NUM_ARGS(), "a", &config) == FAILURE) {
          return;
@@ -967,10 +968,12 @@ PHP_METHOD(gene_pool, get)
      }
      zend_class_entry *channel_ce = zend_lookup_class(channel_key);
      if (channel_ce) {
-         zval params[1];
+         zval params[1], ctor_ret;
          ZVAL_LONG(&params[0], max);
+         ZVAL_UNDEF(&ctor_ret);
          object_init_ex(&channel, channel_ce);
-         zend_call_known_function(channel_ce->constructor, Z_OBJ(channel), channel_ce, &timer_id, 1, params, NULL);
+         zend_call_known_function(channel_ce->constructor, Z_OBJ(channel), channel_ce, &ctor_ret, 1, params, NULL);
+         if (!Z_ISUNDEF(ctor_ret)) zval_ptr_dtor(&ctor_ret);
          zend_update_property(gene_pool_ce, gene_strip_obj(self), ZEND_STRL(GENE_POOL_PROPERTY_CHANNEL), &channel);
          zval_ptr_dtor(&channel);
      }
@@ -982,10 +985,12 @@ PHP_METHOD(gene_pool, get)
      }
      zend_class_entry *atomic_ce = zend_lookup_class(atomic_key);
      if (atomic_ce) {
-         zval params[1];
+         zval params[1], ctor_ret;
          ZVAL_LONG(&params[0], 0);
+         ZVAL_UNDEF(&ctor_ret);
          object_init_ex(&atomic, atomic_ce);
-         zend_call_known_function(atomic_ce->constructor, Z_OBJ(atomic), atomic_ce, &timer_id, 1, params, NULL);
+         zend_call_known_function(atomic_ce->constructor, Z_OBJ(atomic), atomic_ce, &ctor_ret, 1, params, NULL);
+         if (!Z_ISUNDEF(ctor_ret)) zval_ptr_dtor(&ctor_ret);
          zend_update_property(gene_pool_ce, gene_strip_obj(self), ZEND_STRL(GENE_POOL_PROPERTY_COUNT), &atomic);
          zval_ptr_dtor(&atomic);
      }
@@ -1309,3 +1314,14 @@ PHP_METHOD(gene_pool, get)
   
      return SUCCESS;
  }
+
+/* [GENE_FIX:2026-04-27] Module-shutdown safety net for the C-layer named-pool
+ * cache. Pool::closeAll() already clears it during normal worker shutdown, but
+ * if the user forgets (or process aborts before then), the static HashTable
+ * would leak at process exit (visible in valgrind). Internal pointers borrowed
+ * from the static instances array — no per-entry destruction needed. */
+GENE_MSHUTDOWN_FUNCTION(pool)
+{
+    gene_pool_named_cache_clear();
+    return SUCCESS;
+}
