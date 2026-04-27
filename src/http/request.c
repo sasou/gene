@@ -390,7 +390,12 @@ GENE_REQUEST_METHOD(gene_request, header, 7);
  */
 PHP_METHOD(gene_request, isAjax) {
 	zval *header = getVal(TRACK_VARS_SERVER, ZEND_STRL("HTTP_X_REQUESTED_WITH"));
-	if (header && Z_TYPE_P(header) == IS_STRING && strncasecmp("XMLHttpRequest", Z_STRVAL_P(header), Z_STRLEN_P(header)) == 0) {
+	/* [GENE_FIX:2026-04-27] strncasecmp("XMLHttpRequest", hdr, hdr_len) returns 0
+	 * for any prefix of "XMLHttpRequest" (e.g. hdr="XML"), giving false positives.
+	 * Require exact length match. */
+	if (header && Z_TYPE_P(header) == IS_STRING
+		&& Z_STRLEN_P(header) == sizeof("XMLHttpRequest") - 1
+		&& strncasecmp("XMLHttpRequest", Z_STRVAL_P(header), sizeof("XMLHttpRequest") - 1) == 0) {
 		RETURN_TRUE;
 	}
 	RETURN_FALSE;

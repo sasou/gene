@@ -209,7 +209,11 @@ GENE_REQUEST_IS_METHOD(gene_hook, Cli);
  */
 PHP_METHOD(gene_hook, isAjax) {
 	zval *header = request_query(TRACK_VARS_SERVER, ZEND_STRL("HTTP_X_REQUESTED_WITH"));
-	if (header && Z_TYPE_P(header) == IS_STRING && strncasecmp("XMLHttpRequest", Z_STRVAL_P(header), Z_STRLEN_P(header)) == 0) {
+	/* [GENE_FIX:2026-04-27] See gene_request::isAjax — require exact length
+	 * match to reject prefix false-positives like "XML". */
+	if (header && Z_TYPE_P(header) == IS_STRING
+		&& Z_STRLEN_P(header) == sizeof("XMLHttpRequest") - 1
+		&& strncasecmp("XMLHttpRequest", Z_STRVAL_P(header), sizeof("XMLHttpRequest") - 1) == 0) {
 		RETURN_TRUE;
 	}
 	RETURN_FALSE;
@@ -222,7 +226,7 @@ PHP_METHOD(gene_hook, isAjax) {
 PHP_METHOD(gene_hook, getMethod) {
 	gene_request_context *ctx = gene_request_ctx();
 	if (ctx->method) {
-		RETURN_STRING(ctx->method);
+		RETURN_STRINGL(ctx->method, ctx->method_len);
 	}
 	RETURN_NULL();
 }
@@ -233,7 +237,7 @@ PHP_METHOD(gene_hook, getMethod) {
 PHP_METHOD(gene_hook, getLang) {
 	gene_request_context *ctx = gene_request_ctx();
 	if (ctx->lang) {
-		RETURN_STRING(ctx->lang);
+		RETURN_STRINGL(ctx->lang, ctx->lang_len);
 	}
 	RETURN_NULL();
 }
