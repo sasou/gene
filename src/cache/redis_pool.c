@@ -447,6 +447,36 @@ static zend_long rpool_get_count(zval *self)
     return 0;
 }
 
+static zend_long rpool_get_max(zval *self)
+{
+    zval *v = zend_read_property(gene_redis_pool_ce, gene_strip_obj(self),
+                                  ZEND_STRL(GENE_REDIS_POOL_PROPERTY_MAX), 1, NULL);
+    return (v && Z_TYPE_P(v) == IS_LONG) ? Z_LVAL_P(v) : 10;
+}
+
+static zend_long rpool_get_min(zval *self)
+{
+    zval *v = zend_read_property(gene_redis_pool_ce, gene_strip_obj(self),
+                                  ZEND_STRL(GENE_REDIS_POOL_PROPERTY_MIN), 1, NULL);
+    return (v && Z_TYPE_P(v) == IS_LONG) ? Z_LVAL_P(v) : 1;
+}
+
+static bool rpool_is_closed(zval *self)
+{
+    zval *v = zend_read_property(gene_redis_pool_ce, gene_strip_obj(self),
+                                  ZEND_STRL(GENE_REDIS_POOL_PROPERTY_CLOSED), 1, NULL);
+    return (v && Z_TYPE_P(v) == IS_TRUE);
+}
+
+static double rpool_get_wait_timeout(zval *self)
+{
+    zval *v = zend_read_property(gene_redis_pool_ce, gene_strip_obj(self),
+                                  ZEND_STRL(GENE_REDIS_POOL_PROPERTY_WAIT_TIME), 1, NULL);
+    if (v && Z_TYPE_P(v) == IS_DOUBLE) return Z_DVAL_P(v);
+    if (v && Z_TYPE_P(v) == IS_LONG)   return (double)Z_LVAL_P(v);
+    return 3.0;
+}
+
 static void rpool_increment_count(zval *self)
 {
     zval *atomic = zend_read_property(gene_redis_pool_ce, gene_strip_obj(self),
@@ -1134,6 +1164,60 @@ PHP_METHOD(gene_redis_pool, get)
 /* }}} */
 
 /*
+ * {{{ public Gene\Cache\RedisPool::put(Redis $redis): void
+ *
+ * Return a borrowed connection to the pool.
+ * Handles: pool closed, dead connection, overflow shrink, normal return.
+ */
+PHP_METHOD(gene_redis_pool, put)
+{
+    zval *redis = NULL, *self = getThis();
+    zval *channel;
+
+    if (zend_parse_parameters(ZEND_NUM_ARGS(), "o", &redis) == FAILURE) {
+        return;
+    }
+
+    if (rpool_is_closed(self)) {
+        rpool_decrement_count(self);
+        return;
+    }
+
+    channel = zend_read_property(gene_redis_pool_ce, gene_strip_obj(self),
+                                  ZEND_STRL(GENE_REDIS_POOL_PROPERTY_CHANNEL), 1, NULL);
+    if (!channel || Z_TYPE_P(channel) != IS_OBJECT) {
+        rpool_decrement_count(self);
+        return;
+    }
+
+    /* Skip liveness check — dead connections are caught by recycleIdle().
+     * Avoiding Redis::ping() saves one network RT per put(). */
+
+    /* Auto-shrink overflow: discard connections above max */
+    if (rpool_get_count(self) > rpool_get_max(self)) {
+        rpool_decrement_count(self);
+        return;
+    }
+
+    if (!rpool_channel_push(channel, redis)) {
+        /* Push failed (e.g. channel already closed) */
+        rpool_decrement_count(self);
+    }
+}
+/* }}} */
+
+/*
+ * {{{ public Gene\Cache\RedisPool::remove(): void
+ * Caller discarded a borrowed connection (e.g. it died mid-use).
+ * Decrements the pool count without a PING — the caller already knows it's dead.
+ */
+PHP_METHOD(gene_redis_pool, remove)
+{
+    rpool_decrement_count(getThis());
+}
+/* }}} */
+
+/*
  * {{{ public Gene\Cache\RedisPool::close(): void
  *
  * Two-phase shutdown:
@@ -1266,6 +1350,55 @@ PHP_METHOD(gene_redis_pool, stopTimers)
                 rpool_stop_timer(pool);
             }
         } ZEND_HASH_FOREACH_END();
+    }
+}
+/* }}} */
+
+/*
+ * {{{ public Gene\Cache\RedisPool::recycleIdle(): void
+ * Timer callback — runs inside a Swoole coroutine.
+ */
+PHP_METHOD(gene_redis_pool, recycleIdle)
+{
+    rpool_recycle_idle(getThis());
+}
+/* }}} */
+
+/*
+ * {{{ public Gene\Cache\RedisPool::stats(): array
+ */
+PHP_METHOD(gene_redis_pool, stats)
+{
+    zval *self    = getThis();
+    zval *channel = zend_read_property(gene_redis_pool_ce, gene_strip_obj(self),
+                                        ZEND_STRL(GENE_REDIS_POOL_PROPERTY_CHANNEL), 1, NULL);
+    zend_long count = rpool_get_count(self);
+    zend_long idle  = (channel && Z_TYPE_P(channel) == IS_OBJECT)
+                      ? rpool_channel_length(channel) : 0;
+    zend_long max      = rpool_get_max(self);
+    zend_long overflow = (count > max) ? (count - max) : 0;
+
+    array_init(return_value);
+    add_assoc_long(return_value,  "total",    count);
+    add_assoc_long(return_value,  "idle",     idle);
+    add_assoc_long(return_value,  "using",    count - idle);
+    add_assoc_long(return_value,  "overflow", overflow);
+    add_assoc_long(return_value,  "min",      rpool_get_min(self));
+    add_assoc_long(return_value,  "max",      max);
+    add_assoc_bool(return_value,  "closed",   rpool_is_closed(self));
+}
+/* }}} */
+
+/*
+ * {{{ public Gene\Cache\RedisPool::__destruct()
+ */
+PHP_METHOD(gene_redis_pool, __destruct)
+{
+    zval *self = getThis();
+    if (!rpool_is_closed(self)) {
+        zval close_ret;
+        gene_factory_call(self, "close", sizeof("close") - 1, NULL, &close_ret);
+        zval_ptr_dtor(&close_ret);
     }
 }
 /* }}} */
