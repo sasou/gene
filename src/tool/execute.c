@@ -1,4 +1,4 @@
-/*
+﻿/*
  +----------------------------------------------------------------------+
  | gene                                                                 |
  +----------------------------------------------------------------------+
@@ -82,22 +82,19 @@ PHP_METHOD(gene_execute, __construct) {
 PHP_METHOD(gene_execute, GetOpcodes) {
 	zend_string *php_script;
 	int i;
-	zval *self = getThis(), zv, opcodes_array, *debug;
+	zval *self = getThis(), opcodes_array, *debug;
 	zend_op_array *op_array;
-	debug = NULL;
 	if (zend_parse_parameters(ZEND_NUM_ARGS(), "S", &php_script) == FAILURE) {
 		return;
 	}
 	debug = zend_read_property(gene_execute_ce, gene_strip_obj(self), GENE_EXECUTE_DEBUG, strlen(GENE_EXECUTE_DEBUG), 0, NULL);
-	if (Z_LVAL_P(debug)) {
+	if (debug && Z_TYPE_P(debug) == IS_LONG && Z_LVAL_P(debug)) {
 		php_printf("%s", ZSTR_VAL(php_script));
 	}
-	ZVAL_STRINGL(&zv, ZSTR_VAL(php_script), ZSTR_LEN(php_script));
 	array_init(&opcodes_array);
 
-	op_array = zend_compile_string(Z_STR(zv), "");
+	op_array = zend_compile_string(php_script, "");
 	if (!op_array) {
-		zval_ptr_dtor(&zv);
 		zval_ptr_dtor(&opcodes_array);
 		return;
 	}
@@ -107,7 +104,6 @@ PHP_METHOD(gene_execute, GetOpcodes) {
 	}
 	destroy_op_array(op_array);
 	efree(op_array);
-	zval_ptr_dtor(&zv);
 	RETURN_ZVAL(&opcodes_array, 1, 1);
 }
 /* }}} */
@@ -120,11 +116,11 @@ PHP_METHOD(gene_execute, StringRun) {
 	if (zend_parse_parameters(ZEND_NUM_ARGS(), "S", &php_script) == FAILURE) {
 		return;
 	}
-	zend_try {
-		zend_eval_stringl(ZSTR_VAL(php_script), ZSTR_LEN(php_script), NULL, "");
-	} zend_catch {
-		zend_bailout();
-	}zend_end_try();
+	/* [GENE_FIX:2026-04-27] zend_try/catch wrapper here was a no-op (catch
+	 * immediately re-bailouts). Drop it; let the bailout propagate naturally
+	 * — same observable behaviour, less noise. If a worker-safe variant is
+	 * needed, mirror router.c's pattern with real cleanup before bailout. */
+	zend_eval_stringl(ZSTR_VAL(php_script), ZSTR_LEN(php_script), NULL, "");
 
 	RETURN_TRUE;
 }
