@@ -104,11 +104,18 @@ int gene_load_import(char *path , zval *obj, zend_array *symbol_table) {
 		zval result;
 		ZVAL_UNDEF(&result);
 
-		if (obj && symbol_table) {
-			exec_by_symbol_table(obj, op_array, symbol_table, &result);
-		} else {
-			zend_execute(op_array, &result);
-		}
+		/* [GENE_FIX:2026-04-27] Wrap execution in zend_try so a bailout
+		 * (longjmp from zend_error/zend_throw etc. inside the included
+		 * file) does not leak op_array. Without this, the destroy_op_array
+		 * + efree below were skipped on bailout and the op_array (often
+		 * 10s of KB) remained allocated for the rest of the request. */
+		zend_try {
+			if (obj && symbol_table) {
+				exec_by_symbol_table(obj, op_array, symbol_table, &result);
+			} else {
+				zend_execute(op_array, &result);
+			}
+		} zend_end_try();
 
 		destroy_op_array(op_array);
 		efree(op_array);

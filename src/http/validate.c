@@ -177,6 +177,9 @@ void gene_vsprintf(char *msg, zval *args, zval *retval) /*{{{*/
 	if (UNEXPECTED(!fn)) {
 		fn = zend_hash_str_find_ptr(CG(function_table), ZEND_STRL("vsprintf"));
 	}
+	/* [GENE_FIX:2026-04-27] NULL guard: zend_call_known_function dereferences
+	 * fn unconditionally; without this, a missing builtin segfaults the worker. */
+	if (UNEXPECTED(!fn)) { ZVAL_STRING(retval, msg); return; }
 	zval strings;
 	ZVAL_STRING(&strings, msg);
 	zval params[] = { strings, *args };
@@ -190,6 +193,7 @@ void gene_preg_match(zval *regex, zval *val, zval *retval) /*{{{*/
 	if (UNEXPECTED(!fn)) {
 		fn = zend_hash_str_find_ptr(CG(function_table), ZEND_STRL("preg_match"));
 	}
+	if (UNEXPECTED(!fn)) { ZVAL_LONG(retval, 0); return; }
 	zval params[] = { *regex, *val };
 	zend_call_known_function(fn, NULL, NULL, retval, 2, params, NULL);
 }/*}}}*/
@@ -217,6 +221,7 @@ void gene_in_array(zval *in, zval *array, zval *retval) /*{{{*/
 	if (UNEXPECTED(!fn)) {
 		fn = zend_hash_str_find_ptr(CG(function_table), ZEND_STRL("in_array"));
 	}
+	if (UNEXPECTED(!fn)) { ZVAL_FALSE(retval); return; }
 	zval params[] = { *in, *array };
 	zend_call_known_function(fn, NULL, NULL, retval, 2, params, NULL);
 }/*}}}*/
@@ -227,6 +232,7 @@ void gene_preg_match_str(char *regexStr, zval *val, zval *retval) /*{{{*/
 	if (UNEXPECTED(!fn)) {
 		fn = zend_hash_str_find_ptr(CG(function_table), ZEND_STRL("preg_match"));
 	}
+	if (UNEXPECTED(!fn)) { ZVAL_LONG(retval, 0); return; }
 	zval regex;
 	ZVAL_STRING(&regex, regexStr);
 	zval params[] = { regex, *val };
@@ -240,6 +246,7 @@ void gene_date(zval *format, zval *time, zval *retval) /*{{{*/
 	if (UNEXPECTED(!fn)) {
 		fn = zend_hash_str_find_ptr(CG(function_table), ZEND_STRL("date"));
 	}
+	if (UNEXPECTED(!fn)) { ZVAL_FALSE(retval); return; }
 	zval params[] = { *format, *time };
 	zend_call_known_function(fn, NULL, NULL, retval, 2, params, NULL);
 }/*}}}*/
@@ -251,6 +258,7 @@ void gene_filter(zval *value, zend_long filter_l, zend_long options_l, zval *ret
 	if (UNEXPECTED(!fn)) {
 		fn = zend_hash_str_find_ptr(CG(function_table), ZEND_STRL("filter_var"));
 	}
+	if (UNEXPECTED(!fn)) { ZVAL_FALSE(retval); return; }
 	zval filter;
 	ZVAL_LONG(&filter, filter_l);
 	if (options_l > 0) {
@@ -268,11 +276,12 @@ void gene_filter(zval *value, zend_long filter_l, zend_long options_l, zval *ret
 int required (zval *self){
 	zval *field = NULL, *data = NULL, *val = NULL;
 	field = zend_read_property(gene_validate_ce, gene_strip_obj(self), ZEND_STRL(GENE_VALIDATE_FIELD), 1, NULL);
-	if (field && Z_TYPE_P(field) == IS_NULL) {
-		php_error_docref(NULL, E_ERROR, "Please call the name method in the first place!");
+	if (!field || Z_TYPE_P(field) != IS_STRING) {
+		php_error_docref(NULL, E_WARNING, "Please call the name method in the first place!");
+		return 0;
 	}
 	data = zend_read_property(gene_validate_ce, gene_strip_obj(self), ZEND_STRL(GENE_VALIDATE_DATA), 1, NULL);
-	if (data && Z_TYPE_P(data) != IS_ARRAY) {
+	if (!data || Z_TYPE_P(data) != IS_ARRAY) {
 		return 0;
 	}
 
