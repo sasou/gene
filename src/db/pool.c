@@ -171,70 +171,99 @@ static void pool_stop_timer(zval *self)
   
  /* ====================== Internal helper functions ====================== */
   
- static void pool_create_connection(zval *self, zval *retval) {
-     zval *config = zend_read_property(gene_pool_ce, gene_strip_obj(self), ZEND_STRL(GENE_POOL_PROPERTY_CONFIG), 1, NULL);
-     zval *dsn = NULL, *user = NULL, *pass = NULL, *options = NULL;
-  
-     ZVAL_NULL(retval);
-  
+ /* [GENE_OPT:2026-04-27] Normalize the user-supplied config array once at
+  * __construct time. The hot path (pool_create_connection) is invoked on every
+  * burst-traffic connection birth; pre-baking username/password into IS_STRING
+  * and folding the forced PDO attributes (ATTR_ERRMODE, ATTR_EMULATE_PREPARES,
+  * ATTR_PERSISTENT) into the options array eliminates per-call:
+  *   - array_init + ZVAL_DUP (deep copy of options)
+  *   - 2~3 add_index_long/bool calls
+  *   - ZVAL_STRING("") allocations for missing user/pass
+  * The normalized options array is then ref-bumped (ZVAL_COPY) per connection. */
+ static void pool_normalize_config(zval *config) {
      if (!config || Z_TYPE_P(config) != IS_ARRAY) {
          return;
      }
-  
-     dsn = zend_hash_str_find(Z_ARRVAL_P(config), ZEND_STRL("dsn"));
-     user = zend_hash_str_find(Z_ARRVAL_P(config), ZEND_STRL("username"));
-     pass = zend_hash_str_find(Z_ARRVAL_P(config), ZEND_STRL("password"));
-     options = zend_hash_str_find(Z_ARRVAL_P(config), ZEND_STRL("options"));
-  
-     if (!dsn || Z_TYPE_P(dsn) != IS_STRING) {
+     /* COW-separate so we never mutate the caller's PHP-visible array. */
+     SEPARATE_ARRAY(config);
+     HashTable *ht = Z_ARRVAL_P(config);
+
+     zval *user = zend_hash_str_find(ht, ZEND_STRL("username"));
+     if (!user || Z_TYPE_P(user) != IS_STRING) {
+         zval z;
+         ZVAL_EMPTY_STRING(&z);
+         zend_hash_str_update(ht, ZEND_STRL("username"), &z);
+     }
+
+     zval *pass = zend_hash_str_find(ht, ZEND_STRL("password"));
+     if (!pass || Z_TYPE_P(pass) != IS_STRING) {
+         zval z;
+         ZVAL_EMPTY_STRING(&z);
+         zend_hash_str_update(ht, ZEND_STRL("password"), &z);
+     }
+
+     zval *options = zend_hash_str_find(ht, ZEND_STRL("options"));
+     if (!options || Z_TYPE_P(options) != IS_ARRAY) {
+         zval z;
+         array_init(&z);
+         add_index_long(&z, 3, 2);   /* ATTR_ERRMODE = ERRMODE_EXCEPTION */
+         add_index_long(&z, 20, 0);  /* ATTR_EMULATE_PREPARES = false */
+         if (GENE_G(runtime_type) >= 2) {
+             add_index_bool(&z, 12, 0); /* ATTR_PERSISTENT = false in Swoole */
+         }
+         zend_hash_str_update(ht, ZEND_STRL("options"), &z);
+     } else {
+         SEPARATE_ARRAY(options);
+         add_index_long(options, 3, 2);
+         add_index_long(options, 20, 0);
+         if (GENE_G(runtime_type) >= 2) {
+             add_index_bool(options, 12, 0);
+         }
+     }
+ }
+
+ static void pool_create_connection(zval *self, zval *retval) {
+     zval *config = zend_read_property(gene_pool_ce, gene_strip_obj(self), ZEND_STRL(GENE_POOL_PROPERTY_CONFIG), 1, NULL);
+
+     ZVAL_NULL(retval);
+
+     if (!config || Z_TYPE_P(config) != IS_ARRAY) {
          return;
      }
-  
+
+     HashTable *ht = Z_ARRVAL_P(config);
+     zval *dsn     = zend_hash_str_find(ht, ZEND_STRL("dsn"));
+     zval *user    = zend_hash_str_find(ht, ZEND_STRL("username"));
+     zval *pass    = zend_hash_str_find(ht, ZEND_STRL("password"));
+     zval *options = zend_hash_str_find(ht, ZEND_STRL("options"));
+
+     if (!dsn || Z_TYPE_P(dsn) != IS_STRING ||
+         !user || Z_TYPE_P(user) != IS_STRING ||
+         !pass || Z_TYPE_P(pass) != IS_STRING ||
+         !options || Z_TYPE_P(options) != IS_ARRAY) {
+         /* Config was not normalized (defensive fallback for direct property writes). */
+         return;
+     }
+
      static zend_string *pdo_key = NULL;
      if (UNEXPECTED(!pdo_key)) {
          pdo_key = zend_string_init_interned(ZEND_STRL("PDO"), 1);
      }
      zend_class_entry *pdo_ce = zend_lookup_class(pdo_key);
-  
      if (!pdo_ce) {
          return;
      }
-  
-     zval pdo_object, option, construct_ret;
+
+     zval pdo_object, construct_ret, params[4];
      object_init_ex(&pdo_object, pdo_ce);
-  
-     if (options && Z_TYPE_P(options) == IS_ARRAY) {
-         ZVAL_DUP(&option, options);
-     } else {
-         array_init(&option);
-     }
-     /* PDO::ATTR_ERRMODE => PDO::ERRMODE_EXCEPTION */
-     add_index_long(&option, 3, 2);
-     /* PDO::ATTR_EMULATE_PREPARES => false */
-     add_index_long(&option, 20, 0);
-    /* In Swoole/coroutine mode, force-disable PDO persistent connections.
-     * NOTE: PDO::ATTR_PERSISTENT index is 12. */
-    if (GENE_G(runtime_type) >= 2) {
-        add_index_bool(&option, 12, 0);
-    }
-  
-     zend_function *ctor = pdo_ce->constructor;
-     zval params[4];
+
      ZVAL_COPY(&params[0], dsn);
-     if (user && Z_TYPE_P(user) == IS_STRING) {
-         ZVAL_COPY(&params[1], user);
-     } else {
-         ZVAL_STRING(&params[1], "");
-     }
-     if (pass && Z_TYPE_P(pass) == IS_STRING) {
-         ZVAL_COPY(&params[2], pass);
-     } else {
-         ZVAL_STRING(&params[2], "");
-     }
-     ZVAL_COPY(&params[3], &option);
+     ZVAL_COPY(&params[1], user);
+     ZVAL_COPY(&params[2], pass);
+     ZVAL_COPY(&params[3], options);
      ZVAL_UNDEF(&construct_ret);
-     if (EXPECTED(ctor)) {
-         zend_call_known_function(ctor, Z_OBJ(pdo_object), pdo_ce, &construct_ret, 4, params, NULL);
+     if (EXPECTED(pdo_ce->constructor)) {
+         zend_call_known_function(pdo_ce->constructor, Z_OBJ(pdo_object), pdo_ce, &construct_ret, 4, params, NULL);
      }
      zval_ptr_dtor(&params[0]);
      zval_ptr_dtor(&params[1]);
@@ -243,14 +272,13 @@ static void pool_stop_timer(zval *self)
      if (!Z_ISUNDEF(construct_ret)) {
          zval_ptr_dtor(&construct_ret);
      }
-     zval_ptr_dtor(&option);
-  
+
      if (EG(exception)) {
          zend_clear_exception();
          zval_ptr_dtor(&pdo_object);
          return;
      }
-  
+
      ZVAL_COPY_VALUE(retval, &pdo_object);
  }
   
@@ -957,6 +985,12 @@ PHP_METHOD(gene_pool, get)
              wait_time = (double)Z_LVAL_P(opt_wait);
          }
      }
+
+     /* [GENE_OPT:2026-04-27] Normalize once so pool_create_connection can avoid
+      * per-connection ZVAL_DUP / array_init / add_index calls. Mutates `config`
+      * in-place; the caller's PHP-level array is also normalized, but that is
+      * harmless (only adds defaults). */
+     pool_normalize_config(config);
 
      /* Store config */
      zend_update_property(gene_pool_ce, gene_strip_obj(self), ZEND_STRL(GENE_POOL_PROPERTY_CONFIG), config);

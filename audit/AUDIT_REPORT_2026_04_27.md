@@ -107,6 +107,6 @@ size_t lang_len = strlen(lang);  /* 每调用一次 strlen */
 
 经此次审计，扩展在 FPM 与 Swoole 双模式下的请求级、worker 级、process 级三层资源回收均已闭环。剩余优化空间集中在：
 - Swoole `Atomic` 直接内存访问（跨版本 ABI 风险高，仍不实施）；
-- `pool_create_connection` 配置规范化（突发流量下收益）。
+- ~~`pool_create_connection` 配置规范化（突发流量下收益）~~ **本期落地** (2026-04-27)：新增 `pool_normalize_config()`，在 `Pool::__construct` 一次性把 `username/password` 强制为 `IS_STRING`、把强制 PDO 属性 (`ATTR_ERRMODE`、`ATTR_EMULATE_PREPARES`、Swoole 下 `ATTR_PERSISTENT=false`) 折叠进 `options` 数组。`pool_create_connection` 热路径每次建连节省 1× `array_init` + 1× `ZVAL_DUP`（options 深拷贝） + 2~3× `add_index_long/bool` + 0~2× `ZVAL_STRING("")`，仅剩 4× `ZVAL_COPY` 引用计数自增。配置数组通过 `SEPARATE_ARRAY` 进行 CoW 隔离，不影响调用方的 PHP 数组可见性。
 
 均无安全或稳定性影响，可在后续版本择机推进。
