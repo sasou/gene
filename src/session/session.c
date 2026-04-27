@@ -76,12 +76,17 @@ static zend_string *gene_session_function_setcookie(void);
 	called_scope = Z_OBJCE_P(target);
 	func = zend_hash_find_ptr(&called_scope->function_table, method);
 	if (func) {
+		/* [GENE_FIX:2026-04-27] Returning inside zend_catch skips zend_end_try,
+		 * which leaves EG(bailout) pointing at our local jmp_buf for outer
+		 * frames — a subsequent bailout would longjmp into freed stack.
+		 * Use a flag, finish the try block, then return. */
+		zend_bool bailed = 0;
 		zend_try {
 			zend_call_known_function(func, Z_OBJ_P(target), called_scope, retval, param_count, params, NULL);
 		} zend_catch {
-			return 0;
+			bailed = 1;
 		} zend_end_try();
-		return 1;
+		return bailed ? 0 : 1;
 	}
 
 	{
@@ -102,12 +107,15 @@ static zend_string *gene_session_function_setcookie(void);
 	}
 
 	if (setcookie_func) {
+		/* [GENE_FIX:2026-04-27] See gene_session_call_method — must not return
+		 * inside zend_catch, EG(bailout) restoration depends on zend_end_try. */
+		zend_bool bailed = 0;
 		zend_try {
 			zend_call_known_function(setcookie_func, NULL, NULL, retval, param_count, params, NULL);
 		} zend_catch {
-			return 0;
+			bailed = 1;
 		} zend_end_try();
-		return 1;
+		return bailed ? 0 : 1;
 	}
 
 	{
@@ -612,7 +620,17 @@ void gene_init_ssid(zval *obj) {
 	if (hash_mode_zv && Z_TYPE_P(hash_mode_zv) == IS_LONG) {
 		hash_mode = Z_LVAL_P(hash_mode_zv);
 	}
-	
+
+	/* [GENE_FIX:2026-04-27] Defensive type check: user code may have unset
+	 * or overwritten the `name` property with a non-string before construct. */
+	if (!name || Z_TYPE_P(name) != IS_STRING || Z_STRLEN_P(name) == 0) {
+		zval hash_val;
+		gene_session_generate_cookie_id(&hash_val, (int)hash_mode);
+		gene_session_update_ids(obj, Z_STR(hash_val));
+		zval_ptr_dtor(&hash_val);
+		return;
+	}
+
 	cookie_id = getVal(TRACK_VARS_COOKIE, Z_STRVAL_P(name), Z_STRLEN_P(name));
 	if (cookie_id && Z_TYPE_P(cookie_id) == IS_STRING) {
 		zend_string *filtered = gene_session_sanitize_cookie_id(Z_STR_P(cookie_id));
@@ -726,9 +744,14 @@ zval * gene_session_get_by_path(zval *obj, char *path) {
 		stime = zend_symtable_str_find(Z_ARRVAL_P(sess), ZEND_STRL("stime"));
 		if (stime && Z_TYPE_P(stime) == IS_LONG) {
 			uptime = zend_read_property(gene_session_ce, gene_strip_obj(obj), ZEND_STRL(GENE_SESSION_COOKIE_UPTIME), 1, NULL);
-			zend_long jg = gene_session_now() - Z_LVAL_P(stime);
-			if (jg > Z_LVAL_P(uptime)) {
-				gene_data_save(obj, NULL);
+			/* [GENE_FIX:2026-04-27] Type-check uptime: zend_read_property of an
+			 * unset property returns &EG(uninitialized_zval) (IS_NULL), and
+			 * Z_LVAL_P would read garbage from the union. */
+			if (uptime && Z_TYPE_P(uptime) == IS_LONG) {
+				zend_long jg = gene_session_now() - Z_LVAL_P(stime);
+				if (jg > Z_LVAL_P(uptime)) {
+					gene_data_save(obj, NULL);
+				}
 			}
 		}
 		return tmp;
@@ -938,9 +961,12 @@ PHP_METHOD(gene_session, get) {
 				zval *stime = zend_symtable_str_find(Z_ARRVAL_P(sess), ZEND_STRL("stime"));
 				if (stime && Z_TYPE_P(stime) == IS_LONG) {
 					zval *uptime = zend_read_property(gene_session_ce, gene_strip_obj(self), ZEND_STRL(GENE_SESSION_COOKIE_UPTIME), 1, NULL);
-					zend_long jg = gene_session_now() - Z_LVAL_P(stime);
-					if (jg > Z_LVAL_P(uptime)) {
-						gene_data_save(self, NULL);
+					/* [GENE_FIX:2026-04-27] See gene_session_get_by_path. */
+					if (uptime && Z_TYPE_P(uptime) == IS_LONG) {
+						zend_long jg = gene_session_now() - Z_LVAL_P(stime);
+						if (jg > Z_LVAL_P(uptime)) {
+							gene_data_save(self, NULL);
+						}
 					}
 				}
 			}
