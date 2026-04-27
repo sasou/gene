@@ -110,3 +110,50 @@ size_t lang_len = strlen(lang);  /* 每调用一次 strlen */
 - ~~`pool_create_connection` 配置规范化（突发流量下收益）~~ **本期落地** (2026-04-27)：新增 `pool_normalize_config()`，在 `Pool::__construct` 一次性把 `username/password` 强制为 `IS_STRING`、把强制 PDO 属性 (`ATTR_ERRMODE`、`ATTR_EMULATE_PREPARES`、Swoole 下 `ATTR_PERSISTENT=false`) 折叠进 `options` 数组。`pool_create_connection` 热路径每次建连节省 1× `array_init` + 1× `ZVAL_DUP`（options 深拷贝） + 2~3× `add_index_long/bool` + 0~2× `ZVAL_STRING("")`，仅剩 4× `ZVAL_COPY` 引用计数自增。配置数组通过 `SEPARATE_ARRAY` 进行 CoW 隔离，不影响调用方的 PHP 数组可见性。
 
 均无安全或稳定性影响，可在后续版本择机推进。
+
+---
+
+## 追加修复 (2026-04-27 19:13)
+
+本轮额外审计发现并落地 5 项修复（详见同目录下分析记录）：
+
+### F1 — `validate.c::validCheck` 两处 use-after-free（关键）
+**文件**: `src/http/validate.c`（行 729-732, 768-776）
+
+`zend_hash_str_update(errors, …, msg)` 中 `msg` 来自借用的 `value/rules/closure_arr` 槽位，未 `Z_TRY_ADDREF_P`。`zend_hash_str_update` 通过 `ZVAL_COPY_VALUE` 接管所有权，导致 errors 与原数组共享 refcount=1 的 zval；errors 销毁时释放，原数组指针悬空。`is_group=1` 路径必现。
+
+**修复**：两处 `zend_hash_str_update(...errors..., msg)` 前补 `Z_TRY_ADDREF_P(msg)`，与同文件 `addRule` 路径保持一致。
+
+### F2 — `validate.c::validCheck` snprintf 越界
+**文件**: `src/http/validate.c`（行 748-756）
+
+method 名 ≥ 58 字符时 `snprintf` 返回值超出 64 字节缓冲，`name_len` 被传给 `zend_hash_str_exists` / `gene_factory_call` 造成 OOB 读。
+
+**修复**：检查 `snprintf` 返回值 `< 0 || >= sizeof(buf)`，超长则 `php_error_docref(E_WARNING)` 并 `continue`。
+
+### F3 — `validate.c` 命名拼写
+将 `setFefCount` 重命名为 `setRefCount`（17 处）。仅命名修正，无行为变化。
+
+### F4 — `language.c::__get` 移除多余 addref
+**文件**: `src/tool/language.c`（行 289-298）
+
+`ZVAL_COPY(&tmp, &retval)` + 末尾 `zval_ptr_dtor(&retval)` 改为 `ZVAL_COPY_VALUE` + `ZVAL_UNDEF(&retval)` 直接转移所有权，省一次原子计数自增。`zval_ptr_dtor` 在 IS_UNDEF 上短路。
+
+### F5 — `log.c` 日志路径分配合并
+**文件**: `src/tool/log.c`
+
+`gene_log_call_error_log` 改签 `(char *log_line, size_t log_line_len, const char *effective_file)`，接管 spprintf 缓冲所有权，内部以 `zend_string_init(log_line, len, 0) + efree(log_line)` 替代 `ZVAL_STRING`，省一次 emalloc + memcpy + 一次 strlen；`gene_log_write_message` / `Gene\Log::exception` 调用点同步更新，并清理 `exception` 中 early-return 后的死代码尾段。
+
+### 留待下轮（5/6 — 属性偏移缓存）
+
+`Gene\Log::*` 静态属性 `file/level` 与 `Gene\Session` 的 7 个 cookie 相关属性仍走 `zend_read_(static_)property` 哈希查找。此重构跨多函数（含 `gene_cookie / gene_set_cookie / gene_init_ssid / 各方法体`），需对每个属性分别在 MINIT 中通过 `zend_hash_str_find_ptr(&ce->properties_info, ...)` 取 `offset` 并改写所有读写点。本轮范围控制风险，不动；后续单独 PR。
+
+### 文件变更补充
+
+```
+ src/http/validate.c | +9 / -3 (F1 + F2 + F3)
+ src/tool/language.c | +2 / -1 (F4)
+ src/tool/log.c      | +9 / -10 (F5)
+```
+
+无 API 变化。建议构建后跑 `demo/application/Validate` 用例覆盖 `validCheck` 多失败规则路径以验证 F1。
