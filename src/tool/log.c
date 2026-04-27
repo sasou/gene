@@ -146,25 +146,23 @@ static const char *gene_log_get_effective_file(void) {
 }
 /* }}} */
 
-/* {{{ gene_log_get_error_log_fn — cached error_log function pointer */
+/* {{{ gene_log_get_error_log_fn — look up error_log in current thread's
+ * function_table. [GENE_FIX:2026-04-27] Previous version cached the result
+ * in a process-wide `static` variable, which is unsafe under ZTS where
+ * CG(function_table) is per-thread (cross-thread use of stale pointer
+ * could crash on module unload / reload). zend_hash_str_find_ptr on a
+ * pre-known interned key is cheap; do not cache. */
 static inline zend_function *gene_log_get_error_log_fn(void) {
-	static zend_function *fn = NULL;
-	if (UNEXPECTED(!fn)) {
-		fn = zend_hash_str_find_ptr(CG(function_table), ZEND_STRL("error_log"));
-	}
-	return fn;
+	return zend_hash_str_find_ptr(CG(function_table), ZEND_STRL("error_log"));
 }
 /* }}} */
 
-/* {{{ gene_log_call_error_log — write via cached error_log function.
- * Takes ownership of log_line (heap-allocated via spprintf). Avoids the
- * extra emalloc+memcpy that ZVAL_STRING would incur by wrapping the buffer
- * into a zend_string directly. */
+/* {{{ gene_log_call_error_log — write via error_log function.
+ * Takes ownership of log_line (heap-allocated via spprintf) and frees it. */
 static void gene_log_call_error_log(char *log_line, size_t log_line_len, const char *effective_file) {
 	zend_function *fn = gene_log_get_error_log_fn();
 	if (UNEXPECTED(!fn)) { efree(log_line); return; }
 	zval retval, params[3];
-	/* Build zend_string then free the spprintf buffer — one emalloc instead of two */
 	ZVAL_STR(&params[0], zend_string_init(log_line, log_line_len, 0));
 	efree(log_line);
 	if (effective_file) {
@@ -294,6 +292,17 @@ PHP_METHOD(gene_log, exception) {
 		zend_function *trace_fn = zend_hash_str_find_ptr(&Z_OBJCE_P(ex)->function_table, ZEND_STRL("gettraceasstring"));
 		if (EXPECTED(trace_fn)) {
 			zend_call_known_function(trace_fn, Z_OBJ_P(ex), Z_OBJCE_P(ex), &trace_val, 0, NULL, NULL);
+			/* [GENE_FIX:2026-04-27] If getTraceAsString itself threw, swallow it
+			 * here — we are already in the logging path for an existing
+			 * exception; leaking a second pending exception into the rest of
+			 * the call chain (error_log invocation, etc.) is undefined. */
+			if (UNEXPECTED(EG(exception))) {
+				zend_clear_exception();
+				if (Z_TYPE(trace_val) != IS_STRING) {
+					zval_ptr_dtor(&trace_val);
+					ZVAL_EMPTY_STRING(&trace_val);
+				}
+			}
 		}
 	}
 
@@ -432,9 +441,9 @@ GENE_MINIT_FUNCTION(log)
 	{
 		zend_property_info *pi;
 		pi = zend_hash_str_find_ptr(&gene_log_ce->properties_info, ZEND_STRL("file"));
-		gene_log_sp_offset_file = pi->offset;
+		if (pi) gene_log_sp_offset_file = pi->offset;
 		pi = zend_hash_str_find_ptr(&gene_log_ce->properties_info, ZEND_STRL("level"));
-		gene_log_sp_offset_level = pi->offset;
+		if (pi) gene_log_sp_offset_level = pi->offset;
 	}
 
 	/* class constants for log levels */

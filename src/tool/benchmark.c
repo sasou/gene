@@ -60,10 +60,9 @@ void markStart(struct timeval *start, zend_long *memory_start) {
 	zval ret;
 	gettimeofday( start, NULL );
 
-	static zend_function *mem_fn = NULL;
-	if (UNEXPECTED(!mem_fn)) {
-		mem_fn = zend_hash_str_find_ptr(CG(function_table), ZEND_STRL("memory_get_peak_usage"));
-	}
+	/* [GENE_FIX:2026-04-27] Per-thread CG(function_table) under ZTS —
+	 * do not cache zend_function* in a process-wide static. */
+	zend_function *mem_fn = zend_hash_str_find_ptr(CG(function_table), ZEND_STRL("memory_get_peak_usage"));
 	ZVAL_UNDEF(&ret);
 	if (EXPECTED(mem_fn)) {
 		zend_call_known_function(mem_fn, NULL, NULL, &ret, 0, NULL, NULL);
@@ -82,10 +81,8 @@ void markEnd(struct timeval *end, zend_long *memory_end) {
 	zval ret;
     gettimeofday( end, NULL );
 
-	static zend_function *mem_fn = NULL;
-	if (UNEXPECTED(!mem_fn)) {
-		mem_fn = zend_hash_str_find_ptr(CG(function_table), ZEND_STRL("memory_get_peak_usage"));
-	}
+	/* [GENE_FIX:2026-04-27] See markStart. */
+	zend_function *mem_fn = zend_hash_str_find_ptr(CG(function_table), ZEND_STRL("memory_get_peak_usage"));
 	ZVAL_UNDEF(&ret);
 	if (EXPECTED(mem_fn)) {
 		zend_call_known_function(mem_fn, NULL, NULL, &ret, 0, NULL, NULL);
