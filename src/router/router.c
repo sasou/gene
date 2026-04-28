@@ -757,14 +757,14 @@ static void gene_fn_cache_store(zval *closure, zval *fid_zv) {
 	 if (use_direct && *cacheHook && Z_TYPE_P(*cacheHook) == IS_ARRAY) {
 		 if (is_before) {
 			 before = zend_hash_str_find(Z_ARRVAL_P(*cacheHook), "hook:before", 11);
-			 if (before && Z_STRLEN_P(before) > 0) {
+			 if (before && Z_TYPE_P(before) == IS_STRING && Z_STRLEN_P(before) > 0) {
 				 before_src = zend_hash_str_find(Z_ARRVAL_P(*cacheHook), "hsrc:before", 11);
 				 if (!before_src || Z_TYPE_P(before_src) != IS_STRING) use_direct = 0;
 			 }
 		 }
 		 if (is_after) {
 			 after = zend_hash_str_find(Z_ARRVAL_P(*cacheHook), "hook:after", 10);
-			 if (after && Z_STRLEN_P(after) > 0) {
+			 if (after && Z_TYPE_P(after) == IS_STRING && Z_STRLEN_P(after) > 0) {
 				 after_src = zend_hash_str_find(Z_ARRVAL_P(*cacheHook), "hsrc:after", 11);
 				 if (!after_src || Z_TYPE_P(after_src) != IS_STRING) use_direct = 0;
 			 }
@@ -774,7 +774,7 @@ static void gene_fn_cache_store(zval *closure, zval *fid_zv) {
 			 size_t hseg_key_len = snprintf(hseg_buf, sizeof(hseg_buf), "hsrc%s", seg + 4);
 			 hook_src = zend_hash_str_find(Z_ARRVAL_P(*cacheHook), hseg_buf, hseg_key_len);
 			 h = zend_hash_str_find(Z_ARRVAL_P(*cacheHook), seg, strlen(seg));
-			 if (h && Z_STRLEN_P(h) > 0) {
+			 if (h && Z_TYPE_P(h) == IS_STRING && Z_STRLEN_P(h) > 0) {
 				 if (!hook_src || Z_TYPE_P(hook_src) != IS_STRING) use_direct = 0;
 			 }
 		 }
@@ -827,7 +827,7 @@ static void gene_fn_cache_store(zval *closure, zval *fid_zv) {
 		 if (use_closure && *cacheHook && Z_TYPE_P(*cacheHook) == IS_ARRAY) {
 			 if (is_before) {
 				 before = zend_hash_str_find(Z_ARRVAL_P(*cacheHook), "hook:before", 11);
-				 if (before && Z_STRLEN_P(before) > 0) {
+				 if (before && Z_TYPE_P(before) == IS_STRING && Z_STRLEN_P(before) > 0) {
 					 before_src = zend_hash_str_find(Z_ARRVAL_P(*cacheHook), "hsrc:before", 11);
 					 if (!before_src || Z_TYPE_P(before_src) != IS_STRING) {
 						 zval *bfcl = zend_hash_str_find(Z_ARRVAL_P(*cacheHook), "fcl:before", 10);
@@ -841,7 +841,7 @@ static void gene_fn_cache_store(zval *closure, zval *fid_zv) {
 			 }
 			 if (is_after) {
 				 after = zend_hash_str_find(Z_ARRVAL_P(*cacheHook), "hook:after", 10);
-				 if (after && Z_STRLEN_P(after) > 0) {
+				 if (after && Z_TYPE_P(after) == IS_STRING && Z_STRLEN_P(after) > 0) {
 					 after_src = zend_hash_str_find(Z_ARRVAL_P(*cacheHook), "hsrc:after", 11);
 					 if (!after_src || Z_TYPE_P(after_src) != IS_STRING) {
 						 zval *afcl = zend_hash_str_find(Z_ARRVAL_P(*cacheHook), "fcl:after", 9);
@@ -855,7 +855,7 @@ static void gene_fn_cache_store(zval *closure, zval *fid_zv) {
 			 }
 			 if (seg && strlen(seg) > 0) {
 				 h = zend_hash_str_find(Z_ARRVAL_P(*cacheHook), seg, strlen(seg));
-				 if (h && Z_STRLEN_P(h) > 0 && !hook_src) {
+				 if (h && Z_TYPE_P(h) == IS_STRING && Z_STRLEN_P(h) > 0 && !hook_src) {
 					 char fcl_buf[256];
 					 size_t fcl_len = snprintf(fcl_buf, sizeof(fcl_buf), "fcl%s", seg + 4);
 					 zval *hfcl = zend_hash_str_find(Z_ARRVAL_P(*cacheHook), fcl_buf, fcl_len);
@@ -914,23 +914,23 @@ static void gene_fn_cache_store(zval *closure, zval *fid_zv) {
  
 		 if (is_before && *cacheHook && Z_TYPE_P(*cacheHook) == IS_ARRAY) {
 			 before = zend_hash_str_find(Z_ARRVAL_P(*cacheHook), "hook:before", 11);
-			 if (before && Z_STRLEN_P(before) > 0) {
+			 if (before && Z_TYPE_P(before) == IS_STRING && Z_STRLEN_P(before) > 0) {
 				 smart_str_appendl(&buf, Z_STRVAL_P(before), Z_STRLEN_P(before));
 			 }
 		 }
 		 if (seg && strlen(seg) > 0 && *cacheHook && Z_TYPE_P(*cacheHook) == IS_ARRAY) {
 			 h = zend_hash_str_find(Z_ARRVAL_P(*cacheHook), seg, strlen(seg));
-			 if (h && Z_STRLEN_P(h) > 0) {
+			 if (h && Z_TYPE_P(h) == IS_STRING && Z_STRLEN_P(h) > 0) {
 				 smart_str_appendl(&buf, Z_STRVAL_P(h), Z_STRLEN_P(h));
 			 }
 		 }
 		 m = zend_hash_str_find(Z_ARRVAL_P(*leaf), "run", 3);
-		 if (m && Z_STRLEN_P(m) > 0) {
+		 if (m && Z_TYPE_P(m) == IS_STRING && Z_STRLEN_P(m) > 0) {
 			 smart_str_appendl(&buf, Z_STRVAL_P(m), Z_STRLEN_P(m));
 		 }
 		 if (is_after && *cacheHook && Z_TYPE_P(*cacheHook) == IS_ARRAY) {
 			 after = zend_hash_str_find(Z_ARRVAL_P(*cacheHook), "hook:after", 10);
-			 if (after && Z_STRLEN_P(after) > 0) {
+			 if (after && Z_TYPE_P(after) == IS_STRING && Z_STRLEN_P(after) > 0) {
 				 smart_str_appendl(&buf, Z_STRVAL_P(after), Z_STRLEN_P(after));
 			 }
 		 }
@@ -1561,6 +1561,7 @@ static int gene_router_is_event(const char *m) {
 PHP_METHOD(gene_router, __call) {
 	zval *val = NULL, *group, *safe, *pathVal = NULL, *contentval = NULL, *hook = NULL, *self = getThis();
 	zval content;
+	ZVAL_UNDEF(&content);
 	zend_long methodlen;
 	int is_string_route = 0;
 	int is_closure_route = 0;
@@ -1913,7 +1914,7 @@ PHP_METHOD(gene_router, __call) {
 	 if (path_heap) {
 		 efree(path);
 	 }
-	 if (Z_TYPE(content) == IS_STRING) {
+	 if (Z_TYPE(content) != IS_UNDEF) {
 		 zval_ptr_dtor(&content);
 	 }
 	 }
@@ -2546,6 +2547,7 @@ PHP_METHOD(gene_router, __call) {
 		 gene_memory_set_by_router(router_e, router_e_len, prefix, &content, 0);
 		 if (router_e_heap) efree(router_e);
 		 efree(prefix);
+		 efree(val);
 		 zval_ptr_dtor(&content);
 	 }
 	 RETURN_ZVAL(self, 1, 0);
