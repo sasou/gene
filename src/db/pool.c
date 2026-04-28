@@ -33,12 +33,26 @@
  zend_class_entry *gene_pool_ce;
 
  /* [GENE_PERF:2026-04-26 P4] C-layer named pool cache.
-  * Maps pool name (zend_string) -> zend_object* (borrowed reference).
-  * Avoids the Pool::getInstance() PHP call (static property + array hash
-  * lookup + zend_call_known_function) on every DB query. Lifetime is tied
-  * to the static instances registry: inserted in Pool::create, cleared in
-  * Pool::closeAll. Refcount is owned by the static `instances` array. */
- static HashTable *gene_pool_named_cache = NULL;
+ * Maps pool name (zend_string) -> zend_object* (borrowed reference).
+ * Avoids the Pool::getInstance() PHP call (static property + array hash
+ * lookup + zend_call_known_function) on every DB query. Lifetime is tied
+ * to the static instances registry: inserted in Pool::create, cleared in
+ * Pool::closeAll. Refcount is owned by the static `instances` array.
+ *
+ * [GENE_AUDIT:2026-04-28 LOW]
+ * Allocated via emalloc (request-scope). In FPM/CLI the cache is freed at
+ * request end and rebuilt next request — fine. In Swoole worker the
+ * emalloc heap survives across requests (Swoole disables per-request GC),
+ * so the cache persists with `instances`. Two latent caveats:
+ *   1. No MSHUTDOWN handler clears it; relies on closeAll() being called
+ *      on worker stop.  If a worker dies hard (signal), the HT is leaked
+ *      to PHP's MM cleanup — harmless but ugly under valgrind.
+ *   2. If runtime_type changes within a process (currently impossible —
+ *      decided once at MINIT), the cache may outlive `instances` and
+ *      hold dangling pointers.
+ * Convert to pemalloc + zend_hash_init persistent if either becomes
+ * possible. */
+static HashTable *gene_pool_named_cache = NULL;
 
  static inline zend_object *gene_pool_named_cache_get(zend_string *name) {
      if (!gene_pool_named_cache) return NULL;
@@ -927,8 +941,21 @@ PHP_METHOD(gene_pool, get)
                  pool_stop_timer(pool);
              }
          } ZEND_HASH_FOREACH_END();
- 
-         /* Phase 2: drain and close all pools (already marked closed). */
+
+         /* Phase 2: drain and close all pools (already marked closed).
+          *
+          * [GENE_AUDIT:2026-04-28 MEDIUM]
+          * close() can yield (Channel::pop with non-zero timeout). If a
+          * concurrent coroutine calls Pool::create() during the yield, it will
+          * insert a new entry into the `instances` HashTable being iterated.
+          * Zend HT permits insert during foreach but a rehash (when nNumUsed
+          * exceeds nTableSize) will reallocate the bucket array and invalidate
+          * the iterator's position cache → the `pool` zval pointer can become
+          * stale and we may double-process a slot or skip one.
+          * Mitigation cost vs. benefit is unfavorable: closeAll() runs on
+          * worker stop where no new create() should arrive in well-formed apps.
+          * If this becomes problematic, snapshot the keys into a local array
+          * before the second pass. */
          ZEND_HASH_FOREACH_VAL(Z_ARRVAL_P(instances), pool) {
              if (Z_TYPE_P(pool) == IS_OBJECT) {
                  zval close_ret;
@@ -937,7 +964,7 @@ PHP_METHOD(gene_pool, get)
              }
          } ZEND_HASH_FOREACH_END();
      }
- 
+
      /* [GENE_PERF:2026-04-26 P4] Clear C-layer cache before dropping the
       * instances array (which owns refcounts on the pool objects). */
      gene_pool_named_cache_clear();

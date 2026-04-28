@@ -474,8 +474,9 @@ PHP_METHOD(gene_validate, filter)
 	}
 
 	key = zend_read_property(gene_validate_ce, gene_strip_obj(self), ZEND_STRL(GENE_VALIDATE_KEY), 1, NULL);
-	if (key && Z_TYPE_P(key) == IS_NULL) {
+	if (!key || Z_TYPE_P(key) != IS_STRING) {
 		php_error_docref(NULL, E_WARNING, "Please call the name method in the first place.");
+		RETURN_ZVAL(self, 1, 0);
 	}
 
 	zval fieldArr;
@@ -709,6 +710,13 @@ int validCheck(zval *self, zval *date_field, zval *rules, int is_group) {
 			errors = zend_read_property(gene_validate_ce, gene_strip_obj(self), ZEND_STRL(GENE_VALIDATE_ERROR), 1, NULL);
 
 			ZEND_HASH_FOREACH_STR_KEY_VAL_IND(Z_ARRVAL_P(list), method, value) {
+				if (!method) {
+					/* Skip integer-keyed entries; rule names must be string. */
+					continue;
+				}
+				if (!value || Z_TYPE_P(value) != IS_ARRAY) {
+					continue;
+				}
 				args = zend_hash_str_find(Z_ARRVAL_P(value), "args", 4);
 
 				if (closure && Z_TYPE_P(closure) == IS_ARRAY) {
