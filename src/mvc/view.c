@@ -131,12 +131,12 @@ void gene_view_contains(char *file, zval *ret) {
 	size_t path_len = 0;
 	if (base_path) {
 		if (!GENE_G(app_view)) {
-			GENE_G(app_view) = estrndup(GENE_VIEW_VIEW, strlen(GENE_VIEW_VIEW));
+			GENE_G(app_view) = estrndup(GENE_VIEW_VIEW, GENE_VIEW_VIEW_LEN);
 		}
 		if (!GENE_G(app_ext)) {
-			GENE_G(app_ext) = estrndup(GENE_VIEW_EXT, strlen(GENE_VIEW_EXT));
+			GENE_G(app_ext) = estrndup(GENE_VIEW_EXT, GENE_VIEW_EXT_LEN);
 		}
-		path_len = strlen(base_path) + strlen(GENE_G(app_view)) + strlen(file) + strlen(GENE_G(app_ext)) + 3;
+		path_len = GENE_G(app_root_len) + strlen(GENE_G(app_view)) + strlen(file) + strlen(GENE_G(app_ext)) + 3;
 		if (path_len >= sizeof(path_buf)) {
 			path = emalloc(path_len + 1);
 			path_heap = 1;
@@ -145,7 +145,7 @@ void gene_view_contains(char *file, zval *ret) {
 		}
 		snprintf(path, path_len + 1, "%s/%s/%s%s", base_path, GENE_G(app_view), file, GENE_G(app_ext));
 	} else {
-		path_len = strlen("app/") + strlen(GENE_VIEW_VIEW) + strlen(file) + strlen(GENE_VIEW_EXT) + 2;
+		path_len = sizeof("app/") - 1 + GENE_VIEW_VIEW_LEN + strlen(file) + GENE_VIEW_EXT_LEN + 2;
 		if (path_len >= sizeof(path_buf)) {
 			path = emalloc(path_len + 1);
 			path_heap = 1;
@@ -181,8 +181,9 @@ void gene_view_contains_ext(char *file, bool isCompile, zval *ret) {
 	char path_buf[512];
 	int compile_path_heap = 0;
 	int path_heap = 0;
+	size_t file_len = strlen(file);
 	if (base_path) {
-		compile_path_len = strlen(base_path) + strlen("/Cache/Views/") + strlen(file) + strlen(".php");
+		compile_path_len = GENE_G(app_root_len) + (sizeof("/Cache/Views/") - 1) + file_len + (sizeof(".php") - 1);
 		if (compile_path_len >= sizeof(compile_path_buf)) {
 			compile_path = emalloc(compile_path_len + 1);
 			compile_path_heap = 1;
@@ -191,7 +192,7 @@ void gene_view_contains_ext(char *file, bool isCompile, zval *ret) {
 		}
 		snprintf(compile_path, compile_path_len + 1, "%s/Cache/Views/%s.php", base_path, file);
 	} else {
-		compile_path_len = strlen("app/Cache/Views/") + strlen(file) + strlen(".php");
+		compile_path_len = (sizeof("app/Cache/Views/") - 1) + file_len + (sizeof(".php") - 1);
 		if (compile_path_len >= sizeof(compile_path_buf)) {
 			compile_path = emalloc(compile_path_len + 1);
 			compile_path_heap = 1;
@@ -202,14 +203,14 @@ void gene_view_contains_ext(char *file, bool isCompile, zval *ret) {
 	}
 	if (isCompile || GENE_G(view_compile)) {
 		if (!GENE_G(app_view)) {
-			GENE_G(app_view) = estrndup(GENE_VIEW_VIEW, strlen(GENE_VIEW_VIEW));
+			GENE_G(app_view) = estrndup(GENE_VIEW_VIEW, GENE_VIEW_VIEW_LEN);
 		}
 		if (!GENE_G(app_ext)) {
-			GENE_G(app_ext) = estrndup(GENE_VIEW_EXT, strlen(GENE_VIEW_EXT));
+			GENE_G(app_ext) = estrndup(GENE_VIEW_EXT, GENE_VIEW_EXT_LEN);
 		}
 		size_t path_len = 0;
 		if (base_path) {
-			path_len = strlen(base_path) + strlen(GENE_G(app_view)) + strlen(file) + strlen(GENE_G(app_ext)) + 2;
+			path_len = GENE_G(app_root_len) + strlen(GENE_G(app_view)) + file_len + strlen(GENE_G(app_ext)) + 2;
 			if (path_len >= sizeof(path_buf)) {
 				path = emalloc(path_len + 1);
 				path_heap = 1;
@@ -218,7 +219,7 @@ void gene_view_contains_ext(char *file, bool isCompile, zval *ret) {
 			}
 			snprintf(path, path_len + 1, "%s/%s/%s%s", base_path, GENE_G(app_view), file, GENE_G(app_ext));
 		} else {
-			path_len = strlen("app/") + strlen(GENE_VIEW_VIEW) + strlen(file) + strlen(GENE_VIEW_EXT) + 1;
+			path_len = (sizeof("app/") - 1) + GENE_VIEW_VIEW_LEN + file_len + GENE_VIEW_EXT_LEN + 1;
 			if (path_len >= sizeof(path_buf)) {
 				path = emalloc(path_len + 1);
 				path_heap = 1;
@@ -269,12 +270,12 @@ int gene_view_display(char *file, zval *obj, zend_array *symbol_table) {
 	base_path = gene_view_app_base_path();
 	if (base_path) {
 		if (!GENE_G(app_view)) {
-			GENE_G(app_view) = estrndup(GENE_VIEW_VIEW, strlen(GENE_VIEW_VIEW));
+			GENE_G(app_view) = estrndup(GENE_VIEW_VIEW, GENE_VIEW_VIEW_LEN);
 		}
 		if (!GENE_G(app_ext)) {
-			GENE_G(app_ext) = estrndup(GENE_VIEW_EXT, strlen(GENE_VIEW_EXT));
+			GENE_G(app_ext) = estrndup(GENE_VIEW_EXT, GENE_VIEW_EXT_LEN);
 		}
-		size_t path_len = strlen(base_path) + strlen(GENE_G(app_view)) + strlen(file) + strlen(GENE_G(app_ext)) + 3;
+		size_t path_len = GENE_G(app_root_len) + strlen(GENE_G(app_view)) + strlen(file) + strlen(GENE_G(app_ext)) + 3;
 		char path_buf[512];
 		if (path_len >= sizeof(path_buf)) {
 			path = emalloc(path_len + 1);
@@ -284,7 +285,7 @@ int gene_view_display(char *file, zval *obj, zend_array *symbol_table) {
 		}
 		snprintf(path, path_len + 1, "%s/%s/%s%s", base_path, GENE_G(app_view), file, GENE_G(app_ext));
 	} else {
-		size_t path_len = strlen("app/") + strlen(GENE_VIEW_VIEW) + strlen(file) + strlen(GENE_VIEW_EXT) + 2;
+		size_t path_len = (sizeof("app/") - 1) + GENE_VIEW_VIEW_LEN + strlen(file) + GENE_VIEW_EXT_LEN + 2;
 		char path_buf[512];
 		if (path_len >= sizeof(path_buf)) {
 			path = emalloc(path_len + 1);
@@ -323,8 +324,9 @@ int gene_view_display_ext(char *file, bool isCompile, zval *obj, zend_array *sym
 	char path_buf[512];
 	int compile_path_heap = 0;
 	int path_heap = 0;
+	size_t file_len = strlen(file);
 	if (base_path) {
-		compile_path_len = strlen(base_path) + strlen("/Cache/Views/") + strlen(file) + strlen(".php");
+		compile_path_len = GENE_G(app_root_len) + (sizeof("/Cache/Views/") - 1) + file_len + (sizeof(".php") - 1);
 		if (compile_path_len >= sizeof(compile_path_buf)) {
 			compile_path = emalloc(compile_path_len + 1);
 			compile_path_heap = 1;
@@ -333,7 +335,7 @@ int gene_view_display_ext(char *file, bool isCompile, zval *obj, zend_array *sym
 		}
 		snprintf(compile_path, compile_path_len + 1, "%s/Cache/Views/%s.php", base_path, file);
 	} else {
-		compile_path_len = strlen("app/Cache/Views/") + strlen(file) + strlen(".php");
+		compile_path_len = (sizeof("app/Cache/Views/") - 1) + file_len + (sizeof(".php") - 1);
 		if (compile_path_len >= sizeof(compile_path_buf)) {
 			compile_path = emalloc(compile_path_len + 1);
 			compile_path_heap = 1;
@@ -344,14 +346,14 @@ int gene_view_display_ext(char *file, bool isCompile, zval *obj, zend_array *sym
 	}
 	if (isCompile || GENE_G(view_compile)) {
 		if (!GENE_G(app_view)) {
-			GENE_G(app_view) = estrndup(GENE_VIEW_VIEW, strlen(GENE_VIEW_VIEW));
+			GENE_G(app_view) = estrndup(GENE_VIEW_VIEW, GENE_VIEW_VIEW_LEN);
 		}
 		if (!GENE_G(app_ext)) {
-			GENE_G(app_ext) = estrndup(GENE_VIEW_EXT, strlen(GENE_VIEW_EXT));
+			GENE_G(app_ext) = estrndup(GENE_VIEW_EXT, GENE_VIEW_EXT_LEN);
 		}
 		size_t path_len = 0;
 		if (base_path) {
-			path_len = strlen(base_path) + strlen(GENE_G(app_view)) + strlen(file) + strlen(GENE_G(app_ext)) + 2;
+			path_len = GENE_G(app_root_len) + strlen(GENE_G(app_view)) + file_len + strlen(GENE_G(app_ext)) + 2;
 			if (path_len >= sizeof(path_buf)) {
 				path = emalloc(path_len + 1);
 				path_heap = 1;
@@ -360,7 +362,7 @@ int gene_view_display_ext(char *file, bool isCompile, zval *obj, zend_array *sym
 			}
 			snprintf(path, path_len + 1, "%s/%s/%s%s", base_path, GENE_G(app_view), file, GENE_G(app_ext));
 		} else {
-			path_len = strlen("app/") + strlen(GENE_VIEW_VIEW) + strlen(file) + strlen(GENE_VIEW_EXT) + 1;
+			path_len = (sizeof("app/") - 1) + GENE_VIEW_VIEW_LEN + file_len + GENE_VIEW_EXT_LEN + 1;
 			if (path_len >= sizeof(path_buf)) {
 				path = emalloc(path_len + 1);
 				path_heap = 1;
@@ -417,13 +419,20 @@ static int check_folder_exists(char *fullpath) {
  * {{{ gene_view
  */
 static int parser_templates(php_stream **stream, char *compile_path) {
-	size_t result_len;// @suppress("Type cannot be resolved")
 	int i;
-	zend_string *arg,*ret;
+	zend_string *ret;
 	php_stream *CacheStream = NULL;
-	char *result = NULL;
+	zend_string *result = NULL;
 
-	char regex[PARSER_NUMS][100] = { "/([\\n\\r]+)\\t+/s",
+	/* [GENE_PERF:2026-05] Cache regex/replace zend_strings as process-lifetime
+	 * statics. Eliminates 56× zend_string_init + 56× zend_string_release per
+	 * template compile. Interned with persistent=1 so they survive RSHUTDOWN. */
+	static zend_string *regex_strs[PARSER_NUMS] = {0};
+	static zend_string *replace_strs[PARSER_NUMS] = {0};
+
+	if (UNEXPECTED(!regex_strs[0])) {
+		static const char *regex_raw[PARSER_NUMS] = {
+			"/([\\n\\r]+)\\t+/s",
 			"/\\<\\!\\-\\-\\{(.+?)\\}\\-\\-\\>/s", "/\\{template\\s+(\\S+)\\}/",
 			"/\\{{if\\s+(.+?)\\}}/", "/\\{{else\\}}/", "/\\{{\\/if\\}}/",
 			"/\\{if\\s+(.+?)\\}/is", "/\\{elseif\\s+(.+?)\\}/is",
@@ -440,9 +449,10 @@ static int parser_templates(php_stream **stream, char *compile_path) {
 			"/\\{for\\s+(.+?)\\}/is", "/\\{\\/for\\}/i",
 			"/\\{\\:\\s?(.+?)\\}/is", "/\\{\\~\\s?(.+?)\\}/is",
 			"/\\{contains\\}/",
-			"/\\{containsExt\\}/" };
-
-	char replace[PARSER_NUMS][100] = { "\\1", "{\\1}",
+			"/\\{containsExt\\}/"
+		};
+		static const char *replace_raw[PARSER_NUMS] = {
+			"\\1", "{\\1}",
 			"<?php gene_view::template('\\1')?>", "``if \\1``", "``else``",
 			"``/if``", "<?php if(\\1) { ?>", "<?php } elseif(\\1) { ?>",
 			"<?php } else { ?>", "<?php } ?>", "{{if \\1}}", "{{else}}",
@@ -454,46 +464,46 @@ static int parser_templates(php_stream **stream, char *compile_path) {
 			"<?php echo \\1[\'\\2\'][\'\\3\']; ?>", "<?php for(\\1) { ?>",
 			"<?php } ?>", "<?php echo \\1; ?>", "<?php \\1; ?>",
 			"<?php require $this::contains()?>",
-			"<?php require $this::containsExt()?>" };
+			"<?php require $this::containsExt()?>"
+		};
+		for (i = 0; i < PARSER_NUMS; i++) {
+			regex_strs[i] = zend_string_init_interned(regex_raw[i], strlen(regex_raw[i]), 1);
+			replace_strs[i] = zend_string_init_interned(replace_raw[i], strlen(replace_raw[i]), 1);
+		}
+	}
 
+	/* [GENE_PERF:2026-05] Track result as zend_string* directly — eliminates
+	 * 28× estrndup + 28× efree per compile. php_pcre_replace already returns
+	 * a zend_string, so we just swap pointers. */
 	{
 		zend_string *file_content = php_stream_copy_to_mem(*stream, PHP_STREAM_COPY_ALL, 0);
 		if (file_content) {
-			result = estrndup(ZSTR_VAL(file_content), ZSTR_LEN(file_content));
-			result_len = ZSTR_LEN(file_content);
-			zend_string_release(file_content);
+			result = file_content;
 		} else {
-			result = estrndup("", 0);
-			result_len = 0;
+			result = ZSTR_EMPTY_ALLOC();
+			zend_string_addref(result);
 		}
 	}
 
 	for (i = 0; i < PARSER_NUMS; i++) {
-		arg = zend_string_init(regex[i], strlen(regex[i]), 0);
 		size_t count;
-		zend_string *replace_val;
-		replace_val = zend_string_init(replace[i], strlen(replace[i]), 0);
-		if ((ret = php_pcre_replace(arg, NULL, result, result_len, replace_val, -1, &count)) != NULL) {
-			efree(result);
-			result = estrndup(ret->val, ret->len);
-			result_len = ret->len;
-			zend_string_release(ret);
+		ret = php_pcre_replace(regex_strs[i], NULL, ZSTR_VAL(result), ZSTR_LEN(result), replace_strs[i], -1, &count);
+		if (ret != NULL) {
+			zend_string_release(result);
+			result = ret;
 		}
-		zend_string_release(arg);
-		zend_string_release(replace_val);
 	}
 
 	CacheStream = php_stream_open_wrapper(compile_path, "wb", REPORT_ERRORS, NULL);
 	if (CacheStream == NULL) {
 		zend_error(E_WARNING, "%s does not write able", compile_path);
-		if (result != NULL) efree(result);
+		zend_string_release(result);
 		return 1;
 	}
-	php_stream_write_string(CacheStream, result);
+	php_stream_write(CacheStream, ZSTR_VAL(result), ZSTR_LEN(result));
 	php_stream_close(CacheStream);
 
-	if (result != NULL)
-		efree(result);
+	zend_string_release(result);
 	return 0;
 }
 /* }}} */

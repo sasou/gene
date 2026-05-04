@@ -345,34 +345,34 @@ ZEND_END_ARG_INFO()
 		seed_len = sizeof(seed) - 1;
 	}
 	
-	if (hash_mode == 1) {
-		/* Fast mode - FNV-1a 64-bit */
+	switch (hash_mode) {
+	case 1:
 		gene_hash_fast_buf(seed, seed_len, retval);
-	} else if (hash_mode == 2) {
-		/* xxHash64 mode */
+		break;
+	case 2:
 		gene_hash_xxhash64_buf(seed, seed_len, retval);
-	} else if (hash_mode == 3) {
-		/* FarmHash64 mode */
+		break;
+	case 3:
 		gene_hash_farmhash64_buf(seed, seed_len, retval);
-	} else if (hash_mode == 4) {
-		/* MurmurHash3 mode */
+		break;
+	case 4:
 		gene_hash_murmur3_32_buf(seed, seed_len, retval);
-	} else if (hash_mode == 5) {
-		/* TurboHash32 mode */
+		break;
+	case 5:
 		gene_hash_turbo_hash32_buf(seed, seed_len, retval);
-	} else {
-		/* Default MD5 mode */
+		break;
+	default: {
 		PHP_MD5_CTX ctx;
 		unsigned char digest[16];
 		PHP_MD5Init(&ctx);
 		PHP_MD5Update(&ctx, (unsigned char *)seed, seed_len);
 		PHP_MD5Final(digest, &ctx);
-		{
-			zend_string *out = zend_string_alloc(32, 0);
-			make_digest_ex(ZSTR_VAL(out), digest, 16);
-			ZSTR_VAL(out)[32] = '\0';
-			ZVAL_STR(retval, out);
-		}
+		zend_string *out = zend_string_alloc(32, 0);
+		make_digest_ex(ZSTR_VAL(out), digest, 16);
+		ZSTR_VAL(out)[32] = '\0';
+		ZVAL_STR(retval, out);
+		break;
+	}
 	}
  }
 
@@ -538,16 +538,15 @@ void gene_cookie(zval *self) /*{{{*/
 		return;
 	}
 
-	zval times,curtime;
+	zval times;
+	zend_long now = gene_session_now();
 	zend_long jg;
-	ZVAL_LONG(&curtime, gene_session_now());
 	if (Z_TYPE_P(lifetime) == IS_LONG) {
-		jg = Z_LVAL(curtime) + Z_LVAL_P(lifetime);
+		jg = now + Z_LVAL_P(lifetime);
 	} else {
-		jg = Z_LVAL(curtime) + 7200;
+		jg = now + 7200;
 	}
 	ZVAL_LONG(&times, jg);
-	zval_ptr_dtor(&curtime);
 
 	if (GENE_G(runtime_type) >= 2) {
 		zval *swoole_resp = gene_response_context_obj();
@@ -559,7 +558,6 @@ void gene_cookie(zval *self) /*{{{*/
 			if (!Z_ISUNDEF(ret)) {
 				zval_ptr_dtor(&ret);
 			}
-			zval_ptr_dtor(&times);
 			gene_session_mark_cookie_sent(self);
 			return;
 		}
@@ -572,7 +570,6 @@ void gene_cookie(zval *self) /*{{{*/
 	if (!Z_ISUNDEF(ret)) {
 		zval_ptr_dtor(&ret);
 	}
-	zval_ptr_dtor(&times);
 	gene_session_mark_cookie_sent(self);
 }/*}}}*/
 
@@ -773,15 +770,11 @@ static zval * gene_session_set_val(zval *val, char *keyString, size_t keyString_
 		copyval = zend_symtable_str_find(Z_ARRVAL_P(val), keyString, keyString_len);
 		if (copyval == NULL) {
 			array_init(&tmp);
-			Z_TRY_ADDREF_P(&tmp);
 			copyval = zend_symtable_str_update(Z_ARRVAL_P(val), keyString, keyString_len, &tmp);
-			zval_ptr_dtor(&tmp);
 		} else {
 			if (Z_TYPE_P(copyval) != IS_ARRAY) {
 				array_init(&tmp);
-				Z_TRY_ADDREF_P(&tmp);
 				copyval = zend_symtable_str_update(Z_ARRVAL_P(val), keyString, keyString_len, &tmp);
-				zval_ptr_dtor(&tmp);
 			}
 		}
 	} else {
