@@ -72,7 +72,7 @@ STD_PHP_INI_BOOLEAN("gene.use_namespace", "1", PHP_INI_SYSTEM, OnUpdateBool, use
 STD_PHP_INI_BOOLEAN("gene.view_compile", "0", PHP_INI_SYSTEM, OnUpdateBool, view_compile, zend_gene_globals, gene_globals) // @suppress("Symbol is not resolved")
 STD_PHP_INI_BOOLEAN("gene.use_library", "0", PHP_INI_SYSTEM, OnUpdateBool, use_library, zend_gene_globals, gene_globals) // @suppress("Symbol is not resolved")
 STD_PHP_INI_ENTRY("gene.library_root", "", PHP_INI_SYSTEM, OnUpdateString, library_root, zend_gene_globals, gene_globals) // @suppress("Symbol is not resolved")
-STD_PHP_INI_ENTRY("gene.co_contexts_max", "8192", PHP_INI_SYSTEM, OnUpdateLong, co_contexts_max, zend_gene_globals, gene_globals) // @suppress("Symbol is not resolved")
+STD_PHP_INI_ENTRY("gene.co_contexts_max", "1024", PHP_INI_SYSTEM, OnUpdateLong, co_contexts_max, zend_gene_globals, gene_globals) // @suppress("Symbol is not resolved")
 STD_PHP_INI_ENTRY("gene.ctx_pool_max", "256", PHP_INI_SYSTEM, OnUpdateLong, ctx_pool_max, zend_gene_globals, gene_globals) // @suppress("Symbol is not resolved")
 STD_PHP_INI_ENTRY("gene.ctx_pool_prewarm", "0", PHP_INI_SYSTEM, OnUpdateLong, ctx_pool_prewarm, zend_gene_globals, gene_globals) // @suppress("Symbol is not resolved")
 PHP_INI_END();
@@ -507,7 +507,7 @@ void gene_co_contexts_sweep(void) {
 	total = zend_hash_num_elements(ht);
 	if (total < 16) return; /* not worth the walk */
 
-	cap = (uint32_t)(GENE_G(co_contexts_max) > 0 ? GENE_G(co_contexts_max) : 8192);
+	cap = (uint32_t)(GENE_G(co_contexts_max) > 0 ? GENE_G(co_contexts_max) : 1024);
 	cur_cid = (GENE_G(current_cid) >= 0) ? (zend_ulong)GENE_G(current_cid) : ~(zend_ulong)0;
 
 	/* Stage 1: precise eviction via Swoole\Coroutine::exists (if present).
