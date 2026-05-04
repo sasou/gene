@@ -179,14 +179,14 @@ void gene_response_set_redirect(char *url, zend_long code) {
 
 /** {{{ void gene_response_set_header(char *key, char *value)
  */
-void gene_response_set_header(char *key, char *value) {
+static void gene_response_set_header_ex(char *key, size_t key_len, char *value, size_t value_len) {
 	zval *swoole_resp = gene_response_context_obj();
 	if (swoole_resp) {
 		zval retval, zkey, zval_v;
 		zend_function *fn;
 		ZVAL_UNDEF(&retval);
-		ZVAL_STRING(&zkey, key);
-		ZVAL_STRING(&zval_v, value);
+		ZVAL_STRINGL(&zkey, key, key_len);
+		ZVAL_STRINGL(&zval_v, value, value_len);
 		fn = GENE_SWOOLE_RESP_METHOD(Z_OBJCE_P(swoole_resp), header);
 		zval params[] = { zkey, zval_v };
 		if (EXPECTED(fn)) {
@@ -198,20 +198,32 @@ void gene_response_set_header(char *key, char *value) {
 		return;
 	}
 	sapi_header_line ctr = { 0 };
-	/* [GENE_PERF] Use stack buffer for common header sizes to avoid spprintf allocation.
-	 * Typical headers like "Content-Type: application/json" are well under 256 bytes. */
+	size_t header_len = key_len + value_len + 1;
 	char header_buf[1024];
-	int header_len = snprintf(header_buf, sizeof(header_buf), "%s:%s", key, value);
-	if (header_len > 0 && header_len < (int)sizeof(header_buf)) {
+	if (header_len < sizeof(header_buf)) {
+		memcpy(header_buf, key, key_len);
+		header_buf[key_len] = ':';
+		memcpy(header_buf + key_len + 1, value, value_len);
+		header_buf[header_len] = '\0';
 		ctr.line = header_buf;
 		ctr.line_len = header_len;
 		sapi_header_op(SAPI_HEADER_REPLACE, &ctr);
 	} else {
-		ctr.line_len = spprintf((char**)&(ctr.line), 0, "%s:%s", key, value);
+		char *header_ptr = emalloc(header_len + 1);
+		memcpy(header_ptr, key, key_len);
+		header_ptr[key_len] = ':';
+		memcpy(header_ptr + key_len + 1, value, value_len);
+		header_ptr[header_len] = '\0';
+		ctr.line = header_ptr;
+		ctr.line_len = header_len;
 		ctr.response_code = 200;
 		sapi_header_op(SAPI_HEADER_REPLACE, &ctr);
-		efree((char*)ctr.line);
+		efree(header_ptr);
 	}
+}
+
+void gene_response_set_header(char *key, char *value) {
+	gene_response_set_header_ex(key, strlen(key), value, strlen(value));
 }
 /* }}} */
 
@@ -457,7 +469,7 @@ PHP_METHOD(gene_response, header) {
 		return;
 	}
 
-	gene_response_set_header(key, value);
+	gene_response_set_header_ex(key, key_len, value, value_len);
 	RETURN_TRUE;
 }
 /* }}} */
