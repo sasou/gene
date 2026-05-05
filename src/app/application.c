@@ -1213,16 +1213,20 @@ PHP_METHOD(gene_application, setView) {
 	}
 	if (view && ZSTR_LEN(view)) {
 		GENE_G(app_view) = estrndup(ZSTR_VAL(view), ZSTR_LEN(view));
+		GENE_G(app_view_len) = ZSTR_LEN(view);
 	} else {
-		GENE_G(app_view) = estrndup(GENE_VIEW_VIEW, strlen(GENE_VIEW_VIEW));
+		GENE_G(app_view) = estrndup(GENE_VIEW_VIEW, GENE_VIEW_VIEW_LEN);
+		GENE_G(app_view_len) = GENE_VIEW_VIEW_LEN;
 	}
 	if (GENE_G(app_ext)) {
 		efree(GENE_G(app_ext));
 	}
 	if (tpl && ZSTR_LEN(tpl)) {
 		GENE_G(app_ext) = estrndup(ZSTR_VAL(tpl), ZSTR_LEN(tpl));
+		GENE_G(app_ext_len) = ZSTR_LEN(tpl);
 	} else {
-		GENE_G(app_ext) = estrndup(GENE_VIEW_EXT, strlen(GENE_VIEW_EXT));
+		GENE_G(app_ext) = estrndup(GENE_VIEW_EXT, GENE_VIEW_EXT_LEN);
+		GENE_G(app_ext_len) = GENE_VIEW_EXT_LEN;
 	}
 	RETURN_ZVAL(self, 1, 0);
 }

@@ -117,6 +117,7 @@
 	 zval path_params;
 	 zval request_attr;
 	 zval di_regs;
+	 zval response_obj;
 	 zval view_vars;
 	 zend_long view_scope_no;
 	 zval db_mysql_history;
@@ -138,6 +139,8 @@
  char *app_view;
  char *app_ext;
  char *app_key;
+ size_t app_view_len;
+ size_t app_ext_len;
  /* [GENE_PERF:2026-04-19 #2] Cache strlen of app_key/app_root populated at set-time
   * (autoload(), __construct safe arg) so per-request dispatch can look up the
   * persistent cache key prefix length directly instead of calling strlen() each

@@ -130,6 +130,7 @@ void gene_request_context_init(gene_request_context *ctx) {
 	array_init_size(&ctx->path_params, 8);
 	ZVAL_UNDEF(&ctx->request_attr);
 	ZVAL_UNDEF(&ctx->di_regs);
+	ZVAL_UNDEF(&ctx->response_obj);
 	ZVAL_UNDEF(&ctx->view_vars);
 	ZVAL_UNDEF(&ctx->db_mysql_history);
 	ZVAL_UNDEF(&ctx->db_pgsql_history);
@@ -212,6 +213,10 @@ static void gene_request_context_free_fields(gene_request_context *ctx, int pres
 	if (Z_TYPE(ctx->di_regs) != IS_UNDEF) {
 		zval_ptr_dtor(&ctx->di_regs);
 		ZVAL_UNDEF(&ctx->di_regs);
+	}
+	if (Z_TYPE(ctx->response_obj) != IS_UNDEF) {
+		zval_ptr_dtor(&ctx->response_obj);
+		ZVAL_UNDEF(&ctx->response_obj);
 	}
 	if (Z_TYPE(ctx->view_vars) != IS_UNDEF) {
 		zval_ptr_dtor(&ctx->view_vars);
@@ -643,6 +648,8 @@ static void php_gene_init_globals() {
 	GENE_G(app_root_len) = 0;
 	GENE_G(app_view) = NULL;
 	GENE_G(app_ext) = NULL;
+	GENE_G(app_view_len) = 0;
+	GENE_G(app_ext_len) = 0;
 	GENE_G(app_key) = NULL;
 	GENE_G(app_key_len) = 0;
 	GENE_G(auto_load_fun) = NULL;
@@ -691,10 +698,12 @@ static void php_gene_close_request_globals() {
 	if (GENE_G(app_view)) {
 		efree(GENE_G(app_view));
 		GENE_G(app_view) = NULL;
+		GENE_G(app_view_len) = 0;
 	}
 	if (GENE_G(app_ext)) {
 		efree(GENE_G(app_ext));
 		GENE_G(app_ext) = NULL;
+		GENE_G(app_ext_len) = 0;
 	}
 	if (GENE_G(auto_load_fun)) {
 		efree(GENE_G(auto_load_fun));
