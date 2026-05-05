@@ -382,35 +382,35 @@
 
 ### 4.1 高优先级（建议立即实施）
 
-| 编号 | 位置 | 问题 | 建议修复 | 预期收益 |
-|------|------|------|----------|----------|
-| 1 | `view.c:278` | 每次显示调用 `strlen(app_view)` / `strlen(app_ext)` | 在全局变量中缓存 `app_view_len` / `app_ext_len` | 减少 2 次 strlen 调用/显示 |
-| 2 | `response.c:91-106` | 每次标头调用 `gene_di_get("response")` | 在请求上下文中缓存响应对象 | 消除每次标头的哈希查找 |
+| 编号 | 位置 | 问题 | 建议修复 | 预期收益 | 状态 |
+|------|------|------|----------|----------|------|
+| 1 | `view.c:278` | 每次显示调用 `strlen(app_view)` / `strlen(app_ext)` | 在全局变量中缓存 `app_view_len` / `app_ext_len` | 减少 2 次 strlen 调用/显示 | ⚠️ 部分完成：已添加字段并更新 gene_view_contains/gene_view_display，但 gene_view_contains_ext/gene_view_display_ext 仍有未替换的 strlen |
+| 2 | `response.c:91-106` | 每次标头调用 `gene_di_get("response")` | 在请求上下文中缓存响应对象 | 消除每次标头的哈希查找 | ⚠️ 部分完成：已在 gene_request_context 添加 response_obj 字段并处理初始化/释放，但 response.c::gene_response_context_obj 未更新使用缓存 |
 
 ### 4.2 中优先级（建议近期实施）
 
-| 编号 | 位置 | 问题 | 建议修复 | 预期收益 |
-|------|------|------|----------|----------|
-| 3 | `session.c:429-456` | `gene_session_get_handler` 重复解析处理程序 | 首次查找后缓存处理程序 `zend_function*` | 消除重复的属性查找 |
-| 4 | `session.c:67-98` | `gene_session_call_method` 执行函数表查找 | 每个处理程序类缓存 `zend_function*` | 消除函数表查找 |
-| 5 | `request.c:143-211` | Swoole 模式下 JIT 检查冗余 | 当 `runtime_type >= 2` 时跳过 `zend_is_auto_global` | 消除冗余检查 |
-| 6 | `redis_pool.c` `rpool_start_idle_recycler` | 使用 `call_user_function` 而非缓存 `zend_function*` | 升级为与 `pool_start_idle_recycler` 相同的缓存模式 | 消除每次定时器注册的 `array_init` × 2 + `add_next_index_string` × 4 |
-| 7 | `redis_pool.c` `rpool_stop_timer` | 使用 `call_user_function` 而非缓存 `zend_function*` | 升级为与 `pool_stop_timer` 相同的缓存模式 | 消除每次定时器停止的 `array_init` + `add_next_index_string` × 2 |
-| 8 | `pool.c` `pool_recycle_idle` | 循环内重复调用 `pool_get_count(self)` | 循环外缓存 count，循环内本地递减 | 减少每次迭代的 `zend_read_property` + 原子操作 |
+| 编号 | 位置 | 问题 | 建议修复 | 预期收益 | 状态 |
+|------|------|------|----------|----------|------|
+| 3 | `session.c:429-456` | `gene_session_get_handler` 重复解析处理程序 | 首次查找后缓存处理程序 `zend_function*` | 消除重复的属性查找 | ○ 未实施 |
+| 4 | `session.c:67-98` | `gene_session_call_method` 执行函数表查找 | 每个处理程序类缓存 `zend_function*` | 消除函数表查找 | ○ 未实施 |
+| 5 | `request.c:143-211` | Swoole 模式下 JIT 检查冗余 | 当 `runtime_type >= 2` 时跳过 `zend_is_auto_global` | 消除冗余检查 | ○ 未实施 |
+| 6 | `redis_pool.c` `rpool_start_idle_recycler` | 使用 `call_user_function` 而非缓存 `zend_function*` | 升级为与 `pool_start_idle_recycler` 相同的缓存模式 | 消除每次定时器注册的 `array_init` × 2 + `add_next_index_string` × 4 | ○ 未实施 |
+| 7 | `redis_pool.c` `rpool_stop_timer` | 使用 `call_user_function` 而非缓存 `zend_function*` | 升级为与 `pool_stop_timer` 相同的缓存模式 | 消除每次定时器停止的 `array_init` + `add_next_index_string` × 2 | ○ 未实施 |
+| 8 | `pool.c` `pool_recycle_idle` | 循环内重复调用 `pool_get_count(self)` | 循环外缓存 count，循环内本地递减 | 减少每次迭代的 `zend_read_property` + 原子操作 | ○ 未实施 |
 
 ### 4.3 低优先级（可选优化）
 
-| 编号 | 位置 | 问题 | 建议修复 | 预期收益 |
-|------|------|------|----------|----------|
-| 9 | `view.c:51-75` | 每次渲染深拷贝所有视图变量 | "冻结"变量的可选浅拷贝 | 减少 ZVAL_COPY 开销 |
-| 10 | `di.c:218-246` | 使用 `zend_hash_str_find` 而非预哈希键 | 使用预哈希 `zend_string` 的 `zend_hash_find` | 边际哈希计算减少 |
-| 11 | `router.c:1540` | HTTP 方法检查中的 `strcmp` | 长度 + 字符检查 | 边际改进 |
-| 12 | `pool.c` `pool_is_alive` | 每次调用查找 `getattribute` 方法 | 使用 `POOL_OBJ_METHOD_CACHED` 缓存 | 边际哈希查找减少 |
-| 13 | `redis_pool.c` `rpool_recycle_idle` | 循环内重复调用 `rpool_get_count(self)` | 循环外缓存 count | 减少原子操作 |
-| 14 | `redis_pool.c` `rpool::create` | `cache_key` 构造重复调用 `strlen(app_key)`/`strlen(app_root)` | 提取公共构造函数，缓存长度 | 减少 strlen 调用 |
-| 15 | `pool.c` `pool::closeAll()` | 迭代期间 HashTable 重哈希风险 | 第二遍遍历前快照实例键 | 消除潜在迭代器失效 |
-| 16 | `cache.c` `gene_cache_try_build_simple_key` | 保守的缓冲区大小估计 | 精确计算所需空间 | 减少不必要的堆分配 |
-| 17 | `gene.c` `gene_request_context_pool_acquire` | 调试构建中的冗余 `ZVAL_UNDEF` | `#ifndef NDEBUG` 条件编译 | 调试构建性能改进 |
+| 编号 | 位置 | 问题 | 建议修复 | 预期收益 | 状态 |
+|------|------|------|----------|----------|------|
+| 9 | `view.c:51-75` | 每次渲染深拷贝所有视图变量 | "冻结"变量的可选浅拷贝 | 减少 ZVAL_COPY 开销 | ○ 未实施 |
+| 10 | `di.c:218-246` | 使用 `zend_hash_str_find` 而非预哈希键 | 使用预哈希 `zend_string` 的 `zend_hash_find` | 边际哈希计算减少 | ○ 未实施 |
+| 11 | `router.c:1540` | HTTP 方法检查中的 `strcmp` | 长度 + 字符检查 | 边际改进 | ○ 未实施 |
+| 12 | `pool.c` `pool_is_alive` | 每次调用查找 `getattribute` 方法 | 使用 `POOL_OBJ_METHOD_CACHED` 缓存 | 边际哈希查找减少 | ○ 未实施 |
+| 13 | `redis_pool.c` `rpool_recycle_idle` | 循环内重复调用 `rpool_get_count(self)` | 循环外缓存 count | 减少原子操作 | ○ 未实施 |
+| 14 | `redis_pool.c` `rpool::create` | `cache_key` 构造重复调用 `strlen(app_key)`/`strlen(app_root)` | 提取公共构造函数，缓存长度 | 减少 strlen 调用 | ○ 未实施 |
+| 15 | `pool.c` `pool::closeAll()` | 迭代期间 HashTable 重哈希风险 | 第二遍遍历前快照实例键 | 消除潜在迭代器失效 | ○ 未实施 |
+| 16 | `cache.c` `gene_cache_try_build_simple_key` | 保守的缓冲区大小估计 | 精确计算所需空间 | 减少不必要的堆分配 | ○ 未实施 |
+| 17 | `gene.c` `gene_request_context_pool_acquire` | 调试构建中的冗余 `ZVAL_UNDEF` | `#ifndef NDEBUG` 条件编译 | 调试构建性能改进 | ○ 未实施 |
 
 ---
 
