@@ -317,6 +317,7 @@ gene_request_context *gene_request_context_pool_acquire(void) {
 		 * invariant. */
 		ZVAL_UNDEF(&ctx->request_attr);
 		ZVAL_UNDEF(&ctx->di_regs);
+		ZVAL_UNDEF(&ctx->response_obj);
 		ZVAL_UNDEF(&ctx->view_vars);
 		ZVAL_UNDEF(&ctx->db_mysql_history);
 		ZVAL_UNDEF(&ctx->db_pgsql_history);

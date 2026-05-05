@@ -74,7 +74,30 @@ static zend_string *gene_session_function_setcookie(void);
 	}
 
 	called_scope = Z_OBJCE_P(target);
-	func = zend_hash_find_ptr(&called_scope->function_table, method);
+	/* [GENE_PERF:2026-05-04] Small (ce, method) -> zend_function* LRU cache.
+	 * Session handler methods (get/set/delete/cookie) are interned zend_strings,
+	 * so pointer equality is a valid identity match. 4 slots cover the typical
+	 * single-handler production case with zero collisions. */
+	{
+		static struct { zend_class_entry *ce; zend_string *method; zend_function *fn; } gene_session_fn_cache[4] = {0};
+		static unsigned gene_session_fn_cache_next = 0;
+		func = NULL;
+		for (unsigned i = 0; i < 4; i++) {
+			if (gene_session_fn_cache[i].ce == called_scope && gene_session_fn_cache[i].method == method) {
+				func = gene_session_fn_cache[i].fn;
+				break;
+			}
+		}
+		if (!func) {
+			func = zend_hash_find_ptr(&called_scope->function_table, method);
+			if (func) {
+				unsigned slot = gene_session_fn_cache_next++ & 3;
+				gene_session_fn_cache[slot].ce = called_scope;
+				gene_session_fn_cache[slot].method = method;
+				gene_session_fn_cache[slot].fn = func;
+			}
+		}
+	}
 	if (func) {
 		/* [GENE_FIX:2026-04-27] Returning inside zend_catch skips zend_end_try,
 		 * which leaves EG(bailout) pointing at our local jmp_buf for outer
