@@ -1,5 +1,113 @@
 # Gene Framework Changelog
 
+## [5.6.1] - 2026-05-05
+
+**主题**：性能优化第五轮 — 审计报告优化全面落地 + Swoole 并发问题修复 + 连接池优化。**无 API 破坏**，`php-cgi / php-fpm / Swoole` 路径零回归。
+
+### � 第 1 项 — 审计报告优化全面落地（性能优化）
+
+- **文件**：`src/mvc/view.c`, `src/http/response.c`, `src/http/request.c`, `src/session/session.c`, `src/cache/redis_pool.c`, `src/db/pool.c`, `src/gene.c`
+- **优化内容**：
+  - **view.c**：缓存 `app_view_len/app_ext_len`，在 `gene_view_contains_ext/gene_view_display_ext` 中使用缓存长度替代 `strlen`
+  - **response.c**：在请求上下文中缓存 response 对象，跳过 DI 查找
+  - **session.c**：添加 4 槽 LRU 缓存用于 `(ce, method) -> zend_function*` 查找
+  - **request.c**：Swoole 模式下跳过 `zend_is_auto_global`（runtime_type >= 2）
+  - **redis_pool.c**：升级 `rpool_start_idle_recycler/rpool_stop_timer` 使用缓存的 `zend_function*` + `zend_call_known_function`
+  - **pool.c**：在 `pool_recycle_idle` 循环中缓存 count，本地跟踪丢弃计数
+- **影响**：减少重复 strlen 调用，优化函数查找开销，提升热路径性能
+
+### 🐛 第 2 项 — Swoole 并发问题修复（稳定性修复）
+
+- **文件**：`src/cache/redis_pool.c`, `src/db/pool.c`, `src/di/di.c`, `src/gene.c`, `src/router/router.c`, `src/cache/cache.c`
+- **问题**：
+  - 连接池泄漏：`pool_recycle_idle` 中计数漂移
+  - Timer 阻塞 worker 退出：`Swoole\Timer::tick` 导致 worker 无法正常退出
+  - 上下文泄漏：协程上下文未正确清理
+  - Use-after-free：DI 容器引用计数错误
+- **修复**：
+  - 连接池计数修正：移动 `increment_count` 到 `channel_push` 成功后
+  - Timer 清理：添加 `Gene\Pool::stopTimers()` 静态方法，在 `workerExit` 回调中调用
+  - 上下文管理：改进 `clearState()` + `destroyContext()` 两阶段清理
+  - 引用计数：在 `gene_di_get` 中添加 `Z_TRY_ADDREF` 修复双重存储导致的 use-after-free
+- **影响**：消除连接池泄漏，修复 worker 退出阻塞，提升 Swoole 模式稳定性
+
+### ⚡ 第 3 项 — 字符串工具函数优化（性能优化）
+
+- **文件**：`src/common/common.c`
+- **优化**：`str_init`, `str_sub`, `str_concat` 使用 `memcpy` 替代 `strncpy`
+- **影响**：消除不必要的零填充操作，提升字符串复制效率
+
+### 🔒 第 4 项 — Swoole 模式锁优化（性能优化）
+
+- **文件**：`src/cache/memory.h`, `src/gene.c`
+- **优化**：
+  - workerReady 后跳过读锁（持久缓存已只读）
+  - 添加 `EXPECTED`/`UNEXPECTED` 分支预测提示
+- **影响**：减少协程间锁竞争，提升 CPU 流水线效率
+
+### 💾 第 5 项 — DI 容器和应用配置优化（性能优化）
+
+- **文件**：`src/di/di.c`, `src/app/application.c`
+- **优化**：
+  - 使用 256 字节栈缓冲区构造缓存键，替代 `spprintf` 堆分配
+  - 直接使用持久 interned 字符串，避免重复 `zend_string_init`
+- **影响**：消除每次 DI 查找和配置读取时的堆分配开销
+
+### 🧠 第 6 项 — 类加载快速路径（性能优化）
+
+- **文件**：`src/factory/factory.c`
+- **优化**：新增 `gene_fast_lookup_class` 内联函数，使用栈缓冲区 + 直接 hash 查找
+- **影响**：每次 DI 解析 / Hook 分派 / 路由分派节省 1 次 emalloc + memcpy + hash 计算
+
+### 📝 第 7 项 — Router 优化（性能优化）
+
+- **文件**：`src/router/router.c`
+- **优化**：
+  - 方法复制消除：内联 lowercase+copy 融合
+  - `setMca` 合并分配：单次 emalloc + 内联 uppercase
+  - 缓存 `method_len` 避免重复 strlen
+- **影响**：每次请求节省 1-2 次 emalloc + 减少函数调用开销
+
+### 🗄️ 第 8 项 — Memory 缓存优化（性能优化）
+
+- **文件**：`src/cache/memory.h`, `src/cache/memory.c`
+- **优化**：
+  - `gene_memory_get_quick` 宏化
+  - 路径标记化使用栈缓冲区
+- **影响**：消除函数调用开销，减少堆分配
+
+### 📊 综合收益评估
+
+| 维度 | 5.6.0 | 5.6.1 | 改善 |
+|------|-------|-------|------|
+| 字符串复制效率 | strncpy（零填充） | memcpy | **消除零填充** |
+| Swoole 锁竞争 | 每次读锁 | workerReady 后跳过 | **减少争用** |
+| DI/配置堆分配 | 每次 spprintf | 栈缓冲区 | **消除分配** |
+| 类查找开销 | 完整流程 | 快速路径 hash | **节省 emalloc** |
+| Router 热路径 | 多次 strlen | 缓存长度 | **减少调用** |
+| 连接池稳定性 | 计数漂移 | 修正计数 | **消除泄漏** |
+| Worker 退出 | Timer 阻塞 | stopTimers 清理 | **正常退出** |
+| 上下文清理 | 部分泄漏 | 两阶段完整 | **零泄漏** |
+
+### 🔧 修改文件一览
+
+- `src/common/common.c` — 字符串工具优化
+- `src/cache/memory.h`, `src/cache/memory.c` — Memory 缓存优化
+- `src/di/di.c` — DI 容器优化 + 引用计数修复
+- `src/app/application.c` — 应用配置优化
+- `src/factory/factory.c` — 类加载快速路径
+- `src/router/router.c` — Router 优化
+- `src/http/request.c` — Swoole 模式优化
+- `src/http/response.c` — Response 对象缓存
+- `src/session/session.c` — Session 方法缓存
+- `src/mvc/view.c` — View 字符串长度缓存
+- `src/db/pool.c` — 连接池优化 + Timer 清理
+- `src/cache/redis_pool.c` — Redis 连接池优化
+- `src/gene.c` — 分支预测 + 全局变量
+- `src/cache/cache.c` — 缓存相关修复
+
+---
+
 ## [5.6.0] - 2026-04-27
 
 ### 🚀 性能优化 — 移除ZTS不安全的静态函数缓存
