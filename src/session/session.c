@@ -81,8 +81,9 @@ static zend_string *gene_session_function_setcookie(void);
 	{
 		static struct { zend_class_entry *ce; zend_string *method; zend_function *fn; } gene_session_fn_cache[4] = {0};
 		static unsigned gene_session_fn_cache_next = 0;
+		unsigned i;
 		func = NULL;
-		for (unsigned i = 0; i < 4; i++) {
+		for (i = 0; i < 4; i++) {
 			if (gene_session_fn_cache[i].ce == called_scope && gene_session_fn_cache[i].method == method) {
 				func = gene_session_fn_cache[i].fn;
 				break;
