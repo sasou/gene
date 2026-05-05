@@ -142,7 +142,10 @@ ZEND_END_ARG_INFO()
 
 zval * request_query(zend_ulong type, char * name, size_t len) {
 	zval *carrier = NULL, *ret;
-	bool jit_initialization = PG(auto_globals_jit);
+	/* [GENE_PERF:2026-05-04] In Swoole/coroutine mode (runtime_type >= 2),
+	 * superglobals are already pre-populated by the runtime on each request,
+	 * so the JIT auto-globals check is pure overhead. Force-skip it there. */
+	bool jit_initialization = (GENE_G(runtime_type) >= 2) ? 0 : PG(auto_globals_jit);
 
 	switch (type) {
 	case TRACK_VARS_POST:

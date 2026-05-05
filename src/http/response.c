@@ -90,15 +90,24 @@ ZEND_END_ARG_INFO()
 /* {{{ gene_response_context_obj - get response object from DI */
 zval *gene_response_context_obj(void) {
 	if (GENE_G(runtime_type) >= 2) {
-		/* [GENE_FIX:2026-04-09] Use interned string to avoid repeated heap allocations.
-		 * zend_string_init_interned with permanent=1 returns a permanent interned string
-		 * that is cached by the Zend engine — no need to release it. */
+		/* [GENE_PERF:2026-05-04] Cache resolved response object in the per-request
+		 * context so every header/redirect/cookie/end call skips the DI hash lookup.
+		 * The context owns a refcount; cleared in gene_request_context_free_fields. */
+		gene_request_context *ctx = gene_request_ctx();
+		if (ctx && Z_TYPE(ctx->response_obj) == IS_OBJECT) {
+			return &ctx->response_obj;
+		}
+		/* [GENE_FIX:2026-04-09] Use interned string to avoid repeated heap allocations. */
 		static zend_string *response_key = NULL;
 		if (UNEXPECTED(response_key == NULL)) {
 			response_key = zend_string_init_interned("response", sizeof("response") - 1, 1);
 		}
 		zval *resp = gene_di_get(response_key);
 		if (resp && Z_TYPE_P(resp) == IS_OBJECT) {
+			if (ctx) {
+				ZVAL_COPY(&ctx->response_obj, resp);
+				return &ctx->response_obj;
+			}
 			return resp;
 		}
 	}

@@ -384,19 +384,19 @@
 
 | 编号 | 位置 | 问题 | 建议修复 | 预期收益 | 状态 |
 |------|------|------|----------|----------|------|
-| 1 | `view.c:278` | 每次显示调用 `strlen(app_view)` / `strlen(app_ext)` | 在全局变量中缓存 `app_view_len` / `app_ext_len` | 减少 2 次 strlen 调用/显示 | ⚠️ 部分完成：已添加字段并更新 gene_view_contains/gene_view_display，但 gene_view_contains_ext/gene_view_display_ext 仍有未替换的 strlen |
-| 2 | `response.c:91-106` | 每次标头调用 `gene_di_get("response")` | 在请求上下文中缓存响应对象 | 消除每次标头的哈希查找 | ⚠️ 部分完成：已在 gene_request_context 添加 response_obj 字段并处理初始化/释放，但 response.c::gene_response_context_obj 未更新使用缓存 |
+| 1 | `view.c:278` | 每次显示调用 `strlen(app_view)` / `strlen(app_ext)` | 在全局变量中缓存 `app_view_len` / `app_ext_len` | 减少 2 次 strlen 调用/显示 | ✓ 完成：gene_view_contains_ext/gene_view_display_ext 的路径拼接改用缓存长度 |
+| 2 | `response.c:91-106` | 每次标头调用 `gene_di_get("response")` | 在请求上下文中缓存响应对象 | 消除每次标头的哈希查找 | ✓ 完成：gene_response_context_obj 在请求上下文 response_obj 字段中缓存 DI 解析结果 |
 
 ### 4.2 中优先级（建议近期实施）
 
 | 编号 | 位置 | 问题 | 建议修复 | 预期收益 | 状态 |
 |------|------|------|----------|----------|------|
-| 3 | `session.c:429-456` | `gene_session_get_handler` 重复解析处理程序 | 首次查找后缓存处理程序 `zend_function*` | 消除重复的属性查找 | ○ 未实施 |
-| 4 | `session.c:67-98` | `gene_session_call_method` 执行函数表查找 | 每个处理程序类缓存 `zend_function*` | 消除函数表查找 | ○ 未实施 |
-| 5 | `request.c:143-211` | Swoole 模式下 JIT 检查冗余 | 当 `runtime_type >= 2` 时跳过 `zend_is_auto_global` | 消除冗余检查 | ○ 未实施 |
-| 6 | `redis_pool.c` `rpool_start_idle_recycler` | 使用 `call_user_function` 而非缓存 `zend_function*` | 升级为与 `pool_start_idle_recycler` 相同的缓存模式 | 消除每次定时器注册的 `array_init` × 2 + `add_next_index_string` × 4 | ○ 未实施 |
-| 7 | `redis_pool.c` `rpool_stop_timer` | 使用 `call_user_function` 而非缓存 `zend_function*` | 升级为与 `pool_stop_timer` 相同的缓存模式 | 消除每次定时器停止的 `array_init` + `add_next_index_string` × 2 | ○ 未实施 |
-| 8 | `pool.c` `pool_recycle_idle` | 循环内重复调用 `pool_get_count(self)` | 循环外缓存 count，循环内本地递减 | 减少每次迭代的 `zend_read_property` + 原子操作 | ○ 未实施 |
+| 3 | `session.c:429-456` | `gene_session_get_handler` 重复解析处理程序 | 首次查找后缓存处理程序 `zend_function*` | 消除重复的属性查找 | ✓ 已由 GENE_SESSION_HANDLER 属性缓存覆盖，未改动 |
+| 4 | `session.c:67-98` | `gene_session_call_method` 执行函数表查找 | 每个处理程序类缓存 `zend_function*` | 消除函数表查找 | ✓ 完成：增加 4 槽 (ce, method) → zend_function* LRU 缓存 |
+| 5 | `request.c:143-211` | Swoole 模式下 JIT 检查冗余 | 当 `runtime_type >= 2` 时跳过 `zend_is_auto_global` | 消除冗余检查 | ✓ 完成：runtime_type >= 2 时强制 jit_initialization = 0 |
+| 6 | `redis_pool.c` `rpool_start_idle_recycler` | 使用 `call_user_function` 而非缓存 `zend_function*` | 升级为与 `pool_start_idle_recycler` 相同的缓存模式 | 消除每次定时器注册的 `array_init` × 2 + `add_next_index_string` × 4 | ✓ 完成：缓存 Swoole\Timer::tick 的 zend_function* + zend_call_known_function |
+| 7 | `redis_pool.c` `rpool_stop_timer` | 使用 `call_user_function` 而非缓存 `zend_function*` | 升级为与 `pool_stop_timer` 相同的缓存模式 | 消除每次定时器停止的 `array_init` + `add_next_index_string` × 2 | ✓ 完成：缓存 Swoole\Timer::clear 的 zend_function* + zend_call_known_function |
+| 8 | `pool.c` `pool_recycle_idle` | 循环内重复调用 `pool_get_count(self)` | 循环外缓存 count，循环内本地递减 | 减少每次迭代的 `zend_read_property` + 原子操作 | ✓ 完成：循环外缓存 count_cached，循环内本地递增/递减 |
 
 ### 4.3 低优先级（可选优化）
 
