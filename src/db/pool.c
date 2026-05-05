@@ -982,12 +982,14 @@ PHP_METHOD(gene_pool, get)
              snapshot = (zval *)safe_emalloc(n, sizeof(zval), 0);
              ZEND_HASH_FOREACH_VAL(Z_ARRVAL_P(instances), pool) {
                  if (Z_TYPE_P(pool) == IS_OBJECT) {
+                     Z_TRY_ADDREF_P(pool);
                      ZVAL_COPY(&snapshot[snapshot_n], pool);
                      snapshot_n++;
                  }
              } ZEND_HASH_FOREACH_END();
          }
-         for (uint32_t k = 0; k < snapshot_n; k++) {
+         uint32_t k;
+         for (k = 0; k < snapshot_n; k++) {
              zval close_ret;
              gene_factory_call(&snapshot[k], "close", sizeof("close") - 1, NULL, &close_ret);
              zval_ptr_dtor(&close_ret);
