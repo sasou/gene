@@ -1538,18 +1538,23 @@ void get_router_content_run(char *methodin, char *pathin, const char *safe_str, 
   * {{{ public gene_router::__call($codeString)
   */
 static int gene_router_is_http_method(const char *m) {
+	/* [GENE_PERF:2026-05-04 #11] Length-aware dispatch: read the
+	 * length once, then memcmp the remaining bytes (skipping the
+	 * already-checked first character). This is one strlen + one
+	 * bounded memcmp per call vs. strcmp's character-at-a-time loop. */
+	size_t l = strlen(m);
 	switch (m[0]) {
-	case 'g': return strcmp(m, "get") == 0;
+	case 'g': return l == 3 && memcmp(m + 1, "et", 2) == 0;
 	case 'p':
-		if (m[1] == 'o') return strcmp(m, "post") == 0;
-		if (m[1] == 'u') return strcmp(m, "put") == 0;
-		if (m[1] == 'a') return strcmp(m, "patch") == 0;
+		if (l == 4 && m[1] == 'o') return memcmp(m + 2, "st", 2) == 0;
+		if (l == 3 && m[1] == 'u') return m[2] == 't';
+		if (l == 5 && m[1] == 'a') return memcmp(m + 2, "tch", 3) == 0;
 		return 0;
-	case 'd': return strcmp(m, "delete") == 0;
-	case 't': return strcmp(m, "trace") == 0;
-	case 'c': return strcmp(m, "connect") == 0;
-	case 'o': return strcmp(m, "options") == 0;
-	case 'h': return strcmp(m, "head") == 0;
+	case 'd': return l == 6 && memcmp(m + 1, "elete", 5) == 0;
+	case 't': return l == 5 && memcmp(m + 1, "race", 4) == 0;
+	case 'c': return l == 7 && memcmp(m + 1, "onnect", 6) == 0;
+	case 'o': return l == 7 && memcmp(m + 1, "ptions", 6) == 0;
+	case 'h': return l == 4 && memcmp(m + 1, "ead", 3) == 0;
 	default: return 0;
 	}
 }

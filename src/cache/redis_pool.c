@@ -568,6 +568,12 @@ static void rpool_recycle_idle(zval *self)
     zend_long i;
     /* [GENE_PERF:2026-04-27] Cache min outside loop — cannot change while we iterate. */
     zend_long min_cached = rpool_get_min(self);
+    /* [GENE_PERF:2026-05-04 #13] Cache count once, then track local delta —
+     * mirrors pool_recycle_idle. Avoids zend_read_property + atomic get() on
+     * every iteration. The recycler runs under the timer; no concurrent put()
+     * can observe the stale local view because decrement_count still publishes
+     * the authoritative value back to the atomic. */
+    zend_long count_cached = rpool_get_count(self);
 
     /* Pop-check-push pattern avoids starving concurrent get() callers */
     for (i = 0; i < size; i++) {
@@ -586,10 +592,11 @@ static void rpool_recycle_idle(zval *self)
         zend_long last_used = (last_used_zv && Z_TYPE_P(last_used_zv) == IS_LONG)
                                ? Z_LVAL_P(last_used_zv) : now;
 
-        if (rpool_get_count(self) > min_cached &&
+        if (count_cached > min_cached &&
             (now - last_used) > idle_timeout) {
             /* Idle beyond threshold — discard */
             rpool_decrement_count_unchecked(self);
+            count_cached--;
             zval_ptr_dtor(&item);
             continue;
         }
@@ -599,22 +606,25 @@ static void rpool_recycle_idle(zval *self)
             if (rpool_is_alive(conn_zv)) {
                 if (!rpool_channel_push(channel, conn_zv)) {
                     rpool_decrement_count_unchecked(self);
+                    count_cached--;
                 }
             } else {
                 rpool_decrement_count_unchecked(self);
+                count_cached--;
             }
         }
         zval_ptr_dtor(&item);
     }
 
     /* Refill to minimum */
-    while (rpool_get_count(self) < min_cached &&
+    while (count_cached < min_cached &&
            !rpool_channel_is_full(channel)) {
         zval conn;
         rpool_create_connection(self, &conn);
         if (Z_TYPE(conn) == IS_OBJECT) {
             if (rpool_channel_push(channel, &conn)) {
                 rpool_increment_count(self);
+                count_cached++;
             }
             zval_ptr_dtor(&conn);
         } else {
@@ -850,40 +860,37 @@ PHP_METHOD(gene_redis_pool, create)
         return;
     }
 
-    /* Build the persistent config cache key */
+    /* Build the persistent config cache key.
+     * [GENE_PERF:2026-05-04 #14] Use cached app_key_len/app_root_len globals
+     * (populated at autoload/__construct time) and the compile-time length of
+     * the GENE_CONFIG_CACHE literal. Replace snprintf with two memcpy calls;
+     * collapse the three branches into a single prefix selection. */
     char  *cache_key     = NULL;
     size_t cache_key_len = 0;
     char cache_key_buf[256];
     int cache_key_heap = 0;
+    static const size_t k_cfg_cache_len = sizeof(GENE_CONFIG_CACHE) - 1;
 
-    if (GENE_G(app_key) && strlen(GENE_G(app_key)) > 0) {
-        cache_key_len = strlen(GENE_G(app_key)) + strlen(GENE_CONFIG_CACHE);
-        if (cache_key_len >= sizeof(cache_key_buf)) {
-            cache_key = emalloc(cache_key_len + 1);
-            cache_key_heap = 1;
-        } else {
-            cache_key = cache_key_buf;
-        }
-        snprintf(cache_key, cache_key_len + 1, "%s%s", GENE_G(app_key), GENE_CONFIG_CACHE);
-    } else if (GENE_G(app_root) && strlen(GENE_G(app_root)) > 0) {
-        cache_key_len = strlen(GENE_G(app_root)) + strlen(GENE_CONFIG_CACHE);
-        if (cache_key_len >= sizeof(cache_key_buf)) {
-            cache_key = emalloc(cache_key_len + 1);
-            cache_key_heap = 1;
-        } else {
-            cache_key = cache_key_buf;
-        }
-        snprintf(cache_key, cache_key_len + 1, "%s%s", GENE_G(app_root), GENE_CONFIG_CACHE);
-    } else {
-        cache_key_len = strlen(GENE_CONFIG_CACHE);
-        if (cache_key_len >= sizeof(cache_key_buf)) {
-            cache_key = emalloc(cache_key_len + 1);
-            cache_key_heap = 1;
-        } else {
-            cache_key = cache_key_buf;
-        }
-        snprintf(cache_key, cache_key_len + 1, "%s", GENE_CONFIG_CACHE);
+    const char *prefix     = NULL;
+    size_t      prefix_len = 0;
+    if (GENE_G(app_key) && GENE_G(app_key_len) > 0) {
+        prefix     = GENE_G(app_key);
+        prefix_len = GENE_G(app_key_len);
+    } else if (GENE_G(app_root) && GENE_G(app_root_len) > 0) {
+        prefix     = GENE_G(app_root);
+        prefix_len = GENE_G(app_root_len);
     }
+
+    cache_key_len = prefix_len + k_cfg_cache_len;
+    if (cache_key_len >= sizeof(cache_key_buf)) {
+        cache_key = emalloc(cache_key_len + 1);
+        cache_key_heap = 1;
+    } else {
+        cache_key = cache_key_buf;
+    }
+    if (prefix_len) memcpy(cache_key, prefix, prefix_len);
+    memcpy(cache_key + prefix_len, GENE_CONFIG_CACHE, k_cfg_cache_len);
+    cache_key[cache_key_len] = '\0';
 
     zval *di_config = gene_memory_get_by_config(cache_key, cache_key_len, config_key);
     if (cache_key_heap) {

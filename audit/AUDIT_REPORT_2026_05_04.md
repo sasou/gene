@@ -402,15 +402,15 @@
 
 | 编号 | 位置 | 问题 | 建议修复 | 预期收益 | 状态 |
 |------|------|------|----------|----------|------|
-| 9 | `view.c:51-75` | 每次渲染深拷贝所有视图变量 | "冻结"变量的可选浅拷贝 | 减少 ZVAL_COPY 开销 | ○ 未实施 |
-| 10 | `di.c:218-246` | 使用 `zend_hash_str_find` 而非预哈希键 | 使用预哈希 `zend_string` 的 `zend_hash_find` | 边际哈希计算减少 | ○ 未实施 |
-| 11 | `router.c:1540` | HTTP 方法检查中的 `strcmp` | 长度 + 字符检查 | 边际改进 | ○ 未实施 |
-| 12 | `pool.c` `pool_is_alive` | 每次调用查找 `getattribute` 方法 | 使用 `POOL_OBJ_METHOD_CACHED` 缓存 | 边际哈希查找减少 | ○ 未实施 |
-| 13 | `redis_pool.c` `rpool_recycle_idle` | 循环内重复调用 `rpool_get_count(self)` | 循环外缓存 count | 减少原子操作 | ○ 未实施 |
-| 14 | `redis_pool.c` `rpool::create` | `cache_key` 构造重复调用 `strlen(app_key)`/`strlen(app_root)` | 提取公共构造函数，缓存长度 | 减少 strlen 调用 | ○ 未实施 |
-| 15 | `pool.c` `pool::closeAll()` | 迭代期间 HashTable 重哈希风险 | 第二遍遍历前快照实例键 | 消除潜在迭代器失效 | ○ 未实施 |
-| 16 | `cache.c` `gene_cache_try_build_simple_key` | 保守的缓冲区大小估计 | 精确计算所需空间 | 减少不必要的堆分配 | ○ 未实施 |
-| 17 | `gene.c` `gene_request_context_pool_acquire` | 调试构建中的冗余 `ZVAL_UNDEF` | `#ifndef NDEBUG` 条件编译 | 调试构建性能改进 | ○ 未实施 |
+| 9 | `view.c:51-75` | 每次渲染深拷贝所有视图变量 | "冻结"变量的可选浅拷贝 | 减少 ZVAL_COPY 开销 | ○ 未实施（语义变更需充分测试） |
+| 10 | `di.c:218-246` | 使用 `zend_hash_str_find` 而非预哈希键 | 使用预哈希 `zend_string` 的 `zend_hash_find` | 边际哈希计算减少 | ✓ 完成：`gene_class_instance` 在 IS_STRING 时改用 `zend_hash_find(Z_STR_P)` |
+| 11 | `router.c:1540` | HTTP 方法检查中的 `strcmp` | 长度 + 字符检查 | 边际改进 | ✓ 完成：单次 strlen + 边界 memcmp 替代逐字符 strcmp |
+| 12 | `pool.c` `pool_is_alive` | 每次调用查找 `getattribute` 方法 | 缓存 `zend_function*` | 边际哈希查找减少 | ✓ 完成：单槽 (ce, fn) 静态缓存命中 PDO 子类 |
+| 13 | `redis_pool.c` `rpool_recycle_idle` | 循环内重复调用 `rpool_get_count(self)` | 循环外缓存 count | 减少原子操作 | ✓ 完成：循环外缓存 count_cached，循环内本地递增/递减（与 DB 池对齐） |
+| 14 | `redis_pool.c` `rpool::create` | `cache_key` 构造重复调用 `strlen(app_key)`/`strlen(app_root)` | 提取公共构造函数，缓存长度 | 减少 strlen 调用 | ✓ 完成：使用全局 `app_key_len`/`app_root_len` + `sizeof(GENE_CONFIG_CACHE)-1`，memcpy 替代 snprintf，三分支合并 |
+| 15 | `pool.c` `pool::closeAll()` | 迭代期间 HashTable 重哈希风险 | 第二遍遍历前快照实例键 | 消除潜在迭代器失效 | ✓ 完成：Phase 2 前 `safe_emalloc` 快照所有 pool 引用（带 ZVAL_COPY 计数），免疫 yield 期间的 create() 重哈希 |
+| 16 | `cache.c` `gene_cache_try_build_simple_key` | 保守的缓冲区大小估计 | 精确计算所需空间 | 减少不必要的堆分配 | ✓ 完成：LONG 32→`MAX_LENGTH_OF_LONG`，DOUBLE 64→`MAX_LENGTH_OF_DOUBLE`，snprintf cap 同步收紧 |
+| 17 | `gene.c` `gene_request_context_pool_acquire` | 调试构建中的冗余 `ZVAL_UNDEF` | `#ifndef NDEBUG` 条件编译 | 调试构建性能改进 | ✓ 完成：8 个 ZVAL_UNDEF 包裹于 `#ifndef NDEBUG` |
 
 ---
 
