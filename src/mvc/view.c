@@ -48,22 +48,41 @@ static char *gene_view_app_base_path() {
 static int check_folder_exists(char *fullpath);
 static int parser_templates(php_stream **stream, char *compile_path);
 
+/*
+ * NOTE(audit 2026-05-04 #9 "视图变量浅拷贝"):
+ *   本函数已经是浅拷贝实现。`ZVAL_COPY` 对 refcounted 类型（数组/对象/字符串）
+ *   仅递增引用计数、对标量直接复制值，不会克隆数组或对象内容。模板在执行过程中
+ *   对视图变量的写操作依赖 Zend 的 COW（refcount > 1 时自动分离）保持隔离。
+ *
+ *   不可进一步"共享 HashTable + GC_ADDREF"：Zend 执行器会原地修改 symbol_table
+ *   （新建变量、unset、标量重绑定等），HashTable 无 COW，会污染调用方 vars。
+ *
+ *   因此此处不存在"深拷贝"优化空间。请勿将此函数重复列入拷贝开销审计项。
+ */
 zend_array *gene_view_build_symbol_table(zval *vars) {
 	zend_array *table;
 	zend_ulong idx;
 	zend_string *key;
 	zval *val;
+	uint32_t n;
 
 	if (vars == NULL || Z_TYPE_P(vars) != IS_ARRAY) {
 		return NULL;
 	}
 
+	/* 空 vars 快速路径：省去 ALLOC_HASHTABLE + zend_hash_init 的零元素分配。
+	 * 调用方 gene_load_import 对 NULL symbol_table 已有合法处理。 */
+	n = zend_hash_num_elements(Z_ARRVAL_P(vars));
+	if (n == 0) {
+		return NULL;
+	}
+
 	ALLOC_HASHTABLE(table);
-	zend_hash_init(table, zend_hash_num_elements(Z_ARRVAL_P(vars)), NULL, ZVAL_PTR_DTOR, 0);
+	zend_hash_init(table, n, NULL, ZVAL_PTR_DTOR, 0);
 
 	ZEND_HASH_FOREACH_KEY_VAL(Z_ARRVAL_P(vars), idx, key, val) {
 		zval tmp;
-		ZVAL_COPY(&tmp, val);
+		ZVAL_COPY(&tmp, val);  /* 浅拷贝：refcount++ / 标量值拷贝 */
 		if (key) {
 			zend_hash_update(table, key, &tmp);
 		} else {
