@@ -982,7 +982,6 @@ PHP_METHOD(gene_pool, get)
              snapshot = (zval *)safe_emalloc(n, sizeof(zval), 0);
              ZEND_HASH_FOREACH_VAL(Z_ARRVAL_P(instances), pool) {
                  if (Z_TYPE_P(pool) == IS_OBJECT) {
-                     Z_TRY_ADDREF_P(pool);
                      ZVAL_COPY(&snapshot[snapshot_n], pool);
                      snapshot_n++;
                  }
