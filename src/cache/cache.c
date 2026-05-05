@@ -164,10 +164,10 @@
  			*p += Z_STRLEN_P(element);
  			return;
  		case IS_LONG:
- 			*p += snprintf(*p, 32, ZEND_LONG_FMT, Z_LVAL_P(element));
+ 			*p += snprintf(*p, MAX_LENGTH_OF_LONG + 1, ZEND_LONG_FMT, Z_LVAL_P(element));
  			return;
  		case IS_DOUBLE:
- 			*p += snprintf(*p, 64, "%.*G", 14, Z_DVAL_P(element));
+ 			*p += snprintf(*p, MAX_LENGTH_OF_DOUBLE + 1, "%.*G", 14, Z_DVAL_P(element));
  			return;
  		case IS_TRUE:
  			*(*p)++ = '1';
@@ -221,10 +221,15 @@
  					total_needed += Z_STRLEN_P(element);
  					break;
  				case IS_LONG:
- 					total_needed += 32;
+ 					/* [GENE_PERF:2026-05-04 #16] Use the Zend tight bound for
+ 					 * LONG textual length (max digits + sign + NUL). Replaces
+ 					 * the conservative 32-byte reservation; reduces heap
+ 					 * fallbacks when args contain many longs. */
+ 					total_needed += MAX_LENGTH_OF_LONG;
  					break;
  				case IS_DOUBLE:
- 					total_needed += 64;
+ 					/* [GENE_PERF:2026-05-04 #16] Tight DOUBLE bound. */
+ 					total_needed += MAX_LENGTH_OF_DOUBLE;
  					break;
  				case IS_OBJECT:
  					total_needed += ZSTR_LEN(Z_OBJCE_P(element)->name);
@@ -237,7 +242,7 @@
  	}
 
  	if (ttl != NULL && Z_TYPE_P(ttl) == IS_LONG) {
- 		total_needed += 1 + 32;
+ 		total_needed += 1 + MAX_LENGTH_OF_LONG;
  	}
 
  	if (total_needed >= sizeof(stack_buf)) {
