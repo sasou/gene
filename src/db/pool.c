@@ -348,7 +348,21 @@ static void pool_start_idle_recycler(zval *self)
   
  static bool pool_is_alive(zval *pdo) {
      zval retval;
-     zend_function *fn = zend_hash_str_find_ptr(&Z_OBJCE_P(pdo)->function_table, ZEND_STRL("getattribute"));
+     /* [GENE_PERF:2026-05-04 #12] Cache the resolved getattribute zend_function*
+      * keyed by class entry. PDO subclasses are stable across worker lifetime,
+      * so a tiny single-slot cache eliminates the per-call function_table
+      * lookup in the recycler hot path. */
+     static zend_class_entry *cached_ce = NULL;
+     static zend_function    *cached_fn = NULL;
+     zend_class_entry *ce = Z_OBJCE_P(pdo);
+     zend_function    *fn;
+     if (EXPECTED(ce == cached_ce)) {
+         fn = cached_fn;
+     } else {
+         fn = zend_hash_str_find_ptr(&ce->function_table, ZEND_STRL("getattribute"));
+         cached_ce = ce;
+         cached_fn = fn;
+     }
      zval params[1];
      /* PDO::ATTR_SERVER_INFO = 6 */
      ZVAL_LONG(&params[0], 6);
@@ -954,25 +968,32 @@ PHP_METHOD(gene_pool, get)
 
          /* Phase 2: drain and close all pools (already marked closed).
           *
-          * [GENE_AUDIT:2026-04-28 MEDIUM]
-          * close() can yield (Channel::pop with non-zero timeout). If a
-          * concurrent coroutine calls Pool::create() during the yield, it will
-          * insert a new entry into the `instances` HashTable being iterated.
-          * Zend HT permits insert during foreach but a rehash (when nNumUsed
-          * exceeds nTableSize) will reallocate the bucket array and invalidate
-          * the iterator's position cache → the `pool` zval pointer can become
-          * stale and we may double-process a slot or skip one.
-          * Mitigation cost vs. benefit is unfavorable: closeAll() runs on
-          * worker stop where no new create() should arrive in well-formed apps.
-          * If this becomes problematic, snapshot the keys into a local array
-          * before the second pass. */
-         ZEND_HASH_FOREACH_VAL(Z_ARRVAL_P(instances), pool) {
-             if (Z_TYPE_P(pool) == IS_OBJECT) {
-                 zval close_ret;
-                 gene_factory_call(pool, "close", sizeof("close") - 1, NULL, &close_ret);
-                 zval_ptr_dtor(&close_ret);
-             }
-         } ZEND_HASH_FOREACH_END();
+          * [GENE_PERF:2026-05-04 #15] Snapshot the pool refs into a local zval
+          * array before the second pass, then iterate the snapshot. This is
+          * immune to HashTable rehash / insertion during the close() yield
+          * window (Channel::pop with non-zero timeout) — concurrent
+          * Pool::create() calls cannot invalidate the snapshot. The snapshot
+          * holds Z_TRY_ADDREF'd references so the pool objects survive even
+          * if they are removed from the static instances registry mid-flight. */
+         uint32_t n = zend_hash_num_elements(Z_ARRVAL_P(instances));
+         zval *snapshot = NULL;
+         uint32_t snapshot_n = 0;
+         if (n > 0) {
+             snapshot = (zval *)safe_emalloc(n, sizeof(zval), 0);
+             ZEND_HASH_FOREACH_VAL(Z_ARRVAL_P(instances), pool) {
+                 if (Z_TYPE_P(pool) == IS_OBJECT) {
+                     ZVAL_COPY(&snapshot[snapshot_n], pool);
+                     snapshot_n++;
+                 }
+             } ZEND_HASH_FOREACH_END();
+         }
+         for (uint32_t k = 0; k < snapshot_n; k++) {
+             zval close_ret;
+             gene_factory_call(&snapshot[k], "close", sizeof("close") - 1, NULL, &close_ret);
+             zval_ptr_dtor(&close_ret);
+             zval_ptr_dtor(&snapshot[k]);
+         }
+         if (snapshot) efree(snapshot);
      }
 
      /* [GENE_PERF:2026-04-26 P4] Clear C-layer cache before dropping the

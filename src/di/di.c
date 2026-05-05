@@ -218,7 +218,15 @@ zval *gene_di_get(zend_string *name) {
 zval *gene_class_instance(zval *obj, zval *class_name, zval *params) {
 	zval *ppzval = NULL, *entrys;
 	entrys = gene_di_regs();
-	if ((ppzval = zend_hash_str_find(Z_ARRVAL_P(entrys), Z_STRVAL_P(class_name), Z_STRLEN_P(class_name))) != NULL) {
+	/* [GENE_PERF:2026-05-04 #10] Prefer prehashed zend_hash_find when class_name
+	 * is a regular zend_string (cached hash); fall back to zend_hash_str_find
+	 * otherwise. Saves a per-call full hash recompute on the singleton lookup. */
+	if (Z_TYPE_P(class_name) == IS_STRING) {
+		ppzval = zend_hash_find(Z_ARRVAL_P(entrys), Z_STR_P(class_name));
+	} else {
+		ppzval = zend_hash_str_find(Z_ARRVAL_P(entrys), Z_STRVAL_P(class_name), Z_STRLEN_P(class_name));
+	}
+	if (ppzval != NULL) {
 		return ppzval;
 	}
 

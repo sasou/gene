@@ -308,13 +308,14 @@ gene_request_context *gene_request_context_pool_acquire(void) {
 		 * All remaining fields are guaranteed NULL/UNDEF/zero by the
 		 * caller-invoked destroy() that precedes every pool release. */
 		array_init_size(&ctx->path_params, 8);
-		/* The 7 ZVAL_UNDEF assignments below are identity ops for a
+		/* The ZVAL_UNDEF assignments below are identity ops for a
 		 * freshly-destroyed ctx — type is already 0 (IS_UNDEF) thanks
-		 * to gene_request_context_destroy() setting each to UNDEF. We
-		 * keep them as explicit statements because the compiler
-		 * readily folds them into a single cache-line store pair under
-		 * -O2 and they serve as executable documentation of the pool
-		 * invariant. */
+		 * to gene_request_context_destroy() setting each to UNDEF.
+		 * Under -O2 the compiler folds them into a single cache-line
+		 * store pair; under -O0/-O1 they are redundant writes. Keep
+		 * them only in debug builds as executable documentation of
+		 * the pool invariant. [GENE_PERF:2026-05-04 #17] */
+#ifndef NDEBUG
 		ZVAL_UNDEF(&ctx->request_attr);
 		ZVAL_UNDEF(&ctx->di_regs);
 		ZVAL_UNDEF(&ctx->response_obj);
@@ -323,6 +324,7 @@ gene_request_context *gene_request_context_pool_acquire(void) {
 		ZVAL_UNDEF(&ctx->db_pgsql_history);
 		ZVAL_UNDEF(&ctx->db_sqlite_history);
 		ZVAL_UNDEF(&ctx->db_mssql_history);
+#endif
 		ctx->view_scope_no = 0;
 		ctx->log_level = 0;
 		ctx->log_level_set = 0;
