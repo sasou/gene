@@ -69,16 +69,20 @@
 
 ### 3.2 视图渲染模块 (`src/mvc/view.c`)
 
-#### 3.2.1 `gene_view_build_symbol_table` (第51-75行)
+#### 3.2.1 `gene_view_build_symbol_table` (第51-94行)
 
-**功能**: 为模板执行创建符号表，深拷贝所有视图变量
+**功能**: 为模板执行创建符号表，拷贝所有视图变量到独立 HashTable。
 
-**成本分析**: 对于 20 个变量的模板，执行 20 次 `ZVAL_COPY` + 20 次哈希插入 + 1 次 `ALLOC_HASHTABLE` + 1 次 `zend_hash_init`
+**成本分析**: 对于 N 个变量的模板，执行 N 次 `ZVAL_COPY` + N 次哈希插入 + 1 次 `ALLOC_HASHTABLE` + 1 次 `zend_hash_init`。
 
-**发现的问题**:
-- **优先级: 低** - 深拷贝是安全默认选择，但对于只读变量场景存在优化空间。
+**结论（2026-05-05 复审，已结案，请勿重复列入审计）**:
+- 原条目 #9"视图变量浅拷贝"前提错误：`ZVAL_COPY` **本身就是浅拷贝**（refcounted 类型仅递增引用计数，不克隆内容），模板写操作通过 Zend COW 机制自动分离，语义已安全。
+- **不可**进一步共享 `Z_ARRVAL_P(vars)` 作为 symbol_table：Zend 执行器会原地修改 symbol_table（新建变量、unset、标量重绑定），而 HashTable 无 COW，会污染调用方的 `vars` 数组。
+- `zend_array_dup` 内部同样是逐元素 `ZVAL_COPY`，无性能收益。
+- 源码已在函数头加 `NOTE(audit 2026-05-04 #9)` 锚定注释，避免重复审计。
 
-**建议**: 考虑引入"冻结变量"标志，允许选择浅拷贝路径（引用计数递增）。
+**已实施的小优化（2026-05-05）**:
+- 空 `vars` 快速路径：`zend_hash_num_elements == 0` 时直接返回 NULL，省去零元素 HashTable 的 `ALLOC_HASHTABLE + zend_hash_init` 开销（`gene_load_import` 对 NULL symbol_table 已有合法回退到 `zend_execute` 的路径）。
 
 #### 3.2.2 `gene_view_display` (第259-305行)
 
@@ -402,7 +406,7 @@
 
 | 编号 | 位置 | 问题 | 建议修复 | 预期收益 | 状态 |
 |------|------|------|----------|----------|------|
-| 9 | `view.c:51-75` | 每次渲染深拷贝所有视图变量 | "冻结"变量的可选浅拷贝 | 减少 ZVAL_COPY 开销 | ○ 未实施（语义变更需充分测试） |
+| 9 | `view.c:51-75` | 每次渲染深拷贝所有视图变量 | "冻结"变量的可选浅拷贝 | 减少 ZVAL_COPY 开销 | ○ 未实施（说明：已是浅拷贝、不可共享 HashTable、Zend COW 保证安全。） |
 | 10 | `di.c:218-246` | 使用 `zend_hash_str_find` 而非预哈希键 | 使用预哈希 `zend_string` 的 `zend_hash_find` | 边际哈希计算减少 | ✓ 完成：`gene_class_instance` 在 IS_STRING 时改用 `zend_hash_find(Z_STR_P)` |
 | 11 | `router.c:1540` | HTTP 方法检查中的 `strcmp` | 长度 + 字符检查 | 边际改进 | ✓ 完成：单次 strlen + 边界 memcmp 替代逐字符 strcmp |
 | 12 | `pool.c` `pool_is_alive` | 每次调用查找 `getattribute` 方法 | 缓存 `zend_function*` | 边际哈希查找减少 | ✓ 完成：单槽 (ce, fn) 静态缓存命中 PDO 子类 |
