@@ -616,6 +616,12 @@ static zend_long pool_increment_count_get(zval *self) {
     /* [GENE_PERF:2026-04-26] Cache min and idle_timeout outside loop — they cannot change while we iterate. */
     zend_long min_cached = pool_get_min(self);
     idle_timeout = pool_get_idle_time(self);
+    /* [GENE_PERF:2026-05-04] Cache current count once and track drops locally
+     * to avoid re-reading the atomic via zend_read_property + Atomic::get() on
+     * every loop iteration. Recycler runs under the timer, so no concurrent
+     * put() can observe the stale local view — decrement_count still publishes
+     * the authoritative value back to the atomic. */
+    zend_long count_cached = pool_get_count(self);
 
     /* Pop-check-push one at a time to avoid draining the channel.
      * This prevents starving concurrent get() callers. */
@@ -638,9 +644,10 @@ static zend_long pool_increment_count_get(zval *self) {
         last_used_zv = zend_hash_index_find(Z_ARRVAL(item), 1);
         zend_long last_used = (last_used_zv && Z_TYPE_P(last_used_zv) == IS_LONG) ? Z_LVAL_P(last_used_zv) : now;
 
-        if (pool_get_count(self) > min_cached && (now - last_used) > idle_timeout) {
+        if (count_cached > min_cached && (now - last_used) > idle_timeout) {
             /* Discard idle connection */
             pool_decrement_count(self);
+            count_cached--;
             zval_ptr_dtor(&item);
             continue;
         }
@@ -650,21 +657,24 @@ static zend_long pool_increment_count_get(zval *self) {
             if (pool_is_alive(conn_zv)) {
                 if (!pool_channel_push(channel, conn_zv)) {
                     pool_decrement_count(self);
+                    count_cached--;
                 }
             } else {
                 pool_decrement_count(self);
+                count_cached--;
             }
         }
         zval_ptr_dtor(&item);
     }
 
     /* Refill to minimum */
-    while (pool_get_count(self) < min_cached && !pool_channel_is_full(channel)) {
+    while (count_cached < min_cached && !pool_channel_is_full(channel)) {
         zval conn;
         pool_create_connection(self, &conn);
         if (Z_TYPE(conn) == IS_OBJECT) {
             if (pool_channel_push(channel, &conn)) {
                 pool_increment_count(self);
+                count_cached++;
             }
             zval_ptr_dtor(&conn);
         } else {

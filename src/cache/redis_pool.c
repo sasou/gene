@@ -635,28 +635,34 @@ static void rpool_start_idle_recycler(zval *self)
     zend_long interval_ms = idle_timeout * 500; /* fire at half the idle timeout */
     if (interval_ms < 1000) interval_ms = 1000;
 
-    /* Swoole\Timer::tick($interval_ms, [$self, 'recycleIdle']) */
-    zval callable, callback, timer_ret;
-    array_init(&callable);
-    add_next_index_string(&callable, "Swoole\\Timer");
-    add_next_index_string(&callable, "tick");
+    /* [GENE_PERF:2026-05-04] Mirror pool_start_idle_recycler in db/pool.c:
+     * cache Swoole\Timer class entry + tick() function pointer once per
+     * process and use zend_call_known_function. Eliminates the per-call
+     * array_init + add_next_index_string x2 that the old call_user_function
+     * path needed to pass the ["Swoole\\Timer","tick"] callable. */
+    static zend_function *fn_tick = NULL;
+    static zend_class_entry *timer_ce_cached = NULL;
+    if (UNEXPECTED(!fn_tick)) {
+        zend_string *timer_key = zend_string_init_interned(ZEND_STRL("Swoole\\Timer"), 1);
+        timer_ce_cached = zend_lookup_class(timer_key);
+        if (!timer_ce_cached) return;
+        fn_tick = zend_hash_str_find_ptr(&timer_ce_cached->function_table, ZEND_STRL("tick"));
+        if (!fn_tick) return;
+    }
 
-    array_init(&callback);
+    zval callback, params[2], timer_ret;
+    array_init_size(&callback, 2);
     Z_TRY_ADDREF_P(self);
     add_next_index_zval(&callback, self);
     add_next_index_string(&callback, "recycleIdle");
 
-    zval params[2];
     ZVAL_LONG(&params[0], interval_ms);
-    ZVAL_COPY(&params[1], &callback);
-
+    ZVAL_COPY_VALUE(&params[1], &callback);
     ZVAL_UNDEF(&timer_ret);
-    call_user_function(NULL, NULL, &callable, &timer_ret, 2, params);
 
-    zval_ptr_dtor(&params[1]);
-    zval_ptr_dtor(&callable);
+    zend_call_known_function(fn_tick, NULL, timer_ce_cached, &timer_ret, 2, params, NULL);
+
     zval_ptr_dtor(&callback);
-
     if (Z_TYPE(timer_ret) == IS_LONG) {
         zend_update_property_long(gene_redis_pool_ce, gene_strip_obj(self),
                                    ZEND_STRL(GENE_REDIS_POOL_PROPERTY_TIMER_ID),
@@ -677,17 +683,23 @@ static void rpool_stop_timer(zval *self)
     zval *timer_id = zend_read_property(gene_redis_pool_ce, gene_strip_obj(self),
                                          ZEND_STRL(GENE_REDIS_POOL_PROPERTY_TIMER_ID), 1, NULL);
     if (timer_id && Z_TYPE_P(timer_id) == IS_LONG && Z_LVAL_P(timer_id) > 0) {
-        zval callable, rv, param;
-        array_init(&callable);
-        add_next_index_string(&callable, "Swoole\\Timer");
-        add_next_index_string(&callable, "clear");
-
-        ZVAL_LONG(&param, Z_LVAL_P(timer_id));
-        ZVAL_UNDEF(&rv);
-        call_user_function(NULL, NULL, &callable, &rv, 1, &param);
-        zval_ptr_dtor(&callable);
-        if (!Z_ISUNDEF(rv)) zval_ptr_dtor(&rv);
-
+        /* [GENE_PERF:2026-05-04] Cache Swoole\Timer::clear once per process. */
+        static zend_function *fn_clear = NULL;
+        static zend_class_entry *timer_ce_cached = NULL;
+        if (UNEXPECTED(!fn_clear)) {
+            zend_string *timer_key = zend_string_init_interned(ZEND_STRL("Swoole\\Timer"), 1);
+            timer_ce_cached = zend_lookup_class(timer_key);
+            if (timer_ce_cached) {
+                fn_clear = zend_hash_str_find_ptr(&timer_ce_cached->function_table, ZEND_STRL("clear"));
+            }
+        }
+        if (fn_clear) {
+            zval params[1], rv;
+            ZVAL_LONG(&params[0], Z_LVAL_P(timer_id));
+            ZVAL_UNDEF(&rv);
+            zend_call_known_function(fn_clear, NULL, timer_ce_cached, &rv, 1, params, NULL);
+            if (!Z_ISUNDEF(rv)) zval_ptr_dtor(&rv);
+        }
         zend_update_property_long(gene_redis_pool_ce, gene_strip_obj(self),
                                    ZEND_STRL(GENE_REDIS_POOL_PROPERTY_TIMER_ID), 0);
     }
