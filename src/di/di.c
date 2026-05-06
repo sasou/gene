@@ -202,13 +202,16 @@ zval *gene_di_get(zend_string *name) {
 			}
 
 			if (type) {
-				Z_TRY_ADDREF(classObject);
-				zend_hash_update(Z_ARRVAL_P(entrys), class_str, &classObject);
+				zval classObjectCopy;
+				ZVAL_COPY(&classObjectCopy, &classObject);
+				zend_hash_update(Z_ARRVAL_P(entrys), class_str, &classObjectCopy);
 			}
 		    if ((pzval = zend_hash_update(Z_ARRVAL_P(entrys), name, &classObject)) != NULL ) {
+		    	ZVAL_UNDEF(&classObject);
 		    	zval_ptr_dtor(&local_params);
 		    	return pzval;
 		    }
+		    zval_ptr_dtor(&classObject);
 		}
 		zval_ptr_dtor(&local_params);
 	}
