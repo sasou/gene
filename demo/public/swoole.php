@@ -54,6 +54,7 @@ $http->on("workerStop", function ($server, $workerId) {
     // 关闭所有连接池，释放资源
     \Gene\Pool::closeAll();
     \Gene\Cache\RedisPool::closeAll();
+    gc_collect_cycles();
 });
 
 $http->on("request", function ($request, $response) {
@@ -71,7 +72,7 @@ $http->on("request", function ($request, $response) {
         \Gene\Log::exception($e);
     } finally {
         $out = ob_get_clean();
-        \Gene\Application::cleanup();
+        \Gene\Application::cleanup(true);
     }
 
     if ($error) {
