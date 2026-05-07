@@ -287,7 +287,11 @@ void gene_trigger_error(int type, char *format, ...) {
 /** {{{ zend_class_entry * gene_get_exception_base(int root)
  */
 zend_class_entry * gene_get_exception_base(int root) {
+#if PHP_VERSION_ID >= 80500
+	return zend_ce_exception;
+#else
 	return zend_exception_get_default();
+#endif
 }
 /* }}} */
 
