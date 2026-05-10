@@ -148,6 +148,7 @@ void gene_view_contains(char *file, zval *ret) {
 	char path_buf[512];
 	int path_heap = 0;
 	size_t path_len = 0;
+	size_t file_len = strlen(file);
 	if (base_path) {
 		if (!GENE_G(app_view)) {
 			GENE_G(app_view) = estrndup(GENE_VIEW_VIEW, GENE_VIEW_VIEW_LEN);
@@ -157,7 +158,7 @@ void gene_view_contains(char *file, zval *ret) {
 			GENE_G(app_ext) = estrndup(GENE_VIEW_EXT, GENE_VIEW_EXT_LEN);
 			GENE_G(app_ext_len) = GENE_VIEW_EXT_LEN;
 		}
-		path_len = GENE_G(app_root_len) + GENE_G(app_view_len) + strlen(file) + GENE_G(app_ext_len) + 3;
+		path_len = GENE_G(app_root_len) + GENE_G(app_view_len) + file_len + GENE_G(app_ext_len) + 3;
 		if (path_len >= sizeof(path_buf)) {
 			path = emalloc(path_len + 1);
 			path_heap = 1;
@@ -166,7 +167,7 @@ void gene_view_contains(char *file, zval *ret) {
 		}
 		snprintf(path, path_len + 1, "%s/%s/%s%s", base_path, GENE_G(app_view), file, GENE_G(app_ext));
 	} else {
-		path_len = sizeof("app/") - 1 + GENE_VIEW_VIEW_LEN + strlen(file) + GENE_VIEW_EXT_LEN + 2;
+		path_len = sizeof("app/") - 1 + GENE_VIEW_VIEW_LEN + file_len + GENE_VIEW_EXT_LEN + 2;
 		if (path_len >= sizeof(path_buf)) {
 			path = emalloc(path_len + 1);
 			path_heap = 1;

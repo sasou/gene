@@ -1,5 +1,38 @@
 # Gene Framework Changelog
 
+## [5.6.2] - 2026-05-10
+
+**主题**：FPM/Swoole 性能与常驻内存稳定性优化。**无 API 破坏**，`php-cgi / php-fpm / Swoole` 路径零回归。
+
+### 🛡️ 第 1 项 — Application::cleanup 上下文清理优化（稳定性修复）
+
+- **文件**：`src/app/application.c`
+- **问题**：`Application::cleanup` 在删除协程上下文前手动调用 `gene_request_context_destroy`，导致上下文被双重清理，在对象析构函数中产生重入窗口。
+- **修复**：移除手动 `gene_request_context_destroy` 调用，改为仅使 `current_ctx/current_cid/current_vm_stack` 失效，让 `gene_co_context_dtor` 成为唯一的 destroy + context-pool 释放所有者。
+- **影响**：消除重复清理和重入窗口，提升 Swoole 模式稳定性。
+
+### ⚡ 第 2 项 — View 显示路径缓冲区修复（正确性修复）
+
+- **文件**：`src/mvc/view.c`
+- **问题**：`gene_view_display` 使用块作用域栈缓冲区 `path_buf[512]`，在 if/else 块后仍使用指向该缓冲区的指针，导致未定义行为。
+- **修复**：将 `path_buf[512]` 移至函数作用域，并缓存 `strlen(file)` 到 `file_len`，避免重复计算。
+- **影响**：修复悬空指针问题，提升代码正确性。
+
+### 📊 综合收益评估
+
+| 维度 | 5.6.1 | 5.6.2 | 改善 |
+|------|-------|-------|------|
+| 上下文清理重复 | 手动双重清理 | 单一所有者 | **消除重入窗口** |
+| View 路径缓冲区 | 块作用域悬空指针 | 函数作用域安全 | **修复未定义行为** |
+
+### 🔧 修改文件一览
+
+- `src/gene.h` — `PHP_GENE_VERSION` → `"5.6.2"`
+- `src/app/application.c` — `Application::cleanup` 上下文清理优化
+- `src/mvc/view.c` — `gene_view_display` 路径缓冲区修复
+
+---
+
 ## [5.6.1] - 2026-05-05
 
 **主题**：性能优化第五轮 — 审计报告优化全面落地 + Swoole 并发问题修复 + 连接池优化。**无 API 破坏**，`php-cgi / php-fpm / Swoole` 路径零回归。
