@@ -282,6 +282,8 @@ void gene_view_contains_ext(char *file, bool isCompile, zval *ret) {
 int gene_view_display(char *file, zval *obj, zend_array *symbol_table) {
 	char *path, *base_path;
 	int path_heap = 0;
+	char path_buf[512];
+	size_t file_len;
 	if (!file || file[0] == '\0') {
 		php_error_docref(NULL, E_WARNING, "Empty view file");
 		return 0;
@@ -290,6 +292,7 @@ int gene_view_display(char *file, zval *obj, zend_array *symbol_table) {
 		php_error_docref(NULL, E_WARNING, "Path traversal detected in view file: %s", file);
 		return 0;
 	}
+	file_len = strlen(file);
 	base_path = gene_view_app_base_path();
 	if (base_path) {
 		if (!GENE_G(app_view)) {
@@ -300,8 +303,7 @@ int gene_view_display(char *file, zval *obj, zend_array *symbol_table) {
 			GENE_G(app_ext) = estrndup(GENE_VIEW_EXT, GENE_VIEW_EXT_LEN);
 			GENE_G(app_ext_len) = GENE_VIEW_EXT_LEN;
 		}
-		size_t path_len = GENE_G(app_root_len) + GENE_G(app_view_len) + strlen(file) + GENE_G(app_ext_len) + 3;
-		char path_buf[512];
+		size_t path_len = GENE_G(app_root_len) + GENE_G(app_view_len) + file_len + GENE_G(app_ext_len) + 3;
 		if (path_len >= sizeof(path_buf)) {
 			path = emalloc(path_len + 1);
 			path_heap = 1;
@@ -310,8 +312,7 @@ int gene_view_display(char *file, zval *obj, zend_array *symbol_table) {
 		}
 		snprintf(path, path_len + 1, "%s/%s/%s%s", base_path, GENE_G(app_view), file, GENE_G(app_ext));
 	} else {
-		size_t path_len = (sizeof("app/") - 1) + GENE_VIEW_VIEW_LEN + strlen(file) + GENE_VIEW_EXT_LEN + 2;
-		char path_buf[512];
+		size_t path_len = (sizeof("app/") - 1) + GENE_VIEW_VIEW_LEN + file_len + GENE_VIEW_EXT_LEN + 2;
 		if (path_len >= sizeof(path_buf)) {
 			path = emalloc(path_len + 1);
 			path_heap = 1;

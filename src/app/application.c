@@ -950,27 +950,20 @@ PHP_METHOD(gene_application, cleanup) {
 	}
 	if (GENE_G(runtime_type) >= 2 && GENE_G(co_contexts)) {
 		zend_long cid;
-		gene_request_context *ctx;
 		/* [GENE_PERF:2026-04-19 #2] Fast path: vm_stack match ⇒ same coroutine
 		 * as current_ctx; skip getcid() and hash lookup, invalidate + delete. */
 		if (EXPECTED(GENE_G(current_ctx) != NULL
 				&& GENE_G(current_cid) >= 0
 				&& GENE_G(current_vm_stack) == (void *)EG(vm_stack))) {
-			ctx = GENE_G(current_ctx);
 			cid = GENE_G(current_cid);
 			GENE_G(current_ctx) = NULL;
 			GENE_G(current_cid) = -1;
 			GENE_G(current_vm_stack) = NULL;
-			gene_request_context_destroy(ctx);
 			zend_hash_index_del(GENE_G(co_contexts), (zend_ulong)cid);
 			goto maybe_gc;
 		}
 		cid = gene_get_coroutine_id();
 		if (cid >= 0) {
-			ctx = zend_hash_index_find_ptr(GENE_G(co_contexts), (zend_ulong)cid);
-			if (ctx) {
-				gene_request_context_destroy(ctx);
-			}
 			if (GENE_G(current_cid) == cid) {
 				GENE_G(current_ctx) = NULL;
 				GENE_G(current_cid) = -1;
