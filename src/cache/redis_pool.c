@@ -1338,13 +1338,26 @@ PHP_METHOD(gene_redis_pool, closeAll)
         } ZEND_HASH_FOREACH_END();
 
         /* Phase 2 */
-        ZEND_HASH_FOREACH_VAL(Z_ARRVAL_P(instances), pool) {
-            if (Z_TYPE_P(pool) == IS_OBJECT) {
-                zval close_ret;
-                gene_factory_call(pool, "close", sizeof("close") - 1, NULL, &close_ret);
-                zval_ptr_dtor(&close_ret);
-            }
-        } ZEND_HASH_FOREACH_END();
+        uint32_t n = zend_hash_num_elements(Z_ARRVAL_P(instances));
+        zval *snapshot = NULL;
+        uint32_t snapshot_n = 0;
+        if (n > 0) {
+            snapshot = (zval *)safe_emalloc(n, sizeof(zval), 0);
+            ZEND_HASH_FOREACH_VAL(Z_ARRVAL_P(instances), pool) {
+                if (Z_TYPE_P(pool) == IS_OBJECT) {
+                    ZVAL_COPY(&snapshot[snapshot_n], pool);
+                    snapshot_n++;
+                }
+            } ZEND_HASH_FOREACH_END();
+        }
+        uint32_t k;
+        for (k = 0; k < snapshot_n; k++) {
+            zval close_ret;
+            gene_factory_call(&snapshot[k], "close", sizeof("close") - 1, NULL, &close_ret);
+            zval_ptr_dtor(&close_ret);
+            zval_ptr_dtor(&snapshot[k]);
+        }
+        if (snapshot) efree(snapshot);
     }
 
     /* [GENE_PERF:2026-04-27] Clear C-layer cache before dropping the
