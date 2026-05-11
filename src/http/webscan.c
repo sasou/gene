@@ -24,6 +24,52 @@ static const char *gene_webscan_get_filter = "\\<.+javascript:window\\[.{1}\\\\x
 static const char *gene_webscan_post_filter = "<.*=(&#\\d+?;?)+?>|<.*data=data:text\\/html.*>|\\b(alert\\(|confirm\\(|expression\\(|prompt\\(|benchmark\\s*?\\(.*\\)|sleep\\s*?\\(.*\\)|\\b(group_)?concat[\\s\\/\\*]*?\\([^\\)]+?\\)|\\bcase[\\s\\/\\*]*?when[\\s\\/\\*]*?\\([^\\)]+?\\)|load_file\\s*?\\()|<[^>]*?\\b(onerror|onmousemove|onload|onclick|onmouseover)\\b|\\b(and|or)\\b\\s*?([\\(\\)'\"\\d]+?=[\\(\\)'\"\\d]+?|[\\(\\)'\"a-zA-Z]+?=[\\(\\)'\"a-zA-Z]+?|>|<|\\s+?[\\w]+?\\s+?\\bin\\b\\s*?\\(|\\blike\\b\\s+?[\"'])|\\/\\*.*\\*\\/|<\\s*script\\b|\\bEXEC\\b|UNION.+?SELECT\\s*(\\(.+\\)\\s*|@{1,2}.+?\\s*|\\s+?.+?|(`|'|\").*?(`|'|\")\\s*)|UPDATE\\s*(\\(.+\\)\\s*|@{1,2}.+?\\s*|\\s+?.+?|(`|'|\").*?(`|'|\")\\s*)SET|INSERT\\s+INTO.+?VALUES|(SELECT|DELETE)(\\(.+\\)|\\s+?.+?\\s+?|(`|'|\").*?(`|'|\"))FROM(\\(.+\\)|\\s+?.+?|(`|'|\").*?(`|'|\"))|(CREATE|ALTER|DROP|TRUNCATE)\\s+(TABLE|DATABASE)";
 static const char *gene_webscan_cookie_filter = "benchmark\\s*?\\(.*\\)|sleep\\s*?\\(.*\\)|load_file\\s*?\\(|\\b(and|or)\\b\\s*?([\\(\\)'\"\\d]+?=[\\(\\)'\"\\d]+?|[\\(\\)'\"a-zA-Z]+?=[\\(\\)'\"a-zA-Z]+?|>|<|\\s+?[\\w]+?\\s+?\\bin\\b\\s*?\\(|\\blike\\b\\s+?[\"'])|\\/\\*.*\\*\\/|<\\s*script\\b|\\bEXEC\\b|UNION.+?SELECT\\s*(\\(.+\\)\\s*|@{1,2}.+?\\s*|\\s+?.+?|(`|'|\").*?(`|'|\")\\s*)|UPDATE\\s*(\\(.+\\)\\s*|@{1,2}.+?\\s*|\\s+?.+?|(`|'|\").*?(`|'|\")\\s*)SET|INSERT\\s+INTO.+?VALUES|(SELECT|DELETE)@{0,2}(\\(.+\\)|\\s+?.+?\\s+?|(`|'|\").*?(`|'|\"))FROM(\\(.+\\)|\\s+?.+?|(`|'|\").*?(`|'|\"))|(CREATE|ALTER|DROP|TRUNCATE)\\s+(TABLE|DATABASE)";
 
+/* [GENE_PERF:2026-05-11 v3] Pre-compiled regex zend_string cache.
+ * The three filter patterns are process-lifetime constants; previously
+ * gene_webscan_match_pattern() built "/pattern/is" via strpprintf() on every
+ * call, which allocated a fresh zend_string per scanned value (2x per key +
+ * 2x per flattened body per request in Swoole resident mode). Build them
+ * once as interned strings on first Webscan::check() invocation. */
+static zend_string *gene_webscan_build_regex(const char *raw) {
+    size_t plen = strlen(raw);
+    size_t total = plen + 4; /* "/" + pat + "/" + "i" + "s" */
+    char *buf = emalloc(total + 1);
+    zend_string *out;
+    buf[0] = '/';
+    memcpy(buf + 1, raw, plen);
+    buf[plen + 1] = '/';
+    buf[plen + 2] = 'i';
+    buf[plen + 3] = 's';
+    buf[total] = '\0';
+    out = zend_string_init_interned(buf, total, 1);
+    efree(buf);
+    return out;
+}
+
+static zend_string *gene_webscan_regex_get_cached(void) {
+    static zend_string *cached = NULL;
+    if (UNEXPECTED(!cached)) {
+        cached = gene_webscan_build_regex(gene_webscan_get_filter);
+    }
+    return cached;
+}
+
+static zend_string *gene_webscan_regex_post_cached(void) {
+    static zend_string *cached = NULL;
+    if (UNEXPECTED(!cached)) {
+        cached = gene_webscan_build_regex(gene_webscan_post_filter);
+    }
+    return cached;
+}
+
+static zend_string *gene_webscan_regex_cookie_cached(void) {
+    static zend_string *cached = NULL;
+    if (UNEXPECTED(!cached)) {
+        cached = gene_webscan_build_regex(gene_webscan_cookie_filter);
+    }
+    return cached;
+}
+
 ZEND_BEGIN_ARG_INFO_EX(gene_webscan_construct_arginfo, 0, 0, 0)
     ZEND_ARG_INFO(0, webscan_switch)
     ZEND_ARG_INFO(0, webscan_white_directory)
@@ -63,36 +109,43 @@ static void gene_webscan_flatten(zval *value, smart_str *buf)
     zend_string_release(str);
 }
 
-static int gene_webscan_match_pattern(const char *pattern, zval *value)
+/* [GENE_PERF:2026-05-11 v3] `regex` is a cached interned zend_string produced
+ * by gene_webscan_regex_*_cached(). ZVAL_STR skips refcount traffic for
+ * interned strings and zval_ptr_dtor is a safe no-op on them. */
+static int gene_webscan_match_pattern(zend_string *regex, zval *value)
 {
     zval retval, params[2];
-    zend_string *regex_str;
     int matched = 0;
 
     static zend_function *preg_fn = NULL;
     if (UNEXPECTED(!preg_fn)) {
         preg_fn = zend_hash_str_find_ptr(CG(function_table), ZEND_STRL("preg_match"));
     }
-    regex_str = strpprintf(0, "/%s/is", pattern);
-    ZVAL_STR(&params[0], regex_str);
+    if (UNEXPECTED(!preg_fn || !regex)) {
+        return 0;
+    }
+    ZVAL_STR(&params[0], regex);
     ZVAL_COPY(&params[1], value);
 
     ZVAL_UNDEF(&retval);
-    if (EXPECTED(preg_fn)) {
-        zend_call_known_function(preg_fn, NULL, NULL, &retval, 2, params, NULL);
-        matched = zend_is_true(&retval);
-        zval_ptr_dtor(&retval);
-    }
+    zend_call_known_function(preg_fn, NULL, NULL, &retval, 2, params, NULL);
+    matched = zend_is_true(&retval);
+    zval_ptr_dtor(&retval);
 
     zval_ptr_dtor(&params[1]);
-    zval_ptr_dtor(&params[0]);
+    /* params[0] holds an interned string reference — no dtor required. */
     return matched;
 }
 
-static int gene_webscan_stop_attack(zval *key, zval *value, const char *pattern)
+/* [GENE_PERF:2026-05-11 v3] `key` is always IS_STRING at the call sites
+ * (every caller either ZVAL_STR_COPY's a HashTable string key, converts a
+ * numeric index via convert_to_string, or ZVAL_STRING's a literal). The prior
+ * ZVAL_COPY + convert_to_string pair was pure overhead per scanned value —
+ * pass the key directly. */
+static int gene_webscan_stop_attack(zval *key, zval *value, zend_string *regex)
 {
     smart_str buf = {0};
-    zval flat, key_str;
+    zval flat;
     int matched;
 
     gene_webscan_flatten(value, &buf);
@@ -103,12 +156,8 @@ static int gene_webscan_stop_attack(zval *key, zval *value, const char *pattern)
         ZVAL_EMPTY_STRING(&flat);
     }
 
-    ZVAL_COPY(&key_str, key);
-    convert_to_string(&key_str);
-
-    matched = gene_webscan_match_pattern(pattern, &flat) || gene_webscan_match_pattern(pattern, &key_str);
+    matched = gene_webscan_match_pattern(regex, &flat) || gene_webscan_match_pattern(regex, key);
     zval_ptr_dtor(&flat);
-    zval_ptr_dtor(&key_str);
     return matched;
 }
 
@@ -230,7 +279,7 @@ PHP_METHOD(gene_webscan, check)
                     ZVAL_LONG(&k, (zend_long) idx);
                     convert_to_string(&k);
                 }
-                if (gene_webscan_stop_attack(&k, value, gene_webscan_get_filter)) {
+                if (gene_webscan_stop_attack(&k, value, gene_webscan_regex_get_cached())) {
                     zval_ptr_dtor(&k);
                     RETURN_TRUE;
                 }
@@ -253,7 +302,7 @@ PHP_METHOD(gene_webscan, check)
                     ZVAL_LONG(&k, (zend_long) idx);
                     convert_to_string(&k);
                 }
-                if (gene_webscan_stop_attack(&k, value, gene_webscan_post_filter)) {
+                if (gene_webscan_stop_attack(&k, value, gene_webscan_regex_post_cached())) {
                     zval_ptr_dtor(&k);
                     RETURN_TRUE;
                 }
@@ -276,7 +325,7 @@ PHP_METHOD(gene_webscan, check)
                     ZVAL_LONG(&k, (zend_long) idx);
                     convert_to_string(&k);
                 }
-                if (gene_webscan_stop_attack(&k, value, gene_webscan_cookie_filter)) {
+                if (gene_webscan_stop_attack(&k, value, gene_webscan_regex_cookie_cached())) {
                     zval_ptr_dtor(&k);
                     RETURN_TRUE;
                 }
@@ -295,7 +344,7 @@ PHP_METHOD(gene_webscan, check)
             if (referer) {
                 zval key;
                 ZVAL_STRING(&key, "HTTP_REFERER");
-                if (gene_webscan_stop_attack(&key, referer, gene_webscan_post_filter)) {
+                if (gene_webscan_stop_attack(&key, referer, gene_webscan_regex_post_cached())) {
                     zval_ptr_dtor(&key);
                     RETURN_TRUE;
                 }
