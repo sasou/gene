@@ -726,7 +726,7 @@ static void gene_fn_cache_store(zval *closure, zval *fid_zv) {
 	 zval *before_src = NULL, *after_src = NULL, *hook_src = NULL;
 	 int is_before = 1, is_after = 1;
 	 char hookname_buf[256];
-	 char *hookname = NULL, *seg = NULL, *ptr = NULL;
+	 char *hookname = NULL, *hookname_alloc = NULL, *seg = NULL, *ptr = NULL;
 	 int use_direct = 1;
  
 	 gene_router_set_uri(leaf);
@@ -738,8 +738,19 @@ static void gene_fn_cache_store(zval *closure, zval *fid_zv) {
  
 	 hname = zend_hash_str_find(Z_ARRVAL_P(*leaf), "hook", 4);
 	 if (hname && Z_TYPE_P(hname) == IS_STRING && Z_STRLEN_P(hname) > 0) {
-		 snprintf(hookname_buf, sizeof(hookname_buf), "hook:%s", Z_STRVAL_P(hname));
-		 hookname = hookname_buf;
+		 size_t hookname_len = sizeof("hook:") - 1 + Z_STRLEN_P(hname);
+		 if (hookname_len < sizeof(hookname_buf)) {
+			 memcpy(hookname_buf, "hook:", sizeof("hook:") - 1);
+			 memcpy(hookname_buf + sizeof("hook:") - 1, Z_STRVAL_P(hname), Z_STRLEN_P(hname));
+			 hookname_buf[hookname_len] = '\0';
+			 hookname = hookname_buf;
+		 } else {
+			 hookname_alloc = emalloc(hookname_len + 1);
+			 memcpy(hookname_alloc, "hook:", sizeof("hook:") - 1);
+			 memcpy(hookname_alloc + sizeof("hook:") - 1, Z_STRVAL_P(hname), Z_STRLEN_P(hname));
+			 hookname_alloc[hookname_len] = '\0';
+			 hookname = hookname_alloc;
+		 }
 	 }
 	 if (hookname) {
 		 seg = php_strtok_r(hookname, "@", &ptr);
@@ -771,8 +782,14 @@ static void gene_fn_cache_store(zval *closure, zval *fid_zv) {
 		 }
 		 if (seg && strlen(seg) > 0) {
 			 char hseg_buf[256];
-			 size_t hseg_key_len = snprintf(hseg_buf, sizeof(hseg_buf), "hsrc%s", seg + 4);
-			 hook_src = zend_hash_str_find(Z_ARRVAL_P(*cacheHook), hseg_buf, hseg_key_len);
+			 int hseg_key_n = snprintf(hseg_buf, sizeof(hseg_buf), "hsrc%s", seg + 4);
+			 size_t hseg_key_len = 0;
+			 if (UNEXPECTED(hseg_key_n < 0 || (size_t)hseg_key_n >= sizeof(hseg_buf))) {
+				 use_direct = 0;
+			 } else {
+				 hseg_key_len = (size_t)hseg_key_n;
+				 hook_src = zend_hash_str_find(Z_ARRVAL_P(*cacheHook), hseg_buf, hseg_key_len);
+			 }
 			 h = zend_hash_str_find(Z_ARRVAL_P(*cacheHook), seg, strlen(seg));
 			 if (h && Z_TYPE_P(h) == IS_STRING && Z_STRLEN_P(h) > 0) {
 				 if (!hook_src || Z_TYPE_P(hook_src) != IS_STRING) use_direct = 0;
@@ -805,6 +822,7 @@ static void gene_fn_cache_store(zval *closure, zval *fid_zv) {
  
  direct_cleanup:
 		 zval_ptr_dtor(&dispatch_result);
+		 if (hookname_alloc) efree(hookname_alloc);
 		 return 1;
 	 }
  
@@ -857,8 +875,13 @@ static void gene_fn_cache_store(zval *closure, zval *fid_zv) {
 				 h = zend_hash_str_find(Z_ARRVAL_P(*cacheHook), seg, strlen(seg));
 				 if (h && Z_TYPE_P(h) == IS_STRING && Z_STRLEN_P(h) > 0 && !hook_src) {
 					 char fcl_buf[256];
-					 size_t fcl_len = snprintf(fcl_buf, sizeof(fcl_buf), "fcl%s", seg + 4);
-					 zval *hfcl = zend_hash_str_find(Z_ARRVAL_P(*cacheHook), fcl_buf, fcl_len);
+					 int fcl_n = snprintf(fcl_buf, sizeof(fcl_buf), "fcl%s", seg + 4);
+					 zval *hfcl = NULL;
+					 if (UNEXPECTED(fcl_n < 0 || (size_t)fcl_n >= sizeof(fcl_buf))) {
+						 use_closure = 0;
+					 } else {
+						 hfcl = zend_hash_str_find(Z_ARRVAL_P(*cacheHook), fcl_buf, (size_t)fcl_n);
+					 }
 					 if (hfcl && Z_TYPE_P(hfcl) == IS_STRING) {
 						 hook_cl = zend_hash_str_find(GENE_G(fn_cache), Z_STRVAL_P(hfcl), Z_STRLEN_P(hfcl));
 						 if (!hook_cl) use_closure = 0;
@@ -905,6 +928,7 @@ static void gene_fn_cache_store(zval *closure, zval *fid_zv) {
 
 		 closure_cleanup:
 			 zval_ptr_dtor(&dispatch_result);
+			 if (hookname_alloc) efree(hookname_alloc);
 			 return 1;
 		 }
 	 }
@@ -945,6 +969,7 @@ static void gene_fn_cache_store(zval *closure, zval *fid_zv) {
 		 smart_str_free(&buf);
 	 }
  
+	 if (hookname_alloc) efree(hookname_alloc);
 	 return 1;
  }
  /* }}} */
@@ -956,30 +981,62 @@ static void gene_fn_cache_store(zval *closure, zval *fid_zv) {
 	 size_t router_e_len, size;
 	 char *run = NULL;
 	 char err_buf[128], hsrc_buf[128];
+	 char *err_key = err_buf, *hsrc_key = hsrc_buf, *fcl_key = NULL;
+	 int err_heap = 0, hsrc_heap = 0, fcl_heap = 0;
+	 size_t errorName_len = strlen(errorName);
 	 size_t hsrc_key_len;
 	 if (cacheHook) {
-		 router_e_len = snprintf(err_buf, sizeof(err_buf), "error:%s", errorName);
-		 error = zend_hash_str_find(Z_ARRVAL_P(cacheHook), err_buf, router_e_len);
+		 router_e_len = sizeof("error:") - 1 + errorName_len;
+		 if (router_e_len >= sizeof(err_buf)) {
+			 err_key = emalloc(router_e_len + 1);
+			 err_heap = 1;
+		 }
+		 memcpy(err_key, "error:", sizeof("error:") - 1);
+		 memcpy(err_key + sizeof("error:") - 1, errorName, errorName_len + 1);
+		 error = zend_hash_str_find(Z_ARRVAL_P(cacheHook), err_key, router_e_len);
 		 if (error) {
 			 /* Try direct dispatch first via hsrc: key */
-			 hsrc_key_len = snprintf(hsrc_buf, sizeof(hsrc_buf), "hsrc:%s", errorName);
-			 error_src = zend_hash_str_find(Z_ARRVAL_P(cacheHook), hsrc_buf, hsrc_key_len);
+			 hsrc_key_len = sizeof("hsrc:") - 1 + errorName_len;
+			 if (hsrc_key_len >= sizeof(hsrc_buf)) {
+				 hsrc_key = emalloc(hsrc_key_len + 1);
+				 hsrc_heap = 1;
+			 }
+			 memcpy(hsrc_key, "hsrc:", sizeof("hsrc:") - 1);
+			 memcpy(hsrc_key + sizeof("hsrc:") - 1, errorName, errorName_len + 1);
+			 error_src = zend_hash_str_find(Z_ARRVAL_P(cacheHook), hsrc_key, hsrc_key_len);
 			 if (error_src && Z_TYPE_P(error_src) == IS_STRING && Z_STRLEN_P(error_src) > 0) {
 				 if (gene_router_exec_error_direct(Z_STRVAL_P(error_src))) {
+					 if (hsrc_heap) efree(hsrc_key);
+					 if (err_heap) efree(err_key);
 					 return 1;
 				 }
 			 }
 			 /* Try closure dispatch via fcl: key */
 			 if (GENE_G(fn_cache)) {
 				 char fcl_buf[128];
-				 size_t fcl_len = snprintf(fcl_buf, sizeof(fcl_buf), "fcl:%s", errorName);
-				 zval *efcl = zend_hash_str_find(Z_ARRVAL_P(cacheHook), fcl_buf, fcl_len);
+				 size_t fcl_len = sizeof("fcl:") - 1 + errorName_len;
+				 zval *efcl;
+				 fcl_key = fcl_buf;
+				 if (fcl_len >= sizeof(fcl_buf)) {
+					 fcl_key = emalloc(fcl_len + 1);
+					 fcl_heap = 1;
+				 }
+				 memcpy(fcl_key, "fcl:", sizeof("fcl:") - 1);
+				 memcpy(fcl_key + sizeof("fcl:") - 1, errorName, errorName_len + 1);
+				 efcl = zend_hash_str_find(Z_ARRVAL_P(cacheHook), fcl_key, fcl_len);
 				 if (efcl && Z_TYPE_P(efcl) == IS_STRING) {
-					 zval *ecl = zend_hash_str_find(GENE_G(fn_cache), Z_STRVAL_P(efcl), Z_STRLEN_P(efcl));
+					 zval *ecl = zend_hash_find(GENE_G(fn_cache), Z_STR_P(efcl));
 					 if (ecl) {
 						 gene_router_exec_closure_hook(ecl, NULL, 0);
+						 if (fcl_heap) efree(fcl_key);
+						 if (hsrc_heap) efree(hsrc_key);
+						 if (err_heap) efree(err_key);
 						 return 1;
 					 }
+				 }
+				 if (fcl_heap) {
+					 efree(fcl_key);
+					 fcl_heap = 0;
 				 }
 			 }
 			 /* Fallback to eval */
@@ -992,8 +1049,11 @@ static void gene_fn_cache_store(zval *closure, zval *fid_zv) {
 			 } zend_end_try();
 
 			 efree(run);
+			 if (hsrc_heap) efree(hsrc_key);
+			 if (err_heap) efree(err_key);
 			 return 1;
 		 }
+		 if (err_heap) efree(err_key);
 		 return 0;
 	 }
 	 return 0;
@@ -1009,36 +1069,77 @@ static void gene_fn_cache_store(zval *closure, zval *fid_zv) {
 	 char router_e_buf[256];
 	 char err_key_buf[128];
 	 char hsrc_buf[128];
+	 char *router_e_key = router_e_buf, *err_key = err_key_buf, *hsrc_key = hsrc_buf, *fcl_key = NULL;
+	 int router_e_heap = 0, err_heap = 0, hsrc_heap = 0, fcl_heap = 0;
+	 size_t errorName_len = strlen(errorName);
 	 size_t hsrc_key_len;
 	 if (safe_str != NULL && safe_len > 0) {
-		 router_e_len = snprintf(router_e_buf, sizeof(router_e_buf), "%.*s%s", (int)safe_len, safe_str, GENE_ROUTER_ROUTER_EVENT);
+		 router_e_len = safe_len + sizeof(GENE_ROUTER_ROUTER_EVENT) - 1;
+		 if (router_e_len >= sizeof(router_e_buf)) {
+			 router_e_key = emalloc(router_e_len + 1);
+			 router_e_heap = 1;
+		 }
+		 memcpy(router_e_key, safe_str, safe_len);
+		 memcpy(router_e_key + safe_len, GENE_ROUTER_ROUTER_EVENT, sizeof(GENE_ROUTER_ROUTER_EVENT));
 	 } else {
-		 router_e_len = snprintf(router_e_buf, sizeof(router_e_buf), "%s", GENE_ROUTER_ROUTER_EVENT);
+		 router_e_len = sizeof(GENE_ROUTER_ROUTER_EVENT) - 1;
+		 memcpy(router_e_key, GENE_ROUTER_ROUTER_EVENT, sizeof(GENE_ROUTER_ROUTER_EVENT));
 	 }
-	 cacheHook = gene_memory_get_quick(router_e_buf, router_e_len);
+	 cacheHook = gene_memory_get_quick(router_e_key, router_e_len);
 	 if (cacheHook) {
-		 router_e_len = snprintf(err_key_buf, sizeof(err_key_buf), "error:%s", errorName);
-		 error = zend_hash_str_find(Z_ARRVAL_P(cacheHook), err_key_buf, router_e_len);
+		 router_e_len = sizeof("error:") - 1 + errorName_len;
+		 if (router_e_len >= sizeof(err_key_buf)) {
+			 err_key = emalloc(router_e_len + 1);
+			 err_heap = 1;
+		 }
+		 memcpy(err_key, "error:", sizeof("error:") - 1);
+		 memcpy(err_key + sizeof("error:") - 1, errorName, errorName_len + 1);
+		 error = zend_hash_str_find(Z_ARRVAL_P(cacheHook), err_key, router_e_len);
 		 if (error) {
 			 /* Try direct dispatch first via hsrc: key */
-			 hsrc_key_len = snprintf(hsrc_buf, sizeof(hsrc_buf), "hsrc:%s", errorName);
-			 error_src = zend_hash_str_find(Z_ARRVAL_P(cacheHook), hsrc_buf, hsrc_key_len);
+			 hsrc_key_len = sizeof("hsrc:") - 1 + errorName_len;
+			 if (hsrc_key_len >= sizeof(hsrc_buf)) {
+				 hsrc_key = emalloc(hsrc_key_len + 1);
+				 hsrc_heap = 1;
+			 }
+			 memcpy(hsrc_key, "hsrc:", sizeof("hsrc:") - 1);
+			 memcpy(hsrc_key + sizeof("hsrc:") - 1, errorName, errorName_len + 1);
+			 error_src = zend_hash_str_find(Z_ARRVAL_P(cacheHook), hsrc_key, hsrc_key_len);
 			 if (error_src && Z_TYPE_P(error_src) == IS_STRING && Z_STRLEN_P(error_src) > 0) {
 				 if (gene_router_exec_error_direct(Z_STRVAL_P(error_src))) {
+					 if (hsrc_heap) efree(hsrc_key);
+					 if (err_heap) efree(err_key);
+					 if (router_e_heap) efree(router_e_key);
 					 return 1;
 				 }
 			 }
 			 /* Try closure dispatch via fcl: key */
 			 if (GENE_G(fn_cache)) {
 				 char fcl_buf[128];
-				 size_t fcl_len = snprintf(fcl_buf, sizeof(fcl_buf), "fcl:%s", errorName);
-				 zval *efcl = zend_hash_str_find(Z_ARRVAL_P(cacheHook), fcl_buf, fcl_len);
+				 size_t fcl_len = sizeof("fcl:") - 1 + errorName_len;
+				 zval *efcl;
+				 fcl_key = fcl_buf;
+				 if (fcl_len >= sizeof(fcl_buf)) {
+					 fcl_key = emalloc(fcl_len + 1);
+					 fcl_heap = 1;
+				 }
+				 memcpy(fcl_key, "fcl:", sizeof("fcl:") - 1);
+				 memcpy(fcl_key + sizeof("fcl:") - 1, errorName, errorName_len + 1);
+				 efcl = zend_hash_str_find(Z_ARRVAL_P(cacheHook), fcl_key, fcl_len);
 				 if (efcl && Z_TYPE_P(efcl) == IS_STRING) {
-					 zval *ecl = zend_hash_str_find(GENE_G(fn_cache), Z_STRVAL_P(efcl), Z_STRLEN_P(efcl));
+					 zval *ecl = zend_hash_find(GENE_G(fn_cache), Z_STR_P(efcl));
 					 if (ecl) {
 						 gene_router_exec_closure_hook(ecl, NULL, 0);
+						 if (fcl_heap) efree(fcl_key);
+						 if (hsrc_heap) efree(hsrc_key);
+						 if (err_heap) efree(err_key);
+						 if (router_e_heap) efree(router_e_key);
 						 return 1;
 					 }
+				 }
+				 if (fcl_heap) {
+					 efree(fcl_key);
+					 fcl_heap = 0;
 				 }
 			 }
 			 /* Fallback to eval */
@@ -1046,9 +1147,12 @@ static void gene_fn_cache_store(zval *closure, zval *fid_zv) {
 			 run = estrndup(Z_STRVAL_P(error), size);
 		 } else {
 			 php_error_docref(NULL, E_WARNING, "Gene Unknown Error:%s", errorName);
+			 if (err_heap) efree(err_key);
+			 if (router_e_heap) efree(router_e_key);
 			 return 0;
 		 }
 	 } else {
+		 if (router_e_heap) efree(router_e_key);
 		 return 0;
 	 }
 
@@ -1057,6 +1161,9 @@ static void gene_fn_cache_store(zval *closure, zval *fid_zv) {
 	 } zend_catch {
 	 } zend_end_try();
 	 efree(run);
+	 if (hsrc_heap) efree(hsrc_key);
+	 if (err_heap) efree(err_key);
+	 if (router_e_heap) efree(router_e_key);
 	 return 1;
  }
  /* }}} */

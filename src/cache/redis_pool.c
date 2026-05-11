@@ -1018,6 +1018,18 @@ PHP_METHOD(gene_redis_pool, create)
                                                ZEND_STRL(GENE_REDIS_POOL_PROPERTY_INSTANCES), 1);
     }
 
+    instances = zend_read_static_property(gene_redis_pool_ce,
+                                           ZEND_STRL(GENE_REDIS_POOL_PROPERTY_INSTANCES), 1);
+    if (!instances || Z_TYPE_P(instances) != IS_ARRAY) {
+        zval arr;
+        array_init(&arr);
+        zend_update_static_property(gene_redis_pool_ce,
+                                     ZEND_STRL(GENE_REDIS_POOL_PROPERTY_INSTANCES), &arr);
+        zval_ptr_dtor(&arr);
+        instances = zend_read_static_property(gene_redis_pool_ce,
+                                               ZEND_STRL(GENE_REDIS_POOL_PROPERTY_INSTANCES), 1);
+    }
+
     /* Construct the new pool object */
     zval new_pool, params_arr, construct_ret;
     object_init_ex(&new_pool, gene_redis_pool_ce);
@@ -1031,11 +1043,25 @@ PHP_METHOD(gene_redis_pool, create)
     zval_ptr_dtor(&params_arr);
     zval_ptr_dtor(&merged_config);
 
+    instances = zend_read_static_property(gene_redis_pool_ce,
+                                           ZEND_STRL(GENE_REDIS_POOL_PROPERTY_INSTANCES), 1);
+    if (!instances || Z_TYPE_P(instances) != IS_ARRAY) {
+        zval arr;
+        array_init(&arr);
+        zend_update_static_property(gene_redis_pool_ce,
+                                     ZEND_STRL(GENE_REDIS_POOL_PROPERTY_INSTANCES), &arr);
+        zval_ptr_dtor(&arr);
+        instances = zend_read_static_property(gene_redis_pool_ce,
+                                               ZEND_STRL(GENE_REDIS_POOL_PROPERTY_INSTANCES), 1);
+    }
+
     /* Register in the static instances registry */
-    Z_TRY_ADDREF(new_pool);
-    zend_hash_update(Z_ARRVAL_P(instances), name, &new_pool);
-    /* [GENE_PERF:2026-04-27] mirror into C-layer cache for fast lookups. */
-    gene_redis_pool_named_cache_put(name, Z_OBJ(new_pool));
+    if (instances && Z_TYPE_P(instances) == IS_ARRAY) {
+        Z_TRY_ADDREF(new_pool);
+        zend_hash_update(Z_ARRVAL_P(instances), name, &new_pool);
+        /* [GENE_PERF:2026-04-27] mirror into C-layer cache for fast lookups. */
+        gene_redis_pool_named_cache_put(name, Z_OBJ(new_pool));
+    }
 
     RETURN_ZVAL(&new_pool, 1, 1);
 }
