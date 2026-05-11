@@ -1241,6 +1241,16 @@ PHP_METHOD(gene_pool, get)
         }
     }
 
+    instances = zend_read_static_property(gene_pool_ce, ZEND_STRL(GENE_POOL_PROPERTY_INSTANCES), 1);
+    if (instances && Z_TYPE_P(instances) == IS_ARRAY) {
+        zval *existing = zend_hash_find(Z_ARRVAL_P(instances), name);
+        if (existing && Z_TYPE_P(existing) == IS_OBJECT && !pool_is_closed(existing)) {
+            zval close_ret;
+            gene_factory_call(existing, "close", sizeof("close") - 1, NULL, &close_ret);
+            zval_ptr_dtor(&close_ret);
+        }
+    }
+
     object_init_ex(return_value, gene_pool_ce);
     {
         zval ctor_params[1], ctor_ret;
