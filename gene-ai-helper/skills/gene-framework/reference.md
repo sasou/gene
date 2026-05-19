@@ -51,7 +51,10 @@
 | setView($view = null, $tpl_ext = null) | 设置视图目录名与模板后缀，返回 $this |
 | error($type, $callback = null, $error_type = null) | 注册错误处理回调，返回 $this |
 | exception($type, $callback = null) | 注册异常处理回调，返回 $this |
-| run($method = null, $uri = null) | 启动路由分发，参数不传时自动从 $_SERVER 读取，返回 $this |
+| run($method = null, $uri = null) | 启动路由分发；FPM 无参读 $_SERVER；Swoole 无参读 Request 上下文 |
+| webscan(...) | 内置 Web 扫描防护（开关、白名单目录/URL、GET/POST/Cookie/Referer） |
+| waitWorkerReady() | Swoole：阻塞直到 workerStart 调用 workerReady() |
+| workerReady() | Swoole：标记 Worker 就绪，冻结进程级 Memory，预热请求上下文池 |
 | setRuntimeType($type) | 设置运行时类型：`'fpm'`/1、`'swoole'`/2、`'coroutine'`/3，返回 bool |
 | getRuntimeType() | 返回当前运行时类型整数 |
 | getRuntimeTypeName() | 返回运行时类型名称字符串（`"fpm"` / `"swoole"` / `"coroutine"`） |
@@ -89,7 +92,9 @@
 | isAjax() | 是否 AJAX 请求 |
 | getMethod() | 获取请求方法 |
 | isGet(), isPost(), isPut(), isHead(), isOptions(), isCli() | 请求方法判断 |
-| init($get = null, $post = null, $cookie = null, $server = null, $env = null, $files = null, $request = null) | 批量注入自定义请求数据（Swoole 等场景使用） |
+| header($key, $default = null) | 获取 HTTP 请求头 |
+| clear() | 清除请求数据缓存 |
+| init($get, $post, $cookie, $server, $env, $files, $request = null) | Swoole 注入请求；未传 $request 时合并 GET+POST |
 
 ---
 
@@ -578,4 +583,74 @@ $config->set('redis', [
 
 ---
 
-*文档由 gene-ide-helper 下 Gene 命名空间及 Gene\Db、Gene\Cache 子命名空间内全部类文件提炼生成，版本 5.2.0。*
+---
+
+## Hook
+
+路由钩子基类，与 Controller 类似可访问 DI 组件。推荐替代闭包钩子（直接 C 分发，无 eval）。
+
+```php
+// router.ini.php
+->hook('adminAuth', 'Hooks\AdminAuth@handle')
+
+// application/Hooks/AdminAuth.php
+class AdminAuth extends \Gene\Hook {
+    public function handle() {
+        if (!$this->session->get('admin')) {
+            $this->redirect('/login.html');
+            return false;
+        }
+        return true;
+    }
+}
+```
+
+| 方法 | 说明 |
+|------|------|
+| handle() | 命名钩子入口；返回 false 中止请求 |
+| before() / after($params) | 全局前后钩子可覆写 |
+| get/post/request/params/... | 与 Controller 相同的静态取参 |
+| redirect($url, $code), assign, display, success/error/data/json | 实例或静态辅助 |
+
+**@property**：`db`、`memcache`、`redis`、`cache`、`validate`、`session`、`request`、`response` 等（随 config 注入）
+
+---
+
+## Gene\Pool
+
+Swoole 协程 **PDO 连接池**（FPM 无效）。
+
+| 方法 | 说明 |
+|------|------|
+| create($name, $configKey, $options = []) | 从 Config 键读取 dsn 等并注册池 |
+| getInstance($name) | 获取池实例 |
+| get() | 借出 PDO |
+| put($pdo) | 归还 |
+| remove() | 连接失效，不归还 |
+| close() | 关闭单池 |
+| closeAll() / stopTimers() | Worker 停止/退出时清理 |
+| stats() | 连接数、空闲、overflow 等 |
+
+`config` 中 db：`params[0]['pool'] => 'dbPool'` 与 `create('dbPool', 'db')` 对应。
+
+---
+
+## Gene\Cache\RedisPool
+
+Swoole 协程 **Redis 连接池**（FPM 无效）。API 与 `Gene\Pool` 对称：`create`、`get`、`put`、`remove`、`close`、`closeAll`、`stopTimers`、`stats`。
+
+`Gene\Cache\Redis` 配置 `'pool' => 'redisPool'` 后自动借还；`release()` 显式归还。
+
+---
+
+## Log
+
+| 方法 | 说明 |
+|------|------|
+| debug/info/notice/warning/error($message) | 写日志 |
+| exception(\Throwable $e, $message = null) | 记录异常 |
+| setFile($file) / setLevel($level) | 日志文件与级别 |
+
+---
+
+*文档由 gene-ide-helper 提炼，框架版本 5.6.x。Swoole 细则见 [swoole.md](swoole.md)。*
