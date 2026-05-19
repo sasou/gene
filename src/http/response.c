@@ -152,23 +152,20 @@ static zend_function    *gene_swoole_resp_cache_end_fn = NULL;
 void gene_response_set_redirect(char *url, zend_long code) {
 	zval *swoole_resp = gene_response_context_obj();
 	if (swoole_resp) {
+		/* [GENE_PERF:2026-05-19] In Swoole mode sapi_header_op is a no-op (Swoole
+		 * bypasses the PHP SAPI output layer entirely). If the Swoole method
+		 * cannot be resolved here, there is no useful fallback — just return. */
 		zend_function *fn = GENE_SWOOLE_RESP_METHOD(Z_OBJCE_P(swoole_resp), redirect);
-		/* [GENE_FIX:2026-05-19] Only short-circuit when we have a callable method.
-		 * If Swoole\Http\Response::redirect cannot be resolved (e.g. ext reloaded
-		 * under test doubles, or the cached object is a non-Swoole stub), fall
-		 * through to the sapi_header_op path so a redirect is still emitted. */
-		if (EXPECTED(fn)) {
-			zval retval, zurl, zcode;
-			ZVAL_UNDEF(&retval);
-			ZVAL_STRING(&zurl, url);
-			ZVAL_LONG(&zcode, code);
-			zval params[] = { zurl, zcode };
-			zend_call_known_function(fn, Z_OBJ_P(swoole_resp), Z_OBJCE_P(swoole_resp), &retval, 2, params, NULL);
-			zval_ptr_dtor(&zurl);
-			zval_ptr_dtor(&retval);
-			return;
-		}
-		/* fall through to sapi fallback */
+		if (UNEXPECTED(!fn)) return;
+		zval retval, zurl, zcode;
+		ZVAL_UNDEF(&retval);
+		ZVAL_STRING(&zurl, url);
+		ZVAL_LONG(&zcode, code);
+		zval params[] = { zurl, zcode };
+		zend_call_known_function(fn, Z_OBJ_P(swoole_resp), Z_OBJCE_P(swoole_resp), &retval, 2, params, NULL);
+		zval_ptr_dtor(&zurl);
+		zval_ptr_dtor(&retval);
+		return;
 	}
 	sapi_header_line ctr = { 0 };
 	size_t header_len = strlen("Location:") + strlen(url) + 1;
@@ -195,23 +192,19 @@ void gene_response_set_redirect(char *url, zend_long code) {
 static void gene_response_set_header_ex(char *key, size_t key_len, char *value, size_t value_len) {
 	zval *swoole_resp = gene_response_context_obj();
 	if (swoole_resp) {
+		/* [GENE_PERF:2026-05-19] Swoole mode: sapi_header_op is a no-op, no fallback. */
 		zend_function *fn = GENE_SWOOLE_RESP_METHOD(Z_OBJCE_P(swoole_resp), header);
-		/* [GENE_FIX:2026-05-19] Same fallback rationale as gene_response_set_redirect:
-		 * if Swoole\Http\Response::header cannot be resolved, do not silently drop
-		 * the header — fall through to the sapi_header_op path below. */
-		if (EXPECTED(fn)) {
-			zval retval, zkey, zval_v;
-			ZVAL_UNDEF(&retval);
-			ZVAL_STRINGL(&zkey, key, key_len);
-			ZVAL_STRINGL(&zval_v, value, value_len);
-			zval params[] = { zkey, zval_v };
-			zend_call_known_function(fn, Z_OBJ_P(swoole_resp), Z_OBJCE_P(swoole_resp), &retval, 2, params, NULL);
-			zval_ptr_dtor(&zkey);
-			zval_ptr_dtor(&zval_v);
-			zval_ptr_dtor(&retval);
-			return;
-		}
-		/* fall through to sapi fallback */
+		if (UNEXPECTED(!fn)) return;
+		zval retval, zkey, zval_v;
+		ZVAL_UNDEF(&retval);
+		ZVAL_STRINGL(&zkey, key, key_len);
+		ZVAL_STRINGL(&zval_v, value, value_len);
+		zval params[] = { zkey, zval_v };
+		zend_call_known_function(fn, Z_OBJ_P(swoole_resp), Z_OBJCE_P(swoole_resp), &retval, 2, params, NULL);
+		zval_ptr_dtor(&zkey);
+		zval_ptr_dtor(&zval_v);
+		zval_ptr_dtor(&retval);
+		return;
 	}
 	sapi_header_line ctr = { 0 };
 	size_t header_len = key_len + value_len + 1;
@@ -607,25 +600,24 @@ PHP_METHOD(gene_response, end) {
 
 	zval *swoole_resp = gene_response_context_obj();
 	if (swoole_resp) {
+		/* [GENE_PERF:2026-05-19] Swoole mode: php_write does not flush to the
+		 * client (Swoole owns the response). If Swoole\Http\Response::end is
+		 * unresolvable there is no meaningful fallback — return TRUE silently. */
 		zend_function *end_fn = GENE_SWOOLE_RESP_METHOD(Z_OBJCE_P(swoole_resp), end);
-		/* [GENE_FIX:2026-05-19] If Swoole\Http\Response::end is unresolvable,
-		 * fall through to php_write so the body is still flushed via the SAPI. */
-		if (EXPECTED(end_fn)) {
-			zval retval;
-			ZVAL_UNDEF(&retval);
-			if (data && ZSTR_LEN(data) > 0) {
-				zval zdata;
-				ZVAL_STR_COPY(&zdata, data);
-				zval params[] = { zdata };
-				zend_call_known_function(end_fn, Z_OBJ_P(swoole_resp), Z_OBJCE_P(swoole_resp), &retval, 1, params, NULL);
-				zval_ptr_dtor(&zdata);
-			} else {
-				zend_call_known_function(end_fn, Z_OBJ_P(swoole_resp), Z_OBJCE_P(swoole_resp), &retval, 0, NULL, NULL);
-			}
-			zval_ptr_dtor(&retval);
-			RETURN_TRUE;
+		if (UNEXPECTED(!end_fn)) RETURN_TRUE;
+		zval retval;
+		ZVAL_UNDEF(&retval);
+		if (data && ZSTR_LEN(data) > 0) {
+			zval zdata;
+			ZVAL_STR_COPY(&zdata, data);
+			zval params[] = { zdata };
+			zend_call_known_function(end_fn, Z_OBJ_P(swoole_resp), Z_OBJCE_P(swoole_resp), &retval, 1, params, NULL);
+			zval_ptr_dtor(&zdata);
+		} else {
+			zend_call_known_function(end_fn, Z_OBJ_P(swoole_resp), Z_OBJCE_P(swoole_resp), &retval, 0, NULL, NULL);
 		}
-		/* fall through to php_write fallback below */
+		zval_ptr_dtor(&retval);
+		RETURN_TRUE;
 	}
 	if (data && ZSTR_LEN(data) > 0) {
 		php_write(ZSTR_VAL(data), ZSTR_LEN(data));
