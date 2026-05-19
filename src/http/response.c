@@ -152,19 +152,23 @@ static zend_function    *gene_swoole_resp_cache_end_fn = NULL;
 void gene_response_set_redirect(char *url, zend_long code) {
 	zval *swoole_resp = gene_response_context_obj();
 	if (swoole_resp) {
-		zval retval, zurl, zcode;
-		zend_function *fn;
-		ZVAL_UNDEF(&retval);
-		ZVAL_STRING(&zurl, url);
-		ZVAL_LONG(&zcode, code);
-		fn = GENE_SWOOLE_RESP_METHOD(Z_OBJCE_P(swoole_resp), redirect);
-		zval params[] = { zurl, zcode };
+		zend_function *fn = GENE_SWOOLE_RESP_METHOD(Z_OBJCE_P(swoole_resp), redirect);
+		/* [GENE_FIX:2026-05-19] Only short-circuit when we have a callable method.
+		 * If Swoole\Http\Response::redirect cannot be resolved (e.g. ext reloaded
+		 * under test doubles, or the cached object is a non-Swoole stub), fall
+		 * through to the sapi_header_op path so a redirect is still emitted. */
 		if (EXPECTED(fn)) {
+			zval retval, zurl, zcode;
+			ZVAL_UNDEF(&retval);
+			ZVAL_STRING(&zurl, url);
+			ZVAL_LONG(&zcode, code);
+			zval params[] = { zurl, zcode };
 			zend_call_known_function(fn, Z_OBJ_P(swoole_resp), Z_OBJCE_P(swoole_resp), &retval, 2, params, NULL);
+			zval_ptr_dtor(&zurl);
+			zval_ptr_dtor(&retval);
+			return;
 		}
-		zval_ptr_dtor(&zurl);
-		zval_ptr_dtor(&retval);
-		return;
+		/* fall through to sapi fallback */
 	}
 	sapi_header_line ctr = { 0 };
 	size_t header_len = strlen("Location:") + strlen(url) + 1;
@@ -191,20 +195,23 @@ void gene_response_set_redirect(char *url, zend_long code) {
 static void gene_response_set_header_ex(char *key, size_t key_len, char *value, size_t value_len) {
 	zval *swoole_resp = gene_response_context_obj();
 	if (swoole_resp) {
-		zval retval, zkey, zval_v;
-		zend_function *fn;
-		ZVAL_UNDEF(&retval);
-		ZVAL_STRINGL(&zkey, key, key_len);
-		ZVAL_STRINGL(&zval_v, value, value_len);
-		fn = GENE_SWOOLE_RESP_METHOD(Z_OBJCE_P(swoole_resp), header);
-		zval params[] = { zkey, zval_v };
+		zend_function *fn = GENE_SWOOLE_RESP_METHOD(Z_OBJCE_P(swoole_resp), header);
+		/* [GENE_FIX:2026-05-19] Same fallback rationale as gene_response_set_redirect:
+		 * if Swoole\Http\Response::header cannot be resolved, do not silently drop
+		 * the header — fall through to the sapi_header_op path below. */
 		if (EXPECTED(fn)) {
+			zval retval, zkey, zval_v;
+			ZVAL_UNDEF(&retval);
+			ZVAL_STRINGL(&zkey, key, key_len);
+			ZVAL_STRINGL(&zval_v, value, value_len);
+			zval params[] = { zkey, zval_v };
 			zend_call_known_function(fn, Z_OBJ_P(swoole_resp), Z_OBJCE_P(swoole_resp), &retval, 2, params, NULL);
+			zval_ptr_dtor(&zkey);
+			zval_ptr_dtor(&zval_v);
+			zval_ptr_dtor(&retval);
+			return;
 		}
-		zval_ptr_dtor(&zkey);
-		zval_ptr_dtor(&zval_v);
-		zval_ptr_dtor(&retval);
-		return;
+		/* fall through to sapi fallback */
 	}
 	sapi_header_line ctr = { 0 };
 	size_t header_len = key_len + value_len + 1;
@@ -241,18 +248,23 @@ void gene_response_cookie(zval *name, zval *value, zval *expires, zval *path, zv
 	zval *swoole_resp = gene_response_context_obj();
 	if (swoole_resp) {
 		zend_function *cookie_fn = GENE_SWOOLE_RESP_METHOD(Z_OBJCE_P(swoole_resp), cookie);
-		zval params[7];
-		int num = 1;
-		params[0] = *name;
-		if (value) { num = 2; params[1] = *value; }
-		if (expires) { num = 3; params[2] = *expires; }
-		if (path) { num = 4; params[3] = *path; }
-		if (domain) { num = 5; params[4] = *domain; }
-		if (secure) { num = 6; params[5] = *secure; }
-		if (httponly) { num = 7; params[6] = *httponly; }
 		if (EXPECTED(cookie_fn)) {
+			zval params[7];
+			int num = 1;
+			params[0] = *name;
+			if (value) { num = 2; params[1] = *value; }
+			if (expires) { num = 3; params[2] = *expires; }
+			if (path) { num = 4; params[3] = *path; }
+			if (domain) { num = 5; params[4] = *domain; }
+			if (secure) { num = 6; params[5] = *secure; }
+			if (httponly) { num = 7; params[6] = *httponly; }
 			zend_call_known_function(cookie_fn, Z_OBJ_P(swoole_resp), Z_OBJCE_P(swoole_resp), retval, num, params, NULL);
+			return;
 		}
+		/* [GENE_FIX:2026-05-19] Method missing on the Swoole response (e.g. stub
+		 * test double). Mirror the setcookie-missing branch below: signal failure
+		 * via retval=false so callers can distinguish from success. */
+		if (retval) ZVAL_FALSE(retval);
 		return;
 	}
     /* [GENE_FIX:2026-04-27] Per-call lookup (CG(function_table) is per-thread
@@ -595,11 +607,12 @@ PHP_METHOD(gene_response, end) {
 
 	zval *swoole_resp = gene_response_context_obj();
 	if (swoole_resp) {
-		zval retval;
-		zend_function *end_fn;
-		ZVAL_UNDEF(&retval);
-		end_fn = GENE_SWOOLE_RESP_METHOD(Z_OBJCE_P(swoole_resp), end);
+		zend_function *end_fn = GENE_SWOOLE_RESP_METHOD(Z_OBJCE_P(swoole_resp), end);
+		/* [GENE_FIX:2026-05-19] If Swoole\Http\Response::end is unresolvable,
+		 * fall through to php_write so the body is still flushed via the SAPI. */
 		if (EXPECTED(end_fn)) {
+			zval retval;
+			ZVAL_UNDEF(&retval);
 			if (data && ZSTR_LEN(data) > 0) {
 				zval zdata;
 				ZVAL_STR_COPY(&zdata, data);
@@ -609,9 +622,10 @@ PHP_METHOD(gene_response, end) {
 			} else {
 				zend_call_known_function(end_fn, Z_OBJ_P(swoole_resp), Z_OBJCE_P(swoole_resp), &retval, 0, NULL, NULL);
 			}
+			zval_ptr_dtor(&retval);
+			RETURN_TRUE;
 		}
-		zval_ptr_dtor(&retval);
-		RETURN_TRUE;
+		/* fall through to php_write fallback below */
 	}
 	if (data && ZSTR_LEN(data) > 0) {
 		php_write(ZSTR_VAL(data), ZSTR_LEN(data));
