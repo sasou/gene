@@ -316,11 +316,15 @@ int gene_ini_router() {
 		if (!ctx->method || !ctx->path) {
 			server = request_query(TRACK_VARS_SERVER, NULL, 0);
 			if (server) {
-				if (!ctx->method && (temp = zend_hash_str_find(HASH_OF(server), ZEND_STRL("REQUEST_METHOD"))) != NULL) {
+				if (!ctx->method
+					&& (temp = zend_hash_str_find(HASH_OF(server), ZEND_STRL("REQUEST_METHOD"))) != NULL
+					&& Z_TYPE_P(temp) == IS_STRING) {
 					ctx->method = gene_ini_copy_method_lower(Z_STRVAL_P(temp), Z_STRLEN_P(temp));
 					ctx->method_len = Z_STRLEN_P(temp);
 				}
-				if (!ctx->path && (temp = zend_hash_str_find(HASH_OF(server), ZEND_STRL("REQUEST_URI"))) != NULL) {
+				if (!ctx->path
+					&& (temp = zend_hash_str_find(HASH_OF(server), ZEND_STRL("REQUEST_URI"))) != NULL
+					&& Z_TYPE_P(temp) == IS_STRING) {
 					ctx->path = emalloc(Z_STRLEN_P(temp) + 1);
 					ctx->path_len = leftByChar(ctx->path, Z_STRVAL_P(temp), '?');
 				}

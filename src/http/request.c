@@ -201,10 +201,10 @@ zval * request_query(zend_ulong type, char * name, size_t len) {
 		break;
 	}
 
-	if (!carrier) {
+	if (!carrier || Z_TYPE_P(carrier) != IS_ARRAY) {
 		return NULL;
 	}
-	if (len <= 0) {
+	if (len == 0 || name == NULL) {
 		return carrier;
 	}
 	if ((ret = zend_hash_str_find(Z_ARRVAL_P(carrier), (char *) name, len)) == NULL) {
@@ -271,7 +271,7 @@ zval *getVal(zend_ulong type, char *name, size_t len) {
 				val = zend_hash_index_update(Z_ARRVAL_P(attr), type, source);
 			}
 		}
-		if (len == 0) {
+		if (len == 0 || name == NULL) {
 			return val;
 		}
 		if (val && Z_TYPE_P(val) == IS_ARRAY) {
@@ -282,17 +282,25 @@ zval *getVal(zend_ulong type, char *name, size_t len) {
 			/* [GENE_PERF] For SERVER vars, try lowercase if uppercase lookup failed */
 			if (type == TRACK_VARS_SERVER && len > 0 && len < 256) {
 				char lower_name[256];
-				memcpy(lower_name, name, len);
+				size_t i;
+				unsigned char c;
+				for (i = 0; i < len; i++) {
+					c = (unsigned char)name[i];
+					lower_name[i] = (c >= 'A' && c <= 'Z') ? (char)(c | 0x20) : (char)c;
+				}
 				lower_name[len] = '\0';
-				gene_strtolower(lower_name);
 				return zend_hash_str_find(Z_ARRVAL_P(val), lower_name, len);
 			}
 			/* [GENE_PERF] For HEADER vars, try lowercase if uppercase lookup failed */
 			if (type == 7 && len > 0 && len < 256) {
 				char lower_name[256];
-				memcpy(lower_name, name, len);
+				size_t i;
+				unsigned char c;
+				for (i = 0; i < len; i++) {
+					c = (unsigned char)name[i];
+					lower_name[i] = (c >= 'A' && c <= 'Z') ? (char)(c | 0x20) : (char)c;
+				}
 				lower_name[len] = '\0';
-				gene_strtolower(lower_name);
 				return zend_hash_str_find(Z_ARRVAL_P(val), lower_name, len);
 			}
 			return NULL;
