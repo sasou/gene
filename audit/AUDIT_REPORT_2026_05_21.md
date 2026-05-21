@@ -31,6 +31,54 @@
 
 ## 2. 极致性能与内存优化专项审计结果
 
+### 2.0 本轮新增落地修复
+
+#### F1 - `request_query()` 超全局 carrier 统一数组类型门禁
+
+**文件**：`src/http/request.c`
+
+`request_query()` 是 `Gene\Request`、`Controller::isAjax()`、`Hook::isAjax()`、`gene_ini_router()` 等路径读取 `$_GET` / `$_POST` / `$_COOKIE` / `$_SERVER` / `$_REQUEST` 的公共入口。旧实现只判断 `carrier != NULL`，随后在命名 key 查询时直接执行 `zend_hash_str_find(Z_ARRVAL_P(carrier), ...)`。
+
+在正常 FPM/Swoole 请求中这些 carrier 基本都是数组；但在 FPM JIT autoglobal 边界、测试桩、用户污染 `$GLOBALS['_REQUEST']` 或非常规 SAPI 场景下，carrier 可能是 `IS_UNDEF` / `IS_NULL` / 非数组。此时直接 `Z_ARRVAL_P` 存在崩溃风险。
+
+本轮修复为：
+
+1. `request_query()` 在 switch 后统一执行 `!carrier || Z_TYPE_P(carrier) != IS_ARRAY` 门禁。
+2. `len == 0 || name == NULL` 时才返回整组数组 carrier，防止未来 C 层误用空指针进入 hash 查询。
+3. `getVal()` 同步增加 `name == NULL` 快速返回，避免 `len > 0 && name == NULL` 的潜在误用。
+
+收益：
+
+- 将所有请求超全局读取链路统一收敛为“只有数组才能进入 HashTable 查询”。
+- 对正常路径零行为变化；异常输入从潜在段错误降级为返回 `NULL`。
+- FPM/CGI 下保留 `zend_is_auto_global()` 延迟初始化兼容性；Swoole 下仍跳过 JIT 检查。
+
+#### F2 - `gene_ini_router()` FPM fallback 补齐字符串类型检查
+
+**文件**：`src/app/application.c`
+
+Swoole 分支从 `attr_server` 读取 `REQUEST_METHOD` / `REQUEST_URI` 时已检查 `IS_STRING`，但 FPM fallback 分支直接对 `temp` 执行 `Z_STRVAL_P(temp)` / `Z_STRLEN_P(temp)`。
+
+本轮修复为：
+
+- `REQUEST_METHOD` 必须为 `IS_STRING` 才进入 `gene_ini_copy_method_lower()`。
+- `REQUEST_URI` 必须为 `IS_STRING` 才进入 `leftByChar()`。
+
+收益：
+
+- FPM 与 Swoole 两条路由初始化路径的类型安全语义对齐。
+- 防止非常规 `$_SERVER` 内容导致字符串宏读取非字符串 zval。
+
+#### F3 - `getVal()` SERVER/HEADER 小写 fallback 单 pass 优化
+
+**文件**：`src/http/request.c`
+
+`getVal()` 在 SERVER/HEADER 大写 key 未命中时，会尝试小写 key fallback。旧路径是 `memcpy + '\0' + gene_strtolower()` 两步，本轮改为单 pass ASCII lowercase copy：
+
+- 省去一次函数调用。
+- 省去 `tolower()` 的 locale/函数开销。
+- 保持只对 256 字节以内 key 走栈缓冲区的原有边界。
+
 ### 2.1 性能优化（极致精简热路径）
 
 #### 2.1.1 路由分发 (`src/router/router.c`)
