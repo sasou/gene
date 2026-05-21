@@ -61,7 +61,9 @@ PHP_METHOD(gene_config, __construct) {
 	if (zend_parse_parameters(ZEND_NUM_ARGS(), "|z", &safe) == FAILURE) {
 		RETURN_NULL();
 	}
-	if (safe) {
+	/* [GENE_FIX:2026-05-21 F5] Gate Z_STRVAL_P(safe) on IS_STRING; same UB
+	 * concern as Application/Router/Memory __construct. */
+	if (safe && Z_TYPE_P(safe) == IS_STRING) {
 		zend_update_property_string(gene_config_ce, gene_strip_obj(self), GENE_CONFIG_SAFE, strlen(GENE_CONFIG_SAFE), Z_STRVAL_P(safe));
 	} else {
 		if (GENE_G(app_key) && strlen(GENE_G(app_key)) > 0) {

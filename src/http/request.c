@@ -201,6 +201,17 @@ zval * request_query(zend_ulong type, char * name, size_t len) {
 		break;
 	}
 
+	/* [GENE_FIX:2026-05-21 F4] $_REQUEST in EG(symbol_table) can be wrapped in
+	 * IS_REFERENCE after user code does `$x = &$_REQUEST` (or any reference
+	 * binding via output array, foreach &$v on a global, etc.). Without
+	 * deref'ing here, the strict IS_ARRAY gate added in F1 would incorrectly
+	 * reject a perfectly valid reference-to-array carrier and request_query()
+	 * would return NULL — breaking $_REQUEST reads.  Cheap (UNEXPECTED branch),
+	 * applied to all carriers because PG(http_globals) slots are never
+	 * IS_REFERENCE in practice and the macro is a no-op in that case. */
+	if (carrier) {
+		ZVAL_DEREF(carrier);
+	}
 	if (!carrier || Z_TYPE_P(carrier) != IS_ARRAY) {
 		return NULL;
 	}
@@ -279,20 +290,15 @@ zval *getVal(zend_ulong type, char *name, size_t len) {
 			if (result) {
 				return result;
 			}
-			/* [GENE_PERF] For SERVER vars, try lowercase if uppercase lookup failed */
-			if (type == TRACK_VARS_SERVER && len > 0 && len < 256) {
-				char lower_name[256];
-				size_t i;
-				unsigned char c;
-				for (i = 0; i < len; i++) {
-					c = (unsigned char)name[i];
-					lower_name[i] = (c >= 'A' && c <= 'Z') ? (char)(c | 0x20) : (char)c;
-				}
-				lower_name[len] = '\0';
-				return zend_hash_str_find(Z_ARRVAL_P(val), lower_name, len);
-			}
-			/* [GENE_PERF] For HEADER vars, try lowercase if uppercase lookup failed */
-			if (type == 7 && len > 0 && len < 256) {
+			/* [GENE_PERF:2026-05-21 F6] Lowercase fallback for SERVER (3) and
+			 * HEADER (7) carriers — Swoole/PSR populate these with lowercase
+			 * keys, while userland often queries with the canonical uppercase
+			 * form (e.g. "HTTP_X_REQUESTED_WITH"). Single fused copy+lowercase
+			 * pass into a 256-byte stack buffer; merged from two identical
+			 * blocks. The `len > 0` guard from the prior version is dropped
+			 * because the early `len == 0 || name == NULL` check above already
+			 * returned for that case. */
+			if ((type == TRACK_VARS_SERVER || type == 7) && len < 256) {
 				char lower_name[256];
 				size_t i;
 				unsigned char c;

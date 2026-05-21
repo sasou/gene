@@ -696,7 +696,9 @@ PHP_METHOD(gene_memory, __construct) {
 		return;
 	}
 
-	if (safe) {
+	/* [GENE_FIX:2026-05-21 F5] Gate Z_STRVAL_P(safe) on IS_STRING; same UB
+	 * concern as Application/Router/Config __construct. */
+	if (safe && Z_TYPE_P(safe) == IS_STRING) {
 		zend_update_property_string(gene_memory_ce, gene_strip_obj(getThis()), GENE_MEMORY_SAFE, strlen(GENE_MEMORY_SAFE), Z_STRVAL_P(safe));
 	} else {
 		if (GENE_G(app_key)) {

@@ -448,7 +448,11 @@ zval *gene_application_instance(zval *this_ptr, zval *safe) {
 	zval *instance = zend_read_static_property(gene_application_ce, ZEND_STRL(GENE_APPLICATION_INSTANCE), 1);
 
 	if (Z_TYPE_P(instance) == IS_OBJECT) {
-		if (safe && !GENE_G(app_key)) {
+		/* [GENE_FIX:2026-05-21 F5] zend_parse_parameters("|z") accepts any
+		 * zval; without an IS_STRING gate, Z_STRVAL_P/Z_STRLEN_P would dereference
+		 * the wrong union members for IS_LONG/IS_NULL/IS_ARRAY/etc., copying
+		 * garbage memory into GENE_G(app_key) (UB / heap corruption). */
+		if (safe && Z_TYPE_P(safe) == IS_STRING && !GENE_G(app_key)) {
 			GENE_G(app_key) = estrndup(Z_STRVAL_P(safe), Z_STRLEN_P(safe));
 			GENE_G(app_key_len) = Z_STRLEN_P(safe);
 		}
@@ -465,7 +469,8 @@ zval *gene_application_instance(zval *this_ptr, zval *safe) {
 		instance = zend_read_static_property(gene_application_ce, ZEND_STRL(GENE_APPLICATION_INSTANCE), 1);
 	}
 
-	if (safe && !GENE_G(app_key)) {
+	/* [GENE_FIX:2026-05-21 F5] Same IS_STRING gate as the early-return branch. */
+	if (safe && Z_TYPE_P(safe) == IS_STRING && !GENE_G(app_key)) {
 		GENE_G(app_key) = estrndup(Z_STRVAL_P(safe), Z_STRLEN_P(safe));
 		GENE_G(app_key_len) = Z_STRLEN_P(safe);
 	}

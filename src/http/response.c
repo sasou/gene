@@ -167,16 +167,26 @@ void gene_response_set_redirect(char *url, zend_long code) {
 		zval_ptr_dtor(&retval);
 		return;
 	}
+	/* [GENE_PERF:2026-05-21 F7] FPM redirect hot path: replace
+	 *   strlen("Location:") + strlen(url) + 1 + snprintf("%s %s", ...)
+	 * with a compile-time-known literal length and two memcpy calls.
+	 * `sizeof("Location: ") - 1` is a compile-time constant (the literal
+	 * already embeds the trailing space) — no runtime strlen, no snprintf
+	 * format-parser overhead. snprintf is significantly slower than memcpy
+	 * for short strings due to varargs/parser dispatch. */
 	sapi_header_line ctr = { 0 };
-	size_t header_len = strlen("Location:") + strlen(url) + 1;
+	size_t url_len = strlen(url);
+	size_t header_len = sizeof("Location: ") - 1 + url_len; /* 10 + url_len */
 	char header_buf[1024];
 	int header_heap = 0;
 	char *header_ptr = header_buf;
-	if (header_len >= sizeof(header_buf)) {
+	if (header_len + 1 > sizeof(header_buf)) {
 		header_ptr = emalloc(header_len + 1);
 		header_heap = 1;
 	}
-	snprintf(header_ptr, header_len + 1, "%s %s", "Location:", url);
+	memcpy(header_ptr, "Location: ", sizeof("Location: ") - 1);
+	memcpy(header_ptr + sizeof("Location: ") - 1, url, url_len);
+	header_ptr[header_len] = '\0';
 	ctr.line = header_ptr;
 	ctr.line_len = header_len;
 	ctr.response_code = code;
