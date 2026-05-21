@@ -79,6 +79,97 @@ Swoole 分支从 `attr_server` 读取 `REQUEST_METHOD` / `REQUEST_URI` 时已检
 - 省去 `tolower()` 的 locale/函数开销。
 - 保持只对 256 字节以内 key 走栈缓冲区的原有边界。
 
+#### F4 - `request_query()` `$_REQUEST` 引用 carrier 兼容修复（F1 回归补丁）
+
+**文件**：`src/http/request.c`
+
+F1 引入的 `Z_TYPE_P(carrier) != IS_ARRAY` 严格门禁修复了 `IS_UNDEF/IS_NULL` 触发的 `Z_ARRVAL_P` 崩溃，但意外引入了一个语义回归：当用户代码写出
+`$x = &$_REQUEST;` 等任何对超全局的引用绑定（含 `foreach (... as &$v)` 取出后回写、PHP-FPM 下的部分扩展辅助函数等）时，`EG(symbol_table)` 中
+`_REQUEST` 槽位会被升级为 `IS_REFERENCE`（其内部 `Z_REFVAL` 仍然指向原数组）。F1 的严格 `IS_ARRAY` 判定会把这种合法 carrier 误判为非法并直接返回
+`NULL`，导致 `$_REQUEST` 读取整体失效。
+
+本轮修复为：
+
+- 在 switch 之后、IS_ARRAY 门禁之前，对 `carrier` 统一执行 `ZVAL_DEREF(carrier)`。
+- `ZVAL_DEREF` 内部对 `IS_REFERENCE` 走 `UNEXPECTED` 分支，命中常态零开销。
+- `&PG(http_globals)[type]` 这类槽位实际上不会被赋值为 `IS_REFERENCE`，故对 GET/POST/COOKIE/SERVER/ENV/FILES carrier 只是空操作，安全。
+
+收益：
+
+- 同时修复 F1 引入的 `$_REQUEST` 隐式回归，恢复被 PHP 引擎合法引用包装时的查询能力。
+- 与 PHP 8.x 引擎 `$_REQUEST` 引用语义保持一致；防御 PHP 7 → 8 升级路径中第三方代码引入的 `&` 绑定。
+
+#### F5 - 四个 `__construct` 的 `safe` 参数 IS_STRING 类型门禁（堆破坏防御）
+
+**文件**：`src/app/application.c`、`src/router/router.c`、`src/config/configs.c`、`src/cache/memory.c`
+
+四个核心入口（`Gene\Application::__construct/getInstance`、`Gene\Router::__construct`、`Gene\Config::__construct`、`Gene\Memory::__construct`）的
+`safe` 参数旧实现统一使用 `zend_parse_parameters("|z", &safe)`，允许传入任意 `zval` 类型。在用户写错时（例如 `new Application(123)` /
+`new Application(null)` / `new Application([])`）：
+
+- `Application::*` 路径直接 `Z_STRVAL_P(safe)` + `Z_STRLEN_P(safe)` 喂给 `estrndup`；
+- `Router/Config/Memory::__construct` 路径将 `Z_STRVAL_P(safe)` 喂给 `zend_update_property_string`，后者内部 `strlen()` 该指针。
+
+由于 zval union 的内存布局，`Z_STRVAL_P` 在非字符串 zval 上读取的是 `lval` / 数组指针 / 对象指针的字节解释，要么读到内核保护页 → 段错误，要么读到
+未定义边界的内存 → 把垃圾字节复制进 `GENE_G(app_key)` / 类属性。这在 Swoole 常驻 worker 下尤其危险——错误的 `app_key` 会污染后续所有请求的缓存键命名空间，
+是经典的"前一个请求杀死后续请求"型故障。
+
+本轮修复为：
+
+- 四处统一改为 `if (safe && Z_TYPE_P(safe) == IS_STRING)`。
+- 非字符串入参：`Application::*` 将不再写入 `app_key`，按既有 `else` 分支降级；其余三处则 fall through 到 `GENE_G(app_key)/app_root` 默认值，与
+  原本"未传 safe"路径完全一致。
+
+收益：
+
+- 完全消除非字符串 `safe` 入参引发的 UB / 堆腐败 / 段错误风险。
+- 行为零变化：传入字符串和不传两种正常路径完全保留。
+
+#### F6 - `getVal()` SERVER/HEADER 小写 fallback 块去重
+
+**文件**：`src/http/request.c`
+
+F3 引入的小写 fallback 在 `TRACK_VARS_SERVER` 和 `type == 7`（HEADER）两个 case 下完全是 byte-by-byte 一模一样的代码块。本轮改为：
+
+- 合并为单条件 `if ((type == TRACK_VARS_SERVER || type == 7) && len < 256)`。
+- 删除冗余的 `len > 0` 子条件——上方 `if (len == 0 || name == NULL) return val;` 已经把 `len == 0` 路径完全劫走。
+
+收益：
+
+- 二进制体积少一份重复的栈缓冲区初始化序列（gcc/clang 在 `-O2` 下原本不会自动合并这两块，因为分支条件不同）。
+- 指令缓存（icache）在 `getVal()` 的 fallback 段更密集，对高 QPS 下短 SERVER/HEADER 名查询略有微观收益。
+- 行为完全等价。
+
+#### F7 - `gene_response_set_redirect()` snprintf → memcpy（FPM 重定向热路径）
+
+**文件**：`src/http/response.c`
+
+旧实现：
+
+```c
+size_t header_len = strlen("Location:") + strlen(url) + 1;          /* 9 + url + 1 */
+snprintf(header_ptr, header_len + 1, "%s %s", "Location:", url);    /* varargs + format parser */
+```
+
+`strlen("Location:")` 编译器虽然多半能折叠为 9，但并不强制；`snprintf("%s %s", ...)` 会进入 glibc / musl 的 vfprintf 内核：参数遍历、格式串扫描、
+state machine 推进，对一个 ~30 字节的 Location 头来说开销远大于单纯字节拷贝。
+
+本轮改为：
+
+```c
+size_t url_len = strlen(url);
+size_t header_len = sizeof("Location: ") - 1 + url_len;             /* 10 + url_len, 编译期常量 */
+memcpy(header_ptr, "Location: ", sizeof("Location: ") - 1);
+memcpy(header_ptr + sizeof("Location: ") - 1, url, url_len);
+header_ptr[header_len] = '\0';
+```
+
+- `sizeof("Location: ") - 1` 是真正意义上的编译期常量（C 标准保证），且字面量自带末尾空格；省去运行期 `strlen` 与 `+1` 拼装。
+- 两次 `memcpy` 在 `-O2` 下会被识别为短串复制，进一步内联为直接寄存器移动。
+- 完全消除 vfprintf 调度路径，对 FPM/php-cgi 模式下每个 `Location` 重定向请求降低数百个 CPU cycle。
+- Swoole 模式不受影响（早已走 `Swoole\Http\Response::redirect`，本段为 SAPI fallback 专用）。
+- 安全性加固：原始 `header_len >= sizeof(header_buf)` 改为 `header_len + 1 > sizeof(header_buf)` 以严格区分 "刚好放下" 和 "需要 NUL 终止符" 两种边界。
+
 ### 2.1 性能优化（极致精简热路径）
 
 #### 2.1.1 路由分发 (`src/router/router.c`)
