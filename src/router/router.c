@@ -1629,7 +1629,13 @@ void get_router_content_run(char *methodin, char *pathin, const char *safe_str, 
 	 if (zend_parse_parameters(ZEND_NUM_ARGS(), "|z", &safe) == FAILURE) {
 		 RETURN_NULL();
 	 }
-	 if (safe) {
+	 /* [GENE_FIX:2026-05-21 F5] zend_parse_parameters("|z") permits non-string
+	  * input. zend_update_property_string requires a NUL-terminated C string
+	  * via Z_STRVAL_P; a non-string zval would feed strlen() with the wrong
+	  * union member (zend_long bytes / pointer interpretation), reading well
+	  * past the intended buffer. Gate on IS_STRING and fall through to the
+	  * GENE_G(app_key)/app_root defaults otherwise. */
+	 if (safe && Z_TYPE_P(safe) == IS_STRING) {
 		 zend_update_property_string(gene_router_ce, gene_strip_obj(obj), GENE_ROUTER_SAFE, strlen(GENE_ROUTER_SAFE), Z_STRVAL_P(safe));
 	 } else {
 		 if (GENE_G(app_key)) {
