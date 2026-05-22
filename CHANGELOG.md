@@ -1,5 +1,58 @@
 # Gene Framework Changelog
 
+## [5.6.3] - 2026-05-22
+
+**主题**：FPM/Swoole 协程模式安全审计修复。**无 API 破坏**，`php-cgi / php-fpm / Swoole` 路径零回归。
+
+### �️ 第 1 项 — IS_REFERENCE 包装处理（正确性修复）
+
+- **文件**：`src/http/request.c`
+- **问题**：用户代码对 `$_REQUEST` 等全局变量进行引用绑定（`$x = &$_REQUEST`）后，PG(http_globals) 槽位变为 IS_REFERENCE，严格的 IS_ARRAY 检查会错误拒绝有效请求。
+- **修复**：在类型检查前添加 `ZVAL_DEREF` 解引用，确保引用包装的数组能正确读取。
+- **影响**：修复用户代码使用引用绑定全局变量时的请求读取失败问题。
+
+### 🔒 第 2 项 — __construct 类型安全加固（UB 修复）
+
+- **文件**：`src/app/application.c`, `src/config/configs.c`, `src/cache/memory.c`, `src/router/router.c`
+- **问题**：`zend_parse_parameters("|z")` 接受任意 zval 类型，但 `Z_STRVAL_P`/`Z_STRLEN_P` 在非 IS_STRING 类型下会访问错误的 union 成员，导致未定义行为和堆损坏。
+- **修复**：在所有 `__construct` 的 safe 参数处理中添加 `IS_STRING` 类型门控，非字符串类型回退到默认的 `app_key`/`app_root`。
+- **影响**：消除类型混淆导致的内存安全风险。
+
+### ⚡ 第 3 项 — SERVER/HEADER 小写回退合并（性能优化）
+
+- **文件**：`src/http/request.c`
+- **问题**：SERVER 和 HEADER 载体存在两段相同的小写回退逻辑，代码重复。
+- **修复**：合并为单一逻辑块，使用栈缓冲区进行一次复制+小写转换。
+- **影响**：减少代码重复，提升可维护性。
+
+### 🚀 第 4 项 — FPM 重定向热路径优化（性能优化）
+
+- **文件**：`src/http/response.c`
+- **问题**：FPM 模式下 `Location` 重定向使用 `snprintf` 构造 header，每次请求经历格式解析开销。
+- **修复**：用编译期常量长度 + 两次 `memcpy` 替代 `snprintf`，消除 vfprintf 调度路径。
+- **影响**：FPM 模式下每次重定向请求降低数百个 CPU cycle。
+
+### 📊 综合收益评估
+
+| 维度 | 5.6.2 | 5.6.3 | 改善 |
+|------|-------|-------|------|
+| IS_REFERENCE 支持 | ❌ 错误拒绝 | ✅ 正确解引用 | **修复引用绑定场景** |
+| 类型安全 | ⚠️ UB 风险 | ✅ 类型门控 | **消除堆损坏风险** |
+| FPM 重定向性能 | snprintf 开销 | memcpy 零开销 | **降低数百 cycle** |
+| 代码重复 | 两段相同逻辑 | 单一合并块 | **提升可维护性** |
+
+### 🔧 修改文件一览
+
+- `src/http/request.c` — IS_REFERENCE 解引用 + 小写回退合并
+- `src/http/response.c` — FPM 重定向热路径优化
+- `src/app/application.c` — __construct 类型门控
+- `src/config/configs.c` — __construct 类型门控
+- `src/cache/memory.c` — __construct 类型门控
+- `src/router/router.c` — __construct 类型门控
+- `audit/AUDIT_REPORT_2026_05_21.md` — 审计报告
+
+---
+
 ## [5.6.2] - 2026-05-10
 
 **主题**：FPM/Swoole 性能与常驻内存稳定性优化。**无 API 破坏**，`php-cgi / php-fpm / Swoole` 路径零回归。
