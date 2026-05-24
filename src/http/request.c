@@ -157,43 +157,34 @@ zval * request_query(zend_ulong type, char * name, size_t len) {
 		/* PHP 8+ auto_globals_jit: $_COOKIE is populated on first use. Reading
 		 * PG(http_globals)[TRACK_VARS_COOKIE] from C without activating the
 		 * autoglobal left the array empty (e.g. Gene_Session ctor before any
-		 * userland $_COOKIE access), breaking session id under php-cgi. */
+		 * userland $_COOKIE access), breaking session id under php-cgi.
+		 * [GENE_FIX:2026-05-24] Use zend_is_auto_global_str (char* / size_t
+		 * variant) instead of caching a static zend_string * keyed by
+		 * zend_string_init_interned(...,1). Under opcache.file_cache_only=1
+		 * the latter degrades to a request-scope string and the static
+		 * pointer dangles after RSHUTDOWN, observed as fatal
+		 * Allowed memory size exhausted (tried to allocate 171798691872
+		 * bytes reads of garbage ZSTR_LEN on the next request. */
 		if (jit_initialization) {
-			static zend_string *cookie_str = NULL;
-			if (UNEXPECTED(!cookie_str)) {
-				cookie_str = zend_string_init_interned("_COOKIE", sizeof("_COOKIE") - 1, 1);
-			}
-			zend_is_auto_global(cookie_str);
+			zend_is_auto_global_str(ZEND_STRL("_COOKIE"));
 		}
 		carrier = &PG(http_globals)[type];
 		break;
 	case TRACK_VARS_ENV:
 		if (jit_initialization) {
-			static zend_string *env_str = NULL;
-			if (UNEXPECTED(!env_str)) {
-				env_str = zend_string_init_interned("_ENV", sizeof("_ENV") - 1, 1);
-			}
-			zend_is_auto_global(env_str);
+			zend_is_auto_global_str(ZEND_STRL("_ENV"));
 		}
 		carrier = &PG(http_globals)[type];
 		break;
 	case TRACK_VARS_SERVER:
 		if (jit_initialization) {
-			static zend_string *server_str = NULL;
-			if (UNEXPECTED(!server_str)) {
-				server_str = zend_string_init_interned("_SERVER", sizeof("_SERVER") - 1, 1);
-			}
-			zend_is_auto_global(server_str);
+			zend_is_auto_global_str(ZEND_STRL("_SERVER"));
 		}
 		carrier = &PG(http_globals)[type];
 		break;
 	case TRACK_VARS_REQUEST:
 		if (jit_initialization) {
-			static zend_string *request_str = NULL;
-			if (UNEXPECTED(!request_str)) {
-				request_str = zend_string_init_interned("_REQUEST", sizeof("_REQUEST") - 1, 1);
-			}
-			zend_is_auto_global(request_str);
+			zend_is_auto_global_str(ZEND_STRL("_REQUEST"));
 		}
 		carrier = zend_hash_str_find(&EG(symbol_table), ZEND_STRL("_REQUEST"));
 		break;

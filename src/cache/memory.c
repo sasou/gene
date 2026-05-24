@@ -422,7 +422,7 @@ void gene_memory_get_triple(
  * rwlock. We only need the lock to fetch the top-level entry pointer; once
  * obtained it remains valid under the documented write-once-at-startup
  * invariant, so there's no reason to hold the rwlock while doing strtok +
- * O(depth) hash lookups. For a 3-4 segment config path (e.g. `db/mysql/host`)
+ * O(depth) hash lookups. For a 3-4 segment config path (e.g. db/mysql/host)
  * this halves the average lock hold time and moves strtok / string copy
  * entirely off the critical section — a sizable win under high concurrency.
  */

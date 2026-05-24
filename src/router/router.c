@@ -1175,11 +1175,10 @@ char * get_function_content(zval *content) {
 	zend_long startline, endline;
 	size_t size;
 	char *result = NULL, *tmp = NULL;
-	static zend_string *rf_key = NULL;
-	if (UNEXPECTED(!rf_key)) {
-		rf_key = zend_string_init_interned(ZEND_STRL("ReflectionFunction"), 1);
-	}
-	zend_class_entry *reflection_ptr = zend_lookup_class(rf_key);
+	/* [GENE_FIX:2026-05-24] gene_lookup_class_str avoids the unsafe
+	 * static zend_string* + zend_string_init_interned(...,1) pattern that
+	 * dangles across requests under opcache.file_cache_only=1. */
+	zend_class_entry *reflection_ptr = gene_lookup_class_str(ZEND_STRL("ReflectionFunction"));
 
 	if (reflection_ptr == NULL) {
 		php_error_docref(NULL, E_WARNING, "Unable to start ReflectionFunction");
@@ -1227,11 +1226,10 @@ char * get_function_content(zval *content) {
 	}
 
 	//get codestartline
-	static zend_string *spl_key = NULL;
-	if (UNEXPECTED(!spl_key)) {
-		spl_key = zend_string_init_interned(ZEND_STRL("SplFileObject"), 1);
-	}
-	zend_class_entry *spl_file_ptr = zend_lookup_class(spl_key);
+	/* [GENE_FIX:2026-05-24] gene_lookup_class_str avoids the unsafe
+	 * static zend_string* + zend_string_init_interned(...,1) pattern that
+	 * dangles across requests under opcache.file_cache_only=1. */
+	zend_class_entry *spl_file_ptr = gene_lookup_class_str(ZEND_STRL("SplFileObject"));
 	if (spl_file_ptr == NULL) {
 		zval_ptr_dtor(&fileName);
 		php_error_docref(NULL, E_WARNING, "Unable to start SplFileObject");

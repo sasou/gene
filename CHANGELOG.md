@@ -1,5 +1,29 @@
 # Gene Framework Changelog
 
+## [5.6.4] - 2026-05-24
+
+**主题**：修复 `opcache.file_cache_only=1` 环境下的悬垂指针 Bug。**无 API 破坏**，兼容所有运行模式。
+
+### 🔒 修复悬垂指针问题
+
+- **问题**：在 `opcache.file_cache_only=1` 模式下，`zend_string_init_interned(...,1)` 返回请求作用域字符串，使用 `static zend_string *` 缓存会导致悬垂指针，引发内存耗尽或崩溃。
+- **修复**：新增 `gene_interned_str_persistent` 和 `gene_lookup_class_str` 辅助函数，替换 14 个文件中约 70 处不安全缓存。
+- **影响**：彻底解决 `opcache.file_cache_only=1` 环境下的内存安全问题。
+
+### 🔧 修改文件一览
+
+- `src/gene.h` / `src/gene.c` — 新增安全辅助函数
+- `src/db/sqlite.c` / `src/db/pgsql.c` / `src/db/mssql.c` — PDO 类查找
+- `src/cache/redis.c` / `src/cache/memcached.c` — Redis/Memcached 类查找
+- `src/session/session.c` — 方法名字符串缓存
+- `src/factory/load.c` — 自动加载器回调字符串
+- `src/app/application.c` — Webscan 类 + response 键
+- `src/router/router.c` — ReflectionFunction/SplFileObject 类查找
+- `src/mvc/view.c` — 56 个正则/替换字符串
+- `src/tool/language.c` — lang_key
+- `src/cache/redis_pool.c` — Swoole 类查找
+- `src/http/request.c` — 编译兼容性修复
+
 ## [5.6.3] - 2026-05-22
 
 **主题**：FPM/Swoole 协程模式安全审计修复。**无 API 破坏**，`php-cgi / php-fpm / Swoole` 路径零回归。

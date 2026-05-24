@@ -186,11 +186,12 @@ bool initRObj (zval * self, zval *config) {
 	if (config == NULL) {
 		config =  zend_read_property(gene_redis_ce, gene_strip_obj(self), ZEND_STRL(GENE_REDIS_CONFIG), 1, NULL);
 	}
-	static zend_string *c_key = NULL;
-	if (UNEXPECTED(!c_key)) {
-		c_key = zend_string_init_interned(ZEND_STRL("Redis"), 1);
-	}
-	zend_class_entry *obj_ptr = zend_lookup_class(c_key);
+	/* [GENE_FIX:2026-05-24] gene_lookup_class_str avoids the unsafe
+	 * static zend_string* + zend_string_init_interned(...,1) pattern that
+	 * dangles across requests under opcache.file_cache_only=1. Redis is an
+	 * internal class registered at MINIT, so the EG(class_table) fast
+	 * path inside gene_lookup_class_str is a single hash hit. */
+	zend_class_entry *obj_ptr = gene_lookup_class_str(ZEND_STRL("Redis"));
 
 	if (!obj_ptr) {
 		/* E_WARNING instead of E_ERROR: E_ERROR kills the Swoole worker process */
