@@ -227,8 +227,11 @@ zval *gene_load_instance(zval *this_ptr) {
  */
 int gene_loader_register() {
 	static zend_function *spl_register_fn = NULL;
-	static zend_string *default_cb_ns = NULL;
-	static zend_string *default_cb = NULL;
+	/* [GENE_FIX:2026-05-24] gene_interned_str_persistent avoids the unsafe
+	 * static zend_string* + zend_string_init_interned(...,1) pattern that
+	 * dangles across requests under opcache.file_cache_only=1. */
+	static zend_string *default_cb_ns_slot = NULL;
+	static zend_string *default_cb_slot = NULL;
 	zval autoload, ret;
 
 	if (GENE_G(autoload_registered)) {
@@ -250,18 +253,14 @@ int gene_loader_register() {
 		ZVAL_STRING(&autoload, GENE_G(auto_load_fun));
 	} else {
 		if (GENE_G(use_namespace)) {
-			if (UNEXPECTED(!default_cb_ns)) {
-				default_cb_ns = zend_string_init_interned(
-					GENE_AUTOLOAD_FUNC_NAME_NS,
-					sizeof(GENE_AUTOLOAD_FUNC_NAME_NS) - 1, 1);
-			}
+			zend_string *default_cb_ns = gene_interned_str_persistent(&default_cb_ns_slot,
+				GENE_AUTOLOAD_FUNC_NAME_NS,
+				sizeof(GENE_AUTOLOAD_FUNC_NAME_NS) - 1);
 			ZVAL_STR_COPY(&autoload, default_cb_ns);
 		} else {
-			if (UNEXPECTED(!default_cb)) {
-				default_cb = zend_string_init_interned(
-					GENE_AUTOLOAD_FUNC_NAME,
-					sizeof(GENE_AUTOLOAD_FUNC_NAME) - 1, 1);
-			}
+			zend_string *default_cb = gene_interned_str_persistent(&default_cb_slot,
+				GENE_AUTOLOAD_FUNC_NAME,
+				sizeof(GENE_AUTOLOAD_FUNC_NAME) - 1);
 			ZVAL_STR_COPY(&autoload, default_cb);
 		}
 	}

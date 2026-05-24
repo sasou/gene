@@ -224,11 +224,12 @@ bool initObj (zval * self, zval *config) {
 	if (config == NULL) {
 		config =  zend_read_property(gene_memcached_ce, gene_strip_obj(self), ZEND_STRL(GENE_MEM_CONFIG), 1, NULL);
 	}
-	static zend_string *c_key = NULL;
-	if (UNEXPECTED(!c_key)) {
-		c_key = zend_string_init_interned(ZEND_STRL("Memcached"), 1);
-	}
-	zend_class_entry *obj_ptr = zend_lookup_class(c_key);
+	/* [GENE_FIX:2026-05-24] gene_lookup_class_str avoids the unsafe
+	 * static zend_string* + zend_string_init_interned(...,1) pattern that
+	 * dangles across requests under opcache.file_cache_only=1. Memcached is an
+	 * internal class registered at MINIT, so the EG(class_table) fast
+	 * path inside gene_lookup_class_str is a single hash hit. */
+	zend_class_entry *obj_ptr = gene_lookup_class_str(ZEND_STRL("Memcached"));
 
 	if (!obj_ptr) {
 		php_error_docref(NULL, E_ERROR, "Memcached class not found, please install the Memcached extension.");
@@ -272,11 +273,12 @@ bool initObjWin (zval * self, zval *config) {
 	if (config == NULL) {
 		config =  zend_read_property(gene_memcached_ce, gene_strip_obj(self), ZEND_STRL(GENE_MEM_CONFIG), 1, NULL);
 	}
-	static zend_string *c_key = NULL;
-	if (UNEXPECTED(!c_key)) {
-		c_key = zend_string_init_interned(ZEND_STRL("Memcache"), 1);
-	}
-	zend_class_entry *obj_ptr = zend_lookup_class(c_key);
+	/* [GENE_FIX:2026-05-24] gene_lookup_class_str avoids the unsafe
+	 * static zend_string* + zend_string_init_interned(...,1) pattern that
+	 * dangles across requests under opcache.file_cache_only=1. Memcache is an
+	 * internal class registered at MINIT, so the EG(class_table) fast
+	 * path inside gene_lookup_class_str is a single hash hit. */
+	zend_class_entry *obj_ptr = gene_lookup_class_str(ZEND_STRL("Memcache"));
 
 	if (!obj_ptr) {
 		php_error_docref(NULL, E_ERROR, "Memcache class not found, please install the Memcache extension.");

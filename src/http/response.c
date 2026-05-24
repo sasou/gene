@@ -97,11 +97,12 @@ zval *gene_response_context_obj(void) {
 		if (ctx && Z_TYPE(ctx->response_obj) == IS_OBJECT) {
 			return &ctx->response_obj;
 		}
-		/* [GENE_FIX:2026-04-09] Use interned string to avoid repeated heap allocations. */
-		static zend_string *response_key = NULL;
-		if (UNEXPECTED(response_key == NULL)) {
-			response_key = zend_string_init_interned("response", sizeof("response") - 1, 1);
-		}
+		/* [GENE_FIX:2026-04-09] Use interned string to avoid repeated heap allocations.
+		 * [GENE_FIX:2026-05-24] Routed through gene_interned_str_persistent so the
+		 * cached zend_string is invalidated whenever the runtime cannot grant
+		 * IS_STR_PERMANENT (opcache.file_cache_only=1, opcache disabled, or CLI),
+		 * preventing dangling-pointer reads on the next request. */
+		GENE_INTERNED_STR(response_key, "response");
 		zval *resp = gene_di_get(response_key);
 		if (resp && Z_TYPE_P(resp) == IS_OBJECT) {
 			if (ctx) {
@@ -170,8 +171,8 @@ void gene_response_set_redirect(char *url, zend_long code) {
 	/* [GENE_PERF:2026-05-21 F7] FPM redirect hot path: replace
 	 *   strlen("Location:") + strlen(url) + 1 + snprintf("%s %s", ...)
 	 * with a compile-time-known literal length and two memcpy calls.
-	 * `sizeof("Location: ") - 1` is a compile-time constant (the literal
-	 * already embeds the trailing space) — no runtime strlen, no snprintf
+	 * sizeof("Location: ") - 1 is a compile-time constant (the literal
+	 * already embeds the trailing space) - no runtime strlen, no snprintf
 	 * format-parser overhead. snprintf is significantly slower than memcpy
 	 * for short strings due to varargs/parser dispatch. */
 	sapi_header_line ctr = { 0 };

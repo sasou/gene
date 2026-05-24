@@ -38,7 +38,7 @@ zend_class_entry *gene_redis_pool_ce;
  * Avoids the RedisPool::getInstance() PHP call (call_user_function + static
  * property read + array hash lookup) on every Redis command. Lifetime is tied
  * to the static instances registry: inserted in create(), cleared in closeAll()
- * and at MSHUTDOWN. Refcount is owned by the static `instances` array. */
+ * and at MSHUTDOWN. Refcount is owned by the static instances array. */
 static HashTable *gene_redis_pool_named_cache = NULL;
 
 static inline zend_object *gene_redis_pool_named_cache_get(zend_string *name) {
@@ -62,7 +62,7 @@ static inline void gene_redis_pool_named_cache_clear(void) {
     }
 }
 
-/* [GENE_PERF:2026-04-27] Resolve a method on the dynamic class of `obj_zv`
+/* [GENE_PERF:2026-04-27] Resolve a method on the dynamic class of obj_zv
  * once per process. Internal classes (Swoole\Coroutine\Channel, Swoole\Atomic,
  * Redis) never reload, so a one-shot lazy cache is safe. */
 #define RPOOL_OBJ_METHOD_CACHED(obj_zv, slot, mname) \
@@ -130,11 +130,10 @@ static void rpool_create_connection(zval *self, zval *retval)
     }
 
     /* Locate the phpredis extension class */
-    static zend_string *redis_cls_str = NULL;
-    if (UNEXPECTED(!redis_cls_str)) {
-        redis_cls_str = zend_string_init_interned(ZEND_STRL("Redis"), 1);
-    }
-    zend_class_entry *redis_cls = zend_lookup_class(redis_cls_str);
+    /* [GENE_FIX:2026-05-24] gene_lookup_class_str avoids the unsafe
+     * static zend_string* + zend_string_init_interned(...,1) pattern that
+     * dangles across requests under opcache.file_cache_only=1. */
+    zend_class_entry *redis_cls = gene_lookup_class_str(ZEND_STRL("Redis"));
 
     if (!redis_cls) {
         php_error_docref(NULL, E_WARNING,
@@ -768,11 +767,10 @@ PHP_METHOD(gene_redis_pool, __construct)
 
     /* Swoole\Atomic for thread-safe connection counting */
     {
-        static zend_string *atomic_str = NULL;
-        if (UNEXPECTED(!atomic_str)) {
-            atomic_str = zend_string_init_interned(ZEND_STRL("Swoole\\Atomic"), 1);
-        }
-        zend_class_entry *atomic_ce = zend_lookup_class(atomic_str);
+        /* [GENE_FIX:2026-05-24] gene_lookup_class_str avoids the unsafe
+         * static zend_string* + zend_string_init_interned(...,1) pattern that
+         * dangles across requests under opcache.file_cache_only=1. */
+        zend_class_entry *atomic_ce = gene_lookup_class_str(ZEND_STRL("Swoole\\Atomic"));
 
         if (atomic_ce) {
             zval atomic_obj, atomic_ret, atomic_param;
@@ -802,11 +800,10 @@ PHP_METHOD(gene_redis_pool, __construct)
 
     /* Swoole\Coroutine\Channel as the idle connection queue */
     {
-        static zend_string *ch_str = NULL;
-        if (UNEXPECTED(!ch_str)) {
-            ch_str = zend_string_init_interned(ZEND_STRL("Swoole\\Coroutine\\Channel"), 1);
-        }
-        zend_class_entry *ch_ce = zend_lookup_class(ch_str);
+        /* [GENE_FIX:2026-05-24] gene_lookup_class_str avoids the unsafe
+         * static zend_string* + zend_string_init_interned(...,1) pattern that
+         * dangles across requests under opcache.file_cache_only=1. */
+        zend_class_entry *ch_ce = gene_lookup_class_str(ZEND_STRL("Swoole\\Coroutine\\Channel"));
 
         if (!ch_ce) {
             php_error_docref(NULL, E_WARNING,

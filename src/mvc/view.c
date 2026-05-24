@@ -50,7 +50,7 @@ static int parser_templates(php_stream **stream, char *compile_path);
 
 /*
  * NOTE(audit 2026-05-04 #9 "视图变量浅拷贝"):
- *   本函数已经是浅拷贝实现。`ZVAL_COPY` 对 refcounted 类型（数组/对象/字符串）
+ *   本函数已经是浅拷贝实现。ZVAL_COPY 对 refcounted 类型（数组/对象/字符串）
  *   仅递增引用计数、对标量直接复制值，不会克隆数组或对象内容。模板在执行过程中
  *   对视图变量的写操作依赖 Zend 的 COW（refcount > 1 时自动分离）保持隔离。
  *
@@ -455,7 +455,9 @@ static int parser_templates(php_stream **stream, char *compile_path) {
 
 	/* [GENE_PERF:2026-05] Cache regex/replace zend_strings as process-lifetime
 	 * statics. Eliminates 56× zend_string_init + 56× zend_string_release per
-	 * template compile. Interned with persistent=1 so they survive RSHUTDOWN. */
+	 * template compile. [GENE_FIX:2026-05-24] gene_interned_str_persistent avoids
+	 * the unsafe zend_string_init_interned(...,1) pattern that dangles across
+	 * requests under opcache.file_cache_only=1. */
 	static zend_string *regex_strs[PARSER_NUMS] = {0};
 	static zend_string *replace_strs[PARSER_NUMS] = {0};
 
@@ -496,8 +498,8 @@ static int parser_templates(php_stream **stream, char *compile_path) {
 			"<?php require $this::containsExt()?>"
 		};
 		for (i = 0; i < PARSER_NUMS; i++) {
-			regex_strs[i] = zend_string_init_interned(regex_raw[i], strlen(regex_raw[i]), 1);
-			replace_strs[i] = zend_string_init_interned(replace_raw[i], strlen(replace_raw[i]), 1);
+			regex_strs[i] = gene_interned_str_persistent(&regex_strs[i], regex_raw[i], strlen(regex_raw[i]));
+			replace_strs[i] = gene_interned_str_persistent(&replace_strs[i], replace_raw[i], strlen(replace_raw[i]));
 		}
 	}
 

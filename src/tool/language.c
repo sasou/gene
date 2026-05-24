@@ -96,10 +96,11 @@ PHP_METHOD(gene_language, __construct) {
 
     /* self::$lang = \Gene\Di::get('lang') ?? 'en'; */
     {
-        static zend_string *lang_key = NULL;
-        if (UNEXPECTED(!lang_key)) {
-            lang_key = zend_string_init_interned(ZEND_STRL("lang"), 1);
-        }
+        /* [GENE_FIX:2026-05-24] gene_interned_str_persistent avoids the unsafe
+         * static zend_string* + zend_string_init_interned(...,1) pattern that
+         * dangles across requests under opcache.file_cache_only=1. */
+        static zend_string *lang_key_slot = NULL;
+        zend_string *lang_key = gene_interned_str_persistent(&lang_key_slot, ZEND_STRL("lang"));
         zval *val = gene_di_get(lang_key);
         if (val && Z_TYPE_P(val) == IS_STRING && Z_STRLEN_P(val) > 0) {
             lang_zv = val;

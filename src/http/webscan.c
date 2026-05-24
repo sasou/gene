@@ -1,4 +1,4 @@
-/*
+﻿/*
  +----------------------------------------------------------------------+
  | gene                                                                 |
  +----------------------------------------------------------------------+
@@ -109,7 +109,7 @@ static void gene_webscan_flatten(zval *value, smart_str *buf)
     zend_string_release(str);
 }
 
-/* [GENE_PERF:2026-05-11 v3] `regex` is a cached interned zend_string produced
+/* [GENE_PERF:2026-05-11 v3] regex is a cached interned zend_string produced
  * by gene_webscan_regex_*_cached(). ZVAL_STR skips refcount traffic for
  * interned strings and zval_ptr_dtor is a safe no-op on them. */
 static int gene_webscan_match_pattern(zend_string *regex, zval *value)
@@ -137,7 +137,7 @@ static int gene_webscan_match_pattern(zend_string *regex, zval *value)
     return matched;
 }
 
-/* [GENE_PERF:2026-05-11 v3] `key` is always IS_STRING at the call sites
+/* [GENE_PERF:2026-05-11 v3] key is always IS_STRING at the call sites
  * (every caller either ZVAL_STR_COPY's a HashTable string key, converts a
  * numeric index via convert_to_string, or ZVAL_STRING's a literal). The prior
  * ZVAL_COPY + convert_to_string pair was pure overhead per scanned value —
