@@ -152,7 +152,7 @@ static const char *gene_log_get_effective_file(void) {
 
 /* {{{ gene_log_get_error_log_fn — look up error_log in current thread's
  * function_table. [GENE_FIX:2026-04-27] Previous version cached the result
- * in a process-wide `static` variable, which is unsafe under ZTS where
+ * in a process-wide static variable, which is unsafe under ZTS where
  * CG(function_table) is per-thread (cross-thread use of stale pointer
  * could crash on module unload / reload). zend_hash_str_find_ptr on a
  * pre-known interned key is cheap; do not cache. */

@@ -276,7 +276,7 @@ static zend_always_inline char *gene_ini_copy_method_lower(const char *src, size
  * [GENE_PERF:2026-04-19 #2] Cache gene_request_ctx() once at entry — the previous
  * code issued ~16 GENE_REQ() expansions per request (each expands to a function call
  * or, in Swoole mode, at least several globals loads + branches). With one local
- * load, the whole routine becomes tight field accesses on `ctx->...`. Safe because
+ * load, the whole routine becomes tight field accesses on ctx->.... Safe because
  * this function never yields (only SAPI globals + strcpy/lowercase).
  * [GENE_PERF:2026-04-20] Fused method copy+lowercase into one pass; populate
  * ctx->method_len and ctx->path_len from leftByChar's return so later dispatch
@@ -364,11 +364,10 @@ static int gene_application_webscan_check()
 	callback = zend_read_static_property(gene_application_ce, ZEND_STRL(GENE_APPLICATION_WEBSCAN_CALLBACK), 1);
 
 	if (UNEXPECTED(!cached_ce)) {
-		static zend_string *ws_key = NULL;
-		if (!ws_key) {
-			ws_key = zend_string_init_interned(ZEND_STRL("Gene\\Webscan"), 1);
-		}
-		webscan_ce = zend_lookup_class(ws_key);
+		/* [GENE_FIX:2026-05-24] gene_lookup_class_str avoids the unsafe
+		 * static zend_string* + zend_string_init_interned(...,1) pattern that
+		 * dangles across requests under opcache.file_cache_only=1. */
+		webscan_ce = gene_lookup_class_str(ZEND_STRL("Gene\\Webscan"));
 		if (!webscan_ce) {
 			php_error_docref(NULL, E_WARNING, "Unable to load security scanner class Gene\\Webscan");
 			return 0;
@@ -1040,10 +1039,11 @@ PHP_METHOD(gene_application, setResponse) {
 		return;
 	}
 	zval *entrys = gene_di_regs();
-	static zend_string *resp_key = NULL;
-	if (UNEXPECTED(!resp_key)) {
-		resp_key = zend_string_init_interned("response", sizeof("response") - 1, 1);
-	}
+	/* [GENE_FIX:2026-05-24] GENE_INTERNED_STR macro avoids the unsafe
+	 * static zend_string* + zend_string_init_interned(...,1) pattern that
+	 * dangles across requests under opcache.file_cache_only=1. */
+	static zend_string *resp_key_slot = NULL;
+	zend_string *resp_key = gene_interned_str_persistent(&resp_key_slot, "response", sizeof("response") - 1);
 	Z_TRY_ADDREF_P(resp);
 	zend_hash_update(Z_ARRVAL_P(entrys), resp_key, resp);
 	RETURN_TRUE;

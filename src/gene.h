@@ -20,7 +20,7 @@
  extern zend_module_entry gene_module_entry;
  #define phpext_gene_ptr &gene_module_entry
  
- #define PHP_GENE_VERSION "5.6.3"
+ #define PHP_GENE_VERSION "5.6.4"
  
  #ifdef PHP_WIN32
  #	define PHP_GENE_API __declspec(dllexport)
@@ -223,7 +223,45 @@ void gene_request_context_pool_drain(void);
  * userland via Application::prewarmCtxPool(). Returns the number of
  * contexts actually added (bounded by ctx_pool_max). */
 zend_long gene_request_context_pool_prewarm(zend_long count);
- 
+
+/* [GENE_FIX:2026-05-24] Cross-request-safe interned string helper.
+ *
+ * Background: zend_string_init_interned(s, l, (permanent)1) returns a
+ * truly process-permanent string ONLY when opcache provides a SHM-backed
+ * permanent table. Under opcache.file_cache_only=1, with opcache disabled,
+ * or in CLI without SHM, the call degrades to a request-scope interned
+ * string (allocated in CG(interned_strings), freed at RSHUTDOWN). Caching
+ * such a pointer in a function-local static zend_string * leaves a
+ * dangling pointer on the very next request, causing garbage ZSTR_LEN reads of
+ * 160 GB+ (e.g. 0x2800000020), leading to fatal allocator errors / SIGSEGV.
+ *
+ * gene_interned_str_persistent() validates IS_STR_PERMANENT before caching
+ * and returns NULL via *slot if the runtime cannot grant a permanent
+ * string, forcing the next call to re-resolve via zend_string_init_interned
+ * (which is a cheap CG(interned_strings) hash hit after the first request).
+ * The returned string is always usable for the duration of the current
+ * request and must NOT be released by the caller. */
+zend_string *gene_interned_str_persistent(zend_string **slot, const char *s, size_t l);
+
+/* Class lookup that never caches a zend_string across requests. Probes
+ * EG(class_table) directly with the lowercased name (PHP stores keys
+ * lowercased), and falls back to zend_lookup_class with a request-scope
+ * zend_string for autoload. Drop-in replacement for the unsafe
+ * static zend_string * + zend_lookup_class pattern. */
+zend_class_entry *gene_lookup_class_str(const char *name, size_t len);
+
+/* Convenience macro mirroring the prior static zend_string *X pattern.
+ * Declares a request-scope variable name that is safe to use across
+ * requests because the underlying cache slot is invalidated whenever the
+ * runtime cannot provide IS_STR_PERMANENT. Usage:
+ *
+ *   GENE_INTERNED_STR(my_key, "Foo");
+ *   zval *v = zend_hash_find(ht, my_key);
+ */
+#define GENE_INTERNED_STR(name, str_lit)                                                            \
+    static zend_string *name##__slot = NULL;                                                        \
+    zend_string *name = gene_interned_str_persistent(&name##__slot, "" str_lit "", sizeof(str_lit) - 1)
+
  #define GENE_REQ(v) (gene_request_ctx()->v)
 
  #endif	/* PHP_GENE_H */

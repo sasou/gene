@@ -407,47 +407,47 @@ ZEND_END_ARG_INFO()
 
  static zend_string *gene_session_method_get(void)
  {
-	static zend_string *method = NULL;
-	if (!method) {
-		method = zend_string_init_interned("get", sizeof("get") - 1, 1);
-	}
-	return method;
+	/* [GENE_FIX:2026-05-24] gene_interned_str_persistent avoids the unsafe
+	 * static zend_string* + zend_string_init_interned(...,1) pattern that
+	 * dangles across requests under opcache.file_cache_only=1. */
+	static zend_string *method_slot = NULL;
+	return gene_interned_str_persistent(&method_slot, "get", sizeof("get") - 1);
  }
 
  static zend_string *gene_session_method_set(void)
  {
-	static zend_string *method = NULL;
-	if (!method) {
-		method = zend_string_init_interned("set", sizeof("set") - 1, 1);
-	}
-	return method;
+	/* [GENE_FIX:2026-05-24] gene_interned_str_persistent avoids the unsafe
+	 * static zend_string* + zend_string_init_interned(...,1) pattern that
+	 * dangles across requests under opcache.file_cache_only=1. */
+	static zend_string *method_slot = NULL;
+	return gene_interned_str_persistent(&method_slot, "set", sizeof("set") - 1);
  }
 
  static zend_string *gene_session_method_delete(void)
  {
-	static zend_string *method = NULL;
-	if (!method) {
-		method = zend_string_init_interned("delete", sizeof("delete") - 1, 1);
-	}
-	return method;
+	/* [GENE_FIX:2026-05-24] gene_interned_str_persistent avoids the unsafe
+	 * static zend_string* + zend_string_init_interned(...,1) pattern that
+	 * dangles across requests under opcache.file_cache_only=1. */
+	static zend_string *method_slot = NULL;
+	return gene_interned_str_persistent(&method_slot, "delete", sizeof("delete") - 1);
  }
 
  static zend_string *gene_session_method_cookie(void)
  {
-	static zend_string *method = NULL;
-	if (!method) {
-		method = zend_string_init_interned("cookie", sizeof("cookie") - 1, 1);
-	}
-	return method;
+	/* [GENE_FIX:2026-05-24] gene_interned_str_persistent avoids the unsafe
+	 * static zend_string* + zend_string_init_interned(...,1) pattern that
+	 * dangles across requests under opcache.file_cache_only=1. */
+	static zend_string *method_slot = NULL;
+	return gene_interned_str_persistent(&method_slot, "cookie", sizeof("cookie") - 1);
  }
 
  static zend_string *gene_session_function_setcookie(void)
  {
-	static zend_string *function_name = NULL;
-	if (!function_name) {
-		function_name = zend_string_init_interned("setcookie", sizeof("setcookie") - 1, 1);
-	}
-	return function_name;
+	/* [GENE_FIX:2026-05-24] gene_interned_str_persistent avoids the unsafe
+	 * static zend_string* + zend_string_init_interned(...,1) pattern that
+	 * dangles across requests under opcache.file_cache_only=1. */
+	static zend_string *function_name_slot = NULL;
+	return gene_interned_str_persistent(&function_name_slot, "setcookie", sizeof("setcookie") - 1);
  }
 
  static zval *gene_session_get_handler(zval *obj)
@@ -643,7 +643,7 @@ void gene_init_ssid(zval *obj) {
 	}
 
 	/* [GENE_FIX:2026-04-27] Defensive type check: user code may have unset
-	 * or overwritten the `name` property with a non-string before construct. */
+	 * or overwritten the name property with a non-string before construct. */
 	if (!name || Z_TYPE_P(name) != IS_STRING || Z_STRLEN_P(name) == 0) {
 		zval hash_val;
 		gene_session_generate_cookie_id(&hash_val, (int)hash_mode);
