@@ -97,8 +97,10 @@ static bool pool_in_coroutine(void)
     static zend_function *fn_getcid = NULL;
     static zend_class_entry *co_ce_cached = NULL;
     if (UNEXPECTED(!fn_getcid)) {
-        zend_string *co_class = zend_string_init_interned(ZEND_STRL("Swoole\\Coroutine"), 1);
-        co_ce_cached = zend_lookup_class(co_class);
+        /* [GENE_FIX:2026-05-25] gene_lookup_class_str keeps the lookup path
+         * free of zend_string_init_interned(...,1). CE pointer itself is safe
+         * to cache (internal class, process-lifetime). */
+        co_ce_cached = gene_lookup_class_str(ZEND_STRL("Swoole\\Coroutine"));
         if (!co_ce_cached) return 0;
         fn_getcid = zend_hash_str_find_ptr(&co_ce_cached->function_table, ZEND_STRL("getCid"));
         if (!fn_getcid) return 0;
@@ -124,8 +126,9 @@ static void pool_stop_timer(zval *self)
         static zend_function *fn_clear = NULL;
         static zend_class_entry *timer_ce_cached = NULL;
         if (UNEXPECTED(!fn_clear)) {
-            zend_string *timer_key = zend_string_init_interned(ZEND_STRL("Swoole\\Timer"), 1);
-            timer_ce_cached = zend_lookup_class(timer_key);
+            /* [GENE_FIX:2026-05-25] gene_lookup_class_str keeps the lookup path
+             * free of zend_string_init_interned(...,1). */
+            timer_ce_cached = gene_lookup_class_str(ZEND_STRL("Swoole\\Timer"));
             if (timer_ce_cached) {
                 fn_clear = zend_hash_str_find_ptr(&timer_ce_cached->function_table, ZEND_STRL("clear"));
             }
@@ -162,8 +165,9 @@ static void pool_start_idle_recycler(zval *self)
     static zend_function *fn_tick = NULL;
     static zend_class_entry *timer_ce_cached = NULL;
     if (UNEXPECTED(!fn_tick)) {
-        zend_string *timer_key = zend_string_init_interned(ZEND_STRL("Swoole\\Timer"), 1);
-        timer_ce_cached = zend_lookup_class(timer_key);
+        /* [GENE_FIX:2026-05-25] gene_lookup_class_str keeps the lookup path
+         * free of zend_string_init_interned(...,1). */
+        timer_ce_cached = gene_lookup_class_str(ZEND_STRL("Swoole\\Timer"));
         if (!timer_ce_cached) return;
         fn_tick = zend_hash_str_find_ptr(&timer_ce_cached->function_table, ZEND_STRL("tick"));
         if (!fn_tick) return;
@@ -309,11 +313,10 @@ static void pool_start_idle_recycler(zval *self)
          return;
      }
 
-     static zend_string *pdo_key = NULL;
-     if (UNEXPECTED(!pdo_key)) {
-         pdo_key = zend_string_init_interned(ZEND_STRL("PDO"), 1);
-     }
-     zend_class_entry *pdo_ce = zend_lookup_class(pdo_key);
+    /* [GENE_FIX:2026-05-24] gene_lookup_class_str avoids the unsafe
+     * static zend_string* + zend_string_init_interned(...,1) pattern that
+     * dangles across requests under opcache.file_cache_only=1. */
+    zend_class_entry *pdo_ce = gene_lookup_class_str(ZEND_STRL("PDO"));
      if (!pdo_ce) {
          return;
      }
@@ -1104,12 +1107,11 @@ PHP_METHOD(gene_pool, get)
      /* Store config */
      zend_update_property(gene_pool_ce, gene_strip_obj(self), ZEND_STRL(GENE_POOL_PROPERTY_CONFIG), config);
 
-     /* Create Swoole\Coroutine\Channel for connection queue */
-     static zend_string *channel_key = NULL;
-     if (UNEXPECTED(!channel_key)) {
-         channel_key = zend_string_init_interned(ZEND_STRL("Swoole\\Coroutine\\Channel"), 1);
-     }
-     zend_class_entry *channel_ce = zend_lookup_class(channel_key);
+    /* Create Swoole\Coroutine\Channel for connection queue */
+    /* [GENE_FIX:2026-05-24] gene_lookup_class_str avoids the unsafe
+     * static zend_string* + zend_string_init_interned(...,1) pattern that
+     * dangles across requests under opcache.file_cache_only=1. */
+    zend_class_entry *channel_ce = gene_lookup_class_str(ZEND_STRL("Swoole\\Coroutine\\Channel"));
      if (channel_ce) {
          zval params[1], ctor_ret;
          ZVAL_LONG(&params[0], max);
@@ -1121,12 +1123,11 @@ PHP_METHOD(gene_pool, get)
          zval_ptr_dtor(&channel);
      }
 
-     /* Create Swoole\Atomic for connection count */
-     static zend_string *atomic_key = NULL;
-     if (UNEXPECTED(!atomic_key)) {
-         atomic_key = zend_string_init_interned(ZEND_STRL("Swoole\\Atomic"), 1);
-     }
-     zend_class_entry *atomic_ce = zend_lookup_class(atomic_key);
+    /* Create Swoole\Atomic for connection count */
+    /* [GENE_FIX:2026-05-24] gene_lookup_class_str avoids the unsafe
+     * static zend_string* + zend_string_init_interned(...,1) pattern that
+     * dangles across requests under opcache.file_cache_only=1. */
+    zend_class_entry *atomic_ce = gene_lookup_class_str(ZEND_STRL("Swoole\\Atomic"));
      if (atomic_ce) {
          zval params[1], ctor_ret;
          ZVAL_LONG(&params[0], 0);

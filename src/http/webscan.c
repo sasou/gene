@@ -30,7 +30,15 @@ static const char *gene_webscan_cookie_filter = "benchmark\\s*?\\(.*\\)|sleep\\s
  * call, which allocated a fresh zend_string per scanned value (2x per key +
  * 2x per flattened body per request in Swoole resident mode). Build them
  * once as interned strings on first Webscan::check() invocation. */
-static zend_string *gene_webscan_build_regex(const char *raw) {
+/* [GENE_FIX:2026-05-24] gene_interned_str_persistent avoids the unsafe
+ * static zend_string* + zend_string_init_interned(...,1) pattern that
+ * dangles across requests under opcache.file_cache_only=1. When the
+ * runtime cannot grant a permanent interned string the slot stays NULL
+ * and the helper returns a request-scope string instead. */
+static zend_string *gene_webscan_build_regex(zend_string **slot, const char *raw) {
+    if (EXPECTED(*slot != NULL)) {
+        return *slot;
+    }
     size_t plen = strlen(raw);
     size_t total = plen + 4; /* "/" + pat + "/" + "i" + "s" */
     char *buf = emalloc(total + 1);
@@ -41,33 +49,24 @@ static zend_string *gene_webscan_build_regex(const char *raw) {
     buf[plen + 2] = 'i';
     buf[plen + 3] = 's';
     buf[total] = '\0';
-    out = zend_string_init_interned(buf, total, 1);
+    out = gene_interned_str_persistent(slot, buf, total);
     efree(buf);
     return out;
 }
 
 static zend_string *gene_webscan_regex_get_cached(void) {
-    static zend_string *cached = NULL;
-    if (UNEXPECTED(!cached)) {
-        cached = gene_webscan_build_regex(gene_webscan_get_filter);
-    }
-    return cached;
+    static zend_string *cached_slot = NULL;
+    return gene_webscan_build_regex(&cached_slot, gene_webscan_get_filter);
 }
 
 static zend_string *gene_webscan_regex_post_cached(void) {
-    static zend_string *cached = NULL;
-    if (UNEXPECTED(!cached)) {
-        cached = gene_webscan_build_regex(gene_webscan_post_filter);
-    }
-    return cached;
+    static zend_string *cached_slot = NULL;
+    return gene_webscan_build_regex(&cached_slot, gene_webscan_post_filter);
 }
 
 static zend_string *gene_webscan_regex_cookie_cached(void) {
-    static zend_string *cached = NULL;
-    if (UNEXPECTED(!cached)) {
-        cached = gene_webscan_build_regex(gene_webscan_cookie_filter);
-    }
-    return cached;
+    static zend_string *cached_slot = NULL;
+    return gene_webscan_build_regex(&cached_slot, gene_webscan_cookie_filter);
 }
 
 ZEND_BEGIN_ARG_INFO_EX(gene_webscan_construct_arginfo, 0, 0, 0)
