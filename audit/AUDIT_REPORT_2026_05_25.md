@@ -19,7 +19,7 @@
 | ctx 结构体池上限 | 不使用（单例 `default_ctx`） | 默认 256 × ~320B ≈ **80KB/worker** |
 | 协程上下文表软上限 | 不适用 | `gene.co_contexts_max` 默认 **1024** |
 | 跨请求悬垂指针 | 5.6.4 已修复 ~73 处 | 同左 |
-| 连接池 | 仅当 `runtime_type >= 2` 且配置 `pool` 键 | Channel + Atomic + Timer |
+| 连接池 | FPM：**不使用**（`runtime_type<2` 时 `gene_pool_get_pdo` 直接返回）；Swoole：`runtime_type>=2` 且配置 `pool` 键 | Channel + Atomic + Timer |
 
 **结论**：Gene 5.6.4 在双运行模式下将「上下文获取」压到亚微秒级；内存策略为「稳态零拷贝 + 病态收敛」；连接池覆盖 TOCTOU、yield 穿透、overflow 自愈与两阶段关停。静态视角下已具备生产高并发部署条件。建议长期监控 `Pool::stats()` 的 `overflow` 与 worker RSS。
 
@@ -27,7 +27,7 @@
 
 ## 1. 运行时分流：`runtime_type` 决定一切
 
-Gene 通过 INI `gene.runtime_type` 在进程启动时一次性选定路径，分流点在 `gene_request_ctx()`（`src/gene.c`）。
+Gene 通过 INI `gene.runtime_type` 或运行期 `Application::setRuntimeType()` 选定路径（须在 workerStart / 首个请求前完成），分流点在 `gene_request_ctx()`（`src/gene.c`）。
 
 ```mermaid
 flowchart TD
@@ -47,6 +47,7 @@ flowchart TD
 | **RINIT** | `gene_request_context_init` 或 `reset`，复用 HashTable |
 | **RSHUTDOWN** | `gene_request_context_destroy` + `gene_request_context_pool_drain` |
 | **fn_cache** | 仅 FPM：RSHUTDOWN 销毁 `fn_cache`，避免路由闭包跨请求残留 |
+| **连接池** | **不使用**；`gene_pool_get_pdo` 在 `runtime_type<2` 时 return 0，每请求新建 PDO |
 
 热路径（`gene_request_ctx` 首分支）：
 
@@ -65,6 +66,7 @@ flowchart TD
 | **三层快路径** | ① `EG(vm_stack)` 与 `current_vm_stack` 相等 → ② `cid == current_cid` 且哈希校验一致 → ③ 查表/分配 |
 | **resident_ctx** | `cid < 0`（如 `onWorkerStart`）使用独立驻留 ctx，不污染 `co_contexts` |
 | **软上限 + sweep** | 元素数 ≥ `co_contexts_max` 时：`Coroutine::exists()` 精确清理；仍超限则按插入序淘汰至 cap 的 75% |
+| **RSHUTDOWN 假设** | 框架假定 Swoole worker **仅在退出时**触发 RSHUTDOWN；每 HTTP 请求 RSHUTDOWN 的环境与常驻模型不兼容 |
 
 **cid 复用安全**（v5.5.8）：仅比较 `current_cid` 不够，必须再探 `co_contexts`，否则 Swoole 复用 cid 会返回已死协程的 ctx。
 
@@ -269,8 +271,8 @@ gene.ctx_pool_prewarm = 256
 ```
 
 ```php
-// onWorkerStart
-\Gene\Application::getInstance()->prewarmCtxPool();
+// onWorkerStart — workerReady() 已自动 prewarm ctx 池（v5.5.8+），prewarmCtxPool() 可选
+\Gene\Application::getInstance()->workerReady();
 
 // onWorkerExit
 \Gene\Pool::stopTimers();
@@ -286,7 +288,7 @@ gene.ctx_pool_prewarm = 256
 | 参数 | 默认 | 推荐 | 说明 |
 |---|---|---|---|
 | min | 1 | ≈ worker 常驻协程数 / 2 | 过高浪费连接；过低冷启抖动 |
-| max | 64 | 下游可承受并发 / worker 数 | 超出触发 overflow |
+| max | PDO 64 / Redis 构造默认 64（`rpool_get_max` 属性缺失时 fallback **10**） | 下游可承受并发 / worker 数 | 超出会触发 overflow 通知 |
 | idleTimeout | 60s | 60–300s | timer 周期 = idleTimeout/2，最低 1s |
 | waitTimeout | 3.0s | 0.5–2.0s | 宁可 overflow，少阻塞协程 |
 
@@ -303,7 +305,8 @@ Gene 5.6.4 在 **FPM** 与 **Swoole** 双模式下：
 **建议长期指标**：
 
 - `Gene\Pool::stats()` / `RedisPool::stats()` 中 `overflow` 持续 > 0 → 调高 `max` 或优化持有时间
-- worker RSS 与 `ctx_pool_size`、`co_contexts` 元素数的相关性
+- `Gene\Memory::stats()` 中 `co_contexts_items`、`ctx_pool_size`、`fn_cache_items`
+- worker 进程常驻 RSS 与上述指标的相关性；RSS 漂移优先排查 **业务侧 static/global**
 
 ---
 
@@ -316,6 +319,51 @@ Gene 5.6.4 在 **FPM** 与 **Swoole** 双模式下：
 | `src/db/pool.c` | PDO 连接池、named_cache、get/put/closeAll |
 | `src/cache/redis_pool.c` | Redis 连接池（对称实现） |
 | `audit/AUDIT_REPORT_2026_05_24.md` | 悬垂指针专项审计 |
+| `demo/public/swoole.php` | Swoole 部署参考（`workerReady` 自动 prewarm，无单独 `prewarmCtxPool`） |
+
+---
+
+## 9. 分析差异汇总
+
+本节汇总 **本报告**、**二次架构探索**（子代理只读分析）、**Canvas 可视化摘要**、**历史审计/CHANGELOG** 之间的不一致结论，并以当前源码（5.6.4）为最终裁决依据。
+
+### 9.1 差异对照表
+
+| 议题 | 本报告 / Canvas | 二次探索 / 历史审计 | 源码裁决（5.6.4） |
+|---|---|---|---|
+| **`co_contexts_max` 默认值** | 1024；注释称 8192 为旧值 | CHANGELOG v5.5.x 引入时记 **8192**；`AUDIT_2026_05_10_v2` 记 v5.4.x 下调至 1024 | **1024**：`PHP_INI` 注册 `"1024"`（`src/gene.c:75`）；sweep fallback 硬编码 1024（`:584`）；函数注释仍写 `default 8192`（`:555`，**注释过时**） |
+| **`runtime_type` 设定时机** | §1 写「进程启动 / MINIT 一次性选定」 | demo 在 Swoole `Server` 创建前调用 `setRuntimeType('swoole')` | INI 在 MINIT 加载；**运行期仍可** `Application::setRuntimeType()` 改写（须在首个请求 / workerStart 业务前完成）。写「仅 MINIT」不准确 |
+| **ctx 池 prewarm 是否必做** | §6.2 示例同时写 `prewarmCtxPool()` + `workerReady()` | `demo/public/swoole.php` **只调** `workerReady()` | v5.5.8+：`workerReady()` 在 `runtime_type>=2` 且 `ctx_pool_size==0` 时**自动** `prewarm(-1)`（`application.c:1315-1316`）。显式 `prewarmCtxPool()` / INI `ctx_pool_prewarm` 为**可选**增强，非部署必选项 |
+| **FPM 是否使用连接池** | §执行摘要仅写「runtime>=2 且配置 pool 键」 | 明确：**FPM 无连接池**，每请求新建 PDO | `gene_pool_get_pdo` / `gene_redis_pool_get` 在 `runtime_type < 2` 时 **return 0**（`pool.c:1337`、`redis_pool.c:1490`）。FPM 瓶颈含 **TCP+认证 RTT**，非框架 C 层可消 |
+| **Swoole 下 RSHUTDOWN 频率** | §1.1/§1.2 描述 RSHUTDOWN 清理，未强调触发频率 | 框架假设：RSHUTDOWN **仅在 worker 退出**触发，非每 HTTP 请求 | `php_gene_close_request_globals()` 会销毁 `co_contexts`、释放 `app_root` 等（`gene.c:755-810`）。若 Swoole/PHP 配置导致**每请求 RSHUTDOWN**，将与常驻 worker 模型冲突 — **环境依赖风险**，本报告初版未单列 |
+| **Redis 池 `max` 默认值** | §6.3 与 PDO 并列写默认 **64** | 同左 | `__construct` 默认 `max_val=64`（`redis_pool.c:745`）；`rpool_get_max()` 在属性缺失时 fallback **10**（`:453`）。正常 `create()` 路径为 64；**仅异常/残缺对象**才落到 10 |
+| **`named_cache` MSHUTDOWN** | §3.5：`closeAll()` + MSHUTDOWN 清理 | 子代理建议「改 pemalloc」；`pool.c:47` 注释写「无 MSHUTDOWN handler」 | **已实现**：`GENE_MSHUTDOWN_FUNCTION(pool/redis_pool)` 均调 `*_named_cache_clear()`（`pool.c:1483-1485`、`redis_pool.c:1671-1673`）。`pool.c` 顶部 AUDIT 注释**过时**；子代理 pemalloc 建议为可选增强，非当前缺陷 |
+| **`cleanup()` 语义** | §1.2 隐含「请求结束清理」 | 描述为 clearState + destroyContext **三阶段** | 实际：`cleanup()` 直接 `zend_hash_index_del(co_contexts, cid)` → `gene_co_context_dtor` → `destroy` + `pool_release`（`application.c:954-1000`、`gene.c:479-493`）。**无**先调 `clearState()` 的独立阶段；与 `destroyContext()` 效果等价 + 可选 `gc_collect_cycles()` |
+| **性能量化（QPS）** | 本报告：**非压测**，无 QPS 数字 | 引用 README：FPM ~15k、Swoole ~47k QPS vs 原生 | 属**参考基准**，非本次静态审计实测；环境/硬件/业务差异大，**不宜写入本报告结论** |
+| **FPM 优化空间判断** | 强调 ctx 零分配、路由缓存等 C 层成果 | `AUDIT_2026_05_05`：FPM C 层**已无显著优化空间**；瓶颈在进程模型与 I/O | **视角差异**：框架内优化到位，**整体 QPS 仍受 PHP-FPM 架构约束**；两者不矛盾 |
+| **RSS 增长主因** | 聚焦框架内三道护栏（path_params / ctx_pool / co_contexts） | 子代理：**userland 静态变量 / 全局状态**是最常见长跑 RSS 源 | 框架侧有界；生产 RSS 漂移应**先查业务静态/global**，再查 `Memory::stats()` 与连接池 overflow |
+| **长期监控指标** | §7：`Pool::stats()['overflow']`、worker RSS | 子代理追加 `Memory::stats()`（`co_contexts_items`、`ctx_pool_size`、`fn_cache_items`） | 建议**合并监控**：连接池 overflow + `Memory::stats()` + 进程 RSS |
+| **未实现改进项** | §5 风险表部分覆盖 | 子代理列 5 项：Swoole RSHUTDOWN 守卫、fn_cache LRU、overflow 硬熔断、named_cache pemalloc、file_cache_only 压测回归 | 均为**可选演进**，非 5.6.4 已知 Bug；纳入差异记录供后续版本评估 |
+
+### 9.2 本报告初版需修正的表述
+
+结合上表，对本文档既有章节作如下勘误（正文已在下方小节同步修订）：
+
+1. **§1**：`runtime_type` 由 INI **或** `setRuntimeType()` 设定，不限于 MINIT。
+2. **§6.2**：`workerReady()` 已含 ctx 池自动 prewarm；`prewarmCtxPool()` 改为可选。
+3. **§执行摘要 / §3**：补充 FPM **不使用** DB/Redis 连接池的明确说明。
+4. **§6.3**：注明 Redis `rpool_get_max()` fallback=10 与构造默认 64 的差异。
+
+### 9.3 分析来源与可信度
+
+| 来源 | 范围 | 与本报告关系 |
+|---|---|---|
+| 本报告（§1–§8） | `gene.c`、`pool.c`、`redis_pool.c` 静态审计 | 主文档 |
+| 二次架构探索 | 全仓只读 + demo 入口 + 历史 audit 交叉 | 补充生命周期、FPM 固有限制、监控项 |
+| Canvas 摘要 | 本报告可视化版 | 与初版 §6.2 prewarm 示例一致；**未**反映 workerReady 自动 prewarm |
+| CHANGELOG / AUDIT_2026_05_05 / _05_10_v2 | 版本演进与评分 | `co_contexts_max` 8192→1024 变更链；FPM A+ 评分语境 |
+
+**统一结论**：5.6.4 在 C 层双模式分流、连接池并发协议、跨请求悬垂修复上**各来源一致**；差异主要集中在 **默认值文档滞后**、**部署示例过时**、**FPM/Swoole 能力边界表述粒度**、以及 **是否收录参考 QPS** 四类，不影响「生产可部署」的总体判断。
 
 ---
 
@@ -324,3 +372,4 @@ Gene 5.6.4 在 **FPM** 与 **Swoole** 双模式下：
 | 日期 | 说明 |
 |---|---|
 | 2026-05-25 | 初版：FPM/Swoole 高并发与内存静态审计 |
+| 2026-05-25 | 增补 §9 分析差异汇总；勘误 runtime_type 设定、prewarm 推荐、FPM 无连接池、Redis max fallback |
