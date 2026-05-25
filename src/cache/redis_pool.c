@@ -652,8 +652,11 @@ static void rpool_start_idle_recycler(zval *self)
     static zend_function *fn_tick = NULL;
     static zend_class_entry *timer_ce_cached = NULL;
     if (UNEXPECTED(!fn_tick)) {
-        zend_string *timer_key = zend_string_init_interned(ZEND_STRL("Swoole\\Timer"), 1);
-        timer_ce_cached = zend_lookup_class(timer_key);
+        /* [GENE_FIX:2026-05-25] gene_lookup_class_str keeps the lookup path
+         * free of zend_string_init_interned(...,1), matching the rest of
+         * the codebase post 2026-05-24 audit. CE pointer itself is safe
+         * to cache (internal class, process-lifetime). */
+        timer_ce_cached = gene_lookup_class_str(ZEND_STRL("Swoole\\Timer"));
         if (!timer_ce_cached) return;
         fn_tick = zend_hash_str_find_ptr(&timer_ce_cached->function_table, ZEND_STRL("tick"));
         if (!fn_tick) return;
@@ -696,8 +699,9 @@ static void rpool_stop_timer(zval *self)
         static zend_function *fn_clear = NULL;
         static zend_class_entry *timer_ce_cached = NULL;
         if (UNEXPECTED(!fn_clear)) {
-            zend_string *timer_key = zend_string_init_interned(ZEND_STRL("Swoole\\Timer"), 1);
-            timer_ce_cached = zend_lookup_class(timer_key);
+            /* [GENE_FIX:2026-05-25] gene_lookup_class_str keeps the lookup path
+             * free of zend_string_init_interned(...,1). */
+            timer_ce_cached = gene_lookup_class_str(ZEND_STRL("Swoole\\Timer"));
             if (timer_ce_cached) {
                 fn_clear = zend_hash_str_find_ptr(&timer_ce_cached->function_table, ZEND_STRL("clear"));
             }
