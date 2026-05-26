@@ -60,7 +60,7 @@ $http->on("workerStop", function ($server, $workerId) {
 $http->on("request", function ($request, $response) {
     // 先等待 workerStart 初始化完成，避免首批请求过早进入 run() 导致异常
     \Gene\Application::waitWorkerReady();
-    \Gene\Request::init($request->get, $request->post, $request->cookie, $request->server, null, $request->files, null, $request->header);
+    \Gene\Request::init($request->get, $request->post, $request->cookie, $request->server, null, $request->files, null, $request->header,  $request->rawContent());
     \Gene\Application::setResponse($response);
 
     ob_start();
