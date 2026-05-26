@@ -203,8 +203,30 @@ class Request
     }
 
     /**
+     * rawContent
+     * 获取原始HTTP请求体内容
+     * - Swoole模式：从 Request::init() 的 $rawContent 参数获取
+     * - FPM/CLI/CGI模式：按需从 php://input 读取并缓存
+     *
+     * @return string
+     */
+    public static function rawContent() {
+
+    }
+
+    /**
+     * getContent
+     * rawContent 的别名
+     *
+     * @return string
+     */
+    public static function getContent() {
+
+    }
+
+    /**
      * init
-     * 
+     *
      * 初始化请求数据（Swoole模式下替代PHP超全局变量）
      * 当 $request 参数未传入时，自动合并 $get 和 $post 生成 request 数据（类似 $_REQUEST）
      * server 数据的 key 会自动生成大写副本（如 request_method → REQUEST_METHOD）
@@ -216,9 +238,11 @@ class Request
      * @param array|null $env 环境变量
      * @param array|null $files 上传文件
      * @param array|null $request Request参数（未传入则自动合并GET+POST）
+     * @param array|null $header HTTP请求头
+     * @param string|null $rawContent 原始请求体内容（Swoole模式）
      * @return bool
      */
-    public static function init($get = null, $post = null, $cookie = null, $server = null, $env = null, $files = null, $request = null) {
+    public static function init($get = null, $post = null, $cookie = null, $server = null, $env = null, $files = null, $request = null, $header = null, $rawContent = null) {
 
     }
 

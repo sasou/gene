@@ -45,4 +45,6 @@ return $this->data($rows, $count);
 
 - FPM：`Application::getInstance()->autoload(APP_ROOT)->load(...)->setMode(1,1)->run()`
 - CLI：`->run('get', $path)`
-- Swoole：每请求 `Request::init` → `run()` → `Application::cleanup()`
+- Swoole：每请求 `Request::init($get, $post, $cookie, $server, null, $files, null, $header, $rawContent)` → `run()` → `Application::cleanup()`
+  - `$rawContent` 来自 `$request->rawContent()` 用于获取原始请求体（JSON/XML等）
+  - 使用 `Request::rawContent()` 或 `Request::getContent()` 获取缓存的原始请求体
