@@ -44,7 +44,7 @@ static zval *gene_request_attr(void) {
 		 * Pre-size the HashTable to 8 so the first burst of getVal()/setVal()
 		 * calls don't trigger rehashes (prior default init grew 0→8→... on
 		 * first insert). One-time cost: a handful of extra bucket slots. */
-		array_init_size(&ctx->request_attr, 8);
+		array_init_size(&ctx->request_attr, 9);
 	}
 	return &ctx->request_attr;
 }
@@ -128,6 +128,7 @@ ZEND_BEGIN_ARG_INFO_EX(gene_request_init_arginfo, 0, 0, 0)
 	ZEND_ARG_INFO(0, files)
 	ZEND_ARG_INFO(0, request)
 	ZEND_ARG_INFO(0, header)
+	ZEND_ARG_INFO(0, rawContent)
 ZEND_END_ARG_INFO()
 
 ZEND_BEGIN_ARG_INFO_EX(gene_request_get_arginfo, 0, 0, 1)
@@ -453,9 +454,12 @@ PHP_METHOD(gene_request, params) {
  * {{{ public gene_request::init($get, $post, $cookie, $server, $env, $files, $request)
  */
 PHP_METHOD(gene_request, init) {
-	zval *get = NULL, *post = NULL, *cookie = NULL, *server = NULL, *env = NULL, *files = NULL, *request = NULL, *header = NULL;
-	if (zend_parse_parameters(ZEND_NUM_ARGS(), "|zzzzzzzz", &get, &post, &cookie, &server, &env, &files, &request, &header) == FAILURE) {
+	zval *get = NULL, *post = NULL, *cookie = NULL, *server = NULL, *env = NULL, *files = NULL, *request = NULL, *header = NULL, *raw_content = NULL;
+	if (zend_parse_parameters(ZEND_NUM_ARGS(), "|zzzzzzzzz", &get, &post, &cookie, &server, &env, &files, &request, &header, &raw_content) == FAILURE) {
 		return;
+	}
+	if (raw_content && Z_TYPE_P(raw_content) == IS_STRING) {
+		setVal(8, raw_content);
 	}
 	if (post && Z_TYPE_P(post) == IS_ARRAY) {
 		setVal(0, post);
@@ -556,6 +560,40 @@ PHP_METHOD(gene_request, _set) {
 
 
 /*
+ * {{{ public gene_request::rawContent()
+ * Return the raw HTTP request body.
+ *  - Swoole: returned from index 8 set via Request::init($..., $rawContent).
+ *  - FPM/CLI/CGI: read on-demand from php://input and cached at index 8.
+ */
+PHP_METHOD(gene_request, rawContent) {
+	zval *cached = getVal(8, NULL, 0);
+	php_stream *stream;
+	zend_string *contents;
+
+	if (cached && Z_TYPE_P(cached) == IS_STRING) {
+		RETURN_ZVAL(cached, 1, 0);
+	}
+
+	stream = php_stream_open_wrapper("php://input", "rb", 0, NULL);
+	if (!stream) {
+		RETURN_EMPTY_STRING();
+	}
+	contents = php_stream_copy_to_mem(stream, PHP_STREAM_COPY_ALL, 0);
+	php_stream_close(stream);
+	if (!contents) {
+		RETURN_EMPTY_STRING();
+	}
+	{
+		zval tmp;
+		ZVAL_STR(&tmp, contents);
+		setVal(8, &tmp);
+		zval_ptr_dtor(&tmp);
+	}
+	RETURN_STR_COPY(contents);
+}
+/* }}} */
+
+/*
  * {{{ public gene_request::clear()
  */
 PHP_METHOD(gene_request, clear) {
@@ -592,6 +630,8 @@ const zend_function_entry gene_request_methods[] = {
 	PHP_ME(gene_request, isCli, geme_request_void_arginfo, ZEND_ACC_PUBLIC|ZEND_ACC_STATIC)
 	PHP_ME(gene_request, init, gene_request_init_arginfo, ZEND_ACC_PUBLIC|ZEND_ACC_STATIC)
 	PHP_ME(gene_request, clear, geme_request_void_arginfo, ZEND_ACC_PUBLIC|ZEND_ACC_STATIC)
+	PHP_ME(gene_request, rawContent, geme_request_void_arginfo, ZEND_ACC_PUBLIC|ZEND_ACC_STATIC)
+	PHP_MALIAS(gene_request, getContent, rawContent, geme_request_void_arginfo, ZEND_ACC_PUBLIC|ZEND_ACC_STATIC)
 	PHP_MALIAS(gene_request, __set, _set, gene_request_set_arginfo, ZEND_ACC_PUBLIC)
 	PHP_MALIAS(gene_request, __get, _get, gene_request_get_arginfo, ZEND_ACC_PUBLIC)
 	{ NULL, NULL, NULL }
