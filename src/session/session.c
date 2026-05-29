@@ -129,7 +129,12 @@ static zend_string *gene_session_method_delete(void);
 		gene_data_load(obj);
 		sess = zend_read_property(gene_session_ce, gene_strip_obj(obj), ZEND_STRL(GENE_SESSION_DATA), 1, NULL);
 	}
-	gene_session_auto_cookie(obj);
+	/* [GENE_PERF:2026-05-29] Pure reads (get/has) must NOT emit a Set-Cookie.
+	 * Cookie emission belongs to the write lifecycle: set/del/setSessionId
+	 * each call gene_session_auto_cookie() after gene_session_mark_dirty(),
+	 * and the stime/uptime refresh in get() routes through gene_data_save().
+	 * Keeping it here only burned 3 property reads per read and could plant a
+	 * throwaway SSID on read-only access to a brand-new session. */
 	return sess;
  }
 
