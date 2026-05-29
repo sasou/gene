@@ -30,22 +30,37 @@
 
 void gene_quote_identifier(smart_str *dest, const char *name, size_t len, char oq, char cq) /*{{{*/
 {
-	smart_str_appendl(dest, name, len);
+	size_t i;
+	smart_str_appendc(dest, oq);
+	for (i = 0; i < len; i++) {
+		if (name[i] == cq) smart_str_appendc(dest, cq);
+		smart_str_appendc(dest, name[i]);
+	}
+	smart_str_appendc(dest, cq);
 }/*}}}*/
+
+static char *gene_quote_name(const char *name, char oq, char cq) {
+	size_t i, j = 0, len = strlen(name);
+	char *r = (char *) emalloc(len * 2 + 3);
+	r[j++] = oq;
+	for (i = 0; i < len; i++) { if (name[i] == cq) r[j++] = cq; r[j++] = name[i]; }
+	r[j++] = cq; r[j] = '\0';
+	return r;
+}
 
 char *gene_quote_table(const char *name, char oq, char cq) /*{{{*/
 {
-	return str_init(name);
+	return gene_quote_name(name, oq, cq);
 }/*}}}*/
 
 char *gene_quote_columns(const char *name, char oq, char cq) /*{{{*/
 {
-	return str_init(name);
+	return gene_quote_name(name, oq, cq);
 }/*}}}*/
 
 char *gene_quote_order(const char *name, char oq, char cq) /*{{{*/
 {
-	return str_init(name);
+	return gene_quote_name(name, oq, cq);
 }/*}}}*/
 
 void array_to_string(zval *array, char **result, char oq, char cq)
