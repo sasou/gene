@@ -19,6 +19,7 @@
 #endif
 
 #include "php.h"
+#include "main/SAPI.h"
 #include "ext/session/php_session.h"
 #include "ext/standard/md5.h"
 #include <time.h>
