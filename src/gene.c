@@ -70,6 +70,7 @@ STD_PHP_INI_ENTRY("gene.run_environment", "1", PHP_INI_SYSTEM, OnUpdateLong, run
 STD_PHP_INI_ENTRY("gene.runtime_type", "1", PHP_INI_SYSTEM, OnUpdateLong, runtime_type, zend_gene_globals, gene_globals) // @suppress("Symbol is not resolved")
 STD_PHP_INI_BOOLEAN("gene.use_namespace", "1", PHP_INI_SYSTEM, OnUpdateBool, use_namespace, zend_gene_globals, gene_globals) // @suppress("Symbol is not resolved")
 STD_PHP_INI_BOOLEAN("gene.view_compile", "0", PHP_INI_SYSTEM, OnUpdateBool, view_compile, zend_gene_globals, gene_globals) // @suppress("Symbol is not resolved")
+STD_PHP_INI_BOOLEAN("gene.view_compile_check_mtime", "0", PHP_INI_SYSTEM, OnUpdateBool, view_compile_check_mtime, zend_gene_globals, gene_globals) // @suppress("Symbol is not resolved")
 STD_PHP_INI_BOOLEAN("gene.use_library", "0", PHP_INI_SYSTEM, OnUpdateBool, use_library, zend_gene_globals, gene_globals) // @suppress("Symbol is not resolved")
 STD_PHP_INI_ENTRY("gene.library_root", "", PHP_INI_SYSTEM, OnUpdateString, library_root, zend_gene_globals, gene_globals) // @suppress("Symbol is not resolved")
 STD_PHP_INI_ENTRY("gene.co_contexts_max", "1024", PHP_INI_SYSTEM, OnUpdateLong, co_contexts_max, zend_gene_globals, gene_globals) // @suppress("Symbol is not resolved")
@@ -829,6 +830,7 @@ PHP_GINIT_FUNCTION(gene) {
 	gene_globals->runtime_type = 1;
 	gene_globals->use_namespace = 1;
 	gene_globals->view_compile = 0;
+	gene_globals->view_compile_check_mtime = 0;
 	gene_globals->use_library = 0;
 }
 /* }}} */

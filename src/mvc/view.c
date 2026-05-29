@@ -48,6 +48,33 @@ static char *gene_view_app_base_path() {
 static int check_folder_exists(char *fullpath);
 static int parser_templates(php_stream **stream, char *compile_path);
 
+/* [GENE_PERF:2026-05-29 §3.1] When gene.view_compile_check_mtime is enabled,
+ * skip recompilation if the compiled output already exists and is at least as
+ * new as the source template. Returns 1 if a (re)compile is required, 0 if the
+ * existing compiled file is up to date. When the INI flag is off, always
+ * returns 1 to preserve the legacy every-request recompile behavior. */
+static int view_compile_needs_rebuild(const char *src_path, const char *compile_path) {
+	php_stream_statbuf src_ssb, dst_ssb;
+
+	if (!GENE_G(view_compile_check_mtime)) {
+		return 1;
+	}
+	/* Compiled file missing -> must compile. */
+	if (php_stream_stat_path((char *) compile_path, &dst_ssb) != SUCCESS) {
+		return 1;
+	}
+	/* Source missing/unstattable -> fall back to recompile (source open will
+	 * surface the real error downstream). */
+	if (php_stream_stat_path((char *) src_path, &src_ssb) != SUCCESS) {
+		return 1;
+	}
+	/* Recompile only when the source is strictly newer than the compiled file. */
+	if (src_ssb.sb.st_mtime > dst_ssb.sb.st_mtime) {
+		return 1;
+	}
+	return 0;
+}
+
 /*
  * NOTE(audit 2026-05-04 #9 "视图变量浅拷贝"):
  *   本函数已经是浅拷贝实现。ZVAL_COPY 对 refcounted 类型（数组/对象/字符串）
@@ -252,22 +279,26 @@ void gene_view_contains_ext(char *file, bool isCompile, zval *ret) {
 			}
 			snprintf(path, path_len + 1, "app/%s/%s%s", GENE_VIEW_VIEW, file, GENE_VIEW_EXT);
 		}
-		stream = php_stream_open_wrapper(path, "rb", REPORT_ERRORS, NULL);
-		if (stream == NULL) {
-			zend_error(E_WARNING, "%s does not read able", path);
-			if (path_heap) {
-				efree(path);
+		if (view_compile_needs_rebuild(path, compile_path)) {
+			stream = php_stream_open_wrapper(path, "rb", REPORT_ERRORS, NULL);
+			if (stream == NULL) {
+				zend_error(E_WARNING, "%s does not read able", path);
+				if (path_heap) {
+					efree(path);
+				}
+			} else {
+				if (path_heap) {
+					efree(path);
+				}
+				cpath = estrndup(compile_path, compile_path_len);
+				php_dirname(cpath, compile_path_len);
+				check_folder_exists(cpath);
+				efree(cpath);
+				parser_templates(&stream, compile_path);
+				php_stream_close(stream);
 			}
-		} else {
-			if (path_heap) {
-				efree(path);
-			}
-			cpath = estrndup(compile_path, compile_path_len);
-			php_dirname(cpath, compile_path_len);
-			check_folder_exists(cpath);
-			efree(cpath);
-			parser_templates(&stream, compile_path);
-			php_stream_close(stream);
+		} else if (path_heap) {
+			efree(path);
 		}
 	}
 	ZVAL_STRING(ret, compile_path);
@@ -400,22 +431,26 @@ int gene_view_display_ext(char *file, bool isCompile, zval *obj, zend_array *sym
 			}
 			snprintf(path, path_len + 1, "app/%s/%s%s", GENE_VIEW_VIEW, file, GENE_VIEW_EXT);
 		}
-		stream = php_stream_open_wrapper(path, "rb", REPORT_ERRORS, NULL);
-		if (stream == NULL) {
-			zend_error(E_WARNING, "%s does not read able", path);
-			if (path_heap) {
-				efree(path);
+		if (view_compile_needs_rebuild(path, compile_path)) {
+			stream = php_stream_open_wrapper(path, "rb", REPORT_ERRORS, NULL);
+			if (stream == NULL) {
+				zend_error(E_WARNING, "%s does not read able", path);
+				if (path_heap) {
+					efree(path);
+				}
+			} else {
+				if (path_heap) {
+					efree(path);
+				}
+				cpath = estrndup(compile_path, compile_path_len);
+				php_dirname(cpath, compile_path_len);
+				check_folder_exists(cpath);
+				efree(cpath);
+				parser_templates(&stream, compile_path);
+				php_stream_close(stream);
 			}
-		} else {
-			if (path_heap) {
-				efree(path);
-			}
-			cpath = estrndup(compile_path, compile_path_len);
-			php_dirname(cpath, compile_path_len);
-			check_folder_exists(cpath);
-			efree(cpath);
-			parser_templates(&stream, compile_path);
-			php_stream_close(stream);
+		} else if (path_heap) {
+			efree(path);
 		}
 	}
 	if(!gene_load_import(compile_path, obj, symbol_table)) {
