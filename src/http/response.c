@@ -271,6 +271,15 @@ void gene_response_cookie(zval *name, zval *value, zval *expires, zval *path, zv
 		if (retval) ZVAL_FALSE(retval);
 		return;
 	}
+	/* [GENE_FIX:2026-05-29] Swoole has no PHP header layer; setcookie() is a
+	 * no-op / warning source when Response was not bound or was already cleared
+	 * (e.g. Application::cleanup() before Session __destruct). */
+	if (GENE_G(runtime_type) >= 2) {
+		if (retval) {
+			ZVAL_FALSE(retval);
+		}
+		return;
+	}
     /* [GENE_FIX:2026-04-27] Per-call lookup (CG(function_table) is per-thread
      * under ZTS) + NULL guard: setcookie may be disabled / unavailable, and
      * zend_call_known_function dereferences fn without checking. */

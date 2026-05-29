@@ -593,27 +593,23 @@ void gene_cookie(zval *self) /*{{{*/
 	}
 	ZVAL_LONG(&times, jg);
 
-	if (GENE_G(runtime_type) >= 2) {
-		zval *swoole_resp = gene_response_context_obj();
-		if (swoole_resp && Z_TYPE_P(swoole_resp) == IS_OBJECT) {
-			zval ret;
-			zval params[] = { *name, *cookie_id, times, *path, *domain, *secure, *httponly };
-			ZVAL_UNDEF(&ret);
-			gene_session_call_method(swoole_resp, gene_session_method_cookie(), 7, params, &ret);
-			if (!Z_ISUNDEF(ret)) {
-				zval_ptr_dtor(&ret);
-			}
-			gene_session_mark_cookie_sent(self);
+	/* [GENE_FIX:2026-05-29] Route cookie output through gene_response_cookie()
+	 * (Swoole Response::cookie or FPM setcookie). Without a bound Response in
+	 * Swoole mode, skip silently — do not fall back to setcookie() or mark sent. */
+	if (GENE_G(runtime_type) >= 2 && !gene_response_context_obj()) {
+		return;
+	}
+	{
+		zval ret;
+		ZVAL_UNDEF(&ret);
+		gene_response_cookie(name, cookie_id, &times, path, domain, secure, httponly, &ret);
+		if (Z_TYPE(ret) == IS_FALSE) {
+			zval_ptr_dtor(&ret);
 			return;
 		}
-	}
-
-	zval params[] = { *name,*cookie_id,times,*path,*domain,*secure,*httponly };
-	zval ret;
-	ZVAL_UNDEF(&ret);
-	gene_session_call_setcookie(7, params, &ret);
-	if (!Z_ISUNDEF(ret)) {
-		zval_ptr_dtor(&ret);
+		if (!Z_ISUNDEF(ret)) {
+			zval_ptr_dtor(&ret);
+		}
 	}
 	gene_session_mark_cookie_sent(self);
 }/*}}}*/
@@ -640,27 +636,20 @@ void gene_set_cookie(zval *self, zval *name, zval *value, zval *time) /*{{{*/
 		return;
 	}
 
-	if (GENE_G(runtime_type) >= 2) {
-		zval *swoole_resp = gene_response_context_obj();
-		if (swoole_resp && Z_TYPE_P(swoole_resp) == IS_OBJECT) {
-			zval ret;
-			zval params[] = { *name, *value, *time, *path, *domain, *secure, *httponly };
-			ZVAL_UNDEF(&ret);
-			gene_session_call_method(swoole_resp, gene_session_method_cookie(), 7, params, &ret);
-			if (!Z_ISUNDEF(ret)) {
-				zval_ptr_dtor(&ret);
-			}
-			gene_session_mark_cookie_sent(self);
+	if (GENE_G(runtime_type) >= 2 && !gene_response_context_obj()) {
+		return;
+	}
+	{
+		zval ret;
+		ZVAL_UNDEF(&ret);
+		gene_response_cookie(name, value, time, path, domain, secure, httponly, &ret);
+		if (Z_TYPE(ret) == IS_FALSE) {
+			zval_ptr_dtor(&ret);
 			return;
 		}
-	}
-
-	zval params[] = { *name,*value,*time,*path,*domain,*secure,*httponly };
-	zval ret;
-	ZVAL_UNDEF(&ret);
-	gene_session_call_setcookie(7, params, &ret);
-	if (!Z_ISUNDEF(ret)) {
-		zval_ptr_dtor(&ret);
+		if (!Z_ISUNDEF(ret)) {
+			zval_ptr_dtor(&ret);
+		}
 	}
 	gene_session_mark_cookie_sent(self);
 }/*}}}*/
