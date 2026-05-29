@@ -45,7 +45,7 @@ class Session
 
     /**
      * save
-     * 将 Session 数据持久化到存储驱动并刷新 Cookie
+     * 将 Session 数据持久化到存储驱动；若 Cookie 尚未下发则一并刷新
      *
      * @return static
      */
@@ -54,6 +54,7 @@ class Session
     /**
      * get
      * 获取 Session 值，支持点号路径（如 "user.id"）
+     * 新 Session 首次访问时会自动下发 SSID Cookie
      *
      * @param string|null $name 键名，不传则返回全部数据
      * @return mixed
@@ -62,7 +63,8 @@ class Session
 
     /**
      * set
-     * 设置 Session 值，支持点号路径（如 "user.id"），自动持久化
+     * 设置 Session 值，支持点号路径（如 "user.id"）
+     * 数据变更后自动下发/刷新 SSID Cookie；请求结束时会自动写回存储
      *
      * @param string $name 键名（支持点号路径）
      * @param mixed $value 值
