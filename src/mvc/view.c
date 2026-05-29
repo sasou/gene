@@ -460,6 +460,19 @@ static int parser_templates(php_stream **stream, char *compile_path) {
 	 * requests under opcache.file_cache_only=1. */
 	static zend_string *regex_strs[PARSER_NUMS] = {0};
 	static zend_string *replace_strs[PARSER_NUMS] = {0};
+	/* [GENE_FIX:2026-05-29] Per-call working arrays. The replace loop below must
+	 * NEVER read the static slots directly: gene_interned_str_persistent() only
+	 * populates a static slot when the interned string is IS_STR_PERMANENT. Under
+	 * opcache.file_cache_only=1 / CLI / no-opcache it returns a REQUEST-SCOPE
+	 * string and leaves the slot NULL on purpose. The previous code assigned that
+	 * return value back into the static array (regex_strs[i] = ...), so the
+	 * statics ended up holding request-scoped pointers that dangle on the next
+	 * request — the `if (!regex_strs[0])` guard then skipped re-init and fed freed
+	 * zend_strings to php_pcre_replace (use-after-free). We keep the statics for
+	 * the permanent fast path only and drive php_pcre_replace from these locals,
+	 * which are always valid for the current request. */
+	zend_string *regex_use[PARSER_NUMS];
+	zend_string *replace_use[PARSER_NUMS];
 
 	if (UNEXPECTED(!regex_strs[0])) {
 		static const char *regex_raw[PARSER_NUMS] = {
@@ -498,9 +511,19 @@ static int parser_templates(php_stream **stream, char *compile_path) {
 			"<?php require $this::containsExt()?>"
 		};
 		for (i = 0; i < PARSER_NUMS; i++) {
-			regex_strs[i] = gene_interned_str_persistent(&regex_strs[i], regex_raw[i], strlen(regex_raw[i]));
-			replace_strs[i] = gene_interned_str_persistent(&replace_strs[i], replace_raw[i], strlen(replace_raw[i]));
+			/* gene_interned_str_persistent() sets the static slot only when the
+			 * resolved string is permanent; otherwise the slot stays NULL and a
+			 * request-scope string is returned. Capture the return value in the
+			 * per-call array so this request always has a valid pointer, while
+			 * the statics remain NULL (and the guard re-resolves next request)
+			 * in non-permanent environments. */
+			regex_use[i] = gene_interned_str_persistent(&regex_strs[i], regex_raw[i], strlen(regex_raw[i]));
+			replace_use[i] = gene_interned_str_persistent(&replace_strs[i], replace_raw[i], strlen(replace_raw[i]));
 		}
+	} else {
+		/* Permanent fast path: statics are valid process-lifetime strings. */
+		memcpy(regex_use, regex_strs, sizeof(regex_use));
+		memcpy(replace_use, replace_strs, sizeof(replace_use));
 	}
 
 	/* [GENE_PERF:2026-05] Track result as zend_string* directly — eliminates
@@ -518,7 +541,7 @@ static int parser_templates(php_stream **stream, char *compile_path) {
 
 	for (i = 0; i < PARSER_NUMS; i++) {
 		size_t count;
-		ret = php_pcre_replace(regex_strs[i], NULL, ZSTR_VAL(result), ZSTR_LEN(result), replace_strs[i], -1, &count);
+		ret = php_pcre_replace(regex_use[i], NULL, ZSTR_VAL(result), ZSTR_LEN(result), replace_use[i], -1, &count);
 		if (ret != NULL) {
 			zend_string_release(result);
 			result = ret;
