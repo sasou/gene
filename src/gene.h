@@ -155,6 +155,7 @@
  zend_long runtime_type;
  bool use_namespace;
  bool view_compile;
+ bool view_compile_check_mtime;
  HashTable *cache;
  HashTable *cache_easy;
  gene_rwlock_t cache_lock;

@@ -74,13 +74,20 @@ normal opcache（permanent）下不触发，但 `file_cache_only=1`、CLI、无 
 
 ## 3. 记录但未实施的优化项（需确认 / 行为变更）
 
-### 3.1 [高收益·需确认] view_compile 每请求重编译
+### 3.1 [已实施] view_compile 每请求重编译 → mtime 跳过（INI 开关，默认关）
 
-**现状**：`gene_view_display_ext()` / `gene_view_contains_ext()` 在 `isCompile || GENE_G(view_compile)` 为真时，**每次渲染**都重新打开源模板、执行 28 次 PCRE 替换、写出编译文件。
+**现状（修复前）**：`gene_view_display_ext()` / `gene_view_contains_ext()` 在 `isCompile || GENE_G(view_compile)` 为真时，**每次渲染**都重新打开源模板、执行 28 次 PCRE 替换、写出编译文件。
 
-**优化**：在重编译前比较源模板与编译产物的 mtime（`php_stream_stat_path`），仅当源较新时才重编译。生产高并发下可消除每请求 28 次 PCRE 扫描 + 文件写，是 view 层最大单点收益。
+**优化（已实施）**：新增静态辅助 `view_compile_needs_rebuild(src_path, compile_path)`（`src/mvc/view.c`）。在重编译分支前调用：
 
-**未实施原因**：属**行为变更**，存在「源模板更新后未及时反映」的语义风险（取决于部署是否依赖每请求强制重编译）。建议由维护者确认后实施，并提供 INI 开关（如 `gene.view_compile_check_mtime`）。
+- 当 `gene.view_compile_check_mtime` **关闭（默认 0）**时直接返回 1 → **完全保留原每请求重编译行为，零行为变更**。
+- 当开关**打开**时，用 `php_stream_stat_path` 比较源模板与编译产物 mtime：编译产物缺失、源不可 stat、或源严格新于编译产物时才重编译；否则跳过打开源 + 28 次 PCRE + 写文件，直接 `gene_load_import` 现有编译产物。
+
+两个调用点（display_ext / contains_ext）均用 `if (view_compile_needs_rebuild(path, compile_path)) { ... } else if (path_heap) { efree(path); }` 包裹，跳过分支正确释放堆分配的 `path`，无泄漏。
+
+**行为变更说明**：开关打开后，源模板更新依赖文件 mtime 反映（与 opcache `validate_timestamps` 同语义）。默认关闭以保持向后兼容；高并发生产环境可显式开启获取最大收益。
+
+**新增 INI**：`gene.view_compile_check_mtime`（`PHP_INI_SYSTEM`，默认 `0`），对应 `GENE_G(view_compile_check_mtime)`（`src/gene.h`、`src/gene.c` GINIT 初始化）。
 
 ### 3.2 历史审计已覆盖、不建议重复改动
 
@@ -107,8 +114,9 @@ normal opcache（permanent）下不触发，但 `file_cache_only=1`、CLI、无 
 
 | 文件 | 改动 |
 |---|---|
-| `src/mvc/view.c` | 修复 `parser_templates()` 跨请求 UAF：引入 `regex_use[]/replace_use[]` 本地数组 |
+| `src/mvc/view.c` | 修复 `parser_templates()` 跨请求 UAF：引入 `regex_use[]/replace_use[]` 本地数组；新增 `view_compile_needs_rebuild()` mtime 跳过（§3.1） |
 | `src/router/router.c` | `get_router_info()` 缓存 `seg_len`，消除冗余 `strlen` |
+| `src/gene.h` / `src/gene.c` | 新增 `gene.view_compile_check_mtime` INI + `GENE_G(view_compile_check_mtime)` 字段及默认初始化 |
 | `audit/AUDIT_REPORT_2026_05_29.md` | 本报告 |
 
 ## 变更记录
@@ -116,3 +124,4 @@ normal opcache（permanent）下不触发，但 `file_cache_only=1`、CLI、无 
 | 日期 | 说明 |
 |---|---|
 | 2026-05-29 | 初版：view.c 跨请求 UAF 修复、router.c strlen 微优化、view_compile mtime 优化建议 |
+| 2026-05-29 | 实施 §3.1：新增 `gene.view_compile_check_mtime` INI 开关（默认关）+ `view_compile_needs_rebuild()` mtime 跳过，应用于 `gene_view_display_ext` / `gene_view_contains_ext` |
