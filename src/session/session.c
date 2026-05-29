@@ -63,8 +63,6 @@ static zval * gene_session_set_val(zval *val, char *keyString, size_t keyString_
 static zend_string *gene_session_method_get(void);
 static zend_string *gene_session_method_set(void);
 static zend_string *gene_session_method_delete(void);
-static zend_string *gene_session_method_cookie(void);
-static zend_string *gene_session_function_setcookie(void);
 
  static zend_bool gene_session_call_method(zval *target, zend_string *method, uint32_t param_count, zval *params, zval *retval)
  {
@@ -119,35 +117,6 @@ static zend_string *gene_session_function_setcookie(void);
 		zval function_name;
 		ZVAL_STR(&function_name, zend_string_copy(method));
 		call_user_function(NULL, target, &function_name, retval, param_count, params);
-		zval_ptr_dtor(&function_name);
-	}
-	return 1;
- }
-
- static zend_bool gene_session_call_setcookie(uint32_t param_count, zval *params, zval *retval)
- {
-	static zend_function *setcookie_func = NULL;
-
-	if (!setcookie_func) {
-		setcookie_func = zend_hash_find_ptr(CG(function_table), gene_session_function_setcookie());
-	}
-
-	if (setcookie_func) {
-		/* [GENE_FIX:2026-04-27] See gene_session_call_method — must not return
-		 * inside zend_catch, EG(bailout) restoration depends on zend_end_try. */
-		zend_bool bailed = 0;
-		zend_try {
-			zend_call_known_function(setcookie_func, NULL, NULL, retval, param_count, params, NULL);
-		} zend_catch {
-			bailed = 1;
-		} zend_end_try();
-		return bailed ? 0 : 1;
-	}
-
-	{
-		zval function_name;
-		ZVAL_STR(&function_name, zend_string_copy(gene_session_function_setcookie()));
-		call_user_function(NULL, NULL, &function_name, retval, param_count, params);
 		zval_ptr_dtor(&function_name);
 	}
 	return 1;
@@ -435,24 +404,6 @@ ZEND_END_ARG_INFO()
 	return gene_interned_str_persistent(&method_slot, "delete", sizeof("delete") - 1);
  }
 
- static zend_string *gene_session_method_cookie(void)
- {
-	/* [GENE_FIX:2026-05-24] gene_interned_str_persistent avoids the unsafe
-	 * static zend_string* + zend_string_init_interned(...,1) pattern that
-	 * dangles across requests under opcache.file_cache_only=1. */
-	static zend_string *method_slot = NULL;
-	return gene_interned_str_persistent(&method_slot, "cookie", sizeof("cookie") - 1);
- }
-
- static zend_string *gene_session_function_setcookie(void)
- {
-	/* [GENE_FIX:2026-05-24] gene_interned_str_persistent avoids the unsafe
-	 * static zend_string* + zend_string_init_interned(...,1) pattern that
-	 * dangles across requests under opcache.file_cache_only=1. */
-	static zend_string *function_name_slot = NULL;
-	return gene_interned_str_persistent(&function_name_slot, "setcookie", sizeof("setcookie") - 1);
- }
-
  static zval *gene_session_get_handler(zval *obj)
  {
 	zval *handler = zend_read_property(gene_session_ce, gene_strip_obj(obj), ZEND_STRL(GENE_SESSION_HANDLER), 1, NULL);
@@ -556,6 +507,38 @@ ZEND_END_ARG_INFO()
 	}
  }
 
+/* [GENE_FIX:2026-05-29] Session cookie emission is a best-effort side effect
+ * triggered from get/set/save/__destruct. Routing it through gene_response_cookie()
+ * lost the zend_try/zend_catch protection the old gene_session_call_method /
+ * gene_session_call_setcookie wrappers provided. In Swoole, Response::cookie()
+ * throws when the HTTP response has already been ended; an uncaught exception
+ * escaping a destructor or post-send path aborts the worker process. Catch
+ * engine bailouts and swallow pending exceptions so a stale/ended Response can
+ * never crash the worker. Returns 1 if the cookie was accepted, 0 otherwise. */
+static zend_bool gene_session_emit_cookie(zval *name, zval *value, zval *expires, zval *path, zval *domain, zval *secure, zval *httponly)
+{
+	zval ret;
+	zend_bool sent = 1;
+	zend_bool bailed = 0;
+	ZVAL_UNDEF(&ret);
+	zend_try {
+		gene_response_cookie(name, value, expires, path, domain, secure, httponly, &ret);
+	} zend_catch {
+		bailed = 1;
+	} zend_end_try();
+	if (UNEXPECTED(EG(exception))) {
+		zend_clear_exception();
+		sent = 0;
+	}
+	if (bailed || Z_TYPE(ret) == IS_FALSE) {
+		sent = 0;
+	}
+	if (!Z_ISUNDEF(ret)) {
+		zval_ptr_dtor(&ret);
+	}
+	return sent;
+}
+
 void gene_cookie(zval *self) /*{{{*/
 {
 	zend_object *obj = Z_OBJ_P(self);
@@ -599,19 +582,9 @@ void gene_cookie(zval *self) /*{{{*/
 	if (GENE_G(runtime_type) >= 2 && !gene_response_context_obj()) {
 		return;
 	}
-	{
-		zval ret;
-		ZVAL_UNDEF(&ret);
-		gene_response_cookie(name, cookie_id, &times, path, domain, secure, httponly, &ret);
-		if (Z_TYPE(ret) == IS_FALSE) {
-			zval_ptr_dtor(&ret);
-			return;
-		}
-		if (!Z_ISUNDEF(ret)) {
-			zval_ptr_dtor(&ret);
-		}
+	if (gene_session_emit_cookie(name, cookie_id, &times, path, domain, secure, httponly)) {
+		gene_session_mark_cookie_sent(self);
 	}
-	gene_session_mark_cookie_sent(self);
 }/*}}}*/
 
  static void gene_session_auto_cookie(zval *obj)
@@ -639,19 +612,9 @@ void gene_set_cookie(zval *self, zval *name, zval *value, zval *time) /*{{{*/
 	if (GENE_G(runtime_type) >= 2 && !gene_response_context_obj()) {
 		return;
 	}
-	{
-		zval ret;
-		ZVAL_UNDEF(&ret);
-		gene_response_cookie(name, value, time, path, domain, secure, httponly, &ret);
-		if (Z_TYPE(ret) == IS_FALSE) {
-			zval_ptr_dtor(&ret);
-			return;
-		}
-		if (!Z_ISUNDEF(ret)) {
-			zval_ptr_dtor(&ret);
-		}
+	if (gene_session_emit_cookie(name, value, time, path, domain, secure, httponly)) {
+		gene_session_mark_cookie_sent(self);
 	}
-	gene_session_mark_cookie_sent(self);
 }/*}}}*/
 
 
@@ -997,14 +960,28 @@ PHP_METHOD(gene_session, __destruct) {
 	if (!self) {
 		return;
 	}
+	/* [GENE_FIX:2026-05-29] Destructors run during request shutdown, after the
+	 * HTTP response is typically already flushed/ended (especially under Swoole).
+	 * Emitting cookies here is unsafe (ended-response exceptions / "headers
+	 * already sent" warnings) and pointless — the cookie is sent eagerly during
+	 * the normal get/set/save lifecycle via gene_session_auto_cookie(). So here
+	 * we only flush dirty data to the storage handler (send_cookie = 0) to avoid
+	 * losing writes that happened without an explicit save(), and never touch
+	 * the cookie. */
+	if (!gene_session_is_dirty(self)) {
+		return;
+	}
 	handler = gene_session_get_handler(self);
 	if (!handler) {
 		return;
 	}
-	if (gene_session_is_dirty(self)) {
-		gene_data_save_ex(self, NULL, 1);
-	} else if (!gene_session_cookie_sent(self)) {
-		gene_cookie(self);
+	gene_data_save_ex(self, NULL, 0);
+	/* [GENE_FIX:2026-05-29] A storage handler's set() may throw. An exception
+	 * left pending when a destructor returns triggers a fatal "Exception thrown
+	 * without a stack frame" and, under Swoole, kills the worker. Swallow it —
+	 * persistence at shutdown is best-effort and must not crash the process. */
+	if (UNEXPECTED(EG(exception))) {
+		zend_clear_exception();
 	}
 }
 /* }}} */
