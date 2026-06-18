@@ -1176,6 +1176,67 @@ static void gene_fn_cache_store(zval *closure, zval *fid_zv) {
  }
  /* }}} */
 
+ /* [GENE_PERF:2026-06-18 P6] FPM closure-route source cache.
+  * In FPM/CLI mode the router is rebuilt on every request, so each closure
+  * route re-runs ReflectionFunction + SplFileObject (2 file IOs) just to
+  * extract its source text. Cache the *processed* result keyed by
+  * "file:start:end" and invalidate when the source mtime changes (same
+  * semantics as opcache timestamp validation).
+  *
+  * Gated on runtime_type < 2: in Swoole the router registers once at worker
+  * start, so there is no per-request cost to amortize and we avoid any
+  * cross-coroutine sharing concerns. FPM workers are single-process /
+  * one-request-at-a-time, so the persistent table is touched sequentially
+  * and needs no locking.
+  *
+  * Each lookup returns a fresh emalloc copy so the caller's efree contract
+  * is unchanged; the persistent master copies live for the worker-process
+  * lifetime (like the route tree). */
+typedef struct _gene_closure_src_node {
+	zend_long mtime;
+	char     *src;
+	size_t    len;
+} gene_closure_src_node;
+
+static HashTable *gene_closure_src_cache = NULL;
+
+static void gene_closure_src_node_dtor(zval *zv) {
+	gene_closure_src_node *node = (gene_closure_src_node *)Z_PTR_P(zv);
+	if (node) {
+		if (node->src) pefree(node->src, 1);
+		pefree(node, 1);
+	}
+}
+
+static zend_long gene_router_file_mtime(const char *path) {
+	zend_stat_t sb;
+	if (!path || VCWD_STAT(path, &sb) == -1) {
+		return 0;
+	}
+	return (zend_long)sb.st_mtime;
+}
+
+static gene_closure_src_node *gene_closure_src_cache_get(const char *key, size_t key_len) {
+	if (!gene_closure_src_cache) return NULL;
+	return (gene_closure_src_node *)zend_hash_str_find_ptr(gene_closure_src_cache, key, key_len);
+}
+
+static void gene_closure_src_cache_put(const char *key, size_t key_len, zend_long mtime, const char *src, size_t len) {
+	gene_closure_src_node *node;
+	if (!gene_closure_src_cache) {
+		PALLOC_HASHTABLE(gene_closure_src_cache);
+		zend_hash_init(gene_closure_src_cache, 16, NULL, gene_closure_src_node_dtor, 1);
+	}
+	node = (gene_closure_src_node *)pemalloc(sizeof(gene_closure_src_node), 1);
+	node->mtime = mtime;
+	node->len = len;
+	node->src = (char *)pemalloc(len + 1, 1);
+	memcpy(node->src, src, len);
+	node->src[len] = '\0';
+	/* update_ptr dtors any stale entry for the same key before replacing. */
+	zend_hash_str_update_ptr(gene_closure_src_cache, key, key_len, node);
+}
+
  /** {{{ static void get_function_content(char *keyString, int keyString_len)
  */
 char * get_function_content(zval *content) {
@@ -1231,6 +1292,30 @@ char * get_function_content(zval *content) {
 	if (startline < 0 || endline <= 0 || startline >= endline) {
 		zval_ptr_dtor(&fileName);
 		return NULL;
+	}
+
+	/* [GENE_PERF:2026-06-18 P6] Try the FPM source cache before touching the
+	 * filesystem. These locals stay in scope until the function returns so the
+	 * miss path can populate the cache with the final processed result. */
+	char src_key[1024];
+	int src_key_len = 0;
+	zend_long src_mtime = 0;
+	int src_cache_on = (GENE_G(runtime_type) < 2 && Z_TYPE(fileName) == IS_STRING);
+	if (src_cache_on) {
+		src_mtime = gene_router_file_mtime(Z_STRVAL(fileName));
+		src_key_len = snprintf(src_key, sizeof(src_key),
+				"%s:" ZEND_LONG_FMT ":" ZEND_LONG_FMT,
+				Z_STRVAL(fileName), startline, endline);
+		if (src_mtime == 0 || src_key_len <= 0 || src_key_len >= (int)sizeof(src_key)) {
+			/* unstattable file or oversized key: skip caching entirely */
+			src_cache_on = 0;
+		} else {
+			gene_closure_src_node *node = gene_closure_src_cache_get(src_key, (size_t)src_key_len);
+			if (node && node->mtime == src_mtime) {
+				zval_ptr_dtor(&fileName);
+				return estrndup(node->src, node->len);
+			}
+		}
 	}
 
 	//get codestartline
@@ -1325,6 +1410,12 @@ char * get_function_content(zval *content) {
 		result = NULL;
 	}
 	remove_extra_space(tmp);
+	/* [GENE_PERF:2026-06-18 P6] Populate the FPM source cache with the final
+	 * processed text so subsequent requests skip the ReflectionFunction +
+	 * SplFileObject file reads. */
+	if (src_cache_on && tmp != NULL) {
+		gene_closure_src_cache_put(src_key, (size_t)src_key_len, src_mtime, tmp, strlen(tmp));
+	}
 	return tmp;
 }
 /* }}} */

@@ -1,5 +1,23 @@
 # Gene Framework Changelog
 
+## [Unreleased]
+
+**主题**：FPM 闭包路由源码读取优化（内存并发审计 P6 落地）。**无 API 破坏**，所有运行模式零回归。
+
+### ⚡ 性能优化
+
+- **P6 — FPM 闭包路由源码缓存**：FPM/CLI 模式下路由每请求重建，闭包路由每次都要 `ReflectionFunction` + `SplFileObject` 读两次源文件（IO）。新增进程级持久缓存（`pemalloc`），以 `文件路径:起始行:结束行` 为 key 缓存**已处理**的源码文本，按源文件 `mtime` 失效（同 opcache 时间戳校验语义）。
+  - 仅在 `runtime_type < 2`（FPM/CLI）启用：Swoole 路由仅启动期注册一次，无每请求成本，且避免跨协程共享，因此不受影响。
+  - 每次命中返回独立的 `emalloc` 副本，调用方 `efree` 契约不变；持久主副本随 worker 进程生命周期存在（与路由树一致）。
+  - 文件无法 `stat` 或 key 过长时自动跳过缓存，回退到原有读取逻辑。
+- **P7 — 锁层面核对（无需改动）**：确认 `session.c`/`application.c` 全部 `GENE_CACHE_WRLOCK` 写入点均经 `gene_memory_write_allowed()` 守卫，Swoole `workerReady()` 后写入被拒绝，不存在 worker_ready 后的串行点。
+
+### 🔧 修改文件一览
+
+- `src/router/router.c` — `get_function_content()` 增加 FPM 源码持久缓存
+
+---
+
 ## [5.6.5] - 2026-05-29
 
 **主题**：版本更新。**无 API 破坏**，兼容所有运行模式。
