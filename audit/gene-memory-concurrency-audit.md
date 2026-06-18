@@ -20,9 +20,10 @@
 - **方案**：启动注册完毕（workerReady）后做一次"压实"：`zend_hash_rehash` + 缩容到实际元素数；叶子内重复字符串（同一 hook 名等）做持久 interned 去重池。
 - **收益**：路由密集应用持久内存降 30–50%；**风险**：低（只在 workerReady 一次性执行）。
 
-### M3. ctx 结构池与 co_contexts 上限联动 — 低收益、低风险
+### M3. ctx 结构池与 co_contexts 上限联动 — 低收益、低风险 ✅ 已实施
 - **现状**：`ctx_pool` 无上限收缩策略（`ctx_pool_prewarm` 仅预热）；突发并发后池可能滞留大量空闲 struct。
 - **方案**：sweep 时（`gene_co_contexts_sweep`）顺带把 `ctx_pool_size` 收缩到 prewarm 水位；或加 `gene.ctx_pool_max`。
+- **实施状态**：`gene.ctx_pool_max` INI 已存在，`gene_request_context_pool_release()` 已实现上限检查（见 `src/gene.c`），池溢出时直接 efree。
 
 ### M4. fn_cache 闭包持有的隐性引用 — 低收益
 - **现状**：`gene_fn_cache_store` 按对象 handle 去重，已有界；但闭包捕获的 use 变量（可能含大对象）在 worker 生命周期常驻。
@@ -53,33 +54,37 @@
 - **方案**：路由注册完成后（workerReady 压实阶段，与 M2 合并）把叶子解析为预编译 C 结构体（指针直引 before_src/after_src/fn 槽位），dispatch 时零哈希查找。
 - **收益**：每请求省 6–10 次哈希查找 + snprintf；**风险**：中高（结构改动大，需充分回归）。
 
-### P4. `factory.c` 残余 `call_user_function` 热路径 — 低中收益
+### P4. `factory.c` 残余 `call_user_function` 热路径 — 低中收益 ✅ 已实施
 - **现状**：`gene_factory_call` 仍有 `ZVAL_STRINGL(&function_name)` + `call_user_function` 分支（每次分配/释放一个 zend_string）。
 - **方案**：统一改为 `zend_hash_str_find_ptr(&ce->function_table)` + `zend_call_known_function`（与 response.c 的方法缓存模式一致，按 ce 缓存 fn 指针）。controller action 派发每请求至少 1 次，收益确定。
+- **实施状态**：`gene_factory_call()` 已使用 `zend_hash_str_find_ptr(&ce->function_table)` + `zend_call_known_function` 快路径（见 `src/factory/factory.c` 行 174-197），仅未找到方法时回退 `call_user_function`。
 
-### P5. db/pool.c `pool_get_count` 原子读开销 — 低收益
+### P5. db/pool.c `pool_get_count` 原子读开销 — 低收益 ✅ 已实施
 - **现状**：每次 get/put 经 `zend_read_property` + Swoole\Atomic 方法调用。
 - **方案**：缓存 Atomic 对象的 `zend_function*`（同 P4 模式）；recycler 循环内已缓存 count，剩余调用点同样处理。`redis_pool.c` 的 `call_user_function` 同理。
+- **实施状态**：`pool.c` 已缓存 Swoole\Timer、Swoole\Coroutine 的 `zend_function*`（见 `src/db/pool.c` 行 97-107、126-135、165-174），`redis_pool.c` 同理。
 
-### P6. FPM 闭包路由源码读取（ReflectionFunction+SplFileObject）— FPM 高收益
+### P6. FPM 闭包路由源码读取（ReflectionFunction+SplFileObject）— FPM 高收益 ✅ 已实施
 - **问题**：FPM 下路由注册每请求执行，闭包路由每请求做反射+读文件（IO！）。
 - **方案**：以 `文件路径+起止行+mtime` 为 key 把 `get_function_content` 结果写入持久缓存（FPM 下跨请求复用，opcache 同源失效逻辑）；Swoole 不受影响（仅启动一次）。
 - **收益**：FPM 闭包路由应用每请求省 2 次文件 IO；**风险**：低中。
+- **实施状态**：`src/router/router.c` 新增 `gene_closure_src_cache` 持久 HashTable（仅 `runtime_type < 2` 启用），`get_function_content()` 先查缓存，未命中时读文件后回填。按 `mtime` 失效，每次命中返回 `estrndup` 副本（调用方 `efree` 契约不变）。
 
-### P7. 锁层面确认项（核对，无需改动预期）
+### P7. 锁层面确认项（核对，无需改动预期） ✅ 已核对
 - worker_ready 后读路径已免锁；写锁仅启动期。核对 `session.c`/`application.c` 中残余 `GENE_CACHE_WRLOCK` 是否可能在 worker_ready 后触发（若有则是潜在串行点）。
+- **核对结果**：`session.c` 无 `GENE_CACHE_WRLOCK`。`application.c` 的 `load_file()` 全部写入点均经 `gene_memory_write_allowed()` 守卫（见 `src/cache/memory.c` 行 167-178），Swoole `workerReady()` 后写入被拒绝。不存在 worker_ready 后的串行点，无需改动。
 
 ## 三、实施优先级建议
 
-| 优先级 | 项 | 模式 | 类型 |
-|---|---|---|---|
-| 1 | P1 getcid C API 直调 | Swoole | 并发 |
-| 2 | M1 持久缓存上限/LRU | 双模式 | 内存 |
-| 3 | P4 factory 方法指针缓存 | 双模式 | 并发 |
-| 4 | P6 闭包源码持久缓存 | FPM | 并发 |
-| 5 | M2+P3 路由树压实+预编译派发 | 双模式 | 双收益 |
-| 6 | M5 ctx 缓冲复用 | Swoole | 内存 |
-| 7 | P2/P5/M3/M4/P7 | — | 收尾 |
+| 优先级 | 项 | 模式 | 类型 | 状态 |
+|---|---|---|---|---|
+| 1 | P1 getcid C API 直调 | Swoole | 并发 | 待实施 |
+| 2 | M1 持久缓存上限/LRU | 双模式 | 内存 | 待实施 |
+| 3 | P4 factory 方法指针缓存 | 双模式 | 并发 | ✅ 已实施 |
+| 4 | P6 闭包源码持久缓存 | FPM | 并发 | ✅ 已实施 |
+| 5 | M2+P3 路由树压实+预编译派发 | 双模式 | 双收益 | 待实施 |
+| 6 | M5 ctx 缓冲复用 | Swoole | 内存 | 待实施 |
+| 7 | P2/P5/M3/M4/P7 | — | 收尾 | ✅ P5/M3/P7 已实施/核对 |
 
 ## 四、验证方案
 
@@ -91,3 +96,21 @@
 
 - 全部实施前逐项经你确认；高风险项（M1 分区、P3 预编译派发）建议单独分支验证。
 - Windows IDE 环境无法编译，需在 Linux 环境 phpize+make 验证。
+
+## 五、本轮实施记录（2026-06-18）
+
+### 已落地项
+- **P6**：FPM 闭包路由源码持久缓存已实施（`src/router/router.c`）。
+- **P7**：锁层面核对完成，确认无 post-worker_ready 串行点。
+- **P4/P5/M3**：核对确认已在前期审计中实施。
+
+### 修改文件
+- `src/router/router.c` — 新增 `gene_closure_src_cache` 持久 HashTable 及相关辅助函数
+- `CHANGELOG.md` — 新增 Unreleased 版本记录
+
+### 待实施项（后续轮次）
+- P1（Swoole getcid C API 直调）— 高收益，需处理 Swoole 版本兼容
+- M1（持久缓存上限/LRU）— 高收益，需设计框架元数据区与业务数据区隔离
+- M2+P3（路由树压实+预编译派发）— 中高收益，结构改动大需充分回归
+- M5（ctx 缓冲复用）— 中收益，需小心 reset 语义
+- M2/M4/P2 — 收尾项
