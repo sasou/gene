@@ -218,6 +218,18 @@ HashTable *fn_cache;
 /* [GENE_MEM:2026-04-23] fn_cache_id removed. Keys are now derived from the
  * closure's zend_object->handle so re-registering the same closure doesn't
  * grow the table. See gene_fn_cache_store() in router.c. */
+/* [GENE_PERF:2026-06-19 P3] Per-thread lazy memoization cache of precompiled
+ * route-dispatch descriptors (gene_route_pc), keyed by the leaf HashTable
+ * pointer. Populated on first dispatch of each route, executed thereafter with
+ * zero hash lookups. Swoole-only and only after workerReady() (route tree +
+ * fn_cache frozen, leaf pointers stable). Per-thread because it borrows
+ * pointers from the per-thread GENE_G(cache)/fn_cache. Freed in MSHUTDOWN. */
+HashTable *route_pc;
+/* [GENE_PERF:2026-06-19 P3] Opt-in kill-switch for the precompiled dispatch
+ * cache above. Default 0 (off) — the proven get_router_info_slow() path runs
+ * unchanged until an operator enables gene.route_precompile=1 after validating
+ * on Linux (phpize+make+ASAN + full route regression). */
+zend_bool route_precompile;
 ZEND_END_MODULE_GLOBALS (gene)
  
  extern ZEND_DECLARE_MODULE_GLOBALS (gene);

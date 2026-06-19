@@ -53,6 +53,10 @@
  char* get_router_content(zval **content, char *method, char *path);
  void get_router_content_run(char *methodin, char *pathin, const char *safe_str, size_t safe_len);
  int get_router_error_run(char *errorName, const char *safe_str, size_t safe_len);
+ /* [GENE_PERF:2026-06-19 P3] Free the per-thread precompiled-dispatch cache
+  * (GENE_G(route_pc)). No-op when the cache was never allocated. Called from
+  * MSHUTDOWN. */
+ void gene_router_pc_destroy(void);
 
  GENE_MINIT_FUNCTION (router);
 

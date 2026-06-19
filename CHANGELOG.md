@@ -2,10 +2,14 @@
 
 ## [Unreleased]
 
-**主题**：内存并发审计 P1 / P6 / M1 落地（协程 id 直调、FPM 闭包源码缓存、业务缓存上限）。**无 API 破坏**，默认配置下所有运行模式零回归。
+**主题**：内存并发审计 P1 / P6 / M1 / M5 / P3 落地（协程 id 直调、FPM 闭包源码缓存、业务缓存上限、request_attr 复用、预编译派发）。**无 API 破坏**，默认配置下所有运行模式零回归。
 
 ### ⚡ 性能优化
 
+- **P3 — 路由派发预编译缓存（Swoole，opt-in）**：`get_router_info()` 原本每请求对叶子 + 应用级事件/钩子数组做 6–10 次 `zend_hash_str_find` + strtok/snprintf 才能定出"直派/闭包/eval"派发方案。`workerReady()` 后 Swoole 的路由树与 fn_cache 冻结，给定叶子 HashTable 指针恒映射同一路由，故该解析是 `(leaf, cacheHook)` 的纯函数，可记忆化。新增按叶子 HashTable 指针为 key 的**每线程** `GENE_G(route_pc)` 描述符缓存：首次命中路由时解析并缓存 `gene_route_pc`（直派 src/钩子 src 指针、闭包 fn_cache zval 指针、或预拼接的 eval 程序串），之后零哈希查找直接执行。
+  - **opt-in 默认关闭**：`gene.route_precompile=0`（默认）时走原 `get_router_info_slow()`（逐字未改）；需在 Linux `phpize+make+ASAN` + 全路由回归验证后置 `1` 启用。
+  - **仅 Swoole + workerReady 后**：FPM 路由每请求重建、fn_cache 每请求级，叶子/闭包指针不稳定，永不启用。
+  - **并发安全**：`GENE_G` 在 ZTS 下每线程独立，描述符仅借用同线程 `cache`/`fn_cache` 指针；解析+入表为非让出的纯 C 操作（原子于协程协作调度），执行期即便让出也只读不可变描述符，无竞争。`route_pc` 于 MSHUTDOWN 释放（表 dtor 释放各描述符 owned 的 eval 串）。
 - **P1 — Swoole 协程 id C-API 直调**：`gene_get_coroutine_id()` 原本每次走 `zend_call_known_function`（PHP 调用 ≈ 数百 ns）。`gene_request_ctx()` 的 vm_stack 同一性快路径已覆盖未让出的调用链，但每次协程切换（IO）后的首次 `GENE_REQ()` 仍走慢路径。现通过 `dlsym(RTLD_DEFAULT, "_ZN6swoole9Coroutine15get_current_cidEv")` 解析 Swoole 的 C++ 静态方法 `swoole::Coroutine::get_current_cid()`（读取线程局部指针，约数 ns），每 worker 解析一次。
   - 符号不可用（Swoole 未加载 / Windows / 隐藏可见性 / 不兼容分支）时透明回退到已缓存的 `zend_function` PHP 调用路径，纯属尽力而为，绝不影响正确性。
   - 新增 `gene.swoole_getcid_capi` INI 开关（默认 `1`），置 `0` 强制走 PHP 调用回退。
@@ -25,7 +29,8 @@
 
 - `src/gene.c` / `src/gene.h` — P1 协程 id C-API 解析器 + `gene.swoole_getcid_capi` 开关；M1 `cache_lru`/`cache_max_items` 全局量、`gene.cache_max_items` INI、MSHUTDOWN 析构；M5 `request_attr` 复用辅助 `gene_ctx_reuse_lazy_array()`
 - `src/cache/memory.c` / `src/cache/memory.h` — M1 业务分区 LRU 跟踪/淘汰，`gene_memory_del` 改用 O(1) 核心删除并同步 LRU
-- `src/router/router.c` — `get_function_content()` 增加 FPM 源码持久缓存
+- `src/router/router.c` — `get_function_content()` 增加 FPM 源码持久缓存；P3 `gene_route_pc` 描述符 + `gene_route_pc_resolve/execute/dtor`、`get_router_info()` 包装（原函数改名 `get_router_info_slow()` 逐字保留）、`gene_router_pc_destroy()`
+- `src/gene.c` / `src/gene.h` / `src/router/router.h` — P3 `route_pc` 全局量、`gene.route_precompile` INI、MSHUTDOWN 析构
 
 ---
 
