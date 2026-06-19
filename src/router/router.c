@@ -719,9 +719,355 @@ static void gene_fn_cache_store(zval *closure, zval *fid_zv) {
  }
  /* }}} */
  
- /** {{{ static void get_router_info(char *keyString, int keyString_len)
+ /* {{{ P3 — precompiled route dispatch descriptor + cache.
+  *
+  * get_router_info_slow() resolves a route leaf into a dispatch plan on EVERY
+  * request via 6–10 zend_hash_str_find()s against the leaf and the app-global
+  * event/hook array, plus strtok/snprintf. After workerReady() in Swoole the
+  * route tree and fn_cache are frozen and a given leaf HashTable* always maps to
+  * the same route, so that resolution is a pure function of (leaf, cacheHook)
+  * and can be memoized. We cache a gene_route_pc descriptor keyed by the leaf's
+  * HashTable pointer in the per-thread GENE_G(route_pc); subsequent dispatches
+  * execute the descriptor with zero hash lookups.
+  *
+  * Safety:
+  *  - Swoole-only, post-workerReady only: in FPM the tree is rebuilt and
+  *    fn_cache is per-request, so leaf pointers / closure pointers are not
+  *    stable — the cache is never populated there (the wrapper falls through to
+  *    the slow path).
+  *  - Per-thread: GENE_G is per-thread under ZTS, and the descriptor borrows
+  *    pointers from the same thread's GENE_G(cache)/fn_cache, so there is no
+  *    cross-thread aliasing. Within a worker, Swoole coroutines are scheduled
+  *    cooperatively and neither resolve nor execute yields, so the lazy
+  *    populate-on-miss is race-free with respect to concurrent reads.
+  *  - Borrowed pointers (src/before_src/.../route_cl/...) reference persistent
+  *    route-tree strings and fn_cache zvals that are stable for the worker's
+  *    lifetime. Only eval_str is owned (a persistent copy of the concatenated
+  *    eval program) and is freed by the table dtor.
+  *  - Opt-in: gated behind gene.route_precompile (default off) so the proven
+  *    slow path is the only code that runs until an operator validates this.
   */
- int get_router_info(zval **leaf, zval **cacheHook) {
+ enum { GENE_PC_DIRECT = 0, GENE_PC_CLOSURE = 1, GENE_PC_EVAL = 2 };
+
+ typedef struct _gene_route_pc {
+	 int kind;          /* GENE_PC_DIRECT | GENE_PC_CLOSURE | GENE_PC_EVAL */
+	 int is_before;     /* run before-hook?  (hook "@clearBefore/clearAll" clears) */
+	 int is_after;      /* run after-hook?   (hook "@clearAfter/clearAll" clears)  */
+	 /* Borrowed, NUL-terminated persistent route-tree strings (NULL = absent). */
+	 const char *src;        /* route action direct src (MCA dispatch program)   */
+	 const char *before_src; /* before-hook direct src                            */
+	 const char *after_src;  /* after-hook direct src                             */
+	 const char *hook_src;   /* named-hook direct src                             */
+	 /* Borrowed fn_cache closure zvals (NULL = absent). */
+	 zval *route_cl;
+	 zval *before_cl;
+	 zval *after_cl;
+	 zval *hook_cl;
+	 /* Owned persistent copy of the eval program (GENE_PC_EVAL only). */
+	 char *eval_str;
+	 size_t eval_len;
+ } gene_route_pc;
+
+ static void gene_route_pc_dtor(zval *zv) {
+	 gene_route_pc *pc = (gene_route_pc *)Z_PTR_P(zv);
+	 if (pc) {
+		 if (pc->eval_str) {
+			 pefree(pc->eval_str, 1);
+		 }
+		 pefree(pc, 1);
+	 }
+ }
+
+ void gene_router_pc_destroy(void) {
+	 if (GENE_G(route_pc)) {
+		 zend_hash_destroy(GENE_G(route_pc));
+		 pefree(GENE_G(route_pc), 1);
+		 GENE_G(route_pc) = NULL;
+	 }
+ }
+
+ /* Resolve (leaf, cacheHook) into a descriptor. Mirrors get_router_info_slow()'s
+  * resolution exactly but records the outcome instead of executing it. All
+  * recorded char* point into persistent strings; eval_str is a persistent copy. */
+ static void gene_route_pc_resolve(zval **leaf, zval **cacheHook, gene_route_pc *pc) {
+	 zval *hname, *before, *after, *m, *h, *src;
+	 zval *before_src = NULL, *after_src = NULL, *hook_src = NULL;
+	 int is_before = 1, is_after = 1;
+	 char hookname_buf[256];
+	 char *hookname = NULL, *hookname_alloc = NULL, *seg = NULL, *ptr = NULL;
+	 size_t seg_len = 0;
+	 int use_direct = 1;
+
+	 memset(pc, 0, sizeof(*pc));
+
+	 src = zend_hash_str_find(Z_ARRVAL_P(*leaf), "src", 3);
+	 if (!src || Z_TYPE_P(src) != IS_STRING || Z_STRLEN_P(src) == 0) {
+		 use_direct = 0;
+	 }
+
+	 hname = zend_hash_str_find(Z_ARRVAL_P(*leaf), "hook", 4);
+	 if (hname && Z_TYPE_P(hname) == IS_STRING && Z_STRLEN_P(hname) > 0) {
+		 size_t hookname_len = sizeof("hook:") - 1 + Z_STRLEN_P(hname);
+		 if (hookname_len < sizeof(hookname_buf)) {
+			 memcpy(hookname_buf, "hook:", sizeof("hook:") - 1);
+			 memcpy(hookname_buf + sizeof("hook:") - 1, Z_STRVAL_P(hname), Z_STRLEN_P(hname));
+			 hookname_buf[hookname_len] = '\0';
+			 hookname = hookname_buf;
+		 } else {
+			 hookname_alloc = emalloc(hookname_len + 1);
+			 memcpy(hookname_alloc, "hook:", sizeof("hook:") - 1);
+			 memcpy(hookname_alloc + sizeof("hook:") - 1, Z_STRVAL_P(hname), Z_STRLEN_P(hname));
+			 hookname_alloc[hookname_len] = '\0';
+			 hookname = hookname_alloc;
+		 }
+	 }
+	 if (hookname) {
+		 seg = php_strtok_r(hookname, "@", &ptr);
+		 if (seg) {
+			 seg_len = strlen(seg);
+		 }
+	 }
+	 if (ptr && strlen(ptr) > 0) {
+		 if ((strcmp(ptr, "clearBefore") == 0) || (strcmp(ptr, "clearAll") == 0)) {
+			 is_before = 0;
+		 }
+		 if ((strcmp(ptr, "clearAfter") == 0) || (strcmp(ptr, "clearAll") == 0)) {
+			 is_after = 0;
+		 }
+	 }
+
+	 if (use_direct && *cacheHook && Z_TYPE_P(*cacheHook) == IS_ARRAY) {
+		 if (is_before) {
+			 before = zend_hash_str_find(Z_ARRVAL_P(*cacheHook), "hook:before", 11);
+			 if (before && Z_TYPE_P(before) == IS_STRING && Z_STRLEN_P(before) > 0) {
+				 before_src = zend_hash_str_find(Z_ARRVAL_P(*cacheHook), "hsrc:before", 11);
+				 if (!before_src || Z_TYPE_P(before_src) != IS_STRING) use_direct = 0;
+			 }
+		 }
+		 if (is_after) {
+			 after = zend_hash_str_find(Z_ARRVAL_P(*cacheHook), "hook:after", 10);
+			 if (after && Z_TYPE_P(after) == IS_STRING && Z_STRLEN_P(after) > 0) {
+				 after_src = zend_hash_str_find(Z_ARRVAL_P(*cacheHook), "hsrc:after", 11);
+				 if (!after_src || Z_TYPE_P(after_src) != IS_STRING) use_direct = 0;
+			 }
+		 }
+		 if (seg && seg_len > 0) {
+			 char hseg_buf[256];
+			 int hseg_key_n = snprintf(hseg_buf, sizeof(hseg_buf), "hsrc%s", seg + 4);
+			 size_t hseg_key_len = 0;
+			 if (UNEXPECTED(hseg_key_n < 0 || (size_t)hseg_key_n >= sizeof(hseg_buf))) {
+				 use_direct = 0;
+			 } else {
+				 hseg_key_len = (size_t)hseg_key_n;
+				 hook_src = zend_hash_str_find(Z_ARRVAL_P(*cacheHook), hseg_buf, hseg_key_len);
+			 }
+			 h = zend_hash_str_find(Z_ARRVAL_P(*cacheHook), seg, seg_len);
+			 if (h && Z_TYPE_P(h) == IS_STRING && Z_STRLEN_P(h) > 0) {
+				 if (!hook_src || Z_TYPE_P(hook_src) != IS_STRING) use_direct = 0;
+			 }
+		 }
+	 }
+
+	 if (use_direct) {
+		 pc->kind = GENE_PC_DIRECT;
+		 pc->is_before = is_before;
+		 pc->is_after = is_after;
+		 pc->src = Z_STRVAL_P(src);
+		 pc->before_src = (before_src && Z_TYPE_P(before_src) == IS_STRING) ? Z_STRVAL_P(before_src) : NULL;
+		 pc->after_src  = (after_src  && Z_TYPE_P(after_src)  == IS_STRING) ? Z_STRVAL_P(after_src)  : NULL;
+		 pc->hook_src   = (hook_src   && Z_TYPE_P(hook_src)   == IS_STRING) ? Z_STRVAL_P(hook_src)   : NULL;
+		 if (hookname_alloc) efree(hookname_alloc);
+		 return;
+	 }
+
+	 if (GENE_G(fn_cache)) {
+		 zval *frun = zend_hash_str_find(Z_ARRVAL_P(*leaf), "frun", 4);
+		 zval *route_cl = NULL, *before_cl = NULL, *after_cl = NULL, *hook_cl = NULL;
+		 int use_closure = 1;
+
+		 if (frun && Z_TYPE_P(frun) == IS_STRING) {
+			 route_cl = zend_hash_str_find(GENE_G(fn_cache), Z_STRVAL_P(frun), Z_STRLEN_P(frun));
+		 }
+		 if (!route_cl && (!src || Z_TYPE_P(src) != IS_STRING || Z_STRLEN_P(src) == 0)) {
+			 use_closure = 0;
+		 }
+
+		 if (use_closure && *cacheHook && Z_TYPE_P(*cacheHook) == IS_ARRAY) {
+			 if (is_before) {
+				 before = zend_hash_str_find(Z_ARRVAL_P(*cacheHook), "hook:before", 11);
+				 if (before && Z_TYPE_P(before) == IS_STRING && Z_STRLEN_P(before) > 0) {
+					 before_src = zend_hash_str_find(Z_ARRVAL_P(*cacheHook), "hsrc:before", 11);
+					 if (!before_src || Z_TYPE_P(before_src) != IS_STRING) {
+						 zval *bfcl = zend_hash_str_find(Z_ARRVAL_P(*cacheHook), "fcl:before", 10);
+						 if (bfcl && Z_TYPE_P(bfcl) == IS_STRING) {
+							 before_cl = zend_hash_str_find(GENE_G(fn_cache), Z_STRVAL_P(bfcl), Z_STRLEN_P(bfcl));
+							 if (!before_cl) use_closure = 0;
+						 } else { use_closure = 0; }
+						 before_src = NULL;
+					 }
+				 }
+			 }
+			 if (is_after) {
+				 after = zend_hash_str_find(Z_ARRVAL_P(*cacheHook), "hook:after", 10);
+				 if (after && Z_TYPE_P(after) == IS_STRING && Z_STRLEN_P(after) > 0) {
+					 after_src = zend_hash_str_find(Z_ARRVAL_P(*cacheHook), "hsrc:after", 11);
+					 if (!after_src || Z_TYPE_P(after_src) != IS_STRING) {
+						 zval *afcl = zend_hash_str_find(Z_ARRVAL_P(*cacheHook), "fcl:after", 9);
+						 if (afcl && Z_TYPE_P(afcl) == IS_STRING) {
+							 after_cl = zend_hash_str_find(GENE_G(fn_cache), Z_STRVAL_P(afcl), Z_STRLEN_P(afcl));
+							 if (!after_cl) use_closure = 0;
+						 } else { use_closure = 0; }
+						 after_src = NULL;
+					 }
+				 }
+			 }
+			 if (seg && seg_len > 0) {
+				 h = zend_hash_str_find(Z_ARRVAL_P(*cacheHook), seg, seg_len);
+				 if (h && Z_TYPE_P(h) == IS_STRING && Z_STRLEN_P(h) > 0 && !hook_src) {
+					 char fcl_buf[256];
+					 int fcl_n = snprintf(fcl_buf, sizeof(fcl_buf), "fcl%s", seg + 4);
+					 zval *hfcl = NULL;
+					 if (UNEXPECTED(fcl_n < 0 || (size_t)fcl_n >= sizeof(fcl_buf))) {
+						 use_closure = 0;
+					 } else {
+						 hfcl = zend_hash_str_find(Z_ARRVAL_P(*cacheHook), fcl_buf, (size_t)fcl_n);
+					 }
+					 if (hfcl && Z_TYPE_P(hfcl) == IS_STRING) {
+						 hook_cl = zend_hash_str_find(GENE_G(fn_cache), Z_STRVAL_P(hfcl), Z_STRLEN_P(hfcl));
+						 if (!hook_cl) use_closure = 0;
+					 } else { use_closure = 0; }
+				 }
+			 }
+		 }
+
+		 if (use_closure) {
+			 pc->kind = GENE_PC_CLOSURE;
+			 pc->is_before = is_before;
+			 pc->is_after = is_after;
+			 pc->route_cl = route_cl;
+			 pc->src = (src && Z_TYPE_P(src) == IS_STRING && Z_STRLEN_P(src) > 0) ? Z_STRVAL_P(src) : NULL;
+			 pc->before_cl  = before_cl;
+			 pc->before_src = (before_src && Z_TYPE_P(before_src) == IS_STRING) ? Z_STRVAL_P(before_src) : NULL;
+			 pc->after_cl   = after_cl;
+			 pc->after_src  = (after_src && Z_TYPE_P(after_src) == IS_STRING) ? Z_STRVAL_P(after_src) : NULL;
+			 pc->hook_cl    = hook_cl;
+			 pc->hook_src   = (hook_src && Z_TYPE_P(hook_src) == IS_STRING) ? Z_STRVAL_P(hook_src) : NULL;
+			 if (hookname_alloc) efree(hookname_alloc);
+			 return;
+		 }
+	 }
+
+	 /* EVAL fallback: precompute the concatenated eval program once. */
+	 pc->kind = GENE_PC_EVAL;
+	 pc->is_before = is_before;
+	 pc->is_after = is_after;
+	 {
+		 smart_str buf = {0};
+		 if (is_before && *cacheHook && Z_TYPE_P(*cacheHook) == IS_ARRAY) {
+			 before = zend_hash_str_find(Z_ARRVAL_P(*cacheHook), "hook:before", 11);
+			 if (before && Z_TYPE_P(before) == IS_STRING && Z_STRLEN_P(before) > 0) {
+				 smart_str_appendl(&buf, Z_STRVAL_P(before), Z_STRLEN_P(before));
+			 }
+		 }
+		 if (seg && seg_len > 0 && *cacheHook && Z_TYPE_P(*cacheHook) == IS_ARRAY) {
+			 h = zend_hash_str_find(Z_ARRVAL_P(*cacheHook), seg, seg_len);
+			 if (h && Z_TYPE_P(h) == IS_STRING && Z_STRLEN_P(h) > 0) {
+				 smart_str_appendl(&buf, Z_STRVAL_P(h), Z_STRLEN_P(h));
+			 }
+		 }
+		 m = zend_hash_str_find(Z_ARRVAL_P(*leaf), "run", 3);
+		 if (m && Z_TYPE_P(m) == IS_STRING && Z_STRLEN_P(m) > 0) {
+			 smart_str_appendl(&buf, Z_STRVAL_P(m), Z_STRLEN_P(m));
+		 }
+		 if (is_after && *cacheHook && Z_TYPE_P(*cacheHook) == IS_ARRAY) {
+			 after = zend_hash_str_find(Z_ARRVAL_P(*cacheHook), "hook:after", 10);
+			 if (after && Z_TYPE_P(after) == IS_STRING && Z_STRLEN_P(after) > 0) {
+				 smart_str_appendl(&buf, Z_STRVAL_P(after), Z_STRLEN_P(after));
+			 }
+		 }
+		 if (buf.s && ZSTR_LEN(buf.s) > 0) {
+			 smart_str_0(&buf);
+			 pc->eval_len = ZSTR_LEN(buf.s);
+			 pc->eval_str = (char *)pemalloc(pc->eval_len + 1, 1);
+			 memcpy(pc->eval_str, ZSTR_VAL(buf.s), pc->eval_len);
+			 pc->eval_str[pc->eval_len] = '\0';
+		 }
+		 smart_str_free(&buf);
+	 }
+	 if (hookname_alloc) efree(hookname_alloc);
+ }
+
+ /* Execute a precompiled descriptor. Behaviourally identical to the matching
+  * branch of get_router_info_slow(). */
+ static int gene_route_pc_execute(const gene_route_pc *pc) {
+	 zval dispatch_result;
+
+	 if (pc->kind == GENE_PC_EVAL) {
+		 if (pc->eval_str && pc->eval_len > 0) {
+			 zend_try {
+				 zend_eval_stringl(pc->eval_str, pc->eval_len, NULL, "");
+			 } zend_catch {
+			 } zend_end_try();
+		 }
+		 return 1;
+	 }
+
+	 ZVAL_NULL(&dispatch_result);
+
+	 if (pc->kind == GENE_PC_DIRECT) {
+		 if (pc->is_before && pc->before_src) {
+			 if (!gene_router_exec_hook_direct((char *)pc->before_src, NULL, 1)) goto pc_cleanup;
+		 }
+		 if (pc->hook_src) {
+			 if (!gene_router_exec_hook_direct((char *)pc->hook_src, NULL, 1)) goto pc_cleanup;
+		 }
+		 if (pc->src) {
+			 gene_router_dispatch_direct((char *)pc->src, &dispatch_result);
+		 }
+		 if (pc->is_after && pc->after_src) {
+			 gene_router_exec_hook_direct((char *)pc->after_src, &dispatch_result, 0);
+		 }
+	 } else { /* GENE_PC_CLOSURE */
+		 if (pc->is_before) {
+			 if (pc->before_cl) {
+				 if (!gene_router_exec_closure_hook(pc->before_cl, NULL, 1)) goto pc_cleanup;
+			 } else if (pc->before_src) {
+				 if (!gene_router_exec_hook_direct((char *)pc->before_src, NULL, 1)) goto pc_cleanup;
+			 }
+		 }
+		 if (pc->hook_cl) {
+			 if (!gene_router_exec_closure_hook(pc->hook_cl, NULL, 1)) goto pc_cleanup;
+		 } else if (pc->hook_src) {
+			 if (!gene_router_exec_hook_direct((char *)pc->hook_src, NULL, 1)) goto pc_cleanup;
+		 }
+		 if (pc->route_cl) {
+			 gene_router_dispatch_closure(pc->route_cl, &dispatch_result);
+		 } else if (pc->src) {
+			 gene_router_dispatch_direct((char *)pc->src, &dispatch_result);
+		 }
+		 if (pc->is_after) {
+			 if (pc->after_cl) {
+				 gene_router_exec_closure_hook(pc->after_cl, &dispatch_result, 0);
+			 } else if (pc->after_src) {
+				 gene_router_exec_hook_direct((char *)pc->after_src, &dispatch_result, 0);
+			 }
+		 }
+	 }
+
+ pc_cleanup:
+	 zval_ptr_dtor(&dispatch_result);
+	 return 1;
+ }
+ /* }}} */
+
+ /** {{{ int get_router_info_slow(zval **leaf, zval **cacheHook)
+  * [GENE_PERF:2026-06-19 P3] Renamed from get_router_info(). This is the proven
+  * per-request resolve+dispatch path and is left byte-for-byte unchanged; it is
+  * the fallback whenever the precompiled-dispatch cache is disabled (default),
+  * not in Swoole, or before workerReady(). The new get_router_info() wrapper
+  * (below) routes to the precompiled fast path when enabled.
+  */
+ int get_router_info_slow(zval **leaf, zval **cacheHook) {
 	 zval *hname, *before, *after, *m, *h, *src;
 	 zval *before_src = NULL, *after_src = NULL, *hook_src = NULL;
 	 int is_before = 1, is_after = 1;
@@ -982,6 +1328,44 @@ static void gene_fn_cache_store(zval *closure, zval *fid_zv) {
  }
  /* }}} */
  
+ /** {{{ int get_router_info(zval **leaf, zval **cacheHook)
+  * [GENE_PERF:2026-06-19 P3] Dispatch entry. When the precompiled cache is
+  * enabled (Swoole + workerReady + gene.route_precompile=1) it resolves each
+  * leaf once and replays the descriptor on subsequent hits, eliminating the
+  * per-request hash lookups. Otherwise it forwards to the unchanged slow path.
+  */
+ int get_router_info(zval **leaf, zval **cacheHook) {
+	 gene_route_pc *pc;
+	 zend_ulong key;
+
+	 if (!(GENE_G(route_precompile)
+			 && GENE_G(runtime_type) >= 2
+			 && GENE_G(worker_ready)
+			 && leaf && *leaf && Z_TYPE_P(*leaf) == IS_ARRAY)) {
+		 return get_router_info_slow(leaf, cacheHook);
+	 }
+
+	 /* set_uri() populates request-scoped ctx->router_path and must run every
+	  * request regardless of the descriptor cache (the slow path runs it too,
+	  * as its first statement). */
+	 gene_router_set_uri(leaf);
+
+	 if (UNEXPECTED(!GENE_G(route_pc))) {
+		 PALLOC_HASHTABLE(GENE_G(route_pc));
+		 zend_hash_init(GENE_G(route_pc), 16, NULL, gene_route_pc_dtor, 1);
+	 }
+
+	 key = (zend_ulong)(uintptr_t)Z_ARRVAL_P(*leaf);
+	 pc = (gene_route_pc *)zend_hash_index_find_ptr(GENE_G(route_pc), key);
+	 if (!pc) {
+		 pc = (gene_route_pc *)pemalloc(sizeof(gene_route_pc), 1);
+		 gene_route_pc_resolve(leaf, cacheHook, pc);
+		 zend_hash_index_add_new_ptr(GENE_G(route_pc), key, pc);
+	 }
+	 return gene_route_pc_execute(pc);
+ }
+ /* }}} */
+
  /** {{{ static void get_router_info(char *keyString, int keyString_len)
   */
  int get_router_error_run_by_router(zval *cacheHook, char *errorName) {

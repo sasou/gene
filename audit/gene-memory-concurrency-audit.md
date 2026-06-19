@@ -124,7 +124,10 @@
 - **M5（部分落地）**：`request_attr` 已改为 `reset()` 就地复用（`gene_ctx_reuse_lazy_array()`，`src/gene.c`）。char* 缓冲池化**评估后暂缓**：全代码库以 `if (ctx->field)` 指针非空作"已设置"判据，跨 reset 保留非空缓冲会泄漏陈旧值；stash 方案改动面大、收益约 100–200ns/req，待 ASAN 验证后再议。
 - **P2（复核：建议不做）**：Swoole `Response::header()` 已通过 `GENE_SWOOLE_RESP_METHOD` 缓存 `zend_function*` 直调（无每次哈希查找），且 Swoole 无"数组批量 header" API；在 ctx 攒 header 到 `end()` 再循环调用**并不减少** `zend_call_known_function` 次数，仅把调用推迟，反而引入延迟刷新/时序风险。框架自身至多设 1 个 header，用户 header 数通常个位数。**收益≈0，风险>0，不实施。**
 - **M2（复核：收益远低于预估，暂缓）**：路由树持久副本由 `gene_memory_zval_persistent()` 按 `zend_hash_num_elements(source)` 精确建表，叶子节点已无明显冗余；Zend 哈希表最小 8 桶为引擎下界，无法再"压实"。真正的冗余在**重复字符串副本**（同名 hook/src 在多路由各存一份），但去重需要给持久字符串引入引用计数、改动 `gene_memory_zval_dtor` 等核心释放路径（影响整个持久缓存，非仅路由），高风险、爆炸半径大，暂缓。
-- **P3（高风险，建议单独分支）**：`get_router_info()` 每请求 6–10 次 `zend_hash_str_find` 是真实开销，预编译为 C 结构体可消除。但需在 `workerReady` 一次性遍历所有叶子构建描述符（请求期惰性构建会与 Swoole worker_ready 后的免锁读产生竞争，ZTS 下尤甚），属大型结构改动，且本环境无法编译/回归。**建议在专用分支以 Linux phpize+make+ASAN+wrk 压测落地。**
+- **P3（已在专用分支 `feature/p3-precompiled-dispatch` 实现，默认关闭）**：`get_router_info()` 每请求 6–10 次 `zend_hash_str_find` 是真实开销，已预编译为 C 描述符 `gene_route_pc` 消除。
+  - **设计**：按叶子 HashTable 指针为 key 的**每线程** `GENE_G(route_pc)` 记忆化缓存，惰性填充（首次命中解析+入表，均为非让出纯 C 操作，原子于协程协作调度）。原 `get_router_info()` 改名 `get_router_info_slow()` 逐字保留为回退；新 `get_router_info()` 包装按开关分流。
+  - **安全闸**：`gene.route_precompile`（默认 0 关闭）+ 仅 Swoole + 仅 `workerReady()` 后。关闭/FPM/未就绪时走原路径，零行为变化。`GENE_G` 每线程隔离规避 ZTS 竞争；描述符仅借用同线程 `cache`/`fn_cache` 指针（worker 生命周期稳定），仅 eval 程序串为 owned 持久副本，MSHUTDOWN 释放。
+  - **待验证**：Linux `phpize+make`（含 `--enable-debug`/ASAN）+ 三类路由（MCA/字符串/闭包）+ hook(`clearAll`/before/after)/error/404 全回归；wrk/ab 对比开关前后 QPS 与 P99；确认无 zend_mm 泄漏。**验证通过前不要在生产开启 `gene.route_precompile=1`。**
 
 ### 待实施项（后续轮次，高风险需单独分支 + 充分回归）
 - P3（路由叶子预编译派发）— 真实收益、高风险、需单独分支
