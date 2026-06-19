@@ -57,6 +57,9 @@
   * (GENE_G(route_pc)). No-op when the cache was never allocated. Called from
   * MSHUTDOWN. */
  void gene_router_pc_destroy(void);
+ /* [GENE_PERF:2026-06-19 P6] Free the persistent FPM closure-source cache.
+  * No-op when never allocated. Called from MSHUTDOWN. */
+ void gene_closure_src_cache_destroy(void);
 
  GENE_MINIT_FUNCTION (router);
 

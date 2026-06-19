@@ -1605,6 +1605,18 @@ static gene_closure_src_node *gene_closure_src_cache_get(const char *key, size_t
 	return (gene_closure_src_node *)zend_hash_str_find_ptr(gene_closure_src_cache, key, key_len);
 }
 
+/* [GENE_PERF:2026-06-19 P6] Release the persistent FPM closure-source cache at
+ * MSHUTDOWN, matching the cleanup convention of the extension's other
+ * persistent caches (route_pc/cache/fn_cache) and keeping valgrind/ASAN clean
+ * (no "still reachable" at process exit). No-op when never allocated. */
+void gene_closure_src_cache_destroy(void) {
+	if (gene_closure_src_cache) {
+		zend_hash_destroy(gene_closure_src_cache);
+		pefree(gene_closure_src_cache, 1);
+		gene_closure_src_cache = NULL;
+	}
+}
+
 static void gene_closure_src_cache_put(const char *key, size_t key_len, zend_long mtime, const char *src, size_t len) {
 	gene_closure_src_node *node;
 	if (!gene_closure_src_cache) {
@@ -1684,7 +1696,16 @@ char * get_function_content(zval *content) {
 	char src_key[1024];
 	int src_key_len = 0;
 	zend_long src_mtime = 0;
+	/* [GENE_PERF:2026-06-19 P6] The persistent source cache is a process-wide
+	 * (non per-thread) static HashTable mutated with lock-free update/find. That
+	 * is safe only when a single thread serves requests, i.e. NTS FPM. Under ZTS
+	 * builds multiple worker threads would race on the shared table, so disable
+	 * caching there and fall back to the per-request reflection+read path. */
+#ifdef ZTS
+	int src_cache_on = 0;
+#else
 	int src_cache_on = (GENE_G(runtime_type) < 2 && Z_TYPE(fileName) == IS_STRING);
+#endif
 	if (src_cache_on) {
 		src_mtime = gene_router_file_mtime(Z_STRVAL(fileName));
 		src_key_len = snprintf(src_key, sizeof(src_key),
