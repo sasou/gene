@@ -296,8 +296,51 @@ static zend_always_inline void gene_request_context_reset_path_params(gene_reque
 }
 /* }}} */
 
-/* {{{ gene_request_context_free_fields - shared cleanup for reset/destroy */
-static void gene_request_context_free_fields(gene_request_context *ctx, int preserve_path_params) {
+/* {{{ gene_ctx_reuse_lazy_array
+ * [GENE_MEM:2026-06-19 M5] Recycle a lazily-initialized request-scope array
+ * across reset() instead of destroying + re-array_init'ing it next request.
+ * Mirrors gene_request_context_reset_path_params()'s "reuse small, drop large"
+ * policy: an empty cleaned HashTable is observationally identical to a fresh
+ * array_init for consumers that key/iterate it, so the only effect is one
+ * fewer alloc/free pair per request on the common path. If a pathological
+ * request ballooned the table (>128 buckets) we drop it back to IS_UNDEF so
+ * the next lazy init starts at the minimum footprint — keeping Swoole worker
+ * RSS bounded exactly as the prior destroy-on-reset did. Unlike path_params,
+ * these arrays are re-initialized on demand by their accessor (e.g.
+ * gene_request_attr()), so we leave them UNDEF rather than eagerly re-init. */
+static zend_always_inline void gene_ctx_reuse_lazy_array(zval *zv) {
+	if (EXPECTED(Z_TYPE_P(zv) == IS_ARRAY)) {
+		if (UNEXPECTED(Z_ARRVAL_P(zv)->nTableSize > 128)) {
+			zval_ptr_dtor(zv);
+			ZVAL_UNDEF(zv);
+			return;
+		}
+		zend_hash_clean(Z_ARRVAL_P(zv));
+		return;
+	}
+	if (Z_TYPE_P(zv) != IS_UNDEF) {
+		zval_ptr_dtor(zv);
+		ZVAL_UNDEF(zv);
+	}
+}
+/* }}} */
+
+/* {{{ gene_request_context_free_fields - shared cleanup for reset/destroy
+ * preserve_for_reuse: 1 on reset() (request boundary for a recycled ctx) —
+ * path_params and request_attr are recycled in place rather than freed; 0 on
+ * destroy() (pool release / worker exit) — everything is fully freed.
+ *
+ * [GENE_MEM:2026-06-19 M5] Note on the char* fields (method/path/module/...):
+ * buffer pooling for these was evaluated and deliberately NOT done. Readers
+ * across the codebase test `if (ctx->module)` (pointer non-NULL) as the
+ * "is-set" signal, so preserving a non-NULL buffer with stale content past
+ * reset would silently leak the previous request's value into handlers that
+ * don't re-set it. A stash-based scheme (move buffer aside on reset, reuse on
+ * next set) preserves that contract but adds per-field stash+capacity state and
+ * touches every assignment site for a ~100-200ns/req gain — not worth the
+ * surface area until it can be validated under ASAN. The arrays below are safe
+ * to recycle because their accessors gate on IS_ARRAY/IS_UNDEF, not a pointer. */
+static void gene_request_context_free_fields(gene_request_context *ctx, int preserve_for_reuse) {
 	if (ctx->method) { efree(ctx->method); ctx->method = NULL; }
 	ctx->method_len = 0;
 	if (ctx->path) { efree(ctx->path); ctx->path = NULL; }
@@ -315,7 +358,7 @@ static void gene_request_context_free_fields(gene_request_context *ctx, int pres
 	if (ctx->lang) { efree(ctx->lang); ctx->lang = NULL; }
 	ctx->lang_len = 0;
 	if (ctx->log_file) { efree(ctx->log_file); ctx->log_file = NULL; }
-	if (!preserve_path_params) {
+	if (!preserve_for_reuse) {
 		/* [GENE_MEM:2026-04-24] Inlined path_params: dtor the HashTable
 		 * only; the zval container itself lives with the struct. */
 		if (Z_TYPE(ctx->path_params) != IS_UNDEF) {
@@ -323,15 +366,20 @@ static void gene_request_context_free_fields(gene_request_context *ctx, int pres
 			ZVAL_UNDEF(&ctx->path_params);
 		}
 	}
-	/* [GENE_MEM:2026-04-24 v5.5.8] Every request-scope array below is fully
-	 * destroyed (not just emptied) on reset so the backing HashTable bucket
-	 * storage — which may have ballooned on a single pathological request
-	 * (huge DI graph, view with thousands of vars, request with 10k+ attrs)
-	 * — is returned to ZMM instead of lingering in the struct pool across
-	 * the worker lifetime. Since these arrays are re-array_init'd on first
-	 * use of the next request, the steady-state cost is unchanged but the
-	 * worst-case RSS is bounded. */
-	if (Z_TYPE(ctx->request_attr) != IS_UNDEF) {
+	/* [GENE_MEM:2026-06-19 M5] request_attr is set on virtually every request
+	 * (any getVal/setVal of GET/POST/COOKIE/... routes through it), so on reset
+	 * we recycle it in place instead of free+re-init — saving one alloc/free
+	 * pair per request on the hot path. The "drop if >128 buckets" guard inside
+	 * gene_ctx_reuse_lazy_array() preserves the old RSS bound for pathological
+	 * requests. On destroy (preserve_for_reuse==0) it is fully freed below.
+	 * [GENE_MEM:2026-04-24 v5.5.8] The remaining request-scope arrays are fully
+	 * destroyed (not just emptied) so backing storage that ballooned on a single
+	 * pathological request (huge DI graph, view with thousands of vars) is
+	 * returned to ZMM instead of lingering in the struct pool for the worker
+	 * lifetime. They are re-array_init'd on first use next request. */
+	if (preserve_for_reuse) {
+		gene_ctx_reuse_lazy_array(&ctx->request_attr);
+	} else if (Z_TYPE(ctx->request_attr) != IS_UNDEF) {
 		zval_ptr_dtor(&ctx->request_attr);
 		ZVAL_UNDEF(&ctx->request_attr);
 	}

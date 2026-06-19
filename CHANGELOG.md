@@ -13,6 +13,8 @@
   - 新增 `gene.cache_max_items` INI（默认 `0` = 不限，完全向后兼容）。`>0` 时仅跟踪 `Gene\Cache` 业务分区（depth>0 写入），每次业务写入按"写时移动到表尾"近似 LRU，超出上限即从表头淘汰最久未写入项。
   - 框架元数据与普通 `Gene\Memory::set` 永不被跟踪、永不被淘汰，路由/配置不受影响；读路径不更新 recency，避免 workerReady 后免锁读路径的数据竞争。
   - 删除/`clean()`/MSHUTDOWN 与跟踪集保持同步；删除与淘汰路径改用 `zend_symtable_str_find` + Bucket 直取 key 的 O(1) 查找，替换原 O(N) 扫描，使带上限的缓存淘汰在锁内保持低成本。
+- **M5 — request_attr 数组跨请求复用（Swoole）**：`request_attr`（承载 GET/POST/COOKIE/SERVER/... 的访问，几乎每请求都会用到）原本在 `reset()` 时整表销毁、下次请求再 `array_init`。现改为在 `reset()` 时就地 `zend_hash_clean` 复用（沿用 `path_params` 的"小则复用、超 128 桶则丢弃回 `IS_UNDEF`"策略，保持 RSS 上界）；`destroy()`（池回收/worker 退出）仍整表释放。每请求省一次 alloc/free。
+  - **char\* 缓冲（method/path/module/...）池化已评估但暂不实施**：代码各处以 `if (ctx->module)`（指针非空）作为"已设置"判据，跨 `reset()` 保留非空且内容陈旧的缓冲会把上一个请求的值悄悄泄漏给未重设该字段的 handler。stash 方案虽可保契约但需为每字段加 stash+容量状态并改动所有赋值点，收益仅约 100–200ns/req，在无 ASAN 验证前不值得该改动面。
 - **P6 — FPM 闭包路由源码缓存**：FPM/CLI 模式下路由每请求重建，闭包路由每次都要 `ReflectionFunction` + `SplFileObject` 读两次源文件（IO）。新增进程级持久缓存（`pemalloc`），以 `文件路径:起始行:结束行` 为 key 缓存**已处理**的源码文本，按源文件 `mtime` 失效（同 opcache 时间戳校验语义）。
   - 仅在 `runtime_type < 2`（FPM/CLI）启用：Swoole 路由仅启动期注册一次，无每请求成本，且避免跨协程共享，因此不受影响。
   - 每次命中返回独立的 `emalloc` 副本，调用方 `efree` 契约不变；持久主副本随 worker 进程生命周期存在（与路由树一致）。
@@ -21,7 +23,7 @@
 
 ### 🔧 修改文件一览
 
-- `src/gene.c` / `src/gene.h` — P1 协程 id C-API 解析器 + `gene.swoole_getcid_capi` 开关；M1 `cache_lru`/`cache_max_items` 全局量、`gene.cache_max_items` INI、MSHUTDOWN 析构
+- `src/gene.c` / `src/gene.h` — P1 协程 id C-API 解析器 + `gene.swoole_getcid_capi` 开关；M1 `cache_lru`/`cache_max_items` 全局量、`gene.cache_max_items` INI、MSHUTDOWN 析构；M5 `request_attr` 复用辅助 `gene_ctx_reuse_lazy_array()`
 - `src/cache/memory.c` / `src/cache/memory.h` — M1 业务分区 LRU 跟踪/淘汰，`gene_memory_del` 改用 O(1) 核心删除并同步 LRU
 - `src/router/router.c` — `get_function_content()` 增加 FPM 源码持久缓存
 
