@@ -170,13 +170,13 @@
   3. 非真 LRU（写序近似，读不刷新 recency——因免锁读路径写跟踪集会竞争）；文档已说明，符合预期。
 - **结论**：可生产，建议默认保持 `cache_max_items=0`，开启时配合上面命名空间约束验证。
 
-### P6. FPM 闭包源码持久缓存 — ⚠️ 生产可用（两处小瑕疵建议补强）
+### P6. FPM 闭包源码持久缓存 — ✅ 生产可用（两处瑕疵已修复，2026-06-19）
 - **合理性**：`文件路径:起始行:结束行` 为 key、`mtime` 失效，命中返回 `estrndup` 副本（调用方 `efree` 契约不变），未命中读文件后回填持久副本。仅 FPM（`runtime_type < 2`）启用，正确避免 Swoole 启动一次的无收益场景。
 - **泄漏/bug**：节点 dtor 正确释放 `node->src` 与 `node`；`zend_hash_str_update_ptr` 会先析构同 key 旧节点，无泄漏。功能正确。
-- **瑕疵 1（建议修）**：`gene_closure_src_cache` 为文件级 `static HashTable`，**MSHUTDOWN 未释放** → 进程退出时 valgrind/ASAN 报 "still reachable"。虽功能无害（OS 回收），但与本扩展其它持久缓存（`route_pc`/`cache`/`fn_cache` 均在 MSHUTDOWN 释放）的惯例不一致，破坏 valgrind 干净性。建议新增 `gene_closure_src_cache_destroy()` 并在 router/扩展 MSHUTDOWN 调用。
-- **瑕疵 2（ZTS 安全）**：该静态表非 `GENE_G` 每线程（对比 P3 刻意每线程化）。ZTS 构建的 FPM/embed 下多线程共享同一表、无锁 `update`/`find` → 数据竞争。FPM 通常 NTS，风险低；建议改为每线程 `GENE_G` 或文档化"仅 NTS 安全"。
+- **瑕疵 1（已修）**：新增 `gene_closure_src_cache_destroy()`（`src/router/router.c`，声明于 `router.h`），在扩展 MSHUTDOWN（`src/gene.c`，`gene_router_pc_destroy()` 之后）调用，`zend_hash_destroy`+`pefree` 释放整表并置空。与 `route_pc`/`cache`/`fn_cache` 释放惯例一致，valgrind/ASAN 干净。
+- **瑕疵 2（已修，ZTS 安全）**：`get_function_content()` 中 `src_cache_on` 用 `#ifdef ZTS` 守卫——ZTS 构建直接置 0 关闭缓存，回退每请求反射+读文件路径，规避多线程共享静态表的无锁 `update`/`find` 竞争；NTS（典型 FPM）保留全部收益。
 - **边角**：`mtime` 1 秒粒度，同一秒内对同文件同行号二次改动会用旧缓存（源码场景概率极低）。
-- **结论**：NTS-FPM 下生产可用；建议补 MSHUTDOWN 释放，并明确 ZTS 约束。
+- **结论**：NTS-FPM 下生产可用，已补 MSHUTDOWN 释放并以编译期 ZTS 守卫明确约束。
 
 ### P3. 路由叶子预编译派发（`feature/p3-precompiled-dispatch`） — 🧪 设计合理，开启前必须验证
 - **合理性/隔离**：默认关闭（`gene.route_precompile=0`）、仅 Swoole、仅 `workerReady()` 后；原 `get_router_info()` 逐字保留为 `get_router_info_slow()` 作回退；描述符按叶子 HashTable 指针 memoize 于**每线程** `GENE_G(route_pc)`，惰性填充均为非让出纯 C 操作。`gene_route_pc_resolve/execute` 与 slow 路径分支逐一对应，`set_uri()` 仍每请求执行。MSHUTDOWN 经 `gene_router_pc_destroy()` 释放（仅 `eval_str` 为 owned 副本，其余借用，释放顺序无关）。
@@ -213,6 +213,6 @@
 
 ### 复核结论汇总
 - **可直接生产**：P1、M1（默认关闭/带命名空间约束）、P4（确认大小写）、P5、M3、P7、M5（request_attr 部分）。
-- **建议补强后生产**：P6（补 MSHUTDOWN 释放 + ZTS 约束文档化）。
+- **可直接生产（补强完成）**：P6（已补 MSHUTDOWN 释放 + 编译期 ZTS 守卫，2026-06-19）。
 - **开启前必须验证**：P3（fn_cache 冻结不变量 + ASAN 全回归）。
 - **维持现状不优化**：P2、M2。

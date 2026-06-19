@@ -1021,6 +1021,9 @@ PHP_MSHUTDOWN_FUNCTION(gene) {
 	 * borrow pointers into the route tree (freed above) so order is irrelevant;
 	 * the table dtor frees each descriptor's owned eval_str copy. */
 	gene_router_pc_destroy();
+	/* [GENE_PERF:2026-06-19 P6] Free the persistent FPM closure-source cache
+	 * (NTS-only; never allocated under ZTS). Keeps valgrind/ASAN clean. */
+	gene_closure_src_cache_destroy();
 	if (GENE_G(cache_easy)) {
 		gene_hash_destroy(GENE_G(cache_easy));
 		GENE_G(cache_easy) = NULL;
