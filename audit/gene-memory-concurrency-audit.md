@@ -15,7 +15,7 @@
   - 区分"框架元数据区"（路由/配置，启动后只读，不淘汰）与"业务数据区"（可淘汰），按 key 前缀或 set 入口分区。
 - **收益**：杜绝业务误用导致的无界 RSS；**风险**：中（需保证 worker_ready 后框架区只读不受影响）。
 
-### M2. 路由树持久结构紧凑化 — 中收益
+### M2. 路由树持久结构紧凑化 — 中收益 ⛔ 不建议同向优化（紧凑化收益≈0；去重需改核心释放路径）
 - **问题**：路由树每个 path 段一个嵌套 HashTable（最小 8 桶 ≈ 几百字节），叶子带 `run/src/frun/hook` 多个 zend_string 副本；大量路由（千级）时持久内存数 MB。
 - **方案**：启动注册完毕（workerReady）后做一次"压实"：`zend_hash_rehash` + 缩容到实际元素数；叶子内重复字符串（同一 hook 名等）做持久 interned 去重池。
 - **收益**：路由密集应用持久内存降 30–50%；**风险**：低（只在 workerReady 一次性执行）。
@@ -44,7 +44,7 @@
 - **方案**：编译期检测 swoole 头文件可用时直接调用 `swoole_coroutine_get_current_id()` C API（dlsym 或弱符号运行时解析，失败回退 PHP 调用）。
 - **收益**：每次协程切换后的首次上下文解析从 ~300ns 降至 ~5ns；**风险**：中（需处理 Swoole 未加载/版本差异，保留回退）。
 
-### P2. 响应输出路径：`zend_call_known_function` 批量化 — 中收益
+### P2. 响应输出路径：`zend_call_known_function` 批量化 — 中收益 ⛔ 不建议同向优化（复核确认）
 - **现状**：Swoole 下每个 header/cookie 一次 PHP 方法调用。
 - **方案**：在 ctx 内攒 header 数组，`end()` 时一次性循环调用（或调用 Swoole `Response::header` 的数组形式若可用）；redirect/end 保持现状。
 - **风险**：中（需保持 header 时序语义）。
@@ -139,3 +139,80 @@
 - `phpize && ./configure && make`（Windows IDE 无法编译）。
 - ASAN/valgrind 单请求泄漏检测，重点核对 M1 在 `cache_max_items>0` 下淘汰、`clean()`、MSHUTDOWN 三处持久 key 释放无泄漏/双释放。
 - 设 `gene.cache_max_items=N` 压测，确认业务缓存 RSS 稳定在上限附近，且路由/配置不受淘汰影响。
+
+## 七、生产级落地复核（2026-06-19，逐项源码审计）
+
+本节对**已落地项**逐一做源码级复核（是否合理、是否引入新内存泄漏/逻辑 bug、是否生产可用），并对**不建议同向优化项**与**待实施项**给出风险/收益结论。结论分级：
+- ✅ **生产可用**：实现合理，未发现新泄漏/逻辑 bug，可在生产使用（含默认值约束）。
+- ⚠️ **生产可用（带条件/已知小瑕疵）**：可用，但存在需关注的边角问题，建议后续补强。
+- 🧪 **设计合理，开启前需验证**：实现隔离良好且默认关闭，但生产开启前必须 Linux+ASAN 全回归并确认前置不变量。
+- ⛔ **不建议同向优化**：该方向收益≈0 或风险/爆炸半径过大，维持现状。
+
+### P1. Swoole getcid C-API 直调 — ✅ 生产可用
+- **合理性**：`dlsym(RTLD_DEFAULT, "_ZN6swoole9Coroutine15get_current_cidEv")` 解析 `swoole::Coroutine::get_current_cid()`（Itanium ABI mangled 名，Linux 稳定），每 worker 解析一次，三级回退链（C-API → 已缓存 `zend_function` → 返回 -1）完整。
+- **泄漏/bug**：无分配，无泄漏。`gene_swoole_getcid_capi` 为文件级静态函数指针，ZTS 下多线程并发解析写同一指针为**良性竞争**（写入值相同，已在注释论证），`resolved` 为 `volatile int`。
+- **风险**：
+  - macOS 符号 mangling 带前导下划线（`__ZN...`），dlsym 找不到 → 静默回退 PHP 路径，**安全**（仅 macOS 无此优化）。
+  - 依赖 `get_current_cid()` 返回 `long` 的 ABI 约定（Swoole 4.x/5.x 稳定）；若未来大版本变更签名有风险，但 `gene.swoole_getcid_capi=0` kill-switch 可即时回退。
+- **结论**：实现稳健，可生产。建议在 CHANGELOG/文档标注"如遇 Swoole 大版本协程 API 变更，可关 `gene.swoole_getcid_capi`"。
+
+### M1. 持久缓存业务分区上限 + 近似 LRU — ✅ 生产可用（默认关闭，全兼容）
+- **合理性**：仅跟踪 `cache_layer_memory_write_depth>0` 的业务写入；`cache_max_items=0`（默认）完全旁路，向后兼容。所有跟踪/淘汰均在 `GENE_CACHE_WRLOCK` 内、无协程让出点，符合既有并发模型。
+- **泄漏/双释放复核（重点）**：
+  - 跟踪集 key 由 `gene_str_persistent()` 创建，带 `IS_STR_INTERNED|IS_STR_PERMANENT`；`zend_hash_add_empty_element` 对 interned 串**不 addref**，HT 销毁时 `zend_string_release` 对 interned 串为 no-op → 代码手动 `pefree`，**不双释放、不泄漏**。
+  - `gene_cache_lru_remove_nolock` 经 `(Bucket*)zv->key` 取 key 后再 `zend_hash_str_del`，顺序正确。
+  - 淘汰循环先 `break` 出 foreach 再删除（不在迭代中改表），主缓存与跟踪集各持独立 key 副本、各自释放，无交叉双释放。
+  - 数值字符串 key 一致性：主缓存走 `zend_symtable_*`（数值强制为整型索引，stored_key 为 NULL 不 pefree），跟踪集统一走 `zend_hash_str_*`（始终字符串键）——两表各自内部一致，`gene_memory_del_core` 也用 symtable，闭环正确。
+  - MSHUTDOWN/`clean()` 顺序：先销毁主 `cache`，再 `gene_cache_lru_destroy()`（释放独立 key 副本），无 use-after-free。
+- **残留风险（需关注，非 bug）**：
+  1. **命名空间冲突**：若框架元数据键（路由/配置，depth=0 写入）与某业务键字符串相同，后续业务 `set`（depth>0，走 line 536 既存键分支）会把该键纳入 LRU 并可能淘汰掉框架数据。生产前应确认 `Gene\Cache` 业务键有独立前缀、不与路由/配置键重叠。
+  2. 业务键内存翻倍（主缓存 + 跟踪集各存一份持久 key），可接受。
+  3. 非真 LRU（写序近似，读不刷新 recency——因免锁读路径写跟踪集会竞争）；文档已说明，符合预期。
+- **结论**：可生产，建议默认保持 `cache_max_items=0`，开启时配合上面命名空间约束验证。
+
+### P6. FPM 闭包源码持久缓存 — ⚠️ 生产可用（两处小瑕疵建议补强）
+- **合理性**：`文件路径:起始行:结束行` 为 key、`mtime` 失效，命中返回 `estrndup` 副本（调用方 `efree` 契约不变），未命中读文件后回填持久副本。仅 FPM（`runtime_type < 2`）启用，正确避免 Swoole 启动一次的无收益场景。
+- **泄漏/bug**：节点 dtor 正确释放 `node->src` 与 `node`；`zend_hash_str_update_ptr` 会先析构同 key 旧节点，无泄漏。功能正确。
+- **瑕疵 1（建议修）**：`gene_closure_src_cache` 为文件级 `static HashTable`，**MSHUTDOWN 未释放** → 进程退出时 valgrind/ASAN 报 "still reachable"。虽功能无害（OS 回收），但与本扩展其它持久缓存（`route_pc`/`cache`/`fn_cache` 均在 MSHUTDOWN 释放）的惯例不一致，破坏 valgrind 干净性。建议新增 `gene_closure_src_cache_destroy()` 并在 router/扩展 MSHUTDOWN 调用。
+- **瑕疵 2（ZTS 安全）**：该静态表非 `GENE_G` 每线程（对比 P3 刻意每线程化）。ZTS 构建的 FPM/embed 下多线程共享同一表、无锁 `update`/`find` → 数据竞争。FPM 通常 NTS，风险低；建议改为每线程 `GENE_G` 或文档化"仅 NTS 安全"。
+- **边角**：`mtime` 1 秒粒度，同一秒内对同文件同行号二次改动会用旧缓存（源码场景概率极低）。
+- **结论**：NTS-FPM 下生产可用；建议补 MSHUTDOWN 释放，并明确 ZTS 约束。
+
+### P3. 路由叶子预编译派发（`feature/p3-precompiled-dispatch`） — 🧪 设计合理，开启前必须验证
+- **合理性/隔离**：默认关闭（`gene.route_precompile=0`）、仅 Swoole、仅 `workerReady()` 后；原 `get_router_info()` 逐字保留为 `get_router_info_slow()` 作回退；描述符按叶子 HashTable 指针 memoize 于**每线程** `GENE_G(route_pc)`，惰性填充均为非让出纯 C 操作。`gene_route_pc_resolve/execute` 与 slow 路径分支逐一对应，`set_uri()` 仍每请求执行。MSHUTDOWN 经 `gene_router_pc_destroy()` 释放（仅 `eval_str` 为 owned 副本，其余借用，释放顺序无关）。
+- **关键风险（必须验证的前置不变量）**：描述符缓存了 fn_cache 的 `zval*`（`route_cl/before_cl/after_cl/hook_cl`）。这些是 fn_cache HashTable 的 Bucket 内部指针——**一旦 workerReady 之后有任何闭包被加入 fn_cache 触发 rehash/扩容，已缓存描述符里的这些指针即悬空 → use-after-free**。整个方案的正确性完全押在"fn_cache 在 workerReady 后冻结、不再增长"这一不变量上。
+  - **生产开启前必须确认**：Swoole 下是否存在请求期向 fn_cache 写入的路径（如运行时动态注册闭包路由、错误路由闭包首次惰性入表等）。若存在，必须改设计。
+  - **更稳健的替代设计（若不变量不成立）**：描述符改存 fn_cache 的 **key 字符串**而非 `zval*`，execute 时做 1 次 `zend_hash_find`（仍从 6–10 次降到 1 次，消除指针悬空风险）。
+- **结论**：隔离与回退设计优秀，默认关闭+已有警告使其对生产零影响。但 `gene.route_precompile=1` 上线前**必须** Linux `--enable-debug`/ASAN 跑三类路由 + hook(`clearAll`/before/after)/error/404 全回归，并实证 fn_cache 冻结不变量；否则建议先采用"存 key 重查"的替代实现。
+
+### P4. factory 方法指针缓存 — ✅ 生产可用（收益兑现需确认 action 大小写）
+- **合理性/bug**：`zend_hash_str_find_ptr(&ce->function_table, action, action_len)` 命中走 `zend_call_known_function`，未命中回退 `call_user_function`。功能正确，无泄漏（栈/堆参数缓冲分支释放正确）。
+- **收益注意点**：PHP 函数表的方法键是**小写**存储。若调用方传入的 `action` 为驼峰（如 `indexAction`），`find_ptr` 恒未命中、每次走 `call_user_function`（其内部再小写化），**快路径收益不兑现**（但结果正确）。建议确认控制器 action 派发时传入的名称是否已小写；若否，可在查找前用栈缓冲小写化以真正命中。
+- **结论**：正确且安全；按上面确认 action 大小写以确保收益。
+
+### P5 / M3 / P7 — ✅ 已核对，沿用成熟模式
+- P5：`pool.c`/`redis_pool.c` 缓存 `zend_function*` 直调，标准做法，无新增分配。
+- M3：`gene.ctx_pool_max` 上限检查，溢出 efree，符合预期。
+- P7：写锁仅启动期，worker_ready 后读路径免锁，已核对无串行点。
+
+### M5. 请求级复用 — ✅ 部分落地生产可用；char* 池化暂缓合理
+- **已落地（request_attr 就地复用）**：reset 时 `gene_ctx_reuse_lazy_array()` 就地清空复用，`>128` 桶丢弃以保 RSS 上界，destroy 时全释放。逻辑正确、无泄漏。✅ 生产可用。
+- **char\* 缓冲池化（暂缓）**：全代码库以"指针非空"作为字段"已设置"判据，跨 reset 保留非空缓冲会泄漏陈旧值；stash 方案改动面大、收益仅约 100–200ns/req。**暂缓合理**，需 ASAN 验证后再议。
+
+### 不建议同向优化项（复核确认）
+- **P2（响应 header 批量化）— ⛔ 不建议**：`Response::header()` 已缓存 `zend_function*` 直调，Swoole 无"数组批量 header" API；攒到 `end()` 再循环调用**不减少** `zend_call_known_function` 次数，仅推迟调用并引入时序/刷新风险。框架自身至多 1 个 header，用户 header 通常个位数。**收益≈0、风险>0，维持现状。**
+- **M2（路由树紧凑化 + 字符串去重）— ⛔ 不建议同向**：持久副本已按 `zend_hash_num_elements` 精确建表，Zend 最小 8 桶为引擎下界，**无可"压实"空间**；真正冗余在重复字符串副本，但去重需给持久串引入引用计数、改 `gene_memory_zval_dtor` 等**核心释放路径**（影响整个持久缓存，爆炸半径大）。维持现状；若将来确需，应走"独立持久 interned 全局池"而非改 dtor。
+
+### 待实施项风险/收益小结
+| 项 | 收益 | 风险 | 建议 |
+|---|---|---|---|
+| P3 上线（`route_precompile=1`） | 中（省 6–10 次哈希/req） | 中高（fn_cache 指针悬空，依赖冻结不变量） | 验证不变量 + ASAN 全回归后再开；否则改"存 key 重查" |
+| M5 char* stash 池化 | 低（~100–200ns/req） | 中（需重构"已设置"判据） | 低优先，ASAN 验证后再做 |
+| M4 fn_cache 诊断接口 | 低（可观测性） | 低 | 可作收尾，纯只读诊断 |
+| M2 字符串去重池 | 中（持久内存） | 高（改核心释放路径） | ⛔ 暂不做 |
+
+### 复核结论汇总
+- **可直接生产**：P1、M1（默认关闭/带命名空间约束）、P4（确认大小写）、P5、M3、P7、M5（request_attr 部分）。
+- **建议补强后生产**：P6（补 MSHUTDOWN 释放 + ZTS 约束文档化）。
+- **开启前必须验证**：P3（fn_cache 冻结不变量 + ASAN 全回归）。
+- **维持现状不优化**：P2、M2。
