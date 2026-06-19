@@ -158,6 +158,16 @@
  bool view_compile_check_mtime;
  HashTable *cache;
  HashTable *cache_easy;
+ /* [GENE_MEM:2026-06-19 M1] Approximate-LRU tracking set for the Gene\Cache
+  * business partition (writes bracketed by cache_layer_memory_write_depth>0).
+  * Insertion-ordered set of persistent key copies (least→most recently set);
+  * only allocated when gene.cache_max_items > 0. Framework metadata
+  * (routes/config/events) and plain Memory::set entries are never tracked. */
+ HashTable *cache_lru;
+ /* [GENE_MEM:2026-06-19 M1] Hard cap on the number of tracked Gene\Cache
+  * business entries. 0 = unlimited (default, fully backward-compatible);
+  * when > 0, business writes evict the oldest tracked entries past the cap. */
+ zend_long cache_max_items;
  gene_rwlock_t cache_lock;
  gene_request_context default_ctx;
  gene_request_context *resident_ctx;
@@ -171,6 +181,10 @@
  void *current_vm_stack;
 zend_function *swoole_getcid_func;
 zend_bool swoole_getcid_resolved;
+/* [GENE_PERF:2026-06-19 P1] Kill-switch for the dlsym-based direct C-API
+ * resolution of swoole::Coroutine::get_current_cid(). Default on; set
+ * gene.swoole_getcid_capi=0 in php.ini to force the PHP-call fallback. */
+zend_bool swoole_getcid_capi;
 /* [GENE_MEM:2026-04-23] Cached Swoole\Coroutine::exists resolver used by
  * gene_co_contexts_sweep() to reclaim contexts of already-dead coroutines
  * in long-running workers where users may forget to call cleanup(). */

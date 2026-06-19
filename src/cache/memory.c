@@ -333,12 +333,187 @@ zval *gene_memory_zval_local(zval *dst, zval *source) /* {{{ */
 /* }}} */
 
 
+/* {{{ M1 — persistent business-cache cap + approximate-LRU eviction.
+ *
+ * Problem (audit M1): GENE_G(cache) is a process-persistent (pemalloc) table
+ * shared by framework metadata (routes / configs / events) AND the userland
+ * Gene\Cache data layer. The framework metadata is written once at startup and
+ * is read-only afterwards (in Swoole it is frozen at workerReady()), so it can
+ * never grow unbounded. The Gene\Cache layer, however, is allowed to write at
+ * request time (it brackets its writes with cache_layer_memory_write_depth>0 to
+ * bypass the freeze), so an application that uses Gene\Cache as an in-process
+ * data cache grows RSS without bound — the worker never reclaims it.
+ *
+ * Fix: an opt-in cap, gene.cache_max_items (default 0 = unlimited / fully
+ * backward-compatible). When > 0 we track ONLY the Gene\Cache business
+ * partition (depth>0 writes) in a parallel ordered set GENE_G(cache_lru) and,
+ * on each business write, evict the oldest tracked entries until the partition
+ * is back within the cap. Framework metadata and plain userland Gene\Memory::set
+ * entries are NEVER tracked and therefore NEVER evicted — routing/config can
+ * never break. Recency is updated on write (move-to-tail): a re-set key is the
+ * most-recently-used, so eviction approximates LRU. We deliberately do NOT touch
+ * recency on read: the read path may run lock-free after workerReady(), so a
+ * write into cache_lru there would be a data race. This "lazy, write-triggered"
+ * policy is exactly what the audit prescribes.
+ *
+ * All helpers below assume the caller already holds GENE_CACHE_WRLOCK(). */
+
+/* Core deletion from the main persistent cache, WITHOUT taking the lock and
+ * WITHOUT the write_allowed() gate. Factored out of gene_memory_del() so the
+ * eviction path (which already holds the write lock) can reuse it without
+ * recursive locking. Returns 1 if an entry was removed. */
+static int gene_memory_del_core(const char *keyString, size_t keyString_len) {
+	zval *stored_val;
+	zend_string *stored_key;
+	dtor_func_t orig_dtor;
+
+	/* O(1) lookup mirroring gene_memory_get()'s zend_symtable_str_find — handles
+	 * both string and numeric-as-index keys. The returned zval* is the first
+	 * member of its Bucket, so (Bucket*)zv->key yields the stored key pointer
+	 * (NULL for numeric/index entries, which need no manual free). This replaces
+	 * the former O(N) scan so capped-cache eviction stays cheap under the lock. */
+	stored_val = zend_symtable_str_find(GENE_G(cache), (char *)keyString, keyString_len);
+	if (!stored_val) {
+		return 0;
+	}
+	stored_key = ((Bucket *)stored_val)->key;
+	gene_memory_zval_dtor(stored_val);
+	orig_dtor = GENE_G(cache)->pDestructor;
+	GENE_G(cache)->pDestructor = NULL;
+	zend_symtable_str_del(GENE_G(cache), keyString, keyString_len);
+	GENE_G(cache)->pDestructor = orig_dtor;
+	if (stored_key && (GC_FLAGS(stored_key) & (IS_STR_INTERNED | IS_STR_PERMANENT))) {
+		pefree(stored_key, 1);
+	}
+	return 1;
+}
+
+/* Remove a key from the LRU tracking set (if present) and free its persistent
+ * key. The tracking set stores persistent interned keys (zend_string_release is
+ * a no-op for those), so we must pefree the stored key manually — same contract
+ * as the main cache. No-op when tracking is not active. */
+static void gene_cache_lru_remove_nolock(const char *keyString, size_t keyString_len) {
+	HashTable *lru = GENE_G(cache_lru);
+	zval *zv;
+	zend_string *stored_key;
+
+	if (!lru) {
+		return;
+	}
+	/* The tracking set is always keyed by plain (non-numeric-coerced) strings,
+	 * so a direct zend_hash_str_find is the right O(1) lookup. */
+	zv = zend_hash_str_find(lru, keyString, keyString_len);
+	if (!zv) {
+		return;
+	}
+	stored_key = ((Bucket *)zv)->key;
+	zend_hash_str_del(lru, keyString, keyString_len);
+	if (stored_key && (GC_FLAGS(stored_key) & (IS_STR_INTERNED | IS_STR_PERMANENT))) {
+		pefree(stored_key, 1);
+	}
+}
+
+/* Mark a business key as most-recently-used: drop any existing tracking entry
+ * then re-insert at the tail so iteration order = least→most recent. Lazily
+ * allocates the tracking table on first use. */
+static void gene_cache_lru_touch_nolock(const char *keyString, size_t keyString_len) {
+	zend_string *k;
+	if (!GENE_G(cache_lru)) {
+		PALLOC_HASHTABLE(GENE_G(cache_lru));
+		zend_hash_init(GENE_G(cache_lru), 8, NULL, NULL, 1);
+	}
+	gene_cache_lru_remove_nolock(keyString, keyString_len);
+	k = gene_str_persistent((char *)keyString, keyString_len);
+	zend_hash_add_empty_element(GENE_G(cache_lru), k);
+	/* key now owned by the tracking table; freed on removal/destroy. */
+}
+
+/* Evict oldest tracked business entries until the partition fits the cap. */
+static void gene_cache_lru_evict_nolock(void) {
+	HashTable *lru = GENE_G(cache_lru);
+	zend_long cap = GENE_G(cache_max_items);
+
+	if (!lru || cap <= 0) {
+		return;
+	}
+	while ((zend_long)zend_hash_num_elements(lru) > cap) {
+		zend_string *victim = NULL;
+		zend_string *iter_key;
+		char vbuf[256];
+		char *vk;
+		size_t vlen;
+		int vheap = 0;
+
+		ZEND_HASH_FOREACH_STR_KEY(lru, iter_key) {
+			victim = iter_key;
+			break; /* head = least-recently-used */
+		} ZEND_HASH_FOREACH_END();
+		if (!victim) {
+			break;
+		}
+		/* The key string is freed by the removals below, so copy it out first. */
+		vlen = ZSTR_LEN(victim);
+		if (vlen < sizeof(vbuf)) {
+			memcpy(vbuf, ZSTR_VAL(victim), vlen);
+			vbuf[vlen] = '\0';
+			vk = vbuf;
+		} else {
+			vk = (char *)pemalloc(vlen + 1, 1);
+			memcpy(vk, ZSTR_VAL(victim), vlen);
+			vk[vlen] = '\0';
+			vheap = 1;
+		}
+		gene_memory_del_core(vk, vlen);
+		gene_cache_lru_remove_nolock(vk, vlen);
+		if (vheap) {
+			pefree(vk, 1);
+		}
+	}
+}
+
+/* Tear down the LRU tracking set, freeing all persistent keys. Mirrors
+ * gene_hash_destroy() but the values are IS_NULL placeholders (no dtor). */
+void gene_cache_lru_destroy(void) {
+	HashTable *lru = GENE_G(cache_lru);
+	zend_string **keys = NULL;
+	zend_string *key;
+	uint32_t key_count = 0;
+	uint32_t i;
+
+	if (!lru) {
+		return;
+	}
+	if (lru->nNumUsed > 0) {
+		keys = (zend_string **) pemalloc(sizeof(zend_string *) * lru->nNumUsed, 1);
+		ZEND_HASH_FOREACH_STR_KEY(lru, key) {
+			if (key && (GC_FLAGS(key) & (IS_STR_INTERNED | IS_STR_PERMANENT))) {
+				keys[key_count++] = key;
+			}
+		} ZEND_HASH_FOREACH_END();
+	}
+	zend_hash_destroy(lru);
+	for (i = 0; i < key_count; i++) {
+		pefree(keys[i], 1);
+	}
+	if (keys) {
+		pefree(keys, 1);
+	}
+	pefree(lru, 1);
+	GENE_G(cache_lru) = NULL;
+}
+/* }}} */
+
 /** {{{ void gene_memory_set(char *keyString,int keyString_len,zval *zvalue, int validity)
  */
 void gene_memory_set(char *keyString, size_t keyString_len, zval *zvalue,
 		int validity) {
 	zval *copyval, ret;
 	zend_string *key;
+	/* [GENE_MEM:2026-06-19 M1] Only the Gene\Cache data layer (writes bracketed
+	 * with cache_layer_memory_write_depth>0) participates in the capped/evictable
+	 * business partition; routes/config/userland Memory::set are never tracked. */
+	int is_business = (GENE_G(cache_max_items) > 0
+		&& GENE_G(cache_layer_memory_write_depth) > 0);
 	if (zvalue) {
 		if (UNEXPECTED(!gene_memory_write_allowed("Memory::set"))) {
 			return;
@@ -351,10 +526,18 @@ void gene_memory_set(char *keyString, size_t keyString_len, zval *zvalue,
 			gene_symtable_update(GENE_G(cache), key, &ret);
 			/* key is now owned by the hash table; do not free here.
 			 * zend_string_release is a no-op for interned strings. */
+			if (is_business) {
+				gene_cache_lru_touch_nolock(keyString, keyString_len);
+				gene_cache_lru_evict_nolock();
+			}
 			GENE_CACHE_WRUNLOCK();
 			return;
 		}
 		gene_memory_zval_edit_persistent(copyval, zvalue);
+		if (is_business) {
+			gene_cache_lru_touch_nolock(keyString, keyString_len);
+			gene_cache_lru_evict_nolock();
+		}
 		GENE_CACHE_WRUNLOCK();
 	}
 }
@@ -633,54 +816,24 @@ zend_long gene_memory_getTime(char *keyString, size_t keyString_len) {
 /** {{{ void gene_memory_del(char *keyString, size_t keyString_len)
  */
 int gene_memory_del(char *keyString, size_t keyString_len) {
-	zend_string *stored_key = NULL;
-	zval *stored_val = NULL;
-	zend_string *iter_key;
-	zval *iter_val;
-	dtor_func_t orig_dtor;
+	int ret;
 
 	if (UNEXPECTED(!gene_memory_write_allowed("Memory::del"))) {
 		return 0;
 	}
 	GENE_CACHE_WRLOCK();
-	/* Keys are allocated as persistent interned strings (IS_STR_INTERNED),
-	 * so zend_string_release() is a no-op for them. We must find the stored
-	 * key pointer and free() it manually to avoid a memory leak on each del. */
-	ZEND_HASH_FOREACH_STR_KEY_VAL(GENE_G(cache), iter_key, iter_val) {
-		if (iter_key
-				&& ZSTR_LEN(iter_key) == keyString_len
-				&& memcmp(ZSTR_VAL(iter_key), keyString, keyString_len) == 0) {
-			stored_key = iter_key;
-			stored_val = iter_val;
-			break;
-		}
-	} ZEND_HASH_FOREACH_END();
-
-	if (stored_key) {
-		/* Free the value content first */
-		gene_memory_zval_dtor(stored_val);
-
-		/* Remove the bucket without triggering the destructor again */
-		orig_dtor = GENE_G(cache)->pDestructor;
-		GENE_G(cache)->pDestructor = NULL;
-		zend_symtable_str_del(GENE_G(cache), keyString, keyString_len);
-		GENE_G(cache)->pDestructor = orig_dtor;
-
-		/* Only keys forced to permanent/interned need manual freeing */
-		if (GC_FLAGS(stored_key) & (IS_STR_INTERNED | IS_STR_PERMANENT)) {
-			pefree(stored_key, 1);
-		}
-		GENE_CACHE_WRUNLOCK();
-		return 1;
-	}
-
-	/* Fallback for numeric keys (stored by index, no persistent key to free) */
-	if (zend_symtable_str_del(GENE_G(cache), keyString, keyString_len) == SUCCESS) {
-		GENE_CACHE_WRUNLOCK();
-		return 1;
+	/* gene_memory_del_core() handles the persistent-key free dance (keys are
+	 * IS_STR_INTERNED|IS_STR_PERMANENT, so zend_string_release is a no-op and
+	 * we must pefree them manually) plus the numeric-index fallback. */
+	ret = gene_memory_del_core(keyString, keyString_len);
+	if (ret) {
+		/* [GENE_MEM:2026-06-19 M1] Keep the LRU tracking set in sync so a
+		 * later re-set doesn't see a stale entry / mis-count the partition.
+		 * No-op when tracking is inactive (cache_lru == NULL). */
+		gene_cache_lru_remove_nolock(keyString, keyString_len);
 	}
 	GENE_CACHE_WRUNLOCK();
-	return 0;
+	return ret;
 }
 /* }}} */
 
@@ -932,6 +1085,10 @@ PHP_METHOD(gene_memory, clean) {
 		gene_hash_destroy(GENE_G(cache));
 		GENE_G(cache) = NULL;
 	}
+	/* [GENE_MEM:2026-06-19 M1] clean() wipes the whole persistent cache, so the
+	 * LRU tracking set's keys now point at freed entries — drop it too. It will
+	 * be lazily re-created on the next business write. */
+	gene_cache_lru_destroy();
 	gene_memory_init();
 	GENE_CACHE_WRUNLOCK();
 	RETURN_TRUE;

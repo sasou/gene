@@ -60,7 +60,47 @@
 #include "cache/redis.h"
 #include "cache/cache.h"
 
+#ifndef PHP_WIN32
+#include <dlfcn.h>
+#endif
+
 ZEND_DECLARE_MODULE_GLOBALS(gene);
+
+/* [GENE_PERF:2026-06-19 P1] Direct C-API resolution of the current Swoole
+ * coroutine id. gene_get_coroutine_id() previously always crossed into PHP
+ * via zend_call_known_function() (~hundreds of ns). The vm_stack identity
+ * fast path in gene_request_ctx() covers non-yielding call chains, but the
+ * first GENE_REQ() access after every coroutine switch (i.e. after every IO)
+ * still pays that cost. Swoole exports the static C++ method
+ *   swoole::Coroutine::get_current_cid()
+ * which simply reads a thread-local pointer and returns its cid (or -1 outside
+ * a coroutine) — a few ns. We resolve it once per worker via dlsym against the
+ * already-loaded swoole.so using the Itanium-ABI mangled symbol name (stable
+ * across compilers/versions). If the symbol is unavailable (Swoole not loaded,
+ * Windows, custom build with hidden visibility, or an incompatible fork) we
+ * transparently fall back to the cached zend_function PHP path — so the
+ * optimization is strictly best-effort and never a correctness hazard.
+ *
+ * The resolver state is process-global (the dlsym result is identical for all
+ * threads); the one-time init is idempotent so the benign ZTS race of two
+ * threads resolving concurrently writes the same pointer. */
+typedef long (*gene_getcid_capi_t)(void);
+static gene_getcid_capi_t gene_swoole_getcid_capi = NULL;
+static volatile int gene_swoole_getcid_capi_resolved = 0;
+
+static void gene_resolve_getcid_capi(void) {
+	if (gene_swoole_getcid_capi_resolved) {
+		return;
+	}
+#ifndef PHP_WIN32
+	/* Search every loaded object (RTLD_DEFAULT) — swoole.so is fully loaded
+	 * by the time any request executes, so the symbol is visible here even
+	 * though it may not have been at gene's MINIT. */
+	gene_swoole_getcid_capi = (gene_getcid_capi_t)dlsym(
+		RTLD_DEFAULT, "_ZN6swoole9Coroutine15get_current_cidEv");
+#endif
+	gene_swoole_getcid_capi_resolved = 1;
+}
 
 
 /** {{{ PHP_INI
@@ -76,6 +116,8 @@ STD_PHP_INI_ENTRY("gene.library_root", "", PHP_INI_SYSTEM, OnUpdateString, libra
 STD_PHP_INI_ENTRY("gene.co_contexts_max", "1024", PHP_INI_SYSTEM, OnUpdateLong, co_contexts_max, zend_gene_globals, gene_globals) // @suppress("Symbol is not resolved")
 STD_PHP_INI_ENTRY("gene.ctx_pool_max", "256", PHP_INI_SYSTEM, OnUpdateLong, ctx_pool_max, zend_gene_globals, gene_globals) // @suppress("Symbol is not resolved")
 STD_PHP_INI_ENTRY("gene.ctx_pool_prewarm", "0", PHP_INI_SYSTEM, OnUpdateLong, ctx_pool_prewarm, zend_gene_globals, gene_globals) // @suppress("Symbol is not resolved")
+STD_PHP_INI_BOOLEAN("gene.swoole_getcid_capi", "1", PHP_INI_SYSTEM, OnUpdateBool, swoole_getcid_capi, zend_gene_globals, gene_globals) // @suppress("Symbol is not resolved")
+STD_PHP_INI_ENTRY("gene.cache_max_items", "0", PHP_INI_SYSTEM, OnUpdateLong, cache_max_items, zend_gene_globals, gene_globals) // @suppress("Symbol is not resolved")
 PHP_INI_END();
 /* }}} */
 
@@ -85,6 +127,17 @@ PHP_INI_END();
  */
 zend_long gene_get_coroutine_id(void) {
 	zval retval;
+
+	/* [GENE_PERF:2026-06-19 P1] Prefer the resolved C-API direct call. */
+	if (EXPECTED(gene_swoole_getcid_capi != NULL)) {
+		return (zend_long)gene_swoole_getcid_capi();
+	}
+	if (UNEXPECTED(!gene_swoole_getcid_capi_resolved) && GENE_G(swoole_getcid_capi)) {
+		gene_resolve_getcid_capi();
+		if (gene_swoole_getcid_capi != NULL) {
+			return (zend_long)gene_swoole_getcid_capi();
+		}
+	}
 
 	if (!GENE_G(swoole_getcid_resolved)) {
 		zend_class_entry *co_ce = gene_lookup_class_str(ZEND_STRL("swoole\\coroutine"));
@@ -746,6 +799,10 @@ static void php_gene_init_globals() {
 	GENE_G(fn_cache) = NULL;
 	GENE_G(cache) = NULL;
 	GENE_G(cache_easy) = NULL;
+	/* [GENE_MEM:2026-06-19 M1] LRU tracking set is lazily allocated on the
+	 * first business write; cache_max_items is loaded from php.ini before
+	 * MINIT so we must NOT zero it here (same rule as ctx_pool_prewarm). */
+	GENE_G(cache_lru) = NULL;
 	gene_rwlock_init(&GENE_G(cache_lock));
 	gene_memory_init();
 }
@@ -904,6 +961,9 @@ PHP_MSHUTDOWN_FUNCTION(gene) {
 		gene_hash_destroy(GENE_G(cache));
 		GENE_G(cache) = NULL;
 	}
+	/* [GENE_MEM:2026-06-19 M1] Tear down the business-cache LRU tracking set
+	 * (frees its persistent key copies) before the lock is destroyed. */
+	gene_cache_lru_destroy();
 	if (GENE_G(cache_easy)) {
 		gene_hash_destroy(GENE_G(cache_easy));
 		GENE_G(cache_easy) = NULL;

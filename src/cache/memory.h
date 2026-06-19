@@ -57,6 +57,9 @@ extern zend_class_entry *gene_memory_ce;
 void gene_memory_init();
 int gene_memory_write_allowed(const char *op);
 void gene_hash_destroy(HashTable *ht);
+/* [GENE_MEM:2026-06-19 M1] Free the Gene\Cache business-partition LRU tracking
+ * set (and its persistent key copies). Safe no-op when tracking is inactive. */
+void gene_cache_lru_destroy(void);
 void gene_memory_set(char *keyString, size_t keyString_len, zval *zvalue, int validity);
 zval * gene_memory_get(char *keyString, size_t keyString_len);
 /* [GENE_PERF:2026-04-19] gene_memory_get_quick collapsed to macro — it was an alias
