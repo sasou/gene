@@ -120,10 +120,17 @@
 - `src/cache/memory.c` / `src/cache/memory.h` — M1 LRU 跟踪与淘汰
 - `CHANGELOG.md` — Unreleased 记录补充 P1 / M1
 
+### 本轮追加（M5 安全子集落地 + P2/M2/P3 复核结论）
+- **M5（部分落地）**：`request_attr` 已改为 `reset()` 就地复用（`gene_ctx_reuse_lazy_array()`，`src/gene.c`）。char* 缓冲池化**评估后暂缓**：全代码库以 `if (ctx->field)` 指针非空作"已设置"判据，跨 reset 保留非空缓冲会泄漏陈旧值；stash 方案改动面大、收益约 100–200ns/req，待 ASAN 验证后再议。
+- **P2（复核：建议不做）**：Swoole `Response::header()` 已通过 `GENE_SWOOLE_RESP_METHOD` 缓存 `zend_function*` 直调（无每次哈希查找），且 Swoole 无"数组批量 header" API；在 ctx 攒 header 到 `end()` 再循环调用**并不减少** `zend_call_known_function` 次数，仅把调用推迟，反而引入延迟刷新/时序风险。框架自身至多设 1 个 header，用户 header 数通常个位数。**收益≈0，风险>0，不实施。**
+- **M2（复核：收益远低于预估，暂缓）**：路由树持久副本由 `gene_memory_zval_persistent()` 按 `zend_hash_num_elements(source)` 精确建表，叶子节点已无明显冗余；Zend 哈希表最小 8 桶为引擎下界，无法再"压实"。真正的冗余在**重复字符串副本**（同名 hook/src 在多路由各存一份），但去重需要给持久字符串引入引用计数、改动 `gene_memory_zval_dtor` 等核心释放路径（影响整个持久缓存，非仅路由），高风险、爆炸半径大，暂缓。
+- **P3（高风险，建议单独分支）**：`get_router_info()` 每请求 6–10 次 `zend_hash_str_find` 是真实开销，预编译为 C 结构体可消除。但需在 `workerReady` 一次性遍历所有叶子构建描述符（请求期惰性构建会与 Swoole worker_ready 后的免锁读产生竞争，ZTS 下尤甚），属大型结构改动，且本环境无法编译/回归。**建议在专用分支以 Linux phpize+make+ASAN+wrk 压测落地。**
+
 ### 待实施项（后续轮次，高风险需单独分支 + 充分回归）
-- M2+P3（路由树压实 + 预编译派发）— 中高收益，结构改动大
-- M5（ctx 缓冲复用）— 中收益，需小心 reset 语义与引用计数
-- M2/M4/P2 — 收尾项
+- P3（路由叶子预编译派发）— 真实收益、高风险、需单独分支
+- M2（持久字符串去重池 + 引用计数）— 需重构持久缓存释放路径
+- M5（char* 缓冲 stash 池化）— 需 ASAN 验证
+- M4（fn_cache 诊断接口）— 收尾
 
 ### 验证待办（Linux 环境）
 - `phpize && ./configure && make`（Windows IDE 无法编译）。
