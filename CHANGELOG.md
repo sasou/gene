@@ -2,10 +2,17 @@
 
 ## [Unreleased]
 
-**主题**：FPM 闭包路由源码读取优化（内存并发审计 P6 落地）。**无 API 破坏**，所有运行模式零回归。
+**主题**：内存并发审计 P1 / P6 / M1 落地（协程 id 直调、FPM 闭包源码缓存、业务缓存上限）。**无 API 破坏**，默认配置下所有运行模式零回归。
 
 ### ⚡ 性能优化
 
+- **P1 — Swoole 协程 id C-API 直调**：`gene_get_coroutine_id()` 原本每次走 `zend_call_known_function`（PHP 调用 ≈ 数百 ns）。`gene_request_ctx()` 的 vm_stack 同一性快路径已覆盖未让出的调用链，但每次协程切换（IO）后的首次 `GENE_REQ()` 仍走慢路径。现通过 `dlsym(RTLD_DEFAULT, "_ZN6swoole9Coroutine15get_current_cidEv")` 解析 Swoole 的 C++ 静态方法 `swoole::Coroutine::get_current_cid()`（读取线程局部指针，约数 ns），每 worker 解析一次。
+  - 符号不可用（Swoole 未加载 / Windows / 隐藏可见性 / 不兼容分支）时透明回退到已缓存的 `zend_function` PHP 调用路径，纯属尽力而为，绝不影响正确性。
+  - 新增 `gene.swoole_getcid_capi` INI 开关（默认 `1`），置 `0` 强制走 PHP 调用回退。
+- **M1 — 持久缓存业务分区上限 + 近似 LRU 淘汰**：`GENE_G(cache)` 同时承载框架元数据（路由/配置/事件，启动后只读）与 `Gene\Cache` 业务数据层。业务层允许请求期写入（`cache_layer_memory_write_depth>0`），若被当作进程内数据缓存使用会导致 RSS 无界增长（worker 永不回收）。
+  - 新增 `gene.cache_max_items` INI（默认 `0` = 不限，完全向后兼容）。`>0` 时仅跟踪 `Gene\Cache` 业务分区（depth>0 写入），每次业务写入按"写时移动到表尾"近似 LRU，超出上限即从表头淘汰最久未写入项。
+  - 框架元数据与普通 `Gene\Memory::set` 永不被跟踪、永不被淘汰，路由/配置不受影响；读路径不更新 recency，避免 workerReady 后免锁读路径的数据竞争。
+  - 删除/`clean()`/MSHUTDOWN 与跟踪集保持同步；删除与淘汰路径改用 `zend_symtable_str_find` + Bucket 直取 key 的 O(1) 查找，替换原 O(N) 扫描，使带上限的缓存淘汰在锁内保持低成本。
 - **P6 — FPM 闭包路由源码缓存**：FPM/CLI 模式下路由每请求重建，闭包路由每次都要 `ReflectionFunction` + `SplFileObject` 读两次源文件（IO）。新增进程级持久缓存（`pemalloc`），以 `文件路径:起始行:结束行` 为 key 缓存**已处理**的源码文本，按源文件 `mtime` 失效（同 opcache 时间戳校验语义）。
   - 仅在 `runtime_type < 2`（FPM/CLI）启用：Swoole 路由仅启动期注册一次，无每请求成本，且避免跨协程共享，因此不受影响。
   - 每次命中返回独立的 `emalloc` 副本，调用方 `efree` 契约不变；持久主副本随 worker 进程生命周期存在（与路由树一致）。
@@ -14,6 +21,8 @@
 
 ### 🔧 修改文件一览
 
+- `src/gene.c` / `src/gene.h` — P1 协程 id C-API 解析器 + `gene.swoole_getcid_capi` 开关；M1 `cache_lru`/`cache_max_items` 全局量、`gene.cache_max_items` INI、MSHUTDOWN 析构
+- `src/cache/memory.c` / `src/cache/memory.h` — M1 业务分区 LRU 跟踪/淘汰，`gene_memory_del` 改用 O(1) 核心删除并同步 LRU
 - `src/router/router.c` — `get_function_content()` 增加 FPM 源码持久缓存
 
 ---

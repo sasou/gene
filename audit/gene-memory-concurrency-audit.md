@@ -78,11 +78,11 @@
 
 | 优先级 | 项 | 模式 | 类型 | 状态 |
 |---|---|---|---|---|
-| 1 | P1 getcid C API 直调 | Swoole | 并发 | 待实施 |
-| 2 | M1 持久缓存上限/LRU | 双模式 | 内存 | 待实施 |
+| 1 | P1 getcid C API 直调 | Swoole | 并发 | ✅ 已实施 |
+| 2 | M1 持久缓存上限/LRU | 双模式 | 内存 | ✅ 已实施 |
 | 3 | P4 factory 方法指针缓存 | 双模式 | 并发 | ✅ 已实施 |
 | 4 | P6 闭包源码持久缓存 | FPM | 并发 | ✅ 已实施 |
-| 5 | M2+P3 路由树压实+预编译派发 | 双模式 | 双收益 | 待实施 |
+| 5 | M2+P3 路由树压实+预编译派发 | 双模式 | 双收益 | 待实施（高风险，需单独分支） |
 | 6 | M5 ctx 缓冲复用 | Swoole | 内存 | 待实施 |
 | 7 | P2/P5/M3/M4/P7 | — | 收尾 | ✅ P5/M3/P7 已实施/核对 |
 
@@ -108,9 +108,24 @@
 - `src/router/router.c` — 新增 `gene_closure_src_cache` 持久 HashTable 及相关辅助函数
 - `CHANGELOG.md` — 新增 Unreleased 版本记录
 
-### 待实施项（后续轮次）
-- P1（Swoole getcid C API 直调）— 高收益，需处理 Swoole 版本兼容
-- M1（持久缓存上限/LRU）— 高收益，需设计框架元数据区与业务数据区隔离
-- M2+P3（路由树压实+预编译派发）— 中高收益，结构改动大需充分回归
-- M5（ctx 缓冲复用）— 中收益，需小心 reset 语义
+## 六、本轮实施记录（2026-06-19）
+
+### 已落地项
+- **P1（Swoole getcid C-API 直调）**：`src/gene.c` 新增 `gene_resolve_getcid_capi()`，经 `dlsym(RTLD_DEFAULT, "_ZN6swoole9Coroutine15get_current_cidEv")` 解析 `swoole::Coroutine::get_current_cid()`，每 worker 解析一次。`gene_get_coroutine_id()` 优先直调 C-API，失败回退已缓存的 `zend_function` PHP 路径。新增 `gene.swoole_getcid_capi` INI 开关（默认 1）。Windows 下 `#ifndef PHP_WIN32` 跳过 dlsym，自然回退。
+- **M1（持久缓存业务分区上限 + 近似 LRU）**：`src/cache/memory.c` 新增 `gene_cache_lru_*` 系列函数与 `GENE_G(cache_lru)` 跟踪集，`gene.cache_max_items` INI（默认 0 不限）。仅跟踪 `cache_layer_memory_write_depth>0` 的业务写入；框架元数据/普通 `Memory::set` 不跟踪不淘汰。写时近似 LRU、超限从表头淘汰；`gene_memory_del`/`clean()`/MSHUTDOWN 同步跟踪集。删除/淘汰改用 `zend_symtable_str_find` + Bucket 直取 key 的 O(1) 实现。
+  - **并发安全论证**：业务写入与淘汰均在 `GENE_CACHE_WRLOCK` 内、且不让出协程；Swoole NTS 单线程协程模型下与免锁读不会真正并发（与既有 `Gene\Cache` 请求期写入语义一致），ZTS 下的免锁读约束沿用既有"业务键不得跨协程并发读写"不变量，本项未引入新的竞争面。
+
+### 修改文件
+- `src/gene.c` / `src/gene.h` — P1 解析器 + 开关；M1 全局量 / INI / 析构
+- `src/cache/memory.c` / `src/cache/memory.h` — M1 LRU 跟踪与淘汰
+- `CHANGELOG.md` — Unreleased 记录补充 P1 / M1
+
+### 待实施项（后续轮次，高风险需单独分支 + 充分回归）
+- M2+P3（路由树压实 + 预编译派发）— 中高收益，结构改动大
+- M5（ctx 缓冲复用）— 中收益，需小心 reset 语义与引用计数
 - M2/M4/P2 — 收尾项
+
+### 验证待办（Linux 环境）
+- `phpize && ./configure && make`（Windows IDE 无法编译）。
+- ASAN/valgrind 单请求泄漏检测，重点核对 M1 在 `cache_max_items>0` 下淘汰、`clean()`、MSHUTDOWN 三处持久 key 释放无泄漏/双释放。
+- 设 `gene.cache_max_items=N` 压测，确认业务缓存 RSS 稳定在上限附近，且路由/配置不受淘汰影响。
