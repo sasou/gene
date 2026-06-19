@@ -118,6 +118,7 @@ STD_PHP_INI_ENTRY("gene.ctx_pool_max", "256", PHP_INI_SYSTEM, OnUpdateLong, ctx_
 STD_PHP_INI_ENTRY("gene.ctx_pool_prewarm", "0", PHP_INI_SYSTEM, OnUpdateLong, ctx_pool_prewarm, zend_gene_globals, gene_globals) // @suppress("Symbol is not resolved")
 STD_PHP_INI_BOOLEAN("gene.swoole_getcid_capi", "1", PHP_INI_SYSTEM, OnUpdateBool, swoole_getcid_capi, zend_gene_globals, gene_globals) // @suppress("Symbol is not resolved")
 STD_PHP_INI_ENTRY("gene.cache_max_items", "0", PHP_INI_SYSTEM, OnUpdateLong, cache_max_items, zend_gene_globals, gene_globals) // @suppress("Symbol is not resolved")
+STD_PHP_INI_BOOLEAN("gene.route_precompile", "0", PHP_INI_SYSTEM, OnUpdateBool, route_precompile, zend_gene_globals, gene_globals) // @suppress("Symbol is not resolved")
 PHP_INI_END();
 /* }}} */
 
@@ -845,6 +846,10 @@ static void php_gene_init_globals() {
 	GENE_G(autoload_registered) = 0;
 	GENE_G(worker_ready) = 0;
 	GENE_G(fn_cache) = NULL;
+	/* [GENE_PERF:2026-06-19 P3] Precompiled-dispatch cache is lazily allocated
+	 * on first dispatch (Swoole, post-workerReady). route_precompile comes from
+	 * php.ini, so — like ctx_pool_prewarm — it must NOT be zeroed here. */
+	GENE_G(route_pc) = NULL;
 	GENE_G(cache) = NULL;
 	GENE_G(cache_easy) = NULL;
 	/* [GENE_MEM:2026-06-19 M1] LRU tracking set is lazily allocated on the
@@ -1012,6 +1017,10 @@ PHP_MSHUTDOWN_FUNCTION(gene) {
 	/* [GENE_MEM:2026-06-19 M1] Tear down the business-cache LRU tracking set
 	 * (frees its persistent key copies) before the lock is destroyed. */
 	gene_cache_lru_destroy();
+	/* [GENE_PERF:2026-06-19 P3] Free precompiled-dispatch descriptors. They only
+	 * borrow pointers into the route tree (freed above) so order is irrelevant;
+	 * the table dtor frees each descriptor's owned eval_str copy. */
+	gene_router_pc_destroy();
 	if (GENE_G(cache_easy)) {
 		gene_hash_destroy(GENE_G(cache_easy));
 		GENE_G(cache_easy) = NULL;
