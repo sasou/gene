@@ -14,7 +14,7 @@
 
 </div>
 
-<img src="doc/logo.png" width="175" alt="logo" align="right">
+<img src="images/logo.png" width="175" alt="logo" align="right">
 
 ## 中文文档
 
@@ -103,6 +103,8 @@ make install
 # 配置php.ini
 extension=gene.so
 ```
+
+> 完整 INI 配置项说明与 FPM / Swoole 生产推荐配置见 [配置参考文档](docs/CONFIGURATION.md)。
 
 #### 2️⃣ 创建应用入口
 
