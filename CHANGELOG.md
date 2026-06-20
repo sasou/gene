@@ -37,7 +37,7 @@
   - **M1 业务缓存上限 + 近似 LRU**：`gene.cache_max_items=0`（默认）下写入 60 个互异业务键全部保留（向后兼容）；`-d gene.cache_max_items=10` 下写入 60 个业务键仅保留 10 个（按写序从表头淘汰），且最近写入键仍命中——证实近似 LRU 淘汰生效；`Memory::clean()` 后缓存清空、跟踪集同步无崩溃。
   - **P6 / M5 透明路径**：200 轮 `Gene\Cache::processCached` 稳定无崩溃。
 - 运行：`php tools/verify_5_6_6.php`（默认）/ `php -d gene.cache_max_items=10 tools/verify_5_6_6.php`（复验淘汰）。
-- P1（getcid C-API）/P3（预编译派发）的运行期生效仅在 **Linux + Swoole + workerReady 后**，需在 Linux `phpize+make`（含 ASAN）环境压测验证；本脚本仅验证其 INI 开关与默认行为的可用性。
+- **P1 / P3 Swoole 专用验证**：新增 `tools/verify_5_6_6_swoole.php`，自身拉起 Swoole HTTP Server（多 worker）注册五类路由（闭包/直派/动态/带钩子/404），`workerReady()` 后协程高并发自打流量并自校验。需在 **Linux + Swoole** 环境手动运行四组对照（`gene.route_precompile` 与 `gene.swoole_getcid_capi` 各开关组合），闭环判据：每次 `ALL-PASS` + 四次 `RESULT-DIGEST` 完全一致 + 100 并发协程上下文零串扰（详见 `audit/gene-memory-concurrency-audit.md` 第八节）。
 
 ---
 
