@@ -112,22 +112,24 @@ namespace {
         $check("{$N} 并发协程上下文零串扰", $isoOk, $badSample);
 
         echo "\n[C] 微基准（信息项，非判据）\n";
+        // 分批波次：每批先 add() 再 go()，整批 wait() 完成后再开下一批，
+        // 严格避免 “add 与 wait 并发”（Swoole 6.x 会抛 BadMethodCallException）。
         $bench = function (string $path, int $conc, int $total) use ($get): float {
             $t0 = microtime(true);
-            $done = 0;
-            $wg = new \Swoole\Coroutine\WaitGroup();
-            $launch = function () use (&$launch, &$done, $total, $get, $path, $wg) {
-                if ($done >= $total) return;
-                $done++;
-                $wg->add();
-                go(function () use ($get, $path, $wg, $launch) {
-                    $get($path);
-                    $wg->done();
-                    $launch();
-                });
-            };
-            for ($c = 0; $c < $conc; $c++) $launch();
-            $wg->wait();
+            $remaining = $total;
+            while ($remaining > 0) {
+                $batch = $remaining < $conc ? $remaining : $conc;
+                $wg = new \Swoole\Coroutine\WaitGroup();
+                for ($i = 0; $i < $batch; $i++) {
+                    $wg->add();
+                    go(function () use ($get, $path, $wg) {
+                        $get($path);
+                        $wg->done();
+                    });
+                }
+                $wg->wait();
+                $remaining -= $batch;
+            }
             $dt = microtime(true) - $t0;
             return $dt > 0 ? $total / $dt : 0.0;
         };
@@ -191,18 +193,26 @@ namespace {
         \Gene\Application::setResponse($response);
 
         ob_start();
-        $error = false;
+        $emsg = '';
         try {
             \Gene\Application::getInstance()->run();
         } catch (\Throwable $e) {
-            $error = true;
+            $emsg = str_replace(["\r", "\n"], ' ', $e->getMessage());
         } finally {
             $out = ob_get_clean();
             \Gene\Application::cleanup(true);
         }
         if (!$response->isWritable()) return;
         $response->header('Content-Type', 'text/plain; charset=utf-8');
-        $response->end($error ? "R:ERR" : $out);
+        // 优先回传已捕获输出（如 404 错误闭包已 echo），否则回传异常诊断信息。
+        if ($out !== '' && $out !== null) {
+            $body = $out;
+        } elseif ($emsg !== '') {
+            $body = "R:ERR:" . substr($emsg, 0, 160);
+        } else {
+            $body = "R:EMPTY";
+        }
+        $response->end($body);
     });
 
     echo "Swoole server starting on " . VHOST . ":" . VPORT . " ... (自测后自动退出)\n\n";
