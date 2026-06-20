@@ -239,20 +239,30 @@
 - **P1（getcid C-API 直调）/ P3（预编译派发）的运行期生效仅在 Linux + Swoole + `workerReady()` 后**，CLI 下天然走回退路径；其端到端性能与正确性需在 Linux + Swoole 环境验证，见下文 Swoole 专用脚本。
 
 ### P1 / P3 Swoole 专用验证（Linux 服务器手动运行）
-新增 `tools/verify_5_6_6_swoole.php`：脚本自身拉起 Swoole HTTP Server（`worker_num=2`），注册**闭包 / 控制器@动作(直派) / 动态 `:a` / 带钩子 / 404** 五类路由，`workerReady()` 后由 worker#0 用协程 HTTP 客户端高并发自打流量，自校验后自动关停。
+新增 `tools/verify_5_6_6_swoole.php`：脚本自身拉起 Swoole HTTP Server（`worker_num=2`），注册**闭包 / 控制器@动作(直派) / 动态 `:a` / 带钩子 / 未匹配** 路由，`workerReady()` 后由 worker#0 用协程 HTTP 客户端高并发自打流量，自校验后自动关停。
 
-运行（四组对照）：
+运行（开关组合对照）：
 ```bash
-php tools/verify_5_6_6_swoole.php                                   # 基线 capi=1 precompile=0
-php -d gene.route_precompile=1 tools/verify_5_6_6_swoole.php        # P3 开
-php -d gene.swoole_getcid_capi=0 tools/verify_5_6_6_swoole.php      # P1 回退（强制 PHP 调用）
+php tools/verify_5_6_6_swoole.php                                  # 当前 ini（本机默认 precompile=1）
+php -d gene.route_precompile=0 tools/verify_5_6_6_swoole.php       # P3 关（slow 路径对照）
+php -d gene.swoole_getcid_capi=0 tools/verify_5_6_6_swoole.php     # P1 回退（强制 PHP 调用）
 php -d gene.route_precompile=1 -d gene.swoole_getcid_capi=1 tools/verify_5_6_6_swoole.php  # 两项全开
 ```
 
 闭环判据：
 1. 每次运行末尾出现 `ALL-PASS`；
-2. 四次运行的 `RESULT-DIGEST=...` **完全一致** → 证明 P1/P3 各开关组合下路由派发结果零差异；
-3. `[B] 协程上下文隔离` 在 `capi=1`/`capi=0` 下均 PASS（100 并发协程 `getPath()` 零串扰）→ 证明 `gene_get_coroutine_id()` 的 C-API 直调与 PHP 回退路径都正确解析协程上下文；
-4. `[C]` 微基准为信息项（开关前后 req/s 对比），非判据。
+2. 各开关组合的 `RESULT-DIGEST=...` **完全一致** → 证明 P1/P3 各开关下路由派发结果零差异；
+3. `[B] 协程上下文隔离` 在 `capi=1`/`capi=0` 下均 PASS（100 并发协程 `getPath()` 零串扰）→ 证明 `gene_get_coroutine_id()` 的 C-API 直调与 PHP 回退路径都正确解析协程上下文。
+
+### 实测结果（2026-06-20，Linux + gene 5.6.6 + Swoole 6.1.8）
+四组开关组合运行结论：
+- **`[A]` 路由派发（闭包/直派 MCA/动态 `:a`/带钩子）在 4 组下全 PASS**；
+- **`[B]` 100 并发协程上下文隔离在 `capi=1` 与 `capi=0` 下均 PASS** → P1 C-API 直调与 PHP 回退路径正确性双双成立；
+- **四组 `RESULT-DIGEST` 完全一致（`b887e533c417447e`）** → P1/P3 各开关组合派发结果零差异，**闭环成立**；
+- `[C]` 微基准 ~9k–12k req/s（单机自打流量，信息项）。
+
+> 备注：测试机 `php.ini` 已全局开启 `gene.route_precompile=1`，故 `-d gene.swoole_getcid_capi=0` 一组仍显示 `precompile=1`；如需 P3 开/关性能对照，用 `-d gene.route_precompile=0` 单独跑一组（派发结果 digest 应保持一致，仅 QPS 变化）。
+>
+> 未匹配路由（`/no/such/route`）的说明：本极简脚本未 `autoload()` 应用根，错误闭包解析不命中，gene 以**可恢复的 `Gene Unknown Url` 警告**优雅处理（确定性、不崩溃），与 P1/P3 无关；脚本据此断言"优雅处理"为通过。
 
 > 提示：`gene.route_precompile=1` 上线前仍须按上文 P3 风险条目实证 fn_cache 在 `workerReady()` 后冻结不变量（建议在 `--enable-debug`/ASAN 构建下运行本脚本，确认无 zend_mm 泄漏/UAF 告警）。

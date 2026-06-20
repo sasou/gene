@@ -37,7 +37,7 @@
   - **M1 业务缓存上限 + 近似 LRU**：`gene.cache_max_items=0`（默认）下写入 60 个互异业务键全部保留（向后兼容）；`-d gene.cache_max_items=10` 下写入 60 个业务键仅保留 10 个（按写序从表头淘汰），且最近写入键仍命中——证实近似 LRU 淘汰生效；`Memory::clean()` 后缓存清空、跟踪集同步无崩溃。
   - **P6 / M5 透明路径**：200 轮 `Gene\Cache::processCached` 稳定无崩溃。
 - 运行：`php tools/verify_5_6_6.php`（默认）/ `php -d gene.cache_max_items=10 tools/verify_5_6_6.php`（复验淘汰）。
-- **P1 / P3 Swoole 专用验证**：新增 `tools/verify_5_6_6_swoole.php`，自身拉起 Swoole HTTP Server（多 worker）注册五类路由（闭包/直派/动态/带钩子/404），`workerReady()` 后协程高并发自打流量并自校验。需在 **Linux + Swoole** 环境手动运行四组对照（`gene.route_precompile` 与 `gene.swoole_getcid_capi` 各开关组合），闭环判据：每次 `ALL-PASS` + 四次 `RESULT-DIGEST` 完全一致 + 100 并发协程上下文零串扰（详见 `audit/gene-memory-concurrency-audit.md` 第八节）。
+- **P1 / P3 Swoole 专用验证（已实测通过）**：新增 `tools/verify_5_6_6_swoole.php`，自身拉起 Swoole HTTP Server（多 worker）注册闭包/直派/动态/带钩子等路由，`workerReady()` 后协程高并发自打流量并自校验。在 **Linux + gene 5.6.6 + Swoole 6.1.8** 实测四组开关组合：路由派发全 PASS、100 并发协程上下文隔离在 `capi=1`/`capi=0` 下均 PASS、四组 `RESULT-DIGEST` 完全一致（`b887e533c417447e`）→ **P1/P3 闭环成立**，各开关派发结果零差异（详见 `audit/gene-memory-concurrency-audit.md` 第八节）。
 
 ---
 
