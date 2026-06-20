@@ -216,3 +216,24 @@
 - **可直接生产（补强完成）**：P6（已补 MSHUTDOWN 释放 + 编译期 ZTS 守卫，2026-06-19）。
 - **开启前必须验证**：P3（fn_cache 冻结不变量 + ASAN 全回归）。
 - **维持现状不优化**：P2、M2。
+
+## 八、功能验证（2026-06-20，5.6.6，FPM/CLI）
+
+新增验证脚本 `tools/verify_5_6_6.php`（Windows NTS CLI 可直接运行），对已落地项做运行期行为验证。
+
+### 运行方式
+- 默认（不限上限）：`php tools/verify_5_6_6.php`
+- 复验 M1 淘汰：`php -d gene.cache_max_items=10 tools/verify_5_6_6.php`
+
+### 验证项与结果（全部通过 ✅）
+| 项 | 验证内容 | 结果 |
+|---|---|---|
+| INI 注册 | `gene.swoole_getcid_capi`(P1, 默认 1)、`gene.cache_max_items`(M1, 默认 0)、`gene.route_precompile`(P3, 默认 0) 均已注册且默认值正确 | ✅ |
+| M1 默认兼容 | `cache_max_items=0` 下经 `Gene\Cache::processCached` 写入 60 个互异业务键，全部保留（向后兼容，零淘汰） | ✅ |
+| M1 上限 + 近似 LRU | `-d gene.cache_max_items=10` 下写入 60 个业务键，`Memory::stats()['cache_items']` 仅增 10（按写序从表头淘汰），且最近写入键仍命中 → 近似 LRU 生效 | ✅ |
+| M1 清理同步 | `Memory::clean()` 后 `cache_items=0`，跟踪集同步，无崩溃 | ✅ |
+| P6 / M5 稳定性 | 200 轮 `processCached` 透明走 FPM 源码缓存 / `request_attr` 复用路径，稳定无崩溃 | ✅ |
+
+### 验证边界说明
+- 本脚本运行于 **NTS CLI（`runtime_type=1`）**，覆盖 INI 注册、M1 业务分区上限/LRU、`clean()` 同步、P6/M5 透明路径稳定性。
+- **P1（getcid C-API 直调）/ P3（预编译派发）的运行期生效仅在 Linux + Swoole + `workerReady()` 后**，CLI 下天然走回退路径；其端到端性能与正确性仍需 Linux `phpize+make`（含 `--enable-debug`/ASAN）+ 三类路由全回归 + wrk/ab 压测验证（见上文 P3 风险条目，`gene.route_precompile=1` 上线前必须实证 fn_cache 冻结不变量）。
