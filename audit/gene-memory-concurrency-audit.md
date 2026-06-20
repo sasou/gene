@@ -236,4 +236,23 @@
 
 ### 验证边界说明
 - 本脚本运行于 **NTS CLI（`runtime_type=1`）**，覆盖 INI 注册、M1 业务分区上限/LRU、`clean()` 同步、P6/M5 透明路径稳定性。
-- **P1（getcid C-API 直调）/ P3（预编译派发）的运行期生效仅在 Linux + Swoole + `workerReady()` 后**，CLI 下天然走回退路径；其端到端性能与正确性仍需 Linux `phpize+make`（含 `--enable-debug`/ASAN）+ 三类路由全回归 + wrk/ab 压测验证（见上文 P3 风险条目，`gene.route_precompile=1` 上线前必须实证 fn_cache 冻结不变量）。
+- **P1（getcid C-API 直调）/ P3（预编译派发）的运行期生效仅在 Linux + Swoole + `workerReady()` 后**，CLI 下天然走回退路径；其端到端性能与正确性需在 Linux + Swoole 环境验证，见下文 Swoole 专用脚本。
+
+### P1 / P3 Swoole 专用验证（Linux 服务器手动运行）
+新增 `tools/verify_5_6_6_swoole.php`：脚本自身拉起 Swoole HTTP Server（`worker_num=2`），注册**闭包 / 控制器@动作(直派) / 动态 `:a` / 带钩子 / 404** 五类路由，`workerReady()` 后由 worker#0 用协程 HTTP 客户端高并发自打流量，自校验后自动关停。
+
+运行（四组对照）：
+```bash
+php tools/verify_5_6_6_swoole.php                                   # 基线 capi=1 precompile=0
+php -d gene.route_precompile=1 tools/verify_5_6_6_swoole.php        # P3 开
+php -d gene.swoole_getcid_capi=0 tools/verify_5_6_6_swoole.php      # P1 回退（强制 PHP 调用）
+php -d gene.route_precompile=1 -d gene.swoole_getcid_capi=1 tools/verify_5_6_6_swoole.php  # 两项全开
+```
+
+闭环判据：
+1. 每次运行末尾出现 `ALL-PASS`；
+2. 四次运行的 `RESULT-DIGEST=...` **完全一致** → 证明 P1/P3 各开关组合下路由派发结果零差异；
+3. `[B] 协程上下文隔离` 在 `capi=1`/`capi=0` 下均 PASS（100 并发协程 `getPath()` 零串扰）→ 证明 `gene_get_coroutine_id()` 的 C-API 直调与 PHP 回退路径都正确解析协程上下文；
+4. `[C]` 微基准为信息项（开关前后 req/s 对比），非判据。
+
+> 提示：`gene.route_precompile=1` 上线前仍须按上文 P3 风险条目实证 fn_cache 在 `workerReady()` 后冻结不变量（建议在 `--enable-debug`/ASAN 构建下运行本脚本，确认无 zend_mm 泄漏/UAF 告警）。
