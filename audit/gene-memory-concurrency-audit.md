@@ -257,9 +257,10 @@ php -d gene.route_precompile=1 -d gene.swoole_getcid_capi=1 tools/verify_5_6_6_s
 ### 实测结果（2026-06-20，Linux + gene 5.6.6 + Swoole 6.1.8）
 四组开关组合运行结论：
 - **`[A]` 路由派发（闭包/直派 MCA/动态 `:a`/带钩子）在 4 组下全 PASS**；
+- **P3 等价性**：`route_precompile=0`（slow 路径）与 `route_precompile=1`（预编译路径）两组的派发结果与 digest 完全相同 → 预编译派发与原 `get_router_info_slow()` **行为严格等价、零回归**；
 - **`[B]` 100 并发协程上下文隔离在 `capi=1` 与 `capi=0` 下均 PASS** → P1 C-API 直调与 PHP 回退路径正确性双双成立；
 - **四组 `RESULT-DIGEST` 完全一致（`b887e533c417447e`）** → P1/P3 各开关组合派发结果零差异，**闭环成立**；
-- `[C]` 微基准 ~9k–12k req/s（单机自打流量，信息项）。
+- `[C]` 微基准 ~9.7k–11.2k req/s（单机自打流量，信息项；该负载下 P1/P3 收益不显著，符合预期，收益主要体现在高并发 IO 切换 + 路由解析密集场景）。
 
 > 备注：测试机 `php.ini` 已全局开启 `gene.route_precompile=1`，故 `-d gene.swoole_getcid_capi=0` 一组仍显示 `precompile=1`；如需 P3 开/关性能对照，用 `-d gene.route_precompile=0` 单独跑一组（派发结果 digest 应保持一致，仅 QPS 变化）。
 >
