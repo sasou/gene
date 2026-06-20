@@ -82,9 +82,11 @@
 | 2 | M1 持久缓存上限/LRU | 双模式 | 内存 | ✅ 已实施 |
 | 3 | P4 factory 方法指针缓存 | 双模式 | 并发 | ✅ 已实施 |
 | 4 | P6 闭包源码持久缓存 | FPM | 并发 | ✅ 已实施 |
-| 5 | M2+P3 路由树压实+预编译派发 | 双模式 | 双收益 | 待实施（高风险，需单独分支） |
-| 6 | M5 ctx 缓冲复用 | Swoole | 内存 | 待实施 |
-| 7 | P2/P5/M3/M4/P7 | — | 收尾 | ✅ P5/M3/P7 已实施/核对 |
+| 5 | P3 路由叶子预编译派发 | Swoole | 并发 | 🧪 已实施（默认关闭，开启前需验证 fn_cache 冻结不变量 + ASAN 全回归） |
+| 6 | M5 ctx 缓冲复用 | Swoole | 内存 | ✅ 部分落地（request_attr 已复用；char* 池化暂缓，待 ASAN 验证） |
+| 7 | M4 fn_cache 诊断接口 | 双模式 | 可观测性 | 待实施（收尾，纯只读诊断） |
+| — | P2 / M2 | — | 不建议同向 | ⛔ 复核后收益≈0 或风险/爆炸半径过大，维持现状 |
+| — | P5 / M3 / P7 | — | 收尾 | ✅ 已实施/核对 |
 
 ## 四、验证方案
 
@@ -129,11 +131,16 @@
   - **安全闸**：`gene.route_precompile`（默认 0 关闭）+ 仅 Swoole + 仅 `workerReady()` 后。关闭/FPM/未就绪时走原路径，零行为变化。`GENE_G` 每线程隔离规避 ZTS 竞争；描述符仅借用同线程 `cache`/`fn_cache` 指针（worker 生命周期稳定），仅 eval 程序串为 owned 持久副本，MSHUTDOWN 释放。
   - **待验证**：Linux `phpize+make`（含 `--enable-debug`/ASAN）+ 三类路由（MCA/字符串/闭包）+ hook(`clearAll`/before/after)/error/404 全回归；wrk/ab 对比开关前后 QPS 与 P99；确认无 zend_mm 泄漏。**验证通过前不要在生产开启 `gene.route_precompile=1`。**
 
-### 待实施项（后续轮次，高风险需单独分支 + 充分回归）
-- P3（路由叶子预编译派发）— 真实收益、高风险、需单独分支
-- M2（持久字符串去重池 + 引用计数）— 需重构持久缓存释放路径
-- M5（char* 缓冲 stash 池化）— 需 ASAN 验证
-- M4（fn_cache 诊断接口）— 收尾
+### 待实施项（后续轮次）
+- M5（char* 缓冲 stash 池化）— 需 ASAN 验证（request_attr 复用已落地）
+- M4（fn_cache 诊断接口）— 收尾，纯只读诊断
+
+### 已实施但开启前需验证
+- P3（路由叶子预编译派发）— 已在 `feature/p3-precompiled-dispatch` 实现，默认关闭；开启 `gene.route_precompile=1` 前需实证 fn_cache 冻结不变量 + ASAN 全回归
+
+### 不建议同向优化（复核确认，维持现状）
+- M2（持久字符串去重池 + 引用计数）— 紧凑化无可"压实"空间（Zend 最小 8 桶为引擎下界），去重需改核心释放路径，爆炸半径大
+- P2（响应 header 批量化）— 收益≈0、风险>0，维持现状
 
 ### 验证待办（Linux 环境）
 - `phpize && ./configure && make`（Windows IDE 无法编译）。
