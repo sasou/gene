@@ -30,6 +30,15 @@
 - `src/router/router.c` — `get_function_content()` 增加 FPM 源码持久缓存；P3 `gene_route_pc` 描述符 + `gene_route_pc_resolve/execute/dtor`、`get_router_info()` 包装（原函数改名 `get_router_info_slow()` 逐字保留）、`gene_router_pc_destroy()`
 - `src/gene.c` / `src/gene.h` / `src/router/router.h` — P3 `route_pc` 全局量、`gene.route_precompile` INI、MSHUTDOWN 析构
 
+### ✅ 验证
+
+- 新增验证脚本 `tools/verify_5_6_6.php`（FPM/CLI 模式，Windows 可跑），覆盖：
+  - **INI 注册**：`gene.swoole_getcid_capi`（默认 1）、`gene.cache_max_items`（默认 0）、`gene.route_precompile`（默认 0）三个开关均已注册且默认值正确。
+  - **M1 业务缓存上限 + 近似 LRU**：`gene.cache_max_items=0`（默认）下写入 60 个互异业务键全部保留（向后兼容）；`-d gene.cache_max_items=10` 下写入 60 个业务键仅保留 10 个（按写序从表头淘汰），且最近写入键仍命中——证实近似 LRU 淘汰生效；`Memory::clean()` 后缓存清空、跟踪集同步无崩溃。
+  - **P6 / M5 透明路径**：200 轮 `Gene\Cache::processCached` 稳定无崩溃。
+- 运行：`php tools/verify_5_6_6.php`（默认）/ `php -d gene.cache_max_items=10 tools/verify_5_6_6.php`（复验淘汰）。
+- P1（getcid C-API）/P3（预编译派发）的运行期生效仅在 **Linux + Swoole + workerReady 后**，需在 Linux `phpize+make`（含 ASAN）环境压测验证；本脚本仅验证其 INI 开关与默认行为的可用性。
+
 ---
 
 ## [5.6.5] - 2026-05-29
