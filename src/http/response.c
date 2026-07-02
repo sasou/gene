@@ -256,6 +256,18 @@ void gene_response_set_header(char *key, char *value) {
 void gene_response_cookie(zval *name, zval *value, zval *expires, zval *path, zval *domain,zval *secure, zval *httponly, zval *samesite, zval *retval) /*{{{*/
 {
 	zval *swoole_resp = gene_response_context_obj();
+	/* [GENE_FEAT] Browsers (Chrome 80+, Firefox, ...) silently drop a cookie
+	 * with SameSite=None unless it is also marked Secure. Detect the None case
+	 * (case-insensitive) and force Secure so the cookie is actually accepted,
+	 * regardless of the caller's/session's secure flag. */
+	zend_bool has_samesite = (samesite && Z_TYPE_P(samesite) == IS_STRING && Z_STRLEN_P(samesite) > 0);
+	zend_bool samesite_none = (has_samesite && zend_string_equals_literal_ci(Z_STR_P(samesite), "None"));
+	zval secure_forced;
+	zval *secure_eff = secure;
+	if (samesite_none) {
+		ZVAL_TRUE(&secure_forced);
+		secure_eff = &secure_forced;
+	}
 	if (swoole_resp) {
 		zend_function *cookie_fn = GENE_SWOOLE_RESP_METHOD(Z_OBJCE_P(swoole_resp), cookie);
 		if (EXPECTED(cookie_fn)) {
@@ -266,9 +278,9 @@ void gene_response_cookie(zval *name, zval *value, zval *expires, zval *path, zv
 			if (expires) { num = 3; params[2] = *expires; }
 			if (path) { num = 4; params[3] = *path; }
 			if (domain) { num = 5; params[4] = *domain; }
-			if (secure) { num = 6; params[5] = *secure; }
+			if (secure_eff) { num = 6; params[5] = *secure_eff; }
 			if (httponly) { num = 7; params[6] = *httponly; }
-			if (samesite && Z_TYPE_P(samesite) == IS_STRING && Z_STRLEN_P(samesite) > 0) { num = 8; params[7] = *samesite; }
+			if (has_samesite) { num = 8; params[7] = *samesite; }
 			zend_call_known_function(cookie_fn, Z_OBJ_P(swoole_resp), Z_OBJCE_P(swoole_resp), retval, num, params, NULL);
 			return;
 		}
@@ -299,7 +311,7 @@ void gene_response_cookie(zval *name, zval *value, zval *expires, zval *path, zv
      * parameter; it is only available via the options-array form added in
      * PHP 7.3. When samesite is requested, build that array and call
      * setcookie(name, value, options) instead of the positional form. */
-    if (samesite && Z_TYPE_P(samesite) == IS_STRING && Z_STRLEN_P(samesite) > 0) {
+    if (has_samesite) {
         zval options;
         array_init(&options);
         if (expires && Z_TYPE_P(expires) == IS_LONG) {
@@ -311,8 +323,8 @@ void gene_response_cookie(zval *name, zval *value, zval *expires, zval *path, zv
         if (domain && Z_TYPE_P(domain) == IS_STRING) {
             add_assoc_str_ex(&options, ZEND_STRL("domain"), zend_string_copy(Z_STR_P(domain)));
         }
-        if (secure) {
-            add_assoc_bool_ex(&options, ZEND_STRL("secure"), zend_is_true(secure));
+        if (secure_eff) {
+            add_assoc_bool_ex(&options, ZEND_STRL("secure"), zend_is_true(secure_eff));
         }
         if (httponly) {
             add_assoc_bool_ex(&options, ZEND_STRL("httponly"), zend_is_true(httponly));
