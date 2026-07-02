@@ -1,6 +1,6 @@
 # Gene Framework Changelog
 
-## [Unreleased]
+## [5.6.7]
 
 ### ✨ 新增
 
@@ -8,7 +8,7 @@
   - **Swoole**：直接透传给 `Swoole\Http\Response::cookie()` 的 `$samesite` 参数。
   - **FPM/CGI**：PHP 原生 `setcookie()` 的位置参数形式不支持 `samesite`，仅数组选项形式（PHP 7.3+）支持；当 `samesite` 非空时自动改用 `setcookie($name, $value, $options)` 数组形式下发，其余场景保持原有位置参数调用不变。
   - 未设置 `samesite`（默认空字符串）时行为与之前完全一致，向后兼容。
-  - 注意：设为 `"None"` 时，多数现代浏览器要求同时设置 `secure => true`，否则 Cookie 会被拒绝。
+  - **`samesite = "None"` 自动强制 `Secure`**：现代浏览器（Chrome 80+、Firefox 等）会静默丢弃带 `SameSite=None` 但未标记 `Secure` 的 Cookie。当 `samesite` 为 `"None"`（大小写不敏感）时，无论调用方/Session 的 `secure` 配置如何，均自动以 `Secure` 下发，避免 Cookie 被浏览器拒绝导致会话静默失效；`Lax`/`Strict` 场景的 `secure` 行为保持不变。Swoole 与 FPM/CGI 两条路径均已覆盖。
 
 ### 🔧 修改文件一览
 
