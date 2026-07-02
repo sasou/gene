@@ -23,6 +23,8 @@ class Session
      *   - path      string  Cookie 路径（默认 "/"）
      *   - secure    bool    是否仅 HTTPS
      *   - httponly  bool    是否禁止 JS 访问
+     *   - samesite  string  Cookie 的 SameSite 属性（"Lax"/"Strict"/"None"，默认不设置）
+     *                      注意：设为 "None" 时通常还需同时设置 secure=true，否则会被现代浏览器拒绝
      *   - ttl       int     Session 数据过期时间（秒）
      *   - uttl      int     Cookie 的 Max-Age（秒，0=浏览器会话）
      *   - hash_mode int     SessionId 哈希算法（可选，默认 0）：

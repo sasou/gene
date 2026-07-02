@@ -77,6 +77,12 @@ ZEND_END_ARG_INFO()
 ZEND_BEGIN_ARG_INFO_EX(gene_response_arg_cookie, 0, 0, 2)
     ZEND_ARG_INFO(0, key)
     ZEND_ARG_INFO(0, value)
+    ZEND_ARG_INFO(0, expires)
+    ZEND_ARG_INFO(0, path)
+    ZEND_ARG_INFO(0, domain)
+    ZEND_ARG_INFO(0, secure)
+    ZEND_ARG_INFO(0, httponly)
+    ZEND_ARG_INFO(0, samesite)
 ZEND_END_ARG_INFO()
 
 ZEND_BEGIN_ARG_INFO_EX(gene_response_arg_url, 0, 0, 1)
@@ -247,13 +253,13 @@ void gene_response_set_header(char *key, char *value) {
 }
 /* }}} */
 
-void gene_response_cookie(zval *name, zval *value, zval *expires, zval *path, zval *domain,zval *secure, zval *httponly, zval *retval) /*{{{*/
+void gene_response_cookie(zval *name, zval *value, zval *expires, zval *path, zval *domain,zval *secure, zval *httponly, zval *samesite, zval *retval) /*{{{*/
 {
 	zval *swoole_resp = gene_response_context_obj();
 	if (swoole_resp) {
 		zend_function *cookie_fn = GENE_SWOOLE_RESP_METHOD(Z_OBJCE_P(swoole_resp), cookie);
 		if (EXPECTED(cookie_fn)) {
-			zval params[7];
+			zval params[8];
 			int num = 1;
 			params[0] = *name;
 			if (value) { num = 2; params[1] = *value; }
@@ -262,6 +268,7 @@ void gene_response_cookie(zval *name, zval *value, zval *expires, zval *path, zv
 			if (domain) { num = 5; params[4] = *domain; }
 			if (secure) { num = 6; params[5] = *secure; }
 			if (httponly) { num = 7; params[6] = *httponly; }
+			if (samesite && Z_TYPE_P(samesite) == IS_STRING && Z_STRLEN_P(samesite) > 0) { num = 8; params[7] = *samesite; }
 			zend_call_known_function(cookie_fn, Z_OBJ_P(swoole_resp), Z_OBJCE_P(swoole_resp), retval, num, params, NULL);
 			return;
 		}
@@ -286,6 +293,42 @@ void gene_response_cookie(zval *name, zval *value, zval *expires, zval *path, zv
     zend_function *fn = zend_hash_str_find_ptr(CG(function_table), ZEND_STRL("setcookie"));
     if (UNEXPECTED(!fn)) {
         if (retval) ZVAL_FALSE(retval);
+        return;
+    }
+    /* [GENE_FEAT] The positional setcookie() signature has no 'samesite'
+     * parameter; it is only available via the options-array form added in
+     * PHP 7.3. When samesite is requested, build that array and call
+     * setcookie(name, value, options) instead of the positional form. */
+    if (samesite && Z_TYPE_P(samesite) == IS_STRING && Z_STRLEN_P(samesite) > 0) {
+        zval options;
+        array_init(&options);
+        if (expires && Z_TYPE_P(expires) == IS_LONG) {
+            add_assoc_long_ex(&options, ZEND_STRL("expires"), Z_LVAL_P(expires));
+        }
+        if (path && Z_TYPE_P(path) == IS_STRING) {
+            add_assoc_str_ex(&options, ZEND_STRL("path"), zend_string_copy(Z_STR_P(path)));
+        }
+        if (domain && Z_TYPE_P(domain) == IS_STRING) {
+            add_assoc_str_ex(&options, ZEND_STRL("domain"), zend_string_copy(Z_STR_P(domain)));
+        }
+        if (secure) {
+            add_assoc_bool_ex(&options, ZEND_STRL("secure"), zend_is_true(secure));
+        }
+        if (httponly) {
+            add_assoc_bool_ex(&options, ZEND_STRL("httponly"), zend_is_true(httponly));
+        }
+        add_assoc_str_ex(&options, ZEND_STRL("samesite"), zend_string_copy(Z_STR_P(samesite)));
+
+        zval opt_params[3];
+        opt_params[0] = *name;
+        if (value) {
+            opt_params[1] = *value;
+        } else {
+            ZVAL_EMPTY_STRING(&opt_params[1]);
+        }
+        opt_params[2] = options;
+        zend_call_known_function(fn, NULL, NULL, retval, 3, opt_params, NULL);
+        zval_ptr_dtor(&options);
         return;
     }
     zval params[7];
@@ -511,11 +554,11 @@ PHP_METHOD(gene_response, header) {
 /** {{{ proto public gene_response::cookie(array $json, int $code)
  */
 PHP_METHOD(gene_response, cookie) {
-	zval *name = NULL, *value = NULL, *expires = NULL, *path = NULL, *domain = NULL, *secure = NULL, *httponly = NULL;
-	if (zend_parse_parameters(ZEND_NUM_ARGS(), "z|zzzzzz", &name, &value, &expires, &path, &domain, &secure, &httponly) == FAILURE) {
+	zval *name = NULL, *value = NULL, *expires = NULL, *path = NULL, *domain = NULL, *secure = NULL, *httponly = NULL, *samesite = NULL;
+	if (zend_parse_parameters(ZEND_NUM_ARGS(), "z|zzzzzzz", &name, &value, &expires, &path, &domain, &secure, &httponly, &samesite) == FAILURE) {
 		return;
 	}
-	gene_response_cookie(name, value, expires, path, domain, secure, httponly, return_value);
+	gene_response_cookie(name, value, expires, path, domain, secure, httponly, samesite, return_value);
 }
 /* }}} */
 

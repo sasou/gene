@@ -1,5 +1,22 @@
 # Gene Framework Changelog
 
+## [Unreleased]
+
+### ✨ 新增
+
+- **Session / Response Cookie 支持 `samesite` 参数**：`Gene\Session` 构造配置新增 `samesite` 键（`"Lax"`/`"Strict"`/`"None"`），随 Session Cookie 自动下发；`Gene\Response::cookie()` 新增第 8 个可选参数 `$samesite`。
+  - **Swoole**：直接透传给 `Swoole\Http\Response::cookie()` 的 `$samesite` 参数。
+  - **FPM/CGI**：PHP 原生 `setcookie()` 的位置参数形式不支持 `samesite`，仅数组选项形式（PHP 7.3+）支持；当 `samesite` 非空时自动改用 `setcookie($name, $value, $options)` 数组形式下发，其余场景保持原有位置参数调用不变。
+  - 未设置 `samesite`（默认空字符串）时行为与之前完全一致，向后兼容。
+  - 注意：设为 `"None"` 时，多数现代浏览器要求同时设置 `secure => true`，否则 Cookie 会被拒绝。
+
+### 🔧 修改文件一览
+
+- `src/session/session.h` — 新增 `GENE_SESSION_SAMESITE` 属性键
+- `src/session/session.c` — 新增 `samesite` 属性声明/偏移缓存、构造函数配置解析、`gene_cookie()`/`gene_set_cookie()` 透传
+- `src/http/response.h` / `src/http/response.c` — `gene_response_cookie()` 新增 `samesite` 参数；FPM 路径按需切换为 `setcookie()` 数组选项形式；`Gene\Response::cookie()` 新增第 8 个可选参数
+- `gene-ide-helper/Gene/Session.php`、`gene-ai-helper/skills/gene-framework/reference.md` — 文档同步
+
 ## [5.6.6] - 2026-06-20
 
 ### ⚡ 性能优化
