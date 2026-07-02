@@ -112,7 +112,7 @@
 | data($data, $count = -1, $msg = null, $code = 2000) | 构建带数据响应数组 |
 | json($data, $callback = null, $code = 256) | JSON 编码并输出，支持 JSONP |
 | header($key, $value) | 设置自定义响应头 |
-| cookie($name, $value = null, $expires = null, $path = null, $domain = null, $secure = null, $httponly = null) | 设置 Cookie |
+| cookie($name, $value = null, $expires = null, $path = null, $domain = null, $secure = null, $httponly = null, $samesite = null) | 设置 Cookie（samesite: "Lax"/"Strict"/"None"，设为 "None" 时通常需同时 secure=true） |
 | url($path) | 带当前语言前缀的 URL |
 | setJsonHeader() | 设置 `Content-Type: application/json` |
 | setHtmlHeader() | 设置 `Content-Type: text/html` |
@@ -331,6 +331,8 @@ $config->set('websession', [
         'name'     => 'SESSID',  // Cookie 名
         'ttl'      => 86400,     // Session 数据过期时间（秒）
         'uttl'     => 0,         // Cookie Max-Age（0=浏览器会话）
+        'secure'   => true,      // 是否仅 HTTPS（samesite='None' 时通常必须为 true）
+        'samesite' => 'None',    // Cookie SameSite 属性："Lax"/"Strict"/"None"
     ]],
 ]);
 

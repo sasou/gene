@@ -53,6 +53,7 @@ static uint32_t gene_session_offset_cookie_path = 0;
 static uint32_t gene_session_offset_cookie_domain = 0;
 static uint32_t gene_session_offset_secure = 0;
 static uint32_t gene_session_offset_httponly = 0;
+static uint32_t gene_session_offset_samesite = 0;
 
 void gene_cookie(zval *self);
 void gene_data_load(zval *obj);
@@ -520,14 +521,14 @@ ZEND_END_ARG_INFO()
  * escaping a destructor or post-send path aborts the worker process. Catch
  * engine bailouts and swallow pending exceptions so a stale/ended Response can
  * never crash the worker. Returns 1 if the cookie was accepted, 0 otherwise. */
-static zend_bool gene_session_emit_cookie(zval *name, zval *value, zval *expires, zval *path, zval *domain, zval *secure, zval *httponly)
+static zend_bool gene_session_emit_cookie(zval *name, zval *value, zval *expires, zval *path, zval *domain, zval *secure, zval *httponly, zval *samesite)
 {
 	zval ret;
 	zend_bool sent = 1;
 	zend_bool bailed = 0;
 	ZVAL_UNDEF(&ret);
 	zend_try {
-		gene_response_cookie(name, value, expires, path, domain, secure, httponly, &ret);
+		gene_response_cookie(name, value, expires, path, domain, secure, httponly, samesite, &ret);
 	} zend_catch {
 		bailed = 1;
 	} zend_end_try();
@@ -554,6 +555,7 @@ void gene_cookie(zval *self) /*{{{*/
 	zval *domain    = OBJ_PROP(obj, gene_session_offset_cookie_domain);
 	zval *secure    = OBJ_PROP(obj, gene_session_offset_secure);
 	zval *httponly  = OBJ_PROP(obj, gene_session_offset_httponly);
+	zval *samesite  = OBJ_PROP(obj, gene_session_offset_samesite);
 	if (!name || Z_TYPE_P(name) != IS_STRING || !cookie_id || Z_TYPE_P(cookie_id) != IS_STRING || !path || Z_TYPE_P(path) != IS_STRING || !domain || Z_TYPE_P(domain) != IS_STRING) {
 		return;
 	}
@@ -587,7 +589,7 @@ void gene_cookie(zval *self) /*{{{*/
 	if (GENE_G(runtime_type) >= 2 && !gene_response_context_obj()) {
 		return;
 	}
-	if (gene_session_emit_cookie(name, cookie_id, &times, path, domain, secure, httponly)) {
+	if (gene_session_emit_cookie(name, cookie_id, &times, path, domain, secure, httponly, samesite)) {
 		gene_session_mark_cookie_sent(self);
 	}
 }/*}}}*/
@@ -609,6 +611,7 @@ void gene_set_cookie(zval *self, zval *name, zval *value, zval *time) /*{{{*/
 	zval *domain   = OBJ_PROP(obj, gene_session_offset_cookie_domain);
 	zval *secure   = OBJ_PROP(obj, gene_session_offset_secure);
 	zval *httponly = OBJ_PROP(obj, gene_session_offset_httponly);
+	zval *samesite = OBJ_PROP(obj, gene_session_offset_samesite);
 
 	if (GENE_G(runtime_type) < 2 && SG(headers_sent)) {
 		return;
@@ -617,7 +620,7 @@ void gene_set_cookie(zval *self, zval *name, zval *value, zval *time) /*{{{*/
 	if (GENE_G(runtime_type) >= 2 && !gene_response_context_obj()) {
 		return;
 	}
-	if (gene_session_emit_cookie(name, value, time, path, domain, secure, httponly)) {
+	if (gene_session_emit_cookie(name, value, time, path, domain, secure, httponly, samesite)) {
 		gene_session_mark_cookie_sent(self);
 	}
 }/*}}}*/
@@ -907,6 +910,10 @@ PHP_METHOD(gene_session, __construct) {
 			} else {
 				zend_update_property_bool(gene_session_ce, gene_strip_obj(self), ZEND_STRL(GENE_SESSION_HTTPONLY), 0);
 			}
+		}
+		val = zend_hash_str_find(Z_ARRVAL_P(config), ZEND_STRL("samesite"));
+		if (val && Z_TYPE_P(val) == IS_STRING) {
+			zend_update_property_string(gene_session_ce, gene_strip_obj(self), ZEND_STRL(GENE_SESSION_SAMESITE), Z_STRVAL_P(val));
 		}
 		val = zend_hash_str_find(Z_ARRVAL_P(config), ZEND_STRL("ttl"));
 		if (val && Z_TYPE_P(val) == IS_LONG) {
@@ -1231,6 +1238,7 @@ GENE_MINIT_FUNCTION(session) {
 	zend_declare_property_string(gene_session_ce, ZEND_STRL(GENE_SESSION_COOKIE_PATH), "/", ZEND_ACC_PUBLIC);
 	zend_declare_property_bool(gene_session_ce, ZEND_STRL(GENE_SESSION_SECURE), 0, ZEND_ACC_PUBLIC);
 	zend_declare_property_bool(gene_session_ce, ZEND_STRL(GENE_SESSION_HTTPONLY), 1, ZEND_ACC_PUBLIC);
+	zend_declare_property_string(gene_session_ce, ZEND_STRL(GENE_SESSION_SAMESITE), "", ZEND_ACC_PUBLIC);
 	zend_declare_property_null(gene_session_ce, ZEND_STRL(GENE_SESSION_HANDLER), ZEND_ACC_PROTECTED);
 	zend_declare_property_bool(gene_session_ce, ZEND_STRL(GENE_SESSION_DIRTY), 0, ZEND_ACC_PROTECTED);
 	zend_declare_property_bool(gene_session_ce, ZEND_STRL(GENE_SESSION_COOKIE_SENT), 0, ZEND_ACC_PROTECTED);
@@ -1254,6 +1262,8 @@ GENE_MINIT_FUNCTION(session) {
 		gene_session_offset_secure = pi->offset;
 		pi = zend_hash_str_find_ptr(&gene_session_ce->properties_info, ZEND_STRL(GENE_SESSION_HTTPONLY));
 		gene_session_offset_httponly = pi->offset;
+		pi = zend_hash_str_find_ptr(&gene_session_ce->properties_info, ZEND_STRL(GENE_SESSION_SAMESITE));
+		gene_session_offset_samesite = pi->offset;
 	}
 
 	return SUCCESS; // @suppress("Symbol is not resolved")
