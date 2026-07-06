@@ -1,5 +1,30 @@
 # Gene Framework Changelog
 
+## [5.6.8]
+
+### 🔒 安全
+
+- **PDO 标识符引用强化**：`pdo.c` 标识符引用新增 JOIN 子句检测、表达式白名单与引号配平校验，进一步收窄 SQL 注入攻击面。
+- **PDO 连接处理修复**：修正 PDO 连接建立与异常路径的资源管理，避免连接泄漏。
+
+### ⚡ 性能
+
+- **字符串工具**：`common.c` 以 `memcpy` 替换 `strncpy` 关键路径，消除冗余尾部填充。
+- **数据库驱动**：优化 mysql / mssql / pgsql / sqlite 连接处理流程。
+- **Redis 连接池**：改进 `redis_pool.c` 连接池管理与复用策略。
+- **路由 / 视图 / 响应**：精简 `router.c`、`view.c`、`response.c` 头部操作与渲染路径。
+- **Benchmark / Log**：基准与日志工具性能调优，并同步标识符引用改进。
+
+### 🔧 修改文件一览
+
+- `src/db/pdo.c` — 标识符引用强化（JOIN 检测 / 表达式白名单 / 引号配平）、连接处理修复
+- `src/common/common.c` / `common.h` — `strncpy` → `memcpy`
+- `src/db/{mysql,mssql,pgsql,sqlite}.c` — 连接处理优化
+- `src/cache/redis_pool.c` / `src/db/pool.c` — 连接池管理改进
+- `src/router/router.c` / `src/mvc/view.c` / `src/http/response.c` / `src/http/validate.c` — 路由 / 视图 / 响应 / 校验优化
+- `src/tool/benchmark.c` / `src/tool/log.c` — 工具性能与标识符引用同步
+- `src/gene.c` / `src/gene.h` — 版本号升至 5.6.8 及配套调整
+
 ## [5.6.7]
 
 ### ✨ 新增

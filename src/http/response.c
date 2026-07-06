@@ -242,7 +242,6 @@ static void gene_response_set_header_ex(char *key, size_t key_len, char *value, 
 		header_ptr[header_len] = '\0';
 		ctr.line = header_ptr;
 		ctr.line_len = header_len;
-		ctr.response_code = 200;
 		sapi_header_op(SAPI_HEADER_REPLACE, &ctr);
 		efree(header_ptr);
 	}
