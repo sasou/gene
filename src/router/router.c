@@ -1548,11 +1548,16 @@ static void gene_fn_cache_store(zval *closure, zval *fid_zv) {
 		 return 0;
 	 }
 
-	 zend_try {
-		 zend_eval_stringl(run, size, NULL, "");
-	 } zend_catch {
-	 } zend_end_try();
-	 efree(run);
+	 /* [GENE_AUDIT:2026-07-03 P2] Defensive guard: run is only assigned in the
+	  * eval-fallback branch above; guard use/free so a future code insertion in
+	  * this control flow cannot deref/efree a NULL/uninitialized pointer. */
+	 if (run) {
+		 zend_try {
+			 zend_eval_stringl(run, size, NULL, "");
+		 } zend_catch {
+		 } zend_end_try();
+		 efree(run);
+	 }
 	 if (hsrc_heap) efree(hsrc_key);
 	 if (err_heap) efree(err_key);
 	 if (router_e_heap) efree(router_e_key);

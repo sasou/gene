@@ -20,7 +20,7 @@
  extern zend_module_entry gene_module_entry;
  #define phpext_gene_ptr &gene_module_entry
  
- #define PHP_GENE_VERSION "5.6.7"
+ #define PHP_GENE_VERSION "5.6.8"
  
  #ifdef PHP_WIN32
  #	define PHP_GENE_API __declspec(dllexport)
@@ -58,6 +58,25 @@
  #define GENE_G(v) TSRMG(gene_globals_id, zend_gene_globals *, v)
  #else
  #define GENE_G(v) (gene_globals.v)
+ #endif
+ 
+ /* [GENE_AUDIT:2026-07-03 P3/T1#4] ZTS-safe internal function pointer cache.
+  * Non-ZTS: internal function pointers are process-level constants, so a
+  * function-local static cache is safe and saves a hash lookup per call.
+  * ZTS: CG(function_table) is per-thread, so a process-wide static would
+  * cross threads — fall back to a per-call lookup (the hash find on a
+  * pre-known interned key is cheap). Usage:
+  *   static zend_function *fn = NULL;   // non-ZTS only; under ZTS fn is local
+  *   fn = GENE_CG_FN_LOOKUP(fn, "json_encode"); */
+ #ifndef ZTS
+ static inline zend_function *gene_cg_fn_cache(zend_function **cache, const char *key, size_t keylen) {
+     if (EXPECTED(*cache)) return *cache;
+     *cache = zend_hash_str_find_ptr(CG(function_table), key, keylen);
+     return *cache;
+ }
+ #define GENE_CG_FN_LOOKUP(cache_var, literal) gene_cg_fn_cache(&(cache_var), ZEND_STRL(literal))
+ #else
+ #define GENE_CG_FN_LOOKUP(cache_var, literal) zend_hash_str_find_ptr(CG(function_table), ZEND_STRL(literal))
  #endif
  
  #define gene_object zend_object

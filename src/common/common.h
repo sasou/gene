@@ -32,7 +32,7 @@ char *replaceAll(char * src, const char oldChar, const char newChar);
 void trim(char* s, const char c);
 char *insert_string(char * string, const char * source, const char * destination);
 char *replace_string(char * string, char source, const char * destination);
-int ReplaceStr(char* sSrc, char* sMatchStr, char* sReplaceStr);
+int ReplaceStr(char* sSrc, size_t buf_size, char* sMatchStr, char* sReplaceStr);
 char *insertAll(char * dest, char * src, char oldChar, char newChar);
 void replace(char originalString[], char key[], char swap[], size_t buf_size);
 int findChildCnt(char* str1, const char* str2);
