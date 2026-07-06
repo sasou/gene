@@ -397,8 +397,13 @@ char * replace_string(char * string, char source, const char * destination) {
 
 /*
  * {{{ char * replace_string (char * string, const char * source, const char * destination )
- */
-int ReplaceStr(char* sSrc, char* sMatchStr, char* sReplaceStr) {
+ * [GENE_AUDIT:2026-07-03 P3] Added buf_size parameter to prevent heap buffer
+ * overflow when the replacement string is longer than the match string. The
+ * previous in-place memcpy back into sSrc had no capacity check — safe only as
+ * long as replace_len <= match_len (true for the sole existing caller
+ * "in(?)"->"$"). Now refuses (returns -2) if a replacement would exceed
+ * buf_size, neutralizing the landmine for any future caller. */
+int ReplaceStr(char* sSrc, size_t buf_size, char* sMatchStr, char* sReplaceStr) {
 	size_t StringLen, src_len, match_len, replace_len, new_len;
 	char *caNewString = NULL;
 	char* FindPos;
@@ -416,6 +421,13 @@ int ReplaceStr(char* sSrc, char* sMatchStr, char* sReplaceStr) {
 	while (FindPos) {
 		src_len = strlen(sSrc);
 		new_len = src_len - match_len + replace_len;
+		if (new_len + 1 > buf_size) {
+			/* Replacement would overflow the caller's buffer — abort rather
+			 * than corrupt the heap. The input string is left in a possibly
+			 * partially-replaced state, but no out-of-bounds write occurs. */
+			php_error_docref(NULL, E_WARNING, "ReplaceStr: replacement would overflow buffer (need %zu, have %zu)", new_len + 1, buf_size);
+			return -2;
+		}
 		caNewString = (char *) emalloc(new_len + 1);
 		StringLen = FindPos - sSrc;
 		memcpy(caNewString, sSrc, StringLen);

@@ -404,18 +404,51 @@ static void rpool_atomic_call_fn(zval *atomic, zend_function *fn, zend_long arg,
     rpool_atomic_call_fn((atomic), _ra_fn, (arg), (retval)); \
 } while (0)
 
+/* [GENE_AUDIT:2026-07-03 P2] CAS-based atomic decrement using cmpset.
+ * The previous get→sub sequence had a TOCTOU race: two concurrent coroutines
+ * could both read val==1 and both sub, underflowing the counter to -1, which
+ * distorts pool capacity logic (auto-shrink, overflow discard). This helper
+ * performs an atomic compare-and-swap loop: read val, if >0 try cmpset(val,
+ * val-1), retry on contention. Swoole\Atomic::cmpset(old, new) returns true
+ * iff the current value equals old and was atomically set to new. */
+static zend_bool rpool_atomic_cmpset(zval *atomic, zend_function *fn_cmpset, zend_long old_val, zend_long new_val)
+{
+    if (!fn_cmpset) return 0;
+    zval params[2], ret;
+    ZVAL_LONG(&params[0], old_val);
+    ZVAL_LONG(&params[1], new_val);
+    ZVAL_UNDEF(&ret);
+    zend_call_known_function(fn_cmpset, Z_OBJ_P(atomic), Z_OBJCE_P(atomic), &ret, 2, params, NULL);
+    zend_bool ok = (Z_TYPE(ret) == IS_TRUE);
+    if (!Z_ISUNDEF(ret)) zval_ptr_dtor(&ret);
+    return ok;
+}
+
 static void rpool_decrement_count(zval *self)
 {
     zval *atomic = zend_read_property(gene_redis_pool_ce, gene_strip_obj(self),
                                        ZEND_STRL(GENE_REDIS_POOL_PROPERTY_COUNT), 1, NULL);
     if (atomic && Z_TYPE_P(atomic) == IS_OBJECT) {
-        zval ret;
-        ZVAL_UNDEF(&ret);
-        RPOOL_ATOMIC_CALL(atomic, "get", 0, &ret);
-        zend_long val = (Z_TYPE(ret) == IS_LONG) ? Z_LVAL(ret) : 0;
-        if (!Z_ISUNDEF(ret)) zval_ptr_dtor(&ret);
-        if (val > 0) {
-            RPOOL_ATOMIC_CALL(atomic, "sub", 1, NULL);
+        /* Cache function pointers once (internal class, process-lifetime). */
+        static zend_function *fn_get = NULL;
+        static zend_function *fn_cmpset = NULL;
+        if (UNEXPECTED(!fn_get)) {
+            fn_get = zend_hash_str_find_ptr(&Z_OBJCE_P(atomic)->function_table, ZEND_STRL("get"));
+            fn_cmpset = zend_hash_str_find_ptr(&Z_OBJCE_P(atomic)->function_table, ZEND_STRL("cmpset"));
+        }
+        if (!fn_get || !fn_cmpset) return;  /* Swoole\Atomic unavailable */
+
+        /* CAS loop: read val, if >0 atomically set val-1, retry on contention. */
+        int rounds = 0;
+        while (rounds++ < 64) {
+            zval ret;
+            ZVAL_UNDEF(&ret);
+            rpool_atomic_call_fn(atomic, fn_get, 0, &ret);
+            zend_long val = (Z_TYPE(ret) == IS_LONG) ? Z_LVAL(ret) : 0;
+            if (!Z_ISUNDEF(ret)) zval_ptr_dtor(&ret);
+            if (val <= 0) break;
+            if (rpool_atomic_cmpset(atomic, fn_cmpset, val, val - 1)) break;
+            /* cmpset failed — another coroutine raced us; retry */
         }
     }
 }

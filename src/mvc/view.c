@@ -158,6 +158,28 @@ ZEND_BEGIN_ARG_INFO_EX(gene_view_arg_url, 0, 0, 1)
     ZEND_ARG_INFO(0, path)
 ZEND_END_ARG_INFO()
 
+/* [GENE_AUDIT:2026-07-03 P3] Centralized view-path safety check.
+ * The previous check only rejected ".." and missed absolute paths (/etc/...),
+ * Windows drive letters (C:\...), and UNC paths (\\server\...). View names are
+ * always relative to the app view directory; any leading path separator or
+ * drive letter is a misconfiguration or traversal attempt. Returns 1 if the
+ * path is safe, 0 (with a warning emitted) if rejected. */
+static int gene_view_path_safe(const char *file) {
+	if (strstr(file, "..") != NULL) {
+		php_error_docref(NULL, E_WARNING, "Path traversal detected in view file: %s", file);
+		return 0;
+	}
+	if (file[0] == '/' || file[0] == '\\') {
+		php_error_docref(NULL, E_WARNING, "Absolute path rejected in view file: %s", file);
+		return 0;
+	}
+	if (((file[0] >= 'A' && file[0] <= 'Z') || (file[0] >= 'a' && file[0] <= 'z')) && file[1] == ':') {
+		php_error_docref(NULL, E_WARNING, "Windows drive path rejected in view file: %s", file);
+		return 0;
+	}
+	return 1;
+}
+
 /** {{{ gene_view_contains
  */
 void gene_view_contains(char *file, zval *ret) {
@@ -166,8 +188,7 @@ void gene_view_contains(char *file, zval *ret) {
 		ZVAL_FALSE(ret);
 		return;
 	}
-	if (strstr(file, "..") != NULL) {
-		php_error_docref(NULL, E_WARNING, "Path traversal detected in view file: %s", file);
+	if (!gene_view_path_safe(file)) {
 		ZVAL_FALSE(ret);
 		return;
 	}
@@ -220,8 +241,7 @@ void gene_view_contains_ext(char *file, bool isCompile, zval *ret) {
 		ZVAL_FALSE(ret);
 		return;
 	}
-	if (strstr(file, "..") != NULL) {
-		php_error_docref(NULL, E_WARNING, "Path traversal detected in view file: %s", file);
+	if (!gene_view_path_safe(file)) {
 		ZVAL_FALSE(ret);
 		return;
 	}
@@ -320,8 +340,7 @@ int gene_view_display(char *file, zval *obj, zend_array *symbol_table) {
 		php_error_docref(NULL, E_WARNING, "Empty view file");
 		return 0;
 	}
-	if (strstr(file, "..") != NULL) {
-		php_error_docref(NULL, E_WARNING, "Path traversal detected in view file: %s", file);
+	if (!gene_view_path_safe(file)) {
 		return 0;
 	}
 	file_len = strlen(file);
@@ -373,8 +392,7 @@ int gene_view_display_ext(char *file, bool isCompile, zval *obj, zend_array *sym
 		php_error_docref(NULL, E_WARNING, "Empty view file");
 		return 0;
 	}
-	if (strstr(file, "..") != NULL) {
-		php_error_docref(NULL, E_WARNING, "Path traversal detected in view file: %s", file);
+	if (!gene_view_path_safe(file)) {
 		return 0;
 	}
 	base_path = gene_view_app_base_path();

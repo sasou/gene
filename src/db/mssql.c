@@ -679,7 +679,7 @@ PHP_METHOD(gene_db_mssql, in)
     	data = zend_read_property(gene_db_mssql_ce, gene_strip_obj(self), ZEND_STRL(GENE_DB_MSSQL_DATA), 1, NULL);
     	switch(Z_TYPE_P(fields)) {
     	case IS_ARRAY:
-    		ReplaceStr(in_tmp, "in(?)", "$");
+    		ReplaceStr(in_tmp, in_len + 1, "in(?)", "$");
     		seg = php_strtok_r(in_tmp, "$", &ptr);
     		if (seg) {
     			smart_str_appends(&where_str, seg);

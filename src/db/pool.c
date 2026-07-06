@@ -84,36 +84,15 @@ static HashTable *gene_pool_named_cache = NULL;
 
 static bool pool_in_coroutine(void)
 {
-    /* If not in Swoole mode, definitely not in a coroutine */
-    if (GENE_G(runtime_type) < 2) {
-        return 0;
-    }
-
-    /* [GENE_PERF:2026-04-27] Cache class entry + getCid function pointer once;
-     * Swoole internal classes never reload, so a one-shot resolve avoids the
-     * per-call zend_lookup_class hash lookup.
-     * [GENE_PERF:2026-04-26 P1] getCid()>=0 already implies a live coroutine;
-     * the redundant Coroutine::exists($cid) call was removed. */
-    static zend_function *fn_getcid = NULL;
-    static zend_class_entry *co_ce_cached = NULL;
-    if (UNEXPECTED(!fn_getcid)) {
-        /* [GENE_FIX:2026-05-25] gene_lookup_class_str keeps the lookup path
-         * free of zend_string_init_interned(...,1). CE pointer itself is safe
-         * to cache (internal class, process-lifetime). */
-        co_ce_cached = gene_lookup_class_str(ZEND_STRL("Swoole\\Coroutine"));
-        if (!co_ce_cached) return 0;
-        fn_getcid = zend_hash_str_find_ptr(&co_ce_cached->function_table, ZEND_STRL("getCid"));
-        if (!fn_getcid) return 0;
-    }
-
-    zval cid_ret;
-    ZVAL_UNDEF(&cid_ret);
-    zend_call_known_function(fn_getcid, NULL, co_ce_cached, &cid_ret, 0, NULL, NULL);
-
-    zend_long cid = (Z_TYPE(cid_ret) == IS_LONG) ? Z_LVAL(cid_ret) : -1;
-    if (!Z_ISUNDEF(cid_ret)) zval_ptr_dtor(&cid_ret);
-
-    return cid >= 0;
+    /* If not in Swoole mode, definitely not in a coroutine. */
+    if (GENE_G(runtime_type) < 2) return 0;
+    /* [GENE_FIX:2026-07-03] Use gene_get_coroutine_id() (dlsym C-API fast path)
+     * instead of zend_hash_str_find_ptr(..., "getCid"). PHP class function_table
+     * keys are stored lower-case ("getcid"); the previous "getCid" lookup always
+     * failed -> pool_in_coroutine() always returned 0 in Swoole mode, breaking
+     * coroutine-aware connection borrow/return. Aligns with rpool_in_coroutine()
+     * (src/cache/redis_pool.c) and reuses the P1 dlsym fast path (~300ns->~5ns). */
+    return gene_get_coroutine_id() >= 0;
 }
 
 static void pool_stop_timer(zval *self)

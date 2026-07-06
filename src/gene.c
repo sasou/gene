@@ -88,8 +88,34 @@ typedef long (*gene_getcid_capi_t)(void);
 static gene_getcid_capi_t gene_swoole_getcid_capi = NULL;
 static volatile int gene_swoole_getcid_capi_resolved = 0;
 
+/* [GENE_PERF:2026-07-03 T1#2] Direct C-API resolution of Swoole's
+ * Coroutine::get_by_cid(long cid) for the co_contexts sweep. The sweep
+ * previously called Swoole\Coroutine::exists($cid) via
+ * zend_call_known_function for every entry in the co_contexts table —
+ * N PHP method calls per sweep. get_by_cid returns a Coroutine* (nullptr
+ * if the cid is dead/unknown), letting the sweep check liveness in a few
+ * ns per entry with zero PHP crossings. Reuses the same dlsym(RTLD_DEFAULT)
+ * pattern as the P1 get_current_cid resolver. Best-effort: falls back to
+ * the PHP exists() path if the symbol is unavailable. */
+typedef void *(*gene_co_get_by_cid_capi_t)(long);
+static gene_co_get_by_cid_capi_t gene_swoole_co_get_by_cid_capi = NULL;
+static volatile int gene_swoole_co_get_by_cid_resolved = 0;
+
 static void gene_resolve_getcid_capi(void) {
 	if (gene_swoole_getcid_capi_resolved) {
+		return;
+	}
+	/* [GENE_AUDIT:2026-07-05 P3-2] Honor the gene.swoole_getcid_capi kill-
+	 * switch. When disabled (0), mark both symbols resolved but skip dlsym
+	 * so the fast path in gene_get_coroutine_id() (line ~152) never
+	 * activates and the sweep's gene_swoole_co_exists() falls back to the
+	 * PHP exists() path. Previously the sweep path called this resolver
+	 * without checking the switch, populating gene_swoole_getcid_capi and
+	 * making the kill-switch unreliable — exactly in the Swoole-
+	 * incompatible environments where the escape hatch is needed. */
+	if (!GENE_G(swoole_getcid_capi)) {
+		gene_swoole_getcid_capi_resolved = 1;
+		gene_swoole_co_get_by_cid_resolved = 1;
 		return;
 	}
 #ifndef PHP_WIN32
@@ -98,8 +124,14 @@ static void gene_resolve_getcid_capi(void) {
 	 * though it may not have been at gene's MINIT. */
 	gene_swoole_getcid_capi = (gene_getcid_capi_t)dlsym(
 		RTLD_DEFAULT, "_ZN6swoole9Coroutine15get_current_cidEv");
+	/* [GENE_PERF:2026-07-03 T1#2] Also resolve get_by_cid for sweep liveness
+	 * checks. Mangled name: swoole::Coroutine::get_by_cid(long) →
+	 * _ZN6swoole9Coroutine11get_by_cidEl */
+	gene_swoole_co_get_by_cid_capi = (gene_co_get_by_cid_capi_t)dlsym(
+		RTLD_DEFAULT, "_ZN6swoole9Coroutine11get_by_cidEl");
 #endif
 	gene_swoole_getcid_capi_resolved = 1;
+	gene_swoole_co_get_by_cid_resolved = 1;
 }
 
 
@@ -609,7 +641,10 @@ void gene_init_co_contexts(void) {
 /* }}} */
 
 /* {{{ gene_swoole_co_exists_resolve — one-shot lazy resolve of exists()
- * Populates GENE_G(swoole_co_exists_func). Returns non-zero if available. */
+ * Populates GENE_G(swoole_co_exists_func) and/or the dlsym C-API for
+ * get_by_cid. Returns non-zero if either liveness-check path is available.
+ * [GENE_AUDIT:2026-07-03 T1#2] Also triggers dlsym resolution for the
+ * C-API fast path so the sweep can use it even without the PHP exists(). */
 static int gene_swoole_co_exists_resolve(void) {
 	if (!GENE_G(swoole_co_exists_resolved)) {
 		zend_class_entry *co_ce = gene_lookup_class_str(ZEND_STRL("swoole\\coroutine"));
@@ -619,7 +654,11 @@ static int gene_swoole_co_exists_resolve(void) {
 		}
 		GENE_G(swoole_co_exists_resolved) = 1;
 	}
-	return GENE_G(swoole_co_exists_func) != NULL;
+	/* [GENE_PERF:2026-07-03 T1#2] Also ensure the dlsym C-API is resolved. */
+	if (UNEXPECTED(!gene_swoole_co_get_by_cid_resolved)) {
+		gene_resolve_getcid_capi();
+	}
+	return (GENE_G(swoole_co_exists_func) != NULL) || (gene_swoole_co_get_by_cid_capi != NULL);
 }
 /* }}} */
 
@@ -629,6 +668,18 @@ static int gene_swoole_co_exists_resolve(void) {
  * warmed up by gene_swoole_co_exists_resolve() — cheap inner loop.
  */
 static int gene_swoole_co_exists(zend_long cid) {
+	/* [GENE_PERF:2026-07-03 T1#2] Prefer the dlsym C-API: get_by_cid returns
+	 * a Coroutine* (non-null = alive, null = dead/unknown) in a few ns,
+	 * avoiding a zend_call_known_function per entry during sweep. */
+	if (UNEXPECTED(!gene_swoole_co_get_by_cid_resolved)) {
+		gene_resolve_getcid_capi();
+	}
+	if (gene_swoole_co_get_by_cid_capi) {
+		void *co = gene_swoole_co_get_by_cid_capi((long)cid);
+		return co ? 1 : 0;
+	}
+
+	/* Fallback: PHP method call via cached zend_function. */
 	zval cid_zv, retval;
 	int res = -1;
 
@@ -655,7 +706,7 @@ static int gene_swoole_co_exists(zend_long cid) {
  * Reclaim memory from dead-coroutine entries in GENE_G(co_contexts).
  *
  * Called from the slow path of gene_request_ctx() when the table size is
- * at or above the configured cap (gene.co_contexts_max, default 8192).
+ * at or above the configured cap (gene.co_contexts_max, default 1024).
  *
  * Two-stage strategy (bounded work per invocation):
  *   1) If Swoole\Coroutine::exists() is available, probe each non-current
@@ -795,9 +846,13 @@ gene_request_context *gene_request_ctx(void) {
 		 * long-running workers users sometimes forget to defer cleanup();
 		 * without a backstop co_contexts would grow unboundedly. We run
 		 * the sweep only when the cap is hit, so the steady-state cost
-		 * is zero for well-behaved apps. */
-		if (UNEXPECTED(GENE_G(co_contexts_max) > 0
-			&& (zend_long)zend_hash_num_elements(GENE_G(co_contexts)) >= GENE_G(co_contexts_max))) {
+		 * is zero for well-behaved apps.
+		 * [GENE_AUDIT:2026-07-03 P3] co_contexts_max=0 previously meant
+		 * "unlimited" — sweep never fired, leading to unbounded growth on
+		 * misconfiguration. Now 0 is treated as "use default 1024", matching
+		 * gene_co_contexts_sweep()'s own fallback at line 687. */
+		zend_long eff_cap = (GENE_G(co_contexts_max) > 0) ? GENE_G(co_contexts_max) : 1024;
+		if (UNEXPECTED((zend_long)zend_hash_num_elements(GENE_G(co_contexts)) >= eff_cap)) {
 			gene_co_contexts_sweep();
 		}
 		/* [GENE_PERF:2026-04-24] Acquire from the struct pool when available;

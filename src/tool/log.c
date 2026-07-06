@@ -155,9 +155,17 @@ static const char *gene_log_get_effective_file(void) {
  * in a process-wide static variable, which is unsafe under ZTS where
  * CG(function_table) is per-thread (cross-thread use of stale pointer
  * could crash on module unload / reload). zend_hash_str_find_ptr on a
- * pre-known interned key is cheap; do not cache. */
+ * pre-known interned key is cheap; do not cache.
+ * [GENE_AUDIT:2026-07-03 T1#4] Now uses GENE_CG_FN_LOOKUP which caches
+ * under non-ZTS (safe — internal fn ptrs are process-constant) and does
+ * a per-call lookup under ZTS. */
 static inline zend_function *gene_log_get_error_log_fn(void) {
-	return zend_hash_str_find_ptr(CG(function_table), ZEND_STRL("error_log"));
+#ifndef ZTS
+	static zend_function *fn = NULL;
+#else
+	zend_function *fn = NULL;
+#endif
+	return GENE_CG_FN_LOOKUP(fn, "error_log");
 }
 /* }}} */
 

@@ -433,8 +433,9 @@ PHP_METHOD(gene_validate, skipOnEmpty)
 	zval *self = getThis(), *key = NULL, *config = NULL, *keyArr = NULL, *skip = NULL;
 
 	key = zend_read_property(gene_validate_ce, gene_strip_obj(self), ZEND_STRL(GENE_VALIDATE_KEY), 1, NULL);
-	if (key && Z_TYPE_P(key) == IS_NULL) {
+	if (!key || Z_TYPE_P(key) != IS_STRING) {
 		php_error_docref(NULL, E_WARNING, "Please call the name method in the first place.");
+		RETURN_ZVAL(self, 1, 0);
 	}
 
 	config = zend_read_property(gene_validate_ce, gene_strip_obj(self), ZEND_STRL(GENE_VALIDATE_CONFIG), 1, NULL);
@@ -548,8 +549,9 @@ PHP_METHOD(gene_validate, __call) {
 
 	zend_update_property_str(gene_validate_ce, gene_strip_obj(self), ZEND_STRL(GENE_VALIDATE_METHOD), method);
 	key = zend_read_property(gene_validate_ce, gene_strip_obj(self), ZEND_STRL(GENE_VALIDATE_KEY), 1, NULL);
-	if (key && Z_TYPE_P(key) == IS_NULL) {
+	if (!key || Z_TYPE_P(key) != IS_STRING) {
 		php_error_docref(NULL, E_WARNING, "Please call the name method in the first place.");
+		RETURN_ZVAL(self, 1, 0);
 	}
 
 	config = zend_read_property(gene_validate_ce, gene_strip_obj(self), ZEND_STRL(GENE_VALIDATE_CONFIG), 1, NULL);
@@ -602,8 +604,9 @@ PHP_METHOD(gene_validate, msg)
 	}
 
 	key = zend_read_property(gene_validate_ce, gene_strip_obj(self), ZEND_STRL(GENE_VALIDATE_KEY), 1, NULL);
-	if (key && Z_TYPE_P(key) == IS_NULL) {
+	if (!key || Z_TYPE_P(key) != IS_STRING) {
 		php_error_docref(NULL, E_WARNING, "Please call the name method in the first place");
+		RETURN_ZVAL(self, 1, 0);
 	}
 
 	config = zend_read_property(gene_validate_ce, gene_strip_obj(self), ZEND_STRL(GENE_VALIDATE_CONFIG), 1, NULL);
@@ -980,10 +983,10 @@ zval *getFieldVal(zval *self) {
 	zval * field = NULL, *data = NULL;
 	field = zend_read_property(gene_validate_ce, gene_strip_obj(self), ZEND_STRL(GENE_VALIDATE_FIELD), 1, NULL);
 
-	if (field && Z_TYPE_P(field) == IS_NULL) {
+	if (!field || Z_TYPE_P(field) != IS_STRING) {
 		php_error_docref(NULL, E_WARNING, "Please call the name method in the first place.");
+		return NULL;
 	}
-
 	data = zend_read_property(gene_validate_ce, gene_strip_obj(self), ZEND_STRL(GENE_VALIDATE_DATA), 1, NULL);
 	if (data && Z_TYPE_P(data) != IS_ARRAY) {
 		return NULL;

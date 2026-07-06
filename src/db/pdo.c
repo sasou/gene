@@ -28,24 +28,407 @@
 #include "../gene.h"
 #include "../common/common.h"
 
+/* [GENE_AUDIT:2026-07-03 P1->security] Identifier quoting.
+ * Previously gene_quote_table/columns/order/identifier were empty stubs that
+ * emitted the raw name with no quoting/escaping, leaving table/column/order
+ * identifiers — which may originate from user input (e.g. a sort field passed
+ * from the front-end into order()) — exposed to SQL injection. Data values are
+ * bound via "?" placeholders and are safe; identifiers are not.
+ *
+ * Strategy (per audit plan: whitelist-validate first, then full quote):
+ *  - Simple identifiers / dot paths (db.table, t.col): wrap each dot-separated
+ *    segment in oq..cq, doubling any cq inside. A lone "*" segment passes
+ *    through (SELECT *). A segment already wrapped in oq..cq passes through
+ *    unchanged to avoid double-quoting pre-quoted input.
+ *  - Compound expressions (contain ' ' or '(' — e.g. "col AS alias",
+ *    "COUNT(*)", "RAND()"): validate against an extended whitelist
+ *    [A-Za-z0-9_.,() *+-/%:=<>!|`'"]; if clean AND quotes are balanced,
+ *    emit unchanged (these cannot be auto-quoted); if dirty or quotes are
+ *    unbalanced, emit a warning and fall back to wrapping the whole token in
+ *    oq..cq so any breakout is neutralized (the statement will error rather
+ *    than inject). The extended whitelist covers arithmetic operators (+-/%),
+ *    comparison operators (=< >!) used in IF()/CASE WHEN, logical |, colon :
+ *    used in CONCAT(ip,port), backtick ` for pre-quoted identifiers inside
+ *    expressions, and balanced string-literal quotes ' ". Statement-level
+ *    injection markers (;, --, slash-star star-slash) are always rejected.
+ *  - JOIN table fragments: if the table string contains the word JOIN
+ *    (case-insensitive, word-bounded — including across newlines for
+ *    multi-line string literals) — e.g. "t1 a LEFT JOIN t2 b ON a.id=b.id"
+ *    — it is treated as a developer-written SQL fragment and passed through
+ *    unchanged after an injection-marker safety check (no ;, --, slash-star star-slash).
+ *  - ORDER BY: a trailing ASC/DESC keyword is split off, the column part is
+ *    dot-path quoted, the keyword is re-attached.
+ * oq/cq are the open/close quote chars per driver (MySQL/SQLite `, PgSQL ",
+ * MSSQL [ ]). */
+static int gene_ident_is_expr_char(unsigned char c) {
+    return (c >= 'A' && c <= 'Z') || (c >= 'a' && c <= 'z') ||
+           (c >= '0' && c <= '9') || c == '_' || c == '.' || c == ',' ||
+           c == '(' || c == ')' || c == ' ' || c == '*' ||
+           c == '+' || c == '-' || c == '/' || c == '%' || c == ':' ||
+           c == '=' || c == '<' || c == '>' || c == '!' || c == '|' ||
+           c == '`' || c == '\'' || c == '"' ||
+           c == '\n' || c == '\r' || c == '\t';
+}
+
+static int gene_ident_already_quoted(const char *s, size_t len, char oq, char cq) {
+    return len >= 2 && s[0] == oq && s[len - 1] == cq;
+}
+
+static int gene_ident_ieq(const char *a, const char *b, size_t n) {
+    size_t i;
+    for (i = 0; i < n; i++) {
+        char ca = a[i], cb = b[i];
+        if (ca >= 'A' && ca <= 'Z') ca += 32;
+        if (cb >= 'A' && cb <= 'Z') cb += 32;
+        if (ca != cb) return 0;
+    }
+    return 1;
+}
+
+static int gene_ident_has_injection_markers(const char *s, size_t len);
+
+/* Quote one dot-separated segment (no '.', no spaces). */
+static void gene_quote_segment(smart_str *dest, const char *s, size_t len, char oq, char cq) {
+    size_t i;
+    /* [GENE_AUDIT:2026-07-05 P2-N1] The pre-quoted passthrough only checked the
+     * first/last character, so a crafted token like "`x`; DROP TABLE t; -- `"
+     * (first and last char both backtick) sailed through untouched, bypassing
+     * the injection-marker/whitelist checks entirely. Require the token to be
+     * free of statement-level injection markers before passing it through;
+     * otherwise fall to the wrapping branch below, which doubles any embedded
+     * cq and neutralizes the payload (the statement errors instead of
+     * injecting). */
+    if (gene_ident_already_quoted(s, len, oq, cq) &&
+        !gene_ident_has_injection_markers(s, len)) {
+        smart_str_appendl(dest, s, len);
+        return;
+    }
+    smart_str_appendc(dest, oq);
+    for (i = 0; i < len; i++) {
+        if (s[i] == cq) smart_str_appendc(dest, cq);  /* double-quote escape */
+        smart_str_appendc(dest, s[i]);
+    }
+    smart_str_appendc(dest, cq);
+}
+
+/* Quote a dot path like "db.table" / "t.col" / "u.*". */
+static void gene_quote_dotpath(smart_str *dest, const char *s, size_t len, char oq, char cq) {
+    size_t i, start = 0;
+    int first = 1;
+    for (i = 0; i <= len; i++) {
+        if (i == len || s[i] == '.') {
+            size_t seglen = i - start;
+            if (!first) smart_str_appends(dest, ".");
+            first = 0;
+            if (seglen == 1 && s[start] == '*') {
+                smart_str_appendc(dest, '*');
+            } else if (seglen > 0) {
+                gene_quote_segment(dest, s + start, seglen, oq, cq);
+            }
+            start = i + 1;
+        }
+    }
+}
+
+static int gene_ident_expr_clean(const char *s, size_t len) {
+    size_t i;
+    for (i = 0; i < len; i++) {
+        if (!gene_ident_is_expr_char((unsigned char)s[i])) return 0;
+    }
+    return 1;
+}
+
+/* [GENE_AUDIT:2026-07-05 8.2.12/8.2.15] Check for SQL injection markers that
+ * could break out of the current statement context: semicolon (;), line
+ * comment (--), block comment (/* *\/). These are always rejected regardless
+ * of context. Backslash is also rejected since it can escape quote characters
+ * inside string literals, undermining the balanced-quote check. */
+static int gene_ident_has_injection_markers(const char *s, size_t len) {
+    size_t i;
+    for (i = 0; i < len; i++) {
+        if (s[i] == ';' || s[i] == '\\') return 1;
+        if (s[i] == '-' && i + 1 < len && s[i+1] == '-') return 1;
+        if (s[i] == '/' && i + 1 < len && s[i+1] == '*') return 1;
+        if (s[i] == '*' && i + 1 < len && s[i+1] == '/') return 1;
+    }
+    return 0;
+}
+
+/* [GENE_AUDIT:2026-07-05 8.2.12/8.2.15] Check that single and double quotes
+ * are balanced (even count each). Unbalanced quotes could break out of a
+ * string literal context. Since backslash is rejected by
+ * gene_ident_has_injection_markers(), we don't need to worry about \' or \"
+ * escape sequences — any backslash would already cause rejection. */
+static int gene_ident_quotes_balanced(const char *s, size_t len) {
+    size_t i, sq = 0, dq = 0;
+    for (i = 0; i < len; i++) {
+        if (s[i] == '\'') sq++;
+        else if (s[i] == '"') dq++;
+    }
+    return (sq % 2 == 0) && (dq % 2 == 0);
+}
+
+/* [GENE_AUDIT:2026-07-05 8.2.12/8.2.15] Detect the word "join" (case-
+ * insensitive) as a standalone word — preceded by start-of-string or
+ * whitespace (space/tab/newline/CR), followed by whitespace or end-of-string.
+ * This identifies developer-written multi-table SQL fragments like
+ * "t1 a LEFT JOIN t2 b ON a.id=b.id" that should be passed through as raw
+ * SQL rather than being dot-path quoted. Newline/CR are included as word
+ * boundaries because real Model code uses multi-line string literals for
+ * complex JOIN fragments (e.g. exchange Order.php, Pexch.php). */
+static int gene_ident_has_join_keyword(const char *s, size_t len) {
+    size_t i;
+    for (i = 0; i < len; i++) {
+        if (i + 3 < len) {
+            char prev = i > 0 ? s[i-1] : '\0';
+            int at_word_start = (i == 0 || prev == ' ' || prev == '\t' ||
+                                 prev == '\n' || prev == '\r');
+            if (at_word_start &&
+                (s[i] == 'j' || s[i] == 'J') &&
+                (s[i+1] == 'o' || s[i+1] == 'O') &&
+                (s[i+2] == 'i' || s[i+2] == 'I') &&
+                (s[i+3] == 'n' || s[i+3] == 'N')) {
+                size_t after = i + 4;
+                if (after >= len || s[after] == ' ' || s[after] == '\t' ||
+                    s[after] == '\n' || s[after] == '\r') {
+                    return 1;
+                }
+            }
+        }
+    }
+    return 0;
+}
+
+/* [GENE_AUDIT:2026-07-05 8.2.12/8.2.15] Full expression validation: the
+ * token passes the extended character whitelist, has no injection markers,
+ * and has balanced quotes. Returns 1 if safe to emit unchanged. */
+static int gene_ident_expr_safe(const char *s, size_t len) {
+    if (!gene_ident_expr_clean(s, len)) return 0;
+    if (gene_ident_has_injection_markers(s, len)) return 0;
+    if (!gene_ident_quotes_balanced(s, len)) return 0;
+    return 1;
+}
+
+/* [GENE_AUDIT:2026-07-05 8.2.12/8.2.15] Detect characters that only appear
+ * in expressions, never in a simple identifier or dot path. If present, the
+ * token must be treated as an expression (validated + passthrough or
+ * fail-safe) rather than dot-path quoted. Note: '-' is NOT included because
+ * it can appear in legitimate column names (e.g. "user-name") which should be
+ * backtick-quoted, not treated as arithmetic subtraction. Newline/CR are
+ * included to handle multi-line expression strings. */
+static int gene_ident_has_expr_chars(const char *s, size_t len) {
+    size_t i;
+    for (i = 0; i < len; i++) {
+        char c = s[i];
+        if (c == '(' || c == ' ' || c == '+' || c == '/' || c == '%' ||
+            c == '=' || c == '<' || c == '>' || c == '!' || c == '|' ||
+            c == '`' || c == '\'' || c == '"' || c == '\n' || c == '\r') {
+            return 1;
+        }
+    }
+    return 0;
+}
+
+/* [GENE_AUDIT:2026-07-05 8.2.12/8.2.15] Same as gene_ident_has_expr_chars
+ * but excludes space — used by gene_quote_order where a space may simply
+ * separate the column from a trailing ASC/DESC keyword (handled by the
+ * split-off logic), not indicate an expression. */
+static int gene_ident_has_expr_chars_nospace(const char *s, size_t len) {
+    size_t i;
+    for (i = 0; i < len; i++) {
+        char c = s[i];
+        if (c == '(' || c == '+' || c == '/' || c == '%' ||
+            c == '=' || c == '<' || c == '>' || c == '!' || c == '|' ||
+            c == '`' || c == '\'' || c == '"') {
+            return 1;
+        }
+    }
+    return 0;
+}
+
 void gene_quote_identifier(smart_str *dest, const char *name, size_t len, char oq, char cq) /*{{{*/
 {
-	smart_str_appendl(dest, name, len);
+    /* Hash-key column names (INSERT/UPDATE field lists) — simple identifier or
+     * "t.col" dot path; quote directly. */
+    gene_quote_dotpath(dest, name, len, oq, cq);
 }/*}}}*/
 
 char *gene_quote_table(const char *name, char oq, char cq) /*{{{*/
 {
-	return str_init(name);
+    smart_str dst = {0};
+    size_t len = strlen(name);
+    if (len == 0) return str_init("");
+    /* [GENE_AUDIT:2026-07-05 P2-N1] Pre-quoted passthrough requires no
+     * injection markers — see gene_quote_segment. Dirty input falls through
+     * to the JOIN/expression/dotpath branches, all of which reject or
+     * neutralize marker-bearing tokens. */
+    if (gene_ident_already_quoted(name, len, oq, cq) &&
+        !gene_ident_has_injection_markers(name, len)) return str_init(name);
+    /* [GENE_AUDIT:2026-07-05 8.2.12] JOIN table fragments — developer-written
+     * multi-table SQL like "t1 a LEFT JOIN t2 b ON a.id=b.id". Pass through
+     * unchanged after injection-marker safety check; the =, !, (), etc. in
+     * ON clauses are legitimate. Without this, 48 exchange Model calls
+     * (17 files) would fail-safe to illegal backtick-wrapped SQL.
+     * Guard: require whitespace in the string so that a table literally
+     * named "join" (a SQL reserved word) is NOT treated as a JOIN fragment —
+     * it should be backtick-quoted via dotpath instead. */
+    if (gene_ident_has_join_keyword(name, len) && strpbrk(name, " \t\n\r")) {
+        if (!gene_ident_has_injection_markers(name, len)) {
+            return str_init(name);
+        }
+        php_error_docref(NULL, E_WARNING, "Suspicious JOIN table fragment rejected by injection-marker check: %s", name);
+        gene_quote_segment(&dst, name, len, oq, cq);  /* fail-safe: neutralize */
+        smart_str_0(&dst);
+        char *res = str_init(dst.s ? ZSTR_VAL(dst.s) : "");
+        smart_str_free(&dst);
+        return res;
+    }
+    /* "table alias" / "table AS alias" / func(...) — pass through if safe.
+     * Newline/CR included for multi-line expressions. */
+    if (strpbrk(name, " (\t\n\r")) {
+        if (gene_ident_expr_safe(name, len)) {
+            return str_init(name);
+        }
+        php_error_docref(NULL, E_WARNING, "Suspicious table identifier rejected by quote whitelist: %s", name);
+        gene_quote_segment(&dst, name, len, oq, cq);  /* fail-safe: neutralize */
+    } else {
+        gene_quote_dotpath(&dst, name, len, oq, cq);
+    }
+    smart_str_0(&dst);
+    char *res = str_init(dst.s ? ZSTR_VAL(dst.s) : "");
+    smart_str_free(&dst);
+    return res;
 }/*}}}*/
 
 char *gene_quote_columns(const char *name, char oq, char cq) /*{{{*/
 {
-	return str_init(name);
+    smart_str dst = {0};
+    size_t len = strlen(name);
+    size_t i, start = 0;
+    int first = 1;
+    int paren_depth = 0;
+    /* Comma-separated column list: "id,name", "u.*, p.profile_data",
+     * "role, COUNT(*) as count". Commas inside parentheses (function
+     * argument separators like IF(cond, 0, 1)) are NOT list separators —
+     * they belong to the function call and must stay within one token so
+     * that the whole IF(...) expression goes through the expr-safe path
+     * rather than having "0" split off and backtick-quoted as a column
+     * reference. [GENE_AUDIT:2026-07-05 §10] */
+    for (i = 0; i <= len; i++) {
+        if (i == len || (name[i] == ',' && paren_depth == 0)) {
+            const char *item = name + start;
+            size_t ilen = i - start, b = 0, e = ilen;
+            while (b < e && (item[b] == ' ' || item[b] == '\t' || item[b] == '\n' || item[b] == '\r')) b++;
+            while (e > b && (item[e-1] == ' ' || item[e-1] == '\t' || item[e-1] == '\n' || item[e-1] == '\r')) e--;
+            if (!first) smart_str_appends(&dst, ",");
+            first = 0;
+            if (e > b) {
+                const char *t = item + b;
+                size_t tlen = e - b;
+                /* [GENE_AUDIT:2026-07-05 P2-N1] see gene_quote_segment */
+                if (gene_ident_already_quoted(t, tlen, oq, cq) &&
+                    !gene_ident_has_injection_markers(t, tlen)) {
+                    smart_str_appendl(&dst, t, tlen);
+                } else if (gene_ident_has_expr_chars(t, tlen)) {
+                    /* expression: COUNT(*) ... / "col AS alias" / arithmetic —
+                     * passthrough if safe (extended whitelist + balanced quotes) */
+                    if (gene_ident_expr_safe(t, tlen)) {
+                        smart_str_appendl(&dst, t, tlen);
+                    } else {
+                        php_error_docref(NULL, E_WARNING, "Suspicious column expression rejected by quote whitelist: %.*s", (int)tlen, t);
+                        gene_quote_segment(&dst, t, tlen, oq, cq);
+                    }
+                } else {
+                    gene_quote_dotpath(&dst, t, tlen, oq, cq);
+                }
+            }
+            start = i + 1;
+        } else if (name[i] == '(') {
+            paren_depth++;
+        } else if (name[i] == ')' && paren_depth > 0) {
+            paren_depth--;
+        }
+    }
+    smart_str_0(&dst);
+    char *res = str_init(dst.s ? ZSTR_VAL(dst.s) : "");
+    smart_str_free(&dst);
+    return res;
 }/*}}}*/
 
 char *gene_quote_order(const char *name, char oq, char cq) /*{{{*/
 {
-	return str_init(name);
+    smart_str dst = {0};
+    size_t len = strlen(name);
+    size_t i, start = 0;
+    int first = 1;
+    int paren_depth = 0;
+    /* Comma-separated ORDER BY list: "id desc", "sort asc", "id,name", "RAND()".
+     * Commas inside parentheses (e.g. IF(cond,0,1) used as an ORDER BY
+     * expression) are NOT list separators — same rationale as
+     * gene_quote_columns. [GENE_AUDIT:2026-07-05 §10] */
+    for (i = 0; i <= len; i++) {
+        if (i == len || (name[i] == ',' && paren_depth == 0)) {
+            const char *item = name + start;
+            size_t ilen = i - start, b = 0, e = ilen;
+            while (b < e && (item[b] == ' ' || item[b] == '\t' || item[b] == '\n' || item[b] == '\r')) b++;
+            while (e > b && (item[e-1] == ' ' || item[e-1] == '\t' || item[e-1] == '\n' || item[e-1] == '\r')) e--;
+            if (!first) smart_str_appends(&dst, ",");
+            first = 0;
+            if (e > b) {
+                const char *t = item + b;
+                size_t tlen = e - b;
+                /* [GENE_AUDIT:2026-07-05 P2-N1] see gene_quote_segment */
+                if (gene_ident_already_quoted(t, tlen, oq, cq) &&
+                    !gene_ident_has_injection_markers(t, tlen)) {
+                    smart_str_appendl(&dst, t, tlen);
+                } else if (gene_ident_has_expr_chars_nospace(t, tlen)) {
+                    /* "RAND()" / "LENGTH(name) desc" etc. — passthrough if safe
+                     * (extended whitelist + balanced quotes). Space is excluded
+                     * so that "id desc" still goes to the ASC/DESC split branch. */
+                    if (gene_ident_expr_safe(t, tlen)) {
+                        smart_str_appendl(&dst, t, tlen);
+                    } else {
+                        php_error_docref(NULL, E_WARNING, "Suspicious order expression rejected by quote whitelist: %.*s", (int)tlen, t);
+                        gene_quote_segment(&dst, t, tlen, oq, cq);
+                    }
+                } else {
+                    /* split off a trailing ASC/DESC keyword */
+                    long lastsp = -1;
+                    size_t k;
+                    for (k = 0; k < tlen; k++) if (t[k] == ' ') lastsp = (long)k;
+                    if (lastsp > 0) {
+                        size_t kwlen = tlen - (size_t)lastsp - 1;
+                        const char *kw = t + lastsp + 1;
+                        if ((kwlen == 3 && gene_ident_ieq(kw, "asc", 3)) ||
+                            (kwlen == 4 && gene_ident_ieq(kw, "desc", 4))) {
+                            /* [GENE_AUDIT:2026-07-05 P4-3] Trim trailing
+                             * whitespace between column and keyword so that
+                             * multi-space input like "id  desc" does not
+                             * produce a quoted segment with embedded spaces
+                             * (e.g. `id `) that would error in SQL. */
+                            size_t colend = (size_t)lastsp;
+                            while (colend > 0 && (t[colend-1] == ' ' || t[colend-1] == '\t')) colend--;
+                            gene_quote_dotpath(&dst, t, colend, oq, cq);
+                            smart_str_appends(&dst, " ");
+                            smart_str_appendl(&dst, kw, kwlen);
+                            start = i + 1;
+                            continue;
+                        }
+                    }
+                    gene_quote_dotpath(&dst, t, tlen, oq, cq);
+                }
+            }
+            start = i + 1;
+        } else if (name[i] == '(') {
+            paren_depth++;
+        } else if (name[i] == ')' && paren_depth > 0) {
+            paren_depth--;
+        }
+    }
+    smart_str_0(&dst);
+    char *res = str_init(dst.s ? ZSTR_VAL(dst.s) : "");
+    smart_str_free(&dst);
+    return res;
 }/*}}}*/
 
 void array_to_string(zval *array, char **result, char oq, char cq)
