@@ -844,6 +844,39 @@ php tools/acceptance/profile_gate.php tools/acceptance/config/profile.example.js
 
 ---
 
+### 7.7 Linux 回归与验收记录（2026-07-12）
+
+根据 Linux 运行日志，本轮 Gene 5.6.8 回归结果如下：
+
+- `test/TestRunner.php`：**FAIL**，共 405 项，396 通过、9 失败，通过率 97.8%；
+- 通过的测试套件：Application（34/34）、Router（35/35）、Session（51/51）、Log（56/56）、Service（76/76）、Benchmark（35/35）、Execute（40/40）；
+- 未通过的测试套件：
+  - Cache：22/24，通过 22，失败 2；
+  - Language：20/21，通过 20，失败 1；
+  - Http：25/27，通过 25，失败 2；
+  - Mvc：1/2，通过 1，失败 1；
+  - Database：1/4，通过 1，失败 3。
+
+失败与环境/实现问题摘要：
+
+- Session：51/51 通过，但未注入 session storage plug-in，相关 `get/set/save/load` 操作持续输出配置告警，持久化值和时间戳为 `null`；该结果只能证明异常路径可处理，不能证明真实 session 持久化可用；
+- Language：缺少 `/test/Language/Goodbye/Ko.php`，导致韩语资源加载失败；
+- Http：`Response::data()` 收到字符串而不是 `int`，以及 HTTP workflow 中对 `bool` 调用 `rule_string()`；
+- Mvc：`Gene\Controller::init()` 方法不存在；
+- Database：MySQL 无可用 socket/服务，PostgreSQL 驱动缺失，SQLite 缺少 `connect()` 方法；
+- Log：56/56 通过，但测试刻意触发了无效日志路径、空消息和已输出内容后设置 HTTP header 等告警，未形成失败。
+
+专项验证结果：
+
+- `tools/verify_5_6_6.php`：**PASS**，15/15 项通过，扩展版本为 5.6.8；
+- `cache_memory_soak.php --keys=5000`（`gene.cache_max_items=100`）：**PASS**，业务缓存条目稳定为 100；
+- FPM/Swoole acceptance 命令已执行，但当前日志未提供可用于判定的完整结果摘要；不得据此追加 PASS；
+- `profile_gate.php`：4 个候选优化项均为 **DEFER**，未达到 CPU、分配、p99 或 RSS 准入阈值。
+
+回归结论：本轮 Linux 功能回归总体为 **FAIL（9 项失败）**，不能标记为全量回归通过。失败同时包含测试夹具/环境依赖缺失与 API/实现不匹配，后续应先补齐语言资源、数据库驱动/服务和 session storage，再单独修复 Http、Mvc、Database、Cache 失败项并重跑全套回归。`verify_5_6_6.php` 和缓存容量专项通过，不改变全量回归结论；当前仍不能给出 FPM/Swoole 性能、ASAN/Valgrind、百万请求或 24 小时 RSS 无泄漏结论。
+
+---
+
 ## 八、分阶段实施计划
 
 ### 阶段 0：验收脚本与人工环境交接（第 1 周）
