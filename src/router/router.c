@@ -1622,11 +1622,31 @@ void gene_closure_src_cache_destroy(void) {
 	}
 }
 
+zend_long gene_closure_src_cache_items(void) {
+	return gene_closure_src_cache
+		? (zend_long)zend_hash_num_elements(gene_closure_src_cache)
+		: 0;
+}
+
 static void gene_closure_src_cache_put(const char *key, size_t key_len, zend_long mtime, const char *src, size_t len) {
 	gene_closure_src_node *node;
+	zend_long cap = GENE_G(closure_src_cache_max);
+
+	/* A cap of zero is an explicit kill-switch, not an unlimited setting. */
+	if (cap == 0) {
+		return;
+	}
 	if (!gene_closure_src_cache) {
 		PALLOC_HASHTABLE(gene_closure_src_cache);
 		zend_hash_init(gene_closure_src_cache, 16, NULL, gene_closure_src_node_dtor, 1);
+	}
+	/* Updating an existing entry cannot increase cardinality. For new entries,
+	 * clear the small cold-path cache as a whole instead of adding an LRU. */
+	if (!zend_hash_str_exists(gene_closure_src_cache, key, key_len)
+			&& cap > 0
+			&& (zend_long)zend_hash_num_elements(gene_closure_src_cache) >= cap) {
+		zend_hash_clean(gene_closure_src_cache);
+		GENE_G(closure_src_cache_flushes)++;
 	}
 	node = (gene_closure_src_node *)pemalloc(sizeof(gene_closure_src_node), 1);
 	node->mtime = mtime;

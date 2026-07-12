@@ -1,0 +1,16 @@
+{
+  "expect": {
+    "php_version_id_min": 80000,
+    "gene_version": "5.6.8",
+    "sapi": "cli",
+    "extensions": ["gene", "swoole"],
+    "ini": {
+      "gene.runtime_type": "2"
+    }
+  },
+  "functional_commands": [
+    ["php", "tools/verify_5_6_6.php"]
+  ],
+  "php_binary": "php",
+  "swoole_verify_script": "tools/verify_5_6_6_swoole.php"
+}

@@ -1,0 +1,25 @@
+{
+  "expect": {
+    "php_version_id_min": 80000,
+    "gene_version": "5.6.8",
+    "sapi": "cli",
+    "extensions": ["gene"],
+    "ini": {
+      "gene.runtime_type": "1"
+    }
+  },
+  "functional_commands": [
+    {"command": ["php", "TestRunner.php"], "cwd": "test"},
+    ["php", "tools/verify_5_6_6.php"]
+  ],
+  "benchmark_command": [
+    "wrk",
+    "-t4",
+    "-c100",
+    "-d5m",
+    "--latency",
+    "http://127.0.0.1/bench/ping"
+  ],
+  "rounds": 5,
+  "warmup_seconds": 60
+}

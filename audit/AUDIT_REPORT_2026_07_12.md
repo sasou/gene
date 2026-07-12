@@ -807,56 +807,61 @@ FPM 长跑：
 
 ### 阶段 0：验收脚本与人工环境交接（第 1 周）
 
+状态：**部分完成（工具已落地，目标环境验收待人工交接）**
+
 交付：
 
-- 人工环境交接清单与 `preflight.php`；
-- `run_acceptance.php` 验收总入口；
-- 标准 FPM/Swoole benchmark endpoints 和运行脚本；
-- 统一 JSON 结果格式；
-- `Memory::stats()` 基线记录；
-- PHP 版本文档修正；
-- 5.6.8 关键修复回归测试。
+- 已新增 `tools/acceptance/preflight.php`、`run_acceptance.php`、`functional.php`、FPM/Swoole benchmark 编排、RSS 采样、结果比较及示例 profile 配置；
+- 已统一输出 `environment.json`、`preflight.json`、`functional.json`、`benchmark.json`、`memory.csv`、`acceptance.json`；
+- 已复用 `test/TestRunner.php`、`tools/verify_5_6_6.php` 与 `tools/verify_5_6_6_swoole.php`，并修正 `test/README.md` 的 PHP 最低版本为 8.0；
+- 标准 benchmark endpoint、人工环境交接单、基线/候选服务地址及真实基线结果仍待人工提供。
 
 退出条件：
 
-- 人工提供的基线/候选扩展均通过 preflight；
-- 不执行任何 Windows/Linux 扩展编译；
-- 一条命令可运行指定 profile 并生成完整验收报告；
-- 同一 commit 连续 5 轮结果波动可控；
-- 已保存优化前基线。
+- [x] 脚本在不满足扩展、SAPI、INI 或服务前置条件时输出 `BLOCKED`，且不尝试编译、安装或修复环境；
+- [x] 一条命令可运行指定 profile 并生成结构化验收结果；
+- [ ] 人工提供的基线/候选扩展均通过 preflight；
+- [ ] 同一 commit 连续 5 轮结果波动可控；
+- [ ] 已保存优化前基线。
 
 ### 阶段 1：内存护栏（第 2 周）
 
+状态：**代码与专项脚本已落地，运行时安全验收待目标环境执行**
+
 交付：
 
-- closure source cache cap；
-- Swoole `cache_max_items=0` 一次性 NOTICE；
-- stats 增加 persistent 分区条目；
-- cleanup/co_contexts 告警；
-- Swoole 内存压力脚本。
+- [x] 新增 `gene.closure_src_cache_max`（默认 `1024`；`0` 表示禁用）；新 key 达到上限时清空闭包源码缓存后写入，并通过 `closure_src_cache_flushes` 记录次数；
+- [x] Swoole `workerReady()` 后，对 `gene.cache_max_items=0` 每 worker 仅输出一次 NOTICE，未改变既有无限容量语义；
+- [x] `Memory::stats()` 新增 closure cache、route_pc、业务缓存分区、ctx pool hit/miss、`co_contexts` 高水位及 sweep 次数/扫描量/耗时；
+- [x] 新增 `cache_memory_soak.php`、`swoole_context_soak.php` 与 `pool_concurrency.php` 专项脚本；
+- [ ] ASAN/Valgrind、百万请求和 24 小时 RSS 结论待人工提供的 Linux 环境执行，不得提前标记为通过。
 
 退出条件：
 
-- 无界 key 专项条目有上限；
-- Valgrind/ASAN 通过；
-- 100 万请求无单调 live allocation 增长。
+- [x] closure source cache 专项条目具备配置上限；业务 `Gene\Cache` 可通过既有 `gene.cache_max_items` 限制；
+- [ ] Valgrind/ASAN 通过；
+- [ ] 100 万请求无单调 live allocation 增长。
 
 ### 阶段 2：验证已有优化（第 3 周）
 
+状态：**验证编排与灰度规范已落地，运行时矩阵待目标环境执行**
+
 交付：
 
-- Swoole 5.x/6.x C-API 与 fallback 验证；
-- route_precompile 全回归和 ASAN；
-- RedisPool CAS、DB Pool 高并发验证；
-- route_pc 灰度方案。
+- [x] `swoole_benchmark.php` 覆盖 C-API 与 `route_precompile` 四组开关，并校验 `RESULT-DIGEST` 一致性；
+- [x] `tools/acceptance/README.md` 明确了 5% worker、24 小时观察及异常立即关闭开关的灰度流程；
+- [x] `demo/public/swoole.php` 已保持 `try/finally cleanup(true)`、workerReady、连接池停止和关闭的标准生命周期；
+- [ ] Swoole 5.x/6.x、ASAN、RedisPool CAS 与 DB Pool 高并发结果待目标 Linux 环境执行。
 
 退出条件：
 
-- 四组开关结果一致；
-- 连接池计数不漂移；
-- 24 小时灰度无 crash/UAF/RSS 异常。
+- [ ] 四组开关结果一致；
+- [ ] 连接池计数不漂移；
+- [ ] 24 小时灰度无 crash/UAF/RSS 异常。
 
 ### 阶段 3：高 ROI 性能优化（第 4–6 周）
+
+状态：**未启动代码优化；profile 准入门禁已落地**
 
 按 profiling 结果选择，不固定全部实施：
 
@@ -865,9 +870,11 @@ FPM 长跑：
 3. SQL property slot + smart_str 容量；
 4. FPM 路由 key builder。
 
-每项独立 PR、独立 benchmark、独立回退开关。
+已新增 `tools/acceptance/profile_gate.php`：仅在 CPU samples ≥3%、分配占比 ≥5%、p99 毛刺或 RSS 单调增长任一证据满足时，才将对应项标为 `IMPLEMENT_IN_INDEPENDENT_PR`；当前示例 profile 对全部候选项输出 `DEFER`。在没有真实 profile 前，不实施 route_pc 预热、配置缓存、SQL 构造或路由 key builder。
 
 ### 阶段 4：结构性优化（后续版本）
+
+状态：**未启动，维持候选池**
 
 候选：
 
@@ -885,41 +892,46 @@ FPM 长跑：
 
 ### WP-01 验收编排与结果判定
 
-- 制定人工环境交接模板和 preflight；
-- 实现 `run_acceptance.php`、profile 配置和失败退出码；
-- 标准化 FPM/Swoole benchmark；
-- 自动保存 JSON、火焰图、日志和内存曲线；
-- 在人工提供的 ASAN/Valgrind 环境执行专项脚本；
-- 自动比较基线/候选版本并生成 `acceptance.md`；
-- 修正 PHP 版本文档。
+状态：**部分完成**
+
+- [x] 实现 `preflight.php`、`run_acceptance.php`、profile 配置和失败退出码；
+- [x] 实现 FPM/Swoole benchmark 编排、JSON 归档、RSS 采样和基线/候选 JSON 比较；
+- [x] 修正 PHP 版本文档；
+- [ ] 人工环境交接模板、火焰图归档、ASAN/Valgrind 实跑、真实基线/候选比较及 `acceptance.md` 仍待目标环境执行。
 
 ### WP-02 内存可观测性
 
-- 扩展 `Memory::stats()`；
-- 新增 sweep 次数/耗时、ctx pool hit/miss；
-- 新增连接池统计；
-- 暴露各 persistent cache 条目数。
+状态：**完成（连接池逐实例 stats 沿用既有 API）**
+
+- [x] 扩展 `Memory::stats()`；
+- [x] 新增 sweep 次数/耗时、ctx pool hit/miss、协程上下文高水位；
+- [x] 暴露 closure source、route_pc、业务缓存等 persistent 分区条目；
+- [x] `Gene\Pool::stats()` 与 `Gene\Cache\RedisPool::stats()` 已提供 total/idle/using/max 等逐实例统计，专项脚本负责采集和断言。
 
 ### WP-03 容量护栏
 
-- closure cache cap；
-- Cache unlimited NOTICE；
-- `cache_easy` 容量设计；
-- Memory 高基数写入策略。
+状态：**部分完成**
+
+- [x] closure cache cap；
+- [x] Cache unlimited NOTICE；
+- [x] `Gene\Cache` 高基数写入专项及 `gene.cache_max_items` 验证；
+- [ ] `cache_easy` 独立 TTL/LRU 设计仍属于阶段 4 候选，未在本期实现。
 
 ### WP-04 Swoole 生命周期与并发
 
-- cleanup 漏调专项；
-- route_pc 完整验证与预热；
-- CAS/pool 压测；
-- C-API 兼容矩阵。
+状态：**部分完成**
+
+- [x] cleanup 漏调专项、四开关矩阵编排、CAS/pool 压测入口与灰度操作规范；
+- [ ] route_pc 全树预热未实现：该项须先由 profile 证明首批请求收益，并验证 workerReady 后路由树/fn_cache 冻结不变量；
+- [ ] C-API 兼容矩阵、CAS/pool 压测与完整 route_pc 回归待目标 Linux 环境执行。
 
 ### WP-05 FPM 热路径
 
-- 路由注册 profile/key builder；
-- SQL 构造 profile；
-- persistent PDO/外部代理部署建议；
-- FPM worker RSS 与 `pm.max_requests`。
+状态：**准入门禁完成，优化实现待 profile**
+
+- [x] 新增 profile 准入脚本，阻止没有证据的热路径重构进入主线；
+- [ ] 路由注册 key builder 与 SQL 构造优化待 profile 达标后作为独立变更实施；
+- [ ] persistent PDO/外部代理部署建议、FPM worker RSS 与 `pm.max_requests` 验收待人工提供生产等价环境和基线数据。
 
 ---
 

@@ -192,7 +192,7 @@ The test suite covers:
 
 ## Requirements
 
-- PHP 7.4 or higher
+- PHP 8.0 or higher (the extension build configuration requires PHP 8.0+)
 - Gene Framework extension loaded
 - Appropriate permissions for file operations
 - Database access for database tests (optional)
