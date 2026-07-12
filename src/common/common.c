@@ -27,6 +27,7 @@
 #include "string.h"
 #include <ctype.h>
 #include "../common/common.h"
+#include "../gene.h"
 
 char *str_init(const char *s)
 {
@@ -730,68 +731,54 @@ char *gene_strreplace_fast(const char *src, size_t src_len, const char *from, si
  * hot request dispatch path, so the ~0.5us overhead per call is acceptable. */
 void gene_json_encode(zval *value, zval *options, zval *retval) /*{{{*/
 {
-	static zend_function *fn = NULL;
-	if (UNEXPECTED(!fn)) {
-		fn = zend_hash_str_find_ptr(CG(function_table), ZEND_STRL("json_encode"));
-	}
+	GENE_CG_FN_DECL(fn);
+	fn = GENE_CG_FN_LOOKUP(fn, "json_encode");
 	zval params[] = { *value, *options };
 	zend_call_known_function(fn, NULL, NULL, retval, 2, params, NULL);
 }/*}}}*/
 
 void gene_json_decode(zval *value, zval *options, zval *retval) /*{{{*/
 {
-	static zend_function *fn = NULL;
-	if (UNEXPECTED(!fn)) {
-		fn = zend_hash_str_find_ptr(CG(function_table), ZEND_STRL("json_decode"));
-	}
+	GENE_CG_FN_DECL(fn);
+	fn = GENE_CG_FN_LOOKUP(fn, "json_decode");
 	zval params[] = { *value, *options };
 	zend_call_known_function(fn, NULL, NULL, retval, 2, params, NULL);
 }/*}}}*/
 
 void gene_func_get_args(zval *retval) /*{{{*/
 {
-	static zend_function *fn = NULL;
-	if (UNEXPECTED(!fn)) {
-		fn = zend_hash_str_find_ptr(CG(function_table), ZEND_STRL("func_get_args"));
-	}
+	GENE_CG_FN_DECL(fn);
+	fn = GENE_CG_FN_LOOKUP(fn, "func_get_args");
 	zend_call_known_function(fn, NULL, NULL, retval, 0, NULL, NULL);
 }/*}}}*/
 
 void gene_func_num_args(zval *retval) /*{{{*/
 {
-	static zend_function *fn = NULL;
-	if (UNEXPECTED(!fn)) {
-		fn = zend_hash_str_find_ptr(CG(function_table), ZEND_STRL("func_num_args"));
-	}
+	GENE_CG_FN_DECL(fn);
+	fn = GENE_CG_FN_LOOKUP(fn, "func_num_args");
 	zend_call_known_function(fn, NULL, NULL, retval, 0, NULL, NULL);
 }/*}}}*/
 
 void gene_serialize(zval *value, zval *retval) /*{{{*/
 {
-	static zend_function *fn = NULL;
-	if (UNEXPECTED(!fn)) {
-		fn = zend_hash_str_find_ptr(CG(function_table), ZEND_STRL("serialize"));
-	}
+	GENE_CG_FN_DECL(fn);
+	fn = GENE_CG_FN_LOOKUP(fn, "serialize");
 	zval params[] = { *value };
 	zend_call_known_function(fn, NULL, NULL, retval, 1, params, NULL);
 }/*}}}*/
 
 void gene_unserialize(zval *value, zval *retval) /*{{{*/
 {
-	static zend_function *fn = NULL;
-	if (UNEXPECTED(!fn)) {
-		fn = zend_hash_str_find_ptr(CG(function_table), ZEND_STRL("unserialize"));
-	}
+	GENE_CG_FN_DECL(fn);
+	fn = GENE_CG_FN_LOOKUP(fn, "unserialize");
 	zval params[] = { *value };
 	zend_call_known_function(fn, NULL, NULL, retval, 1, params, NULL);
 }/*}}}*/
 
 void gene_igbinary_serialize(zval *value, zval *retval) /*{{{*/
 {
-	static zend_function *fn = NULL;
-	if (UNEXPECTED(!fn)) {
-		fn = zend_hash_str_find_ptr(CG(function_table), ZEND_STRL("igbinary_serialize"));
-	}
+	GENE_CG_FN_DECL(fn);
+	fn = GENE_CG_FN_LOOKUP(fn, "igbinary_serialize");
 	if (UNEXPECTED(!fn)) { ZVAL_FALSE(retval); return; }
 	zval params[] = { *value };
 	zend_call_known_function(fn, NULL, NULL, retval, 1, params, NULL);
@@ -799,10 +786,8 @@ void gene_igbinary_serialize(zval *value, zval *retval) /*{{{*/
 
 void gene_igbinary_unserialize(zval *value, zval *retval) /*{{{*/
 {
-	static zend_function *fn = NULL;
-	if (UNEXPECTED(!fn)) {
-		fn = zend_hash_str_find_ptr(CG(function_table), ZEND_STRL("igbinary_unserialize"));
-	}
+	GENE_CG_FN_DECL(fn);
+	fn = GENE_CG_FN_LOOKUP(fn, "igbinary_unserialize");
 	if (UNEXPECTED(!fn)) { ZVAL_FALSE(retval); return; }
 	zval params[] = { *value };
 	zend_call_known_function(fn, NULL, NULL, retval, 1, params, NULL);
@@ -1407,20 +1392,16 @@ void gene_hash_turbo_hash32(zval *value, zval *retval) /*{{{*/
 
 void gene_strip_tags(zval *value, zval *retval) /*{{{*/
 {
-	static zend_function *fn = NULL;
-	if (UNEXPECTED(!fn)) {
-		fn = zend_hash_str_find_ptr(CG(function_table), ZEND_STRL("strip_tags"));
-	}
+	GENE_CG_FN_DECL(fn);
+	fn = GENE_CG_FN_LOOKUP(fn, "strip_tags");
 	zval params[] = { *value };
 	zend_call_known_function(fn, NULL, NULL, retval, 1, params, NULL);
 }/*}}}*/
 
 void gene_microtime(zval *retval) /*{{{*/
 {
-	static zend_function *fn = NULL;
-	if (UNEXPECTED(!fn)) {
-		fn = zend_hash_str_find_ptr(CG(function_table), ZEND_STRL("microtime"));
-	}
+	GENE_CG_FN_DECL(fn);
+	fn = GENE_CG_FN_LOOKUP(fn, "microtime");
 	zval value;
 	ZVAL_TRUE(&value);
 	zval params[] = { value };
@@ -1429,19 +1410,15 @@ void gene_microtime(zval *retval) /*{{{*/
 
 void gene_time(zval *retval) /*{{{*/
 {
-	static zend_function *fn = NULL;
-	if (UNEXPECTED(!fn)) {
-		fn = zend_hash_str_find_ptr(CG(function_table), ZEND_STRL("time"));
-	}
+	GENE_CG_FN_DECL(fn);
+	fn = GENE_CG_FN_LOOKUP(fn, "time");
 	zend_call_known_function(fn, NULL, NULL, retval, 0, NULL, NULL);
 }/*}}}*/
 
 void gene_bcadd(zval *a, zval *b, zval *retval) /*{{{*/
 {
-	static zend_function *fn = NULL;
-	if (UNEXPECTED(!fn)) {
-		fn = zend_hash_str_find_ptr(CG(function_table), ZEND_STRL("bcadd"));
-	}
+	GENE_CG_FN_DECL(fn);
+	fn = GENE_CG_FN_LOOKUP(fn, "bcadd");
 	if (UNEXPECTED(!fn)) { ZVAL_FALSE(retval); return; }
 	zval params[] = { *a, *b };
 	zend_call_known_function(fn, NULL, NULL, retval, 2, params, NULL);
@@ -1449,20 +1426,16 @@ void gene_bcadd(zval *a, zval *b, zval *retval) /*{{{*/
 
 void gene_uniqid(zval *value, zval *retval) /*{{{*/
 {
-	static zend_function *fn = NULL;
-	if (UNEXPECTED(!fn)) {
-		fn = zend_hash_str_find_ptr(CG(function_table), ZEND_STRL("uniqid"));
-	}
+	GENE_CG_FN_DECL(fn);
+	fn = GENE_CG_FN_LOOKUP(fn, "uniqid");
 	zval params[] = { *value };
 	zend_call_known_function(fn, NULL, NULL, retval, 1, params, NULL);
 }/*}}}*/
 
 void gene_class_name(zval *retval) /*{{{*/
 {
-	static zend_function *fn = NULL;
-	if (UNEXPECTED(!fn)) {
-		fn = zend_hash_str_find_ptr(CG(function_table), ZEND_STRL("get_called_class"));
-	}
+	GENE_CG_FN_DECL(fn);
+	fn = GENE_CG_FN_LOOKUP(fn, "get_called_class");
 	zend_call_known_function(fn, NULL, NULL, retval, 0, NULL, NULL);
 }/*}}}*/
 

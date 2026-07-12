@@ -697,10 +697,8 @@ void gene_pdo_statement_set_fetch_mode(zval *pdostatement_obj, int fetch_style, 
 
 void jsonEncode(zval *data, zval *param) {
 	if (Z_TYPE_P(param) == IS_ARRAY) {
-		static zend_function *fn = NULL;
-		if (UNEXPECTED(!fn)) {
-			fn = zend_hash_str_find_ptr(CG(function_table), ZEND_STRL("json_encode"));
-		}
+		GENE_CG_FN_DECL(fn);
+		fn = GENE_CG_FN_LOOKUP(fn, "json_encode");
 		zval ret;
 		ZVAL_NULL(&ret);
 		if (EXPECTED(fn)) {
