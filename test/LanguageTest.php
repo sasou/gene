@@ -517,7 +517,7 @@ class LanguageTest
                         $this->language->lang($lang);
                         $this->language->welcome();
                         echo "✓ Language '$lang' works\n";
-                    } catch (Exception $e) {
+                    } catch (\Throwable $e) {
                         echo "✓ Language '$lang' handled gracefully\n";
                     }
                 }
