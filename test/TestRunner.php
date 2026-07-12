@@ -63,13 +63,28 @@ class TestRunner
         $failedTests = 0;
         
         foreach ($testFiles as $testFile) {
-            if (file_exists($testFile)) {
+            $testPath = __DIR__ . DIRECTORY_SEPARATOR . $testFile;
+            if (file_exists($testPath)) {
                 echo "Running $testFile...\n";
                 echo str_repeat("-", 50) . "\n";
                 
                 // Capture output
                 ob_start();
-                include $testFile;
+                include $testPath;
+                
+                // Test files define a class named after the file (e.g. ApplicationTest)
+                // but only auto-run when executed directly. When included here, we
+                // instantiate the class and invoke runAllTests() explicitly.
+                $className = basename($testFile, '.php');
+                $output = '';
+                if (class_exists($className) && method_exists($className, 'runAllTests')) {
+                    try {
+                        $instance = new $className();
+                        $instance->runAllTests();
+                    } catch (\Throwable $e) {
+                        echo "✗ Error running $className: " . $e->getMessage() . "\n";
+                    }
+                }
                 $output = ob_get_clean();
                 
                 echo $output;
@@ -106,6 +121,10 @@ class TestRunner
      */
     public function runTest($testFile)
     {
+        // Resolve relative to the runner's directory if the file isn't found as-is
+        if (!file_exists($testFile)) {
+            $testFile = __DIR__ . DIRECTORY_SEPARATOR . $testFile;
+        }
         if (!file_exists($testFile)) {
             echo "Test file $testFile not found!\n";
             return;
@@ -118,6 +137,17 @@ class TestRunner
         
         ob_start();
         include $testFile;
+        
+        // Instantiate the test class (named after the file) and run its tests
+        $className = basename($testFile, '.php');
+        if (class_exists($className) && method_exists($className, 'runAllTests')) {
+            try {
+                $instance = new $className();
+                $instance->runAllTests();
+            } catch (\Throwable $e) {
+                echo "✗ Error running $className: " . $e->getMessage() . "\n";
+            }
+        }
         $output = ob_get_clean();
         
         $endTime = microtime(true);
@@ -186,8 +216,9 @@ class TestRunner
         echo "Available Test Files:\n";
         echo "--------------------\n";
         
-        $testFiles = glob('*.php');
+        $testFiles = glob(__DIR__ . DIRECTORY_SEPARATOR . '*.php');
         foreach ($testFiles as $file) {
+            $file = basename($file);
             if (strpos($file, 'Test.php') !== false) {
                 echo "- $file\n";
             }
