@@ -100,21 +100,9 @@ static const char *gene_log_level_name(zend_long level) {
 
 /* {{{ gene_log_get_effective_level */
 static zend_long gene_log_get_effective_level(void) {
-	if (GENE_G(runtime_type) >= 2) {
-		gene_request_context *ctx = gene_request_ctx();
-		if (ctx && ctx->log_level_set) {
-			return ctx->log_level;
-		}
-	}
-	/* [GENE_FIX:2026-07-12] Use zend_read_static_property instead of direct
-	 * slot access — PHP 8.1+ lazily allocates static_members_table for internal
-	 * classes, so CE_STATIC_MEMBERS() may be NULL until first property access
-	 * through the standard API. */
-	if (gene_log_ce) {
-		zval *prop_level = zend_read_static_property(gene_log_ce, ZEND_STRL("level"), 1);
-		if (prop_level && Z_TYPE_P(prop_level) == IS_LONG) {
-			return Z_LVAL_P(prop_level);
-		}
+	gene_request_context *ctx = gene_request_ctx();
+	if (ctx && ctx->log_level_set) {
+		return ctx->log_level;
 	}
 	return GENE_LOG_LEVEL_DEBUG;
 }
@@ -122,19 +110,9 @@ static zend_long gene_log_get_effective_level(void) {
 
 /* {{{ gene_log_get_effective_file */
 static const char *gene_log_get_effective_file(void) {
-	if (GENE_G(runtime_type) >= 2) {
-		gene_request_context *ctx = gene_request_ctx();
-		if (ctx && ctx->log_file) {
-			return ctx->log_file;
-		}
-	}
-	/* [GENE_FIX:2026-07-12] Use zend_read_static_property (same lazy-alloc fix
-	 * as gene_log_get_effective_level). */
-	if (gene_log_ce) {
-		zval *prop_file = zend_read_static_property(gene_log_ce, ZEND_STRL("file"), 1);
-		if (prop_file && Z_TYPE_P(prop_file) == IS_STRING && Z_STRLEN_P(prop_file) > 0) {
-			return Z_STRVAL_P(prop_file);
-		}
+	gene_request_context *ctx = gene_request_ctx();
+	if (ctx && ctx->log_file) {
+		return ctx->log_file;
 	}
 	return NULL;
 }
@@ -343,24 +321,14 @@ PHP_METHOD(gene_log, exception) {
 /* {{{ proto static void Gene\Log::setFile(string $file) */
 PHP_METHOD(gene_log, setFile) {
 	zend_string *file;
+	gene_request_context *ctx;
 	if (zend_parse_parameters(ZEND_NUM_ARGS(), "S", &file) == FAILURE) {
 		return;
 	}
-	if (GENE_G(runtime_type) >= 2) {
-		gene_request_context *ctx = gene_request_ctx();
-		if (ctx) {
-			if (ctx->log_file) { efree(ctx->log_file); }
-			ctx->log_file = estrndup(ZSTR_VAL(file), ZSTR_LEN(file));
-			return;
-		}
-	}
-	{
-		/* [GENE_FIX:2026-07-12] Use zend_update_static_property instead of
-		 * direct slot access (same lazy-allocation issue as setLevel). */
-		zval zfile;
-		ZVAL_STR_COPY(&zfile, file);
-		zend_update_static_property(gene_log_ce, ZEND_STRL("file"), &zfile);
-		zval_ptr_dtor(&zfile);
+	ctx = gene_request_ctx();
+	if (ctx) {
+		if (ctx->log_file) { efree(ctx->log_file); }
+		ctx->log_file = estrndup(ZSTR_VAL(file), ZSTR_LEN(file));
 	}
 }
 /* }}} */
@@ -378,6 +346,7 @@ PHP_METHOD(gene_log, getFile) {
 /* {{{ proto static void Gene\Log::setLevel(int $level) */
 PHP_METHOD(gene_log, setLevel) {
 	zend_long level;
+	gene_request_context *ctx;
 	if (zend_parse_parameters(ZEND_NUM_ARGS(), "l", &level) == FAILURE) {
 		return;
 	}
@@ -385,23 +354,10 @@ PHP_METHOD(gene_log, setLevel) {
 		php_error_docref(NULL, E_WARNING, "Log level must be between %d and %d", GENE_LOG_LEVEL_DEBUG, GENE_LOG_LEVEL_ERROR);
 		return;
 	}
-	if (GENE_G(runtime_type) >= 2) {
-		gene_request_context *ctx = gene_request_ctx();
-		if (ctx) {
-			ctx->log_level = level;
-			ctx->log_level_set = 1;
-			return;
-		}
-	}
-	{
-		/* [GENE_FIX:2026-07-12] Use zend_update_static_property_long instead of
-		 * direct slot access. PHP 8.1+ lazily allocates static_members_table for
-		 * internal classes; the direct slot write via gene_log_static_slot either
-		 * segfaults (no guard) or silently no-ops (with guard) when the table is
-		 * NULL. zend_update_static_property_long handles lazy allocation safely. */
-		zval zlevel;
-		ZVAL_LONG(&zlevel, level);
-		zend_update_static_property(gene_log_ce, ZEND_STRL("level"), &zlevel);
+	ctx = gene_request_ctx();
+	if (ctx) {
+		ctx->log_level = level;
+		ctx->log_level_set = 1;
 	}
 }
 /* }}} */
