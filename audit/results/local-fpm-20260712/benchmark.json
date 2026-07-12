@@ -1,0 +1,36 @@
+{
+    "status": "FAIL",
+    "timestamp": "2026-07-12T05:23:08+00:00",
+    "results": [
+        {
+            "round": 1,
+            "exit_code": 1,
+            "stdout": "",
+            "stderr": "'\"wrk\"' is not recognized as an internal or external command,\r\noperable program or batch file.\r\n"
+        },
+        {
+            "round": 2,
+            "exit_code": 1,
+            "stdout": "",
+            "stderr": "'\"wrk\"' is not recognized as an internal or external command,\r\noperable program or batch file.\r\n"
+        },
+        {
+            "round": 3,
+            "exit_code": 1,
+            "stdout": "",
+            "stderr": "'\"wrk\"' is not recognized as an internal or external command,\r\noperable program or batch file.\r\n"
+        },
+        {
+            "round": 4,
+            "exit_code": 1,
+            "stdout": "",
+            "stderr": "'\"wrk\"' is not recognized as an internal or external command,\r\noperable program or batch file.\r\n"
+        },
+        {
+            "round": 5,
+            "exit_code": 1,
+            "stdout": "",
+            "stderr": "'\"wrk\"' is not recognized as an internal or external command,\r\noperable program or batch file.\r\n"
+        }
+    ]
+}
