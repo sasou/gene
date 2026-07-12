@@ -711,14 +711,10 @@ static int gene_swoole_co_exists(zend_long cid) {
  * Called from the slow path of gene_request_ctx() when the table size is
  * at or above the configured cap (gene.co_contexts_max, default 1024).
  *
- * Two-stage strategy (bounded work per invocation):
- *   1) If Swoole\Coroutine::exists() is available, probe each non-current
- *      cid — drop entries the runtime reports as dead. This is the precise
- *      path and does NOT evict long-running live coroutines.
- *   2) If still over the cap (or Swoole API unavailable), evict by HashTable
- *      insertion order (oldest first, skipping the current cid) until we
- *      drop ~25% below the cap. This is a last-resort backstop only reached
- *      when exists() can't tell us.
+ * If Swoole\Coroutine::exists() is available, probe each non-current cid and
+ * drop only entries the runtime reports as dead. The configured cap is a
+ * cleanup trigger, not permission to evict live request state: deleting a
+ * live context causes that coroutine to be recreated and loses its state.
  *
  * Never touches GENE_G(current_ctx) / GENE_G(current_cid).
  */
@@ -730,7 +726,6 @@ void gene_co_contexts_sweep(void) {
 	uint32_t victim_count = 0;
 	uint32_t total;
 	uint32_t cap;
-	uint32_t target_evict;
 	uint32_t i;
 	int have_exists;
 	uint64_t started_us;
@@ -745,7 +740,7 @@ void gene_co_contexts_sweep(void) {
 	cap = (uint32_t)(GENE_G(co_contexts_max) > 0 ? GENE_G(co_contexts_max) : 1024);
 	cur_cid = (GENE_G(current_cid) >= 0) ? (zend_ulong)GENE_G(current_cid) : ~(zend_ulong)0;
 
-	/* Stage 1: precise eviction via Swoole\Coroutine::exists (if present).
+	/* Precise eviction via Swoole\Coroutine::exists (if present).
 	 * Collect dead cids first, then delete — iterating with concurrent delete
 	 * is fragile across PHP versions. */
 	have_exists = gene_swoole_co_exists_resolve();
@@ -765,31 +760,12 @@ void gene_co_contexts_sweep(void) {
 		victim_count = 0;
 	}
 
-	/* Stage 2: if still above cap, evict oldest insertion-order entries.
-	 * This only hits when exists() can't decide (unknown / API absent) or
-	 * when every cid is reported alive but still blowing the cap — in which
-	 * case the framework's bound takes precedence over strict correctness. */
 	total = zend_hash_num_elements(ht);
-	if (total <= cap) {
-		GENE_G(co_contexts_sweep_us) += (gene_hrtime() - started_us) / 1000;
-		return;
+	if (total > cap && !GENE_G(co_contexts_cap_warned)) {
+		php_error_docref(NULL, E_WARNING,
+			"Gene: co_contexts remains above gene.co_contexts_max after dead-context sweep; preserving live coroutine state");
+		GENE_G(co_contexts_cap_warned) = 1;
 	}
-	target_evict = total - (cap * 3 / 4); /* trim back to 75% of cap */
-	if (target_evict == 0) {
-		GENE_G(co_contexts_sweep_us) += (gene_hrtime() - started_us) / 1000;
-		return;
-	}
-
-	victims = (zend_ulong *)emalloc(sizeof(zend_ulong) * target_evict);
-	ZEND_HASH_FOREACH_NUM_KEY(ht, idx) {
-		if (idx == cur_cid) continue;
-		victims[victim_count++] = idx;
-		if (victim_count >= target_evict) break;
-	} ZEND_HASH_FOREACH_END();
-	for (i = 0; i < victim_count; i++) {
-		zend_hash_index_del(ht, victims[i]);
-	}
-	efree(victims);
 	GENE_G(co_contexts_sweep_us) += (gene_hrtime() - started_us) / 1000;
 }
 /* }}} */
@@ -919,9 +895,7 @@ static void php_gene_init_globals() {
 	GENE_G(co_contexts_sweep_scanned) = 0;
 	GENE_G(co_contexts_sweep_us) = 0;
 	GENE_G(cache_unlimited_noticed) = 0;
-	GENE_G(route_pc_prewarm_count) = 0;
-	GENE_G(route_pc_prewarm_failures) = 0;
-	GENE_G(route_pc_prewarm_us) = 0;
+	GENE_G(co_contexts_cap_warned) = 0;
 	/* ctx_pool_prewarm is populated by PHP_INI loader before MINIT, so do
 	 * NOT zero it here — doing so would clobber the user's php.ini value.
 	 * (Leaving the field alone is safe: globals are zeroed by GINIT.) */
