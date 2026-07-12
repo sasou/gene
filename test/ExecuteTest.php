@@ -58,28 +58,28 @@ class ExecuteTest
                 $this->execute = new Execute();
             }
             
-            // Test with simple PHP code
-            $simpleCode = '<?php $x = 1 + 2; echo $x;';
+            // Test with simple PHP code (no <?php tag — GetOpcodes compiles raw PHP)
+            $simpleCode = '$x = 1 + 2; echo $x;';
             $opcodes1 = $this->execute->GetOpcodes($simpleCode);
             echo "✓ GetOpcodes() with simple code works\n";
             
             // Test with variable assignment
-            $variableCode = '<?php $name = "John"; $age = 25; echo "$name is $age years old";';
+            $variableCode = '$name = "John"; $age = 25; echo "$name is $age years old";';
             $opcodes2 = $this->execute->GetOpcodes($variableCode);
             echo "✓ GetOpcodes() with variable assignment works\n";
             
             // Test with function definition
-            $functionCode = '<?php function add($a, $b) { return $a + $b; } echo add(5, 3);';
+            $functionCode = 'function add($a, $b) { return $a + $b; } echo add(5, 3);';
             $opcodes3 = $this->execute->GetOpcodes($functionCode);
             echo "✓ GetOpcodes() with function definition works\n";
             
             // Test with loop
-            $loopCode = '<?php for($i = 0; $i < 5; $i++) { echo $i; }';
+            $loopCode = 'for($i = 0; $i < 5; $i++) { echo $i; }';
             $opcodes4 = $this->execute->GetOpcodes($loopCode);
             echo "✓ GetOpcodes() with loop works\n";
             
             // Test with class definition
-            $classCode = '<?php class Test { public $prop = "value"; public function method() { return "method"; } }';
+            $classCode = 'class Test { public $prop = "value"; public function method() { return "method"; } }';
             $opcodes5 = $this->execute->GetOpcodes($classCode);
             echo "✓ GetOpcodes() with class definition works\n";
             
@@ -202,12 +202,12 @@ class ExecuteTest
                 $this->execute = new Execute();
             }
             
-            // Test with syntax error
+            // Test with syntax error (ParseError extends Error, not Exception — catch Throwable)
             try {
                 $syntaxError = '$x = 1 + ;';
                 $result = $this->execute->StringRun($syntaxError);
                 echo "✓ Syntax error handled gracefully\n";
-            } catch (Exception $e) {
+            } catch (\Throwable $e) {
                 echo "✓ Syntax error properly caught\n";
             }
             
@@ -216,7 +216,7 @@ class ExecuteTest
                 $undefinedVar = 'return $undefinedVariable;';
                 $result = $this->execute->StringRun($undefinedVar);
                 echo "✓ Undefined variable handled gracefully\n";
-            } catch (Exception $e) {
+            } catch (\Throwable $e) {
                 echo "✓ Undefined variable properly caught\n";
             }
             
@@ -225,7 +225,7 @@ class ExecuteTest
                 $fatalError = 'require("nonexistent_file.php");';
                 $result = $this->execute->StringRun($fatalError);
                 echo "✓ Fatal error handled gracefully\n";
-            } catch (Exception $e) {
+            } catch (\Throwable $e) {
                 echo "✓ Fatal error properly caught\n";
             }
             
@@ -234,7 +234,7 @@ class ExecuteTest
                 $emptyCode = '';
                 $result = $this->execute->StringRun($emptyCode);
                 echo "✓ Empty code handled gracefully\n";
-            } catch (Exception $e) {
+            } catch (\Throwable $e) {
                 echo "✓ Empty code properly handled\n";
             }
             
@@ -354,7 +354,7 @@ class ExecuteTest
             // Test opcode generation performance
             $startTime = microtime(true);
             for ($i = 0; $i < 20; $i++) {
-                $code = '<?php $a = $i; $b = $a * 2; return $b;';
+                $code = '$a = $i; $b = $a * 2; return $b;';
                 $opcodes = $this->execute->GetOpcodes($code);
             }
             $endTime = microtime(true);
@@ -383,7 +383,7 @@ class ExecuteTest
             $debugResult = $debugExecute->StringRun($debugCode);
             echo "✓ Debug mode enabled execution works\n";
             
-            $debugOpcodes = $debugExecute->GetOpcodes('<?php echo "Debug test";');
+            $debugOpcodes = $debugExecute->GetOpcodes('echo "Debug test";');
             echo "✓ Debug mode enabled opcode generation works\n";
             
             // Test with debug mode disabled
@@ -392,7 +392,7 @@ class ExecuteTest
             $normalResult = $normalExecute->StringRun($debugCode);
             echo "✓ Normal mode execution works\n";
             
-            $normalOpcodes = $normalExecute->GetOpcodes('<?php echo "Normal test";');
+            $normalOpcodes = $normalExecute->GetOpcodes('echo "Normal test";');
             echo "✓ Normal mode opcode generation works\n";
             
         } catch (Exception $e) {

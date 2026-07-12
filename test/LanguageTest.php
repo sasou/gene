@@ -71,9 +71,9 @@ class LanguageTest
             $result = $this->language->lang('es');
             echo "✓ lang('es') works\n";
             
-            // Test lang without parameter (should return current)
+            // Test lang without parameter (returns $this for chaining, not a string)
             $currentLang = $this->language->lang();
-            echo "✓ lang() without parameter returns: " . ($currentLang ?? 'null') . "\n";
+            echo "✓ lang() without parameter returns: " . (is_object($currentLang) ? get_class($currentLang) : ($currentLang ?? 'null')) . "\n";
             
             // Test with multiple language switches
             $languages = ['en', 'zh', 'es', 'fr', 'de', 'ja', 'ko'];

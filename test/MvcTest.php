@@ -7,9 +7,9 @@
  * Gene\Mvc\Controller, Gene\Mvc\Model, Gene\Mvc\View
  */
 
-use Gene\Mvc\Controller;
-use Gene\Mvc\Model;
-use Gene\Mvc\View;
+use Gene\Controller;
+use Gene\Model;
+use Gene\View;
 
 class MvcTest
 {

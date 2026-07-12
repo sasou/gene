@@ -202,8 +202,8 @@ class RouterTest
             $result = $this->router->dispatch('TestController', 'testAction', ['param1', 'param2']);
             echo "✓ dispatch() with parameters works\n";
             
-            // Test dispatch without parameters
-            $result = $this->router->dispatch('TestController', 'testAction');
+            // Test dispatch without parameters (dispatch requires 3 args)
+            $result = $this->router->dispatch('TestController', 'testAction', []);
             echo "✓ dispatch() without parameters works\n";
             
         } catch (Exception $e) {
