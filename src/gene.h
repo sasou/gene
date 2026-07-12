@@ -78,6 +78,14 @@
  #else
  #define GENE_CG_FN_LOOKUP(cache_var, literal) zend_hash_str_find_ptr(CG(function_table), ZEND_STRL(literal))
  #endif
+
+ /* [GENE_AUDIT:2026-07-13 H1] Declaration helper for GENE_CG_FN_LOOKUP call
+  * sites: static cache under non-ZTS, plain local under ZTS. */
+ #ifndef ZTS
+ #define GENE_CG_FN_DECL(var) static zend_function *var = NULL
+ #else
+ #define GENE_CG_FN_DECL(var) zend_function *var = NULL
+ #endif
  
  /* Portable high-resolution timer (nanoseconds). zend_hrtime is not exported
  * in the PHP 8.1 Windows import library, so use QueryPerformanceCounter on

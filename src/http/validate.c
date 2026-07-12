@@ -173,10 +173,8 @@ static void gene_split_comma(const char *str, size_t str_len, zval *retval) /*{{
 
 void gene_vsprintf(char *msg, zval *args, zval *retval) /*{{{*/
 {
-	static zend_function *fn = NULL;
-	if (UNEXPECTED(!fn)) {
-		fn = zend_hash_str_find_ptr(CG(function_table), ZEND_STRL("vsprintf"));
-	}
+	GENE_CG_FN_DECL(fn);
+	fn = GENE_CG_FN_LOOKUP(fn, "vsprintf");
 	/* [GENE_FIX:2026-04-27] NULL guard: zend_call_known_function dereferences
 	 * fn unconditionally; without this, a missing builtin segfaults the worker. */
 	if (UNEXPECTED(!fn)) { ZVAL_STRING(retval, msg); return; }
@@ -189,10 +187,8 @@ void gene_vsprintf(char *msg, zval *args, zval *retval) /*{{{*/
 
 void gene_preg_match(zval *regex, zval *val, zval *retval) /*{{{*/
 {
-	static zend_function *fn = NULL;
-	if (UNEXPECTED(!fn)) {
-		fn = zend_hash_str_find_ptr(CG(function_table), ZEND_STRL("preg_match"));
-	}
+	GENE_CG_FN_DECL(fn);
+	fn = GENE_CG_FN_LOOKUP(fn, "preg_match");
 	if (UNEXPECTED(!fn)) { ZVAL_LONG(retval, 0); return; }
 	zval params[] = { *regex, *val };
 	zend_call_known_function(fn, NULL, NULL, retval, 2, params, NULL);
@@ -200,10 +196,8 @@ void gene_preg_match(zval *regex, zval *val, zval *retval) /*{{{*/
 
 void gene_mb_strlen(zval *val, char *bm, zval *retval) /*{{{*/
 {
-	static zend_function *fn = NULL;
-	if (UNEXPECTED(!fn)) {
-		fn = zend_hash_str_find_ptr(CG(function_table), ZEND_STRL("mb_strlen"));
-	}
+	GENE_CG_FN_DECL(fn);
+	fn = GENE_CG_FN_LOOKUP(fn, "mb_strlen");
 	if (UNEXPECTED(!fn)) {
 		ZVAL_LONG(retval, 0);
 		return;
@@ -217,10 +211,8 @@ void gene_mb_strlen(zval *val, char *bm, zval *retval) /*{{{*/
 
 void gene_in_array(zval *in, zval *array, zval *retval) /*{{{*/
 {
-	static zend_function *fn = NULL;
-	if (UNEXPECTED(!fn)) {
-		fn = zend_hash_str_find_ptr(CG(function_table), ZEND_STRL("in_array"));
-	}
+	GENE_CG_FN_DECL(fn);
+	fn = GENE_CG_FN_LOOKUP(fn, "in_array");
 	if (UNEXPECTED(!fn)) { ZVAL_FALSE(retval); return; }
 	zval params[] = { *in, *array };
 	zend_call_known_function(fn, NULL, NULL, retval, 2, params, NULL);
@@ -228,10 +220,8 @@ void gene_in_array(zval *in, zval *array, zval *retval) /*{{{*/
 
 void gene_preg_match_str(char *regexStr, zval *val, zval *retval) /*{{{*/
 {
-	static zend_function *fn = NULL;
-	if (UNEXPECTED(!fn)) {
-		fn = zend_hash_str_find_ptr(CG(function_table), ZEND_STRL("preg_match"));
-	}
+	GENE_CG_FN_DECL(fn);
+	fn = GENE_CG_FN_LOOKUP(fn, "preg_match");
 	if (UNEXPECTED(!fn)) { ZVAL_LONG(retval, 0); return; }
 	zval regex;
 	ZVAL_STRING(&regex, regexStr);
@@ -242,10 +232,8 @@ void gene_preg_match_str(char *regexStr, zval *val, zval *retval) /*{{{*/
 
 void gene_date(zval *format, zval *time, zval *retval) /*{{{*/
 {
-	static zend_function *fn = NULL;
-	if (UNEXPECTED(!fn)) {
-		fn = zend_hash_str_find_ptr(CG(function_table), ZEND_STRL("date"));
-	}
+	GENE_CG_FN_DECL(fn);
+	fn = GENE_CG_FN_LOOKUP(fn, "date");
 	if (UNEXPECTED(!fn)) { ZVAL_FALSE(retval); return; }
 	zval params[] = { *format, *time };
 	zend_call_known_function(fn, NULL, NULL, retval, 2, params, NULL);
@@ -254,10 +242,8 @@ void gene_date(zval *format, zval *time, zval *retval) /*{{{*/
 
 void gene_filter(zval *value, zend_long filter_l, zend_long options_l, zval *retval) /*{{{*/
 {
-	static zend_function *fn = NULL;
-	if (UNEXPECTED(!fn)) {
-		fn = zend_hash_str_find_ptr(CG(function_table), ZEND_STRL("filter_var"));
-	}
+	GENE_CG_FN_DECL(fn);
+	fn = GENE_CG_FN_LOOKUP(fn, "filter_var");
 	if (UNEXPECTED(!fn)) { ZVAL_FALSE(retval); return; }
 	zval filter;
 	ZVAL_LONG(&filter, filter_l);

@@ -306,6 +306,13 @@ void gene_view_contains_ext(char *file, bool isCompile, zval *ret) {
 				if (path_heap) {
 					efree(path);
 				}
+				/* [GENE_AUDIT:2026-07-13 M1] Template source unreadable: do not
+				 * return a possibly stale/nonexistent compile_path. */
+				if (compile_path_heap) {
+					efree(compile_path);
+				}
+				ZVAL_FALSE(ret);
+				return;
 			} else {
 				if (path_heap) {
 					efree(path);
@@ -456,6 +463,12 @@ int gene_view_display_ext(char *file, bool isCompile, zval *obj, zend_array *sym
 				if (path_heap) {
 					efree(path);
 				}
+				/* [GENE_AUDIT:2026-07-13 M1] Template source unreadable: abort
+				 * instead of including a possibly stale/nonexistent compile file. */
+				if (compile_path_heap) {
+					efree(compile_path);
+				}
+				return 0;
 			} else {
 				if (path_heap) {
 					efree(path);

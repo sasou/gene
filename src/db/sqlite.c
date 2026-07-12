@@ -204,8 +204,13 @@ bool sqliteInitPdo (zval * self, zval *config) {
 	}
 	object_init_ex(&pdo_object, pdo_ptr);
 
+	/* [GENE_AUDIT:2026-07-13 M2] E_ERROR normally bailouts, but if intercepted
+	 * (zend_try / custom error handler) execution would continue and deref NULL.
+	 * Return explicitly. */
 	if ((dsn = zend_hash_str_find(Z_ARRVAL_P(config), ZEND_STRL("dsn"))) == NULL) {
 		 php_error_docref(NULL, E_ERROR, "PDO need a valid dsn.");
+		 zval_ptr_dtor(&pdo_object);
+		 return -1;
 	}
 	user = zend_hash_str_find(Z_ARRVAL_P(config), ZEND_STRL("username"));
 	pass = zend_hash_str_find(Z_ARRVAL_P(config), ZEND_STRL("password"));

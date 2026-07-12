@@ -125,12 +125,17 @@ void gene_hash_destroy(HashTable *ht) /* {{{ */{
 	}
 
 	if (ht->nNumUsed > 0) {
+		/* [GENE_AUDIT:2026-07-13 M3] pemalloc (malloc) returns NULL on OOM and
+		 * does not bailout like emalloc; skip key collection rather than crash
+		 * (worst case the persistent keys leak until process exit). */
 		keys = (zend_string **) pemalloc(sizeof(zend_string *) * ht->nNumUsed, 1);
-		ZEND_HASH_FOREACH_STR_KEY(ht, key) {
-			if (key && (GC_FLAGS(key) & (IS_STR_INTERNED | IS_STR_PERMANENT))) {
-				keys[key_count++] = key;
-			}
-		} ZEND_HASH_FOREACH_END();
+		if (keys) {
+			ZEND_HASH_FOREACH_STR_KEY(ht, key) {
+				if (key && (GC_FLAGS(key) & (IS_STR_INTERNED | IS_STR_PERMANENT))) {
+					keys[key_count++] = key;
+				}
+			} ZEND_HASH_FOREACH_END();
+		}
 	}
 
 	zend_hash_destroy(ht);
@@ -484,12 +489,16 @@ void gene_cache_lru_destroy(void) {
 		return;
 	}
 	if (lru->nNumUsed > 0) {
+		/* [GENE_AUDIT:2026-07-13 M3] pemalloc returns NULL on OOM (no bailout);
+		 * skip key collection rather than crash. */
 		keys = (zend_string **) pemalloc(sizeof(zend_string *) * lru->nNumUsed, 1);
-		ZEND_HASH_FOREACH_STR_KEY(lru, key) {
-			if (key && (GC_FLAGS(key) & (IS_STR_INTERNED | IS_STR_PERMANENT))) {
-				keys[key_count++] = key;
-			}
-		} ZEND_HASH_FOREACH_END();
+		if (keys) {
+			ZEND_HASH_FOREACH_STR_KEY(lru, key) {
+				if (key && (GC_FLAGS(key) & (IS_STR_INTERNED | IS_STR_PERMANENT))) {
+					keys[key_count++] = key;
+				}
+			} ZEND_HASH_FOREACH_END();
+		}
 	}
 	zend_hash_destroy(lru);
 	for (i = 0; i < key_count; i++) {
