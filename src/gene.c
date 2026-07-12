@@ -738,7 +738,7 @@ void gene_co_contexts_sweep(void) {
 	if (!ht) return;
 	total = zend_hash_num_elements(ht);
 	if (total < 16) return; /* not worth the walk */
-	started_us = (uint64_t)zend_hrtime();
+	started_us = gene_hrtime();
 	GENE_G(co_contexts_sweep_count)++;
 	GENE_G(co_contexts_sweep_scanned) += total;
 
@@ -771,12 +771,12 @@ void gene_co_contexts_sweep(void) {
 	 * case the framework's bound takes precedence over strict correctness. */
 	total = zend_hash_num_elements(ht);
 	if (total <= cap) {
-		GENE_G(co_contexts_sweep_us) += ((uint64_t)zend_hrtime() - started_us) / 1000;
+		GENE_G(co_contexts_sweep_us) += (gene_hrtime() - started_us) / 1000;
 		return;
 	}
 	target_evict = total - (cap * 3 / 4); /* trim back to 75% of cap */
 	if (target_evict == 0) {
-		GENE_G(co_contexts_sweep_us) += ((uint64_t)zend_hrtime() - started_us) / 1000;
+		GENE_G(co_contexts_sweep_us) += (gene_hrtime() - started_us) / 1000;
 		return;
 	}
 
@@ -790,7 +790,7 @@ void gene_co_contexts_sweep(void) {
 		zend_hash_index_del(ht, victims[i]);
 	}
 	efree(victims);
-	GENE_G(co_contexts_sweep_us) += ((uint64_t)zend_hrtime() - started_us) / 1000;
+	GENE_G(co_contexts_sweep_us) += (gene_hrtime() - started_us) / 1000;
 }
 /* }}} */
 

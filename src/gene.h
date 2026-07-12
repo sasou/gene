@@ -79,7 +79,24 @@
  #define GENE_CG_FN_LOOKUP(cache_var, literal) zend_hash_str_find_ptr(CG(function_table), ZEND_STRL(literal))
  #endif
  
- #define gene_object zend_object
+ /* Portable high-resolution timer (nanoseconds). zend_hrtime is not exported
+ * in the PHP 8.1 Windows import library, so use QueryPerformanceCounter on
+ * PHP_WIN32 and zend_hrtime elsewhere. */
+static inline uint64_t gene_hrtime(void) {
+#ifdef PHP_WIN32
+	static LARGE_INTEGER freq = {0};
+	LARGE_INTEGER count;
+	if (freq.QuadPart == 0) {
+		QueryPerformanceFrequency(&freq);
+	}
+	QueryPerformanceCounter(&count);
+	return (uint64_t)((count.QuadPart * 1000000000ULL) / (uint64_t)freq.QuadPart);
+#else
+	return zend_hrtime();
+#endif
+}
+
+#define gene_object zend_object
  #define gene_strip_obj(o) Z_OBJ_P(o)
  
  
