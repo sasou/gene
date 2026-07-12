@@ -1,0 +1,8 @@
+{
+    "timestamp": "2026-07-12T05:22:40+00:00",
+    "php_version": "8.1.34",
+    "php_sapi": "cli",
+    "gene_version": "5.6.8",
+    "profile": "swoole",
+    "config": "tools/acceptance/config/swoole.example.json"
+}

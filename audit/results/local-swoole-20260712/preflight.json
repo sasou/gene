@@ -1,0 +1,44 @@
+{
+    "status": "BLOCKED",
+    "timestamp": "2026-07-12T05:22:40+00:00",
+    "php_version": "8.1.34",
+    "php_sapi": "cli",
+    "gene_version": "5.6.8",
+    "checks": [
+        {
+            "name": "PHP version",
+            "passed": true,
+            "detail": "8.1.34"
+        },
+        {
+            "name": "Gene extension loaded",
+            "passed": true,
+            "detail": "5.6.8"
+        },
+        {
+            "name": "Gene version",
+            "passed": true,
+            "detail": "5.6.8"
+        },
+        {
+            "name": "Expected SAPI",
+            "passed": true,
+            "detail": "cli"
+        },
+        {
+            "name": "Extension gene",
+            "passed": true,
+            "detail": "loaded"
+        },
+        {
+            "name": "Extension swoole",
+            "passed": false,
+            "detail": "not loaded"
+        },
+        {
+            "name": "INI gene.runtime_type",
+            "passed": false,
+            "detail": "actual=1, expected=2"
+        }
+    ]
+}

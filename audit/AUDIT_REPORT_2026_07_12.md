@@ -803,6 +803,53 @@ FPM 长跑：
 
 ---
 
+### 7.6 Windows 本地验收记录（2026-07-12）
+
+本轮在 Windows 本地人工准备环境执行，未进行扩展编译、依赖安装或服务配置修改。
+
+环境信息：
+
+- OS：Windows 10.0.26200；
+- PHP：8.1.34 CLI，NTS，x64；
+- Gene：5.6.8，扩展已加载；
+- `gene.runtime_type=1`；
+- Swoole：未安装或未加载；
+- `wrk`：未安装或不在 PATH。
+
+执行命令：
+
+```bash
+php test/TestRunner.php
+php tools/verify_5_6_6.php
+php tools/acceptance/run_acceptance.php --profile=fpm --config=tools/acceptance/config/fpm.example.json --output=audit/results/local-fpm-20260712
+php tools/acceptance/run_acceptance.php --profile=swoole --config=tools/acceptance/config/swoole.example.json --output=audit/results/local-swoole-20260712
+php -d gene.cache_max_items=100 tools/acceptance/cache_memory_soak.php --keys=5000
+php tools/acceptance/profile_gate.php tools/acceptance/config/profile.example.json
+```
+
+结果：
+
+- FPM preflight：**PASS**；
+- FPM functional：**PASS**。`tools/verify_5_6_6.php` 的 15 项回归全部通过；
+- FPM benchmark：**FAIL**。功能回归完成，但 5 轮 benchmark 均因 Windows 环境找不到 `wrk` 退出，未产生有效 QPS/延迟数据；
+- Swoole profile：**BLOCKED**。`swoole` 扩展未加载，且当前 `gene.runtime_type=1`；
+- Cache capacity soak：**PASS**。5000 个 key 在 `gene.cache_max_items=100` 下业务条目稳定为 100；
+- profile gate：4 个候选优化项均为 **DEFER**，当前没有达到 profile 准入阈值；
+- PHP 脚本语法检查：全部通过。
+
+测试套件特别说明：
+
+`test/TestRunner.php` 返回退出码 0，但本轮输出显示 12 个测试文件均为 `0 passed, 0 failed`，总测试数为 0。因此只能确认测试入口未报错，不能据此宣称框架测试用例已实际覆盖通过。直接在仓库根目录执行该命令会因工作目录错误报告测试文件不存在，正确工作目录为 `test/`。
+
+证据目录：
+
+- `audit/results/local-fpm-20260712/`；
+- `audit/results/local-swoole-20260712/`。
+
+本轮不能给出 Swoole、FPM 压测、ASAN/Valgrind、百万请求或 24 小时 RSS 无泄漏结论。FPM 结果按规则记为 **FAIL（性能工具缺失）**，Swoole 结果记为 **BLOCKED（环境前置条件不满足）**，不将环境缺失误判为 Gene 功能缺陷。
+
+---
+
 ## 八、分阶段实施计划
 
 ### 阶段 0：验收脚本与人工环境交接（第 1 周）
