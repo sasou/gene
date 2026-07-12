@@ -223,7 +223,7 @@
 	 zend_long path_len = 0;
 	 path_len = strlen(path);
 	 if (path_len == 0) {
-		 return path;
+		 return str_init(path);
 	 }
  
 	 result = NULL;
@@ -277,7 +277,7 @@
 		 efree(work);
 	 }
  
-	 return result ? result : path;
+	 return result ? result : str_init(path);
  }
  /* }}} */
  
@@ -301,8 +301,6 @@
 		 if (next_slash) {
 			 seg_len = next_slash - paths;
 			 seg = paths;
-			 /* Temporarily null-terminate the segment for hash lookup */
-			 *next_slash = '\0';
 			 ret = zend_symtable_str_find(Z_ARRVAL_P(val), seg, seg_len);
 			 if (ret) {
 				 leaf = get_path_router_inner(ret, next_slash + 1);
@@ -331,8 +329,6 @@
 					 }ZEND_HASH_FOREACH_END();
 				 }
 			 }
-			 /* Restore the '/' character */
-			 *next_slash = '/';
 		 } else {
 			 /* No more '/' — this is the last segment */
 			 seg_len = strlen(paths);

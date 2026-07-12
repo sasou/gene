@@ -241,7 +241,9 @@ bool initObj (zval * self, zval *config) {
 	servers = zend_hash_str_find(Z_ARRVAL_P(config), ZEND_STRL("servers"));
 
 	if (servers == NULL || Z_TYPE_P(servers) != IS_ARRAY) {
-		 php_error_docref(NULL, E_ERROR, "param servers must a array.");
+		zval_ptr_dtor(&obj_object);
+		php_error_docref(NULL, E_ERROR, "param servers must a array.");
+		return 0;
 	}
 
 	serializer = zend_hash_str_find(Z_ARRVAL_P(config), ZEND_STRL("serializer"));
@@ -290,7 +292,9 @@ bool initObjWin (zval * self, zval *config) {
 	servers = zend_hash_str_find(Z_ARRVAL_P(config), ZEND_STRL("servers"));
 
 	if (servers == NULL || Z_TYPE_P(servers) != IS_ARRAY) {
-		 php_error_docref(NULL, E_ERROR, "param servers must a array.");
+		zval_ptr_dtor(&obj_object);
+		php_error_docref(NULL, E_ERROR, "param servers must a array.");
+		return 0;
 	}
 
 	serializer = zend_hash_str_find(Z_ARRVAL_P(config), ZEND_STRL("serializer"));

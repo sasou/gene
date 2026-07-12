@@ -31,8 +31,13 @@
 
 char *str_init(const char *s)
 {
-	size_t s_l = strlen(s);
-	char *p = (char *) emalloc(s_l + 1);
+	size_t s_l;
+	char *p;
+	if (s == NULL) {
+		return NULL;
+	}
+	s_l = strlen(s);
+	p = (char *) emalloc(s_l + 1);
 	memcpy(p, s, s_l + 1);
 	return p;
 }
@@ -52,9 +57,20 @@ char *str_sub(char *s, size_t s_len)
 /* [GENE_AUDIT:2026-03-25] Changed len from int to size_t to prevent
  * negative length causing undersized allocation. */
 char *str_sub_len(char *src, size_t start, size_t len) {
-   size_t i;
-   char *dest = (char *) emalloc(len + 1);
-   for (i = 0; i < len && src[start + i] != '\0'; i++) {
+   size_t i, src_len;
+   char *dest;
+   if (src == NULL) {
+      return NULL;
+   }
+   src_len = strlen(src);
+   if (start > src_len) {
+      return NULL;
+   }
+   if (len > src_len - start) {
+      len = src_len - start;
+   }
+   dest = (char *) emalloc(len + 1);
+   for (i = 0; i < len; i++) {
       dest[i] = src[start + i];
    }
    dest[i] = 0;
@@ -63,12 +79,15 @@ char *str_sub_len(char *src, size_t start, size_t len) {
 
 char *str_append(char *s, const char*t)
 {
-	size_t size = 0;
-    char *p = NULL;
-	size =  strlen(s) + strlen(t) + 1;
-	p = erealloc(s, size);
-	strcat(p, t);
-	p[size - 1] = 0;
+	size_t s_len, t_len;
+    char *p;
+	if (s == NULL || t == NULL) {
+		return NULL;
+	}
+	s_len = strlen(s);
+	t_len = strlen(t);
+	p = erealloc(s, s_len + t_len + 1);
+	memcpy(p + s_len, t, t_len + 1);
 	return p;
 }
 
@@ -222,9 +241,12 @@ char * replaceAll(char * src, const char oldChar, const char newChar) {
 /*
  * {{{ insertAll(char *dst, char *src, int n)
  */
-char * insertAll(char * dest, char * src, char oldChar, char newChar) {
+char * insertAll(char * src, char oldChar, char newChar) {
 	size_t extra = 0;
-	char *p, *head;
+	char *p, *head, *dest;
+	if (src == NULL) {
+		return NULL;
+	}
 	for (p = src; *p != '\0'; p++) {
 		if (*p == oldChar) extra++;
 	}
@@ -364,35 +386,30 @@ int charIfFirst(char *src, const char car) {
  * {{{ char * replace_string (char * string, const char * source, const char * destination )
  */
 char * replace_string(char * string, char source, const char * destination) {
-	char *sk = NULL, *newstr, *ptr;
-	size_t size, newsize, num = 0, isFirst;
-	num = findChildC(string, source);
-	isFirst = charIfFirst(string, ':');
-	if (num == 0)
+	char *newstr, *out;
+	const char *in;
+	size_t destination_len, newsize, num;
+	if (string == NULL || destination == NULL) {
 		return NULL;
-	newsize = strlen(string) + (strlen(destination) - 1) * num + 1;
-	newstr = (char *) ecalloc(newsize, sizeof(char));
-	if (newstr == NULL)
-		return NULL;
-	sk = php_strtok_r(string, ":", &ptr);
-	size = 0;
-	while (sk != NULL) {
-		if (isFirst == 1) {
-			if (size < num) {
-				strcat(newstr, destination);
-			}
-			strcat(newstr, sk);
-		} else {
-			strcat(newstr, sk);
-			if (size < num) {
-				strcat(newstr, destination);
-			}
-		}
-		sk = php_strtok_r(NULL, ":", &ptr);
-		size++;
 	}
+	num = findChildC(string, source);
+	if (num == 0) {
+		return NULL;
+	}
+	destination_len = strlen(destination);
+	newsize = strlen(string) + num * destination_len - num + 1;
+	newstr = (char *) emalloc(newsize);
+	out = newstr;
+	for (in = string; *in != '\0'; in++) {
+		if (*in == source) {
+			memcpy(out, destination, destination_len);
+			out += destination_len;
+		} else {
+			*out++ = *in;
+		}
+	}
+	*out = '\0';
 	return newstr;
-
 }
 /* }}} */
 
