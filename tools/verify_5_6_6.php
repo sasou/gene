@@ -37,9 +37,11 @@ echo "\n[1] INI 开关注册（审计 P1 / M1 / P3）\n";
 $capi  = ini_get('gene.swoole_getcid_capi');
 $maxit = ini_get('gene.cache_max_items');
 $pc    = ini_get('gene.route_precompile');
+$closureCap = ini_get('gene.closure_src_cache_max');
 check('P1 gene.swoole_getcid_capi 已注册', $capi !== false, "value={$capi}");
 check('M1 gene.cache_max_items 已注册',    $maxit !== false, "value={$maxit}");
 check('P3 gene.route_precompile 已注册',   $pc !== false, "value={$pc}");
+check('闭包源码缓存容量开关已注册', $closureCap !== false, "value={$closureCap}");
 
 /* 2. M1 — 业务缓存上限 + 近似 LRU 淘汰 */
 echo "\n[2] M1 业务缓存上限 + 近似 LRU（Gene\\Cache::processCached）\n";
@@ -51,6 +53,10 @@ class Producer {
 $producer = new Producer();
 $cache = new \Gene\Cache\Cache(['sign' => 'verify:']);
 $memory = new \Gene\Memory();
+$stats = $memory->stats();
+foreach (['cache_business_items', 'closure_src_cache_items', 'route_pc_items', 'ctx_pool_hit', 'co_contexts_sweep_count'] as $field) {
+    check("Memory::stats 包含 {$field}", array_key_exists($field, $stats));
+}
 
 $before = $memory->stats()['cache_items'];
 

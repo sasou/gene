@@ -1315,6 +1315,14 @@ PHP_METHOD(gene_application, workerReady) {
 	if (GENE_G(runtime_type) >= 2 && GENE_G(ctx_pool_size) == 0) {
 		gene_request_context_pool_prewarm(-1);
 	}
+	/* Keep cache_max_items=0 backward compatible, but make the long-running
+	 * worker risk visible exactly once after the routing/config cache freezes. */
+	if (GENE_G(runtime_type) >= 2 && GENE_G(cache_max_items) == 0
+			&& !GENE_G(cache_unlimited_noticed)) {
+		php_error_docref(NULL, E_NOTICE,
+			"Gene: gene.cache_max_items=0 leaves Gene\\Cache entries unbounded in this Swoole worker; set an explicit capacity for high-cardinality workloads");
+		GENE_G(cache_unlimited_noticed) = 1;
+	}
 	if (self) {
 		RETURN_ZVAL(self, 1, 0);
 	}

@@ -1111,6 +1111,9 @@ PHP_METHOD(gene_memory, clean) {
  *     'co_contexts_max'   => int,   // configured soft cap
  *     'ctx_pool_size'     => int,   // recycled context structs in the pool
  *     'ctx_pool_max'      => int,   // pool capacity
+ *     'closure_src_cache_items' => int,
+ *     'route_pc_items'    => int,
+ *     'co_contexts_*'     => int,   // high-water and sweep telemetry
  *   ]
  */
 PHP_METHOD(gene_memory, stats) {
@@ -1126,9 +1129,21 @@ PHP_METHOD(gene_memory, stats) {
 	add_assoc_long(return_value, "co_contexts_items",
 		GENE_G(co_contexts) ? (zend_long)zend_hash_num_elements(GENE_G(co_contexts)) : 0);
 	add_assoc_long(return_value, "co_contexts_max", GENE_G(co_contexts_max));
+	add_assoc_long(return_value, "co_contexts_watermark", (zend_long)GENE_G(co_contexts_watermark));
+	add_assoc_long(return_value, "co_contexts_sweep_count", (zend_long)GENE_G(co_contexts_sweep_count));
+	add_assoc_long(return_value, "co_contexts_sweep_scanned", (zend_long)GENE_G(co_contexts_sweep_scanned));
+	add_assoc_long(return_value, "co_contexts_sweep_us", (zend_long)GENE_G(co_contexts_sweep_us));
 	/* [GENE_PERF:2026-04-24] Context struct pool visibility. */
 	add_assoc_long(return_value, "ctx_pool_size", GENE_G(ctx_pool_size));
 	add_assoc_long(return_value, "ctx_pool_max", GENE_G(ctx_pool_max));
+	add_assoc_long(return_value, "ctx_pool_hit", (zend_long)GENE_G(ctx_pool_hit));
+	add_assoc_long(return_value, "ctx_pool_miss", (zend_long)GENE_G(ctx_pool_miss));
+	add_assoc_long(return_value, "cache_business_items",
+		GENE_G(cache_lru) ? (zend_long)zend_hash_num_elements(GENE_G(cache_lru)) : 0);
+	add_assoc_long(return_value, "route_pc_items",
+		GENE_G(route_pc) ? (zend_long)zend_hash_num_elements(GENE_G(route_pc)) : 0);
+	add_assoc_long(return_value, "closure_src_cache_items", gene_closure_src_cache_items());
+	add_assoc_long(return_value, "closure_src_cache_flushes", (zend_long)GENE_G(closure_src_cache_flushes));
 }
 /* }}} */
 

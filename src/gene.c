@@ -151,6 +151,7 @@ STD_PHP_INI_ENTRY("gene.ctx_pool_prewarm", "0", PHP_INI_SYSTEM, OnUpdateLong, ct
 STD_PHP_INI_BOOLEAN("gene.swoole_getcid_capi", "1", PHP_INI_SYSTEM, OnUpdateBool, swoole_getcid_capi, zend_gene_globals, gene_globals) // @suppress("Symbol is not resolved")
 STD_PHP_INI_ENTRY("gene.cache_max_items", "0", PHP_INI_SYSTEM, OnUpdateLong, cache_max_items, zend_gene_globals, gene_globals) // @suppress("Symbol is not resolved")
 STD_PHP_INI_BOOLEAN("gene.route_precompile", "0", PHP_INI_SYSTEM, OnUpdateBool, route_precompile, zend_gene_globals, gene_globals) // @suppress("Symbol is not resolved")
+STD_PHP_INI_ENTRY("gene.closure_src_cache_max", "1024", PHP_INI_SYSTEM, OnUpdateLong, closure_src_cache_max, zend_gene_globals, gene_globals) // @suppress("Symbol is not resolved")
 PHP_INI_END();
 /* }}} */
 
@@ -501,6 +502,7 @@ static zend_always_inline void **gene_ctx_pool_next_slot(gene_request_context *c
 gene_request_context *gene_request_context_pool_acquire(void) {
 	gene_request_context *ctx = (gene_request_context *)GENE_G(ctx_pool_head);
 	if (ctx) {
+		GENE_G(ctx_pool_hit)++;
 		void **slot = gene_ctx_pool_next_slot(ctx);
 		GENE_G(ctx_pool_head) = *slot;
 		if (GENE_G(ctx_pool_size) > 0) {
@@ -536,6 +538,7 @@ gene_request_context *gene_request_context_pool_acquire(void) {
 		ctx->log_level_set = 0;
 		return ctx;
 	}
+	GENE_G(ctx_pool_miss)++;
 	ctx = ecalloc(1, sizeof(gene_request_context));
 	gene_request_context_init(ctx);
 	return ctx;
@@ -730,10 +733,14 @@ void gene_co_contexts_sweep(void) {
 	uint32_t target_evict;
 	uint32_t i;
 	int have_exists;
+	uint64_t started_us;
 
 	if (!ht) return;
 	total = zend_hash_num_elements(ht);
 	if (total < 16) return; /* not worth the walk */
+	started_us = (uint64_t)zend_hrtime();
+	GENE_G(co_contexts_sweep_count)++;
+	GENE_G(co_contexts_sweep_scanned) += total;
 
 	cap = (uint32_t)(GENE_G(co_contexts_max) > 0 ? GENE_G(co_contexts_max) : 1024);
 	cur_cid = (GENE_G(current_cid) >= 0) ? (zend_ulong)GENE_G(current_cid) : ~(zend_ulong)0;
@@ -763,9 +770,15 @@ void gene_co_contexts_sweep(void) {
 	 * when every cid is reported alive but still blowing the cap — in which
 	 * case the framework's bound takes precedence over strict correctness. */
 	total = zend_hash_num_elements(ht);
-	if (total <= cap) return;
+	if (total <= cap) {
+		GENE_G(co_contexts_sweep_us) += ((uint64_t)zend_hrtime() - started_us) / 1000;
+		return;
+	}
 	target_evict = total - (cap * 3 / 4); /* trim back to 75% of cap */
-	if (target_evict == 0) return;
+	if (target_evict == 0) {
+		GENE_G(co_contexts_sweep_us) += ((uint64_t)zend_hrtime() - started_us) / 1000;
+		return;
+	}
 
 	victims = (zend_ulong *)emalloc(sizeof(zend_ulong) * target_evict);
 	ZEND_HASH_FOREACH_NUM_KEY(ht, idx) {
@@ -777,6 +790,7 @@ void gene_co_contexts_sweep(void) {
 		zend_hash_index_del(ht, victims[i]);
 	}
 	efree(victims);
+	GENE_G(co_contexts_sweep_us) += ((uint64_t)zend_hrtime() - started_us) / 1000;
 }
 /* }}} */
 
@@ -860,6 +874,9 @@ gene_request_context *gene_request_ctx(void) {
 		 * eliminates the per-coroutine-spawn allocator round trip. */
 		ctx = gene_request_context_pool_acquire();
 		zend_hash_index_update_ptr(GENE_G(co_contexts), (zend_ulong)cid, ctx);
+		if ((zend_ulong)zend_hash_num_elements(GENE_G(co_contexts)) > GENE_G(co_contexts_watermark)) {
+			GENE_G(co_contexts_watermark) = zend_hash_num_elements(GENE_G(co_contexts));
+		}
 	}
 	GENE_G(current_cid) = cid;
 	GENE_G(current_ctx) = ctx;
@@ -895,6 +912,16 @@ static void php_gene_init_globals() {
 	/* [GENE_PERF:2026-04-24] Context struct pool init. */
 	GENE_G(ctx_pool_head) = NULL;
 	GENE_G(ctx_pool_size) = 0;
+	GENE_G(ctx_pool_hit) = 0;
+	GENE_G(ctx_pool_miss) = 0;
+	GENE_G(co_contexts_watermark) = 0;
+	GENE_G(co_contexts_sweep_count) = 0;
+	GENE_G(co_contexts_sweep_scanned) = 0;
+	GENE_G(co_contexts_sweep_us) = 0;
+	GENE_G(cache_unlimited_noticed) = 0;
+	GENE_G(route_pc_prewarm_count) = 0;
+	GENE_G(route_pc_prewarm_failures) = 0;
+	GENE_G(route_pc_prewarm_us) = 0;
 	/* ctx_pool_prewarm is populated by PHP_INI loader before MINIT, so do
 	 * NOT zero it here — doing so would clobber the user's php.ini value.
 	 * (Leaving the field alone is safe: globals are zeroed by GINIT.) */

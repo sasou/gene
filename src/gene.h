@@ -249,6 +249,22 @@ HashTable *route_pc;
  * unchanged until an operator enables gene.route_precompile=1 after validating
  * on Linux (phpize+make+ASAN + full route regression). */
 zend_bool route_precompile;
+/* [GENE_MEM:2026-07-12] FPM closure-source cache capacity. 0 disables the
+ * cache so a dynamic routing workload cannot retain source indefinitely. */
+zend_long closure_src_cache_max;
+zend_ulong closure_src_cache_flushes;
+/* [GENE_MEM:2026-07-12] Swoole lifecycle and pool observability. */
+zend_ulong ctx_pool_hit;
+zend_ulong ctx_pool_miss;
+zend_ulong co_contexts_watermark;
+zend_ulong co_contexts_sweep_count;
+zend_ulong co_contexts_sweep_scanned;
+zend_ulong co_contexts_sweep_us;
+zend_bool cache_unlimited_noticed;
+/* [GENE_PERF:2026-07-12] route precompile startup telemetry. */
+zend_ulong route_pc_prewarm_count;
+zend_ulong route_pc_prewarm_failures;
+zend_ulong route_pc_prewarm_us;
 ZEND_END_MODULE_GLOBALS (gene)
  
  extern ZEND_DECLARE_MODULE_GLOBALS (gene);
@@ -269,6 +285,7 @@ void gene_request_context_pool_drain(void);
  * userland via Application::prewarmCtxPool(). Returns the number of
  * contexts actually added (bounded by ctx_pool_max). */
 zend_long gene_request_context_pool_prewarm(zend_long count);
+zend_long gene_closure_src_cache_items(void);
 
 /* [GENE_FIX:2026-05-24] Cross-request-safe interned string helper.
  *

@@ -1,0 +1,16 @@
+{
+  "cpu_samples": {
+    "route_pc": 0.0,
+    "config_path": 0.0,
+    "sql_builder": 0.0,
+    "route_registration": 0.0
+  },
+  "allocation_share": {
+    "route_pc": 0.0,
+    "config_path": 0.0,
+    "sql_builder": 0.0,
+    "route_registration": 0.0
+  },
+  "p99_spikes": [],
+  "rss_monotonic_growth": []
+}
