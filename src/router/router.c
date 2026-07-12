@@ -1632,8 +1632,8 @@ static void gene_closure_src_cache_put(const char *key, size_t key_len, zend_lon
 	gene_closure_src_node *node;
 	zend_long cap = GENE_G(closure_src_cache_max);
 
-	/* A cap of zero is an explicit kill-switch, not an unlimited setting. */
-	if (cap == 0) {
+	/* Non-positive values are an explicit kill-switch, never unlimited. */
+	if (cap <= 0) {
 		return;
 	}
 	if (!gene_closure_src_cache) {
@@ -1643,7 +1643,6 @@ static void gene_closure_src_cache_put(const char *key, size_t key_len, zend_lon
 	/* Updating an existing entry cannot increase cardinality. For new entries,
 	 * clear the small cold-path cache as a whole instead of adding an LRU. */
 	if (!zend_hash_str_exists(gene_closure_src_cache, key, key_len)
-			&& cap > 0
 			&& (zend_long)zend_hash_num_elements(gene_closure_src_cache) >= cap) {
 		zend_hash_clean(gene_closure_src_cache);
 		GENE_G(closure_src_cache_flushes)++;

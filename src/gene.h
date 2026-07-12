@@ -266,8 +266,9 @@ HashTable *route_pc;
  * unchanged until an operator enables gene.route_precompile=1 after validating
  * on Linux (phpize+make+ASAN + full route regression). */
 zend_bool route_precompile;
-/* [GENE_MEM:2026-07-12] FPM closure-source cache capacity. 0 disables the
- * cache so a dynamic routing workload cannot retain source indefinitely. */
+/* [GENE_MEM:2026-07-12] FPM closure-source cache capacity. Values <= 0
+ * disable the cache so a dynamic routing workload cannot retain source
+ * indefinitely. */
 zend_long closure_src_cache_max;
 zend_ulong closure_src_cache_flushes;
 /* [GENE_MEM:2026-07-12] Swoole lifecycle and pool observability. */
@@ -278,10 +279,7 @@ zend_ulong co_contexts_sweep_count;
 zend_ulong co_contexts_sweep_scanned;
 zend_ulong co_contexts_sweep_us;
 zend_bool cache_unlimited_noticed;
-/* [GENE_PERF:2026-07-12] route precompile startup telemetry. */
-zend_ulong route_pc_prewarm_count;
-zend_ulong route_pc_prewarm_failures;
-zend_ulong route_pc_prewarm_us;
+zend_bool co_contexts_cap_warned;
 ZEND_END_MODULE_GLOBALS (gene)
  
  extern ZEND_DECLARE_MODULE_GLOBALS (gene);

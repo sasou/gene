@@ -252,14 +252,14 @@ gene.view_compile_check_mtime=0
 实施：
 
 - 新增 INI：`gene.closure_src_cache_max`，默认建议 1024；
-- `0` 建议表示禁用缓存，而不是无限；
+- 非正值表示禁用缓存，而不是无限；
 - 超限策略优先采用“整表清空后写入”，避免在低价值冷路径实现复杂 LRU；
 - `Memory::stats()` 增加 `closure_src_cache_items`；
 - MSHUTDOWN 析构保持不变。
 
 兼容策略：
 
-- 若不希望变更 `0` 语义，可默认 1024，并另用 `-1` 表示无限；
+- 默认值为 1024；为避免无上限持久缓存，负值与 `0` 均禁用缓存；
 - 第一版也可不新增 INI，固定 1024，后续再开放配置。
 
 验收：
@@ -390,19 +390,13 @@ Worker 生命周期必须包含：
 
 ### SW-P3：协程上下文 sweep 降毛刺
 
-现有 sweep 达到 cap 才全表扫描。改进方向：
+现有 sweep 达到 cap 才全表扫描，且现已仅清理运行时确认死亡的协程上下文；超过 cap 但仍存活的上下文会告警并保留。进一步降低扫表毛刺的改进方向：
 
 - `cleanup()` 正常时保持零额外成本；
 - 增加高水位/低水位：达到 80% cap 时每次最多扫描固定 batch；
 - 保存 sweep cursor，分批处理，避免单请求 O(N)；
 - C-API 可用时使用 `get_by_cid`；
 - C-API 不可用时保留 PHP fallback；
-- Stage2 不应静默淘汰已确认存活协程。
-
-需要先确认当前 Stage2 的正确性边界。若所有条目均存活且超过 cap，直接淘汰 live context 可能导致上下文被重建并丢失请求状态；建议改为：
-
-- 仅清理已确认死亡条目；
-- 无法确认时告警并拒绝新上下文、扩展临时上限或触发 worker 回收策略；
 - 不以释放内存为由破坏正在运行协程的上下文正确性。
 
 验收：
@@ -969,6 +963,7 @@ php tools/acceptance/profile_gate.php tools/acceptance/config/profile.example.js
 状态：**部分完成**
 
 - [x] cleanup 漏调专项、四开关矩阵编排、CAS/pool 压测入口与灰度操作规范；
+- [x] sweep 仅清理已确认死亡的协程上下文；超过 cap 且仍存活时告警，不再按插入顺序淘汰 live context；
 - [ ] route_pc 全树预热未实现：该项须先由 profile 证明首批请求收益，并验证 workerReady 后路由树/fn_cache 冻结不变量；
 - [ ] C-API 兼容矩阵、CAS/pool 压测与完整 route_pc 回归待目标 Linux 环境执行。
 
