@@ -193,7 +193,7 @@ class ApplicationTest
                 $config = $this->app->config('test');
                 echo "✓ config() works\n";
                 
-                // Test autoload
+                // Test autoload (all args optional)
                 $this->app->autoload();
                 echo "✓ autoload() works\n";
                 
@@ -202,7 +202,7 @@ class ApplicationTest
                 echo "✓ autoload() with parameters works\n";
             }
             
-        } catch (Exception $e) {
+        } catch (\Throwable $e) {
             echo "✗ Error: " . $e->getMessage() . "\n";
         }
         

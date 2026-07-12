@@ -54,7 +54,7 @@ ZEND_BEGIN_ARG_INFO_EX(gene_application_load, 0, 0, 1)
 	ZEND_ARG_INFO(0, validity)
 ZEND_END_ARG_INFO()
 
-ZEND_BEGIN_ARG_INFO_EX(gene_application_autoload, 0, 0, 1)
+ZEND_BEGIN_ARG_INFO_EX(gene_application_autoload, 0, 0, 0)
 	ZEND_ARG_INFO(0, app_root)
 	ZEND_ARG_INFO(0, auto_function)
 ZEND_END_ARG_INFO()

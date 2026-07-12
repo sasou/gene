@@ -2,387 +2,394 @@
 
 /**
  * Gene Framework Cache Class Test
- * 
- * This test file covers the important methods of the Gene\Cache class
+ *
+ * Covers Gene\Cache\Cache against the real API:
+ * - config keys: sign / hook / versionSign
+ * - callable form: [object|class, method]
+ * - processCached uses Gene\Memory (no external store)
+ * - cached / unsetCached need a DI hook with get/set/delete
  */
 
 use Gene\Cache\Cache;
+use Gene\Di;
+
+/**
+ * In-memory store used as Gene\Cache\Cache hook (get/set/delete/incr).
+ */
+class GeneCacheTestStore
+{
+    private $data = [];
+
+    public function get($key)
+    {
+        if (is_array($key)) {
+            $out = [];
+            foreach ($key as $k) {
+                if (is_string($k) && array_key_exists($k, $this->data)) {
+                    $out[$k] = $this->data[$k];
+                }
+            }
+            return $out === [] ? false : $out;
+        }
+        return array_key_exists($key, $this->data) ? $this->data[$key] : false;
+    }
+
+    public function set($key, $value, $ttl = 0)
+    {
+        $this->data[$key] = $value;
+        return true;
+    }
+
+    public function delete($key)
+    {
+        unset($this->data[$key]);
+        return true;
+    }
+
+    public function incr($key, $val = 1)
+    {
+        if (!isset($this->data[$key])) {
+            $this->data[$key] = 0;
+        }
+        $this->data[$key] += (int) $val;
+        return $this->data[$key];
+    }
+
+    public function clear()
+    {
+        $this->data = [];
+    }
+}
+
+/**
+ * Callable producer for method-level cache tests.
+ */
+class GeneCacheTestHelper
+{
+    public static $calls = 0;
+
+    public function produce($param = null)
+    {
+        self::$calls++;
+        return [
+            'param' => $param,
+            'calls' => self::$calls,
+            'ts' => time(),
+        ];
+    }
+}
 
 class CacheTest
 {
     private $cache;
-    
+    private $store;
+    private $helper;
+    private $callable;
+
     public function __construct()
     {
-        echo "=== Gene\Cache Test Suite ===\n\n";
+        echo "=== Gene\\Cache\\Cache Test Suite ===\n\n";
+        $this->store = new GeneCacheTestStore();
+        $this->helper = new GeneCacheTestHelper();
+        $this->callable = [$this->helper, 'produce'];
+        Di::set('testCacheStore', $this->store);
+        GeneCacheTestHelper::$calls = 0;
     }
-    
-    /**
-     * Test Cache constructor
-     */
+
+    private function makeCache(array $extra = [])
+    {
+        return new Cache(array_merge([
+            'hook' => 'testCacheStore',
+            'sign' => 'test:',
+            'versionSign' => 'ver:',
+        ], $extra));
+    }
+
     public function testConstructor()
     {
         echo "Testing Cache Constructor:\n";
-        
+
         try {
-            // Test constructor with configuration
-            $config = [
-                'type' => 'memory',
-                'prefix' => 'test_'
-            ];
-            $this->cache = new Cache($config);
-            echo "✓ Cache constructor with configuration works\n";
-            
-            // Test constructor with empty config
+            $this->cache = $this->makeCache();
+            echo "✓ Cache constructor with sign/hook works\n";
+
             $cache2 = new Cache([]);
             echo "✓ Cache constructor with empty config works\n";
-            
-        } catch (Exception $e) {
+        } catch (\Throwable $e) {
             echo "✗ Error: " . $e->getMessage() . "\n";
         }
-        
+
         echo "\n";
     }
-    
-    /**
-     * Test basic caching functionality
-     */
+
     public function testBasicCaching()
     {
         echo "Testing Basic Caching Functionality:\n";
-        
+
         try {
-            if (!$this->cache) {
-                $this->cache = new Cache(['type' => 'memory']);
-            }
-            
-            // Create a test object to cache
-            $testObject = new stdClass();
-            $testObject->data = 'test data';
-            $testObject->timestamp = time();
-            
-            $args = ['param1', 'param2'];
+            $this->cache = $this->makeCache();
+            $this->store->clear();
+            GeneCacheTestHelper::$calls = 0;
+
+            $args = ['param1'];
             $ttl = 3600;
-            
-            // Test cached method
-            $result = $this->cache->cached($testObject, $args, $ttl);
+
+            $result = $this->cache->cached($this->callable, $args, $ttl);
+            if (!is_array($result) || ($result['param'] ?? null) !== 'param1') {
+                throw new RuntimeException('cached() returned unexpected value');
+            }
             echo "✓ cached() method works\n";
-            
-            // Test localCached method
-            $result2 = $this->cache->localCached($testObject, $args, $ttl);
-            echo "✓ localCached() method works\n";
-            
-        } catch (Exception $e) {
+
+            $result2 = $this->cache->cached($this->callable, $args, $ttl);
+            if (GeneCacheTestHelper::$calls !== 1) {
+                throw new RuntimeException('cached() did not hit store on second call');
+            }
+            echo "✓ cached() hits storage on repeat call\n";
+
+            $proc = $this->cache->processCached($this->callable, ['proc1'], $ttl);
+            if (!is_array($proc) || ($proc['param'] ?? null) !== 'proc1') {
+                throw new RuntimeException('processCached() returned unexpected value');
+            }
+            echo "✓ processCached() method works\n";
+        } catch (\Throwable $e) {
             echo "✗ Error: " . $e->getMessage() . "\n";
         }
-        
+
         echo "\n";
     }
-    
-    /**
-     * Test version-based caching
-     */
+
     public function testVersionBasedCaching()
     {
         echo "Testing Version-Based Caching:\n";
-        
+
         try {
-            if (!$this->cache) {
-                $this->cache = new Cache(['type' => 'memory']);
-            }
-            
-            // Create a test object with version field
-            $testObject = new stdClass();
-            $testObject->data = 'versioned data';
-            $testObject->version = 1;
-            
+            $this->cache = $this->makeCache();
+            $this->store->clear();
+            GeneCacheTestHelper::$calls = 0;
+
             $args = ['version_test'];
-            $versionField = 'version';
+            $versionField = ['user', 1];
             $ttl = 3600;
-            
-            // Test cachedVersion method
-            $result = $this->cache->cachedVersion($testObject, $args, $versionField, $ttl);
+
+            $result = $this->cache->cachedVersion($this->callable, $args, $versionField, $ttl);
+            if (!is_array($result)) {
+                throw new RuntimeException('cachedVersion() returned null (check hook/versionSign)');
+            }
             echo "✓ cachedVersion() method works\n";
-            
-            // Test localCachedVersion method
-            $result2 = $this->cache->localCachedVersion($testObject, $args, $versionField, $ttl);
-            echo "✓ localCachedVersion() method works\n";
-            
-        } catch (Exception $e) {
+
+            $result2 = $this->cache->processCachedVersion($this->callable, $args, $versionField, $ttl);
+            if (!is_array($result2)) {
+                throw new RuntimeException('processCachedVersion() returned null');
+            }
+            echo "✓ processCachedVersion() method works\n";
+        } catch (\Throwable $e) {
             echo "✗ Error: " . $e->getMessage() . "\n";
         }
-        
+
         echo "\n";
     }
-    
-    /**
-     * Test cache invalidation
-     */
+
     public function testCacheInvalidation()
     {
         echo "Testing Cache Invalidation:\n";
-        
+
         try {
-            if (!$this->cache) {
-                $this->cache = new Cache(['type' => 'memory']);
-            }
-            
-            $testObject = new stdClass();
-            $testObject->data = 'cache data';
+            $this->cache = $this->makeCache();
+            $this->store->clear();
+            GeneCacheTestHelper::$calls = 0;
+
             $args = ['invalidate_test'];
-            
-            // Test unsetCached method
-            $result = $this->cache->unsetCached($testObject, $args);
+            $this->cache->cached($this->callable, $args, 3600);
+            $callsAfterSet = GeneCacheTestHelper::$calls;
+
+            $this->cache->unsetCached($this->callable, $args);
             echo "✓ unsetCached() method works\n";
-            
-            // Test unsetLocalCached method
-            $result2 = $this->cache->unsetLocalCached($testObject, $args);
-            echo "✓ unsetLocalCached() method works\n";
-            
-        } catch (Exception $e) {
+
+            $this->cache->cached($this->callable, $args, 3600);
+            if (GeneCacheTestHelper::$calls <= $callsAfterSet) {
+                throw new RuntimeException('unsetCached() did not clear entry');
+            }
+            echo "✓ unsetCached() forces recompute\n";
+
+            $this->cache->processCached($this->callable, ['proc_inv'], 3600);
+            $this->cache->unsetProcessCached($this->callable, ['proc_inv']);
+            echo "✓ unsetProcessCached() method works\n";
+        } catch (\Throwable $e) {
             echo "✗ Error: " . $e->getMessage() . "\n";
         }
-        
+
         echo "\n";
     }
-    
-    /**
-     * Test version management
-     */
+
     public function testVersionManagement()
     {
         echo "Testing Version Management:\n";
-        
+
         try {
-            if (!$this->cache) {
-                $this->cache = new Cache(['type' => 'memory']);
-            }
-            
-            $versionField = 'test_version';
-            
-            // Test getVersion
+            $this->cache = $this->makeCache();
+            $this->store->clear();
+
+            $versionField = ['user', 1];
             $version = $this->cache->getVersion($versionField);
-            echo "✓ getVersion() returns: " . ($version ?? 'null') . "\n";
-            
-            // Test updateVersion
-            $result = $this->cache->updateVersion($versionField);
+            echo "✓ getVersion() returns: " . (is_array($version) ? 'array' : var_export($version, true)) . "\n";
+
+            $this->cache->updateVersion($versionField);
             echo "✓ updateVersion() works\n";
-            
-        } catch (Exception $e) {
+        } catch (\Throwable $e) {
             echo "✗ Error: " . $e->getMessage() . "\n";
         }
-        
+
         echo "\n";
     }
-    
-    /**
-     * Test caching with different TTL values
-     */
+
     public function testCachingWithTTL()
     {
         echo "Testing Caching with Different TTL Values:\n";
-        
+
         try {
-            if (!$this->cache) {
-                $this->cache = new Cache(['type' => 'memory']);
-            }
-            
-            $testObject = new stdClass();
-            $testObject->data = 'ttl test';
-            
-            // Test with no TTL (default)
-            $result1 = $this->cache->cached($testObject, ['no_ttl']);
+            $this->cache = $this->makeCache();
+            $this->store->clear();
+
+            $this->cache->cached($this->callable, ['no_ttl']);
             echo "✓ cached() without TTL works\n";
-            
-            // Test with short TTL
-            $result2 = $this->cache->cached($testObject, ['short_ttl'], 60);
+
+            $this->cache->cached($this->callable, ['short_ttl'], 60);
             echo "✓ cached() with short TTL works\n";
-            
-            // Test with long TTL
-            $result3 = $this->cache->cached($testObject, ['long_ttl'], 86400);
+
+            $this->cache->cached($this->callable, ['long_ttl'], 86400);
             echo "✓ cached() with long TTL works\n";
-            
-        } catch (Exception $e) {
+        } catch (\Throwable $e) {
             echo "✗ Error: " . $e->getMessage() . "\n";
         }
-        
+
         echo "\n";
     }
-    
-    /**
-     * Test caching complex objects
-     */
+
     public function testComplexObjectCaching()
     {
         echo "Testing Complex Object Caching:\n";
-        
+
         try {
-            if (!$this->cache) {
-                $this->cache = new Cache(['type' => 'memory']);
+            $this->cache = $this->makeCache();
+            $this->store->clear();
+
+            $result1 = $this->cache->processCached($this->callable, [['key1' => 'value1']]);
+            if (!is_array($result1)) {
+                throw new RuntimeException('processCached with array arg failed');
             }
-            
-            // Test with array
-            $testArray = ['key1' => 'value1', 'key2' => ['nested' => 'data']];
-            $result1 = $this->cache->cached($testArray, ['array_test']);
-            echo "✓ cached() with array works\n";
-            
-            // Test with nested object
-            $nestedObject = new stdClass();
-            $nestedObject->child = new stdClass();
-            $nestedObject->child->data = 'nested data';
-            $result2 = $this->cache->cached($nestedObject, ['nested_test']);
-            echo "✓ cached() with nested object works\n";
-            
-            // Test with closure (if supported)
-            $closure = function($param) {
-                return "Closure result: $param";
-            };
-            $result3 = $this->cache->cached($closure, ['closure_test'], 3600);
-            echo "✓ cached() with closure works\n";
-            
-        } catch (Exception $e) {
+            echo "✓ processCached() with array argument works\n";
+
+            $result2 = $this->cache->processCached($this->callable, ['nested']);
+            if (!is_array($result2)) {
+                throw new RuntimeException('processCached nested call failed');
+            }
+            echo "✓ processCached() with scalar argument works\n";
+        } catch (\Throwable $e) {
             echo "✗ Error: " . $e->getMessage() . "\n";
         }
-        
+
         echo "\n";
     }
-    
-    /**
-     * Test cache modes
-     */
+
     public function testCacheModes()
     {
         echo "Testing Different Cache Modes:\n";
-        
+
         try {
-            if (!$this->cache) {
-                $this->cache = new Cache(['type' => 'memory']);
-            }
-            
-            $testObject = new stdClass();
-            $testObject->data = 'mode test';
+            $this->cache = $this->makeCache();
+            $this->store->clear();
+
             $args = ['mode_test'];
-            $versionField = 'version';
+            $versionField = ['user', 1];
             $ttl = 3600;
-            
-            // Test with different modes
-            $modes = ['default', 'strict', 'loose'];
-            
-            foreach ($modes as $mode) {
-                $result = $this->cache->cachedVersion($testObject, $args, $versionField, $ttl, $mode);
-                echo "✓ cachedVersion() with mode '$mode' works\n";
-            }
-            
-        } catch (Exception $e) {
+
+            // mode is bool (strict element-count check when true)
+            $this->cache->cachedVersion($this->callable, $args, $versionField, $ttl, false);
+            echo "✓ cachedVersion() with mode false works\n";
+
+            $this->cache->cachedVersion($this->callable, $args, $versionField, $ttl, true);
+            echo "✓ cachedVersion() with mode true works\n";
+        } catch (\Throwable $e) {
             echo "✗ Error: " . $e->getMessage() . "\n";
         }
-        
+
         echo "\n";
     }
-    
-    /**
-     * Test error handling
-     */
+
     public function testErrorHandling()
     {
         echo "Testing Error Handling:\n";
-        
+
         try {
-            if (!$this->cache) {
-                $this->cache = new Cache(['type' => 'memory']);
+            $this->cache = $this->makeCache();
+
+            // Non-array callable object is ignored by gene_cache_call → null
+            $result = $this->cache->cached(new stdClass(), ['null_test']);
+            echo "✓ cached() handles non-array object gracefully (returns " . var_export($result, true) . ")\n";
+
+            $result2 = $this->cache->cached($this->callable, null);
+            echo "✓ cached() handles null arguments gracefully (returns " . var_export($result2, true) . ")\n";
+
+            $empty = new Cache([]);
+            $result3 = $empty->cached($this->callable, ['x']);
+            if ($result3 !== null) {
+                throw new RuntimeException('empty config should make cached() return null');
             }
-            
-            // Test with null object
-            try {
-                $result = $this->cache->cached(null, ['null_test']);
-                echo "✓ cached() handles null object gracefully\n";
-            } catch (Exception $e) {
-                echo "✓ cached() properly throws exception for null object\n";
-            }
-            
-            // Test with invalid arguments
-            try {
-                $result = $this->cache->cached(new stdClass(), null);
-                echo "✓ cached() handles null arguments gracefully\n";
-            } catch (Exception $e) {
-                echo "✓ cached() properly handles invalid arguments\n";
-            }
-            
-        } catch (Exception $e) {
+            echo "✓ cached() without sign/hook returns null\n";
+        } catch (\Throwable $e) {
             echo "✗ Unexpected error: " . $e->getMessage() . "\n";
         }
-        
+
         echo "\n";
     }
-    
-    /**
-     * Test performance with multiple operations
-     */
+
     public function testPerformance()
     {
         echo "Testing Performance with Multiple Operations:\n";
-        
+
         try {
-            if (!$this->cache) {
-                $this->cache = new Cache(['type' => 'memory']);
-            }
-            
+            $this->cache = $this->makeCache();
+            $this->store->clear();
+
             $startTime = microtime(true);
-            
-            // Perform multiple cache operations
             for ($i = 0; $i < 100; $i++) {
-                $testObject = new stdClass();
-                $testObject->data = "performance test $i";
-                $result = $this->cache->cached($testObject, ["perf_test_$i"], 3600);
+                $this->cache->processCached($this->callable, ["perf_test_$i"], 3600);
             }
-            
-            $endTime = microtime(true);
-            $duration = ($endTime - $startTime) * 1000; // Convert to milliseconds
-            
-            echo "✓ 100 cache operations completed in " . number_format($duration, 2) . "ms\n";
-            
-        } catch (Exception $e) {
+            $duration = (microtime(true) - $startTime) * 1000;
+
+            echo "✓ 100 processCached operations completed in " . number_format($duration, 2) . "ms\n";
+        } catch (\Throwable $e) {
             echo "✗ Error: " . $e->getMessage() . "\n";
         }
-        
+
         echo "\n";
     }
-    
-    /**
-     * Test cache configuration variations
-     */
+
     public function testCacheConfigurations()
     {
         echo "Testing Different Cache Configurations:\n";
-        
+
         try {
-            // Test with memory cache
-            $memoryCache = new Cache(['type' => 'memory']);
-            echo "✓ Memory cache configuration works\n";
-            
-            // Test with custom prefix
-            $prefixedCache = new Cache(['type' => 'memory', 'prefix' => 'custom_']);
-            echo "✓ Cache with custom prefix works\n";
-            
-            // Test with additional options
-            $optionsCache = new Cache([
-                'type' => 'memory',
-                'prefix' => 'opts_',
-                'serialize' => true,
-                'compression' => false
+            $memoryCache = $this->makeCache();
+            echo "✓ Cache with sign/hook configuration works\n";
+
+            $hashed = $this->makeCache(['hash_mode' => 1]);
+            $hashed->processCached($this->callable, ['hash_mode_test']);
+            echo "✓ Cache with hash_mode works\n";
+
+            $full = $this->makeCache([
+                'hash_mode' => 2,
+                'versionSign' => 'database:',
             ]);
             echo "✓ Cache with multiple options works\n";
-            
-        } catch (Exception $e) {
+            unset($memoryCache, $full);
+        } catch (\Throwable $e) {
             echo "✗ Error: " . $e->getMessage() . "\n";
         }
-        
+
         echo "\n";
     }
-    
-    /**
-     * Run all tests
-     */
+
     public function runAllTests()
     {
         $this->testConstructor();
@@ -396,12 +403,11 @@ class CacheTest
         $this->testErrorHandling();
         $this->testPerformance();
         $this->testCacheConfigurations();
-        
+
         echo "=== Cache Test Suite Complete ===\n";
     }
 }
 
-// Run the tests if this file is executed directly
 if (basename(__FILE__) === basename($_SERVER['SCRIPT_NAME'])) {
     $test = new CacheTest();
     $test->runAllTests();
