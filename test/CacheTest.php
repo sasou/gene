@@ -6,7 +6,7 @@
  * This test file covers the important methods of the Gene\Cache class
  */
 
-use Gene\Cache;
+use Gene\Cache\Cache;
 
 class CacheTest
 {

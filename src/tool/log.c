@@ -118,11 +118,13 @@ static zend_long gene_log_get_effective_level(void) {
 			return ctx->log_level;
 		}
 	}
-	/* [GENE_FIX:2026-05-06] PHP 8.1 may lazily allocate static_members_table
-	 * for internal classes; direct slot access must guard against NULL. */
-	if (gene_log_ce && CE_STATIC_MEMBERS(gene_log_ce)) {
-		zval *prop_level = gene_log_static_slot(gene_log_sp_offset_level);
-		if (Z_TYPE_P(prop_level) == IS_LONG) {
+	/* [GENE_FIX:2026-07-12] Use zend_read_static_property instead of direct
+	 * slot access — PHP 8.1+ lazily allocates static_members_table for internal
+	 * classes, so CE_STATIC_MEMBERS() may be NULL until first property access
+	 * through the standard API. */
+	if (gene_log_ce) {
+		zval *prop_level = zend_read_static_property(gene_log_ce, ZEND_STRL("level"), 1);
+		if (prop_level && Z_TYPE_P(prop_level) == IS_LONG) {
 			return Z_LVAL_P(prop_level);
 		}
 	}
@@ -138,11 +140,11 @@ static const char *gene_log_get_effective_file(void) {
 			return ctx->log_file;
 		}
 	}
-	/* [GENE_FIX:2026-05-06] Guard against lazy-allocated static_members_table
-	 * (same root cause as gene_log_get_effective_level). */
-	if (gene_log_ce && CE_STATIC_MEMBERS(gene_log_ce)) {
-		zval *prop_file = gene_log_static_slot(gene_log_sp_offset_file);
-		if (Z_TYPE_P(prop_file) == IS_STRING && Z_STRLEN_P(prop_file) > 0) {
+	/* [GENE_FIX:2026-07-12] Use zend_read_static_property (same lazy-alloc fix
+	 * as gene_log_get_effective_level). */
+	if (gene_log_ce) {
+		zval *prop_file = zend_read_static_property(gene_log_ce, ZEND_STRL("file"), 1);
+		if (prop_file && Z_TYPE_P(prop_file) == IS_STRING && Z_STRLEN_P(prop_file) > 0) {
 			return Z_STRVAL_P(prop_file);
 		}
 	}
@@ -365,9 +367,11 @@ PHP_METHOD(gene_log, setFile) {
 		}
 	}
 	{
-		zval *slot = gene_log_static_slot(gene_log_sp_offset_file);
-		zval_ptr_dtor(slot);
-		ZVAL_STR_COPY(slot, file);
+		/* [GENE_FIX:2026-07-12] Use zend_update_static_property instead of
+		 * direct slot access (same lazy-allocation issue as setLevel). */
+		zval zfile;
+		ZVAL_STR_COPY(&zfile, file);
+		zend_update_static_property(gene_log_ce, ZEND_STRL("file"), &zfile);
 	}
 }
 /* }}} */
@@ -401,9 +405,14 @@ PHP_METHOD(gene_log, setLevel) {
 		}
 	}
 	{
-		zval *slot = gene_log_static_slot(gene_log_sp_offset_level);
-		zval_ptr_dtor(slot);
-		ZVAL_LONG(slot, level);
+		/* [GENE_FIX:2026-07-12] Use zend_update_static_property_long instead of
+		 * direct slot access. PHP 8.1+ lazily allocates static_members_table for
+		 * internal classes; the direct slot write via gene_log_static_slot either
+		 * segfaults (no guard) or silently no-ops (with guard) when the table is
+		 * NULL. zend_update_static_property_long handles lazy allocation safely. */
+		zval zlevel;
+		ZVAL_LONG(&zlevel, level);
+		zend_update_static_property(gene_log_ce, ZEND_STRL("level"), &zlevel);
 	}
 }
 /* }}} */

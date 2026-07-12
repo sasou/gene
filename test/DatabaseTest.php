@@ -10,8 +10,7 @@
 use Gene\Db\Mysql;
 use Gene\Db\Pgsql;
 use Gene\Db\Sqlite;
-use Gene\Db\Pdo;
-use Gene\Db\Pool;
+use Gene\Pool;
 
 class DatabaseTest
 {
@@ -35,13 +34,11 @@ class DatabaseTest
         
         try {
             // Test MySQL constructor
+            // Config requires 'dsn', 'username', 'password' keys (E_ERROR if missing)
             $config = [
-                'host' => 'localhost',
-                'port' => 3306,
-                'database' => 'test_db',
+                'dsn' => 'mysql:host=localhost;port=3306;dbname=test_db;charset=utf8mb4',
                 'username' => 'test_user',
                 'password' => 'test_pass',
-                'charset' => 'utf8mb4'
             ];
             
             $this->mysql = new Mysql($config);
@@ -129,10 +126,9 @@ class DatabaseTest
         
         try {
             // Test PostgreSQL constructor
+            // Config requires 'dsn', 'username', 'password' keys (E_ERROR if missing)
             $config = [
-                'host' => 'localhost',
-                'port' => 5432,
-                'database' => 'test_db',
+                'dsn' => 'pgsql:host=localhost;port=5432;dbname=test_db',
                 'username' => 'test_user',
                 'password' => 'test_pass'
             ];
@@ -181,9 +177,11 @@ class DatabaseTest
         
         try {
             // Test SQLite constructor
+            // Config requires 'dsn', 'username', 'password' keys (E_ERROR if missing)
             $config = [
-                'database' => ':memory:', // In-memory database
-                'flags' => SQLITE3_OPEN_READWRITE | SQLITE3_OPEN_CREATE
+                'dsn' => 'sqlite::memory:',
+                'username' => '',
+                'password' => ''
             ];
             
             $this->sqlite = new Sqlite($config);
@@ -221,16 +219,16 @@ class DatabaseTest
     }
     
     /**
-     * Test PDO class
+     * Test PDO class (using PHP's native PDO — Gene\Db\Pdo is not a registered class)
      */
     public function testPdoClass()
     {
         echo "Testing PDO Class:\n";
         
         try {
-            // Test PDO constructor with MySQL
+            // Test PDO constructor with MySQL (will fail to connect — expected in test env)
             $mysqlDsn = 'mysql:host=localhost;dbname=test_db;charset=utf8mb4';
-            $this->pdo = new Pdo($mysqlDsn, 'test_user', 'test_pass');
+            $this->pdo = new PDO($mysqlDsn, 'test_user', 'test_pass');
             echo "✓ PDO constructor with MySQL DSN works\n";
             
             // Test connection
@@ -339,7 +337,7 @@ class DatabaseTest
         echo "Testing Database Query Builder:\n";
         
         try {
-            $db = new Mysql(['host' => 'localhost']);
+            $db = new Mysql(['dsn' => 'mysql:host=localhost;dbname=test_db', 'username' => 'test_user', 'password' => 'test_pass']);
             
             // Test SELECT builder
             $query = $db->select('id, name, email')
@@ -406,7 +404,7 @@ class DatabaseTest
         echo "Testing Database Migrations:\n";
         
         try {
-            $db = new Mysql(['host' => 'localhost']);
+            $db = new Mysql(['dsn' => 'mysql:host=localhost;dbname=test_db', 'username' => 'test_user', 'password' => 'test_pass']);
             
             // Test migration table creation
             $db->exec('
@@ -466,7 +464,7 @@ class DatabaseTest
         echo "Testing Database Security:\n";
         
         try {
-            $db = new Mysql(['host' => 'localhost']);
+            $db = new Mysql(['dsn' => 'mysql:host=localhost;dbname=test_db', 'username' => 'test_user', 'password' => 'test_pass']);
             
             // Test SQL injection prevention
             $maliciousInput = "'; DROP TABLE users; --";
@@ -486,8 +484,8 @@ class DatabaseTest
             }
             
             // Test privilege separation (simulation)
-            $readOnlyDb = new Mysql(['host' => 'localhost', 'username' => 'readonly_user']);
-            $writeOnlyDb = new Mysql(['host' => 'localhost', 'username' => 'write_user']);
+            $readOnlyDb = new Mysql(['dsn' => 'mysql:host=localhost;dbname=test_db', 'username' => 'readonly_user', 'password' => '']);
+            $writeOnlyDb = new Mysql(['dsn' => 'mysql:host=localhost;dbname=test_db', 'username' => 'write_user', 'password' => '']);
             echo "✓ Privilege separation simulation works\n";
             
             // Test connection encryption
@@ -516,7 +514,7 @@ class DatabaseTest
         echo "Testing Database Performance:\n";
         
         try {
-            $db = new Mysql(['host' => 'localhost']);
+            $db = new Mysql(['dsn' => 'mysql:host=localhost;dbname=test_db', 'username' => 'test_user', 'password' => 'test_pass']);
             
             // Test query performance
             $startTime = microtime(true);
@@ -555,7 +553,7 @@ class DatabaseTest
             echo "✓ 10 inserts in transaction in " . number_format($duration, 2) . "ms\n";
             
             // Test connection pool performance
-            $pool = new Pool(['min_connections' => 5, 'max_connections' => 20]);
+            $pool = new Pool(['min_connections' => 5, 'max_connections' => 20, 'dsn' => 'mysql:host=localhost;dbname=test_db', 'username' => 'test_user', 'password' => 'test_pass']);
             $pool->initialize();
             
             $startTime = microtime(true);

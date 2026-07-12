@@ -92,25 +92,28 @@ class LogTest
         echo "Testing Log Level Management:\n";
         
         try {
-            // Test setLevel
-            Log::setLevel(LOG_DEBUG);
-            echo "✓ setLevel(LOG_DEBUG) works\n";
+            // Test setLevel using Gene\Log class constants (1=DEBUG .. 5=ERROR)
+            Log::setLevel(Log::LEVEL_DEBUG);
+            echo "✓ setLevel(LEVEL_DEBUG) works\n";
             
-            Log::setLevel(LOG_INFO);
-            echo "✓ setLevel(LOG_INFO) works\n";
+            Log::setLevel(Log::LEVEL_INFO);
+            echo "✓ setLevel(LEVEL_INFO) works\n";
             
-            Log::setLevel(LOG_WARNING);
-            echo "✓ setLevel(LOG_WARNING) works\n";
+            Log::setLevel(Log::LEVEL_NOTICE);
+            echo "✓ setLevel(LEVEL_NOTICE) works\n";
             
-            Log::setLevel(LOG_ERR);
-            echo "✓ setLevel(LOG_ERR) works\n";
+            Log::setLevel(Log::LEVEL_WARNING);
+            echo "✓ setLevel(LEVEL_WARNING) works\n";
+            
+            Log::setLevel(Log::LEVEL_ERROR);
+            echo "✓ setLevel(LEVEL_ERROR) works\n";
             
             // Test getLevel
             $level = Log::getLevel();
             echo "✓ getLevel() returns: " . $level . "\n";
             
-            // Test with numeric levels
-            $levels = [0, 1, 2, 3, 4, 5, 6, 7];
+            // Test with numeric levels (valid range is 1-5)
+            $levels = [1, 2, 3, 4, 5];
             foreach ($levels as $level) {
                 Log::setLevel($level);
                 $currentLevel = Log::getLevel();
@@ -175,27 +178,27 @@ class LogTest
             Log::info("Simple string message");
             echo "✓ String message works\n";
             
-            // Test with numeric messages
-            Log::info(12345);
+            // Test with numeric messages (cast to string — Log::info requires string)
+            Log::info((string)12345);
             echo "✓ Numeric message works\n";
             
-            // Test with boolean messages
-            Log::info(true);
+            // Test with boolean messages (cast to string)
+            Log::info((string)true);
             echo "✓ Boolean message works\n";
             
-            // Test with array messages (if supported)
+            // Test with array messages (Log::info requires string, cast via json_encode)
             try {
-                Log::info(['key' => 'value', 'number' => 42]);
+                Log::info(json_encode(['key' => 'value', 'number' => 42]));
                 echo "✓ Array message works\n";
             } catch (Exception $e) {
                 echo "✓ Array message handled gracefully\n";
             }
             
-            // Test with object messages (if supported)
+            // Test with object messages (Log::info requires string, cast via json_encode)
             try {
                 $object = new stdClass();
                 $object->property = 'value';
-                Log::info($object);
+                Log::info(json_encode($object));
                 echo "✓ Object message works\n";
             } catch (Exception $e) {
                 echo "✓ Object message handled gracefully\n";
@@ -230,7 +233,7 @@ class LogTest
         
         try {
             // Set level to DEBUG (should log everything)
-            Log::setLevel(LOG_DEBUG);
+            Log::setLevel(Log::LEVEL_DEBUG);
             Log::debug("Debug message at DEBUG level");
             Log::info("Info message at DEBUG level");
             Log::warning("Warning message at DEBUG level");
@@ -238,7 +241,7 @@ class LogTest
             echo "✓ All messages logged at DEBUG level\n";
             
             // Set level to INFO (should skip DEBUG)
-            Log::setLevel(LOG_INFO);
+            Log::setLevel(Log::LEVEL_INFO);
             Log::debug("Debug message at INFO level (should be skipped)");
             Log::info("Info message at INFO level");
             Log::warning("Warning message at INFO level");
@@ -246,7 +249,7 @@ class LogTest
             echo "✓ Messages filtered at INFO level\n";
             
             // Set level to WARNING (should skip DEBUG and INFO)
-            Log::setLevel(LOG_WARNING);
+            Log::setLevel(Log::LEVEL_WARNING);
             Log::debug("Debug message at WARNING level (should be skipped)");
             Log::info("Info message at WARNING level (should be skipped)");
             Log::warning("Warning message at WARNING level");
@@ -254,7 +257,7 @@ class LogTest
             echo "✓ Messages filtered at WARNING level\n";
             
             // Set level to ERROR (should only log errors)
-            Log::setLevel(LOG_ERR);
+            Log::setLevel(Log::LEVEL_ERROR);
             Log::debug("Debug message at ERROR level (should be skipped)");
             Log::info("Info message at ERROR level (should be skipped)");
             Log::warning("Warning message at ERROR level (should be skipped)");
@@ -291,7 +294,7 @@ class LogTest
             // Test with different log levels
             $startTime = microtime(true);
             
-            Log::setLevel(LOG_DEBUG);
+            Log::setLevel(Log::LEVEL_DEBUG);
             for ($i = 0; $i < 100; $i++) {
                 Log::debug("Debug message $i");
                 Log::info("Info message $i");
