@@ -8,17 +8,6 @@ use Gene\Response;
 
 class Monitor extends Controller
 {
-    private $started;
-
-    /**
-     * F3 演示：Yaf 风格生命周期钩子。
-     * 路由直派实例化控制器后、调用 action 前由框架自动调用一次。
-     */
-    public function init()
-    {
-        $this->started = microtime(true);
-    }
-
     /**
      * F2 演示：聚合可观测出口
      * GET /monitor
@@ -28,8 +17,9 @@ class Monitor extends Controller
      */
     public function index()
     {
+        $started = microtime(true);
         $stats = GeneMonitor::stats();
-        $stats['elapsed_ms'] = round((microtime(true) - $this->started) * 1000, 3);
+        $stats['elapsed_ms'] = round((microtime(true) - $started) * 1000, 3);
         Response::json($stats);
     }
 }

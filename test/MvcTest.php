@@ -33,11 +33,7 @@ class MvcTest
             // Test Controller constructor
             $this->controller = new Controller();
             echo "✓ Controller constructor works\n";
-            
-            // Test initialization methods
-            $this->controller->init();
-            echo "✓ init() method works\n";
-            
+
             // Test request handling
             $this->controller->beforeAction();
             echo "✓ beforeAction() method works\n";

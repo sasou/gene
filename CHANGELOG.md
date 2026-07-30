@@ -10,7 +10,6 @@
 
 - **`Gene\Monitor` 聚合可观测出口（F2）**：新增 `Gene\Monitor::stats(): array`，单一入口聚合 Memory 分区统计（缓存/协程上下文/ctx pool/sweep 遥测）、命名 DB 连接池、命名 Redis 连接池与请求计数（`requests.count`/`requests.errors`），并承载 L1 的 `redis_pool_cas_abandoned` 与 F1 的 `swoole_auto_cleanup_*` 计数器。纯读、零副作用。demo 新增 `/monitor` 端点示例。
 - **Swoole 协程自动 cleanup 兜底（F1，opt-in）**：`gene.swoole_auto_cleanup=1`（默认关）时，首次为某协程分配 ctx 即注册一次性 `Swoole\Coroutine::defer` 归还回调，ctx 生命周期与协程生命周期严格绑定，覆盖 `run()`、`Swoole\Timer` tick、task worker、用户自建协程等全部入口；业务漏调 `cleanup()` 不再造成上下文驻留。defer 回调直接操作 `co_contexts`（不经 `gene_request_ctx()`，避免重新登记），与手动 cleanup 严格幂等。defer 不可用（旧版 Swoole）时降级为 `Application::run()` 派发后归还（`run_depth` 守卫嵌套 run 不误清；业务已手动 cleanup 时为 O(1) no-op）。
-- **Controller 生命周期 `init()` 钩子（F3）**：`Gene\Controller` 基类新增空实现 `init()`（Yaf 同语义）；路由直派路径（`dispatch_direct` 与 `Router::dispatch()`）在实例化控制器后、调用 action 前自动调用一次。子类可重写 `init()` 而无需维护 `__construct` 签名。仅作用于 `Gene\Controller` 子类，普通 `Class@action` 直派目标不受影响；`init()` 抛异常时不再调用 action。
 - **`Gene\Validate::extend()` 自定义规则扩展点（F5）**：`Validate::extend(string $rule, callable $fn)` 注册用户规则表，规则分派先查用户表再落内置 `rule_*` 表，解除内置规则集封闭性。回调签名 `fn($value, ...$args): bool`，返回 `false` 判定校验失败，消息回退链与内置规则一致（规则 msg → 字段 msg → 通用模板）。注册表生命周期与 fn_cache 一致：FPM 请求级、Swoole worker 级。
 - **`cache_easy` TTL 治理（F6）**：新增 `gene.cache_easy_ttl` INI（秒，默认 `0` = 关闭，完全向后兼容）。`cache_easy` 条目读时惰性过期：超过 TTL 的条目在 `Application::load()` 读取时删除并经未命中分支重新导入，为动态 load 键的表规模提供上界；过期计数经 `cache_easy_expired` 可观测。
 
@@ -26,19 +25,22 @@
 - **内部 defer 回调自防护（D3）**：`gene_auto_cleanup_defer()` 因 `Coroutine::defer` 需字符串 callable 而注册为全局函数，业务直接调用可提前销毁当前协程 ctx。现补 `gene.swoole_auto_cleanup` 开关门控（关闭时调用为 no-op），并标注 `@internal`、在 `swoole.md` 明示禁止业务调用。
 - **defer 不可用降级显式化（D4）**：`gene.swoole_auto_cleanup` 在旧版 Swoole（无 `Coroutine::defer`）下仅覆盖 `Application::run()` 入口。现解析失败时按 once 模式（每 worker 一次）发 `E_NOTICE` 提示覆盖缺口；`swoole.md` 已显式声明该场景下非 run 协程仍须手动 `cleanup(true)`。
 
+### ⏪ 回退
+
+- **Controller 生命周期 `init()` 钩子（F3）已回退**：该特性使 `init` 成为框架保留方法名，与存量业务中将 `init()` 用作普通 action 的控制器冲突（每次 action 派发前被自动调用：公开路由下 DI 尚未注入依赖即触发业务逻辑报错；带必填参数的 `init($params)` 被 0 参数调用直接抛 `ArgumentCountError`）。且基类 `__construct` 本身零开销、子类可自由重写，该钩子无实际收益，故完整移除（router.c helper 及两处调用点、基类 `init()` 方法、demo 与测试同步还原）。
+
 ### 🔧 修改文件一览
 
 - `src/cache/redis_pool.c` / `src/db/pool.c` — L1 CAS 放弃计数器 + once 告警
-- `src/router/router.c` / `src/http/validate.c` — F3 直派 init 钩子；F5 Validate::extend
+- `src/router/router.c` / `src/http/validate.c` — F5 Validate::extend
 - `src/tool/log.c` — L4 log.c rv 槽修正
 - `src/tool/monitor.c` / `src/tool/monitor.h` — F2 新增 `Gene\Monitor` 聚合出口；D1 引用计数透支修复
 - `src/session/session.c` — H1 删除插件方法静态缓存，对齐 cache.c 直查
-- `src/mvc/controller.c` — F3 基类 `init()` 方法
 - `src/app/application.c` — F1 run() 降级归还 + 请求计数；F6 cache_easy 惰性过期
 - `src/cache/memory.c` — `Memory::stats()` 新增 `co_contexts_sweep_skipped`
 - `src/gene.c` / `src/gene.h` — 版本号升至 5.6.9；F1 defer 注册/回调、D2 sweep mark 修正、D3 defer 自防护、D4 defer 降级 NOTICE、F5 注册表生命周期、F2 计数器、`gene.swoole_auto_cleanup` / `gene.cache_easy_ttl` INI
 - `src/config.m4` / `src/config.w32` — 新增 tool/monitor.c 编译单元
-- `demo/application/Controllers/Monitor.php` / `demo/config/router.ini.php` — `/monitor` 端点示例（含 F3 init 演示）
+- `demo/application/Controllers/Monitor.php` / `demo/config/router.ini.php` — `/monitor` 端点示例
 - `gene-ide-helper/Gene/{Monitor,Controller,Validate}.php` — 新 API 存根同步
 - `gene-ai-helper/skills/gene-framework/swoole.md` — D4 自动 cleanup 降级说明 + @internal 声明
 

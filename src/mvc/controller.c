@@ -579,17 +579,6 @@ PHP_METHOD(gene_controller, assign) {
 }
 /* }}} */
 
-/** {{{ proto public gene_controller::init()
- * [GENE_FEATURE:2026-07-30 F3] Yaf-style lifecycle hook. No-op in the base
- * class; subclasses override it instead of __construct (no signature
- * maintenance). The router direct-dispatch paths invoke init() once after
- * instantiation, before the action.
- */
-PHP_METHOD(gene_controller, init) {
-	RETURN_NULL();
-}
-/* }}} */
-
 /*
  * {{{ gene_controller
  */
@@ -642,7 +631,6 @@ PHP_METHOD(gene_controller, __get)
  */
 const zend_function_entry gene_controller_methods[] = {
 	PHP_ME(gene_controller, __construct, gene_controller_void_arginfo, ZEND_ACC_PUBLIC)
-	PHP_ME(gene_controller, init, gene_controller_void_arginfo, ZEND_ACC_PUBLIC)
 	PHP_ME(gene_controller, get, gene_controller_param_get, ZEND_ACC_PUBLIC|ZEND_ACC_STATIC)
 	PHP_ME(gene_controller, request, gene_controller_param_get, ZEND_ACC_PUBLIC|ZEND_ACC_STATIC)
 	PHP_ME(gene_controller, post, gene_controller_param_get, ZEND_ACC_PUBLIC|ZEND_ACC_STATIC)
