@@ -14,16 +14,43 @@
 - **Redis 连接池**：改进 `redis_pool.c` 连接池管理与复用策略。
 - **路由 / 视图 / 响应**：精简 `router.c`、`view.c`、`response.c` 头部操作与渲染路径。
 - **Benchmark / Log**：基准与日志工具性能调优，并同步标识符引用改进。
+- **协程上下文 sweep 冷却（M1）**：`gene_request_ctx()` 此前在协程上下文表达到 `gene.co_contexts_max` 后，每次新协程分配都触发一次 O(N) 全表存活扫描；活跃协程持续超 cap 时（cap 偏小或漏调 cleanup 且协程长命）形成 O(N²) 放大与 p99 毛刺。现引入冷却：仅当距上次 sweep 新增 ctx 分配数超过 `cap/4`、或表规模较上次 sweep 水位增长 `cap/4` 时才重新扫描；被抑制的触发计入 `co_contexts_sweep_skipped`（经 `Memory::stats()` / `Monitor::stats()` 可观测）。
+- **sweep victims 栈分批（L2）**：`gene_co_contexts_sweep()` 的 victims 收集由 `emalloc(total)` 改为 256/批栈上分批，消除大 cap（如 8192）下单次 ~64KB 瞬态分配。
+
+### 🔒 安全（2026-07-30 审计修复）
+
+- **Session 插件方法静态缓存跨请求 UAF（H1）**：`gene_session_call_method()` 原以 4 槽静态数组缓存「用户态 session 存储插件的 (ce, method) → zend_function\*」。FPM 无 opcache / `opcache.file_cache_only=1` / CLI 下用户态 CE 随请求释放，静态槽位跨请求悬空，下一请求同地址重建该类即构成 use-after-free（与 2026-05-29 view.c 已修复问题同型；ZTS 下另跨线程共享）。已删除该静态缓存，改为与 `cache.c` 一致的每次 `zend_hash_find_ptr` 直查——4 次查找仅发生于 session get/set/save/delete 非热路径，且对 opcache 状态、SAPI、ZTS 全部免疫。
+
+### ✨ 新增（2026-07-30 审计落地）
+
+- **`Gene\Monitor` 聚合可观测出口（F2）**：新增 `Gene\Monitor::stats(): array`，单一入口聚合 Memory 分区统计（缓存/协程上下文/ctx pool/sweep 遥测）、命名 DB 连接池、命名 Redis 连接池与请求计数（`requests.count`/`requests.errors`），并承载 L1 的 `redis_pool_cas_abandoned` 与 F1 的 `swoole_auto_cleanup_*` 计数器。纯读、零副作用。demo 新增 `/monitor` 端点示例。
+- **Swoole 协程自动 cleanup 兜底（F1，opt-in）**：`gene.swoole_auto_cleanup=1`（默认关）时，首次为某协程分配 ctx 即注册一次性 `Swoole\Coroutine::defer` 归还回调，ctx 生命周期与协程生命周期严格绑定，覆盖 `run()`、`Swoole\Timer` tick、task worker、用户自建协程等全部入口；业务漏调 `cleanup()` 不再造成上下文驻留。defer 回调直接操作 `co_contexts`（不经 `gene_request_ctx()`，避免重新登记），与手动 cleanup 严格幂等。defer 不可用（旧版 Swoole）时降级为 `Application::run()` 派发后归还（`run_depth` 守卫嵌套 run 不误清；业务已手动 cleanup 时为 O(1) no-op）。
+- **Controller 生命周期 `init()` 钩子（F3）**：`Gene\Controller` 基类新增空实现 `init()`（Yaf 同语义）；路由直派路径（`dispatch_direct` 与 `Router::dispatch()`）在实例化控制器后、调用 action 前自动调用一次。子类可重写 `init()` 而无需维护 `__construct` 签名。仅作用于 `Gene\Controller` 子类，普通 `Class@action` 直派目标不受影响；`init()` 抛异常时不再调用 action。
+- **`Gene\Validate::extend()` 自定义规则扩展点（F5）**：`Validate::extend(string $rule, callable $fn)` 注册用户规则表，规则分派先查用户表再落内置 `rule_*` 表，解除内置规则集封闭性。回调签名 `fn($value, ...$args): bool`，返回 `false` 判定校验失败，消息回退链与内置规则一致（规则 msg → 字段 msg → 通用模板）。注册表生命周期与 fn_cache 一致：FPM 请求级、Swoole worker 级。
+- **`cache_easy` TTL 治理（F6）**：新增 `gene.cache_easy_ttl` INI（秒，默认 `0` = 关闭，完全向后兼容）。`cache_easy` 条目读时惰性过期：超过 TTL 的条目在 `Application::load()` 读取时删除并经未命中分支重新导入，为动态 load 键的表规模提供上界；过期计数经 `cache_easy_expired` 可观测。
+
+### 🐞 修复（2026-07-30 审计修复）
+
+- **RedisPool CAS 放弃计数可观测化（L1）**：`rpool_decrement_count()` CAS 重试 64 轮后原为静默放弃（计数偏高不可观测）。现计入 `redis_pool_cas_abandoned`（经 `Monitor::stats()` 出口），并沿用 `co_contexts_cap_warned` 的 once 模式仅在计数 0→1 时告警一次，避免常驻 worker 日志淹没。
+- **Log::exception rv 槽泄漏（L4）**：`zend_read_property` 的 rv1/rv2/rv3 槽未初始化且读回后从不 dtor；传入带魔术 `__get` 的 Throwable 子类时临时值写入 rv 即确定性泄漏。现三个 rv 先 `ZVAL_UNDEF`、拷贝完成后逐个 `zval_ptr_dtor`。
 
 ### 🔧 修改文件一览
 
 - `src/db/pdo.c` — 标识符引用强化（JOIN 检测 / 表达式白名单 / 引号配平）、连接处理修复
 - `src/common/common.c` / `common.h` — `strncpy` → `memcpy`
 - `src/db/{mysql,mssql,pgsql,sqlite}.c` — 连接处理优化
-- `src/cache/redis_pool.c` / `src/db/pool.c` — 连接池管理改进
-- `src/router/router.c` / `src/mvc/view.c` / `src/http/response.c` / `src/http/validate.c` — 路由 / 视图 / 响应 / 校验优化
-- `src/tool/benchmark.c` / `src/tool/log.c` — 工具性能与标识符引用同步
-- `src/gene.c` / `src/gene.h` — 版本号升至 5.6.8 及配套调整
+- `src/cache/redis_pool.c` / `src/db/pool.c` — 连接池管理改进；L1 CAS 放弃计数器 + once 告警
+- `src/router/router.c` / `src/mvc/view.c` / `src/http/response.c` / `src/http/validate.c` — 路由 / 视图 / 响应 / 校验优化；F3 直派 init 钩子；F5 Validate::extend
+- `src/tool/benchmark.c` / `src/tool/log.c` — 工具性能与标识符引用同步；L4 log.c rv 槽修正
+- `src/tool/monitor.c` / `src/tool/monitor.h` — F2 新增 `Gene\Monitor` 聚合出口
+- `src/session/session.c` — H1 删除插件方法静态缓存，对齐 cache.c 直查
+- `src/mvc/controller.c` — F3 基类 `init()` 方法
+- `src/app/application.c` — F1 run() 降级归还 + 请求计数；F6 cache_easy 惰性过期
+- `src/cache/memory.c` — `Memory::stats()` 新增 `co_contexts_sweep_skipped`
+- `src/gene.c` / `src/gene.h` — 版本号升至 5.6.8 及配套调整；M1 sweep 冷却、L2 栈分批、F1 defer 注册/回调、F5 注册表生命周期、F2 计数器、`gene.swoole_auto_cleanup` / `gene.cache_easy_ttl` INI
+- `src/config.m4` / `src/config.w32` — 新增 tool/monitor.c 编译单元
+- `demo/application/Controllers/Monitor.php` / `demo/config/router.ini.php` — `/monitor` 端点示例（含 F3 init 演示）
+- `gene-ide-helper/Gene/{Monitor,Controller,Validate}.php` — 新 API 存根同步
 
 ## [5.6.7]
 

@@ -60,8 +60,23 @@ class Validate
     }
 
     /**
+     * extend
+     *
+     * 注册自定义校验规则（5.6.8+）：规则分派先查用户表再落内置表。
+     * 回调签名 fn($value, ...$args): bool，返回 false 判定校验失败。
+     * FPM 下注册表为请求级；Swoole 下为 worker 级，建议在启动期注册一次。
+     *
+     * @param string $rule rule name
+     * @param callable $fn validator
+     * @return bool
+     */
+    public static function extend($rule, $fn) {
+
+    }
+
+    /**
      * addValidator
-     * 
+     *
      * @param mixed $name name
      * @param mixed $callback callback
      * @param mixed $msg msg

@@ -191,6 +191,22 @@ void load_file(char *key, size_t key_len, char *php_script, int validity) {
 				return;
 			}
 			cur = time(NULL);
+			/* [GENE_FEATURE:2026-07-30 F6] gene.cache_easy_ttl backstop
+			 * (seconds, 0 = disabled): lazily expire cache_easy entries
+			 * older than the TTL on read. Bounds the table for dynamic
+			 * load keys; the file is re-imported below via the
+			 * not-found branch. Expiries are counted in
+			 * cache_easy_expired (Gene\Monitor::stats). */
+			if (GENE_G(cache_easy_ttl) > 0
+					&& (cur - val->stime) > GENE_G(cache_easy_ttl)) {
+				GENE_CACHE_WRLOCK();
+				zend_hash_str_del(GENE_G(cache_easy), key, key_len);
+				GENE_CACHE_WRUNLOCK();
+				GENE_G(cache_easy_expired)++;
+				val = NULL;
+			}
+		}
+		if (val) {
 			times = cur - val->stime;
 			if (times > val->validity) {
 				/* [GENE_PERF:2026-04-17] Batch the 3 consecutive lock cycles into 2:
@@ -1374,7 +1390,37 @@ PHP_METHOD(gene_application, run) {
 			safe_str = GENE_G(app_root);
 			safe_len = GENE_G(app_root_len);
 		}
+		/* [GENE_FEATURE:2026-07-30 F2] Cumulative request telemetry for
+		 * Gene\Monitor::stats(). A pending exception after dispatch counts
+		 * as a request-level error. */
+		GENE_G(request_count)++;
+		GENE_G(run_depth)++;
 		get_router_content_run(min, pin, safe_str, safe_len);
+		GENE_G(run_depth)--;
+		if (EG(exception)) {
+			GENE_G(request_error_count)++;
+		}
+		/* [GENE_FEATURE:2026-07-30 F1] Degraded auto-cleanup path: when
+		 * Swoole\Coroutine::defer is unavailable (old Swoole / non-coroutine
+		 * context), reclaim the current coroutine's ctx after dispatch.
+		 * Outermost run() only — a nested run() must not clear state the
+		 * outer dispatch still relies on. O(1) no-op when the business
+		 * already called cleanup() (the hash delete simply misses). */
+		if (GENE_G(swoole_auto_cleanup) && GENE_G(runtime_type) >= 2
+				&& GENE_G(run_depth) == 0 && GENE_G(co_contexts)
+				&& GENE_G(swoole_defer_resolved) && !GENE_G(swoole_defer_func)) {
+			zend_long cid = gene_get_coroutine_id();
+			if (cid >= 0) {
+				if (GENE_G(current_cid) == cid) {
+					GENE_G(current_ctx) = NULL;
+					GENE_G(current_cid) = -1;
+					GENE_G(current_vm_stack) = NULL;
+				}
+				if (zend_hash_index_del(GENE_G(co_contexts), (zend_ulong)cid) == SUCCESS) {
+					GENE_G(swoole_auto_cleanup_reclaimed)++;
+				}
+			}
+		}
 	}
 	RETURN_ZVAL(self, 1, 0);
 }

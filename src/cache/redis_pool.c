@@ -440,15 +440,34 @@ static void rpool_decrement_count(zval *self)
 
         /* CAS loop: read val, if >0 atomically set val-1, retry on contention. */
         int rounds = 0;
+        zend_bool abandoned = 1;
         while (rounds++ < 64) {
             zval ret;
             ZVAL_UNDEF(&ret);
             rpool_atomic_call_fn(atomic, fn_get, 0, &ret);
             zend_long val = (Z_TYPE(ret) == IS_LONG) ? Z_LVAL(ret) : 0;
             if (!Z_ISUNDEF(ret)) zval_ptr_dtor(&ret);
-            if (val <= 0) break;
-            if (rpool_atomic_cmpset(atomic, fn_cmpset, val, val - 1)) break;
+            if (val <= 0) { abandoned = 0; break; }
+            if (rpool_atomic_cmpset(atomic, fn_cmpset, val, val - 1)) { abandoned = 0; break; }
             /* cmpset failed — another coroutine raced us; retry */
+        }
+        if (abandoned) {
+            /* [GENE_AUDIT:2026-07-30 L1] 64 CAS rounds exhausted: the counter
+             * stays one higher than reality. Previously this gave up silently,
+             * making a skewed counter unobservable. Under Swoole's cooperative
+             * scheduling Atomic get/cmpset never yields, so this is practically
+             * unreachable — a defense gap, not a live bug. No bare E_WARNING on
+             * every occurrence (long-running workers would drown in logs):
+             * count it (exported as redis_pool_cas_abandoned in
+             * Gene\Monitor::stats) and warn once via the
+             * co_contexts_cap_warned-style once pattern (0 -> 1 transition). */
+            if (GENE_G(redis_pool_cas_abandoned) == 0 && !GENE_G(redis_pool_cas_warned)) {
+                php_error_docref(NULL, E_WARNING,
+                    "Gene: RedisPool count CAS decrement abandoned after 64 rounds; "
+                    "counter may read high (see Gene\\Monitor::stats redis_pool_cas_abandoned)");
+                GENE_G(redis_pool_cas_warned) = 1;
+            }
+            GENE_G(redis_pool_cas_abandoned)++;
         }
     }
 }

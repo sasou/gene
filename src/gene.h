@@ -288,6 +288,52 @@ zend_ulong co_contexts_sweep_scanned;
 zend_ulong co_contexts_sweep_us;
 zend_bool cache_unlimited_noticed;
 zend_bool co_contexts_cap_warned;
+/* [GENE_PERF:2026-07-30 M1] Sweep cooldown state. Previously a new ctx
+ * allocation beyond gene.co_contexts_max triggered an O(N) sweep every
+ * time; when all entries are alive nothing is reclaimed and the next
+ * allocation re-triggers (O(N^2) under coroutine storms). Now a sweep is
+ * allowed only after cap/4 new ctx allocations since the last sweep, or
+ * when the table has grown by cap/4 past the size recorded at the last
+ * sweep. co_contexts_sweep_skipped counts cooldown-blocked triggers so
+ * the cooldown's effect is observable via Memory::stats / Monitor. */
+zend_ulong co_ctx_allocs_since_sweep;
+zend_ulong co_contexts_sweep_mark;
+zend_ulong co_contexts_sweep_skipped;
+/* [GENE_FEATURE:2026-07-30 F1] Opt-in Swoole coroutine defer auto-cleanup.
+ * When enabled (gene.swoole_auto_cleanup=1, default off), the first ctx
+ * allocation inside a coroutine registers a one-shot Swoole\Coroutine::defer
+ * callback that returns the ctx when the coroutine ends — binding ctx
+ * lifetime to coroutine lifetime even when userland forgets cleanup().
+ * swoole_defer_func is the lazily-resolved internal-class method (process
+ * lifetime, safe to cache per-thread); when defer is unavailable the
+ * Application::run() fallback cleans up post-dispatch (run_depth guards
+ * nested run() calls from premature cleanup). */
+zend_bool swoole_auto_cleanup;
+zend_function *swoole_defer_func;
+zend_bool swoole_defer_resolved;
+zend_ulong swoole_auto_cleanup_defers;
+zend_ulong swoole_auto_cleanup_reclaimed;
+zend_long run_depth;
+/* [GENE_AUDIT:2026-07-30 L1] RedisPool CAS decrement abandonment counter.
+ * rpool_decrement_count() gives up after 64 CAS rounds; previously silently.
+ * Now counted here (exported via Gene\Monitor::stats) and warned once via
+ * the co_contexts_cap_warned-style once pattern. */
+zend_ulong redis_pool_cas_abandoned;
+zend_bool redis_pool_cas_warned;
+/* [GENE_FEATURE:2026-07-30 F2] Cumulative request telemetry for
+ * Gene\Monitor::stats(). Incremented in Application::run(). */
+zend_ulong request_count;
+zend_ulong request_error_count;
+/* [GENE_FEATURE:2026-07-30 F5] User-registered Validate rule registry
+ * (Gene\Validate::extend). Request-scope in FPM (destroyed at RSHUTDOWN),
+ * worker-scope in Swoole — mirrors fn_cache lifetime policy. */
+HashTable *validate_ext;
+/* [GENE_FEATURE:2026-07-30 F6] Global TTL backstop for the cache_easy file
+ * table (gene.cache_easy_ttl, seconds, 0 = disabled). Expiry is lazy: an
+ * entry older than the TTL is deleted on read and the file re-imported.
+ * Populated from php.ini — do NOT zero in php_gene_init_globals. */
+zend_long cache_easy_ttl;
+zend_ulong cache_easy_expired;
 ZEND_END_MODULE_GLOBALS (gene)
  
  extern ZEND_DECLARE_MODULE_GLOBALS (gene);

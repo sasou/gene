@@ -55,6 +55,7 @@
 #include "factory/factory.h"
 #include "tool/benchmark.h"
 #include "tool/log.h"
+#include "tool/monitor.h"
 #include "cache/memcached.h"
 #include "cache/redis_pool.h"
 #include "cache/redis.h"
@@ -152,6 +153,8 @@ STD_PHP_INI_BOOLEAN("gene.swoole_getcid_capi", "1", PHP_INI_SYSTEM, OnUpdateBool
 STD_PHP_INI_ENTRY("gene.cache_max_items", "0", PHP_INI_SYSTEM, OnUpdateLong, cache_max_items, zend_gene_globals, gene_globals) // @suppress("Symbol is not resolved")
 STD_PHP_INI_BOOLEAN("gene.route_precompile", "0", PHP_INI_SYSTEM, OnUpdateBool, route_precompile, zend_gene_globals, gene_globals) // @suppress("Symbol is not resolved")
 STD_PHP_INI_ENTRY("gene.closure_src_cache_max", "1024", PHP_INI_SYSTEM, OnUpdateLong, closure_src_cache_max, zend_gene_globals, gene_globals) // @suppress("Symbol is not resolved")
+STD_PHP_INI_BOOLEAN("gene.swoole_auto_cleanup", "0", PHP_INI_SYSTEM, OnUpdateBool, swoole_auto_cleanup, zend_gene_globals, gene_globals) // @suppress("Symbol is not resolved")
+STD_PHP_INI_ENTRY("gene.cache_easy_ttl", "0", PHP_INI_SYSTEM, OnUpdateLong, cache_easy_ttl, zend_gene_globals, gene_globals) // @suppress("Symbol is not resolved")
 PHP_INI_END();
 /* }}} */
 
@@ -722,7 +725,14 @@ void gene_co_contexts_sweep(void) {
 	HashTable *ht = GENE_G(co_contexts);
 	zend_ulong idx;
 	zend_ulong cur_cid;
-	zend_ulong *victims = NULL;
+	/* [GENE_PERF:2026-07-30 L2] Stack-batched victim collection (256/batch)
+	 * instead of emalloc(sizeof(zend_ulong) * total): with a large cap (e.g.
+	 * 8192) the old code transiently allocated ~64KB per sweep. Batches are
+	 * flushed (deleted) as they fill. Deleting only already-visited buckets
+	 * while iterating is safe: ZEND_HASH_FOREACH advances monotonically over
+	 * arData and zend_hash_index_del never repacks, so positions behind the
+	 * iterator are never revisited. */
+	zend_ulong victims[256];
 	uint32_t victim_count = 0;
 	uint32_t total;
 	uint32_t cap;
@@ -740,23 +750,24 @@ void gene_co_contexts_sweep(void) {
 	cap = (uint32_t)(GENE_G(co_contexts_max) > 0 ? GENE_G(co_contexts_max) : 1024);
 	cur_cid = (GENE_G(current_cid) >= 0) ? (zend_ulong)GENE_G(current_cid) : ~(zend_ulong)0;
 
-	/* Precise eviction via Swoole\Coroutine::exists (if present).
-	 * Collect dead cids first, then delete — iterating with concurrent delete
-	 * is fragile across PHP versions. */
+	/* Precise eviction via Swoole\Coroutine::exists (if present). */
 	have_exists = gene_swoole_co_exists_resolve();
 	if (have_exists) {
-		victims = (zend_ulong *)emalloc(sizeof(zend_ulong) * total);
 		ZEND_HASH_FOREACH_NUM_KEY(ht, idx) {
 			if (idx == cur_cid) continue;
 			if (gene_swoole_co_exists((zend_long)idx) == 0) {
 				victims[victim_count++] = idx;
+				if (victim_count == 256) {
+					for (i = 0; i < victim_count; i++) {
+						zend_hash_index_del(ht, victims[i]);
+					}
+					victim_count = 0;
+				}
 			}
 		} ZEND_HASH_FOREACH_END();
 		for (i = 0; i < victim_count; i++) {
 			zend_hash_index_del(ht, victims[i]);
 		}
-		efree(victims);
-		victims = NULL;
 		victim_count = 0;
 	}
 
@@ -767,6 +778,46 @@ void gene_co_contexts_sweep(void) {
 		GENE_G(co_contexts_cap_warned) = 1;
 	}
 	GENE_G(co_contexts_sweep_us) += (gene_hrtime() - started_us) / 1000;
+}
+/* }}} */
+
+/* {{{ gene_swoole_defer_resolve — one-shot lazy resolve of Swoole\Coroutine::defer
+ * [GENE_FEATURE:2026-07-30 F1] Swoole\Coroutine is an internal class with
+ * process-lifetime function entries, so caching defer's zend_function* in
+ * per-thread globals is safe (same argument as swoole_getcid_func). */
+static int gene_swoole_defer_resolve(void) {
+	if (!GENE_G(swoole_defer_resolved)) {
+		zend_class_entry *co_ce = gene_lookup_class_str(ZEND_STRL("swoole\\coroutine"));
+		if (co_ce) {
+			GENE_G(swoole_defer_func) = zend_hash_str_find_ptr(
+				&co_ce->function_table, ZEND_STRL("defer"));
+		}
+		GENE_G(swoole_defer_resolved) = 1;
+	}
+	return GENE_G(swoole_defer_func) != NULL;
+}
+/* }}} */
+
+/* {{{ gene_swoole_auto_cleanup_register
+ * [GENE_FEATURE:2026-07-30 F1] Register a one-shot Swoole\Coroutine::defer
+ * that returns this coroutine's ctx when the coroutine ends. Called once
+ * per ctx allocation (gene.swoole_auto_cleanup=1 only) — not per request
+ * and not per ctx access. The callable is the name of the internal
+ * function gene_auto_cleanup_defer: process-lifetime, no closure
+ * allocation, no cross-request pointer hazards. */
+static void gene_swoole_auto_cleanup_register(void) {
+	zval callable_zv, ret;
+	if (!gene_swoole_defer_resolve()) {
+		return;
+	}
+	ZVAL_STRING(&callable_zv, "gene_auto_cleanup_defer");
+	ZVAL_UNDEF(&ret);
+	zend_call_known_function(GENE_G(swoole_defer_func), NULL, NULL, &ret, 1, &callable_zv, NULL);
+	zval_ptr_dtor(&callable_zv);
+	if (!Z_ISUNDEF(ret)) {
+		zval_ptr_dtor(&ret);
+	}
+	GENE_G(swoole_auto_cleanup_defers)++;
 }
 /* }}} */
 
@@ -840,18 +891,49 @@ gene_request_context *gene_request_ctx(void) {
 		 * [GENE_AUDIT:2026-07-03 P3] co_contexts_max=0 previously meant
 		 * "unlimited" — sweep never fired, leading to unbounded growth on
 		 * misconfiguration. Now 0 is treated as "use default 1024", matching
-		 * gene_co_contexts_sweep()'s own fallback at line 687. */
+		 * gene_co_contexts_sweep()'s own fallback. */
 		zend_long eff_cap = (GENE_G(co_contexts_max) > 0) ? GENE_G(co_contexts_max) : 1024;
 		if (UNEXPECTED((zend_long)zend_hash_num_elements(GENE_G(co_contexts)) >= eff_cap)) {
-			gene_co_contexts_sweep();
+			/* [GENE_PERF:2026-07-30 M1] Sweep cooldown. Previously every new
+			 * ctx allocation at/above the cap triggered a full O(N) sweep;
+			 * when active coroutines persistently outnumber the cap (undersized
+			 * co_contexts_max, or leaked cleanup with long-lived coroutines)
+			 * nothing is reclaimed and the NEXT allocation re-triggers the
+			 * scan — O(N^2) amplification and p99 spikes under coroutine
+			 * storms. Now a sweep runs only when cap/4 new ctx allocations
+			 * happened since the last sweep, or the table grew by cap/4 past
+			 * the level recorded at the last sweep; blocked triggers are
+			 * counted in co_contexts_sweep_skipped for observability. The
+			 * total<16 floor stays inside gene_co_contexts_sweep() and is
+			 * unchanged. */
+			zend_ulong cur_count = zend_hash_num_elements(GENE_G(co_contexts));
+			zend_long cooldown = eff_cap >> 2;
+			if (cooldown < 1) cooldown = 1;
+			if (GENE_G(co_ctx_allocs_since_sweep) >= (zend_ulong)cooldown
+					|| cur_count >= GENE_G(co_contexts_sweep_mark) + (zend_ulong)cooldown) {
+				GENE_G(co_contexts_sweep_mark) = cur_count;
+				GENE_G(co_ctx_allocs_since_sweep) = 0;
+				gene_co_contexts_sweep();
+			} else {
+				GENE_G(co_contexts_sweep_skipped)++;
+			}
 		}
 		/* [GENE_PERF:2026-04-24] Acquire from the struct pool when available;
 		 * ecalloc only when the pool is empty. In Swoole steady state this
 		 * eliminates the per-coroutine-spawn allocator round trip. */
 		ctx = gene_request_context_pool_acquire();
 		zend_hash_index_update_ptr(GENE_G(co_contexts), (zend_ulong)cid, ctx);
+		GENE_G(co_ctx_allocs_since_sweep)++;
 		if ((zend_ulong)zend_hash_num_elements(GENE_G(co_contexts)) > GENE_G(co_contexts_watermark)) {
 			GENE_G(co_contexts_watermark) = zend_hash_num_elements(GENE_G(co_contexts));
+		}
+		/* [GENE_FEATURE:2026-07-30 F1] Bind ctx lifetime to coroutine lifetime:
+		 * register a one-shot defer per ctx allocation so the ctx is returned
+		 * even when userland forgets cleanup(). Stale defers from earlier ctx
+		 * generations of the same coroutine are harmless — the delete in the
+		 * defer callback is idempotent. */
+		if (GENE_G(swoole_auto_cleanup)) {
+			gene_swoole_auto_cleanup_register();
 		}
 	}
 	GENE_G(current_cid) = cid;
@@ -896,6 +978,28 @@ static void php_gene_init_globals() {
 	GENE_G(co_contexts_sweep_us) = 0;
 	GENE_G(cache_unlimited_noticed) = 0;
 	GENE_G(co_contexts_cap_warned) = 0;
+	/* [GENE_PERF:2026-07-30 M1] Sweep cooldown state. */
+	GENE_G(co_ctx_allocs_since_sweep) = 0;
+	GENE_G(co_contexts_sweep_mark) = 0;
+	GENE_G(co_contexts_sweep_skipped) = 0;
+	/* [GENE_FEATURE:2026-07-30 F1] swoole_auto_cleanup itself comes from
+	 * php.ini — do NOT zero it here (same rule as ctx_pool_prewarm). */
+	GENE_G(swoole_defer_func) = NULL;
+	GENE_G(swoole_defer_resolved) = 0;
+	GENE_G(swoole_auto_cleanup_defers) = 0;
+	GENE_G(swoole_auto_cleanup_reclaimed) = 0;
+	GENE_G(run_depth) = 0;
+	/* [GENE_AUDIT:2026-07-30 L1] */
+	GENE_G(redis_pool_cas_abandoned) = 0;
+	GENE_G(redis_pool_cas_warned) = 0;
+	/* [GENE_FEATURE:2026-07-30 F2] */
+	GENE_G(request_count) = 0;
+	GENE_G(request_error_count) = 0;
+	/* [GENE_FEATURE:2026-07-30 F5] */
+	GENE_G(validate_ext) = NULL;
+	/* [GENE_FEATURE:2026-07-30 F6] cache_easy_ttl comes from php.ini —
+	 * do NOT zero it here (same rule as ctx_pool_prewarm). */
+	GENE_G(cache_easy_expired) = 0;
 	/* ctx_pool_prewarm is populated by PHP_INI loader before MINIT, so do
 	 * NOT zero it here — doing so would clobber the user's php.ini value.
 	 * (Leaving the field alone is safe: globals are zeroed by GINIT.) */
@@ -924,6 +1028,14 @@ static void php_gene_close_request_globals() {
 		zend_hash_destroy(GENE_G(fn_cache));
 		FREE_HASHTABLE(GENE_G(fn_cache));
 		GENE_G(fn_cache) = NULL;
+	}
+	/* [GENE_FEATURE:2026-07-30 F5] Validate::extend registry follows the
+	 * fn_cache lifetime policy: per-request in FPM, worker-scope in Swoole
+	 * (destroyed at MSHUTDOWN). */
+	if (GENE_G(validate_ext) && GENE_G(runtime_type) < 2) {
+		zend_hash_destroy(GENE_G(validate_ext));
+		FREE_HASHTABLE(GENE_G(validate_ext));
+		GENE_G(validate_ext) = NULL;
 	}
 	gene_request_context_destroy(&GENE_G(default_ctx));
 	if (GENE_G(app_root)) {
@@ -958,6 +1070,10 @@ static void php_gene_close_request_globals() {
 	GENE_G(current_ctx) = NULL;
 	GENE_G(current_cid) = -1;
 	GENE_G(current_vm_stack) = NULL;
+	/* [GENE_FEATURE:2026-07-30 F1] A bailout during dispatch would skip the
+	 * run_depth decrement in run(); reset at the request boundary so the
+	 * nested-run guard can never wedge the fallback path. */
+	GENE_G(run_depth) = 0;
 	if (GENE_G(resident_ctx)) {
 		gene_request_context *tmp = GENE_G(resident_ctx);
 		GENE_G(resident_ctx) = NULL;
@@ -1039,6 +1155,7 @@ PHP_MINIT_FUNCTION(gene) {
 	GENE_STARTUP(memcached);
 	GENE_STARTUP(cache);
 	GENE_STARTUP(log);
+	GENE_STARTUP(monitor);
 	GENE_STARTUP(exception);
 
 	return SUCCESS; // @suppress("Symbol is not resolved")
@@ -1088,6 +1205,13 @@ PHP_MSHUTDOWN_FUNCTION(gene) {
 		zend_hash_destroy(GENE_G(fn_cache));
 		FREE_HASHTABLE(GENE_G(fn_cache));
 		GENE_G(fn_cache) = NULL;
+	}
+	/* [GENE_FEATURE:2026-07-30 F5] Swoole-mode validate_ext survives
+	 * RSHUTDOWN (worker-scope); tear it down here for valgrind cleanliness. */
+	if (GENE_G(validate_ext)) {
+		zend_hash_destroy(GENE_G(validate_ext));
+		FREE_HASHTABLE(GENE_G(validate_ext));
+		GENE_G(validate_ext) = NULL;
 	}
 	gene_rwlock_destroy(&GENE_G(cache_lock));
 	return SUCCESS; // @suppress("Symbol is not resolved")
@@ -1169,12 +1293,41 @@ PHP_FUNCTION(gene_version) {
 }
 /* }}} */
 
+/*
+ * {{{ gene_auto_cleanup_defer()
+ * [GENE_FEATURE:2026-07-30 F1] Swoole\Coroutine::defer callback invoked when
+ * a coroutine ends (gene.swoole_auto_cleanup=1). Returns the coroutine's ctx
+ * to the struct pool. Deliberately operates on co_contexts directly instead
+ * of gene_request_ctx() — the latter would allocate and re-register a fresh
+ * ctx for the dying coroutine. Idempotent against manual cleanup(): the hash
+ * delete is a no-op when the entry is already gone. Internal plumbing, not
+ * part of the public API contract.
+ */
+PHP_FUNCTION(gene_auto_cleanup_defer) {
+	if (GENE_G(runtime_type) >= 2 && GENE_G(co_contexts)) {
+		zend_long cid = gene_get_coroutine_id();
+		if (cid >= 0) {
+			if (GENE_G(current_cid) == cid) {
+				GENE_G(current_ctx) = NULL;
+				GENE_G(current_cid) = -1;
+				GENE_G(current_vm_stack) = NULL;
+			}
+			if (zend_hash_index_del(GENE_G(co_contexts), (zend_ulong)cid) == SUCCESS) {
+				GENE_G(swoole_auto_cleanup_reclaimed)++;
+			}
+		}
+	}
+	RETURN_TRUE;
+}
+/* }}} */
+
 /* {{{ gene_functions[]
  *
  * Every user visible function must have an entry in gene_functions[].
  */
 const zend_function_entry gene_functions[] = {
 	PHP_FE(gene_version, gene_void_arginfo)
+	PHP_FE(gene_auto_cleanup_defer, gene_void_arginfo)
 	PHP_FE_END
 };
 /* }}} */

@@ -259,7 +259,16 @@ PHP_METHOD(gene_log, exception) {
 	 * message, file, line are standard Throwable properties readable via zend_read_property.
 	 * getTraceAsString() must remain a method call (it computes the string). */
 	{
+		/* [GENE_AUDIT:2026-07-30 L4] rv slots must be UNDEF-initialized and
+		 * dtor'd after use. message/file/line are real declared Throwable
+		 * properties, so normally no temporary is written into the rv — but
+		 * a Throwable subclass with a magic __get would have its temporary
+		 * return value placed into the rv slot, and never dtor'ing it is a
+		 * deterministic leak (not merely a fragile convention). */
 		zval rv1, rv2, rv3;
+		ZVAL_UNDEF(&rv1);
+		ZVAL_UNDEF(&rv2);
+		ZVAL_UNDEF(&rv3);
 		zval *msg_prop  = zend_read_property(Z_OBJCE_P(ex), gene_strip_obj(ex), ZEND_STRL("message"), 1, &rv1);
 		zval *file_prop = zend_read_property(Z_OBJCE_P(ex), gene_strip_obj(ex), ZEND_STRL("file"), 1, &rv2);
 		zval *line_prop = zend_read_property(Z_OBJCE_P(ex), gene_strip_obj(ex), ZEND_STRL("line"), 1, &rv3);
@@ -267,6 +276,9 @@ PHP_METHOD(gene_log, exception) {
 		if (msg_prop && Z_TYPE_P(msg_prop) == IS_STRING) { ZVAL_COPY(&msg_val, msg_prop); } else { ZVAL_EMPTY_STRING(&msg_val); }
 		if (file_prop && Z_TYPE_P(file_prop) == IS_STRING) { ZVAL_COPY(&file_val, file_prop); } else { ZVAL_EMPTY_STRING(&file_val); }
 		if (line_prop && Z_TYPE_P(line_prop) == IS_LONG) { ZVAL_COPY(&line_val, line_prop); } else { ZVAL_LONG(&line_val, 0); }
+		if (!Z_ISUNDEF(rv1)) { zval_ptr_dtor(&rv1); }
+		if (!Z_ISUNDEF(rv2)) { zval_ptr_dtor(&rv2); }
+		if (!Z_ISUNDEF(rv3)) { zval_ptr_dtor(&rv3); }
 
 		ZVAL_UNDEF(&trace_val);
 		zend_function *trace_fn = zend_hash_str_find_ptr(&Z_OBJCE_P(ex)->function_table, ZEND_STRL("gettraceasstring"));

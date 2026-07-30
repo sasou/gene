@@ -12,6 +12,7 @@
 
 | 方法 | 说明 |
 |------|------|
+| init() | 生命周期钩子（5.6.8+）：实例化后、action 前由框架自动调用一次；基类空实现，子类重写替代 __construct |
 | get($key, $default = null) | 获取 GET 参数 |
 | request($key = null, $default = null) | 获取 REQUEST 参数 |
 | post($key = null, $default = null) | 获取 POST 参数 |
@@ -297,6 +298,7 @@ $title = $this->language->login_title; // 读取键值
 | name($field) | 设置当前字段（支持逗号分隔多字段），返回 $this |
 | skipOnEmpty() | 空值时跳过后续验证规则，返回 $this |
 | filter($method, $args = null) | 对字段值应用过滤函数，返回 $this |
+| extend($rule, $fn) | 静态（5.6.8+）：注册全局自定义规则，分派先于内置表；回调 `fn($value, ...$args): bool`，false 判失败；FPM 请求级 / Swoole worker 级注册表 |
 | addValidator($name, $callback, $msg) | 注册自定义验证器闭包，返回 $this |
 | msg($msg) | 为上一条规则设置自定义错误消息，返回 $this |
 | valid() | 执行验证，遇第一个错误即停止，返回 bool |
@@ -405,6 +407,32 @@ $this->memory->clean();                    // 清空全部
 | exists($key) | 检查 key 是否存在，返回 bool |
 | del($key) | 删除指定 key |
 | clean() | 销毁并重新初始化整个共享内存 HashTable |
+| stats() | 分区观测：缓存条目数、协程上下文/ctx pool/sweep 遥测、闭包源码缓存等 |
+
+---
+
+## Gene\Monitor
+
+聚合可观测出口（5.6.8+）。单一静态入口读取 Memory 分区统计、命名连接池统计与请求计数，纯读、零副作用。
+
+```php
+$stats = \Gene\Monitor::stats();
+// [
+//   'memory'        => [...同 Gene\Memory::stats() 键...],
+//   'db_pools'      => ['dbPool'    => [total,idle,using,overflow,min,max,closed]],
+//   'redis_pools'   => ['redisPool' => [total,idle,using,overflow,min,max,closed]],
+//   'requests'      => ['count' => n, 'errors' => n],
+//   'redis_pool_cas_abandoned'      => n,   // RedisPool CAS 放弃计数（防御观测）
+//   'swoole_auto_cleanup_defers'    => n,   // 自动 cleanup defer 注册数
+//   'swoole_auto_cleanup_reclaimed' => n,   // 自动 cleanup 实际归还数
+// ]
+```
+
+| 方法 | 说明 |
+|------|------|
+| stats() | 静态；返回上示聚合数组。demo 端点示例见 `demo/application/Controllers/Monitor.php`（`GET /monitor`） |
+
+相关 INI：`gene.swoole_auto_cleanup`（默认 0，协程自动 cleanup 兜底）、`gene.cache_easy_ttl`（默认 0 关闭，cache_easy 惰性过期秒数）。
 
 ---
 

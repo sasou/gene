@@ -293,6 +293,10 @@ Swoole 无 PHP 超全局，必须用 `init` 注入：
 
 请求结束后由 **`Application::cleanup()`** 清理，一般无需手动 `Request::clear()`。
 
+### 7.1 自动 cleanup 兜底（5.6.8+，`gene.swoole_auto_cleanup`）
+
+`php.ini` 置 `gene.swoole_auto_cleanup=1`（默认 `0`）后，框架在首次为某协程分配请求上下文时注册一次性 `Swoole\Coroutine::defer` 归还回调：协程结束即自动归还上下文，**覆盖 `run()`、Timer tick、task worker、自建协程等全部入口**，业务漏调 `cleanup()` 不再造成上下文驻留。与手动 `cleanup()` 严格幂等（可共存，仍建议在 `finally` 中显式调用以尽早归还）。旧版 Swoole 无 `Coroutine::defer` 时自动降级为 `run()` 派发后归还。生效情况经 `\Gene\Monitor::stats()` 的 `swoole_auto_cleanup_defers` / `swoole_auto_cleanup_reclaimed` 观测。
+
 ---
 
 ## 8. 禁止与常见错误
@@ -300,7 +304,7 @@ Swoole 无 PHP 超全局，必须用 `init` 注入：
 | 错误做法 | 后果 / 正确做法 |
 |----------|-----------------|
 | 使用 `PDO::ATTR_PERSISTENT` | 多协程争用同一 socket → 用 **Pool** |
-| 忘记 `cleanup()` | 协程上下文泄漏、内存上涨 |
+| 忘记 `cleanup()` | 协程上下文泄漏、内存上涨（5.6.8+ 可用 `gene.swoole_auto_cleanup=1` 兜底，见 §7.1） |
 | 忘记 `workerReady()` / `waitWorkerReady()` | 首批请求异常或竞态 |
 | `workerReady()` 后在请求里 `Memory::set` | 运行期禁止写入；改 Redis 或 worker 启动前预热 |
 | 闭包钩子里持有请求级大对象 | 常驻进程易泄漏；优先 **类钩子** `Hooks\*` |

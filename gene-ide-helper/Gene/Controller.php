@@ -28,6 +28,19 @@ class Controller
     }
 
     /**
+     * init
+     *
+     * Yaf 风格生命周期钩子（5.6.8+）：路由直派实例化控制器后、
+     * 调用 action 前由框架自动调用一次。基类为空实现，子类按需重写，
+     * 替代维护 __construct 签名。
+     *
+     * @return mixed
+     */
+    public function init() {
+
+    }
+
+    /**
      * get
      * 
      * @param mixed $key key

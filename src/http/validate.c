@@ -51,6 +51,11 @@ ZEND_BEGIN_ARG_INFO_EX(gene_validate_filter, 0, 0, 2)
 	ZEND_ARG_INFO(0, args)
 ZEND_END_ARG_INFO()
 
+ZEND_BEGIN_ARG_INFO_EX(gene_validate_extend, 0, 0, 2)
+	ZEND_ARG_INFO(0, rule)
+	ZEND_ARG_INFO(0, fn)
+ZEND_END_ARG_INFO()
+
 ZEND_BEGIN_ARG_INFO_EX(gene_validate_addvalidator, 0, 0, 3)
 	ZEND_ARG_INFO(0, name)
 	ZEND_ARG_INFO(0, callback)
@@ -490,6 +495,39 @@ PHP_METHOD(gene_validate, filter)
 /* }}} */
 
 /*
+ * {{{ public static gene_validate::extend($rule, callable $fn)
+ * [GENE_FEATURE:2026-07-30 F5] User-land rule registry. Rules are looked up
+ * before the built-in rule_* table in validCheck(), opening the closed
+ * built-in rule set. The callable receives ($value, ...$args) and must
+ * return bool (false = validation failed). Registry lifetime mirrors
+ * fn_cache: per-request in FPM, worker-scope in Swoole (register once at
+ * bootstrap / onWorkerStart).
+ */
+PHP_METHOD(gene_validate, extend)
+{
+	zend_string *rule = NULL;
+	zend_fcall_info callback;
+	zend_fcall_info_cache fci_cache = empty_fcall_info_cache;
+	zval fn_zv;
+
+	if (zend_parse_parameters(ZEND_NUM_ARGS(), "Sf", &rule, &callback, &fci_cache) == FAILURE) {
+		return;
+	}
+	if (!rule || ZSTR_LEN(rule) == 0) {
+		php_error_docref(NULL, E_WARNING, "Validate::extend rule name must not be empty.");
+		RETURN_FALSE;
+	}
+	if (!GENE_G(validate_ext)) {
+		ALLOC_HASHTABLE(GENE_G(validate_ext));
+		zend_hash_init(GENE_G(validate_ext), 8, NULL, ZVAL_PTR_DTOR, 0);
+	}
+	ZVAL_COPY(&fn_zv, &callback.function_name);
+	zend_hash_update(GENE_G(validate_ext), rule, &fn_zv);
+	RETURN_TRUE;
+}
+/* }}} */
+
+/*
  * {{{ public gene_validate::addValidator($name, $callback, $msg)
  */
 PHP_METHOD(gene_validate, addValidator)
@@ -755,14 +793,24 @@ int validCheck(zval *self, zval *date_field, zval *rules, int is_group) {
 					char name_buf[64];
 					size_t name_len = 0;
 					int name_n = snprintf(name_buf, sizeof(name_buf), "rule_%s", ZSTR_VAL(method));
+					/* [GENE_FEATURE:2026-07-30 F5] User-registered rules
+					 * (Validate::extend) take precedence over the built-in
+					 * rule_* table. */
+					zval *ext_fn = GENE_G(validate_ext)
+						? zend_hash_find(GENE_G(validate_ext), method) : NULL;
 					if (name_n < 0 || (size_t)name_n >= sizeof(name_buf)) {
 						php_error_docref(NULL, E_WARNING, "Validate rule name too long: %s", ZSTR_VAL(method));
 						continue;
 					}
 					name_len = (size_t)name_n;
-					if (zend_hash_str_exists(&(Z_OBJCE_P(self)->function_table), name_buf, name_len)) {
+					if (ext_fn || zend_hash_str_exists(&(Z_OBJCE_P(self)->function_table), name_buf, name_len)) {
 						zval ret, *msg = NULL;
-						gene_factory_call(self, name_buf, name_len, args, &ret);
+						if (ext_fn) {
+							/* fn($value, ...$args) -> bool */
+							gene_factory_function_call_1(ext_fn, date_field_val, args, &ret);
+						} else {
+							gene_factory_call(self, name_buf, name_len, args, &ret);
+						}
 						if (Z_TYPE(ret) == IS_FALSE) {
 							setRefCount(values);
 							zend_hash_str_del(Z_ARRVAL_P(values), Z_STRVAL_P(date_field), Z_STRLEN_P(date_field));
@@ -1548,6 +1596,7 @@ const zend_function_entry gene_validate_methods[] = {
 		PHP_ME(gene_validate, name, gene_validate_name, ZEND_ACC_PUBLIC)
 		PHP_ME(gene_validate, skipOnEmpty, gene_validate_void_arginfo, ZEND_ACC_PUBLIC)
 		PHP_ME(gene_validate, filter, gene_validate_filter, ZEND_ACC_PUBLIC)
+		PHP_ME(gene_validate, extend, gene_validate_extend, ZEND_ACC_PUBLIC|ZEND_ACC_STATIC)
 		PHP_ME(gene_validate, addValidator, gene_validate_addvalidator, ZEND_ACC_PUBLIC)
 		PHP_ME(gene_validate, msg, gene_validate_msg, ZEND_ACC_PUBLIC)
 		PHP_ME(gene_validate, valid, gene_validate_void_arginfo, ZEND_ACC_PUBLIC)

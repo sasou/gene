@@ -14,6 +14,9 @@ $router->clear()
     ->get("/cleanup", "\Controllers\RedisDemo@cleanup", "@clearAfter")
     ->group()
 
+    // Monitor 聚合可观测出口演示（F2）
+    ->get("/monitor", "\Controllers\Monitor@index", "@clearAfter")
+
     // Admin 登录、控制台相关页面 静态匹配具体类的方法
     ->get("/admin.html", "Controllers\Admin\Index@run", "adminAuth@clearAfter")
     ->get("/login.html", "Controllers\Admin\Index@login", "@clearAfter")

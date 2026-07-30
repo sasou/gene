@@ -390,6 +390,41 @@ class CacheTest
         echo "\n";
     }
 
+    /**
+     * Test Gene\Monitor aggregated stats export (F2)
+     */
+    public function testMonitorStats()
+    {
+        echo "Testing Monitor Aggregated Stats:\n";
+
+        try {
+            $stats = \Gene\Monitor::stats();
+            if (is_array($stats)) {
+                echo "✓ Monitor::stats() returns array\n";
+            }
+            foreach (['memory', 'db_pools', 'redis_pools', 'requests',
+                      'redis_pool_cas_abandoned',
+                      'swoole_auto_cleanup_defers', 'swoole_auto_cleanup_reclaimed'] as $key) {
+                if (array_key_exists($key, $stats)) {
+                    echo "✓ stats key '$key' present\n";
+                }
+            }
+            foreach (['cache_items', 'co_contexts_items', 'co_contexts_sweep_count',
+                      'co_contexts_sweep_skipped', 'ctx_pool_size', 'cache_easy_ttl'] as $key) {
+                if (isset($stats['memory']) && array_key_exists($key, $stats['memory'])) {
+                    echo "✓ memory key '$key' present\n";
+                }
+            }
+            if (isset($stats['requests']['count'], $stats['requests']['errors'])) {
+                echo "✓ requests count/errors present\n";
+            }
+        } catch (\Throwable $e) {
+            echo "✗ Error: " . $e->getMessage() . "\n";
+        }
+
+        echo "\n";
+    }
+
     public function runAllTests()
     {
         $this->testConstructor();
@@ -403,6 +438,7 @@ class CacheTest
         $this->testErrorHandling();
         $this->testPerformance();
         $this->testCacheConfigurations();
+        $this->testMonitorStats();
 
         echo "=== Cache Test Suite Complete ===\n";
     }

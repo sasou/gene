@@ -1142,6 +1142,10 @@ PHP_METHOD(gene_memory, stats) {
 	add_assoc_long(return_value, "co_contexts_sweep_count", (zend_long)GENE_G(co_contexts_sweep_count));
 	add_assoc_long(return_value, "co_contexts_sweep_scanned", (zend_long)GENE_G(co_contexts_sweep_scanned));
 	add_assoc_long(return_value, "co_contexts_sweep_us", (zend_long)GENE_G(co_contexts_sweep_us));
+	/* [GENE_PERF:2026-07-30 M1] Cap triggers suppressed by the sweep
+	 * cooldown (cap/4 new allocations or table growth past the last-sweep
+	 * mark re-arms the next sweep). */
+	add_assoc_long(return_value, "co_contexts_sweep_skipped", (zend_long)GENE_G(co_contexts_sweep_skipped));
 	/* [GENE_PERF:2026-04-24] Context struct pool visibility. */
 	add_assoc_long(return_value, "ctx_pool_size", GENE_G(ctx_pool_size));
 	add_assoc_long(return_value, "ctx_pool_max", GENE_G(ctx_pool_max));

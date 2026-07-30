@@ -211,7 +211,24 @@ class HttpTest
             // Test valid (run validation)
             $this->validate->valid();
             echo "✓ valid() works\n";
-            
+
+            // Test extend (F5: user-registered rule takes precedence over built-ins)
+            Validate::extend('even', function($value) {
+                return is_numeric($value) && ((int)$value % 2 === 0);
+            });
+            $vExt = new Validate();
+            $vExt->init(['num' => '42']);
+            $vExt->name('num')->even();
+            if ($vExt->valid()) {
+                echo "✓ extend() custom rule passes for valid value\n";
+            }
+            $vExt2 = new Validate();
+            $vExt2->init(['num' => '41']);
+            $vExt2->name('num')->even();
+            if (!$vExt2->valid() && $vExt2->getError()) {
+                echo "✓ extend() custom rule fails for invalid value\n";
+            }
+
             // Test getError
             $errors = $this->validate->getError();
             echo "✓ getError() works\n";

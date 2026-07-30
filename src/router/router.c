@@ -36,6 +36,7 @@
 #include "../http/request.h"
  #include "../mvc/view.h"
  #include "../mvc/hook.h"
+ #include "../mvc/controller.h"
  #include "zend_smart_str.h"
  
  zend_class_entry *gene_router_ce;
@@ -375,6 +376,34 @@ zval *get_path_router(zval *val, char *paths) {
  }
  /* }}} */
  
+ /** {{{ gene_router_call_controller_init
+ * [GENE_FEATURE:2026-07-30 F3] Controller lifecycle init() hook — Yaf
+ * semantics: invoked once after instantiation, before the action. Only for
+ * Gene\Controller subclasses; arbitrary Class@action dispatch targets
+ * (hooks, services, plain classes) are untouched. Returns 1 to proceed,
+ * 0 when init() threw (caller must unwind without invoking the action).
+ */
+static int gene_router_call_controller_init(zval *classObject) {
+	 zend_function *init_fn;
+	 zval init_ret;
+
+	 if (!gene_controller_ce || Z_TYPE_P(classObject) != IS_OBJECT
+			 || !instanceof_function(Z_OBJCE_P(classObject), gene_controller_ce)) {
+		 return 1;
+	 }
+	 init_fn = zend_hash_str_find_ptr(&(Z_OBJCE_P(classObject)->function_table), ZEND_STRL("init"));
+	 if (!init_fn) {
+		 return 1;
+	 }
+	 ZVAL_UNDEF(&init_ret);
+	 zend_call_known_function(init_fn, Z_OBJ_P(classObject), Z_OBJCE_P(classObject), &init_ret, 0, NULL, NULL);
+	 if (!Z_ISUNDEF(init_ret)) {
+		 zval_ptr_dtor(&init_ret);
+	 }
+	 return EG(exception) ? 0 : 1;
+}
+/* }}} */
+
  /** {{{ gene_router_dispatch_direct
  * Directly dispatch a "Class@action" route via C API, avoiding eval.
  * Performs :m/:c/:a placeholder substitution identical to PHP_METHOD(dispatch).
@@ -454,6 +483,13 @@ static int gene_router_dispatch_direct(const char *class_method, zval *retval) {
 
 	 if (Z_TYPE(classObject) == IS_OBJECT
 			 && zend_hash_str_exists(&(Z_OBJCE(classObject)->function_table), action, action_len)) {
+		 /* [GENE_FEATURE:2026-07-30 F3] init() lifecycle hook before action. */
+		 if (!gene_router_call_controller_init(&classObject)) {
+			 zval_ptr_dtor(&classObject);
+			 if (class_alloc) efree(class_alloc);
+			 if (action_alloc) efree(action_alloc);
+			 return 0;
+		 }
 		 gene_factory_call_1(&classObject, action, action_len, &ctx->path_params, retval);
 		 zval_ptr_dtor(&classObject);
 		 if (class_alloc) efree(class_alloc);
@@ -3070,6 +3106,13 @@ PHP_METHOD(gene_router, __call) {
 		 if (Z_TYPE(classObject) == IS_OBJECT
 				 && zend_hash_str_exists(&(Z_OBJCE(classObject)->function_table), action, action_name_len)) {
 			 zval ret;
+			 /* [GENE_FEATURE:2026-07-30 F3] init() lifecycle hook before action. */
+			 if (!gene_router_call_controller_init(&classObject)) {
+				 zval_ptr_dtor(&classObject);
+				 if (class_alloc) efree(class_alloc);
+				 if (action_alloc) efree(action_alloc);
+				 RETURN_NULL();
+			 }
 			 gene_factory_call_1(&classObject, action, action_name_len, params, &ret);
 			 zval_ptr_dtor(&classObject);
 			 if (class_alloc) efree(class_alloc);

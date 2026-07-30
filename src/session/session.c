@@ -75,31 +75,18 @@ static zend_string *gene_session_method_delete(void);
 	}
 
 	called_scope = Z_OBJCE_P(target);
-	/* [GENE_PERF:2026-05-04] Small (ce, method) -> zend_function* LRU cache.
-	 * Session handler methods (get/set/delete/cookie) are interned zend_strings,
-	 * so pointer equality is a valid identity match. 4 slots cover the typical
-	 * single-handler production case with zero collisions. */
-	{
-		static struct { zend_class_entry *ce; zend_string *method; zend_function *fn; } gene_session_fn_cache[4] = {0};
-		static unsigned gene_session_fn_cache_next = 0;
-		unsigned i;
-		func = NULL;
-		for (i = 0; i < 4; i++) {
-			if (gene_session_fn_cache[i].ce == called_scope && gene_session_fn_cache[i].method == method) {
-				func = gene_session_fn_cache[i].fn;
-				break;
-			}
-		}
-		if (!func) {
-			func = zend_hash_find_ptr(&called_scope->function_table, method);
-			if (func) {
-				unsigned slot = gene_session_fn_cache_next++ & 3;
-				gene_session_fn_cache[slot].ce = called_scope;
-				gene_session_fn_cache[slot].method = method;
-				gene_session_fn_cache[slot].fn = func;
-			}
-		}
-	}
+	/* [GENE_AUDIT:2026-07-30 H1] The former 4-slot static (ce, method) ->
+	 * zend_function* cache was removed: the cached handler is a userland class
+	 * whose CE and function_table are freed at request end under FPM without
+	 * opcache SHM (opcache.file_cache_only=1 / no opcache / CLI), leaving the
+	 * static slots dangling across requests — a use-after-free on the next
+	 * request whose class rebuild reuses the same address (identical threat
+	 * model to the 2026-05-29 view.c fix; also shared across threads under
+	 * ZTS). We now do a direct per-call lookup, matching gene_cache_get/set/
+	 * incr/del in cache.c which face the same user-injected handler object
+	 * and never cache. 4 lookups happen only on session get/set/save/delete —
+	 * not a hot path — so the removed cache's gain was negligible anyway. */
+	func = zend_hash_find_ptr(&called_scope->function_table, method);
 	if (func) {
 		/* [GENE_FIX:2026-04-27] Returning inside zend_catch skips zend_end_try,
 		 * which leaves EG(bailout) pointing at our local jmp_buf for outer
