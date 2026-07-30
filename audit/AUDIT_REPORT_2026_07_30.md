@@ -376,3 +376,51 @@ static struct { zend_class_entry *ce; zend_string *method; zend_function *fn; } 
 | 4 | D3 内部函数自防护 | 可随下个小版本 |
 
 > 与 O6 的关系不变：以上均为静态复核结论，**D1 的实际崩溃/泄漏行为与 D2 的冷却有效性仍须 Linux 编译 + ASAN/Valgrind + 协程压测确认**；在此之前不得宣称 v5.6.8 的内存与并发结论已闭环。
+
+---
+
+## 十一、复核问题（D1-D4）落地回写（2026-07-30 当日）
+
+> 实施基线：v5.6.8 develop（第十节复核后的工作区）。实施方式同审计约束：**本机 Windows 静态实施，未经编译**；全部改动经逐区域回读 + `git diff` 复核。运行时验证仍挂 O6，新增验证增量并入 §9.10 清单。
+> 结论：**D1-D4 四项已全部按第十节方案落地**，D1 采纳推荐的最小改动方案 A 并附加异常中断保护。
+
+### 11.1 D1（高）`Monitor::stats()` 池分区引用计数透支 → 已修复 ✅
+
+- **方案**：采纳方案 A（最小改动）。`gene_monitor_collect_pools()` 中 `Z_TYPE == IS_ARRAY` 时 `zend_hash_update` 直接转移 `stats_ret` 所有权（COPY_VALUE，不增引用），**不再 dtor**；仅非数组返回且非 UNDEF 时 `zval_ptr_dtor`。
+- **附加项（报告建议同步采纳）**：`fn_stats` 抛异常时 `EG(exception)` 置位，循环内新增 `UNEXPECTED(EG(exception))` 判定——先按 UNDEF 语义清理 `stats_ret` 再 `break`，避免逐池重复调用后再抛。
+- **改动**：`src/tool/monitor.c`（`gene_monitor_collect_pools`，+9/-4 行）。
+- **验收**（待 Linux，并入 §9.10-5）：配置 ≥1 个具名 DB/Redis 池时 `/monitor` 连续访问 100 次无崩溃；ASAN/Valgrind 下 `Monitor::stats()` 零错误。
+
+### 11.2 D2（中）M1 冷却水位语义偏差 → 已修复 ✅
+
+- **水位修正**：`gene_request_ctx()` 触发分支改为先清 `co_ctx_allocs_since_sweep`、执行 `gene_co_contexts_sweep()`，**sweep 返回后再取 `zend_hash_num_elements` 作为 `co_contexts_sweep_mark`**（记录清扫后水位），「较水位增长 cap/4」的增长触发条件恢复有效，冷却不再退化为 allocs 单条件。
+- **请求边界复位**：`php_gene_close_request_globals()` 新增复位 `co_ctx_allocs_since_sweep` 与 `co_contexts_sweep_mark`；`co_contexts_sweep_skipped` 按报告要求**不复位**（累计遥测，保持 §9.10-3 量化口径）。
+- **改动**：`src/gene.c`（触发分支 + `php_gene_close_request_globals()`）。
+- **验收**（待 Linux，并入 §9.10-3）：协程风暴压测确认 sweep 次数随协程数增长而增长、`co_contexts_items` 不超过 `cap + cap/4`。
+
+### 11.3 D3（低）`gene_auto_cleanup_defer` 全局函数暴露 → 已修复 ✅
+
+- **自防护**：回调执行条件由 `runtime_type >= 2 && co_contexts` 加强为 `swoole_auto_cleanup && runtime_type >= 2 && co_contexts`——功能开关关闭时用户态直接调用为完全 no-op，无法提前销毁当前协程 ctx。函数保留全局注册（`Coroutine::defer` 的字符串 callable 所需）。
+- **文档**：函数 docblock 新增 `@internal` 段，明示直接调用的危害（销毁当前协程 ctx、丢失路由/请求状态）；`gene-ai-helper/skills/gene-framework/swoole.md` §7.1 同步加入「禁止业务代码直接调用」警示。
+- **改动**：`src/gene.c`（回调函数 + docblock）、`swoole.md`。
+
+### 11.4 D4（低）defer 不可用时降级覆盖面小于 F1 设计目标 → 已修复 ✅
+
+- **once NOTICE**：`gene_swoole_auto_cleanup_register()` 在 `gene_swoole_defer_resolve()` 失败时，按 `co_contexts_cap_warned` once 模式发一条 `E_NOTICE`（每 worker 一次），显式提示「自动 cleanup 仅覆盖 `Application::run()`，其他协程仍须手动 `cleanup(true)`」。新增全局量 `GENE_G(swoole_defer_notice_sent)`（`gene.h` 声明 + `init_globals` 初始化）。
+- **文档声明**：`swoole.md` §7.1 新增「覆盖范围要求」段——自动 cleanup 兜底要求 Swoole 提供 `Coroutine::defer`；旧版 Swoole 降级为仅 `run()` 入口归还，Timer tick / task worker / 自建协程仍须在 `finally` 中手动 `cleanup(true)`。
+- **改动**：`src/gene.c`（register 函数 + `init_globals`）、`src/gene.h`、`swoole.md`。
+
+### 11.5 改动文件与配套同步
+
+| 文件 | 内容 |
+|------|------|
+| `src/tool/monitor.c` | D1 所有权转移 + `EG(exception)` 中断 |
+| `src/gene.c` | D2 水位/复位、D3 回调门控与 `@internal` docblock、D4 once NOTICE 与 init |
+| `src/gene.h` | D4 新增 `swoole_defer_notice_sent` 全局量 |
+| `gene-ai-helper/skills/gene-framework/swoole.md` | D4 覆盖范围声明 + D3 `@internal` 警示 |
+| `CHANGELOG.md` | [5.6.8] 新增「复核修复 D1-D4」条目 |
+
+### 11.6 回写后状态
+
+- §10.2 的 D1-D4 全部落地，§10.4 优先级表各项可标记完成；**O6 约束不变**：本轮改动同样未经编译，D1 的修复正确性（无泄漏/无崩溃）与 D2 的冷却有效性仍须 Linux ASAN/Valgrind + 协程压测确认，验证增量已并入 §9.10 对应条目（11.1→§9.10-5、11.2→§9.10-3、11.4→§9.10-4 的降级路径冒烟）。
+- 静态自查要点：D1 所有权路径与全仓既有惯例（`validate.c:824-827` 等）等价（转移后不 dtor）；D2 `cur_count` 仍用于增长触发判定、无未用变量；D3/D4 均为冷路径分支，热路径（defer 可用、开关开启）零新增开销。

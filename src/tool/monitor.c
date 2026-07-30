@@ -63,10 +63,19 @@ static void gene_monitor_collect_pools(zend_class_entry *pool_ce, const char *pr
 		}
 		ZVAL_UNDEF(&stats_ret);
 		zend_call_known_function(fn_stats, Z_OBJ_P(pool), pool_ce, &stats_ret, 0, NULL, NULL);
-		if (Z_TYPE(stats_ret) == IS_ARRAY) {
-			zend_hash_update(Z_ARRVAL_P(out), name, &stats_ret);
+		if (UNEXPECTED(EG(exception))) {
+			if (!Z_ISUNDEF(stats_ret)) {
+				zval_ptr_dtor(&stats_ret);
+			}
+			break;
 		}
-		if (!Z_ISUNDEF(stats_ret)) {
+		if (Z_TYPE(stats_ret) == IS_ARRAY) {
+			/* [GENE_AUDIT:2026-07-30 D1] zend_hash_update takes ownership of
+			 * the zval (COPY_VALUE, no addref); destructing stats_ret after
+			 * the update would drop the array's refcount to zero and leave a
+			 * dangling pointer in the pools partition. */
+			zend_hash_update(Z_ARRVAL_P(out), name, &stats_ret);
+		} else if (!Z_ISUNDEF(stats_ret)) {
 			zval_ptr_dtor(&stats_ret);
 		}
 	} ZEND_HASH_FOREACH_END();

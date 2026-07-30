@@ -295,7 +295,11 @@ Swoole 无 PHP 超全局，必须用 `init` 注入：
 
 ### 7.1 自动 cleanup 兜底（5.6.8+，`gene.swoole_auto_cleanup`）
 
-`php.ini` 置 `gene.swoole_auto_cleanup=1`（默认 `0`）后，框架在首次为某协程分配请求上下文时注册一次性 `Swoole\Coroutine::defer` 归还回调：协程结束即自动归还上下文，**覆盖 `run()`、Timer tick、task worker、自建协程等全部入口**，业务漏调 `cleanup()` 不再造成上下文驻留。与手动 `cleanup()` 严格幂等（可共存，仍建议在 `finally` 中显式调用以尽早归还）。旧版 Swoole 无 `Coroutine::defer` 时自动降级为 `run()` 派发后归还。生效情况经 `\Gene\Monitor::stats()` 的 `swoole_auto_cleanup_defers` / `swoole_auto_cleanup_reclaimed` 观测。
+`php.ini` 置 `gene.swoole_auto_cleanup=1`（默认 `0`）后，框架在首次为某协程分配请求上下文时注册一次性 `Swoole\Coroutine::defer` 归还回调：协程结束即自动归还上下文，**覆盖 `run()`、Timer tick、task worker、自建协程等全部入口**，业务漏调 `cleanup()` 不再造成上下文驻留。与手动 `cleanup()` 严格幂等（可共存，仍建议在 `finally` 中显式调用以尽早归还）。
+
+> **覆盖范围要求**：自动 cleanup 兜底要求 Swoole 提供 `Coroutine::defer`。**旧版 Swoole 无 `Coroutine::defer` 时自动降级为仅 `run()` 派发后归还** —— 不走 `run()` 的协程（Timer tick、task worker、自建协程）**仍须在 `finally` 中手动 `cleanup(true)`**；该降级发生时会按 once 模式发一条 `E_NOTICE`（每 worker 一次）提示覆盖缺口。
+
+生效情况经 `\Gene\Monitor::stats()` 的 `swoole_auto_cleanup_defers` / `swoole_auto_cleanup_reclaimed` 观测。另注：`gene_auto_cleanup_defer()` 是注册 defer 所需的**内部全局函数（@internal）**，禁止业务代码直接调用——直接调用会立即销毁当前协程的请求上下文，丢失路由/请求状态。
 
 ---
 

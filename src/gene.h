@@ -311,6 +311,9 @@ zend_ulong co_contexts_sweep_skipped;
 zend_bool swoole_auto_cleanup;
 zend_function *swoole_defer_func;
 zend_bool swoole_defer_resolved;
+/* [GENE_AUDIT:2026-07-30 D4] once-flag for the defer-unavailable NOTICE
+ * (co_contexts_cap_warned-style: fire once, never on the hot path). */
+zend_bool swoole_defer_notice_sent;
 zend_ulong swoole_auto_cleanup_defers;
 zend_ulong swoole_auto_cleanup_reclaimed;
 zend_long run_depth;

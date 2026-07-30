@@ -808,6 +808,16 @@ static int gene_swoole_defer_resolve(void) {
 static void gene_swoole_auto_cleanup_register(void) {
 	zval callable_zv, ret;
 	if (!gene_swoole_defer_resolve()) {
+		/* [GENE_AUDIT:2026-07-30 D4] Defer unavailable (old Swoole): the
+		 * auto-cleanup backstop then only covers the Application::run()
+		 * fallback — coroutines that never pass through run() (Timer tick,
+		 * task workers, user-spawned) still require manual cleanup(true).
+		 * Surface this once per worker instead of silently degrading. */
+		if (!GENE_G(swoole_defer_notice_sent)) {
+			php_error_docref(NULL, E_NOTICE,
+				"Gene: Swoole\\Coroutine::defer unavailable; gene.swoole_auto_cleanup only covers Application::run(), other coroutines still need manual cleanup(true)");
+			GENE_G(swoole_defer_notice_sent) = 1;
+		}
 		return;
 	}
 	ZVAL_STRING(&callable_zv, "gene_auto_cleanup_defer");
@@ -911,9 +921,16 @@ gene_request_context *gene_request_ctx(void) {
 			if (cooldown < 1) cooldown = 1;
 			if (GENE_G(co_ctx_allocs_since_sweep) >= (zend_ulong)cooldown
 					|| cur_count >= GENE_G(co_contexts_sweep_mark) + (zend_ulong)cooldown) {
-				GENE_G(co_contexts_sweep_mark) = cur_count;
 				GENE_G(co_ctx_allocs_since_sweep) = 0;
 				gene_co_contexts_sweep();
+				/* [GENE_AUDIT:2026-07-30 D2] Record the POST-sweep table size
+				 * as the mark, not the pre-sweep one. Recording cur_count
+				 * (pre-sweep) permanently blunted the growth trigger: after a
+				 * sweep reclaims dead entries the table sits far below the
+				 * mark, so "grew by cap/4 past the mark" would never fire
+				 * again and the cooldown degraded to the allocs-only
+				 * condition. */
+				GENE_G(co_contexts_sweep_mark) = zend_hash_num_elements(GENE_G(co_contexts));
 			} else {
 				GENE_G(co_contexts_sweep_skipped)++;
 			}
@@ -986,6 +1003,8 @@ static void php_gene_init_globals() {
 	 * php.ini — do NOT zero it here (same rule as ctx_pool_prewarm). */
 	GENE_G(swoole_defer_func) = NULL;
 	GENE_G(swoole_defer_resolved) = 0;
+	/* [GENE_AUDIT:2026-07-30 D4] */
+	GENE_G(swoole_defer_notice_sent) = 0;
 	GENE_G(swoole_auto_cleanup_defers) = 0;
 	GENE_G(swoole_auto_cleanup_reclaimed) = 0;
 	GENE_G(run_depth) = 0;
@@ -1074,6 +1093,13 @@ static void php_gene_close_request_globals() {
 	 * run_depth decrement in run(); reset at the request boundary so the
 	 * nested-run guard can never wedge the fallback path. */
 	GENE_G(run_depth) = 0;
+	/* [GENE_AUDIT:2026-07-30 D2] Reset the sweep cooldown bookkeeping at the
+	 * request boundary: both are triggers tied to the live co_contexts table
+	 * (destroyed above in FPM mode), so letting them carry across requests
+	 * would be stale cross-request state. co_contexts_sweep_skipped is
+	 * cumulative telemetry and is deliberately NOT reset here. */
+	GENE_G(co_ctx_allocs_since_sweep) = 0;
+	GENE_G(co_contexts_sweep_mark) = 0;
 	if (GENE_G(resident_ctx)) {
 		gene_request_context *tmp = GENE_G(resident_ctx);
 		GENE_G(resident_ctx) = NULL;
@@ -1302,9 +1328,16 @@ PHP_FUNCTION(gene_version) {
  * ctx for the dying coroutine. Idempotent against manual cleanup(): the hash
  * delete is a no-op when the entry is already gone. Internal plumbing, not
  * part of the public API contract.
+ *
+ * @internal [GENE_AUDIT:2026-07-30 D3] This must stay registered as a global
+ * function because Swoole\Coroutine::defer needs a string callable, but it is
+ * NOT for userland: calling it directly inside a coroutine would destroy the
+ * current ctx mid-request and lose all routing/request state. Guarded by
+ * gene.swoole_auto_cleanup so a disabled feature cannot be invoked by
+ * accident.
  */
 PHP_FUNCTION(gene_auto_cleanup_defer) {
-	if (GENE_G(runtime_type) >= 2 && GENE_G(co_contexts)) {
+	if (GENE_G(swoole_auto_cleanup) && GENE_G(runtime_type) >= 2 && GENE_G(co_contexts)) {
 		zend_long cid = gene_get_coroutine_id();
 		if (cid >= 0) {
 			if (GENE_G(current_cid) == cid) {

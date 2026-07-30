@@ -34,7 +34,14 @@
 - **RedisPool CAS 放弃计数可观测化（L1）**：`rpool_decrement_count()` CAS 重试 64 轮后原为静默放弃（计数偏高不可观测）。现计入 `redis_pool_cas_abandoned`（经 `Monitor::stats()` 出口），并沿用 `co_contexts_cap_warned` 的 once 模式仅在计数 0→1 时告警一次，避免常驻 worker 日志淹没。
 - **Log::exception rv 槽泄漏（L4）**：`zend_read_property` 的 rv1/rv2/rv3 槽未初始化且读回后从不 dtor；传入带魔术 `__get` 的 Throwable 子类时临时值写入 rv 即确定性泄漏。现三个 rv 先 `ZVAL_UNDEF`、拷贝完成后逐个 `zval_ptr_dtor`。
 
-### 🔧 修改文件一览
+### � 修复（2026-07-30 复核修复 D1-D4）
+
+- **Monitor 池分区引用计数透支（D1）**：`gene_monitor_collect_pools()` 将各池 `stats()` 返回数组经 `zend_hash_update`（COPY_VALUE，不增引用）移入结果表后又 `zval_ptr_dtor`，refcount 归零释放数组，使 `db_pools`/`redis_pools` 分区留下悬空指针——存在具名 DB/Redis 池时 `Monitor::stats()` 可能崩溃或读到已释放内存。现仅在非数组返回时 dtor，数组所有权随 `zend_hash_update` 转移；同时对 `stats()` 抛异常的场景补 `EG(exception)` 提前中断。
+- **sweep 冷却水位语义修正（D2）**：M1 冷却的 `co_contexts_sweep_mark` 原记录 sweep **前**表规模，sweep 大量回收后「较水位增长 cap/4」的增长触发条件被永久钝化，冷却退化为仅剩新增分配单条件。现改为记录 sweep **后**水位；并在 `php_gene_close_request_globals()` 请求边界复位 `co_ctx_allocs_since_sweep` / `co_contexts_sweep_mark`（`co_contexts_sweep_skipped` 属累计遥测不复位）。
+- **内部 defer 回调自防护（D3）**：`gene_auto_cleanup_defer()` 因 `Coroutine::defer` 需字符串 callable 而注册为全局函数，业务直接调用可提前销毁当前协程 ctx。现补 `gene.swoole_auto_cleanup` 开关门控（关闭时调用为 no-op），并标注 `@internal`、在 `swoole.md` 明示禁止业务调用。
+- **defer 不可用降级显式化（D4）**：`gene.swoole_auto_cleanup` 在旧版 Swoole（无 `Coroutine::defer`）下仅覆盖 `Application::run()` 入口。现解析失败时按 once 模式（每 worker 一次）发 `E_NOTICE` 提示覆盖缺口；`swoole.md` 已显式声明该场景下非 run 协程仍须手动 `cleanup(true)`。
+
+### �🔧 修改文件一览
 
 - `src/db/pdo.c` — 标识符引用强化（JOIN 检测 / 表达式白名单 / 引号配平）、连接处理修复
 - `src/common/common.c` / `common.h` — `strncpy` → `memcpy`
