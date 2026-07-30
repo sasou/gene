@@ -1,21 +1,6 @@
 # Gene Framework Changelog
 
-## [5.6.8]
-
-### 🔒 安全
-
-- **PDO 标识符引用强化**：`pdo.c` 标识符引用新增 JOIN 子句检测、表达式白名单与引号配平校验，进一步收窄 SQL 注入攻击面。
-- **PDO 连接处理修复**：修正 PDO 连接建立与异常路径的资源管理，避免连接泄漏。
-
-### ⚡ 性能
-
-- **字符串工具**：`common.c` 以 `memcpy` 替换 `strncpy` 关键路径，消除冗余尾部填充。
-- **数据库驱动**：优化 mysql / mssql / pgsql / sqlite 连接处理流程。
-- **Redis 连接池**：改进 `redis_pool.c` 连接池管理与复用策略。
-- **路由 / 视图 / 响应**：精简 `router.c`、`view.c`、`response.c` 头部操作与渲染路径。
-- **Benchmark / Log**：基准与日志工具性能调优，并同步标识符引用改进。
-- **协程上下文 sweep 冷却（M1）**：`gene_request_ctx()` 此前在协程上下文表达到 `gene.co_contexts_max` 后，每次新协程分配都触发一次 O(N) 全表存活扫描；活跃协程持续超 cap 时（cap 偏小或漏调 cleanup 且协程长命）形成 O(N²) 放大与 p99 毛刺。现引入冷却：仅当距上次 sweep 新增 ctx 分配数超过 `cap/4`、或表规模较上次 sweep 水位增长 `cap/4` 时才重新扫描；被抑制的触发计入 `co_contexts_sweep_skipped`（经 `Memory::stats()` / `Monitor::stats()` 可观测）。
-- **sweep victims 栈分批（L2）**：`gene_co_contexts_sweep()` 的 victims 收集由 `emalloc(total)` 改为 256/批栈上分批，消除大 cap（如 8192）下单次 ~64KB 瞬态分配。
+## [5.6.9]
 
 ### 🔒 安全（2026-07-30 审计修复）
 
@@ -34,30 +19,55 @@
 - **RedisPool CAS 放弃计数可观测化（L1）**：`rpool_decrement_count()` CAS 重试 64 轮后原为静默放弃（计数偏高不可观测）。现计入 `redis_pool_cas_abandoned`（经 `Monitor::stats()` 出口），并沿用 `co_contexts_cap_warned` 的 once 模式仅在计数 0→1 时告警一次，避免常驻 worker 日志淹没。
 - **Log::exception rv 槽泄漏（L4）**：`zend_read_property` 的 rv1/rv2/rv3 槽未初始化且读回后从不 dtor；传入带魔术 `__get` 的 Throwable 子类时临时值写入 rv 即确定性泄漏。现三个 rv 先 `ZVAL_UNDEF`、拷贝完成后逐个 `zval_ptr_dtor`。
 
-### � 修复（2026-07-30 复核修复 D1-D4）
+### 🐞 修复（2026-07-30 复核修复 D1-D4）
 
 - **Monitor 池分区引用计数透支（D1）**：`gene_monitor_collect_pools()` 将各池 `stats()` 返回数组经 `zend_hash_update`（COPY_VALUE，不增引用）移入结果表后又 `zval_ptr_dtor`，refcount 归零释放数组，使 `db_pools`/`redis_pools` 分区留下悬空指针——存在具名 DB/Redis 池时 `Monitor::stats()` 可能崩溃或读到已释放内存。现仅在非数组返回时 dtor，数组所有权随 `zend_hash_update` 转移；同时对 `stats()` 抛异常的场景补 `EG(exception)` 提前中断。
 - **sweep 冷却水位语义修正（D2）**：M1 冷却的 `co_contexts_sweep_mark` 原记录 sweep **前**表规模，sweep 大量回收后「较水位增长 cap/4」的增长触发条件被永久钝化，冷却退化为仅剩新增分配单条件。现改为记录 sweep **后**水位；并在 `php_gene_close_request_globals()` 请求边界复位 `co_ctx_allocs_since_sweep` / `co_contexts_sweep_mark`（`co_contexts_sweep_skipped` 属累计遥测不复位）。
 - **内部 defer 回调自防护（D3）**：`gene_auto_cleanup_defer()` 因 `Coroutine::defer` 需字符串 callable 而注册为全局函数，业务直接调用可提前销毁当前协程 ctx。现补 `gene.swoole_auto_cleanup` 开关门控（关闭时调用为 no-op），并标注 `@internal`、在 `swoole.md` 明示禁止业务调用。
 - **defer 不可用降级显式化（D4）**：`gene.swoole_auto_cleanup` 在旧版 Swoole（无 `Coroutine::defer`）下仅覆盖 `Application::run()` 入口。现解析失败时按 once 模式（每 worker 一次）发 `E_NOTICE` 提示覆盖缺口；`swoole.md` 已显式声明该场景下非 run 协程仍须手动 `cleanup(true)`。
 
-### �🔧 修改文件一览
+### 🔧 修改文件一览
 
-- `src/db/pdo.c` — 标识符引用强化（JOIN 检测 / 表达式白名单 / 引号配平）、连接处理修复
-- `src/common/common.c` / `common.h` — `strncpy` → `memcpy`
-- `src/db/{mysql,mssql,pgsql,sqlite}.c` — 连接处理优化
-- `src/cache/redis_pool.c` / `src/db/pool.c` — 连接池管理改进；L1 CAS 放弃计数器 + once 告警
-- `src/router/router.c` / `src/mvc/view.c` / `src/http/response.c` / `src/http/validate.c` — 路由 / 视图 / 响应 / 校验优化；F3 直派 init 钩子；F5 Validate::extend
-- `src/tool/benchmark.c` / `src/tool/log.c` — 工具性能与标识符引用同步；L4 log.c rv 槽修正
-- `src/tool/monitor.c` / `src/tool/monitor.h` — F2 新增 `Gene\Monitor` 聚合出口
+- `src/cache/redis_pool.c` / `src/db/pool.c` — L1 CAS 放弃计数器 + once 告警
+- `src/router/router.c` / `src/http/validate.c` — F3 直派 init 钩子；F5 Validate::extend
+- `src/tool/log.c` — L4 log.c rv 槽修正
+- `src/tool/monitor.c` / `src/tool/monitor.h` — F2 新增 `Gene\Monitor` 聚合出口；D1 引用计数透支修复
 - `src/session/session.c` — H1 删除插件方法静态缓存，对齐 cache.c 直查
 - `src/mvc/controller.c` — F3 基类 `init()` 方法
 - `src/app/application.c` — F1 run() 降级归还 + 请求计数；F6 cache_easy 惰性过期
 - `src/cache/memory.c` — `Memory::stats()` 新增 `co_contexts_sweep_skipped`
-- `src/gene.c` / `src/gene.h` — 版本号升至 5.6.8 及配套调整；M1 sweep 冷却、L2 栈分批、F1 defer 注册/回调、F5 注册表生命周期、F2 计数器、`gene.swoole_auto_cleanup` / `gene.cache_easy_ttl` INI
+- `src/gene.c` / `src/gene.h` — 版本号升至 5.6.9；F1 defer 注册/回调、D2 sweep mark 修正、D3 defer 自防护、D4 defer 降级 NOTICE、F5 注册表生命周期、F2 计数器、`gene.swoole_auto_cleanup` / `gene.cache_easy_ttl` INI
 - `src/config.m4` / `src/config.w32` — 新增 tool/monitor.c 编译单元
 - `demo/application/Controllers/Monitor.php` / `demo/config/router.ini.php` — `/monitor` 端点示例（含 F3 init 演示）
 - `gene-ide-helper/Gene/{Monitor,Controller,Validate}.php` — 新 API 存根同步
+- `gene-ai-helper/skills/gene-framework/swoole.md` — D4 自动 cleanup 降级说明 + @internal 声明
+
+## [5.6.8]
+
+### 🔒 安全
+
+- **PDO 标识符引用强化**：`pdo.c` 标识符引用新增 JOIN 子句检测、表达式白名单与引号配平校验，进一步收窄 SQL 注入攻击面。
+- **PDO 连接处理修复**：修正 PDO 连接建立与异常路径的资源管理，避免连接泄漏。
+
+### ⚡ 性能
+
+- **字符串工具**：`common.c` 以 `memcpy` 替换 `strncpy` 关键路径，消除冗余尾部填充。
+- **数据库驱动**：优化 mysql / mssql / pgsql / sqlite 连接处理流程。
+- **Redis 连接池**：改进 `redis_pool.c` 连接池管理与复用策略。
+- **路由 / 视图 / 响应**：精简 `router.c`、`view.c`、`response.c` 头部操作与渲染路径。
+- **Benchmark / Log**：基准与日志工具性能调优，并同步标识符引用改进。
+- **协程上下文 sweep 冷却（M1）**：`gene_request_ctx()` 此前在协程上下文表达到 `gene.co_contexts_max` 后，每次新协程分配都触发一次 O(N) 全表存活扫描；活跃协程持续超 cap 时（cap 偏小或漏调 cleanup 且协程长命）形成 O(N²) 放大与 p99 毛刺。现引入冷却：仅当距上次 sweep 新增 ctx 分配数超过 `cap/4`、或表规模较上次 sweep 水位增长 `cap/4` 时才重新扫描；被抑制的触发计入 `co_contexts_sweep_skipped`（经 `Memory::stats()` / `Monitor::stats()` 可观测）。
+- **sweep victims 栈分批（L2）**：`gene_co_contexts_sweep()` 的 victims 收集由 `emalloc(total)` 改为 256/批栈上分批，消除大 cap（如 8192）下单次 ~64KB 瞬态分配。
+
+### 🔧 修改文件一览
+
+- `src/db/pdo.c` — 标识符引用强化（JOIN 检测 / 表达式白名单 / 引号配平）、连接处理修复
+- `src/common/common.c` / `common.h` — `strncpy` → `memcpy`
+- `src/db/{mysql,mssql,pgsql,sqlite}.c` — 连接处理优化
+- `src/cache/redis_pool.c` / `src/db/pool.c` — 连接池管理改进
+- `src/router/router.c` / `src/mvc/view.c` / `src/http/response.c` / `src/http/validate.c` — 路由 / 视图 / 响应 / 校验优化
+- `src/tool/benchmark.c` / `src/tool/log.c` — 工具性能与标识符引用同步
+- `src/gene.c` / `src/gene.h` — 版本号升至 5.6.8 及配套调整；M1 sweep 冷却、L2 栈分批
 
 ## [5.6.7]
 
