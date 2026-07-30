@@ -282,3 +282,97 @@ static struct { zend_class_entry *ce; zend_string *method; zend_function *fn; } 
 - `audit/AUDIT_REPORT_2026_07_13.md`：H1（ZTS）修复范围（本报告 H1 为其同类残留）
 - `audit/AUDIT_REPORT_2026_05_29.md`：view.c 跨请求 UAF 修复（本报告 H1 的判定先例）
 - `audit/AUDIT_REPORT_2026_07_03.md` §10.2-10.4：静态缓存迁移残留与待验证项
+
+---
+
+## 十、优化项落地情况复核（2026-07-30 事后核查）
+
+> 核查方式：以第九节各项声明为清单，逐项对照 `3d8e15f`（v5.6.8 落地提交）+ `b61a069` 的**实际源码**做静态复核；PHP 侧文件经 `php -l` 通过；C 侧仍未编译（O6 阻塞未解）。
+> 结论：**声明的 12 项改动全部真实落地，无“报告写了代码没写”的情况**；但复核发现 1 个高危实现缺陷与 3 个次要缺陷，需在宣称闭环前修掉。
+
+### 10.1 落地核对表
+
+| 项 | 声明 | 实际落地 | 判定 |
+|---|------|----------|------|
+| H1 session 静态缓存 | 删除，改直查 | `session.c:89` 每次 `zend_hash_find_ptr`；全仓已无用户态 CE/函数静态缓存（其余 static 缓存目标均为 `Gene\*`/`Swoole\*`/PDO/内置函数） | ✅ 一致 |
+| M1 sweep 冷却 | cap/4 冷却 + skipped 计数 | `gene.c:909-919`，全局量 `gene.h:299-301`，`init_globals` `gene.c:982-984`，`Memory::stats`/`Monitor::stats` 均出口 | ⚠️ 落地但有缺陷（见 D2） |
+| L2 victims 栈分批 | 256/批 | `gene.c:735-771`：批满即删 + 循环后收尾删除，`total<16` 下限保留（745），无越界、无 emalloc | ✅ 一致 |
+| L1 CAS 放弃计数 | 计数 + once 告警 | `redis_pool.c:454-470`，`redis_pool_cas_abandoned` / `redis_pool_cas_warned`，Monitor 出口 | ✅ 一致 |
+| F1 协程 defer 自动 cleanup | defer 主路径 + run() 降级 | `gene.c:788-821`（resolve/register）、`gene.c:1306-1321`（回调，直删 co_contexts、幂等、先解绑 current_*）、`gene_functions[]` 已注册（1330）、INI 默认 0（156）、降级路径 `application.c:1409-1423` + `run_depth` 守卫与 RSHUTDOWN 归零（`gene.c:1076`） | ⚠️ 落地，有 2 处次要问题（D3/D4） |
+| F2 `Gene\Monitor` | 新单元 + 三分区 | `src/tool/monitor.c/.h`、`GENE_STARTUP(monitor)`、`config.m4:55` / `config.w32:7` 双同步、demo `/monitor` 路由、`CacheTest::testMonitorStats()` | ❌ 存在高危实现缺陷（见 D1） |
+| F3 `Controller::init()` | 基类 + 两处直派 | `controller.c:588-590/645`；`router.c:386-404` helper，`instanceof` 门控，异常时不再执行 action；调用点 `router.c:487`、`router.c:3110` | ✅ 一致 |
+| L4 log.c rv 槽 | UNDEF + dtor | `log.c:268-281`，三槽先 `ZVAL_UNDEF`，`ZVAL_COPY` 后逐个 `zval_ptr_dtor`；早退路径均在该块之前 | ✅ 一致 |
+| F5 `Validate::extend()` | 注册表 + 分派顺序 | `validate.c:506-527`（`"Sf"` 解析、空规则名告警）、`validate.c:799-813`（extend 表优先于内置 `rule_*`）、生命周期 `gene.c:1035-1039`（FPM RSHUTDOWN）/`1211-1215`（Swoole MSHUTDOWN），与 `fn_cache` 完全同型 | ✅ 一致 |
+| F6 `cache_easy_ttl` | INI + 惰性过期 | INI 默认 0（`gene.c:157`）、`application.c:194-207` WRLOCK 内删除后 `val=NULL` 走重建、`cache_easy_expired` 出口 | ✅ 一致 |
+| 配套同步 | CHANGELOG / ide-helper / ai-helper / demo / test | 均已落地（`git show --stat 3d8e15f` 25 文件），PHP 文件 `php -l` 全部通过 | ✅ 一致 |
+
+### 10.2 复核新发现的问题与解决方案
+
+#### D1（高）`Monitor::stats()` 池分区多释放一次引用 → 泄漏/UAF
+
+- 位置：`src/tool/monitor.c:64-71`（`gene_monitor_collect_pools`）
+- 现状：
+  ```c
+  zend_call_known_function(fn_stats, Z_OBJ_P(pool), pool_ce, &stats_ret, 0, NULL, NULL);
+  if (Z_TYPE(stats_ret) == IS_ARRAY) {
+      zend_hash_update(Z_ARRVAL_P(out), name, &stats_ret);   /* 未 addref，所有权已交给 out */
+  }
+  if (!Z_ISUNDEF(stats_ret)) {
+      zval_ptr_dtor(&stats_ret);                             /* 再减一次 → 引用透支 */
+  }
+  ```
+- 危害：`zend_hash_update` 走 `ZVAL_COPY_VALUE`，不增引用；随后的 `zval_ptr_dtor` 使 refcount 归零并释放数组，`db_pools`/`redis_pools` 分区内留下悬空指针。只要存在**具名 DB/Redis 池**，`Monitor::stats()`（含 demo `/monitor` 端点、`CacheTest::testMonitorStats`）即可能崩溃或读到已释放内存。**这是本次为“可观测性”新增的代码反而引入的内存安全问题，级别高于它所治理的 O2。**
+- 全仓既有正确写法为对照：`validate.c:824-827`、`validate.c:785-787`、`redis_pool.c:1113-1114` 均先 `Z_TRY_ADDREF` 再 `zend_hash_update`（再 dtor）。
+- 解决方案（择一，推荐 A）：
+  - **A（最小改动）**：删除 `zval_ptr_dtor(&stats_ret)`，仅在 `Z_TYPE != IS_ARRAY` 分支释放：
+    ```c
+    if (Z_TYPE(stats_ret) == IS_ARRAY) {
+        zend_hash_update(Z_ARRVAL_P(out), name, &stats_ret);   /* 转移所有权，不再 dtor */
+    } else if (!Z_ISUNDEF(stats_ret)) {
+        zval_ptr_dtor(&stats_ret);
+    }
+    ```
+  - B（对齐仓库惯例）：`Z_TRY_ADDREF(stats_ret);` 后再 `zend_hash_update`，保留末尾 dtor。
+  - 附加：`fn_stats` 抛异常时 `stats_ret` 为 UNDEF，A/B 两式均已覆盖；建议同时 `if (EG(exception)) break;` 避免逐池重复调用后再抛。
+- 验收：`/monitor` 在配置 ≥1 个具名池时连续访问 100 次；Valgrind/ASAN 下 `Monitor::stats()` 零错误。
+
+#### D2（中）M1 冷却水位 `co_contexts_sweep_mark` 语义偏差
+
+- 位置：`src/gene.c:914`。`mark` 记录的是**sweep 前**的表规模，且 sweep 回收后不下修。
+- 危害：
+  1. “表规模比上次 sweep 水位又长了 cap/4”这一增长触发条件被永久钝化——sweep 大量回收后表规模远低于 `mark`，该条件基本不再成立，冷却退化为**只剩 `allocs >= cap/4` 单条件**，协程数骤增的突发场景无法及时清扫；
+  2. `mark` / `co_ctx_allocs_since_sweep` 在 FPM 请求边界不复位（`php_gene_close_request_globals` 未处理）。FPM 下 `co_contexts` 通常为空、影响有限，但语义上属跨请求残留状态。
+- 解决方案：
+  - `gene_co_contexts_sweep()` 返回后再取一次 `zend_hash_num_elements` 作为 `mark`（即记录**清扫后**水位），使增长触发条件真正生效；
+  - 在 `php_gene_close_request_globals()` 中复位 `co_ctx_allocs_since_sweep` 与 `co_contexts_sweep_mark`（`co_contexts_sweep_skipped` 属累计遥测，**不要**复位，否则 §9.10-3 的量化口径失效）。
+- 验收：并入 §七.2 / §9.10-3 的协程风暴压测，确认 sweep 次数随协程数增长而增长、`co_contexts_items` 不超过 `cap + cap/4`。
+
+#### D3（低）`gene_auto_cleanup_defer` 暴露为全局用户函数
+
+- 位置：`src/gene.c:1330`（`gene_functions[]`）。该内部兜底回调被注册为**全局可调用函数**，用户代码在协程中直接调用即可提前销毁当前协程 ctx，导致该请求后续 `GENE_REQ()` 拿到全新空 ctx（路由/请求状态丢失），属可被误用的内部管线暴露。
+- 解决方案：保持注册（`Coroutine::defer` 的字符串 callable 需要全局函数）但加一道自防护——回调内仅在 `GENE_G(swoole_auto_cleanup)` 为真时动作（当前已隐含 `runtime_type>=2` 判断，补上开关判断成本为零），并在函数名与文档中明确 `@internal`；或改用 `Swoole\Coroutine::defer` 接受的闭包/`[Gene\Application::class, ...]` 形式，避免新增全局符号。
+
+#### D4（低）defer 不可用时降级路径覆盖面小于 F1 设计目标
+
+- 位置：`src/app/application.c:1409-1411`。降级条件 `swoole_defer_resolved && !swoole_defer_func` 正确，但**归还仅发生在 `Application::run()` 内**。F1 的立论前提正是“产生 ctx 驻留压力的恰恰是不走 `run()` 的协程（Timer tick / task worker / 自建协程）”，故在旧版 Swoole（无 `Coroutine::defer`）环境下，M1 的现实压力源**并未被抽掉**，仍需依赖 cap+sweep 兜底。
+- 解决方案：文档与 `swoole.md` 中显式声明「自动 cleanup 兜底要求 Swoole 提供 `Coroutine::defer`；否则仅覆盖 `run()` 入口，非 run 协程仍须手动 `cleanup(true)`」，并在 defer 解析失败时按 once 模式发一条 `E_NOTICE`（沿用 `co_contexts_cap_warned` 模式，不得高频告警）。
+
+### 10.3 复核确认无问题的实现细节（避免二次返工）
+
+- L2 栈分批的迭代器安全性论证成立：`ZEND_HASH_FOREACH` 沿 arData 单调前进，`zend_hash_index_del` 不重排，仅删除迭代器已越过的桶；批满删除与循环后收尾删除均覆盖，无 victim 遗漏、无越界。
+- L4 `ZVAL_COPY` 后 dtor rv 不构成 double free（copy 已增引用）；三处早退均在 rv 块之前。
+- F5 注册表用 `ALLOC_HASHTABLE`+`ZVAL_PTR_DTOR`，与 `fn_cache` 生命周期策略完全同型（FPM 请求级 / Swoole worker 级），未出现「持久分配器存请求期 zval」的错配。
+- F6 删除后立即 `val = NULL` 再走未命中重建，无 use-after-free；删除在 WRLOCK 内。
+- F3 `init()` 抛异常时 `dispatch_direct` 返回 0 走既有错误路径，action 不执行。
+- `b61a069` 的“minor fix”实为给 `monitor.c` 补 UTF-8 BOM，与仓库既有源码约定一致（`gene.c`/`log.c`/`memory.c` 均带 BOM），非功能改动。
+
+### 10.4 修复优先级与验证增量
+
+| 顺序 | 项 | 阻塞级别 |
+|---|---|---|
+| 1 | **D1** `monitor.c` 引用计数（内存安全，且路径已进 demo/测试） | 必须在编译验证前修 |
+| 2 | D2 M1 水位语义 + 请求边界复位 | 与 §9.10-3 压测同批 |
+| 3 | D4 文档/NOTICE 补齐 | 与灰度开启 F1 同批 |
+| 4 | D3 内部函数自防护 | 可随下个小版本 |
+
+> 与 O6 的关系不变：以上均为静态复核结论，**D1 的实际崩溃/泄漏行为与 D2 的冷却有效性仍须 Linux 编译 + ASAN/Valgrind + 协程压测确认**；在此之前不得宣称 v5.6.8 的内存与并发结论已闭环。
