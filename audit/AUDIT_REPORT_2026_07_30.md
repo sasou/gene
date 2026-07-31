@@ -6,6 +6,8 @@
 > **回写说明（2026-07-30 当日）**：报告出具后，P0/P1/P2 各项已于当日按方案落地实现，实现明细与台账状态更新见**第九节**及第五节台账表「状态」列；源码改动未经编译，运行时验证仍挂 O6
 > 审计范围：`src/` 全模块，重点为历次审计未覆盖角度与遗留项闭环核查
 > 结论约定：每条发现标注证据类型 ——「静态确认」或「需运行时验证」；本机（Windows）无法执行编译、ASAN/Valgrind、压测与长跑
+>
+> **2026-07-31 现状更新**：本报告撰写后，`F3 Controller::init()` 在 v5.6.9 中已回退（commit `fc10274`），不再属于已落地功能；`F4 路由级中间件管道` 仍停留在建议阶段，未实现。所有未实现/待验证项已汇总至 `audit/plan/PLAN.md`。
 
 ---
 
@@ -132,7 +134,7 @@ static struct { zend_class_entry *ce; zend_string *method; zend_function *fn; } 
 | O4 | `cache_easy` 独立 TTL/LRU | P2 | ✅ **已实现**（F6 `gene.cache_easy_ttl` 惰性过期，§九.8） | Swoole 环境验证 |
 | O5 | M1 sweep 重复扫描 / L1 CAS 静默放弃 / L4 log.c rv | 中/低 | ✅ **已实现**（M1 冷却 + L1 计数器 + L4 rv 修正，§九.2/3/7）。**M2 已从本台账移除**：本轮静态确认 Swoole 请求不跨越 SAPI 请求边界，注释假设成立（第二节 M2） | M1 压测量化（§七.2） |
 | O6 | 运行时验证全集：Linux 编译、ASAN/Valgrind、CAS 压测、dlsym 符号可见性、百万请求、24h RSS | 阻塞项 | ⏳ 维持开放 | 全部待人工 Linux 环境；环境未提供前不得宣称「无泄漏/UAF」。本轮新增改动全部经静态自查 + `php -l`，未经编译 |
-| O7 | Linux 回归 9 项失败（07-12 §7.7） | 功能 | 🔶 部分推进：`Gene\Controller::init()` 已经 F3 落地（基类方法 + 直派调用，§九.6），Mvc 对应失败项预期转绿 | 其余：DB 驱动 `connect()` 二选一、Cache/Language/Http 夹具 triage 待 Linux 重跑 |
+| O7 | Linux 回归 9 项失败（07-12 §7.7） | 功能 | ⏳ **F3 已回退**：`Gene\Controller::init()` 在 v5.6.9 中已移除，Mvc 对应失败项需重新评估；其余 DB/Cache/Language/Http 失败项仍待 Linux 重跑 | DB 驱动 `connect()` 二选一、Cache/Language/Http 夹具 triage 待 Linux 重跑；F3/F4 见 `audit/plan/PLAN.md` |
 
 ---
 
@@ -156,18 +158,18 @@ static struct { zend_class_entry *ce; zend_string *method; zend_function *fn; } 
 - **实现面**：新增 `src/tool/monitor.c`（或并入 memory.c），调用既有只读接口，<150 行。
 - **收益**：让 O2/O4 容量治理、M1 验证、长跑 RSS 归因（Gene vs 业务）全部具备数据基础，直接补齐 07-12 P0 缺口的最后一环。
 
-### F3（P1）：Controller 生命周期 `init()` 钩子
+### F3（P1）：Controller 生命周期 `init()` 钩子 — 已回退
 
-- **问题**：Linux 回归 Mvc 失败项证实 `Gene\Controller::init()` 被测试/用户期望但不存在（本轮已核实方法表）。子类当前只能重写 `__construct` 且须维护签名。
-- **方案**：路由直派实例化控制器后、调用 action 前，若子类定义了 `init()` 则调用一次（Yaf 同语义）。
-- **实现面**：`factory.c`/`router.c` 直派路径，<30 行。**同时闭环一个回归失败项**。
+- **2026-07-31 现状更新**：该钩子在 v5.6.9 中已回退（commit `fc10274`）。`Gene\Controller` 不再提供 `init()` 方法，控制器继续使用 `__construct`。
+- **未实现原因**：实现后复杂度超过收益，且与现有生命周期冲突。
+- **后续归属**：完整方案与回退说明见 `audit/plan/PLAN.md`。
 
-### F4（P1）：路由级中间件管道
+### F4（P1）：路由级中间件管道 — 未实现
 
-- **问题**：Hook 已有 before/after/handle 生命周期与命名钩子雏形，但无法对单路由声明「鉴权→限流→日志」式的有序横切链。
-- **方案**：路由配置支持 `route.middleware = "Auth,RateLimit"`（或 `$router->middleware()`），派发前按序执行各中间件（Gene\Hook 子类）`handle()`，任一返回 false 中断并走 error 路径。复用既有 `gene_router_exec_hook_direct` 直派机制，零 eval 开销。
-- **实现面**：`router.c`（配置解析 + 派发链）+ 文档/demo，中等规模。
-- **收益**：鉴权/限流/审计等横切关注点的标准挂载点，是框架级使用效益最高的扩展点。
+- **现状**：仍停留在建议阶段，未立项实现。
+- **建议方案**：路由配置支持 `route.middleware = "Auth,RateLimit"`（或 `$router->middleware()`），派发前按序执行各中间件（Gene\Hook 子类）`handle()`。
+- **约束**：不应在 O6 运行时验证全集打通前立项。
+- **后续归属**：见 `audit/plan/PLAN.md`。
 
 ### F5（P2）：Validate 自定义规则扩展点
 
@@ -185,8 +187,8 @@ static struct { zend_class_entry *ce; zend_string *method; zend_function *fn; } 
 2. **M1 + L2**（sweep 冷却 + victims 栈分批）—— 注意若 F1 主方案先落地，M1 的现实触发场景消失，可据此下调 M1 优先级，但冷却逻辑仍应保留作为防御；
 3. **F2**（`Monitor` 聚合出口）—— 前置于 M1/F1 的效果验证：没有聚合数据，sweep 冷却是否生效、ctx 是否真正随协程回收都无法量化；同时承载 L1 的放弃计数器；
 4. **F1**（协程 defer 自动 cleanup）；
-5. **F3**（`Controller::init()`，顺带闭环一个回归失败项）+ **L4**（log.c rv 修正）；
-6. **F4 / F5 / F6**。其中 **F4（路由中间件管道）不应在 O6 运行时验证全集打通前立项** —— 它是中等规模的派发链改造，在缺回归证据的前提下改派发路径，风险收益比不成立。
+5. **L4**（log.c rv 修正）；
+6. **F4 / F5 / F6**。其中 **F3 已回退、F4 尚未立项**；两者均归入 `audit/plan/PLAN.md`。**F4（路由中间件管道）不应在 O6 运行时验证全集打通前立项** —— 它是中等规模的派发链改造，在缺回归证据的前提下改派发路径，风险收益比不成立。
 
 ### 不建议本轮立项
 
@@ -240,11 +242,12 @@ static struct { zend_class_entry *ce; zend_string *method; zend_function *fn; } 
 - 新增 `Gene\Monitor`（final 类）静态方法 `stats(): array`，聚合：`memory`（与 `Memory::stats()` 同键全集 + `co_contexts_sweep_skipped` + `cache_easy_ttl/expired`）、`db_pools` / `redis_pools`（遍历两类 CE 静态 `instances` 注册表，逐池调用其既有 `stats()` 方法，键为池名，零计数器重复实现）、`requests`（`count`/`errors`，`Application::run()` 累计 + 派发后 pending exception 计错误）、以及 L1/F1 计数器。纯读、零副作用。
 - **改动**：新增 `src/tool/monitor.c` / `src/tool/monitor.h`（约 190 行）；`src/gene.c`（include + `GENE_STARTUP(monitor)`）；`src/config.m4` / `src/config.w32`（新编译单元）；demo 新增 `GET /monitor` 端点（`demo/application/Controllers/Monitor.php` + `demo/config/router.ini.php`）；`test/CacheTest.php` 新增 `testMonitorStats()` 结构断言。
 
-### 9.6 F3（P1，`Controller::init()` 钩子）→ 已实现 ✅
+### 9.6 F3（P1，`Controller::init()` 钩子）→ 已在 v5.6.9 回退 ⚠️
 
-- `Gene\Controller` 基类新增空实现 `init()`（Yaf 同语义）；两处控制器直派路径——`gene_router_dispatch_direct()` 与 `PHP_METHOD(gene_router, dispatch)`——在实例化后、action 前经共用 helper `gene_router_call_controller_init()` 调用一次。仅作用于 `Gene\Controller` 子类（`instanceof_function` 门控），Hook/普通类直派目标不受影响；`init()` 抛异常时 unwinding 不再调用 action（dispatch_direct 返回 0 走既有错误路径）。
-- **回归联动**：O7 中 Mvc 失败项（`test/MvcTest.php:38` 直接调用 `$this->controller->init()`）预期转绿。
-- **改动**：`src/mvc/controller.c`、`src/router/router.c`（+include `mvc/controller.h`）。
+- **2026-07-31 现状更新**：`Gene\Controller::init()` 钩子已在 commit `fc10274` 中移除。`src/mvc/controller.c` 不再声明 `init()` 方法，`src/router/router.c` 已删除 `gene_router_call_controller_init()` 调用点，`gene-ide-helper` 与 `test/MvcTest.php` 中相关用例已同步移除。
+- **回退原因**：该钩子带来的复杂度超过实际收益；控制器继续使用 `__construct` / `beforeAction` 生命周期。
+- **回归联动**：O7 中 Mvc 失败项不再依赖 F3；需重新评估或调整相关测试预期。
+- **后续归属**：若未来确有 Yaf 语义需求，方案见 `audit/plan/PLAN.md`。
 
 ### 9.7 L4（log.c rv 槽）→ 已实现 ✅
 
@@ -260,7 +263,7 @@ static struct { zend_class_entry *ce; zend_string *method; zend_function *fn; } 
 ### 9.9 配套同步
 
 - `CHANGELOG.md` [5.6.8]：安全/性能/新增/修复四类条目 + 修改文件一览全量登记。
-- `gene-ide-helper`：新增 `Gene/Monitor.php`；`Controller.php` +`init()`；`Validate.php` +`extend()`。
+- `gene-ide-helper`：新增 `Gene/Monitor.php`；`Controller.php` 中的 `init()` 已在 v5.6.9 中同步移除；`Validate.php` +`extend()`。
 - `gene-ai-helper`：`reference.md`（Controller/Validate 表 + 新增 Gene\Monitor 章节 + 两项 INI）；`swoole.md`（§7.1 自动 cleanup 兜底说明 + §8 常见坑表更新）。
 - 测试：`test/CacheTest.php`（Monitor 结构断言）、`test/HttpTest.php`（extend 正反例）；`test/MvcTest.php:38` 既有 init 用例由红转绿（无需改动）。
 
@@ -271,7 +274,7 @@ static struct { zend_class_entry *ce; zend_string *method; zend_function *fn; } 
 3. **M1 量化**：`swoole_context_soak.php` 协程风暴 10 万，确认 `co_contexts_sweep_skipped` 增长、`co_contexts_sweep_us` 受控（前置校验同 §七.2：`exists` 解析成功 + cap ≥ 16）；
 4. **F1 验证**：`gene.swoole_auto_cleanup=1` 下漏调 cleanup 的 soak，`swoole_auto_cleanup_reclaimed` ≈ 协程数、RSS 平稳；defer 缺失环境（旧版 Swoole 或 kill 场景）验证 run() 降级路径；嵌套 run 不误清；
 5. **F2 冒烟**：`/monitor` 端点 + `Monitor::stats()` 三分区结构断言（test/CacheTest）；
-6. **F3 回归**：MvcTest init 用例转绿 + 子类重写 init 被直派调用一次的端到端用例；
+6. **F3/F4 归属**：F3 已回退，F4 路由中间件管道尚未立项；两者均转入 `audit/plan/PLAN.md`；
 7. **F5/F6 功能**：extend 正反例（HttpTest 已含）；`cache_easy_ttl` 小值下过期-重导入循环无泄漏（Valgrind）。
 
 ---
@@ -300,7 +303,7 @@ static struct { zend_class_entry *ce; zend_string *method; zend_function *fn; } 
 | L1 CAS 放弃计数 | 计数 + once 告警 | `redis_pool.c:454-470`，`redis_pool_cas_abandoned` / `redis_pool_cas_warned`，Monitor 出口 | ✅ 一致 |
 | F1 协程 defer 自动 cleanup | defer 主路径 + run() 降级 | `gene.c:788-821`（resolve/register）、`gene.c:1306-1321`（回调，直删 co_contexts、幂等、先解绑 current_*）、`gene_functions[]` 已注册（1330）、INI 默认 0（156）、降级路径 `application.c:1409-1423` + `run_depth` 守卫与 RSHUTDOWN 归零（`gene.c:1076`） | ⚠️ 落地，有 2 处次要问题（D3/D4） |
 | F2 `Gene\Monitor` | 新单元 + 三分区 | `src/tool/monitor.c/.h`、`GENE_STARTUP(monitor)`、`config.m4:55` / `config.w32:7` 双同步、demo `/monitor` 路由、`CacheTest::testMonitorStats()` | ❌ 存在高危实现缺陷（见 D1） |
-| F3 `Controller::init()` | 基类 + 两处直派 | `controller.c:588-590/645`；`router.c:386-404` helper，`instanceof` 门控，异常时不再执行 action；调用点 `router.c:487`、`router.c:3110` | ✅ 一致 |
+| F3 `Controller::init()` | 基类 + 两处直派 | v5.6.9 已回退（`fc10274`），`Controller::init()` 及调用点已移除；原描述不再适用 | ❌ 已 revert，见 `audit/plan/PLAN.md` |
 | L4 log.c rv 槽 | UNDEF + dtor | `log.c:268-281`，三槽先 `ZVAL_UNDEF`，`ZVAL_COPY` 后逐个 `zval_ptr_dtor`；早退路径均在该块之前 | ✅ 一致 |
 | F5 `Validate::extend()` | 注册表 + 分派顺序 | `validate.c:506-527`（`"Sf"` 解析、空规则名告警）、`validate.c:799-813`（extend 表优先于内置 `rule_*`）、生命周期 `gene.c:1035-1039`（FPM RSHUTDOWN）/`1211-1215`（Swoole MSHUTDOWN），与 `fn_cache` 完全同型 | ✅ 一致 |
 | F6 `cache_easy_ttl` | INI + 惰性过期 | INI 默认 0（`gene.c:157`）、`application.c:194-207` WRLOCK 内删除后 `val=NULL` 走重建、`cache_easy_expired` 出口 | ✅ 一致 |
@@ -363,7 +366,7 @@ static struct { zend_class_entry *ce; zend_string *method; zend_function *fn; } 
 - L4 `ZVAL_COPY` 后 dtor rv 不构成 double free（copy 已增引用）；三处早退均在 rv 块之前。
 - F5 注册表用 `ALLOC_HASHTABLE`+`ZVAL_PTR_DTOR`，与 `fn_cache` 生命周期策略完全同型（FPM 请求级 / Swoole worker 级），未出现「持久分配器存请求期 zval」的错配。
 - F6 删除后立即 `val = NULL` 再走未命中重建，无 use-after-free；删除在 WRLOCK 内。
-- F3 `init()` 抛异常时 `dispatch_direct` 返回 0 走既有错误路径，action 不执行。
+- F3 `init()` 已在 v5.6.9 回退，原实现细节不再适用。
 - `b61a069` 的“minor fix”实为给 `monitor.c` 补 UTF-8 BOM，与仓库既有源码约定一致（`gene.c`/`log.c`/`memory.c` 均带 BOM），非功能改动。
 
 ### 10.4 修复优先级与验证增量

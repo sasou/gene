@@ -12,7 +12,7 @@
 
 | 方法 | 说明 |
 |------|------|
-| init() | 生命周期钩子（5.6.8+）：实例化后、action 前由框架自动调用一次；基类空实现，子类重写替代 __construct |
+| __construct() | 控制器基类构造函数；子类可自由重写以替代已回退的 `init()` 生命周期钩子 |
 | get($key, $default = null) | 获取 GET 参数 |
 | request($key = null, $default = null) | 获取 REQUEST 参数 |
 | post($key = null, $default = null) | 获取 POST 参数 |
