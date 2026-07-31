@@ -94,12 +94,15 @@ class Service
 
     /**
      * getInstance
-     * 
-     * @param mixed $params params
-     * @return mixed
+     *
+     * 获取当前类的单例实例（由 C 扩展通过 DI 容器维护）。
+     * 首次调用创建并注册，后续调用返回同一实例。
+     *
+     * @param mixed $params 构造函数参数（可选）
+     * @return static|null
      */
     public static function getInstance($params = null) {
-        return new static();
+        return null;
     }
 
 }

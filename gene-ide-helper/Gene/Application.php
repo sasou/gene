@@ -30,12 +30,15 @@ class Application
 
     /**
      * getInstance
-     * 
-     * @param mixed $safe safe
-     * @return mixed
+     *
+     * 获取应用单例实例（由 C 扩展静态属性维护）。
+     * 首次调用创建并注册，后续调用返回同一实例。
+     *
+     * @param mixed $safe 隔离命名空间 key（可选）
+     * @return static|null
      */
     public static function getInstance($safe = null) {
-        return new static(null);
+        return null;
     }
 
     /**
@@ -158,6 +161,32 @@ class Application
      * @return static|bool
      */
     public static function waitWorkerReady() {
+
+    }
+
+    /**
+     * workerReady
+     *
+     * Swoole/常驻模式下标记 Worker 已就绪，冻结进程级 Memory，
+     * 并根据需要预热请求上下文池。
+     *
+     * @return static|bool
+     */
+    public static function workerReady() {
+
+    }
+
+    /**
+     * prewarmCtxPool
+     *
+     * Swoole/常驻模式下预热请求上下文池。
+     * `$count = -1` 表示填充到 `gene.ctx_pool_max`，返回实际新增的上下文数。
+     * FPM 模式下返回 0。
+     *
+     * @param int $count 预热的上下文数量，-1 表示填充到上限
+     * @return int
+     */
+    public static function prewarmCtxPool($count = -1) {
 
     }
 

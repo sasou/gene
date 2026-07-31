@@ -305,48 +305,48 @@ class Controller
 
     /**
      * success
-     * 
-     * @param mixed $msg msg
-     * @param mixed $code code
+     *
+     * @param string $msg msg
+     * @param int $code code
      * @return mixed
      */
-    public static function success($msg, $code = null) {
+    public static function success($msg, $code = 2000) {
 
     }
 
     /**
      * error
-     * 
-     * @param mixed $msg msg
-     * @param mixed $code code
+     *
+     * @param string $msg msg
+     * @param int $code code
      * @return mixed
      */
-    public static function error($msg, $code = null) {
+    public static function error($msg, $code = 4000) {
 
     }
 
     /**
      * data
-     * 
+     *
      * @param mixed $data data
-     * @param mixed $count count
-     * @param mixed $msg msg
-     * @param mixed $code code
+     * @param int $count count
+     * @param string|null $msg msg
+     * @param int $code code
      * @return mixed
      */
-    public static function data($data, $count = 0, $msg = null, $code = null) {
+    public static function data($data, $count = -1, $msg = null, $code = 2000) {
 
     }
 
     /**
      * json
-     * 
+     *
      * @param mixed $data data
-     * @param mixed $callback callback
-     * @param mixed $code code
+     * @param string|null $callback callback
+     * @param int $code code
      * @return mixed
      */
-    public static function json($data, $callback = null, $code = null) {
+    public static function json($data, $callback = null, $code = 256) {
 
     }
 

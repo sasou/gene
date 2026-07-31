@@ -22,7 +22,7 @@ Welcome to Gene Framework, a high-performance PHP extension framework developed 
 - 🚀 **Extreme Performance**: Binary tree routing algorithm, memory caching mechanism, industry-leading speed
 - 🛡️ **High Stability**: High stability in FPM mode, medium-high stability in Swoole mode, standardized memory management
 - 🔧 **Dual Mode Support**: Supports both PHP-FPM and Swoole resident modes with the same codebase
-- 📦 **Full Stack**: Complete components including routing, caching, dependency injection, database connection pool, middleware
+- 📦 **Full Stack**: Complete components including routing, caching, dependency injection, database connection pool, hooks
 
 ### Architecture Features
 
@@ -60,7 +60,7 @@ After six rounds of rigorous code audit, the framework features:
 | **Database** | PDO ORM, connection pool, supports MySQL/PostgreSQL/SQLite etc | ⭐⭐⭐⭐⭐ |
 | **Cache System** | Method-level caching, real-time version caching, multiple backend support | ⭐⭐⭐⭐⭐ |
 | **View Engine** | Compiled template, native PHP template, layout support | ⭐⭐⭐⭐☆ |
-| **Middleware** | AOP aspect-oriented programming, configuration registration, decoupled calls | ⭐⭐⭐⭐⭐ |
+| **Hooks** | AOP-style route hooks, configuration registration, decoupled calls (middleware pipeline is a future proposal) | ⭐⭐⭐⭐⭐ |
 | **Session Management** | Multi-driver support, Swoole adaptation | ⭐⭐⭐⭐☆ |
 | **Internationalization** | Multi-language solution, flexible configuration | ⭐⭐⭐⭐☆ |
 | **Command Line** | Console programs, daemon process support | ⭐⭐⭐⭐☆ |

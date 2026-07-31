@@ -218,10 +218,12 @@ class Router
     /**
      * group
      *
-     * @param mixed $callback
-     * @return mixed
+     * 开始或结束路由分组。传入字符串前缀开始分组，不传参或传 null 结束当前分组。
+     *
+     * @param string|null $prefix 分组前缀，如 '/admin'；null 表示结束分组
+     * @return $this
      */
-    public function group($callback) {
+    public function group($prefix = null) {
 
     }
 

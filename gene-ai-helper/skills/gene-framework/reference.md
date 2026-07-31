@@ -56,6 +56,7 @@
 | webscan(...) | 内置 Web 扫描防护（开关、白名单目录/URL、GET/POST/Cookie/Referer） |
 | waitWorkerReady() | Swoole：阻塞直到 workerStart 调用 workerReady() |
 | workerReady() | Swoole：标记 Worker 就绪，冻结进程级 Memory，预热请求上下文池 |
+| prewarmCtxPool($count = -1) | Swoole：预热请求上下文池到指定数量（-1 表示填充到 `gene.ctx_pool_max`），返回实际新增的上下文数 |
 | setRuntimeType($type) | 设置运行时类型：`'fpm'`/1、`'swoole'`/2、`'coroutine'`/3，返回 bool |
 | getRuntimeType() | 返回当前运行时类型整数 |
 | getRuntimeTypeName() | 返回运行时类型名称字符串（`"fpm"` / `"swoole"` / `"coroutine"`） |
@@ -69,7 +70,7 @@
 | getModule(), getController(), getAction() | 当前模块、控制器、动作 |
 | clearState() | 软重置当前请求上下文（释放用户数据但保留上下文结构体），Swoole 下建议用 cleanup() |
 | destroyContext() | 销毁当前协程的请求上下文结构体，Swoole 下建议用 cleanup() |
-| cleanup() | **Swoole 推荐**：合并 clearState + destroyContext 的两阶段清理，FPM 下等同 clearState |
+| cleanup($gc = false) | **Swoole 推荐**：合并 clearState + destroyContext 的两阶段清理，FPM 下等同 clearState；`$gc=true` 在 Swoole 下额外触发 `gc_collect_cycles()` |
 | setResponse($response) | 将 Swoole Response 对象存入当前请求上下文 |
 | config($key) | 从内存缓存读取配置项 |
 | params($name = null) | 获取路由路径参数（不传则返回全部数组） |
@@ -95,7 +96,7 @@
 | isGet(), isPost(), isPut(), isHead(), isOptions(), isCli() | 请求方法判断 |
 | header($key, $default = null) | 获取 HTTP 请求头 |
 | clear() | 清除请求数据缓存 |
-| init($get, $post, $cookie, $server, $env, $files, $request = null) | Swoole 注入请求；未传 $request 时合并 GET+POST |
+| init($get, $post, $cookie, $server, $env, $files, $request = null, $header = null, $rawContent = null) | Swoole 注入请求；未传 $request 时合并 GET+POST；$rawContent 对应 Swoole `$request->rawContent()` |
 
 ---
 
@@ -445,7 +446,7 @@ $list = $this->db
     ->select("sys_user", "user_id, user_name")
     ->where(['status' => 1])
     ->order("user_id desc")
-    ->limit($start, $pageSize)   // $start=偏移量, $pageSize=返回行数
+    ->limit($start, $pageSize)   // 双参：$start=偏移量, $pageSize=返回行数；单参 $num 为返回行数
     ->all();
 
 // 条件写法
@@ -469,7 +470,7 @@ $list = $this->db
 | where($where, $fields = null) | 设置 WHERE 条件，返回 $this |
 | in($in, $fields = null) | 设置 IN 条件（含 `in(?)` 占位符），返回 $this |
 | sql($sql, $fields = null) | 设置原始 SQL，返回 $this |
-| limit($num, $offset = null) | `LIMIT $num` 或 `LIMIT $num, $offset`（$num 为偏移量，$offset 为行数），返回 $this |
+| limit($num, $offset = null) | 单参时 `$num` 为返回行数，生成 `LIMIT $num`；双参时 `$num` 为偏移量、`$offset` 为返回行数，生成 `LIMIT $num, $offset`，返回 $this |
 | order($order), group($group), having($having) | ORDER BY / GROUP BY / HAVING，返回 $this |
 | execute() | 执行 SQL，返回 PDOStatement |
 | all() | 执行并 fetchAll()，返回数组或 null |
@@ -479,7 +480,8 @@ $list = $this->db
 | affectedRows() | 写操作后返回受影响行数 |
 | print() | 不执行，返回 `['sql' => ..., 'param' => ...]`（调试用） |
 | beginTransaction(), inTransaction(), rollBack(), commit() | 事务操作 |
-| free() | 释放 PDO 连接（GC 回收） |
+| release() | 将 PDO 连接归还连接池（启用 pool 时），非 pool 模式为空操作 |
+| free() | 释放/归还 PDO 连接；启用 pool 时等价于 `release()`，否则关闭连接 |
 | history() | 返回 SQL 执行历史数组（含 sql/param/time/memory） |
 
 ---
@@ -658,6 +660,7 @@ Swoole 协程 **PDO 连接池**（FPM 无效）。
 | put($pdo) | 归还 |
 | remove() | 连接失效，不归还 |
 | close() | 关闭单池 |
+| recycleIdle() | 立即回收空闲超时的连接，通常由定时器自动调用 |
 | closeAll() / stopTimers() | Worker 停止/退出时清理 |
 | stats() | 连接数、空闲、overflow 等 |
 
@@ -667,7 +670,7 @@ Swoole 协程 **PDO 连接池**（FPM 无效）。
 
 ## Gene\Cache\RedisPool
 
-Swoole 协程 **Redis 连接池**（FPM 无效）。API 与 `Gene\Pool` 对称：`create`、`get`、`put`、`remove`、`close`、`closeAll`、`stopTimers`、`stats`。
+Swoole 协程 **Redis 连接池**（FPM 无效）。API 与 `Gene\Pool` 对称：`create`、`get`、`put`、`remove`、`close`、`recycleIdle`、`closeAll`、`stopTimers`、`stats`。
 
 `Gene\Cache\Redis` 配置 `'pool' => 'redisPool'` 后自动借还；`release()` 显式归还。
 

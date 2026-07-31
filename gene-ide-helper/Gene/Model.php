@@ -59,47 +59,50 @@ class Model
 
     /**
      * success
-     * 
-     * @param mixed $msg msg
-     * @param mixed $code code
+     *
+     * @param string $msg msg
+     * @param int $code code
      * @return mixed
      */
-    public function success($msg, $code = null) {
+    public function success($msg, $code = 2000) {
 
     }
 
     /**
      * error
-     * 
-     * @param mixed $msg msg
-     * @param mixed $code code
+     *
+     * @param string $msg msg
+     * @param int $code code
      * @return mixed
      */
-    public function error($msg, $code = null) {
+    public function error($msg, $code = 4000) {
 
     }
 
     /**
      * data
-     * 
+     *
      * @param mixed $data data
-     * @param mixed $count count
-     * @param mixed $msg msg
-     * @param mixed $code code
+     * @param int $count count
+     * @param string|null $msg msg
+     * @param int $code code
      * @return mixed
      */
-    public function data($data, $count = 0, $msg = null, $code = null) {
+    public function data($data, $count = -1, $msg = null, $code = 2000) {
 
     }
 
     /**
      * getInstance
-     * 
-     * @param mixed $params params
-     * @return mixed
+     *
+     * 获取当前类的单例实例（由 C 扩展通过 DI 容器维护）。
+     * 首次调用创建并注册，后续调用返回同一实例。
+     *
+     * @param mixed $params 构造函数参数（可选）
+     * @return static|null
      */
     public static function getInstance($params = null) {
-        return new static();
+        return null;
     }
 
 }
