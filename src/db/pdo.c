@@ -87,6 +87,19 @@ static int gene_ident_ieq(const char *a, const char *b, size_t n) {
 
 static int gene_ident_has_injection_markers(const char *s, size_t len);
 
+/* [GENE_AUDIT:2026-07-31] Detect a pure digit token. In ORDER BY a number
+ * is a column-position ordinal ("1 desc" = first select column), not an
+ * identifier — quoting it (`1`, "1", [1]) makes the DB look for a column
+ * literally named "1" (SQLite: "no such column: 1"). Emit it unquoted. */
+static int gene_ident_all_digits(const char *s, size_t len) {
+    size_t i;
+    if (len == 0) return 0;
+    for (i = 0; i < len; i++) {
+        if (s[i] < '0' || s[i] > '9') return 0;
+    }
+    return 1;
+}
+
 /* Quote one dot-separated segment (no '.', no spaces). */
 static void gene_quote_segment(smart_str *dest, const char *s, size_t len, char oq, char cq) {
     size_t i;
@@ -408,14 +421,22 @@ char *gene_quote_order(const char *name, char oq, char cq) /*{{{*/
                              * (e.g. `id `) that would error in SQL. */
                             size_t colend = (size_t)lastsp;
                             while (colend > 0 && (t[colend-1] == ' ' || t[colend-1] == '\t')) colend--;
-                            gene_quote_dotpath(&dst, t, colend, oq, cq);
+                            if (gene_ident_all_digits(t, colend)) {
+                                smart_str_appendl(&dst, t, colend);
+                            } else {
+                                gene_quote_dotpath(&dst, t, colend, oq, cq);
+                            }
                             smart_str_appends(&dst, " ");
                             smart_str_appendl(&dst, kw, kwlen);
                             start = i + 1;
                             continue;
                         }
                     }
-                    gene_quote_dotpath(&dst, t, tlen, oq, cq);
+                    if (gene_ident_all_digits(t, tlen)) {
+                        smart_str_appendl(&dst, t, tlen);
+                    } else {
+                        gene_quote_dotpath(&dst, t, tlen, oq, cq);
+                    }
                 }
             }
             start = i + 1;
