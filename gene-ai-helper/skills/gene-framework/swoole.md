@@ -47,7 +47,7 @@ sequenceDiagram
 | Worker 启动 | `Pool::create` / `RedisPool::create` | 从 Config 键读取连接参数 |
 | Worker 启动 | **`workerReady()`** | 标记就绪；冻结进程级 Memory；预热请求上下文池 |
 | 每次请求 | **`waitWorkerReady()`** | 防止首批请求早于 workerStart |
-| 每次请求 | **`Request::init(...)`** | 注入 GET/POST/COOKIE/SERVER/FILES/HEADER |
+| 每次请求 | **`Request::init(...)`** | 注入 GET/POST/COOKIE/SERVER/FILES/HEADER/RAW_CONTENT |
 | 每次请求 | **`setResponse($response)`** | 绑定 Swoole Response |
 | 每次请求 | **`run()`** 无参 | 从 Request 上下文读 method/uri |
 | 每次请求 | **`cleanup(true)`** | 释放协程上下文（`finally` 中必须执行） |
@@ -113,7 +113,8 @@ $http->on('request', function ($request, $response) {
         null,
         $request->files,
         null,
-        $request->header ?? []
+        $request->header ?? [],
+        $request->rawContent()
     );
     \Gene\Application::setResponse($response);
 
@@ -280,14 +281,15 @@ Swoole 无 PHP 超全局，必须用 `init` 注入：
 
 ```php
 \Gene\Request::init(
-    $get,      // $request->get
-    $post,     // $request->post
-    $cookie,   // $request->cookie
-    $server,   // $request->server（key 会自动补全大写副本）
-    $env,      // 环境变量，可 null
-    $files,    // $request->files
-    $request,  // 合并参数，null 时自动 GET+POST
-    $header    // $request->header（demo 第 8 参数）
+    $get,        // $request->get
+    $post,       // $request->post
+    $cookie,     // $request->cookie
+    $server,     // $request->server（key 会自动补全大写副本）
+    $env,        // 环境变量，可 null
+    $files,      // $request->files
+    $request,    // 合并参数，null 时自动 GET+POST
+    $header,     // $request->header（第 8 参数）
+    $rawContent  // $request->rawContent()（第 9 参数，可选）
 );
 ```
 
