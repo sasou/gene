@@ -206,8 +206,23 @@ class Controller
     }
 
     /**
+     * forward
+     * 内部转发：在进程内直接派发另一个 controller/action，返回被转发动作的返回值。
+     * $controller 为类名原样（与路由 src 字符串同约定）。转发深度上限为 5，
+     * 超限返回 false 并触发 E_WARNING（防转发循环）。
+     *
+     * @param string $controller 控制器类名
+     * @param string $action 动作名
+     * @param array $params 传给动作的参数
+     * @return mixed|false
+     */
+    public function forward($controller, $action, $params = []) {
+
+    }
+
+    /**
      * redirect
-     * 
+     *
      * @param mixed $url url
      * @param mixed $code code
      * @return mixed

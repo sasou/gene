@@ -77,6 +77,27 @@ class Memory
     public function del($key) {}
 
     /**
+     * incr
+     * 原子自增（读-改-写全程在写锁内完成）。key 不存在时以 $step 为初始值创建；
+     * 已有值为非整数时返回 false。与 set 一样受 Swoole workerReady 冻结约束。
+     *
+     * @param string $key 缓存 key
+     * @param int $step 步长（默认 1）
+     * @return int|false 自增后的值
+     */
+    public function incr($key, $step = 1) {}
+
+    /**
+     * decr
+     * 原子自减，语义同 incr
+     *
+     * @param string $key 缓存 key
+     * @param int $step 步长（默认 1）
+     * @return int|false 自减后的值
+     */
+    public function decr($key, $step = 1) {}
+
+    /**
      * clean
      * 销毁并重新初始化整个共享内存 HashTable
      *

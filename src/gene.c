@@ -1008,9 +1008,18 @@ static void php_gene_init_globals() {
 	GENE_G(swoole_auto_cleanup_defers) = 0;
 	GENE_G(swoole_auto_cleanup_reclaimed) = 0;
 	GENE_G(run_depth) = 0;
+	/* [GENE_FEATURE:2026-08-06 F1-6] */
+	GENE_G(forward_depth) = 0;
 	/* [GENE_AUDIT:2026-07-30 L1] */
 	GENE_G(redis_pool_cas_abandoned) = 0;
 	GENE_G(redis_pool_cas_warned) = 0;
+	/* [GENE_AUDIT:2026-08-06 C1] */
+	GENE_G(db_pool_cas_abandoned) = 0;
+	GENE_G(db_pool_cas_warned) = 0;
+	/* [GENE_FEATURE:2026-08-06 F1-7] */
+	GENE_G(db_pool_get_timeout) = 0;
+	GENE_G(memory_cache_hit) = 0;
+	GENE_G(memory_cache_miss) = 0;
 	/* [GENE_FEATURE:2026-07-30 F2] */
 	GENE_G(request_count) = 0;
 	GENE_G(request_error_count) = 0;
@@ -1093,6 +1102,9 @@ static void php_gene_close_request_globals() {
 	 * run_depth decrement in run(); reset at the request boundary so the
 	 * nested-run guard can never wedge the fallback path. */
 	GENE_G(run_depth) = 0;
+	/* [GENE_FEATURE:2026-08-06 F1-6] Same bailout argument as run_depth: a
+	 * bailout inside a forwarded dispatch would skip the depth decrement. */
+	GENE_G(forward_depth) = 0;
 	/* [GENE_AUDIT:2026-07-30 D2] Reset the sweep cooldown bookkeeping at the
 	 * request boundary: both are triggers tied to the live co_contexts table
 	 * (destroyed above in FPM mode), so letting them carry across requests

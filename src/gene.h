@@ -317,12 +317,29 @@ zend_bool swoole_defer_notice_sent;
 zend_ulong swoole_auto_cleanup_defers;
 zend_ulong swoole_auto_cleanup_reclaimed;
 zend_long run_depth;
+/* [GENE_FEATURE:2026-08-06 F1-6] Controller::forward() recursion guard.
+ * Incremented on entry, decremented on exit; forwarding is refused once the
+ * depth reaches GENE_FORWARD_MAX_DEPTH so a forwarding loop cannot blow the
+ * C stack. */
+zend_long forward_depth;
 /* [GENE_AUDIT:2026-07-30 L1] RedisPool CAS decrement abandonment counter.
  * rpool_decrement_count() gives up after 64 CAS rounds; previously silently.
  * Now counted here (exported via Gene\Monitor::stats) and warned once via
  * the co_contexts_cap_warned-style once pattern. */
 zend_ulong redis_pool_cas_abandoned;
 zend_bool redis_pool_cas_warned;
+/* [GENE_AUDIT:2026-08-06 C1] DB Pool CAS decrement abandonment counter.
+ * pool_decrement_count() gives up after 64 CAS rounds (same semantics as the
+ * RedisPool counter above); counted here, exported via Gene\Monitor::stats
+ * as db_pool_cas_abandoned, warned once via the same once pattern. */
+zend_ulong db_pool_cas_abandoned;
+zend_bool db_pool_cas_warned;
+/* [GENE_FEATURE:2026-08-06 F1-7] Pool acquisition timeouts (blocking pop
+ * exhausted waitTimeout and fell through to overflow/NULL) and userland
+ * Gene\Memory::get() hit/miss counters. Exported via Gene\Monitor::stats. */
+zend_ulong db_pool_get_timeout;
+zend_ulong memory_cache_hit;
+zend_ulong memory_cache_miss;
 /* [GENE_FEATURE:2026-07-30 F2] Cumulative request telemetry for
  * Gene\Monitor::stats(). Incremented in Application::run(). */
 zend_ulong request_count;

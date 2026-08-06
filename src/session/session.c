@@ -268,6 +268,10 @@ ZEND_BEGIN_ARG_INFO_EX(gene_session_cookie_arginfo, 0, 0, 3)
 	ZEND_ARG_INFO(0, value)
 	ZEND_ARG_INFO(0, time)
 ZEND_END_ARG_INFO()
+
+ZEND_BEGIN_ARG_INFO_EX(gene_session_regenerate_arginfo, 0, 0, 0)
+	ZEND_ARG_INFO(0, deleteOld)
+ZEND_END_ARG_INFO()
 /* }}} */
 
  static void gene_session_update_ids(zval *obj, zend_string *cookie_id_str)
@@ -1159,6 +1163,68 @@ PHP_METHOD(gene_session, setSessionId) {
 }
 /* }}} */
 
+/** {{{ public gene_session::regenerateId(bool $deleteOld = true): string|false
+ * [GENE_FEATURE:2026-08-06 F0-1] Session fixation defense: issue a fresh
+ * session id while preserving the session data, and (by default) delete the
+ * old record from the storage handler so a fixated id can no longer be used
+ * to resurrect the session. Mirrors PHP's session_regenerate_id().
+ * Reuses the existing SSID generation path (gene_session_generate_cookie_id
+ * + gene_session_update_ids) and the write lifecycle (mark_dirty +
+ * auto_cookie) so the new id is emitted as a cookie immediately.
+ * Returns the new session id, or false when no id is established yet. */
+PHP_METHOD(gene_session, regenerateId) {
+	zval *self = getThis();
+	zend_bool delete_old = 1;
+	zend_string *old_id = NULL;
+	zval *session_id, *hash_mode_zv;
+	zend_long hash_mode = 0;
+	zval hash_val;
+
+	if (zend_parse_parameters(ZEND_NUM_ARGS(), "|b", &delete_old) == FAILURE) {
+		RETURN_FALSE;
+	}
+
+	session_id = zend_read_property(gene_session_ce, gene_strip_obj(self), ZEND_STRL(GENE_SESSION_ID), 1, NULL);
+	if (!session_id || Z_TYPE_P(session_id) != IS_STRING) {
+		RETURN_FALSE;
+	}
+	old_id = zend_string_copy(Z_STR_P(session_id));
+
+	hash_mode_zv = zend_read_property(gene_session_ce, gene_strip_obj(self), ZEND_STRL(GENE_SESSION_HASH_MODE), 1, NULL);
+	if (hash_mode_zv && Z_TYPE_P(hash_mode_zv) == IS_LONG) {
+		hash_mode = Z_LVAL_P(hash_mode_zv);
+	}
+	gene_session_generate_cookie_id(&hash_val, (int)hash_mode);
+
+	if (delete_old) {
+		zval *hook = gene_session_get_handler(self);
+		if (hook) {
+			zval params[1], ret;
+			ZVAL_STR(&params[0], old_id);
+			ZVAL_UNDEF(&ret);
+			gene_session_call_method(hook, gene_session_method_delete(), 1, params, &ret);
+			if (!Z_ISUNDEF(ret)) {
+				zval_ptr_dtor(&ret);
+			}
+		}
+	}
+	zend_string_release(old_id);
+
+	gene_session_update_ids(self, Z_STR(hash_val));
+	zval_ptr_dtor(&hash_val);
+	/* The session already exists — data is preserved, only the id changes. */
+	gene_session_mark_new(self, 0);
+	gene_session_mark_dirty(self);
+	gene_session_auto_cookie(self);
+
+	session_id = zend_read_property(gene_session_ce, gene_strip_obj(self), ZEND_STRL(GENE_SESSION_ID), 1, NULL);
+	if (session_id && Z_TYPE_P(session_id) == IS_STRING) {
+		RETURN_STR_COPY(Z_STR_P(session_id));
+	}
+	RETURN_FALSE;
+}
+/* }}} */
+
 /** {{{ public static gene_session::setLifeTime()
  */
 PHP_METHOD(gene_session, setLifeTime) {
@@ -1186,6 +1252,7 @@ const zend_function_entry gene_session_methods[] = {
 	PHP_ME(gene_session, save, gene_session_void_arginfo, ZEND_ACC_PUBLIC)
 	PHP_ME(gene_session, setSessionId, gene_session_sets_arginfo, ZEND_ACC_PUBLIC)
 	PHP_ME(gene_session, getSessionId, gene_session_void_arginfo, ZEND_ACC_PUBLIC)
+	PHP_ME(gene_session, regenerateId, gene_session_regenerate_arginfo, ZEND_ACC_PUBLIC)
 	PHP_ME(gene_session, setLifeTime, gene_session_sets_arginfo, ZEND_ACC_PUBLIC)
 	PHP_ME(gene_session, get, gene_session_get_arginfo, ZEND_ACC_PUBLIC)
 	PHP_ME(gene_session, has, gene_session_has_arginfo, ZEND_ACC_PUBLIC)

@@ -24,6 +24,10 @@ class Monitor
      *   'redis_pools'   => ['name' => [total,idle,using,overflow,min,max,closed]],
      *   'requests'      => ['count' => n, 'errors' => n],
      *   'redis_pool_cas_abandoned'      => n,
+     *   'db_pool_cas_abandoned'         => n,  // DB 池 CAS 递减放弃次数（5.7.0+）
+     *   'db_pool_get_timeout'           => n,  // DB 池获取连接超时次数（5.7.0+）
+     *   'memory_cache_hit'              => n,  // 用户态 Memory::get 命中次数（5.7.0+）
+     *   'memory_cache_miss'             => n,  // 用户态 Memory::get 未命中次数（5.7.0+）
      *   'swoole_auto_cleanup_defers'    => n,
      *   'swoole_auto_cleanup_reclaimed' => n,
      * ]

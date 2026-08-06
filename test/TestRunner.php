@@ -19,7 +19,9 @@ $testFiles = [
     'ExecuteTest.php',
     'HttpTest.php',
     'MvcTest.php',
-    'DatabaseTest.php'
+    'DatabaseTest.php',
+    'DiTest.php',
+    'HookTest.php'
 ];
 
 // Test runner class
@@ -55,7 +57,9 @@ class TestRunner
             'ExecuteTest.php',
             'HttpTest.php',
             'MvcTest.php',
-            'DatabaseTest.php'
+            'DatabaseTest.php',
+            'DiTest.php',
+            'HookTest.php'
         ];
         
         $totalTests = 0;

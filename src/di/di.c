@@ -100,6 +100,11 @@ ZEND_BEGIN_ARG_INFO_EX(gene_di_set_arginfo, 0, 0, 2)
 	ZEND_ARG_INFO(0, name)
 	ZEND_ARG_INFO(0, value)
 ZEND_END_ARG_INFO()
+
+ZEND_BEGIN_ARG_INFO_EX(gene_di_instance_arginfo, 0, 0, 1)
+	ZEND_ARG_INFO(0, class)
+	ZEND_ARG_INFO(0, params)
+ZEND_END_ARG_INFO()
 /* }}} */
 
 
@@ -433,12 +438,48 @@ PHP_METHOD(gene_di, getInstance) {
 /* }}} */
 
 /*
+ *  {{{ public static gene_di::instance(string $class, array $params = []): object|null
+ * [GENE_FEATURE:2026-08-06 F1-5] Explicit instantiation via the factory
+ * (gene_factory_load_class + constructor params) WITHOUT registering the
+ * object in the container — unlike gene_class_instance(), nothing is cached,
+ * every call produces a fresh object. Useful for transient/value objects
+ * that should not occupy the request-scope registry. */
+PHP_METHOD(gene_di, instance) {
+	zend_string *class_name;
+	zval *params = NULL;
+	zval obj;
+
+	if (zend_parse_parameters(ZEND_NUM_ARGS(), "S|a", &class_name, &params) == FAILURE) {
+		RETURN_NULL();
+	}
+
+	if (gene_factory_load_class(ZSTR_VAL(class_name), ZSTR_LEN(class_name), &obj)) {
+		if (Z_OBJCE(obj)->constructor) {
+			zval tmp;
+			ZVAL_UNDEF(&tmp);
+			uint32_t ctor_argc = 0;
+			zval *ctor_params = NULL;
+			zval ctor_stack[GENE_DI_STACK_PARAM_CAP];
+			int ctor_params_heap = 0;
+			ctor_params = gene_di_pack_array_params(params, &ctor_argc, ctor_stack, GENE_DI_STACK_PARAM_CAP, &ctor_params_heap);
+			zend_call_known_function(Z_OBJCE(obj)->constructor, Z_OBJ(obj), Z_OBJCE(obj), &tmp, ctor_argc, ctor_params, NULL);
+			if (ctor_params_heap) efree(ctor_params);
+			if (!Z_ISUNDEF(tmp)) zval_ptr_dtor(&tmp);
+		}
+		RETURN_ZVAL(&obj, 0, 0);
+	}
+	RETURN_NULL();
+}
+/* }}} */
+
+/*
  * {{{ gene_di_methods
  */
 const zend_function_entry gene_di_methods[] = {
 	PHP_ME(gene_di, __construct, gene_di_void_arginfo, ZEND_ACC_PRIVATE)
 	PHP_ME(gene_di, __clone, gene_di_void_arginfo, ZEND_ACC_PRIVATE)
 	PHP_ME(gene_di, getInstance, gene_di_void_arginfo, ZEND_ACC_PUBLIC|ZEND_ACC_STATIC)
+	PHP_ME(gene_di, instance, gene_di_instance_arginfo, ZEND_ACC_PUBLIC|ZEND_ACC_STATIC)
 	PHP_ME(gene_di, get, gene_di_get_arginfo, ZEND_ACC_PUBLIC|ZEND_ACC_STATIC)
 	PHP_ME(gene_di, has, gene_di_has_arginfo, ZEND_ACC_PUBLIC|ZEND_ACC_STATIC)
 	PHP_ME(gene_di, set, gene_di_set_arginfo, ZEND_ACC_PUBLIC|ZEND_ACC_STATIC)

@@ -8,7 +8,7 @@ namespace Gene;
  * 驱动对象需实现 get(id)、set(id, data)、delete(id) 三个方法。
  *
  * @author  sasou<admin@php-gene.com>
- * @version  5.4.3
+ * @version  5.6.9
  */
 class Session
 {
@@ -127,6 +127,17 @@ class Session
      * @return static
      */
     public function setSessionId($cookie) {}
+
+    /**
+     * regenerateId
+     * 重新生成 SessionId 并保留 Session 数据（会话固定攻击防护，
+     * 登录/提权后应调用）。默认删除存储驱动中的旧 id 记录，
+     * 使被固定的旧 id 无法再恢复会话。新 id 会立即通过 Cookie 下发。
+     *
+     * @param bool $deleteOld 是否删除旧 Session 记录（默认 true）
+     * @return string|false 新的 SessionId；尚未建立 id 时返回 false
+     */
+    public function regenerateId($deleteOld = true) {}
 
     /**
      * setLifeTime

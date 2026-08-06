@@ -115,12 +115,25 @@ ZEND_BEGIN_ARG_INFO_EX(gene_db_mssql_limit, 0, 0, 1)
 	ZEND_ARG_INFO(0, limit)
 ZEND_END_ARG_INFO()
 
+ZEND_BEGIN_ARG_INFO_EX(gene_db_mssql_join, 0, 0, 2)
+	ZEND_ARG_INFO(0, table)
+	ZEND_ARG_INFO(0, on)
+	ZEND_ARG_INFO(0, type)
+ZEND_END_ARG_INFO()
+
+ZEND_BEGIN_ARG_INFO_EX(gene_db_mssql_union, 0, 0, 1)
+	ZEND_ARG_INFO(0, query)
+	ZEND_ARG_INFO(0, all)
+ZEND_END_ARG_INFO()
+
 void mssql_reset_sql_params(zval *self)
 {
 	zend_update_property_null(gene_db_mssql_ce, gene_strip_obj(self), ZEND_STRL(GENE_DB_MSSQL_SQL));
+	zend_update_property_null(gene_db_mssql_ce, gene_strip_obj(self), ZEND_STRL(GENE_DB_MSSQL_JOIN));
 	zend_update_property_null(gene_db_mssql_ce, gene_strip_obj(self), ZEND_STRL(GENE_DB_MSSQL_WHERE));
 	zend_update_property_null(gene_db_mssql_ce, gene_strip_obj(self), ZEND_STRL(GENE_DB_MSSQL_GROUP));
 	zend_update_property_null(gene_db_mssql_ce, gene_strip_obj(self), ZEND_STRL(GENE_DB_MSSQL_HAVING));
+	zend_update_property_null(gene_db_mssql_ce, gene_strip_obj(self), ZEND_STRL(GENE_DB_MSSQL_UNION));
 	zend_update_property_null(gene_db_mssql_ce, gene_strip_obj(self), ZEND_STRL(GENE_DB_MSSQL_ORDER));
 	zend_update_property_null(gene_db_mssql_ce, gene_strip_obj(self), ZEND_STRL(GENE_DB_MSSQL_LIMIT));
     zend_update_property_null(gene_db_mssql_ce, gene_strip_obj(self), ZEND_STRL(GENE_DB_MSSQL_DATA));
@@ -240,7 +253,7 @@ bool mssqlInitPdo (zval * self, zval *config) {
 
 bool gene_mssql_pdo_execute (zval *self, zval *statement)
 {
-	zval *pdo_object = NULL, *params = NULL, *pdo_sql = NULL, *pdo_where = NULL, *pdo_group = NULL,*pdo_having = NULL,*pdo_order = NULL, *pdo_limit = NULL;
+	zval *pdo_object = NULL, *params = NULL, *pdo_sql = NULL, *pdo_join = NULL, *pdo_where = NULL, *pdo_group = NULL,*pdo_having = NULL, *pdo_union = NULL,*pdo_order = NULL, *pdo_limit = NULL;
 	zval retval;
 	smart_str sql = {0};
 	struct timeval db_start, db_end;
@@ -248,14 +261,21 @@ bool gene_mssql_pdo_execute (zval *self, zval *statement)
 
 	pdo_object = zend_read_property(gene_db_mssql_ce, gene_strip_obj(self), ZEND_STRL(GENE_DB_MSSQL_PDO), 1, NULL);
 	pdo_sql = zend_read_property(gene_db_mssql_ce, gene_strip_obj(self), ZEND_STRL(GENE_DB_MSSQL_SQL), 1, NULL);
+	pdo_join = zend_read_property(gene_db_mssql_ce, gene_strip_obj(self), ZEND_STRL(GENE_DB_MSSQL_JOIN), 1, NULL);
 	pdo_where = zend_read_property(gene_db_mssql_ce, gene_strip_obj(self), ZEND_STRL(GENE_DB_MSSQL_WHERE), 1, NULL);
 	pdo_group = zend_read_property(gene_db_mssql_ce, gene_strip_obj(self), ZEND_STRL(GENE_DB_MSSQL_GROUP), 1, NULL);
 	pdo_having = zend_read_property(gene_db_mssql_ce, gene_strip_obj(self), ZEND_STRL(GENE_DB_MSSQL_HAVING), 1, NULL);
+	pdo_union = zend_read_property(gene_db_mssql_ce, gene_strip_obj(self), ZEND_STRL(GENE_DB_MSSQL_UNION), 1, NULL);
 	pdo_order = zend_read_property(gene_db_mssql_ce, gene_strip_obj(self), ZEND_STRL(GENE_DB_MSSQL_ORDER), 1, NULL);
 	pdo_limit = zend_read_property(gene_db_mssql_ce, gene_strip_obj(self), ZEND_STRL(GENE_DB_MSSQL_LIMIT), 1, NULL);
 
+	/* [GENE_FEATURE:2026-08-06 F0-3] Assembly order mirrors the MySQL builder:
+	 * base SQL + JOIN + WHERE + GROUP + HAVING + UNION + ORDER + LIMIT. */
 	if (Z_TYPE_P(pdo_sql) == IS_STRING) {
 		smart_str_appends(&sql, Z_STRVAL_P(pdo_sql));
+	}
+	if (Z_TYPE_P(pdo_join) == IS_STRING) {
+		smart_str_appends(&sql, Z_STRVAL_P(pdo_join));
 	}
 	if (Z_TYPE_P(pdo_where) == IS_STRING) {
 		smart_str_appends(&sql, Z_STRVAL_P(pdo_where));
@@ -265,6 +285,9 @@ bool gene_mssql_pdo_execute (zval *self, zval *statement)
 	}
 	if (Z_TYPE_P(pdo_having) == IS_STRING) {
 		smart_str_appends(&sql, Z_STRVAL_P(pdo_having));
+	}
+	if (Z_TYPE_P(pdo_union) == IS_STRING) {
+		smart_str_appends(&sql, Z_STRVAL_P(pdo_union));
 	}
 	if (Z_TYPE_P(pdo_order) == IS_STRING) {
 		smart_str_appends(&sql, Z_STRVAL_P(pdo_order));
@@ -827,6 +850,241 @@ PHP_METHOD(gene_db_mssql, execute)
 }
 /* }}} */
 
+/* [GENE_FEATURE:2026-08-06 F0-3] JOIN type whitelist — anything outside this
+ * set is rejected instead of interpolated into the SQL. Mirrors the MySQL
+ * builder (gene_db_mysql_join_type). */
+static zend_bool gene_db_mssql_join_type(const char *type, size_t type_len, char *out, size_t out_size) {
+	static const char *allowed[] = {
+		"INNER", "LEFT", "RIGHT", "CROSS", "FULL",
+		"LEFT OUTER", "RIGHT OUTER", "FULL OUTER"
+	};
+	size_t i, j;
+	if (type_len == 0 || type_len >= out_size) {
+		return 0;
+	}
+	for (i = 0; i < type_len; i++) {
+		unsigned char c = (unsigned char)type[i];
+		out[i] = (c >= 'a' && c <= 'z') ? (char)(c & ~0x20) : (char)c;
+	}
+	out[type_len] = '\0';
+	for (j = 0; j < sizeof(allowed) / sizeof(allowed[0]); j++) {
+		if (strcmp(out, allowed[j]) == 0) {
+			return 1;
+		}
+	}
+	return 0;
+}
+
+/* [GENE_FEATURE:2026-08-06 F0-3] Build the ON clause from a structured
+ * assoc array (leftColumn => rightColumn); both sides go through the
+ * identifier quoting path. Raw strings are deliberately NOT accepted. */
+static zend_bool gene_db_mssql_build_on(zval *on, smart_str *out) {
+	zend_string *k;
+	zval *v;
+	int first = 1;
+	if (!on || Z_TYPE_P(on) != IS_ARRAY || zend_hash_num_elements(Z_ARRVAL_P(on)) == 0) {
+		return 0;
+	}
+	ZEND_HASH_FOREACH_STR_KEY_VAL(Z_ARRVAL_P(on), k, v) {
+		char *lk, *rv;
+		if (!k || Z_TYPE_P(v) != IS_STRING || Z_STRLEN_P(v) == 0) {
+			return 0;
+		}
+		lk = gene_quote_columns(ZSTR_VAL(k), '[', ']');
+		rv = gene_quote_columns(Z_STRVAL_P(v), '[', ']');
+		if (!first) {
+			smart_str_appends(out, " AND ");
+		}
+		smart_str_appends(out, lk);
+		smart_str_appends(out, " = ");
+		smart_str_appends(out, rv);
+		efree(lk);
+		efree(rv);
+		first = 0;
+	} ZEND_HASH_FOREACH_END();
+	return !first;
+}
+
+/* Append a fragment to an accumulating SQL-part property. */
+static void gene_db_mssql_append_prop(zval *self, const char *prop, size_t prop_len, smart_str *frag) {
+	zval *cur = zend_read_property(gene_db_mssql_ce, gene_strip_obj(self), prop, prop_len, 1, NULL);
+	smart_str out = {0};
+	if (cur && Z_TYPE_P(cur) == IS_STRING && Z_STRLEN_P(cur)) {
+		smart_str_appends(&out, Z_STRVAL_P(cur));
+	}
+	if (frag->s) {
+		smart_str_appendl(&out, ZSTR_VAL(frag->s), ZSTR_LEN(frag->s));
+	}
+	smart_str_0(&out);
+	zend_update_property_str(gene_db_mssql_ce, gene_strip_obj(self), prop, prop_len, out.s);
+	zend_string_release(out.s);
+}
+
+static void gene_db_mssql_do_join(zval *self, zend_string *table, zval *on, const char *type) {
+	smart_str frag = {0}, on_str = {0};
+	char tbuf[16];
+	const char *ttype = "INNER";
+	size_t tlen = 5;
+	if (type && type[0]) {
+		if (!gene_db_mssql_join_type(type, strlen(type), tbuf, sizeof(tbuf))) {
+			php_error_docref(NULL, E_WARNING, "Invalid JOIN type: %s", type);
+			return;
+		}
+		ttype = tbuf;
+		tlen = strlen(tbuf);
+	}
+	if (!gene_db_mssql_build_on(on, &on_str)) {
+		php_error_docref(NULL, E_WARNING,
+			"JOIN ON must be a non-empty assoc array of leftColumn => rightColumn");
+		return;
+	}
+	{
+		char *qt = gene_quote_table(ZSTR_VAL(table), '[', ']');
+		smart_str_appendc(&frag, ' ');
+		smart_str_appendl(&frag, ttype, tlen);
+		smart_str_appends(&frag, " JOIN ");
+		smart_str_appends(&frag, qt);
+		smart_str_appends(&frag, " ON ");
+		smart_str_appendl(&frag, ZSTR_VAL(on_str.s), ZSTR_LEN(on_str.s));
+		smart_str_0(&frag);
+		gene_db_mssql_append_prop(self, ZEND_STRL(GENE_DB_MSSQL_JOIN), &frag);
+		efree(qt);
+	}
+	smart_str_free(&on_str);
+	smart_str_free(&frag);
+}
+
+/*
+ * {{{ public gene_db_mssql::reset()
+ * [GENE_FEATURE:2026-08-06 F0-3] Public entry to mssql_reset_sql_params() so
+ * one instance can be reused to build multiple statements. */
+PHP_METHOD(gene_db_mssql, reset)
+{
+	zval *self = getThis();
+	mssql_reset_sql_params(self);
+	RETURN_ZVAL(self, 1, 0);
+}
+/* }}} */
+
+/*
+ * {{{ public gene_db_mssql::join(string $table, array $on, string $type = 'INNER')
+ */
+PHP_METHOD(gene_db_mssql, join)
+{
+	zval *self = getThis(), *on = NULL;
+	zend_string *table = NULL, *type = NULL;
+	if (zend_parse_parameters(ZEND_NUM_ARGS(), "Sz|S", &table, &on, &type) == FAILURE) {
+		return;
+	}
+	gene_db_mssql_do_join(self, table, on, (type && ZSTR_LEN(type)) ? ZSTR_VAL(type) : NULL);
+	RETURN_ZVAL(self, 1, 0);
+}
+/* }}} */
+
+/*
+ * {{{ public gene_db_mssql::leftJoin(string $table, array $on)
+ */
+PHP_METHOD(gene_db_mssql, leftJoin)
+{
+	zval *self = getThis(), *on = NULL;
+	zend_string *table = NULL;
+	if (zend_parse_parameters(ZEND_NUM_ARGS(), "Sz", &table, &on) == FAILURE) {
+		return;
+	}
+	gene_db_mssql_do_join(self, table, on, "LEFT");
+	RETURN_ZVAL(self, 1, 0);
+}
+/* }}} */
+
+/*
+ * {{{ public gene_db_mssql::rightJoin(string $table, array $on)
+ */
+PHP_METHOD(gene_db_mssql, rightJoin)
+{
+	zval *self = getThis(), *on = NULL;
+	zend_string *table = NULL;
+	if (zend_parse_parameters(ZEND_NUM_ARGS(), "Sz", &table, &on) == FAILURE) {
+		return;
+	}
+	gene_db_mssql_do_join(self, table, on, "RIGHT");
+	RETURN_ZVAL(self, 1, 0);
+}
+/* }}} */
+
+/*
+ * {{{ public gene_db_mssql::union(string|object $query, bool $all = false)
+ * [GENE_FEATURE:2026-08-06 F0-3] Mirrors the MySQL builder: a string is
+ * developer-written SQL (same trust level as sql()); a Gene\Db\Mssql object
+ * is assembled from its parts, wrapped in parentheses, and its bound params
+ * are merged into this query's data array. */
+PHP_METHOD(gene_db_mssql, union)
+{
+	zval *self = getThis(), *query = NULL;
+	zend_bool all = 0;
+	smart_str frag = {0};
+	if (zend_parse_parameters(ZEND_NUM_ARGS(), "z|b", &query, &all) == FAILURE) {
+		return;
+	}
+	smart_str_appends(&frag, all ? " UNION ALL " : " UNION ");
+	switch (Z_TYPE_P(query)) {
+	case IS_STRING:
+		if (Z_STRLEN_P(query)) {
+			smart_str_appendl(&frag, Z_STRVAL_P(query), Z_STRLEN_P(query));
+		}
+		break;
+	case IS_OBJECT:
+		if (!instanceof_function(Z_OBJCE_P(query), gene_db_mssql_ce)) {
+			php_error_docref(NULL, E_WARNING, "union() expects a SQL string or a Gene\\Db\\Mssql builder");
+			smart_str_free(&frag);
+			return;
+		}
+		{
+			zval *sub_sql = zend_read_property(gene_db_mssql_ce, gene_strip_obj(query), ZEND_STRL(GENE_DB_MSSQL_SQL), 1, NULL);
+			zval *sub_join = zend_read_property(gene_db_mssql_ce, gene_strip_obj(query), ZEND_STRL(GENE_DB_MSSQL_JOIN), 1, NULL);
+			zval *sub_where = zend_read_property(gene_db_mssql_ce, gene_strip_obj(query), ZEND_STRL(GENE_DB_MSSQL_WHERE), 1, NULL);
+			zval *sub_group = zend_read_property(gene_db_mssql_ce, gene_strip_obj(query), ZEND_STRL(GENE_DB_MSSQL_GROUP), 1, NULL);
+			zval *sub_having = zend_read_property(gene_db_mssql_ce, gene_strip_obj(query), ZEND_STRL(GENE_DB_MSSQL_HAVING), 1, NULL);
+			zval *sub_order = zend_read_property(gene_db_mssql_ce, gene_strip_obj(query), ZEND_STRL(GENE_DB_MSSQL_ORDER), 1, NULL);
+			zval *sub_limit = zend_read_property(gene_db_mssql_ce, gene_strip_obj(query), ZEND_STRL(GENE_DB_MSSQL_LIMIT), 1, NULL);
+			zval *sub_data = zend_read_property(gene_db_mssql_ce, gene_strip_obj(query), ZEND_STRL(GENE_DB_MSSQL_DATA), 1, NULL);
+			smart_str_appendc(&frag, '(');
+			if (sub_sql && Z_TYPE_P(sub_sql) == IS_STRING) smart_str_appends(&frag, Z_STRVAL_P(sub_sql));
+			if (sub_join && Z_TYPE_P(sub_join) == IS_STRING) smart_str_appends(&frag, Z_STRVAL_P(sub_join));
+			if (sub_where && Z_TYPE_P(sub_where) == IS_STRING) smart_str_appends(&frag, Z_STRVAL_P(sub_where));
+			if (sub_group && Z_TYPE_P(sub_group) == IS_STRING) smart_str_appends(&frag, Z_STRVAL_P(sub_group));
+			if (sub_having && Z_TYPE_P(sub_having) == IS_STRING) smart_str_appends(&frag, Z_STRVAL_P(sub_having));
+			if (sub_order && Z_TYPE_P(sub_order) == IS_STRING) smart_str_appends(&frag, Z_STRVAL_P(sub_order));
+			if (sub_limit && Z_TYPE_P(sub_limit) == IS_STRING) smart_str_appends(&frag, Z_STRVAL_P(sub_limit));
+			smart_str_appendc(&frag, ')');
+			if (sub_data && Z_TYPE_P(sub_data) == IS_ARRAY && zend_hash_num_elements(Z_ARRVAL_P(sub_data)) > 0) {
+				zval *data = zend_read_property(gene_db_mssql_ce, gene_strip_obj(self), ZEND_STRL(GENE_DB_MSSQL_DATA), 1, NULL);
+				zval *value;
+				if (Z_TYPE_P(data) == IS_ARRAY) {
+					ZEND_HASH_FOREACH_VAL(Z_ARRVAL_P(sub_data), value) {
+						add_next_index_zval(data, value);
+						Z_TRY_ADDREF_P(value);
+					} ZEND_HASH_FOREACH_END();
+				} else {
+					zval params;
+					gene_memory_zval_local(&params, sub_data);
+					zend_update_property(gene_db_mssql_ce, gene_strip_obj(self), ZEND_STRL(GENE_DB_MSSQL_DATA), &params);
+					zval_ptr_dtor(&params);
+				}
+			}
+		}
+		break;
+	default:
+		php_error_docref(NULL, E_WARNING, "union() expects a SQL string or a Gene\\Db\\Mssql builder");
+		smart_str_free(&frag);
+		return;
+	}
+	smart_str_0(&frag);
+	gene_db_mssql_append_prop(self, ZEND_STRL(GENE_DB_MSSQL_UNION), &frag);
+	smart_str_free(&frag);
+	RETURN_ZVAL(self, 1, 0);
+}
+/* }}} */
+
 /*
  * {{{ public gene_db::group()
  */
@@ -995,19 +1253,24 @@ PHP_METHOD(gene_db_mssql, affectedRows)
  */
 PHP_METHOD(gene_db_mssql, print)
 {
-	zval *self = getThis(),*pdo_object = NULL, *pdo_sql = NULL, *pdo_where = NULL, *pdo_order = NULL,*pdo_group = NULL,*pdo_having = NULL, *pdo_limit = NULL, *params = NULL;
+	zval *self = getThis(),*pdo_object = NULL, *pdo_sql = NULL, *pdo_join = NULL, *pdo_where = NULL, *pdo_order = NULL,*pdo_group = NULL,*pdo_having = NULL, *pdo_union = NULL, *pdo_limit = NULL, *params = NULL;
 	smart_str sql = {0};
 	pdo_object = zend_read_property(gene_db_mssql_ce, gene_strip_obj(self), ZEND_STRL(GENE_DB_MSSQL_PDO), 1, NULL);
 	pdo_sql = zend_read_property(gene_db_mssql_ce, gene_strip_obj(self), ZEND_STRL(GENE_DB_MSSQL_SQL), 1, NULL);
+	pdo_join = zend_read_property(gene_db_mssql_ce, gene_strip_obj(self), ZEND_STRL(GENE_DB_MSSQL_JOIN), 1, NULL);
 	pdo_where = zend_read_property(gene_db_mssql_ce, gene_strip_obj(self), ZEND_STRL(GENE_DB_MSSQL_WHERE), 1, NULL);
 	pdo_group = zend_read_property(gene_db_mssql_ce, gene_strip_obj(self), ZEND_STRL(GENE_DB_MSSQL_GROUP), 1, NULL);
 	pdo_having = zend_read_property(gene_db_mssql_ce, gene_strip_obj(self), ZEND_STRL(GENE_DB_MSSQL_HAVING), 1, NULL);
+	pdo_union = zend_read_property(gene_db_mssql_ce, gene_strip_obj(self), ZEND_STRL(GENE_DB_MSSQL_UNION), 1, NULL);
 	pdo_order = zend_read_property(gene_db_mssql_ce, gene_strip_obj(self), ZEND_STRL(GENE_DB_MSSQL_ORDER), 1, NULL);
 	pdo_limit = zend_read_property(gene_db_mssql_ce, gene_strip_obj(self), ZEND_STRL(GENE_DB_MSSQL_LIMIT), 1, NULL);
 	params = zend_read_property(gene_db_mssql_ce, gene_strip_obj(self), ZEND_STRL(GENE_DB_MSSQL_DATA), 1, NULL);
 
 	if (Z_TYPE_P(pdo_sql) == IS_STRING) {
 		smart_str_appends(&sql, Z_STRVAL_P(pdo_sql));
+	}
+	if (Z_TYPE_P(pdo_join) == IS_STRING) {
+		smart_str_appends(&sql, Z_STRVAL_P(pdo_join));
 	}
 	if (Z_TYPE_P(pdo_where) == IS_STRING) {
 		smart_str_appends(&sql, Z_STRVAL_P(pdo_where));
@@ -1017,6 +1280,9 @@ PHP_METHOD(gene_db_mssql, print)
 	}
 	if (Z_TYPE_P(pdo_having) == IS_STRING) {
 		smart_str_appends(&sql, Z_STRVAL_P(pdo_having));
+	}
+	if (Z_TYPE_P(pdo_union) == IS_STRING) {
+		smart_str_appends(&sql, Z_STRVAL_P(pdo_union));
 	}
 	if (Z_TYPE_P(pdo_order) == IS_STRING) {
 		smart_str_appends(&sql, Z_STRVAL_P(pdo_order));
@@ -1149,6 +1415,11 @@ const zend_function_entry gene_db_mssql_methods[] = {
 		PHP_ME(gene_db_mssql, delete, gene_db_mssql_delete, ZEND_ACC_PUBLIC)
 		PHP_ME(gene_db_mssql, where, gene_db_mssql_where, ZEND_ACC_PUBLIC)
 		PHP_ME(gene_db_mssql, in, gene_db_mssql_in, ZEND_ACC_PUBLIC)
+		PHP_ME(gene_db_mssql, join, gene_db_mssql_join, ZEND_ACC_PUBLIC)
+		PHP_ME(gene_db_mssql, leftJoin, gene_db_mssql_join, ZEND_ACC_PUBLIC)
+		PHP_ME(gene_db_mssql, rightJoin, gene_db_mssql_join, ZEND_ACC_PUBLIC)
+		PHP_ME(gene_db_mssql, union, gene_db_mssql_union, ZEND_ACC_PUBLIC)
+		PHP_ME(gene_db_mssql, reset, gene_db_mssql_void_arginfo, ZEND_ACC_PUBLIC)
 		PHP_ME(gene_db_mssql, sql, gene_db_mssql_sql, ZEND_ACC_PUBLIC)
 		PHP_ME(gene_db_mssql, limit, gene_db_mssql_limit, ZEND_ACC_PUBLIC)
 		PHP_ME(gene_db_mssql, order, gene_db_mssql_order, ZEND_ACC_PUBLIC)
@@ -1190,9 +1461,11 @@ GENE_MINIT_FUNCTION(db_mssql)
     zend_declare_property_null(gene_db_mssql_ce, ZEND_STRL(GENE_DB_MSSQL_CONFIG), ZEND_ACC_PUBLIC);
 	zend_declare_property_null(gene_db_mssql_ce, ZEND_STRL(GENE_DB_MSSQL_PDO), ZEND_ACC_PUBLIC);
     zend_declare_property_null(gene_db_mssql_ce, ZEND_STRL(GENE_DB_MSSQL_SQL), ZEND_ACC_PUBLIC);
+    zend_declare_property_null(gene_db_mssql_ce, ZEND_STRL(GENE_DB_MSSQL_JOIN), ZEND_ACC_PUBLIC);
     zend_declare_property_null(gene_db_mssql_ce, ZEND_STRL(GENE_DB_MSSQL_WHERE), ZEND_ACC_PUBLIC);
     zend_declare_property_null(gene_db_mssql_ce, ZEND_STRL(GENE_DB_MSSQL_GROUP), ZEND_ACC_PUBLIC);
     zend_declare_property_null(gene_db_mssql_ce, ZEND_STRL(GENE_DB_MSSQL_HAVING), ZEND_ACC_PUBLIC);
+    zend_declare_property_null(gene_db_mssql_ce, ZEND_STRL(GENE_DB_MSSQL_UNION), ZEND_ACC_PUBLIC);
     zend_declare_property_null(gene_db_mssql_ce, ZEND_STRL(GENE_DB_MSSQL_ORDER), ZEND_ACC_PUBLIC);
     zend_declare_property_null(gene_db_mssql_ce, ZEND_STRL(GENE_DB_MSSQL_LIMIT), ZEND_ACC_PUBLIC);
     zend_declare_property_null(gene_db_mssql_ce, ZEND_STRL(GENE_DB_MSSQL_DATA), ZEND_ACC_PUBLIC);

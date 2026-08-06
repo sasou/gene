@@ -67,6 +67,11 @@
 	 ZEND_ARG_INFO(0, method)
 	 ZEND_ARG_INFO(0, uri)
  ZEND_END_ARG_INFO()
+
+ ZEND_BEGIN_ARG_INFO_EX(gene_router_match, 0, 0, 2)
+	 ZEND_ARG_INFO(0, method)
+	 ZEND_ARG_INFO(0, uri)
+ ZEND_END_ARG_INFO()
  
  ZEND_BEGIN_ARG_INFO_EX(gene_router_run_error, 0, 0, 1)
 	 ZEND_ARG_INFO(0, method)
@@ -2118,6 +2123,155 @@ void get_router_content_run(char *methodin, char *pathin, const char *safe_str, 
 	 RETURN_NULL();
  }
  /* }}} */
+
+ /* {{{ public gene_router::match(string $method, string $uri): array|false
+  * [GENE_FEATURE:2026-08-06 F1-3] Pure route matching without executing the
+  * handler. Reuses the same lookup path as get_router_content_run()
+  * (safe-prefixed tree key, method bucket, prefix/lang conf rewrite,
+  * get_path_router walk with setMca param capture) but stops before
+  * get_router_info()/dispatch — no hooks fire, no controller runs, and the
+  * query string is stripped WITHOUT being merged into $_GET. Returns
+  *   ['module'=>?, 'controller'=>?, 'action'=>?, 'params'=>[...], 'route'=>leaf]
+  * or false when nothing matches. Unlocks route unit tests without dispatch
+  * side effects. */
+ PHP_METHOD(gene_router, match) {
+	 zend_string *methodin = NULL, *pathin = NULL;
+	 zval *self = getThis(), *safe = NULL;
+	 const char *safe_str = NULL;
+	 size_t safe_len = 0;
+	 char method_buf[32];
+	 char *method, *path = NULL, *path_new = NULL;
+	 size_t method_len, prefix_len, router_e_len;
+	 int method_heap = 0;
+	 char rkey_tree_buf[256], rkey_conf_buf[256];
+	 char *rkey_tree, *rkey_conf;
+	 int rkey_tree_heap = 0, rkey_conf_heap = 0;
+	 zval *cache = NULL, *conf = NULL, *temp = NULL, *lead = NULL;
+	 gene_request_context *ctx = gene_request_ctx();
+	 size_t i;
+
+	 if (zend_parse_parameters(ZEND_NUM_ARGS(), "SS", &methodin, &pathin) == FAILURE) {
+		 RETURN_FALSE;
+	 }
+	 if (ZSTR_LEN(methodin) == 0 || ZSTR_LEN(pathin) == 0) {
+		 RETURN_FALSE;
+	 }
+
+	 safe = zend_read_property(gene_router_ce, gene_strip_obj(self), GENE_ROUTER_SAFE, strlen(GENE_ROUTER_SAFE), 1, NULL);
+	 if (safe && Z_TYPE_P(safe) == IS_STRING && Z_STRLEN_P(safe) > 0) {
+		 safe_str = Z_STRVAL_P(safe);
+		 safe_len = Z_STRLEN_P(safe);
+	 }
+
+	 /* Lowercase the method (same as get_router_content_run's explicit path). */
+	 method_len = ZSTR_LEN(methodin);
+	 if (method_len < sizeof(method_buf)) {
+		 method = method_buf;
+	 } else {
+		 method = emalloc(method_len + 1);
+		 method_heap = 1;
+	 }
+	 for (i = 0; i < method_len; i++) {
+		 unsigned char c = (unsigned char)ZSTR_VAL(methodin)[i];
+		 method[i] = (c >= 'A' && c <= 'Z') ? (char)(c | 0x20) : (char)c;
+	 }
+	 method[method_len] = '\0';
+
+	 /* Pure match: strip the query string but do NOT merge it into $_GET. */
+	 path = str_init(ZSTR_VAL(pathin));
+	 {
+		 char *q = strchr(path, '?');
+		 if (q) {
+			 *q = '\0';
+		 }
+	 }
+
+	 gene_router_reset_path_params();
+
+	 /* Build the safe-prefixed tree/conf keys (":rt" / ":cf", both 3 bytes). */
+	 prefix_len = safe_len;
+	 router_e_len = prefix_len + 3;
+	 if (router_e_len + 1 > sizeof(rkey_tree_buf)) {
+		 rkey_tree = emalloc(router_e_len + 1);
+		 rkey_tree_heap = 1;
+	 } else {
+		 rkey_tree = rkey_tree_buf;
+	 }
+	 if (router_e_len + 1 > sizeof(rkey_conf_buf)) {
+		 rkey_conf = emalloc(router_e_len + 1);
+		 rkey_conf_heap = 1;
+	 } else {
+		 rkey_conf = rkey_conf_buf;
+	 }
+	 if (prefix_len > 0) {
+		 memcpy(rkey_tree, safe_str, prefix_len);
+		 memcpy(rkey_conf, safe_str, prefix_len);
+	 }
+	 memcpy(rkey_tree + prefix_len, GENE_ROUTER_ROUTER_TREE, 3);
+	 memcpy(rkey_conf + prefix_len, GENE_ROUTER_ROUTER_CONF, 3);
+	 rkey_tree[router_e_len] = '\0';
+	 rkey_conf[router_e_len] = '\0';
+
+	 gene_memory_get_triple(
+		 rkey_tree, router_e_len, &cache,
+		 rkey_conf, router_e_len, &conf,
+		 NULL, 0, NULL);
+
+	 if (cache && Z_TYPE_P(cache) == IS_ARRAY) {
+		 temp = zend_symtable_str_find(Z_ARRVAL_P(cache), method, method_len);
+	 }
+	 if (temp) {
+		 trim(path, '/');
+		 replaceAll(path, '.', '/');
+		 if (conf && Z_TYPE_P(conf) == IS_ARRAY) {
+			 path_new = get_path_router_init(conf, path);
+			 if (path_new != path) {
+				 efree(path);
+			 }
+			 path = path_new;
+		 }
+		 lead = get_path_router(temp, path);
+	 }
+
+	 if (rkey_tree_heap) efree(rkey_tree);
+	 if (rkey_conf_heap) efree(rkey_conf);
+	 if (method_heap) efree(method);
+	 efree(path);
+
+	 if (!lead || Z_TYPE_P(lead) != IS_ARRAY) {
+		 RETURN_FALSE;
+	 }
+
+	 /* Populate ctx->router_path so getRouterUri() reflects the matched route,
+	  * mirroring what dispatch would resolve. */
+	 gene_router_set_uri(&lead);
+
+	 array_init(return_value);
+	 if (ctx->module) {
+		 add_assoc_stringl(return_value, "module", ctx->module, ctx->module_len);
+	 }
+	 if (ctx->controller) {
+		 add_assoc_stringl(return_value, "controller", ctx->controller, ctx->controller_len);
+	 }
+	 if (ctx->action) {
+		 add_assoc_stringl(return_value, "action", ctx->action, ctx->action_len);
+	 }
+	 {
+		 zval pcopy;
+		 if (Z_TYPE_P(&ctx->path_params) == IS_ARRAY) {
+			 ZVAL_COPY(&pcopy, &ctx->path_params);
+		 } else {
+			 array_init(&pcopy);
+		 }
+		 add_assoc_zval_ex(return_value, ZEND_STRL("params"), &pcopy);
+	 }
+	 {
+		 zval lcopy;
+		 ZVAL_COPY(&lcopy, lead);
+		 add_assoc_zval_ex(return_value, ZEND_STRL("route"), &lcopy);
+	 }
+ }
+ /* }}} */
  
  /*
   * {{{ gene_router_methods
@@ -3294,6 +3448,7 @@ PHP_METHOD(gene_router, __call) {
 	 PHP_ME(gene_router, displayExt, gene_router_display_ext, ZEND_ACC_PUBLIC|ZEND_ACC_STATIC)
 	 PHP_ME(gene_router, runError, gene_router_run_error, ZEND_ACC_PUBLIC|ZEND_ACC_STATIC)
 	 PHP_ME(gene_router, run, gene_router_run, ZEND_ACC_PUBLIC)
+	 PHP_ME(gene_router, match, gene_router_match, ZEND_ACC_PUBLIC)
 	 PHP_ME(gene_router, readFile, gene_router_read_file, ZEND_ACC_PUBLIC)
 	 PHP_ME(gene_router, dispatch, gene_router_dispatch, ZEND_ACC_PUBLIC|ZEND_ACC_STATIC)
 	 PHP_ME(gene_router, params, gene_router_params, ZEND_ACC_PUBLIC|ZEND_ACC_STATIC)

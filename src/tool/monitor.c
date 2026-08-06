@@ -97,6 +97,10 @@ static void gene_monitor_collect_pools(zend_class_entry *pool_ce, const char *pr
  *     'redis_pools'   => ['name' => [total,idle,using,overflow,min,max,closed]],
  *     'requests'      => ['count' => n, 'errors' => n],
  *     'redis_pool_cas_abandoned'    => n,  // [GENE_AUDIT:2026-07-30 L1]
+ *     'db_pool_cas_abandoned'       => n,  // [GENE_AUDIT:2026-08-06 C1]
+ *     'db_pool_get_timeout'         => n,  // [GENE_FEATURE:2026-08-06 F1-7]
+ *     'memory_cache_hit'            => n,  // userland Memory::get only
+ *     'memory_cache_miss'           => n,
  *     'swoole_auto_cleanup_defers'  => n,  // [GENE_FEATURE:2026-07-30 F1]
  *     'swoole_auto_cleanup_reclaimed' => n,
  *   ]
@@ -159,6 +163,13 @@ PHP_METHOD(gene_monitor, stats) {
 
 	/* [GENE_AUDIT:2026-07-30 L1] RedisPool CAS abandonment counter. */
 	add_assoc_long(return_value, "redis_pool_cas_abandoned", (zend_long)GENE_G(redis_pool_cas_abandoned));
+	/* [GENE_AUDIT:2026-08-06 C1] DB Pool CAS abandonment counter. */
+	add_assoc_long(return_value, "db_pool_cas_abandoned", (zend_long)GENE_G(db_pool_cas_abandoned));
+	/* [GENE_FEATURE:2026-08-06 F1-7] Pool acquisition timeouts + userland
+	 * Memory::get hit/miss. */
+	add_assoc_long(return_value, "db_pool_get_timeout", (zend_long)GENE_G(db_pool_get_timeout));
+	add_assoc_long(return_value, "memory_cache_hit", (zend_long)GENE_G(memory_cache_hit));
+	add_assoc_long(return_value, "memory_cache_miss", (zend_long)GENE_G(memory_cache_miss));
 	/* [GENE_FEATURE:2026-07-30 F1] auto-cleanup activity. */
 	add_assoc_long(return_value, "swoole_auto_cleanup_defers", (zend_long)GENE_G(swoole_auto_cleanup_defers));
 	add_assoc_long(return_value, "swoole_auto_cleanup_reclaimed", (zend_long)GENE_G(swoole_auto_cleanup_reclaimed));

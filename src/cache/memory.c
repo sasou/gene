@@ -49,6 +49,11 @@ ZEND_BEGIN_ARG_INFO_EX(gene_memory_arg_set, 0, 0, 3)
     ZEND_ARG_INFO(0, ttl)
 ZEND_END_ARG_INFO()
 
+ZEND_BEGIN_ARG_INFO_EX(gene_memory_arg_incr, 0, 0, 1)
+	ZEND_ARG_INFO(0, key)
+    ZEND_ARG_INFO(0, step)
+ZEND_END_ARG_INFO()
+
 ZEND_BEGIN_ARG_INFO_EX(gene_memory_arg_get, 0, 0, 1)
 	ZEND_ARG_INFO(0, key)
 ZEND_END_ARG_INFO()
@@ -951,10 +956,16 @@ PHP_METHOD(gene_memory, get) {
 	}
 	zvalue = gene_memory_get(router_e, router_e_len);
 	if (router_e_heap) efree(router_e);
+	/* [GENE_FEATURE:2026-08-06 F1-7] Userland Memory::get() hit/miss
+	 * telemetry (memory_cache_hit/memory_cache_miss in Gene\Monitor::stats).
+	 * Only the userland entry point is counted — the internal router/DI
+	 * lookups on the hot dispatch path are deliberately excluded. */
 	if (zvalue) {
+		GENE_G(memory_cache_hit)++;
 		gene_memory_zval_local(return_value, zvalue);
 		return;
 	}
+	GENE_G(memory_cache_miss)++;
 	RETURN_NULL();
 }
 /* }}} */
@@ -1082,6 +1093,127 @@ PHP_METHOD(gene_memory, del) {
 }
 /* }}} */
 
+/* [GENE_FEATURE:2026-08-06 F1-2] Build the safe-prefixed cache key used by
+ * all Memory methods. Only used by incr/decr for now; the older methods keep
+ * their inlined copies untouched. */
+static char *gene_memory_build_key(zval *safe, zend_string *keyString, char *stack_buf, size_t stack_size, size_t *out_len, int *out_heap) {
+	char *router_e = stack_buf;
+	size_t router_e_len;
+	*out_heap = 0;
+	if (safe && Z_TYPE_P(safe) == IS_STRING && Z_STRLEN_P(safe)) {
+		router_e_len = Z_STRLEN_P(safe) + 1 + ZSTR_LEN(keyString);
+		if (router_e_len >= stack_size) {
+			router_e = emalloc(router_e_len + 1);
+			*out_heap = 1;
+		}
+		memcpy(router_e, Z_STRVAL_P(safe), Z_STRLEN_P(safe));
+		router_e[Z_STRLEN_P(safe)] = ':';
+		memcpy(router_e + Z_STRLEN_P(safe) + 1, ZSTR_VAL(keyString), ZSTR_LEN(keyString));
+	} else {
+		router_e_len = 1 + ZSTR_LEN(keyString);
+		if (router_e_len >= stack_size) {
+			router_e = emalloc(router_e_len + 1);
+			*out_heap = 1;
+		}
+		router_e[0] = ':';
+		memcpy(router_e + 1, ZSTR_VAL(keyString), ZSTR_LEN(keyString));
+	}
+	router_e[router_e_len] = '\0';
+	*out_len = router_e_len;
+	return router_e;
+}
+
+/* [GENE_FEATURE:2026-08-06 F1-2] Atomic-in-lock numeric adjust (incr/decr).
+ * The read-modify-write happens entirely inside GENE_CACHE_WRLOCK — never a
+ * PHP-level get+set pair, which would race between coroutines. A missing key
+ * is created with the stepped value (Redis INCR semantics); an existing
+ * non-long value fails with *ok=0 to avoid silently corrupting payloads.
+ * Subject to the same workerReady() freeze as Memory::set — under Swoole the
+ * process-level cache is read-mostly after boot, so counters meant for the
+ * request runtime belong in Gene\Cache (redis/memcached) instead. */
+static zend_long gene_memory_adjust(const char *keyString, size_t keyString_len, zend_long step, zend_bool *ok) {
+	zval *copyval, ret;
+	zend_string *key;
+	zend_long result = 0;
+
+	*ok = 0;
+	if (UNEXPECTED(!gene_memory_write_allowed("Memory::incr/decr"))) {
+		return 0;
+	}
+	GENE_CACHE_WRLOCK();
+	copyval = zend_symtable_str_find(GENE_G(cache), keyString, keyString_len);
+	if (copyval == NULL) {
+		ZVAL_LONG(&ret, step);
+		key = gene_str_persistent(keyString, keyString_len);
+		gene_symtable_update(GENE_G(cache), key, &ret);
+		/* key is now owned by the hash table; do not free here. */
+		*ok = 1;
+		result = step;
+	} else if (Z_TYPE_P(copyval) == IS_LONG) {
+		/* Stored longs are persistent scalars (no refcounted payload), so an
+		 * in-place edit under the write lock is safe. */
+		Z_LVAL_P(copyval) += step;
+		*ok = 1;
+		result = Z_LVAL_P(copyval);
+	}
+	GENE_CACHE_WRUNLOCK();
+	return result;
+}
+
+/*
+ * {{{ public gene_memory::incr(string $key, int $step = 1): int|false
+ */
+PHP_METHOD(gene_memory, incr) {
+	zend_string *keyString;
+	zend_long step = 1;
+	char stack_buf[256];
+	char *router_e;
+	size_t router_e_len;
+	int router_e_heap = 0;
+	zend_bool ok;
+	zend_long result;
+	zval *safe;
+	if (zend_parse_parameters(ZEND_NUM_ARGS(), "S|l", &keyString, &step) == FAILURE) {
+		return;
+	}
+	safe = zend_read_property(gene_memory_ce, gene_strip_obj(getThis()), GENE_MEMORY_SAFE, strlen(GENE_MEMORY_SAFE), 1, NULL);
+	router_e = gene_memory_build_key(safe, keyString, stack_buf, sizeof(stack_buf), &router_e_len, &router_e_heap);
+	result = gene_memory_adjust(router_e, router_e_len, step, &ok);
+	if (router_e_heap) efree(router_e);
+	if (!ok) {
+		RETURN_FALSE;
+	}
+	RETURN_LONG(result);
+}
+/* }}} */
+
+/*
+ * {{{ public gene_memory::decr(string $key, int $step = 1): int|false
+ */
+PHP_METHOD(gene_memory, decr) {
+	zend_string *keyString;
+	zend_long step = 1;
+	char stack_buf[256];
+	char *router_e;
+	size_t router_e_len;
+	int router_e_heap = 0;
+	zend_bool ok;
+	zend_long result;
+	zval *safe;
+	if (zend_parse_parameters(ZEND_NUM_ARGS(), "S|l", &keyString, &step) == FAILURE) {
+		return;
+	}
+	safe = zend_read_property(gene_memory_ce, gene_strip_obj(getThis()), GENE_MEMORY_SAFE, strlen(GENE_MEMORY_SAFE), 1, NULL);
+	router_e = gene_memory_build_key(safe, keyString, stack_buf, sizeof(stack_buf), &router_e_len, &router_e_heap);
+	result = gene_memory_adjust(router_e, router_e_len, -step, &ok);
+	if (router_e_heap) efree(router_e);
+	if (!ok) {
+		RETURN_FALSE;
+	}
+	RETURN_LONG(result);
+}
+/* }}} */
+
 /*
  * {{{ public gene_memory::clean()
  */
@@ -1170,6 +1302,8 @@ const zend_function_entry gene_memory_methods[] = {
 	PHP_ME(gene_memory, getTime, gene_memory_arg_get, ZEND_ACC_PUBLIC)
 	PHP_ME(gene_memory, exists, gene_memory_arg_get, ZEND_ACC_PUBLIC)
 	PHP_ME(gene_memory, del, gene_memory_arg_del, ZEND_ACC_PUBLIC)
+	PHP_ME(gene_memory, incr, gene_memory_arg_incr, ZEND_ACC_PUBLIC)
+	PHP_ME(gene_memory, decr, gene_memory_arg_incr, ZEND_ACC_PUBLIC)
 	PHP_ME(gene_memory, clean, gene_memory_void_arginfo, ZEND_ACC_PUBLIC)
 	PHP_ME(gene_memory, stats, gene_memory_void_arginfo, ZEND_ACC_PUBLIC)
 	{ NULL, NULL, NULL }

@@ -33,11 +33,24 @@ class Di
 
     /**
      * getInstance
-     * 
+     *
      * @return mixed
      */
     public static function getInstance() {
         return new static();
+    }
+
+    /**
+     * instance
+     * 显式实例化一个类（走工厂加载 + 构造参数转发），但不写入容器注册表——
+     * 每次调用都产生新对象，适用于瞬态/值对象。
+     *
+     * @param string $class 类名
+     * @param array $params 构造函数参数（按顺序转发）
+     * @return object|null 类不存在时返回 null
+     */
+    public static function instance($class, $params = []) {
+
     }
 
     /**

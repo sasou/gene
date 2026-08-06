@@ -113,6 +113,12 @@ ZEND_BEGIN_ARG_INFO_EX(gene_controller_se_assign, 0, 0, 2)
 	ZEND_ARG_INFO(0, value)
 ZEND_END_ARG_INFO()
 
+ZEND_BEGIN_ARG_INFO_EX(gene_controller_forward, 0, 0, 2)
+	ZEND_ARG_INFO(0, controller)
+	ZEND_ARG_INFO(0, action)
+	ZEND_ARG_INFO(0, params)
+ZEND_END_ARG_INFO()
+
 
 /*
  * {{{ gene_controller
@@ -232,6 +238,70 @@ PHP_METHOD(gene_controller, getLang) {
 		RETURN_STRINGL(ctx->lang, ctx->lang_len);
 	}
 	RETURN_NULL();
+}
+/* }}} */
+
+/* [GENE_FEATURE:2026-08-06 F1-6] Forwarding depth ceiling — a controller
+ * forwarding to itself (directly or via a cycle) would otherwise recurse in C
+ * until the stack blows. */
+#define GENE_FORWARD_MAX_DEPTH 5
+
+/*
+ * {{{ public gene_controller::forward(string $controller, string $action, array $params = [])
+ * [GENE_FEATURE:2026-08-06 F1-6] Internal forward: dispatch another
+ * controller/action in-process via Gene\Router::dispatch(), returning the
+ * forwarded action's result. $controller is the class name verbatim (same
+ * contract as route "src" strings). Depth is capped at GENE_FORWARD_MAX_DEPTH
+ * to make forwarding loops fail fast instead of recursing unboundedly; the
+ * counter is also reset at the request boundary (gene.c RSHUTDOWN) so a
+ * bailout cannot wedge it. */
+PHP_METHOD(gene_controller, forward) {
+	zend_string *controller, *action;
+	zval *params = NULL;
+	zval call_params[3], ret, empty_params;
+	static zend_function *fn_dispatch = NULL;
+
+	if (zend_parse_parameters(ZEND_NUM_ARGS(), "SS|a", &controller, &action, &params) == FAILURE) {
+		RETURN_FALSE;
+	}
+
+	if (GENE_G(forward_depth) >= GENE_FORWARD_MAX_DEPTH) {
+		php_error_docref(NULL, E_WARNING,
+			"Gene\\Controller::forward() depth limit (%d) exceeded — possible forwarding loop",
+			GENE_FORWARD_MAX_DEPTH);
+		RETURN_FALSE;
+	}
+
+	/* Internal class, process-lifetime — one-shot cache is safe (same
+	 * convention as the pool/redis_pool fn caches). */
+	if (UNEXPECTED(!fn_dispatch)) {
+		fn_dispatch = zend_hash_str_find_ptr(&gene_router_ce->function_table, ZEND_STRL("dispatch"));
+	}
+	if (!fn_dispatch) {
+		RETURN_FALSE;
+	}
+
+	ZVAL_STR(&call_params[0], controller);
+	ZVAL_STR(&call_params[1], action);
+	if (params) {
+		call_params[2] = *params; /* borrowed — the callee does not dtor params */
+	} else {
+		array_init(&empty_params);
+		call_params[2] = empty_params;
+	}
+
+	ZVAL_UNDEF(&ret);
+	GENE_G(forward_depth)++;
+	zend_call_known_function(fn_dispatch, NULL, gene_router_ce, &ret, 3, call_params, NULL);
+	GENE_G(forward_depth)--;
+
+	if (!params) {
+		zval_ptr_dtor(&empty_params);
+	}
+	if (Z_ISUNDEF(ret)) {
+		RETURN_NULL();
+	}
+	RETURN_ZVAL(&ret, 1, 1);
 }
 /* }}} */
 
@@ -649,6 +719,7 @@ const zend_function_entry gene_controller_methods[] = {
 	PHP_ME(gene_controller, isOptions, gene_controller_void_arginfo, ZEND_ACC_PUBLIC|ZEND_ACC_STATIC)
 	PHP_ME(gene_controller, isDelete, gene_controller_void_arginfo, ZEND_ACC_PUBLIC|ZEND_ACC_STATIC)
 	PHP_ME(gene_controller, isCli, gene_controller_void_arginfo, ZEND_ACC_PUBLIC|ZEND_ACC_STATIC)
+	PHP_ME(gene_controller, forward, gene_controller_forward, ZEND_ACC_PUBLIC)
 	PHP_ME(gene_controller, redirect, gene_controller_redirect, ZEND_ACC_PUBLIC)
 	PHP_ME(gene_controller, redirectJs, gene_controller_redirect_js, ZEND_ACC_PUBLIC)
 	PHP_ME(gene_controller, alert, gene_controller_alert, ZEND_ACC_PUBLIC)

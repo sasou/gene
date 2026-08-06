@@ -135,6 +135,61 @@ class Sqlite
     }
 
     /**
+     * join
+     *
+     * @param string $table 关联表（可带别名，标识符自动加引号）
+     * @param array $on ON 条件，关联数组 leftColumn => rightColumn（两侧均按标识符引用，多条件以 AND 连接）
+     * @param string $type 连接类型：INNER/LEFT/RIGHT/CROSS/FULL/LEFT OUTER/RIGHT OUTER/FULL OUTER（默认 INNER）
+     * @return static
+     */
+    public function join($table, $on, $type = 'INNER') {
+
+    }
+
+    /**
+     * leftJoin
+     *
+     * @param string $table 关联表
+     * @param array $on ON 条件，同 join()
+     * @return static
+     */
+    public function leftJoin($table, $on) {
+
+    }
+
+    /**
+     * rightJoin
+     *
+     * @param string $table 关联表
+     * @param array $on ON 条件，同 join()
+     * @return static
+     */
+    public function rightJoin($table, $on) {
+
+    }
+
+    /**
+     * union
+     *
+     * @param string|static $query 子查询：SQL 字符串，或另一个构建器对象（自动括号包裹并合并绑定参数）
+     * @param bool $all 是否 UNION ALL（默认 false）
+     * @return static
+     */
+    public function union($query, $all = false) {
+
+    }
+
+    /**
+     * reset
+     * 重置构建器状态（sql/join/where/group/having/union/order/limit/data），便于复用同一实例
+     *
+     * @return static
+     */
+    public function reset() {
+
+    }
+
+    /**
      * sql
      * 
      * @param mixed $sql sql

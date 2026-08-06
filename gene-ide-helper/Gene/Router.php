@@ -165,12 +165,38 @@ class Router
 
     /**
      * run
-     * 
+     *
      * @param mixed $method method
      * @param mixed $uri uri
      * @return mixed
      */
     public function run($method, $uri) {
+
+    }
+
+    /**
+     * match
+     * 纯路由匹配：复用与 run() 相同的路由树查找逻辑，但不执行 handler、
+     * 不触发 hook，query string 会被剥离但不合并进 $_GET。
+     * 用于路由单元测试与预检。
+     *
+     * @param string $method HTTP 方法（大小写不敏感）
+     * @param string $uri 请求路径
+     * @return array|false 命中时返回
+     *   ['module'=>?, 'controller'=>?, 'action'=>?, 'params'=>[...], 'route'=>array]，
+     *   未命中返回 false
+     */
+    public function match($method, $uri) {
+
+    }
+
+    /**
+     * getRouterUri
+     * 获取当前匹配到的路由注册键（路由模式串）
+     *
+     * @return string|null
+     */
+    public function getRouterUri() {
 
     }
 

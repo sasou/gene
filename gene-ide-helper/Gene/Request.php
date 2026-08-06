@@ -164,7 +164,7 @@ class Request
 
     /**
      * isOptions
-     * 
+     *
      * @return mixed
      */
     public static function isOptions() {
@@ -172,8 +172,17 @@ class Request
     }
 
     /**
+     * isDelete
+     *
+     * @return bool
+     */
+    public static function isDelete() {
+
+    }
+
+    /**
      * isCli
-     * 
+     *
      * @return mixed
      */
     public static function isCli() {

@@ -11,7 +11,7 @@ namespace Gene;
  * @property \Ext\Services\Rest $rest
  * 
  * @author  sasou<admin@php-gene.com>
- * @version  5.4.3
+ * @version  5.6.9
  */
  
 class Application

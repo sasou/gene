@@ -122,6 +122,18 @@ class Pool
     }
 
     /**
+     * 对空闲连接做轻量探活
+     *
+     * 逐个弹出空闲连接检测活性：存活连接立即归还，死连接直接丢弃并递减计数。
+     * 不触发空闲超时淘汰与最小连接数回补（那些由 recycleIdle 负责）。
+     * Swoole 模式下需在协程上下文中调用。
+     *
+     * @return array{alive: int, dead: int}|false 池已关闭或未初始化时返回 false
+     */
+    public function healthCheck() {
+    }
+
+    /**
      * 关闭所有命名连接池（两阶段关闭）
      *
      * Phase 1: 先将所有池标记为 closed 并停止定时器，

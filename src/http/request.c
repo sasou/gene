@@ -627,6 +627,10 @@ const zend_function_entry gene_request_methods[] = {
 	PHP_ME(gene_request, isPut, geme_request_void_arginfo, ZEND_ACC_PUBLIC|ZEND_ACC_STATIC)
 	PHP_ME(gene_request, isHead, geme_request_void_arginfo, ZEND_ACC_PUBLIC|ZEND_ACC_STATIC)
 	PHP_ME(gene_request, isOptions, geme_request_void_arginfo, ZEND_ACC_PUBLIC|ZEND_ACC_STATIC)
+	/* [GENE_FEATURE:2026-08-06 F1-1] Mirror Gene\Controller/Gene\Hook — the
+	 * isDelete implementation already exists via GENE_REQUEST_IS_METHOD above;
+	 * it was simply missing from the method table. */
+	PHP_ME(gene_request, isDelete, geme_request_void_arginfo, ZEND_ACC_PUBLIC|ZEND_ACC_STATIC)
 	PHP_ME(gene_request, isCli, geme_request_void_arginfo, ZEND_ACC_PUBLIC|ZEND_ACC_STATIC)
 	PHP_ME(gene_request, init, gene_request_init_arginfo, ZEND_ACC_PUBLIC|ZEND_ACC_STATIC)
 	PHP_ME(gene_request, clear, geme_request_void_arginfo, ZEND_ACC_PUBLIC|ZEND_ACC_STATIC)
