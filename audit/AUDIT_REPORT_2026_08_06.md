@@ -246,3 +246,46 @@
 ## 八、维护约定
 
 按 `audit/plan/PLAN.md` §六：本报告中**仍未实现/未验证**的条目（C1 之外的观察项、F0/F1/F2 清单、文档与测试缺口）应在处理完成后回写状态；新立项前须在 `tools/acceptance` 取得 profile/ASAN 证据。
+
+---
+
+## 九、实施状态回写（2026-08-06 落地）
+
+> 本节由实施方在完成 §七 建议顺序的 1~4 步后回写。所有改动均为静态实施，**运行时验证（编译/ASAN/压测）仍因 Windows 环境约束而悬置**，待 Linux 环境补齐后承接 PLAN.md O6/O7。
+
+### 9.1 已落地条目
+
+| 条目 | 状态 | 落地点 | 说明 |
+|---|---|---|---|
+| **C1** | ✅ 已实施 | `src/db/pool.c` `pool_decrement_count` / `put`；`src/gene.h`、`src/gene.c`、`src/tool/monitor.c` | 将 get→sub 的 TOCTOU 序列改为 CAS 循环，对齐 `redis_pool.c`；新增 `db_pool_cas_abandoned` 全局计数并导出至 Monitor。保留无 `cmpset` 时的 get→sub 回退路径。 |
+| **PF1** | ✅ 已实施（与 C1 同批） | `src/db/pool.c` `put()` | 合并 `pool_get_count` / `pool_get_max` / `pool_decrement_count` 的重复跨界读，`pool_get_max` 提到循环外。 |
+| **F0-1** | ✅ 已实施 | `src/session/session.c` `regenerateId()` | 生成新 ID、按需删除旧会话、刷新内部 ID 与 cookie、标记 dirty。 |
+| **F0-2** | ✅ 已实施 | `src/db/mysql.c`、`src/db/pgsql.c` | 新增 `join()` / `leftJoin()` / `rightJoin()` / `union()` / `reset()`，含标识符引用、ON 条件拼接、UNION 子查询参数合并、`reset()` 复位构建器状态。PgSQL 镜像 MySQL 实现。 |
+| **F0-3** | ✅ 已实施 | `src/db/mssql.c`、`src/db/mssql.h` | 补全 `where` / `in` / `group` / `order` / `limit`（OFFSET/FETCH 语法）/ `join` / `leftJoin` / `rightJoin` / `union` / `reset`，能力对齐 MySQL。 |
+| **F1-1** | ✅ 已实施 | `src/http/request.c` | 注册 `Request::isDelete()`。 |
+| **F1-2** | ✅ 已实施 | `src/cache/memory.c` | `incr($key, $step=1)` / `decr($key, $step=1)`，在 `GENE_CACHE_WRLOCK` 内完成读-改-写。 |
+| **F1-3** | ✅ 已实施 | `src/router/router.c` `match()` | 纯匹配 API `match($method, $uri): array\|false`，复用 dispatch 匹配逻辑但不执行 handler；已注册 arginfo 与方法表。 |
+| **F1-4** | ✅ 已实施 | `src/db/pool.c` `healthCheck()` | `pool_health_check_channel` 对 idle 连接轻量探活，返回存活数。 |
+| **F1-5** | ✅ 已实施 | `src/di/di.c` `instance()` | `instance($class, $params=[])` 走 `gene_class_instance` 但不入容器。 |
+| **F1-6** | ✅ 已实施 | `src/mvc/controller.c` `forward()` | `forward($controller, $action, $params=[])`，带转发深度上限（≤5）防无限递归。 |
+| **F1-7** | ✅ 已实施 | `src/tool/monitor.c` | 增补 `db_pool_cas_abandoned`（配合 C1）、`db_pool_get_timeout`（pool 获取超时次数）、`memory_cache_hit` / `memory_cache_miss`（用户态 Memory 命中率）。慢查询计数未纳入本轮（依赖 `gene.slow_query_ms` 配置项，留待后续）。 |
+| **F1-8** | ✅ 已实施 | `src/db/pdo.c` | `lastInsertId()` / `rowCount()` 透传底层 PDO。 |
+| **测试基础设施** | ✅ 已实施 | `test/DiTest.php`、`test/HookTest.php`、`test/TestRunner.php` | 新增 Di / Hook 回归测试并纳入 TestRunner；已在本机 `php -l` 与运行验证通过。 |
+| **ide-helper 同步** | ✅ 已实施 | `gene-ide-helper/Gene/*.php` | Session / Db\Mysql / Db\Pgsql / Db\Sqlite / Db\Mssql / Request / Memory / Pool / Di / Router / Controller / Monitor / Application 均已同步新增 API 与版本注解。 |
+
+### 9.2 仍未落地 / 留待后续
+
+| 条目 | 状态 | 原因 |
+|---|---|---|
+| F1-7 慢查询计数 | ⏸ 暂缓 | 依赖 `gene.slow_query_ms` 配置项与慢查询埋点，改动面较大，留待后续立项。memory 命中率（hit/miss）已在本轮落地。 |
+| C2 / C3 / ML1 / ML2 / PF2~PF4 | ⏸ 观察项 | 按 §七 第 5 步，等 profile 或 ZTS 需求出现后再评估，不主动改动。 |
+| 运行时验证（O6/O7） | ⏸ 悬置 | Windows 环境无法编译/ASAN/压测，待 Linux 环境补齐。 |
+
+### 9.3 后续验证清单（承接 PLAN.md O6/O7）
+
+1. Linux `phpize + make`（含 `--enable-debug` / ASAN）零告警编译。
+2. C1 修复后多 worker 并发借还压测下 pool count 一致性断言。
+3. MySQL / PgSQL / MSSQL `join` / `union` / `where` / `in` / `group` / `order` / `limit` 全量 SQL 回归（含标识符引用与参数绑定）。
+4. `Session::regenerateId()` 并发场景下旧会话删除与新 cookie 刷新的一致性。
+5. `Controller::forward()` 深度上限在超限时的错误路径回归。
+6. `Router::match()` 与 `Router::dispatch()` 匹配结果等价性回归。

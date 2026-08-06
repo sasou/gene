@@ -5,6 +5,32 @@
 
 ---
 
+## 〇、2026-08-06 审计落地状态
+
+> 来源：`AUDIT_REPORT_2026_08_06.md` §七 建议顺序 1~4 步。详见该报告 §九 实施状态回写。
+> 所有改动均为静态实施，**运行时验证（编译/ASAN/压测）仍因 Windows 环境约束而悬置**，待 Linux 环境补齐后承接下文 O6/O7。
+
+| 条目 | 状态 | 落地点 |
+|---|---|---|
+| C1 + PF1（`db/pool.c` CAS 对称化 + `db_pool_cas_abandoned` 遥测 + 调用合并） | ✅ 已实施 | `src/db/pool.c`、`src/gene.h`、`src/gene.c`、`src/tool/monitor.c` |
+| F0-1 `Session::regenerateId()` | ✅ 已实施 | `src/session/session.c` |
+| F0-2 MySQL / PgSQL `join()` / `union()` | ✅ 已实施 | `src/db/mysql.c`、`src/db/pgsql.c` |
+| F0-3 MSSQL 构建器补全 | ✅ 已实施 | `src/db/mssql.c`、`src/db/mssql.h` |
+| F1-1 `Request::isDelete()` | ✅ 已实施 | `src/http/request.c` |
+| F1-2 `Memory::incr()` / `decr()` | ✅ 已实施 | `src/cache/memory.c` |
+| F1-3 `Router::match()` | ✅ 已实施 | `src/router/router.c` |
+| F1-4 `Pool::healthCheck()` | ✅ 已实施 | `src/db/pool.c` |
+| F1-5 `Di::instance()` | ✅ 已实施 | `src/di/di.c` |
+| F1-6 `Controller::forward()` | ✅ 已实施 | `src/mvc/controller.c` |
+| F1-7 Monitor 指标（cas_abandoned + get_timeout + memory 命中率） | ✅ 已实施 | `src/tool/monitor.c` |
+| F1-8 PDO `lastInsertId()` / `rowCount()` | ✅ 已实施 | `src/db/pdo.c` |
+| 测试基础设施 `test/DiTest.php` / `test/HookTest.php` | ✅ 已实施 | `test/` |
+| ide-helper 同步新增 API | ✅ 已实施 | `gene-ide-helper/Gene/*.php` |
+| F1-7 慢查询计数 / memory 命中率 | ⏸ 暂缓 | 依赖 `gene.slow_query_ms` 配置项与 cache 命中率埋点，留待后续立项 |
+| C2 / C3 / ML1 / ML2 / PF2~PF4 | ⏸ 观察项 | 等 profile 或 ZTS 需求出现后再评估 |
+
+---
+
 ## 一、已 revert / 未实现的功能
 
 ### F3 `Gene\Controller::init()` 生命周期钩子
