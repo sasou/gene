@@ -366,3 +366,43 @@
 | C2 / C3 / ML1 / ML2 / C4 / PF2~PF4 | ⏸ 观察项 | 维持 §七 第 5 步结论，需 profile/ZTS 证据后立项。 |
 | `gene.pool_max_overflow` / `gene.fn_cache_max` | ⏸ 待立项 | PLAN.md 既有项，本轮未动。 |
 | 运行时验证（§9.3 全部 + 11.3 新增 2 项 + PLAN.md O6/O7） | ⏸ 悬置 | Windows 环境约束不变。 |
+
+---
+
+## 十二、§4.1 模块完备度缺口剩余待办（2026-08-07 补录）
+
+> 本节对照 §4.1「模块完备度总览」逐行复核源码（方法表 / `PHP_METHOD` 注册），列出三批落地后**仍未实现**的功能缺口。已落地项（F0-1~F0-3、F1-1~F1-8，见 §9.1 / §10.4 / §11.1）不再重复；观察项与 PLAN.md 既有项仍以 §11.4 为准。
+
+### 12.1 未实现缺口清单
+
+| 模块 | 未实现缺口 | §4.1 优先级 | 核实依据 |
+|---|---|---|---|
+| Application | `stop()` 优雅停机；`setResponse()` 无对应 getter | P2 | `application.c` 方法表无 `stop` / 无 response getter |
+| Router | 中间件管道（F4，未实现；`match()` 已落地） | P1 | `router.c` 无中间件注册/执行链 |
+| Controller | 生命周期钩子（F3 已 revert，需重新设计；`forward()` 已落地） | P1 | `controller.c` 无钩子派发 |
+| View | `render()` 返回字符串；`clearAssign()` | P2 | `view.c` 方法表仅有 display/assign/contains 等 |
+| Hook | 钩子优先级、`stopPropagation()` | P2 | `hook.c` 仅有 before/after/handle |
+| Di | `alias()`（`instance()` 已落地） | P1 | `di.c` 方法表无 `alias` |
+| Request | `isSecure()`（`isDelete()` 已落地） | P1 | `request.c` 方法表无 `isSecure` |
+| Response | `getStatusCode()` / `isSent()` / `sendFile()` | P2 | `response.c` 方法表均无 |
+| Session | `clear()` / `all()`（`regenerateId()` 已落地） | P0 行内余量 | `session.c` 方法表均无 |
+| Cache(Memory) | `mget()` / `mset()`（`incr()/decr()` 已落地） | P1 | `memory.c` 方法表均无 |
+| Cache(Redis/Memcached) | pipeline / multi（可经 `call()` 透传，非硬缺口） | P2 | 代理透传维持现状 |
+| Db(SQLite) | `attach` | P2 | `sqlite.c` 无 `attach` |
+| Db(Pool) | overflow 硬熔断（承接 `gene.pool_max_overflow`，§11.4 已列）；连接泄漏检测 | P1 | `pool.c` 仅有超时溢出建连 + 归还自动收缩，无硬熔断与泄漏检测 |
+| Validate | `bail()` 首错即停；`sometimes()` | P2 | `validate.c` 方法表均无 |
+| Log | `critical()` / `emergency()`；context 结构化字段 | P2 | `log.c` 方法表仅 debug~exception |
+| Monitor | `reset()`；Prometheus 文本导出（等待队列/慢查询/命中率指标已落地） | P1 | `monitor.c` 仅有 `stats()` |
+| Benchmark | `mark()` / `lap()` | P2 | `benchmark.c` 仅有 start/end/time/memory |
+
+### 12.2 不立项项
+
+| 模块 | 缺口 | 结论 |
+|---|---|---|
+| Model | ORM / ActiveRecord | 维持 §4.1 定级说明：属架构选择（P2），新架构立项而非补功能，不进入待办。 |
+
+### 12.3 建议批次
+
+1. **P1 批**：`Di::alias()`、`Request::isSecure()`、`Memory::mget()/mset()`、`Monitor::reset()` + Prometheus 导出 —— 均为小面改动，可静态实施；`Request::isSecure()` 建议与 §4.3 的 API 镜像约定同批。
+2. **P1 设计批**：Router 中间件管道（F4）、Controller 生命周期钩子（F3 重设计）、Pool 连接泄漏检测 —— 需先出设计草案再动代码。
+3. **P2 批**：View `render()/clearAssign()`、Response 三方法、Session `clear()/all()`、Validate `bail()/sometimes()`、Log 级别与 context、SQLite `attach`、Benchmark `mark()/lap()`、Application `stop()` —— 按需求驱动立项。
