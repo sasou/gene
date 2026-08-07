@@ -503,3 +503,87 @@
 | `gene.pool_max_overflow` / `gene.fn_cache_max` | ⏸ 待立项 | PLAN.md 既有项 |
 | Router 中间件管道（F4）、Controller 生命周期钩子（F3 重设计）、Pool 连接泄漏检测 | ⏸ 设计批 | §12.3 第 2 项，需先出设计草案 |
 | 运行时验证（§9.3 全部 + 11.3 两项 + 14.4 五项 + PLAN.md O6/O7） | ⏸ 悬置 | Windows 环境约束不变；G1~G13 全部修复需 Linux `--enable-debug` + ASAN 回归 |
+
+---
+
+## 15. 落地功能合理性与内存泄漏独立复核（2026-08-07 四批）
+
+> 本节为对 §13（`0c182a3`）与 §14（`d1e4265`）两个提交**全部落地代码**的第四轮独立静态复核，审查目标为两条：**落地功能是否合理**、**是否存在内存泄漏或内存安全问题**。审查方式：逐 diff 原文核实 + 完整文件上下文交叉验证。**本节仅出结论，未修改任何源码。** 运行时验证约束不变（Windows 无法编译 / ASAN / 压测）。
+
+### 15.1 总体结论
+
+1. **§14 的 G1~G13 修复全部核实属实**，方向正确。特别是 G4（`sendFile` 分块化）、G5（TTL 落地）、G2（`app_stopped` 复位）三处均切中真实缺陷。
+2. **但 G4 与 G2 两处修复本身各自引入/遗留了一个更高severity的问题**（见 N1、N2），属于「修复不完整」而非「修复错误」：G4 换成分块循环时引入了有符号/无符号返回值缺陷；G2 只覆盖了 FPM，Swoole 模式下复位点根本不会触发。
+3. **G5（TTL）在功能语义上成立，但两种运行模式下的实际行为与文档承诺存在偏差**，且在 FPM 常驻场景下引入了一条新的无界增长路径（N3）。这是本轮唯一的内存增长类发现。
+4. **未发现新的确定性内存泄漏、重复释放或悬垂指针。** 具体已核实通过的配对见 15.4。
+5. 本轮**驳回 6 项候选发现**（见 15.5），均经原文复核后确认不成立。
+
+### 15.2 新发现问题清单
+
+| # | 位置 | 严重级别 | 问题 |
+|---|------|----------|------|
+| **N1** | `src/http/response.c:827` | **高危（内存安全）** | `php_stream_read()` 在 PHP 8 中返回 **`ssize_t`**，此处赋给 `size_t got`。读失败时底层返回 `-1`，转换后 `got == SIZE_MAX`，`if (got == 0)` 无法拦截，随即执行 `php_write(buf, SIZE_MAX)` —— 对 8KB 栈缓冲的巨量越界读，直接导致段错误或**栈内存内容泄露到 HTTP 响应体**。G4 把整读改分块时引入。 |
+| **N2** | `src/gene.c:1134`、`src/app/application.c:1443`、`src/gene.h:385` | **高危（功能）** | `app_stopped` 的复位点在 `php_gene_close_request_globals()`（RSHUTDOWN）。但 `gene.c:1156-1157` 的注释自己写明「**In Swoole mode RSHUTDOWN fires once at worker exit**」—— 即 Swoole 下该复位每 worker 只发生一次。后果：**Swoole 部署中任一请求调用 `Application::stop()` 后，该 worker 的后续所有请求都会被 router 的 8 个检查点永久跳过派发**，表现为服务静默失效。G2 实际只修好了 FPM 路径，`application.c:1443` 的「per-request and reset in RSHUTDOWN」在 Swoole 下不成立。<br>叠加问题：`app_stopped` 是 module global（`gene.h:385`）而非 `gene_request_context` 字段，与同批新增的 `di_alias` / `bench_marks`（均正确放入 ctx 以隔离协程）**取舍不一致**；即便复位问题解决，同 worker 内并发协程之间仍会互相串扰。 |
+| **N3** | `src/cache/memory.c:575-577`、`620-636` | **中危（内存增长）** | FPM 下 `GENE_G(cache)` 是 pemalloc 的进程级表，跨请求存活。G5 的 TTL 只有**惰性回收**（`memory.c:628` 仅在该键被再次读取时才 `del`），而 `memory.c:575-577` 已明确 userland `Memory::set` **不参与 `cache_max_items` 的 LRU 可淘汰分区**。两者叠加：`Memory::set("rate:$ip", $v, 60)` 这类轮转键一旦写入后不再读，value 与 expiry 条目**永不释放**，进程级持久堆随请求量单调增长。TTL 落地前该 API 无实际用途所以不暴露，落地后成为可用功能，增长面随之打开。 |
+| **N4** | `src/cache/memory.c:620-636` | **中危（性能）** | `gene_memory_get()` 是路由 / 配置 / DI 查找的核心热路径（其 610-618 行注释已自述该定位）。G5 使每次调用都无条件先做一次 `zend_hash_str_find(cache_expiry, ...)`，即**热路径哈希查找次数翻倍**。绝大多数部署不使用 TTL，此开销纯属浪费。建议加 `zend_hash_num_elements(GENE_G(cache_expiry)) == 0` 的短路判断（一次整型比较）。按 PLAN.md 准入约束，此项需 profile 证据后再动。 |
+| **N5** | `src/cache/memory.c:628` | **低危（功能语义）** | Swoole 模式下 TTL 实质退化为「读掩蔽」而非「过期回收」：写入必须在 workerReady 冻结前完成（`gene_memory_write_allowed` 门控），而 628 行在冻结后显式跳过删除。因此过期条目的内存**永久占用**，只是读路径报 miss。这个取舍本身正确（冻结后不能写），但与 `docs/CONFIGURATION.md` 中「TTL 0 表示永久」的表述并列时，用户会误以为非 0 值可回收内存。应在文档中明写两种模式的差异。 |
+| **N6** | `src/di/di.c` `gene_di_resolve_alias()` | 低危（观察项） | 返回的是 `Z_STR_P(target)` —— 指向 `ctx->di_alias` 哈希表内部 zval 的**借用指针**。若解析之后、使用 `name` 之前发生对该表的写入（例如 `gene_di_get()` 惰性加载的类，其构造函数中再次调用 `Di::alias()`），rehash 会使指针悬垂。当前调用链未见此路径，故记为观察项而非缺陷；若后续要加固，在 `gene_di_get()` 内对解析结果做 `zend_string_copy` 并在出口 release 即可。 |
+| **N7** | `src/di/di.c` `gene_di_resolve_alias()` 注释 | 低危（注释不实） | 注释声称环形别名「degrades to a registry miss」。实际 8 跳上限只是**停止**遍历：`a=>b, b=>a` 在偶数跳后落回 `a`，是一个合法名字，会正常命中注册表而非 miss。行为无害，但注释描述与实现不符，应改为「解析到环上的某个名字后停止」。 |
+| **N8** | `src/http/response.c:815` | 低危（功能） | `php_stream_seek()` 对普通文件允许 seek 到 EOF 之后并返回 0。因此 `sendFile($f, 999999999)` 会通过校验，随后循环立即 EOF，函数**返回 `true` 但响应体为空**——调用方无法区分「成功发送空范围」与「offset 越界」。建议 seek 后比对 `php_stream_tell()` 或文件大小。 |
+| **N9** | `src/http/response.c:811` | 低危（安全，观察项） | `php_stream_open_wrapper()` 接受全部已注册 wrapper（`http://`、`php://`、`data://` 等）。若 `$file` 直接来自用户输入，`Response::sendFile()` 即成为 SSRF 与任意流读取入口。虽然「不要把用户输入当文件路径」是调用方责任，但作为框架的响应输出 API，建议改用 `php_stream_open_wrapper_ex()` 并限定 plain files，或至少在 ide-helper / 文档中明确警示。 |
+| **N10** | `src/tool/benchmark.c` `mark()` / `lap()` | 低危 | `ZVAL_LONG(&ts, (zend_long)gene_hrtime())`：`gene_hrtime()` 为 uint64 纳秒，32 位平台上 `zend_long` 仅 32 位，约 **4.3 秒即溢出**，`lap()` 将返回负值或错误的巨大值。64 位平台无此问题。建议注明平台约束，或改存 double 毫秒。 |
+| **N11** | `src/router/router.c:1173-1184` | 低危（可读性） | G3 插入检查点时把 `if (hook_src) { ... }` 整块的缩进降了一级，与同函数其余代码（`1162-1171`、`1186-1196`）的缩进层级不一致。无功能影响，建议随下次改动一并回正。 |
+
+### 15.3 修复建议（按优先级）
+
+1. **N1（必须优先）**：`got` 改为 `ssize_t`，判据改为 `if (got <= 0) break;`。这是本轮唯一的内存安全缺陷，且触发条件（磁盘 I/O 错误、NFS 中断）在生产中真实可达。
+2. **N2**：将 `app_stopped` 从 `gene_globals` 迁入 `gene_request_context`，与 `di_alias` / `bench_marks` 同批字段对齐，天然获得协程隔离与 ctx 复用时的复位；`Application::stop()` / `isStopped()` 改读 ctx。若暂不迁移，则至少在 Swoole 请求入口（`Application::run()` 起点或 ctx acquire）补一次归零，并修正 `application.c:1443` 的注释。
+3. **N3**：为 `cache_expiry` 增加主动清扫（如每 N 次 `gene_memory_set` 抽样扫描一批过期键并 `del`），或让带 TTL 的 userland 写入进入 `cache_max_items` 的 LRU 分区。二者取其一即可封闭增长面。
+4. **N5 + N4**：先补文档（零成本），性能短路待 profile 证据。
+5. **N6~N11**：随手改项，无需单独立项。
+
+### 15.4 已核实通过的配对（无问题）
+
+- `cache_expiry` 的 `PALLOC_HASHTABLE` / `zend_hash_destroy` + `pefree` 配对：GINIT 置 NULL（`gene.c:1065`）、`gene_memory_init()` 建表（`memory.c:177-180`）、MSHUTDOWN 析构（`gene.c:1259-1263`）、`clean()` 析构后经 `memory.c:1379` 的 `gene_memory_init()` 重建 —— 四处闭合，键由表自身 pemalloc 复制，无需手工 key dance，注释所述属实。
+- `gene_memory_del_core`（`memory.c:442-444`）与 LRU 淘汰（`memory.c:523`）均同步清理 expiry 条目，无孤儿。
+- `gene_memory_get` 过期分支的锁序：先 `GENE_CACHE_RDUNLOCK()` 再调用取 WRLOCK 的 `gene_memory_del()`，无递归加锁，无死锁。
+- `router.c` `direct_cleanup` 标签：`dispatch_result` 在 1165 行已 `ZVAL_NULL`，`hookname_alloc` 在 1195 行统一 `efree`，三个新增 goto 均不跳过任何已分配资源。
+- `response.c` `sendFile` 的 `php_stream_close()`：`!stream`（1 处 return 前无需关闭）、seek 失败（816 行已关闭）、正常结束（837 行）—— 全部 return 路径配对完整。
+- `response.c` `sendFile` Swoole 分支：`zfile` 的 `ZVAL_STR_COPY` / `zval_ptr_dtor` 配对，`retval` 在 `IS_FALSE` 与非 `UNDEF` 两条路径均 dtor，无泄漏。
+- `benchmark.c` `lap()` 的时序：`prev_ns` 在 `add_assoc_zval_ex` 触发可能的 rehash **之前**已按值取出，不存在旧指针解引用。
+- `di.c` `gene_di_aliases()`：`IS_NULL` 分支先 `zval_ptr_dtor` 再 `array_init_size`，`IS_UNDEF` 直接 init，无重复释放。
+- `view.c` `render()` 的 `php_output_start_default()` 失败分支：`table` 经 `zend_hash_destroy` + `FREE_HASHTABLE` 清理后才 `RETURN_FALSE`，与正常路径同款。
+- `log.c` `gene_log_write_message` 的 `ZVAL_UNDEF(&json_ret)` 防御初始化到位。
+- `sqlite.c` `attach()` / `detach()` 的 `memchr` NUL 校验与 `IS_FALSE` 成功判定收紧，两处对称。
+- `gene.c:550-553` ctx 池 acquire 路径的 `di_alias` / `bench_marks` `ZVAL_UNDEF` 已补齐，与 destroy 侧一致。
+
+### 15.5 本轮驳回的候选发现
+
+| 候选 | 驳回理由 |
+|------|----------|
+| `Memory::clean()` 将 `cache_expiry` 置 NULL 后 TTL 永久失效 | **不成立**。`memory.c:1373` 置 NULL 后，紧接着 `memory.c:1379` 调用 `gene_memory_init()` 重建该表，与 `cache` 主表的处理完全对称。 |
+| `gene_memory_set` 先写 expiry 再写值，插入失败会留下孤儿 expiry 条目 | **不成立**。原文复核 `memory.c:585-605`：585 行之后的两条分支（`copyval == NULL` 新建 / 非 NULL 编辑）都必然完成写入，中间无失败返回路径，不产生孤儿。 |
+| LRU 淘汰绕过 expiry 清理，导致 `cache_expiry` 无界增长 | **不成立**。`gene_cache_lru_evict_nolock`（`memory.c:523`）经 `gene_memory_del_core` 淘汰，后者 442 行已含 expiry 删除。 |
+| `cache_expiry` 用 `zend_hash_str_*` 而主表用 `zend_symtable_str_*`，数字串键（如 `"123"`）命名空间错配 | **不构成缺陷**。expiry 表的 set（`zend_hash_str_update`）/ find（`zend_hash_str_find`）/ del（`zend_hash_str_del`）三处**一致**使用字符串键，表内自洽；主表是否把 `"123"` 折叠为整型索引不影响 expiry 的查得率。 |
+| `router.c` 新增的 `goto direct_cleanup` 跳过资源释放 | **不成立**。见 15.4，`dispatch_result` 与 `hookname_alloc` 均由 cleanup 标签统一处理。 |
+| `gene_memory_get` 在读锁内触发写操作（惰性 del）导致死锁或数据竞争 | **不成立**。`memory.c:624` 已先 `GENE_CACHE_RDUNLOCK()` 才调用 `gene_memory_del()`，且 628 行的门控确保仅在写仍被允许的阶段（FPM / 冻结前）执行。 |
+
+### 15.6 新增运行时验证需求（并入 §9.3）
+
+14. N1 修复后，在 FPM 下对一个读取过程中被截断的文件（或 `EIO` 注入）调用 `sendFile()`，断言进程不崩溃且响应体不含栈残留数据。
+15. Swoole 多请求场景：请求 A 调 `Application::stop()`，请求 B（同 worker）断言路由**正常派发**（验证 N2）；并发协程场景下断言 A 的 `stop()` 不影响并发中的 C。
+16. FPM 常驻 worker 下循环 `Memory::set("k$i", $v, 1)` 十万次且不读取，断言进程 RSS 不单调增长（验证 N3）。
+17. 32 位构建下 `Benchmark::mark()` + `sleep(5)` + `lap()`，断言返回值为正且约 5000ms（验证 N10）。
+
+### 15.7 更新后的剩余待办（合并 §14.5）
+
+| 条目 | 状态 | 说明 |
+|---|---|---|
+| **N1**（`sendFile` `ssize_t`） | 🔴 待修 | 内存安全，最高优先级 |
+| **N2**（`app_stopped` 迁入 ctx） | 🔴 待修 | Swoole 下功能静默失效 |
+| **N3**（TTL 键主动回收） | 🟡 待修 | FPM 无界增长 |
+| N4 / N5 / N6~N11 | 🟡 待修 | N4 需 profile 证据；其余为随手改项与文档项 |
+| C2 / C3 / ML1 / ML2 / C4 / PF2~PF4 | ⏸ 观察项 | 维持 §七 第 5 步结论 |
+| `gene.pool_max_overflow` / `gene.fn_cache_max` | ⏸ 待立项 | PLAN.md 既有项 |
+| Router 中间件管道（F4）、Controller 生命周期钩子（F3 重设计）、Pool 连接泄漏检测 | ⏸ 设计批 | §12.3 第 2 项 |
+| 运行时验证（§9.3 全部 + 11.3 两项 + 14.4 五项 + 15.6 四项 + PLAN.md O6/O7） | ⏸ 悬置 | Windows 环境约束不变 |
