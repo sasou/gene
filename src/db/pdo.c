@@ -547,9 +547,16 @@ void gene_pdo_exec(zval *pdo_object, char *sql, zval *retval) /*{{{*/
     zend_function *fn = zend_hash_str_find_ptr(&Z_OBJCE_P(pdo_object)->function_table, ZEND_STRL("exec"));
     if (EXPECTED(fn)) {
         zval pdo_sql;
+        /* [GENE_FEATURE:2026-08-07 F1-7b] Slow-query counting: when
+         * gene.slow_query_ms=0 the hot path pays one long compare only. */
+        zend_bool timed = GENE_G(slow_query_ms) > 0;
+        uint64_t t0 = timed ? gene_hrtime() : 0;
         ZVAL_STRING(&pdo_sql, sql);
         zend_call_known_function(fn, Z_OBJ_P(pdo_object), Z_OBJCE_P(pdo_object), retval, 1, &pdo_sql, NULL);
         zval_ptr_dtor(&pdo_sql);
+        if (timed && gene_hrtime() - t0 >= (uint64_t)GENE_G(slow_query_ms) * 1000000ULL) {
+            GENE_G(db_slow_query_count)++;
+        }
     }
 }/*}}}*/
 
@@ -575,6 +582,20 @@ void gene_pdo_last_insert_id(zval *pdo_object, char *name, zval *retval) /*{{{*/
         } else {
             zend_call_known_function(fn, Z_OBJ_P(pdo_object), Z_OBJCE_P(pdo_object), retval, 0, NULL, NULL);
         }
+    }
+}/*}}}*/
+
+/* [GENE_FEATURE:2026-08-07 F1-8] Pass-through to PDO::quote so userland can
+ * escape string literals without reaching for the raw PDO handle. */
+void gene_pdo_quote(zval *pdo_object, zend_string *str, zend_long param_type, zval *retval) /*{{{*/
+{
+    ZVAL_UNDEF(retval);
+    zend_function *fn = zend_hash_str_find_ptr(&Z_OBJCE_P(pdo_object)->function_table, ZEND_STRL("quote"));
+    if (EXPECTED(fn)) {
+        zval params[2];
+        ZVAL_STR(&params[0], str); /* borrowed: call params are not consumed */
+        ZVAL_LONG(&params[1], param_type);
+        zend_call_known_function(fn, Z_OBJ_P(pdo_object), Z_OBJCE_P(pdo_object), retval, 2, params, NULL);
     }
 }/*}}}*/
 
@@ -648,6 +669,10 @@ void gene_pdo_statement_execute(zval *pdostatement_obj, zval *bind_parameters, z
     ZVAL_UNDEF(retval);
     zend_function *fn = zend_hash_str_find_ptr(&Z_OBJCE_P(pdostatement_obj)->function_table, ZEND_STRL("execute"));
     if (EXPECTED(fn)) {
+        /* [GENE_FEATURE:2026-08-07 F1-7b] Slow-query counting (same zero-cost
+         * gate as gene_pdo_exec). Covers all four DB drivers' execute path. */
+        zend_bool timed = GENE_G(slow_query_ms) > 0;
+        uint64_t t0 = timed ? gene_hrtime() : 0;
         if (bind_parameters) {
             zval params[1];
             ZVAL_COPY(&params[0], bind_parameters);
@@ -655,6 +680,9 @@ void gene_pdo_statement_execute(zval *pdostatement_obj, zval *bind_parameters, z
             zval_ptr_dtor(&params[0]);
         } else {
             zend_call_known_function(fn, Z_OBJ_P(pdostatement_obj), Z_OBJCE_P(pdostatement_obj), retval, 0, NULL, NULL);
+        }
+        if (timed && gene_hrtime() - t0 >= (uint64_t)GENE_G(slow_query_ms) * 1000000ULL) {
+            GENE_G(db_slow_query_count)++;
         }
     }
 }/*}}}*/

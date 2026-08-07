@@ -22,6 +22,10 @@
 | `gene.swoole_getcid_capi` | `1` | bool | 用 Swoole C-API 直接取协程 id（更快） |
 | `gene.cache_max_items` | `0` | long | 业务缓存分区上限（0=不限，>0 启用 LRU 淘汰） |
 | `gene.route_precompile` | `0` | bool | 路由预编译派发缓存（仅 Swoole，opt-in） |
+| `gene.closure_src_cache_max` | `1024` | long | FPM 闭包源码缓存容量；`<=0` 关闭缓存 |
+| `gene.swoole_auto_cleanup` | `0` | bool | 协程 ctx 随协程结束自动归还（仅 Swoole，opt-in） |
+| `gene.cache_easy_ttl` | `0` | long | cache_easy 文件表 TTL 兜底秒数（0=禁用，惰性过期） |
+| `gene.slow_query_ms` | `0` | long | 慢查询阈值（毫秒，0=禁用）；超限 SQL 计入 `Monitor::stats()` 的 `db_slow_query_count` |
 
 ## 推荐最佳配置
 

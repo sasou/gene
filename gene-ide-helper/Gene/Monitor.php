@@ -28,6 +28,8 @@ class Monitor
      *   'db_pool_get_timeout'           => n,  // DB 池获取连接超时次数（5.7.0+）
      *   'memory_cache_hit'              => n,  // 用户态 Memory::get 命中次数（5.7.0+）
      *   'memory_cache_miss'             => n,  // 用户态 Memory::get 未命中次数（5.7.0+）
+     *   'db_slow_query_count'           => n,  // 慢查询累计次数（5.7.0+，见 gene.slow_query_ms）
+     *   'slow_query_ms'                 => n,  // 当前生效的慢查询阈值，0 = 未启用（5.7.0+）
      *   'swoole_auto_cleanup_defers'    => n,
      *   'swoole_auto_cleanup_reclaimed' => n,
      * ]

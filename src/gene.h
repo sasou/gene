@@ -354,6 +354,14 @@ HashTable *validate_ext;
  * Populated from php.ini — do NOT zero in php_gene_init_globals. */
 zend_long cache_easy_ttl;
 zend_ulong cache_easy_expired;
+/* [GENE_FEATURE:2026-08-07 F1-7b] Slow-query telemetry. slow_query_ms comes
+ * from php.ini (gene.slow_query_ms, milliseconds, 0 = disabled) — do NOT
+ * zero in php_gene_init_globals. When enabled, gene_pdo_exec /
+ * gene_pdo_statement_execute time each execution and accumulate
+ * db_slow_query_count (cumulative per process, exported via
+ * Gene\Monitor::stats). */
+zend_long slow_query_ms;
+zend_ulong db_slow_query_count;
 ZEND_END_MODULE_GLOBALS (gene)
  
  extern ZEND_DECLARE_MODULE_GLOBALS (gene);

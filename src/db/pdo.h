@@ -31,6 +31,7 @@ void gene_pdo_commit(zval *pdo_object, zval *retval);
 void gene_pdo_exec(zval *pdo_object, char *sql, zval *retval);
 void gene_pdo_in_transaction(zval *pdo_object, zval *retval);
 void gene_pdo_last_insert_id(zval *pdo_object, char *name, zval *retval);
+void gene_pdo_quote(zval *pdo_object, zend_string *str, zend_long param_type, zval *retval);
 void gene_pdo_error_code(zval *pdo_object, zval *retval);
 void gene_pdo_error_info(zval *pdo_object, zval *retval);
 bool show_sql_errors(zval *pdo_object);

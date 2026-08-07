@@ -290,10 +290,39 @@ class Sqlite
 
     /**
      * affectedRows
-     * 
+     *
      * @return mixed
      */
     public function affectedRows() {
+
+    }
+
+    /**
+     * lastInsertId — lastId 的 PDO 命名别名（5.7.0+）
+     *
+     * @return mixed
+     */
+    public function lastInsertId() {
+
+    }
+
+    /**
+     * rowCount — affectedRows 的 PDO 命名别名（5.7.0+）
+     *
+     * @return mixed
+     */
+    public function rowCount() {
+
+    }
+
+    /**
+     * quote — PDO::quote 透传，字符串字面量转义（5.7.0+）
+     *
+     * @param string $str
+     * @param int $paramType 默认 PDO::PARAM_STR
+     * @return string|false
+     */
+    public function quote($str, $paramType = \PDO::PARAM_STR) {
 
     }
 

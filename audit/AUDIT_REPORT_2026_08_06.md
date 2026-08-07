@@ -187,7 +187,7 @@
 
 ### 4.4 配置项审计
 
-`src/gene.c:141-158` 共 16 项 `gene.*` INI 指令。
+`src/gene.c:141-158` 共 16 项 `gene.*` INI 指令（2026-08-07 二批新增 `gene.slow_query_ms` 后为 17 项）。
 
 | 关注项 | 当前默认 | 评估 |
 |--------|----------|------|
@@ -196,7 +196,7 @@
 | `gene.co_contexts_max` | `1024` | 高并发下偏小；M1 cooldown 落地后已不再引发 O(N²)，但仍建议文档注明生产参考值 |
 | `gene.ctx_pool_max` | `256` | 同上 |
 
-建议新增：`gene.slow_query_ms`（慢查询阈值，配合 F1-7）、`gene.pool_max_overflow`（连接池硬熔断，PLAN.md 既有项）、`gene.fn_cache_max`（fn_cache LRU 容量治理，PLAN.md 既有项）。
+建议新增：`gene.slow_query_ms`（慢查询阈值，配合 F1-7 —— **已于 2026-08-07 二批落地**）、`gene.pool_max_overflow`（连接池硬熔断，PLAN.md 既有项）、`gene.fn_cache_max`（fn_cache LRU 容量治理，PLAN.md 既有项）。
 
 ### 4.5 文档与测试缺口
 
@@ -269,7 +269,7 @@
 | **F1-5** | ✅ 已实施 | `src/di/di.c` `instance()` | `instance($class, $params=[])` 走 `gene_class_instance` 但不入容器。 |
 | **F1-6** | ✅ 已实施 | `src/mvc/controller.c` `forward()` | `forward($controller, $action, $params=[])`，带转发深度上限（≤5）防无限递归。 |
 | **F1-7** | ✅ 已实施 | `src/tool/monitor.c` | 增补 `db_pool_cas_abandoned`（配合 C1）、`db_pool_get_timeout`（pool 获取超时次数）、`memory_cache_hit` / `memory_cache_miss`（用户态 Memory 命中率）。慢查询计数未纳入本轮（依赖 `gene.slow_query_ms` 配置项，留待后续）。 |
-| **F1-8** | ⚠️ 部分实施（2026-08-07 复核更正） | `src/db/pdo.c` | 底层助手 `gene_pdo_last_insert_id` / `gene_pdo_statement_row_count` 存在于 `pdo.c` 并被四个驱动的 `lastId()` / `affectedRows()` 调用，但报告中声称的 `lastInsertId()` / `rowCount()` 方法**并未注册**。等价能力已由既有 `lastId()` / `affectedRows()` 覆盖，`quote()` 仍缺失。详见 §十。 |
+| **F1-8** | ✅ 已实施（2026-08-07 二批补全） | `src/db/pdo.c`、四个驱动 | `lastInsertId()` / `rowCount()` 已以 `PHP_MALIAS` 注册为 `lastId()` / `affectedRows()` 的别名（mysql/pgsql/mssql/sqlite 四个驱动）；`quote()` 经新增 `gene_pdo_quote()` 透传底层 `PDO::quote`。详见 §十一。 |
 | **测试基础设施** | ✅ 已实施 | `test/DiTest.php`、`test/HookTest.php`、`test/TestRunner.php` | 新增 Di / Hook 回归测试并纳入 TestRunner；已在本机 `php -l` 与运行验证通过。 |
 | **ide-helper 同步** | ✅ 已实施 | `gene-ide-helper/Gene/*.php` | Session / Db\Mysql / Db\Pgsql / Db\Sqlite / Db\Mssql / Request / Memory / Pool / Di / Router / Controller / Monitor / Application 均已同步新增 API 与版本注解。 |
 
@@ -327,7 +327,42 @@
 
 | 条目 | 状态 | 说明 |
 |---|---|---|
-| F1-8 补注册 `lastInsertId()` / `rowCount()` 别名或文档注明等价 API | ⏸ 待决策 | 等价能力已存在（`lastId()` / `affectedRows()`）；若追求与 PDO 命名对齐可加别名方法，属兼容性新增，非缺陷。`quote()` 仍缺失，可与此同批。 |
-| F1-7 慢查询计数 | ⏸ 暂缓 | 依赖 `gene.slow_query_ms` 配置项立项。 |
+| F1-8 补注册 `lastInsertId()` / `rowCount()` 别名 + `quote()` | ✅ 已落地（2026-08-07 二批） | 见 §十一。 |
+| F1-7 慢查询计数 | ✅ 已落地（2026-08-07 二批） | `gene.slow_query_ms` 配置项 + `db_slow_query_count` 计数器，见 §十一。 |
 | C2 / C3 / ML1 / ML2 / C4 / PF2~PF4 | ⏸ 观察项 | 维持 §七 第 5 步结论，需 profile/ZTS 证据后立项。 |
 | 运行时验证（§9.3 六项 + PLAN.md O6/O7） | ⏸ 悬置 | Windows 无法编译/ASAN/压测；10.2-A 的修复需在 Linux `--enable-debug` + ASAN 下回归确认零告警。 |
+
+---
+
+## 十一、待办清单落地回写（2026-08-07 二批）
+
+> 本节对应 §10.4 更新后的待办清单中两个可静态落地项的完成记录。仍为静态实施，运行时验证约束不变。
+
+### 11.1 本批落地内容
+
+| 条目 | 状态 | 落地点 | 说明 |
+|---|---|---|---|
+| **F1-8**（`lastInsertId()` / `rowCount()` / `quote()`） | ✅ 已实施 | `src/db/pdo.c` / `pdo.h`；`src/db/mysql.c` / `pgsql.c` / `mssql.c` / `sqlite.c` | 新增助手 `gene_pdo_quote()` 透传 `PDO::quote`；四个驱动各注册 `lastInsertId` / `rowCount` 为 `lastId` / `affectedRows` 的 `PHP_MALIAS` 别名，并新增 `quote(string $str, int $paramType = PDO::PARAM_STR): string\|false`（无连接时返回 `false`）。 |
+| **F1-7b**（慢查询计数） | ✅ 已实施 | `src/gene.c`（INI + GINIT + globals 初始化）、`src/gene.h`（module globals）、`src/db/pdo.c`（埋点）、`src/tool/monitor.c`（导出） | 新增 INI `gene.slow_query_ms`（`PHP_INI_SYSTEM`，毫秒，默认 `0`=禁用）；在 `gene_pdo_exec` 与 `gene_pdo_statement_execute` 两个全驱动共用的执行入口埋点（`gene_hrtime` 纳秒计时，超阈值 `db_slow_query_count++`）；`Monitor::stats()` 新增导出 `db_slow_query_count` 与 `slow_query_ms`。 |
+| **文档 / ide-helper / 测试同步** | ✅ 已实施 | `docs/CONFIGURATION.md`、`gene-ide-helper/Gene/Db/*.php`、`gene-ide-helper/Gene/Monitor.php`、`test/DatabaseTest.php` | CONFIGURATION.md 补 `gene.slow_query_ms` 及 §4.4 点名的 `closure_src_cache_max` / `swoole_auto_cleanup` / `cache_easy_ttl` 三个缺文档项；ide-helper 四驱动补 `lastInsertId/rowCount/quote` 声明、Monitor 补新导出键；DatabaseTest 的 SQLite 段（内存库，真实可运行）补三个新 API 调用。 |
+
+### 11.2 设计要点与自查结论
+
+- **别名语义**：`lastInsertId()` 是 `lastId()` 的别名，语义含「先执行构建器中待执行的 SQL 再取 ID」，与裸 PDO 的纯取值语义略有差异，已在 ide-helper 注明别名关系。这保留了构建器注入防护路径，是有意为之。
+- **零开销门控**：`gene.slow_query_ms=0`（默认）时执行热路径仅多一次 long 比较，不取时钟；`slow_query_ms` 与既有 `cache_easy_ttl` 等同属「php.ini 填充、init_globals 禁止清零」类，`GINIT` 中补了默认值 `0`。
+- **计数语义**：`db_slow_query_count` 为进程级累计（与其他遥测计数器同生命周期，仅在 `php_gene_init_globals` 清零）；埋点位于 `pdo.c` 公共助手而非四个驱动各自实现，天然覆盖 pool 借出的连接与断线重连路径；超时/异常 SQL 同样计数（执行慢即慢，无论成败）。
+- **内存安全自查**：`gene_pdo_quote` 的 `params[0]` 为借用语义（`ZVAL_STR` 不 addref，`zend_call_known_function` 不消耗实参），无需 dtor；两个埋点块无新分配；四驱动 `quote()` 在 `pdo` 属性非对象时短路返回，不会解引用空指针。
+- **可验证性**：本机（PHP 8.1 NTS + 已装 gene 扩展旧构建）对全部改动 PHP 文件执行 `php -l` 通过；C 改动无法在本机编译验证，承接 §9.3 清单。
+
+### 11.3 新增运行时验证需求（并入 §9.3）
+
+7. Linux 编译后运行 `test/DatabaseTest.php` SQLite 段，断言 `lastInsertId()` / `rowCount()` / `quote()` 行为（`quote("it's")` 应返回 `'it''s'`）。
+8. 设置 `gene.slow_query_ms=1` 执行一条 `SELECT SLEEP(...)`（MySQL）或等价慢 SQL，断言 `Monitor::stats()['db_slow_query_count']` 递增；阈值 `0` 时断言计数恒为 0。
+
+### 11.4 剩余待办
+
+| 条目 | 状态 | 说明 |
+|---|---|---|
+| C2 / C3 / ML1 / ML2 / C4 / PF2~PF4 | ⏸ 观察项 | 维持 §七 第 5 步结论，需 profile/ZTS 证据后立项。 |
+| `gene.pool_max_overflow` / `gene.fn_cache_max` | ⏸ 待立项 | PLAN.md 既有项，本轮未动。 |
+| 运行时验证（§9.3 全部 + 11.3 新增 2 项 + PLAN.md O6/O7） | ⏸ 悬置 | Windows 环境约束不变。 |

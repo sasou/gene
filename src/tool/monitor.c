@@ -101,6 +101,8 @@ static void gene_monitor_collect_pools(zend_class_entry *pool_ce, const char *pr
  *     'db_pool_get_timeout'         => n,  // [GENE_FEATURE:2026-08-06 F1-7]
  *     'memory_cache_hit'            => n,  // userland Memory::get only
  *     'memory_cache_miss'           => n,
+ *     'db_slow_query_count'         => n,  // [GENE_FEATURE:2026-08-07 F1-7b]
+ *     'slow_query_ms'               => n,  // active threshold (0 = disabled)
  *     'swoole_auto_cleanup_defers'  => n,  // [GENE_FEATURE:2026-07-30 F1]
  *     'swoole_auto_cleanup_reclaimed' => n,
  *   ]
@@ -170,6 +172,10 @@ PHP_METHOD(gene_monitor, stats) {
 	add_assoc_long(return_value, "db_pool_get_timeout", (zend_long)GENE_G(db_pool_get_timeout));
 	add_assoc_long(return_value, "memory_cache_hit", (zend_long)GENE_G(memory_cache_hit));
 	add_assoc_long(return_value, "memory_cache_miss", (zend_long)GENE_G(memory_cache_miss));
+	/* [GENE_FEATURE:2026-08-07 F1-7b] Slow-query counter + active threshold
+	 * (gene.slow_query_ms, 0 = disabled). */
+	add_assoc_long(return_value, "db_slow_query_count", (zend_long)GENE_G(db_slow_query_count));
+	add_assoc_long(return_value, "slow_query_ms", GENE_G(slow_query_ms));
 	/* [GENE_FEATURE:2026-07-30 F1] auto-cleanup activity. */
 	add_assoc_long(return_value, "swoole_auto_cleanup_defers", (zend_long)GENE_G(swoole_auto_cleanup_defers));
 	add_assoc_long(return_value, "swoole_auto_cleanup_reclaimed", (zend_long)GENE_G(swoole_auto_cleanup_reclaimed));

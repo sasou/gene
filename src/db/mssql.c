@@ -126,6 +126,11 @@ ZEND_BEGIN_ARG_INFO_EX(gene_db_mssql_union, 0, 0, 1)
 	ZEND_ARG_INFO(0, all)
 ZEND_END_ARG_INFO()
 
+ZEND_BEGIN_ARG_INFO_EX(gene_db_mssql_quote, 0, 0, 1)
+	ZEND_ARG_INFO(0, str)
+	ZEND_ARG_INFO(0, paramType)
+ZEND_END_ARG_INFO()
+
 void mssql_reset_sql_params(zval *self)
 {
 	zend_update_property_null(gene_db_mssql_ce, gene_strip_obj(self), ZEND_STRL(GENE_DB_MSSQL_SQL));
@@ -1252,6 +1257,28 @@ PHP_METHOD(gene_db_mssql, affectedRows)
 }
 /* }}} */
 
+
+/*
+ * {{{ public gene_db::quote($str, $paramType)
+ * [GENE_FEATURE:2026-08-07 F1-8] PDO::quote pass-through for string literal
+ * escaping. $paramType defaults to PDO::PARAM_STR (2).
+ */
+PHP_METHOD(gene_db_mssql, quote)
+{
+	zval *self = getThis(), *pdo_object = NULL;
+	zend_string *str = NULL;
+	zend_long param_type = 2; /* PDO::PARAM_STR */
+	if (zend_parse_parameters(ZEND_NUM_ARGS(), "S|l", &str, &param_type) == FAILURE) {
+		return;
+	}
+	pdo_object = zend_read_property(gene_db_mssql_ce, gene_strip_obj(self), ZEND_STRL(GENE_DB_MSSQL_PDO), 1, NULL);
+	if (!pdo_object || Z_TYPE_P(pdo_object) != IS_OBJECT) {
+		RETURN_FALSE;
+	}
+	gene_pdo_quote(pdo_object, str, param_type, return_value);
+}
+/* }}} */
+
 /*
  * {{{ public gene_db::print($key)
  */
@@ -1434,7 +1461,10 @@ const zend_function_entry gene_db_mssql_methods[] = {
 		PHP_ME(gene_db_mssql, row, gene_db_mssql_void_arginfo, ZEND_ACC_PUBLIC)
 		PHP_ME(gene_db_mssql, cell, gene_db_mssql_void_arginfo, ZEND_ACC_PUBLIC)
 		PHP_ME(gene_db_mssql, lastId, gene_db_mssql_void_arginfo, ZEND_ACC_PUBLIC)
+		PHP_MALIAS(gene_db_mssql, lastInsertId, lastId, gene_db_mssql_void_arginfo, ZEND_ACC_PUBLIC)
 		PHP_ME(gene_db_mssql, affectedRows, gene_db_mssql_void_arginfo, ZEND_ACC_PUBLIC)
+		PHP_MALIAS(gene_db_mssql, rowCount, affectedRows, gene_db_mssql_void_arginfo, ZEND_ACC_PUBLIC)
+		PHP_ME(gene_db_mssql, quote, gene_db_mssql_quote, ZEND_ACC_PUBLIC)
 		PHP_ME(gene_db_mssql, print, gene_db_mssql_void_arginfo, ZEND_ACC_PUBLIC)
 		PHP_ME(gene_db_mssql, beginTransaction, gene_db_mssql_void_arginfo, ZEND_ACC_PUBLIC)
 		PHP_ME(gene_db_mssql, inTransaction, gene_db_mssql_void_arginfo, ZEND_ACC_PUBLIC)

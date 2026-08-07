@@ -202,6 +202,16 @@ class DatabaseTest
             // Test insert with auto-increment
             $this->sqlite->insert('test', ['name' => 'Test Record']);
             echo "✓ SQLite insert() method works\n";
+
+            // Test PDO-named aliases and quote pass-through (5.7.0+, F1-8)
+            $this->sqlite->lastInsertId();
+            echo "✓ SQLite lastInsertId() alias works\n";
+
+            $this->sqlite->rowCount();
+            echo "✓ SQLite rowCount() alias works\n";
+
+            $quoted = $this->sqlite->quote("it's");
+            echo "✓ SQLite quote() method works\n";
             
             // Test SQLite-specific features
             $this->sqlite->query('SELECT last_insert_rowid()');

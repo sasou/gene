@@ -155,6 +155,7 @@ STD_PHP_INI_BOOLEAN("gene.route_precompile", "0", PHP_INI_SYSTEM, OnUpdateBool, 
 STD_PHP_INI_ENTRY("gene.closure_src_cache_max", "1024", PHP_INI_SYSTEM, OnUpdateLong, closure_src_cache_max, zend_gene_globals, gene_globals) // @suppress("Symbol is not resolved")
 STD_PHP_INI_BOOLEAN("gene.swoole_auto_cleanup", "0", PHP_INI_SYSTEM, OnUpdateBool, swoole_auto_cleanup, zend_gene_globals, gene_globals) // @suppress("Symbol is not resolved")
 STD_PHP_INI_ENTRY("gene.cache_easy_ttl", "0", PHP_INI_SYSTEM, OnUpdateLong, cache_easy_ttl, zend_gene_globals, gene_globals) // @suppress("Symbol is not resolved")
+STD_PHP_INI_ENTRY("gene.slow_query_ms", "0", PHP_INI_SYSTEM, OnUpdateLong, slow_query_ms, zend_gene_globals, gene_globals) // @suppress("Symbol is not resolved")
 PHP_INI_END();
 /* }}} */
 
@@ -1028,6 +1029,9 @@ static void php_gene_init_globals() {
 	/* [GENE_FEATURE:2026-07-30 F6] cache_easy_ttl comes from php.ini —
 	 * do NOT zero it here (same rule as ctx_pool_prewarm). */
 	GENE_G(cache_easy_expired) = 0;
+	/* [GENE_FEATURE:2026-08-07 F1-7b] slow_query_ms comes from php.ini —
+	 * do NOT zero it here (same rule as cache_easy_ttl). */
+	GENE_G(db_slow_query_count) = 0;
 	/* ctx_pool_prewarm is populated by PHP_INI loader before MINIT, so do
 	 * NOT zero it here — doing so would clobber the user's php.ini value.
 	 * (Leaving the field alone is safe: globals are zeroed by GINIT.) */
@@ -1152,6 +1156,7 @@ PHP_GINIT_FUNCTION(gene) {
 	gene_globals->view_compile = 0;
 	gene_globals->view_compile_check_mtime = 0;
 	gene_globals->use_library = 0;
+	gene_globals->slow_query_ms = 0;
 }
 /* }}} */
 
