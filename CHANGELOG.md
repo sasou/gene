@@ -1,5 +1,56 @@
 # Gene Framework Changelog
 
+## [6.0.0]
+
+> 本版整合 2026-08-06 三向审计报告（`AUDIT_REPORT_2026_08_06.md`）的全部落地项：C1 并发修复、F0 系列安全/功能补全、F1 系列功能增强与可观测性补齐，以及 Windows 构建链编码/类型警告修复。版本号升至 6.0.0 标志功能面的显著扩展（DB 构建器 join/union、Session 防固定、Router 纯匹配、Controller 内部转发、Memory 原子计数、Pool 健康探活、Di 显式实例化）。
+
+### 🔒 安全
+
+- **`Session::regenerateId()` 会话固定防护（F0-1）**：新增 `Gene\Session::regenerateId(bool $deleteOld = true): string|false`，登录/提权后签发全新 session id 并保留数据，`$deleteOld` 为真时对旧 id 调用存储插件 delete 使固定 id 无法复活。复用既有 SSID 生成路径（`gene_session_generate_cookie_id` + `gene_session_update_ids`）与写生命周期（`mark_dirty` + `auto_cookie`），新 id 即时下发 cookie。这是全表中唯一带安全属性的缺口，对齐 PHP 原生 `session_regenerate_id()` 语义。
+- **DB Pool CAS 原子递减（C1）**：`db/pool.c` 的 `pool_decrement_count()` 此前为 get→sub 的 TOCTOU 序列——当同一 `Swoole\Atomic` 被多 worker 进程共享（pool 在 `Server::start()` 前创建、随 fork 复制）时，两进程均读到 val==1 后各自 sub，计数下溢至 -1，扭曲 `put()` 自动收缩与 `get()` 容量判据。现已将 `redis_pool.c` 2026-07-03 的 CAS 修法（`cmpset` + 64 轮循环 + 遥测 + once 告警）对称移植到 `pool.c`，两池并发正确性等级对齐。CAS 放弃计数经 `db_pool_cas_abandoned` 导出至 `Monitor::stats()`。
+
+### ✨ 新增
+
+- **MySQL / PgSQL / MSSQL / SQLite `join()` / `union()`（F0-2）**：四个驱动统一新增 `join(string $table, array $on, string $type = 'INNER')`、`leftJoin()`、`rightJoin()`、`union(string|object $query)` 及 `reset()`。JOIN 类型经白名单校验（INNER/LEFT/RIGHT/CROSS/FULL 及 OUTER 变体），不在白名单内的类型直接拒绝而非拼入 SQL；`$on` 条件只接受结构化关联数组（左列 => 右列），两侧均走标识符引用路径，杜绝裸字符串开出新注入面。SQL 组装顺序为 base + JOIN + WHERE + GROUP + HAVING + UNION + ORDER + LIMIT。
+- **MSSQL 构建器补全（F0-3）**：`mssql.c` 对齐 MySQL 的 where/in/group/order/having/limit 集合，`limit` 适配 T-SQL 的 `OFFSET ... FETCH NEXT` 语法，消除驱动间 API 面不一致。
+- **`Router::match()` 纯匹配（F1-3）**：新增 `Gene\Router::match(string $method, string $uri): array|false`，复用 `get_router_content_run()` 的查找路径（safe 前缀树键、method bucket、prefix/lang 重写、`get_path_router` 走树 + 参数捕获）但在 `dispatch` 前停止——不触发钩子、不运行控制器、不合并 `$_GET`。返回 `['module'=>?, 'controller'=>?, 'action'=>?, 'params'=>[...], 'route'=>leaf]` 或 `false`。解锁路由单元测试。
+- **`Controller::forward()` 内部转发（F1-6）**：新增 `Gene\Controller::forward(string $controller, string $action, array $params = [])`，经 `Gene\Router::dispatch()` 在进程内派发另一控制器/action 并返回其结果。转发深度上限 `GENE_FORWARD_MAX_DEPTH=5` 防止循环递归撑爆 C 栈；计数器在请求边界（RSHUTDOWN）复位，bailout不会楔死。
+- **`Memory::incr()` / `decr()` 原子计数（F1-2）**：新增 `Gene\Memory::incr(string $key, int $step = 1): int|false` 与 `decr()`，读-改-写整体在 `GENE_CACHE_WRLOCK` 内完成（不可拆成 get+set，否则协程间竞态）。缺失键以步进值创建（Redis INCR 语义）；已有非 long 值以 `*ok=0` 失败，避免静默破坏 payload。限流、计数场景刚需。
+- **`Pool::healthCheck()` 连接探活（F1-4）**：新增 `Gene\Pool::healthCheck(): array`，复用 `recycleIdle` 的 pop-check-push 遍历（1ms pop 宽限、packed `[conn, lastUsed]` 项）但不做空闲超时驱逐与 min 补充：存活连接推回通道，死连接丢弃并递减计数。返回 `['alive'=>n, 'dead'=>n]`。Swoole 模式需协程上下文。
+- **`Di::instance()` 显式实例化（F1-5）**：新增 `Gene\Di::instance(string $class, array $params = []): object|null`，经 `gene_class_instance` 工厂实例化但不入容器，用于一次性对象创建场景。
+- **`Request::isDelete()` 方法判定补齐（F1-1）**：`Gene\Request` 方法表补齐 `isDelete()`，与 `Gene\Controller` / `Gene\Hook` 已有的 `isGet/isPost/isPut/isHead/isOptions/isDelete/isCli` 对齐，消除 API 不对称。实现经 `GENE_REQUEST_IS_METHOD` 宏已存在，仅缺方法表登记。
+
+### 🐞 修复
+
+- **ORDER BY 纯数字列序号不应加引号**：`pdo.c` 的 `gene_quote_order()` 此前对 `ORDER BY 1 desc` 中的纯数字 token 加引号（`` `1` `` / `"1"` / `[1]`），使数据库查找名为 "1" 的列（SQLite 报 `no such column: 1`）。新增 `gene_ident_all_digits()` 检测，纯数字 token 原样输出不加引号——数字在 ORDER BY 中是列位置序号而非标识符。
+- **`gene_str_persistent` const 限定符不一致（C4090）**：`cache/memory.c` 的 `gene_str_persistent()` 形参为 `char *`，而调用方 `gene_memory_adjust()` 传入 `const char *`，触发 MSVC C4090。已将形参改为 `const char *`（`zend_string_init` 本身接受 `const char *`，安全），并移除 `gene_cache_lru_touch_nolock()` 中现已多余的 `(char *)` 强转。
+
+### 🔧 构建
+
+- **Windows 编译编码警告（C4819）**：`sqlite.c` / `mssql.c` / `pgsql.c` 含 em-dash（U+2014，UTF-8 为 `E2 80 94`），在 GBK 代码页 936 下为非法字节序列触发 C4819。于 `config.w32` 的 `CFLAGS_GENE` 加入 `/utf-8`（等价 `/source-charset:utf-8 /execution-charset:utf-8`），MSVC 统一按 UTF-8 解析所有源文件，无需改动源码内容且对新增文件自动生效。
+
+### 📊 可观测性
+
+- **`Monitor::stats()` 指标补全（F1-7）**：新增导出项：`db_pool_cas_abandoned`（DB Pool CAS 放弃计数，配合 C1）、`db_pool_get_timeout`（Pool 获取超时次数，blocking pop 耗尽 waitTimeout 后落入 overflow/NULL 时递增）、`memory_cache_hit` / `memory_cache_miss`（用户态 `Memory::get()` 命中/未命中计数）。全部纯读零副作用，与既有 `redis_pool_cas_abandoned` / `swoole_auto_cleanup_*` 并列。
+
+### 🔧 修改文件一览
+
+- `src/db/pool.c` — C1 CAS 原子递减（`pool_atomic_cmpset` + 64 轮循环 + 遥测 + once 告警）；PF1 put() 路径单次 `Atomic::get` 复用（3→1~2 次跨界调用）；F1-4 `healthCheck()`
+- `src/db/{mysql,mssql,pgsql,sqlite}.c` / `.h` — F0-2 `join()` / `leftJoin()` / `rightJoin()` / `union()` / `reset()`；F0-3 MSSQL 构建器补全
+- `src/db/pdo.c` — ORDER BY 纯数字列序号不加引号
+- `src/session/session.c` — F0-1 `regenerateId()`
+- `src/router/router.c` — F1-3 `match()` 纯匹配
+- `src/mvc/controller.c` — F1-6 `forward()` + `GENE_FORWARD_MAX_DEPTH` 递归守卫
+- `src/cache/memory.c` — F1-2 `incr()` / `decr()`（`gene_memory_adjust` 原子锁内读改写）；F1-7 `Memory::get()` hit/miss 遥测；`gene_str_persistent` const 修复（C4090）
+- `src/di/di.c` — F1-5 `instance()`
+- `src/http/request.c` — F1-1 `isDelete()` 方法表登记
+- `src/tool/monitor.c` — F1-7 新增 `db_pool_cas_abandoned` / `db_pool_get_timeout` / `memory_cache_hit` / `memory_cache_miss` 导出
+- `src/gene.c` / `src/gene.h` — 版本号升至 6.0.0；C1 `db_pool_cas_abandoned` / `db_pool_cas_warned` globals；F1-6 `forward_depth` + 请求边界复位；F1-7 `db_pool_get_timeout` / `memory_cache_hit` / `memory_cache_miss` globals
+- `src/config.w32` — `CFLAGS_GENE` 加入 `/utf-8`（C4819）
+- `README.md` / `README_EN.md` — 版本徽章升至 6.0.0
+- `gene-ide-helper/Gene/{Db/{Mysql,Mssql,Pgsql,Sqlite},Session,Router,Controller,Memory,Pool,Di,Request,Monitor}.php` — 新 API 存根同步
+- `test/DiTest.php` / `test/HookTest.php` — Di 与 Hook 测试用例
+
 ## [5.6.9]
 
 ### 🔒 安全（2026-07-30 审计修复）

@@ -64,7 +64,7 @@ ZEND_END_ARG_INFO()
 
 /* }}} */
 
-static zend_string* gene_str_persistent(char *str, size_t len) /* {{{ */{
+static zend_string* gene_str_persistent(const char *str, size_t len) /* {{{ */{
 	zend_string *key = zend_string_init(str, len, 1);
 	if (key == NULL) {
 		zend_error(E_ERROR, "Cannot allocate string, not enough memory?");
@@ -433,7 +433,7 @@ static void gene_cache_lru_touch_nolock(const char *keyString, size_t keyString_
 		zend_hash_init(GENE_G(cache_lru), 8, NULL, NULL, 1);
 	}
 	gene_cache_lru_remove_nolock(keyString, keyString_len);
-	k = gene_str_persistent((char *)keyString, keyString_len);
+	k = gene_str_persistent(keyString, keyString_len);
 	zend_hash_add_empty_element(GENE_G(cache_lru), k);
 	/* key now owned by the tracking table; freed on removal/destroy. */
 }
