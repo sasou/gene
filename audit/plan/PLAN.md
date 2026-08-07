@@ -1,6 +1,6 @@
 # Gene 未实现功能与待验证项计划
 
-> 本文件整理自 audit 历史报告，**仅存放尚未落地或待验证的待办项**。已完成的条目不再保留，避免与审计报告的「回写」节重复。
+> 本文件整理自 audit 历史报告，**仅存放尚未落地或待验证的待办项**。已完成的条目不再保留，避免与审计报告的「落地情况」节重复。
 > 来源审计报告：`AUDIT_REPORT_2026_07_30.md`、`AUDIT_REPORT_2026_08_06.md`（及更早的 05-25 / 06-20 / 07-03 / 07-12 / 07-13 报告）。
 > 维护约定见文末 §九。
 
@@ -10,34 +10,25 @@
 
 ### F3 `Gene\Controller::init()` 生命周期钩子（重设计）
 
-- **来源**：`AUDIT_REPORT_2026_07_30.md` §6 / §9.6；`AUDIT_REPORT_2026_08_06.md` §12.1
+- **来源**：`AUDIT_REPORT_2026_07_30.md` §6；`AUDIT_REPORT_2026_08_06.md` §4.1
 - **现状**：在 v5.6.9 中已回退（commit `fc10274`）。`Gene\Controller` 不再提供 `init()` 方法，控制器继续使用 `__construct` / `beforeAction`。
 - **回退原因**：该钩子带来的复杂度超过收益，且与现有生命周期冲突。
 - **待决策**：若后续确有 Yaf 语义需求，可重新设计为不破坏 `__construct` 约定的可选钩子。属「P1 设计批」，需先出设计草案再动代码。
 
 ### F4 路由级中间件管道
 
-- **来源**：`AUDIT_REPORT_2026_07_30.md` §6；`AUDIT_REPORT_2026_08_06.md` §12.1
+- **来源**：`AUDIT_REPORT_2026_07_30.md` §6；`AUDIT_REPORT_2026_08_06.md` §4.1
 - **现状**：仅停留在建议阶段，未立项实现。`router.c` 无中间件注册/执行链。
 - **方案**：路由配置支持 `route.middleware = "Auth,RateLimit"`（或 `$router->middleware()`），派发前按序执行各 `Gene\Hook` 子类 `handle()`，任一返回 false 即中断并走 error 路径。复用现有 `gene_router_exec_hook_direct` 直派机制。
 - **约束**：**不应在 O6 运行时验证全集打通前立项** —— 中等规模的派发链改造，在缺回归证据时改派发路径风险收益比不成立。属「P1 设计批」。
 
 ---
 
-## 二、模块完备度缺口（来自 08-06 §12.1）
+## 二、模块完备度缺口
 
-> 基线：08-06 §4.1 模块完备度总览逐行复核源码后剩余的未实现缺口。已落地项（F0-1~F0-3、F1-1~F1-8）不再列出。
+> 基线：08-06 §4.1 模块完备度总览逐行复核源码后剩余的未实现缺口。
 
-### 2.1 P1 批（小面改动，可静态实施）
-
-| 模块 | 缺口 | 涉及文件 | 草案 |
-|------|------|----------|------|
-| Di | `alias()` | `src/di/di.c` | `alias(string $name, string $class)` 别名注册，分派时解析 |
-| Request | `isSecure()` | `src/http/request.c` | 与 `isAjax` 同型；建议与 §八 API 镜像约定同批 |
-| Cache(Memory) | `mget()` / `mset()` | `src/cache/memory.c` | 批量读/写，单锁内完成 |
-| Monitor | `reset()` + Prometheus 文本导出 | `src/tool/monitor.c` | `reset()` 清零累计计数器；Prometheus 文本格式导出 |
-
-### 2.2 P1 设计批（需先出设计草案再动代码）
+### 2.1 P1 设计批（需先出设计草案再动代码）
 
 | 模块 | 缺口 | 说明 |
 |------|------|------|
@@ -45,22 +36,15 @@
 | Controller | 生命周期钩子 | = F3 重设计，见 §一 |
 | Db(Pool) | 连接泄漏检测 | 借出未归还的连接追踪与告警；`pool.c` 仅有超时溢出建连 + 归还自动收缩，无泄漏检测 |
 
-### 2.3 P2 批（按需求驱动立项）
+### 2.2 P2 批（按需求驱动立项）
 
 | 模块 | 缺口 |
 |------|------|
-| Application | `stop()` 优雅停机；`setResponse()` 无对应 getter |
-| View | `render()` 返回字符串（API 场景）；`clearAssign()` |
+| Application | `setResponse()` 无对应 getter |
 | Hook | 钩子优先级、`stopPropagation()` |
-| Response | `getStatusCode()` / `isSent()` / `sendFile()` |
-| Session | `clear()` / `all()`（`regenerateId()` 已落地） |
 | Cache(Redis/Memcached) | pipeline / multi（可经 `call()` 透传，非硬缺口） |
-| Db(SQLite) | `attach` |
-| Validate | `bail()` 首错即停；`sometimes()` |
-| Log | `critical()` / `emergency()`；context 结构化字段 |
-| Benchmark | `mark()` / `lap()` |
 
-### 2.4 不立项
+### 2.3 不立项
 
 | 模块 | 缺口 | 结论 |
 |------|------|------|
@@ -103,7 +87,7 @@
 
 ### fn_cache / 连接池可选演进
 
-- **来源**：`AUDIT_REPORT_2026_05_25.md` §9.1；`AUDIT_REPORT_2026_08_06.md` §11.4
+- **来源**：`AUDIT_REPORT_2026_05_25.md` §9.1；`AUDIT_REPORT_2026_08_06.md` §9.2
 - **待评估**：
   - `gene.fn_cache_max`：fn_cache LRU 容量治理。
   - `gene.pool_max_overflow`：连接池 overflow 硬熔断。
@@ -130,7 +114,7 @@
 
 ### O6 运行时验证全集
 
-- **来源**：`AUDIT_REPORT_2026_07_30.md` §五
+- **来源**：`AUDIT_REPORT_2026_07_30.md` §七
 - **内容**：
   - ZTS/NTS 双构建零告警。
   - ASAN/Valgrind 无内存错误。
@@ -141,7 +125,7 @@
 
 ### O7 Linux 回归失败项
 
-- **来源**：`AUDIT_REPORT_2026_07_30.md` §五 / `AUDIT_REPORT_2026_07_12.md` §7.7
+- **来源**：`AUDIT_REPORT_2026_07_30.md` §七 / `AUDIT_REPORT_2026_07_12.md` §7.7
 - **待处理**：
   - DB 驱动 `connect()` 二选一逻辑。
   - Cache / Language / Http 夹具 triage。
@@ -149,16 +133,20 @@
 
 ### 08-06 / 08-07 新增验证需求
 
-- **来源**：`AUDIT_REPORT_2026_08_06.md` §9.3 / §11.3
+- **来源**：`AUDIT_REPORT_2026_08_06.md` §9.4
 - **清单**：
-  1. Linux `phpize + make`（含 `--enable-debug` / ASAN）零告警编译；10.2-A 的 join 错误路径修复需在 ASAN 下回归确认零告警。
+  1. Linux `phpize + make`（含 `--enable-debug` / ASAN）零告警编译。
   2. C1 修复后多 worker（≥4）并发借还压测下 pool count 一致性断言（无负值、与 channel length 一致）。
   3. MySQL / PgSQL / MSSQL `join` / `union` / `where` / `in` / `group` / `order` / `limit` 全量 SQL 回归（含标识符引用与参数绑定）。
   4. `Session::regenerateId()` 并发场景下旧会话删除与新 cookie 刷新的一致性。
   5. `Controller::forward()` 深度上限（≤5）在超限时的错误路径回归。
   6. `Router::match()` 与 `Router::dispatch()` 匹配结果等价性回归。
-  7. `test/DatabaseTest.php` SQLite 段断言 `lastInsertId()` / `rowCount()` / `quote()` 行为（`quote("it's")` 应返回 `'it''s'`）。
+  7. `test/DatabaseTest.php` SQLite 段断言 `lastInsertId()` / `rowCount()` / `quote()` 行为。
   8. `gene.slow_query_ms=1` 执行慢 SQL 断言 `Monitor::stats()['db_slow_query_count']` 递增；阈值 `0` 时计数恒为 0。
+  9. `sendFile` 大文件 RSS 平坦 + offset 越界返回 false + wrapper 拒绝。
+  10. Swoole 下 `Application::stop()` 后同 worker 后续请求正常派发 + 并发协程隔离。
+  11. FPM 常驻 worker 循环 TTL 写入十万次不读取，断言 RSS 不单调增长。
+  12. `View::render()` 输出缓冲嵌套满场景断言返回 false 且不污染外层输出。
 
 ### 07-03 遗留待验证
 
@@ -196,15 +184,14 @@
   - 新增 `docs/API_REFERENCE.md`。
   - 新增 `docs/ARCHITECTURE.md`（尤其是 Swoole 协程上下文模型与 `co_contexts` 语义，本扩展最难理解的部分）。
   - 新增 `docs/PERFORMANCE_TUNING.md`（INI 调参 + Monitor 指标解读）。
-  - `docs/CONFIGURATION.md` 补 `gene.cache_max_items` 危险默认的明确推荐值（如 10000）与内存换算方式。
-  - `docs/CONFIGURATION.md` 注明 `gene.co_contexts_max` / `gene.ctx_pool_max` 的生产参考值。
   - `docs/CONFIGURATION.md` 说明 `model.success/error` 的业务码空间（2000/4000）与 HTTP 状态码不同源。
-  - `docs/CONFIGURATION.md` 说明 TTL `0` 表示永久（`memory.set` / `configs.set`）。
+- `gene-ide-helper/Gene/Application.php` 版本注解为 5.4.3，实际 5.6.9，需更新。
+- `Router::getRouterUri()` 在 C 层有实现但 ide-helper 中无声明。
 
 ### 测试
 
 - **来源**：`AUDIT_REPORT_2026_08_06.md` §4.5
-- **现状**：`test/` 已有 17 个用例文件（含本轮新增 `DiTest.php` / `HookTest.php`）。
+- **现状**：`test/` 已有 16 个用例文件 + `TestRunner.php`。
 - **仍缺独立测试的模块**：**Monitor、Exception、Factory、Memcached、RedisPool、MSSQL**。
 
 ---
@@ -220,16 +207,8 @@
 
 ---
 
-## 八、API 一致性待办
-
-- **来源**：`AUDIT_REPORT_2026_08_06.md` §4.3
-- **已完成**：`Request::isDelete()` 已补齐（与 `Controller` 镜像）；`Db\Mysql::reset()` 已暴露为公开方法。
-- **无需改动**：Router 方法命名（全仓已统一驼峰）；`model.success/error` 业务码（仅需文档说明，见 §六）。
-
----
-
-## 九、如何维护本计划
+## 八、如何维护本计划
 
 - 每轮审计完成后，将**仍未实现/未验证**的项从审计报告迁移到本文件。
-- **已落地或验证通过的项应及时删除**，不在本文件保留「✅ 已完成」条目；完成记录留在审计报告的「回写」节。
+- **已落地或验证通过的项应及时删除**，不在本文件保留「✅ 已完成」条目；完成记录留在审计报告的「落地情况」节。
 - 新立项前必须在 `tools/acceptance` 拿到 profile/ASAN 证据，避免无依据的大范围改动。

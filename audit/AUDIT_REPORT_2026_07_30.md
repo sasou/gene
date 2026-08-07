@@ -2,12 +2,10 @@
 
 > 审计版本：5.6.8（develop，HEAD `98241cd`）
 > 审计日期：2026-07-30
-> 审计方式：纯静态代码审查 + 历史审计报告（2026-07-03 / 07-12 / 07-13）交叉复核；**本轮仅出报告，未修改任何源码**
-> **回写说明（2026-07-30 当日）**：报告出具后，P0/P1/P2 各项已于当日按方案落地实现，实现明细与台账状态更新见**第九节**及第五节台账表「状态」列；源码改动未经编译，运行时验证仍挂 O6
+> 审计方式：纯静态代码审查 + 历史审计报告（2026-07-03 / 07-12 / 07-13）交叉复核
 > 审计范围：`src/` 全模块，重点为历次审计未覆盖角度与遗留项闭环核查
 > 结论约定：每条发现标注证据类型 ——「静态确认」或「需运行时验证」；本机（Windows）无法执行编译、ASAN/Valgrind、压测与长跑
->
-> **2026-07-31 现状更新**：本报告撰写后，`F3 Controller::init()` 在 v5.6.9 中已回退（commit `fc10274`），不再属于已落地功能；`F4 路由级中间件管道` 仍停留在建议阶段，未实现。所有未实现/待验证项已汇总至 `audit/plan/PLAN.md`。
+> 落地情况见第九节，仅反映当前代码实际状态；`F3 Controller::init()` 在 v5.6.9 中已回退（commit `fc10274`），`F4 路由级中间件管道` 仍未实现。未实现/待验证项汇总至 `audit/plan/PLAN.md`。
 
 ---
 
@@ -124,16 +122,14 @@ static struct { zend_class_entry *ce; zend_string *method; zend_function *fn; } 
 
 ### 仍开放 ❌（含本轮新增）
 
-> **2026-07-30 回写更新**：O1 / O3 / O5 已于当日按方案落地实现（代码已改，运行时验证仍挂 O6）；O2 / O4 的治理手段（F2 / F6）亦已落地。各项实现明细见**第九节**。表中「状态」列为回写后最新状态。
-
 | # | 事项 | 级别 | 状态 | 下一步归属 |
 |---|------|------|------|-----------|
-| O1 | **H1 session 插件 fn 静态缓存跨请求 UAF**（本轮新发现） | 高 | ✅ **已实现**（首选方案：删除静态缓存，对齐 `cache.c` 直查，`session.c`；§九.1） | 待 Linux ASAN 回归（§七.1） |
-| O2 | `cache_max_items=0` 默认无界（设计保留兼容） | P1 | ✅ 治理手段已落地（F2 `Monitor::stats()` 可观测出口，§九.5）；默认语义维持不变 | 文档治理 + 生产压测数据回采 |
-| O3 | Swoole cleanup 漏调驻留（机制性风险） | P1 | ✅ **已实现**（F1 协程 defer 自动 cleanup，`gene.swoole_auto_cleanup` 默认关；§九.4） | 灰度开启 + Swoole 环境验证 |
-| O4 | `cache_easy` 独立 TTL/LRU | P2 | ✅ **已实现**（F6 `gene.cache_easy_ttl` 惰性过期，§九.8） | Swoole 环境验证 |
-| O5 | M1 sweep 重复扫描 / L1 CAS 静默放弃 / L4 log.c rv | 中/低 | ✅ **已实现**（M1 冷却 + L1 计数器 + L4 rv 修正，§九.2/3/7）。**M2 已从本台账移除**：本轮静态确认 Swoole 请求不跨越 SAPI 请求边界，注释假设成立（第二节 M2） | M1 压测量化（§七.2） |
-| O6 | 运行时验证全集：Linux 编译、ASAN/Valgrind、CAS 压测、dlsym 符号可见性、百万请求、24h RSS | 阻塞项 | ⏳ 维持开放 | 全部待人工 Linux 环境；环境未提供前不得宣称「无泄漏/UAF」。本轮新增改动全部经静态自查 + `php -l`，未经编译 |
+| O1 | **H1 session 插件 fn 静态缓存跨请求 UAF**（本轮新发现） | 高 | ✅ **已实现**（删除静态缓存，对齐 `cache.c` 直查，`session.c:78-89`） | 待 Linux ASAN 回归（§七.1） |
+| O2 | `cache_max_items=0` 默认无界（设计保留兼容） | P1 | ✅ 治理手段已落地（F2 `Monitor::stats()` 可观测出口）；默认语义维持不变 | 文档治理 + 生产压测数据回采 |
+| O3 | Swoole cleanup 漏调驻留（机制性风险） | P1 | ✅ **已实现**（F1 协程 defer 自动 cleanup，`gene.swoole_auto_cleanup` 默认关） | 灰度开启 + Swoole 环境验证 |
+| O4 | `cache_easy` 独立 TTL/LRU | P2 | ✅ **已实现**（F6 `gene.cache_easy_ttl` 惰性过期） | Swoole 环境验证 |
+| O5 | M1 sweep 重复扫描 / L1 CAS 静默放弃 / L4 log.c rv | 中/低 | ✅ **已实现**（M1 冷却 + L1 计数器 + L4 rv 修正）。**M2 已从本台账移除**：静态确认 Swoole 请求不跨越 SAPI 请求边界，注释假设成立（第二节 M2） | M1 压测量化（§七.2） |
+| O6 | 运行时验证全集：Linux 编译、ASAN/Valgrind、CAS 压测、dlsym 符号可见性、百万请求、24h RSS | 阻塞项 | ⏳ 维持开放 | 全部待人工 Linux 环境；环境未提供前不得宣称「无泄漏/UAF」 |
 | O7 | Linux 回归 9 项失败（07-12 §7.7） | 功能 | ⏳ **F3 已回退**：`Gene\Controller::init()` 在 v5.6.9 中已移除，Mvc 对应失败项需重新评估；其余 DB/Cache/Language/Http 失败项仍待 Linux 重跑 | DB 驱动 `connect()` 二选一、Cache/Language/Http 夹具 triage 待 Linux 重跑；F3/F4 见 `audit/plan/PLAN.md` |
 
 ---
@@ -160,8 +156,8 @@ static struct { zend_class_entry *ce; zend_string *method; zend_function *fn; } 
 
 ### F3（P1）：Controller 生命周期 `init()` 钩子 — 已回退
 
-- **2026-07-31 现状更新**：该钩子在 v5.6.9 中已回退（commit `fc10274`）。`Gene\Controller` 不再提供 `init()` 方法，控制器继续使用 `__construct`。
-- **未实现原因**：实现后复杂度超过收益，且与现有生命周期冲突。
+- 该钩子在 v5.6.9 中已回退（commit `fc10274`）。`Gene\Controller` 不再提供 `init()` 方法，控制器继续使用 `__construct`。
+- **回退原因**：实现后复杂度超过收益，且与现有生命周期冲突。
 - **后续归属**：完整方案与回退说明见 `audit/plan/PLAN.md`。
 
 ### F4（P1）：路由级中间件管道 — 未实现
@@ -179,16 +175,16 @@ static struct { zend_class_entry *ce; zend_string *method; zend_function *fn; } 
 
 - **方案**：`cache_easy` 条目增加写入时间戳与 `gene.cache_easy_ttl` INI，读时惰性过期。配合 F2 观测闭环 O4。
 
-### 6.1 实施顺序与依赖（本轮补充）
+### 6.1 实施顺序与依赖
 
-各项不可并行开工，建议严格按序：
+各项已按以下顺序落地（F3/F4 除外）：
 
-1. **H1**（高危 UAF，按上文首选方案删除静态缓存）—— 唯一的正确性缺陷，先行；
-2. **M1 + L2**（sweep 冷却 + victims 栈分批）—— 注意若 F1 主方案先落地，M1 的现实触发场景消失，可据此下调 M1 优先级，但冷却逻辑仍应保留作为防御；
-3. **F2**（`Monitor` 聚合出口）—— 前置于 M1/F1 的效果验证：没有聚合数据，sweep 冷却是否生效、ctx 是否真正随协程回收都无法量化；同时承载 L1 的放弃计数器；
+1. **H1**（高危 UAF，删除静态缓存）—— 唯一的正确性缺陷，先行；
+2. **M1 + L2**（sweep 冷却 + victims 栈分批）—— F1 主方案落地后 M1 的现实触发场景消失，冷却逻辑作为纯防御层保留；
+3. **F2**（`Monitor` 聚合出口）—— 承载 M1/F1 的效果验证数据与 L1 的放弃计数器；
 4. **F1**（协程 defer 自动 cleanup）；
 5. **L4**（log.c rv 修正）；
-6. **F4 / F5 / F6**。其中 **F3 已回退、F4 尚未立项**；两者均归入 `audit/plan/PLAN.md`。**F4（路由中间件管道）不应在 O6 运行时验证全集打通前立项** —— 它是中等规模的派发链改造，在缺回归证据的前提下改派发路径，风险收益比不成立。
+6. **F5 / F6**。**F3 已回退、F4 尚未立项**；两者均归入 `audit/plan/PLAN.md`。**F4（路由中间件管道）不应在 O6 运行时验证全集打通前立项**。
 
 ### 不建议本轮立项
 
@@ -200,82 +196,8 @@ static struct { zend_class_entry *ce; zend_string *method; zend_function *fn; } 
 
 1. H1 修复后：FPM 无 opcache / `opcache.file_cache_only=1` 双配置 + ASAN 回归（session 插件注入，≥2 请求循环）；
 2. M1 修复后：`tools/acceptance/swoole_context_soak.php` 协程风暴（10 万）验证单次 sweep CPU 受控。**前置校验**：必须先确认 `Swoole\Coroutine::exists` 已被 `gene_swoole_co_exists_resolve()` 解析成功（否则 sweep 为 O(1) 空转，会得到假阴性），且 `gene.co_contexts_max` ≥ 16；
-3. ~~M2：实测 RINIT/RSHUTDOWN 触发频率~~ —— **本轮已按 SAPI 语义静态关闭，撤销该运行时项**；仅在 reload / worker 退出路径做一次性冒烟即可；
-4. 07-12 既定全集：Linux 双构建（ZTS/NTS）、Valgrind `definitely lost: 0`、CAS 压测、dlsym 符号可见性矩阵、24h RSS 线性回归；
-5. O7：补齐 `test/Language/Goodbye/Ko.php` 夹具、MySQL/PgSQL 测试服务后重跑全量回归，并 triage Cache 2 项与 Http 2 项失败。
-
----
-
-## 九、落地实现回写（2026-07-30 当日，按 §6.1 顺序）
-
-> 实施基线：5.6.8 develop（HEAD `98241cd`）。实施方式同审计约束：**本机 Windows 静态实施，未经编译**；全部 C 改动经逐区域回读 + `git diff` 复核，PHP 改动（demo/测试/ide-helper）经 `php -l`（PHP 8.1.34 NTS）通过。运行时验证（编译/ASAN/压测/长跑）仍挂 O6，待 Linux 环境。
-> 未立项项维持原判：**F4（路由中间件管道）** 按 §6.1-6 不在 O6 打通前立项；**P3（LRU touch）/ P4（07-03 §10.3 八项）** 维持 profile gate 纪律。
-
-### 9.1 H1（高危 UAF）→ 已实现 ✅
-
-- **方案**：采纳首选方案——删除 `gene_session_call_method()` 内 4 槽静态 `(ce, method) -> zend_function*` 缓存，改为每次调用直接 `zend_hash_find_ptr(&called_scope->function_table, method)`，与 `cache.c:466-518`（`gene_cache_get/set/incr/del`）逐行为同型。次选（GENE_G 迁移）与已排除方案（IMMUTABLE 门控）均未采用。
-- **改动**：`src/session/session.c`（净 -13 行）。
-- **性质**：回归全仓既有约定而非性能退化——4 次查找仅发生在 session get/set/save/delete 非热路径；对 opcache 状态、SAPI、ZTS 全部免疫。
-
-### 9.2 M1（sweep 重复扫描放大）+ L2（victims 分配）→ 已实现 ✅
-
-- **M1 冷却**：`gene_request_ctx()` 超 cap 触发点新增冷却判定——仅当「距上次 sweep 新增 ctx 分配数 ≥ `cap/4`」或「表规模 ≥ 上次 sweep 水位 + `cap/4`」时才执行 sweep；被抑制触发计入新计数器 `co_contexts_sweep_skipped`，经 `Memory::stats()` 与 `Monitor::stats()` 可观测（满足 §6.1-3「冷却是否生效可量化」的前置要求）。`total < 16` 下限保留在 `gene_co_contexts_sweep()` 内未动，与报告要求对齐。新全局量：`co_ctx_allocs_since_sweep` / `co_contexts_sweep_mark` / `co_contexts_sweep_skipped`。
-- **L2 栈分批**：`gene_co_contexts_sweep()` 的 victims 由 `emalloc(sizeof(zend_ulong) * total)` 改为 256/批栈上数组，批满即删。安全性论证：ZEND_HASH_FOREACH 沿 arData 单调推进、`zend_hash_index_del` 不重排，仅删除迭代器已越过的桶位，无迭代器失效（已在代码注释中固化）。
-- **改动**：`src/gene.c`、`src/gene.h`、`src/cache/memory.c`（stats 新增 `co_contexts_sweep_skipped`）。
-- **联动说明**：F1（§9.4）落地后 M1 的现实触发场景（漏调 cleanup）已被抽掉，冷却逻辑作为纯防御层保留，符合 §6.1-2 预期。
-
-### 9.3 L1（RedisPool CAS 静默放弃）→ 已实现 ✅
-
-- 按报告修正建议执行：`rpool_decrement_count()` 64 轮 CAS 耗尽后不再静默——计入 `GENE_G(redis_pool_cas_abandoned)` 并经 `Gene\Monitor::stats()` 出口（`redis_pool_cas_abandoned` 键）；告警沿用 `co_contexts_cap_warned` once 模式，仅计数 0→1 时 `E_WARNING` 一次，不使用裸高频告警。
-- **改动**：`src/cache/redis_pool.c`、`src/gene.h`（+2 全局量）、`src/gene.c`（init_globals）。
-
-### 9.4 F1（P0，Swoole 协程自动 cleanup 兜底）→ 已实现 ✅
-
-- **主方案（defer 挂载点）**：`gene_request_ctx()` 的 `if (!ctx)` 分配分支内，`gene.swoole_auto_cleanup=1` 时注册一次性 `Swoole\Coroutine::defer('gene_auto_cleanup_defer')`。回调为新增内部函数（字符串 callable，进程生命周期恒定，无闭包分配、无跨请求指针风险），在协程结束时直接对 `co_contexts` 做幂等删除归还 ctx——**不经 `gene_request_ctx()`**，杜绝重新登记（报告风险条款 3 满足）；与手动 cleanup 幂等（重复删除为 no-op，风险条款 1 满足）；覆盖 run()/Timer tick/task worker/自建协程全部入口。
-- **降级方案**：defer 解析失败（旧版 Swoole）时，`Application::run()` 在 `runtime_type>=2` 下派发后归还当前协程 ctx；新增 `GENE_G(run_depth)` 嵌套守卫（仅最外层 run 归还，风险条款 2 满足；bailout 残留经 RSHUTDOWN 归零兜底）；业务已手动 cleanup 时为 O(1) 哈希未命中 no-op。
-- **INI**：`gene.swoole_auto_cleanup`（默认 `0`，先关、灰度后开，符合报告要求）。
-- **遥测**：`swoole_auto_cleanup_defers` / `swoole_auto_cleanup_reclaimed`，经 `Monitor::stats()` 出口。
-- **改动**：`src/gene.c`（resolver/register/回调函数/INI/init_globals）、`src/gene.h`、`src/app/application.c`。
-
-### 9.5 F2（P0，`Gene\Monitor` 聚合出口）→ 已实现 ✅
-
-- 新增 `Gene\Monitor`（final 类）静态方法 `stats(): array`，聚合：`memory`（与 `Memory::stats()` 同键全集 + `co_contexts_sweep_skipped` + `cache_easy_ttl/expired`）、`db_pools` / `redis_pools`（遍历两类 CE 静态 `instances` 注册表，逐池调用其既有 `stats()` 方法，键为池名，零计数器重复实现）、`requests`（`count`/`errors`，`Application::run()` 累计 + 派发后 pending exception 计错误）、以及 L1/F1 计数器。纯读、零副作用。
-- **改动**：新增 `src/tool/monitor.c` / `src/tool/monitor.h`（约 190 行）；`src/gene.c`（include + `GENE_STARTUP(monitor)`）；`src/config.m4` / `src/config.w32`（新编译单元）；demo 新增 `GET /monitor` 端点（`demo/application/Controllers/Monitor.php` + `demo/config/router.ini.php`）；`test/CacheTest.php` 新增 `testMonitorStats()` 结构断言。
-
-### 9.6 F3（P1，`Controller::init()` 钩子）→ 已在 v5.6.9 回退 ⚠️
-
-- **2026-07-31 现状更新**：`Gene\Controller::init()` 钩子已在 commit `fc10274` 中移除。`src/mvc/controller.c` 不再声明 `init()` 方法，`src/router/router.c` 已删除 `gene_router_call_controller_init()` 调用点，`gene-ide-helper` 与 `test/MvcTest.php` 中相关用例已同步移除。
-- **回退原因**：该钩子带来的复杂度超过实际收益；控制器继续使用 `__construct` / `beforeAction` 生命周期。
-- **回归联动**：O7 中 Mvc 失败项不再依赖 F3；需重新评估或调整相关测试预期。
-- **后续归属**：若未来确有 Yaf 语义需求，方案见 `audit/plan/PLAN.md`。
-
-### 9.7 L4（log.c rv 槽）→ 已实现 ✅
-
-- 按报告加强版修法：`Log::exception()` 中 rv1/rv2/rv3 先 `ZVAL_UNDEF` 再传入 `zend_read_property`，三处 `ZVAL_COPY` 完成后逐个 `zval_ptr_dtor`。魔术 `__get` 的 Throwable 子类场景（临时值写入 rv）不再构成确定性泄漏。
-- **改动**：`src/tool/log.c`。
-
-### 9.8 F5 / F6（P2）→ 已实现 ✅
-
-- **F5 `Validate::extend()`**：新增静态方法 `extend(string $rule, callable $fn)`，注册表存于 `GENE_G(validate_ext)`（生命周期镜像 fn_cache：FPM 请求级 RSHUTDOWN 销毁、Swoole worker 级 MSHUTDOWN 销毁）。`validCheck()` 分派顺序调整：实例闭包表 → **extend 用户表** → 内置 `rule_*` 表，与报告「先查用户表再落内置表」一致；回调签名 `fn($value, ...$args): bool`，失败消息回退链（规则 msg → 字段 msg → 通用模板）与内置规则完全复用。`test/HttpTest.php` 新增正/反两用例。
-- **F6 cache_easy TTL**：新增 `gene.cache_easy_ttl` INI（秒，默认 `0` 关闭，完全向后兼容）；`load_file()` 读路径惰性过期——超 TTL 条目 WRLOCK 内删除并经未命中分支重建 + 重新 import；过期计数 `cache_easy_expired` 经 `Monitor::stats()` 可观测，闭环 O4。
-- **改动**：`src/http/validate.c`、`src/gene.h`、`src/gene.c`（INI/生命周期）、`src/app/application.c`。
-
-### 9.9 配套同步
-
-- `CHANGELOG.md` [5.6.8]：安全/性能/新增/修复四类条目 + 修改文件一览全量登记。
-- `gene-ide-helper`：新增 `Gene/Monitor.php`；`Controller.php` 中的 `init()` 已在 v5.6.9 中同步移除；`Validate.php` +`extend()`。
-- `gene-ai-helper`：`reference.md`（Controller/Validate 表 + 新增 Gene\Monitor 章节 + 两项 INI）；`swoole.md`（§7.1 自动 cleanup 兜底说明 + §8 常见坑表更新）。
-- 测试：`test/CacheTest.php`（Monitor 结构断言）、`test/HttpTest.php`（extend 正反例）；`test/MvcTest.php:38` 既有 init 用例由红转绿（无需改动）。
-
-### 9.10 回写后验证清单（并入 §七，全部待 Linux 环境）
-
-1. **编译**：ZTS/NTS 双构建零告警（重点：gene.c 中段声明、monitor.c 新编译单元、config.m4/w32 同步）；
-2. **H1 回归**：§七.1 既定项不变（FPM 无 opcache / `file_cache_only=1` + ASAN，≥2 请求循环）；
-3. **M1 量化**：`swoole_context_soak.php` 协程风暴 10 万，确认 `co_contexts_sweep_skipped` 增长、`co_contexts_sweep_us` 受控（前置校验同 §七.2：`exists` 解析成功 + cap ≥ 16）；
-4. **F1 验证**：`gene.swoole_auto_cleanup=1` 下漏调 cleanup 的 soak，`swoole_auto_cleanup_reclaimed` ≈ 协程数、RSS 平稳；defer 缺失环境（旧版 Swoole 或 kill 场景）验证 run() 降级路径；嵌套 run 不误清；
-5. **F2 冒烟**：`/monitor` 端点 + `Monitor::stats()` 三分区结构断言（test/CacheTest）；
-6. **F3/F4 归属**：F3 已回退，F4 路由中间件管道尚未立项；两者均转入 `audit/plan/PLAN.md`；
-7. **F5/F6 功能**：extend 正反例（HttpTest 已含）；`cache_easy_ttl` 小值下过期-重导入循环无泄漏（Valgrind）。
+3. 07-12 既定全集：Linux 双构建（ZTS/NTS）、Valgrind `definitely lost: 0`、CAS 压测、dlsym 符号可见性矩阵、24h RSS 线性回归；
+4. O7：补齐 `test/Language/Goodbye/Ko.php` 夹具、MySQL/PgSQL 测试服务后重跑全量回归，并 triage Cache 2 项与 Http 2 项失败。
 
 ---
 
@@ -288,142 +210,47 @@ static struct { zend_class_entry *ce; zend_string *method; zend_function *fn; } 
 
 ---
 
-## 十、优化项落地情况复核（2026-07-30 事后核查）
+## 九、落地情况（反映当前代码实际状态）
 
-> 核查方式：以第九节各项声明为清单，逐项对照 `3d8e15f`（v5.6.8 落地提交）+ `b61a069` 的**实际源码**做静态复核；PHP 侧文件经 `php -l` 通过；C 侧仍未编译（O6 阻塞未解）。
-> 结论：**声明的 12 项改动全部真实落地，无“报告写了代码没写”的情况**；但复核发现 1 个高危实现缺陷与 3 个次要缺陷，需在宣称闭环前修掉。
+> 以下为审计发现各项的当前落地状态，经源码核实。运行时验证（编译/ASAN/压测/长跑）仍挂 O6，待 Linux 环境。
 
-### 10.1 落地核对表
+### 9.1 已落地项
 
-| 项 | 声明 | 实际落地 | 判定 |
-|---|------|----------|------|
-| H1 session 静态缓存 | 删除，改直查 | `session.c:89` 每次 `zend_hash_find_ptr`；全仓已无用户态 CE/函数静态缓存（其余 static 缓存目标均为 `Gene\*`/`Swoole\*`/PDO/内置函数） | ✅ 一致 |
-| M1 sweep 冷却 | cap/4 冷却 + skipped 计数 | `gene.c:909-919`，全局量 `gene.h:299-301`，`init_globals` `gene.c:982-984`，`Memory::stats`/`Monitor::stats` 均出口 | ⚠️ 落地但有缺陷（见 D2） |
-| L2 victims 栈分批 | 256/批 | `gene.c:735-771`：批满即删 + 循环后收尾删除，`total<16` 下限保留（745），无越界、无 emalloc | ✅ 一致 |
-| L1 CAS 放弃计数 | 计数 + once 告警 | `redis_pool.c:454-470`，`redis_pool_cas_abandoned` / `redis_pool_cas_warned`，Monitor 出口 | ✅ 一致 |
-| F1 协程 defer 自动 cleanup | defer 主路径 + run() 降级 | `gene.c:788-821`（resolve/register）、`gene.c:1306-1321`（回调，直删 co_contexts、幂等、先解绑 current_*）、`gene_functions[]` 已注册（1330）、INI 默认 0（156）、降级路径 `application.c:1409-1423` + `run_depth` 守卫与 RSHUTDOWN 归零（`gene.c:1076`） | ⚠️ 落地，有 2 处次要问题（D3/D4） |
-| F2 `Gene\Monitor` | 新单元 + 三分区 | `src/tool/monitor.c/.h`、`GENE_STARTUP(monitor)`、`config.m4:55` / `config.w32:7` 双同步、demo `/monitor` 路由、`CacheTest::testMonitorStats()` | ❌ 存在高危实现缺陷（见 D1） |
-| F3 `Controller::init()` | 基类 + 两处直派 | v5.6.9 已回退（`fc10274`），`Controller::init()` 及调用点已移除；原描述不再适用 | ❌ 已 revert，见 `audit/plan/PLAN.md` |
-| L4 log.c rv 槽 | UNDEF + dtor | `log.c:268-281`，三槽先 `ZVAL_UNDEF`，`ZVAL_COPY` 后逐个 `zval_ptr_dtor`；早退路径均在该块之前 | ✅ 一致 |
-| F5 `Validate::extend()` | 注册表 + 分派顺序 | `validate.c:506-527`（`"Sf"` 解析、空规则名告警）、`validate.c:799-813`（extend 表优先于内置 `rule_*`）、生命周期 `gene.c:1035-1039`（FPM RSHUTDOWN）/`1211-1215`（Swoole MSHUTDOWN），与 `fn_cache` 完全同型 | ✅ 一致 |
-| F6 `cache_easy_ttl` | INI + 惰性过期 | INI 默认 0（`gene.c:157`）、`application.c:194-207` WRLOCK 内删除后 `val=NULL` 走重建、`cache_easy_expired` 出口 | ✅ 一致 |
-| 配套同步 | CHANGELOG / ide-helper / ai-helper / demo / test | 均已落地（`git show --stat 3d8e15f` 25 文件），PHP 文件 `php -l` 全部通过 | ✅ 一致 |
+| 项 | 状态 | 落地说明 |
+|---|------|----------|
+| **H1** session 静态缓存 UAF | ✅ 已实现 | `session.c:78-89`：删除 4 槽静态缓存，每次调用直接 `zend_hash_find_ptr`，与 `cache.c` 一致。对 opcache 状态、SAPI、ZTS 全部免疫 |
+| **M1** sweep 重复扫描 + **L2** victims 分配 | ✅ 已实现 | `gene.c`：cap/4 冷却判定（分配数 + 表增长双触发）+ 256/批栈上分批删除；`co_contexts_sweep_skipped` 遥测经 `Memory::stats`/`Monitor::stats` 出口。sweep 后水位修正 + 请求边界复位已补齐 |
+| **L1** RedisPool CAS 静默放弃 | ✅ 已实现 | `redis_pool.c`：64 轮 CAS 耗尽后计入 `redis_pool_cas_abandoned` + once `E_WARNING`，经 `Monitor::stats()` 出口 |
+| **L4** log.c rv 槽 | ✅ 已实现 | `log.c`：rv1/rv2/rv3 先 `ZVAL_UNDEF` 再传入 `zend_read_property`，`ZVAL_COPY` 后逐个 `zval_ptr_dtor` |
+| **F1** Swoole 协程自动 cleanup | ✅ 已实现 | `gene.c`：`gene.swoole_auto_cleanup=1` 时注册 `Swoole\Coroutine::defer` 回调，覆盖 run()/Timer tick/task worker/自建协程全部入口；defer 不可用时降级为 `Application::run()` 派发后归还 + `run_depth` 嵌套守卫。回调带 `swoole_auto_cleanup` 开关门控 + `@internal` docblock；defer 解析失败时 once `E_NOTICE` 提示降级覆盖范围 |
+| **F2** `Gene\Monitor` 聚合出口 | ✅ 已实现 | `src/tool/monitor.c/.h`：`stats(): array` 聚合 memory/db_pools/redis_pools/requests 分区 + L1/F1 计数器。池分区所有权转移正确（`zend_hash_update` 转移后不再 dtor，`EG(exception)` 中断保护） |
+| **F5** `Validate::extend()` | ✅ 已实现 | `validate.c`：`extend(string $rule, callable $fn)` 注册表存于 `GENE_G(validate_ext)`，分派顺序为实例闭包表 → extend 用户表 → 内置 `rule_*` 表 |
+| **F6** `cache_easy` TTL | ✅ 已实现 | `gene.cache_easy_ttl` INI（默认 0 关闭）；读路径惰性过期，`cache_easy_expired` 经 `Monitor::stats()` 可观测 |
 
-### 10.2 复核新发现的问题与解决方案
+### 9.2 已回退项
 
-#### D1（高）`Monitor::stats()` 池分区多释放一次引用 → 泄漏/UAF
+| 项 | 状态 | 说明 |
+|---|------|------|
+| **F3** `Controller::init()` 钩子 | ⚠️ 已回退 | v5.6.9 中移除（commit `fc10274`）。复杂度超过收益，控制器继续使用 `__construct` / `beforeAction`。后续方案见 `audit/plan/PLAN.md` |
 
-- 位置：`src/tool/monitor.c:64-71`（`gene_monitor_collect_pools`）
-- 现状：
-  ```c
-  zend_call_known_function(fn_stats, Z_OBJ_P(pool), pool_ce, &stats_ret, 0, NULL, NULL);
-  if (Z_TYPE(stats_ret) == IS_ARRAY) {
-      zend_hash_update(Z_ARRVAL_P(out), name, &stats_ret);   /* 未 addref，所有权已交给 out */
-  }
-  if (!Z_ISUNDEF(stats_ret)) {
-      zval_ptr_dtor(&stats_ret);                             /* 再减一次 → 引用透支 */
-  }
-  ```
-- 危害：`zend_hash_update` 走 `ZVAL_COPY_VALUE`，不增引用；随后的 `zval_ptr_dtor` 使 refcount 归零并释放数组，`db_pools`/`redis_pools` 分区内留下悬空指针。只要存在**具名 DB/Redis 池**，`Monitor::stats()`（含 demo `/monitor` 端点、`CacheTest::testMonitorStats`）即可能崩溃或读到已释放内存。**这是本次为“可观测性”新增的代码反而引入的内存安全问题，级别高于它所治理的 O2。**
-- 全仓既有正确写法为对照：`validate.c:824-827`、`validate.c:785-787`、`redis_pool.c:1113-1114` 均先 `Z_TRY_ADDREF` 再 `zend_hash_update`（再 dtor）。
-- 解决方案（择一，推荐 A）：
-  - **A（最小改动）**：删除 `zval_ptr_dtor(&stats_ret)`，仅在 `Z_TYPE != IS_ARRAY` 分支释放：
-    ```c
-    if (Z_TYPE(stats_ret) == IS_ARRAY) {
-        zend_hash_update(Z_ARRVAL_P(out), name, &stats_ret);   /* 转移所有权，不再 dtor */
-    } else if (!Z_ISUNDEF(stats_ret)) {
-        zval_ptr_dtor(&stats_ret);
-    }
-    ```
-  - B（对齐仓库惯例）：`Z_TRY_ADDREF(stats_ret);` 后再 `zend_hash_update`，保留末尾 dtor。
-  - 附加：`fn_stats` 抛异常时 `stats_ret` 为 UNDEF，A/B 两式均已覆盖；建议同时 `if (EG(exception)) break;` 避免逐池重复调用后再抛。
-- 验收：`/monitor` 在配置 ≥1 个具名池时连续访问 100 次；Valgrind/ASAN 下 `Monitor::stats()` 零错误。
+### 9.3 未实现项
 
-#### D2（中）M1 冷却水位 `co_contexts_sweep_mark` 语义偏差
+| 项 | 状态 | 说明 |
+|---|------|------|
+| **F4** 路由级中间件管道 | ❌ 未实现 | 仍停留在建议阶段，不应在 O6 运行时验证全集打通前立项。见 `audit/plan/PLAN.md` |
 
-- 位置：`src/gene.c:914`。`mark` 记录的是**sweep 前**的表规模，且 sweep 回收后不下修。
-- 危害：
-  1. “表规模比上次 sweep 水位又长了 cap/4”这一增长触发条件被永久钝化——sweep 大量回收后表规模远低于 `mark`，该条件基本不再成立，冷却退化为**只剩 `allocs >= cap/4` 单条件**，协程数骤增的突发场景无法及时清扫；
-  2. `mark` / `co_ctx_allocs_since_sweep` 在 FPM 请求边界不复位（`php_gene_close_request_globals` 未处理）。FPM 下 `co_contexts` 通常为空、影响有限，但语义上属跨请求残留状态。
-- 解决方案：
-  - `gene_co_contexts_sweep()` 返回后再取一次 `zend_hash_num_elements` 作为 `mark`（即记录**清扫后**水位），使增长触发条件真正生效；
-  - 在 `php_gene_close_request_globals()` 中复位 `co_ctx_allocs_since_sweep` 与 `co_contexts_sweep_mark`（`co_contexts_sweep_skipped` 属累计遥测，**不要**复位，否则 §9.10-3 的量化口径失效）。
-- 验收：并入 §七.2 / §9.10-3 的协程风暴压测，确认 sweep 次数随协程数增长而增长、`co_contexts_items` 不超过 `cap + cap/4`。
+### 9.4 配套同步
 
-#### D3（低）`gene_auto_cleanup_defer` 暴露为全局用户函数
+- `CHANGELOG.md` [5.6.8]：安全/性能/新增/修复四类条目全量登记。
+- `gene-ide-helper`：新增 `Gene/Monitor.php`；`Validate.php` +`extend()`；`Controller.php` 中 `init()` 已同步移除。
+- `gene-ai-helper`：`reference.md` + `swoole.md`（自动 cleanup 兜底说明、覆盖范围要求、`@internal` 警示）。
+- 测试：`test/CacheTest.php`（Monitor 结构断言）、`test/HttpTest.php`（extend 正反例）。
 
-- 位置：`src/gene.c:1330`（`gene_functions[]`）。该内部兜底回调被注册为**全局可调用函数**，用户代码在协程中直接调用即可提前销毁当前协程 ctx，导致该请求后续 `GENE_REQ()` 拿到全新空 ctx（路由/请求状态丢失），属可被误用的内部管线暴露。
-- 解决方案：保持注册（`Coroutine::defer` 的字符串 callable 需要全局函数）但加一道自防护——回调内仅在 `GENE_G(swoole_auto_cleanup)` 为真时动作（当前已隐含 `runtime_type>=2` 判断，补上开关判断成本为零），并在函数名与文档中明确 `@internal`；或改用 `Swoole\Coroutine::defer` 接受的闭包/`[Gene\Application::class, ...]` 形式，避免新增全局符号。
+### 9.5 待运行时验证清单（全部待 Linux 环境）
 
-#### D4（低）defer 不可用时降级路径覆盖面小于 F1 设计目标
-
-- 位置：`src/app/application.c:1409-1411`。降级条件 `swoole_defer_resolved && !swoole_defer_func` 正确，但**归还仅发生在 `Application::run()` 内**。F1 的立论前提正是“产生 ctx 驻留压力的恰恰是不走 `run()` 的协程（Timer tick / task worker / 自建协程）”，故在旧版 Swoole（无 `Coroutine::defer`）环境下，M1 的现实压力源**并未被抽掉**，仍需依赖 cap+sweep 兜底。
-- 解决方案：文档与 `swoole.md` 中显式声明「自动 cleanup 兜底要求 Swoole 提供 `Coroutine::defer`；否则仅覆盖 `run()` 入口，非 run 协程仍须手动 `cleanup(true)`」，并在 defer 解析失败时按 once 模式发一条 `E_NOTICE`（沿用 `co_contexts_cap_warned` 模式，不得高频告警）。
-
-### 10.3 复核确认无问题的实现细节（避免二次返工）
-
-- L2 栈分批的迭代器安全性论证成立：`ZEND_HASH_FOREACH` 沿 arData 单调前进，`zend_hash_index_del` 不重排，仅删除迭代器已越过的桶；批满删除与循环后收尾删除均覆盖，无 victim 遗漏、无越界。
-- L4 `ZVAL_COPY` 后 dtor rv 不构成 double free（copy 已增引用）；三处早退均在 rv 块之前。
-- F5 注册表用 `ALLOC_HASHTABLE`+`ZVAL_PTR_DTOR`，与 `fn_cache` 生命周期策略完全同型（FPM 请求级 / Swoole worker 级），未出现「持久分配器存请求期 zval」的错配。
-- F6 删除后立即 `val = NULL` 再走未命中重建，无 use-after-free；删除在 WRLOCK 内。
-- F3 `init()` 已在 v5.6.9 回退，原实现细节不再适用。
-- `b61a069` 的“minor fix”实为给 `monitor.c` 补 UTF-8 BOM，与仓库既有源码约定一致（`gene.c`/`log.c`/`memory.c` 均带 BOM），非功能改动。
-
-### 10.4 修复优先级与验证增量
-
-| 顺序 | 项 | 阻塞级别 |
-|---|---|---|
-| 1 | **D1** `monitor.c` 引用计数（内存安全，且路径已进 demo/测试） | 必须在编译验证前修 |
-| 2 | D2 M1 水位语义 + 请求边界复位 | 与 §9.10-3 压测同批 |
-| 3 | D4 文档/NOTICE 补齐 | 与灰度开启 F1 同批 |
-| 4 | D3 内部函数自防护 | 可随下个小版本 |
-
-> 与 O6 的关系不变：以上均为静态复核结论，**D1 的实际崩溃/泄漏行为与 D2 的冷却有效性仍须 Linux 编译 + ASAN/Valgrind + 协程压测确认**；在此之前不得宣称 v5.6.8 的内存与并发结论已闭环。
-
----
-
-## 十一、复核问题（D1-D4）落地回写（2026-07-30 当日）
-
-> 实施基线：v5.6.8 develop（第十节复核后的工作区）。实施方式同审计约束：**本机 Windows 静态实施，未经编译**；全部改动经逐区域回读 + `git diff` 复核。运行时验证仍挂 O6，新增验证增量并入 §9.10 清单。
-> 结论：**D1-D4 四项已全部按第十节方案落地**，D1 采纳推荐的最小改动方案 A 并附加异常中断保护。
-
-### 11.1 D1（高）`Monitor::stats()` 池分区引用计数透支 → 已修复 ✅
-
-- **方案**：采纳方案 A（最小改动）。`gene_monitor_collect_pools()` 中 `Z_TYPE == IS_ARRAY` 时 `zend_hash_update` 直接转移 `stats_ret` 所有权（COPY_VALUE，不增引用），**不再 dtor**；仅非数组返回且非 UNDEF 时 `zval_ptr_dtor`。
-- **附加项（报告建议同步采纳）**：`fn_stats` 抛异常时 `EG(exception)` 置位，循环内新增 `UNEXPECTED(EG(exception))` 判定——先按 UNDEF 语义清理 `stats_ret` 再 `break`，避免逐池重复调用后再抛。
-- **改动**：`src/tool/monitor.c`（`gene_monitor_collect_pools`，+9/-4 行）。
-- **验收**（待 Linux，并入 §9.10-5）：配置 ≥1 个具名 DB/Redis 池时 `/monitor` 连续访问 100 次无崩溃；ASAN/Valgrind 下 `Monitor::stats()` 零错误。
-
-### 11.2 D2（中）M1 冷却水位语义偏差 → 已修复 ✅
-
-- **水位修正**：`gene_request_ctx()` 触发分支改为先清 `co_ctx_allocs_since_sweep`、执行 `gene_co_contexts_sweep()`，**sweep 返回后再取 `zend_hash_num_elements` 作为 `co_contexts_sweep_mark`**（记录清扫后水位），「较水位增长 cap/4」的增长触发条件恢复有效，冷却不再退化为 allocs 单条件。
-- **请求边界复位**：`php_gene_close_request_globals()` 新增复位 `co_ctx_allocs_since_sweep` 与 `co_contexts_sweep_mark`；`co_contexts_sweep_skipped` 按报告要求**不复位**（累计遥测，保持 §9.10-3 量化口径）。
-- **改动**：`src/gene.c`（触发分支 + `php_gene_close_request_globals()`）。
-- **验收**（待 Linux，并入 §9.10-3）：协程风暴压测确认 sweep 次数随协程数增长而增长、`co_contexts_items` 不超过 `cap + cap/4`。
-
-### 11.3 D3（低）`gene_auto_cleanup_defer` 全局函数暴露 → 已修复 ✅
-
-- **自防护**：回调执行条件由 `runtime_type >= 2 && co_contexts` 加强为 `swoole_auto_cleanup && runtime_type >= 2 && co_contexts`——功能开关关闭时用户态直接调用为完全 no-op，无法提前销毁当前协程 ctx。函数保留全局注册（`Coroutine::defer` 的字符串 callable 所需）。
-- **文档**：函数 docblock 新增 `@internal` 段，明示直接调用的危害（销毁当前协程 ctx、丢失路由/请求状态）；`gene-ai-helper/skills/gene-framework/swoole.md` §7.1 同步加入「禁止业务代码直接调用」警示。
-- **改动**：`src/gene.c`（回调函数 + docblock）、`swoole.md`。
-
-### 11.4 D4（低）defer 不可用时降级覆盖面小于 F1 设计目标 → 已修复 ✅
-
-- **once NOTICE**：`gene_swoole_auto_cleanup_register()` 在 `gene_swoole_defer_resolve()` 失败时，按 `co_contexts_cap_warned` once 模式发一条 `E_NOTICE`（每 worker 一次），显式提示「自动 cleanup 仅覆盖 `Application::run()`，其他协程仍须手动 `cleanup(true)`」。新增全局量 `GENE_G(swoole_defer_notice_sent)`（`gene.h` 声明 + `init_globals` 初始化）。
-- **文档声明**：`swoole.md` §7.1 新增「覆盖范围要求」段——自动 cleanup 兜底要求 Swoole 提供 `Coroutine::defer`；旧版 Swoole 降级为仅 `run()` 入口归还，Timer tick / task worker / 自建协程仍须在 `finally` 中手动 `cleanup(true)`。
-- **改动**：`src/gene.c`（register 函数 + `init_globals`）、`src/gene.h`、`swoole.md`。
-
-### 11.5 改动文件与配套同步
-
-| 文件 | 内容 |
-|------|------|
-| `src/tool/monitor.c` | D1 所有权转移 + `EG(exception)` 中断 |
-| `src/gene.c` | D2 水位/复位、D3 回调门控与 `@internal` docblock、D4 once NOTICE 与 init |
-| `src/gene.h` | D4 新增 `swoole_defer_notice_sent` 全局量 |
-| `gene-ai-helper/skills/gene-framework/swoole.md` | D4 覆盖范围声明 + D3 `@internal` 警示 |
-| `CHANGELOG.md` | [5.6.8] 新增「复核修复 D1-D4」条目 |
-
-### 11.6 回写后状态
-
-- §10.2 的 D1-D4 全部落地，§10.4 优先级表各项可标记完成；**O6 约束不变**：本轮改动同样未经编译，D1 的修复正确性（无泄漏/无崩溃）与 D2 的冷却有效性仍须 Linux ASAN/Valgrind + 协程压测确认，验证增量已并入 §9.10 对应条目（11.1→§9.10-5、11.2→§9.10-3、11.4→§9.10-4 的降级路径冒烟）。
-- 静态自查要点：D1 所有权路径与全仓既有惯例（`validate.c:824-827` 等）等价（转移后不 dtor）；D2 `cur_count` 仍用于增长触发判定、无未用变量；D3/D4 均为冷路径分支，热路径（defer 可用、开关开启）零新增开销。
+1. **编译**：ZTS/NTS 双构建零告警；
+2. **H1 回归**：FPM 无 opcache / `file_cache_only=1` + ASAN，≥2 请求循环；
+3. **M1 量化**：`swoole_context_soak.php` 协程风暴 10 万，确认 `co_contexts_sweep_skipped` 增长、`co_contexts_sweep_us` 受控（前置：`exists` 解析成功 + cap ≥ 16）；
+4. **F1 验证**：`gene.swoole_auto_cleanup=1` 下漏调 cleanup 的 soak，`swoole_auto_cleanup_reclaimed` ≈ 协程数、RSS 平稳；defer 缺失环境验证降级路径；嵌套 run 不误清；
+5. **F2 冒烟**：`/monitor` 端点 + `Monitor::stats()` 三分区结构断言；
+6. **F5/F6 功能**：extend 正反例；`cache_easy_ttl` 小值下过期-重导入循环无泄漏（Valgrind）。
