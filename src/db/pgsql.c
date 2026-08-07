@@ -1074,9 +1074,10 @@ PHP_METHOD(gene_db_pgsql, union)
 				zval *data = zend_read_property(gene_db_pgsql_ce, gene_strip_obj(self), ZEND_STRL(GENE_DB_PGSQL_DATA), 1, NULL);
 				zval *value;
 				if (Z_TYPE_P(data) == IS_ARRAY) {
+					SEPARATE_ARRAY(data);
 					ZEND_HASH_FOREACH_VAL(Z_ARRVAL_P(sub_data), value) {
-						add_next_index_zval(data, value);
 						Z_TRY_ADDREF_P(value);
+						add_next_index_zval(data, value);
 					} ZEND_HASH_FOREACH_END();
 				} else {
 					zval params;

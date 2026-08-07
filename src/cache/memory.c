@@ -705,14 +705,21 @@ void gene_memory_get_triple(
 	HashTable *ht;
 	GENE_CACHE_RDLOCK();
 	ht = GENE_G(cache);
+	/* [GENE_FIX:2026-08-07] Apply the same TTL semantics as gene_memory_get:
+	 * an expired key must read as missing here too, otherwise the two read
+	 * paths disagree. The empty-expiry-table short-circuit in
+	 * gene_memory_expired_nolock keeps this free for non-TTL deployments. */
 	if (out1) {
-		*out1 = (k1 && k1_len) ? zend_symtable_str_find(ht, (char *)k1, k1_len) : NULL;
+		*out1 = (k1 && k1_len && !gene_memory_expired_nolock(k1, k1_len))
+			? zend_symtable_str_find(ht, (char *)k1, k1_len) : NULL;
 	}
 	if (out2) {
-		*out2 = (k2 && k2_len) ? zend_symtable_str_find(ht, (char *)k2, k2_len) : NULL;
+		*out2 = (k2 && k2_len && !gene_memory_expired_nolock(k2, k2_len))
+			? zend_symtable_str_find(ht, (char *)k2, k2_len) : NULL;
 	}
 	if (out3) {
-		*out3 = (k3 && k3_len) ? zend_symtable_str_find(ht, (char *)k3, k3_len) : NULL;
+		*out3 = (k3 && k3_len && !gene_memory_expired_nolock(k3, k3_len))
+			? zend_symtable_str_find(ht, (char *)k3, k3_len) : NULL;
 	}
 	GENE_CACHE_RDUNLOCK();
 }

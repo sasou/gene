@@ -809,7 +809,15 @@ PHP_METHOD(gene_response, sendFile) {
 		 * and the FPM path used to read the whole file into one zend_string,
 		 * which OOMs on large files — stream in 8KB chunks instead.
 		 * [GENE_FIX:2026-08-07-5] plain files only (EX_USE_URL / wrappers rejected) to
-		 * close the SSRF surface when $file is derived from user input. */
+		 * close the SSRF surface when $file is derived from user input.
+		 * REPORT_ERRORS alone does not gate the wrapper — reject anything that
+		 * is not the plain files wrapper (php://filter, data://, and http://
+		 * under allow_url_fopen=On would otherwise pass through). */
+		php_stream_wrapper *wrapper = php_stream_locate_url_wrapper(ZSTR_VAL(file), NULL, STREAM_LOCATE_WRAPPERS_ONLY);
+		if (!wrapper || wrapper != &php_plain_files_wrapper) {
+			php_error_docref(NULL, E_WARNING, "sendFile() only accepts local file paths");
+			RETURN_FALSE;
+		}
 		php_stream *stream = php_stream_open_wrapper_ex(ZSTR_VAL(file), "rb", REPORT_ERRORS, NULL, NULL);
 		if (!stream) {
 			RETURN_FALSE;

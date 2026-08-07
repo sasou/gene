@@ -207,11 +207,13 @@ zval *gene_di_get(zend_string *name) {
 
 	if (cache && Z_TYPE_P(cache) == IS_ARRAY) {
     	if ((class = zend_hash_str_find(Z_ARRVAL_P(cache), "class", 5)) == NULL) {
+    		 zend_string_release(resolved_name);
     		 php_error_docref(NULL, E_ERROR, "Factory need a valid class.");
     		 return NULL;
     	}
     	if ((params = zend_hash_str_find(Z_ARRVAL_P(cache), "params", 6)) != NULL) {
     		 if (Z_TYPE_P(params) != IS_ARRAY) {
+	    		 zend_string_release(resolved_name);
 	    		 php_error_docref(NULL, E_ERROR, "Factory need a array param.");
 	    		 return NULL;
     		 }

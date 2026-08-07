@@ -2171,6 +2171,14 @@ void get_router_content_run(char *methodin, char *pathin, const char *safe_str, 
 	 zval *cache = NULL, *conf = NULL, *temp = NULL, *lead = NULL;
 	 gene_request_context *ctx = gene_request_ctx();
 	 size_t i;
+	 /* [GENE_FIX:2026-08-07] match() walks the same trie as dispatch and therefore
+	  * runs setMca()/gene_router_set_uri(), which mutate the live request context.
+	  * A probe called mid-request must not leak module/controller/action/path_params/
+	  * router_path into the real dispatch, so we save them here and restore them
+	  * after matching. Only pointer/len swap — no data copies. */
+	 char *saved_module = NULL, *saved_controller = NULL, *saved_action = NULL, *saved_router_path = NULL;
+	 size_t saved_module_len = 0, saved_controller_len = 0, saved_action_len = 0, saved_router_path_len = 0;
+	 zval saved_path_params;
 
 	 if (zend_parse_parameters(ZEND_NUM_ARGS(), "SS", &methodin, &pathin) == FAILURE) {
 		 RETURN_FALSE;
@@ -2179,10 +2187,32 @@ void get_router_content_run(char *methodin, char *pathin, const char *safe_str, 
 		 RETURN_FALSE;
 	 }
 
+	 saved_module = ctx->module;             saved_module_len = ctx->module_len;
+	 saved_controller = ctx->controller;     saved_controller_len = ctx->controller_len;
+	 saved_action = ctx->action;             saved_action_len = ctx->action_len;
+	 saved_router_path = ctx->router_path;   saved_router_path_len = ctx->router_path_len;
+	 saved_path_params = ctx->path_params;
+	 ctx->module = NULL;
+	 ctx->controller = NULL;
+	 ctx->action = NULL;
+	 ctx->router_path = NULL;
+	 ZVAL_UNDEF(&ctx->path_params);
+
+	 /* [GENE_FIX:2026-08-07] Mirror dispatch's safe-prefix resolution: fall back
+	  * to app_key / app_root when the instance has no explicit safe value. Without
+	  * this, a Router built without an explicit safe prefix queries a different
+	  * cache key than dispatch and match() disagrees with what run() would do —
+	  * defeating match()'s purpose as a dispatch-equivalent for unit tests. */
 	 safe = zend_read_property(gene_router_ce, gene_strip_obj(self), GENE_ROUTER_SAFE, strlen(GENE_ROUTER_SAFE), 1, NULL);
 	 if (safe && Z_TYPE_P(safe) == IS_STRING && Z_STRLEN_P(safe) > 0) {
 		 safe_str = Z_STRVAL_P(safe);
 		 safe_len = Z_STRLEN_P(safe);
+	 } else if (GENE_G(app_key)) {
+		 safe_str = GENE_G(app_key);
+		 safe_len = GENE_G(app_key_len);
+	 } else if (GENE_G(app_root)) {
+		 safe_str = GENE_G(app_root);
+		 safe_len = GENE_G(app_root_len);
 	 }
 
 	 /* Lowercase the method (same as get_router_content_run's explicit path). */
@@ -2261,13 +2291,19 @@ void get_router_content_run(char *methodin, char *pathin, const char *safe_str, 
 	 efree(path);
 
 	 if (!lead || Z_TYPE_P(lead) != IS_ARRAY) {
+		 /* No match — nothing was captured; restore the request context untouched. */
+		 ctx->module = saved_module;             ctx->module_len = saved_module_len;
+		 ctx->controller = saved_controller;     ctx->controller_len = saved_controller_len;
+		 ctx->action = saved_action;             ctx->action_len = saved_action_len;
+		 ctx->router_path = saved_router_path;   ctx->router_path_len = saved_router_path_len;
+		 ctx->path_params = saved_path_params;
 		 RETURN_FALSE;
 	 }
 
-	 /* Populate ctx->router_path so getRouterUri() reflects the matched route,
-	  * mirroring what dispatch would resolve. */
-	 gene_router_set_uri(&lead);
-
+	 /* Build the result from the values the match captured, then restore the
+	  * request context so this probe leaves no trace for the real dispatch.
+	  * The matched URI is read straight from the leaf's "key" rather than via
+	  * gene_router_set_uri() so ctx->router_path is left alone. */
 	 array_init(return_value);
 	 if (ctx->module) {
 		 add_assoc_stringl(return_value, "module", ctx->module, ctx->module_len);
@@ -2292,6 +2328,27 @@ void get_router_content_run(char *methodin, char *pathin, const char *safe_str, 
 		 ZVAL_COPY(&lcopy, lead);
 		 add_assoc_zval_ex(return_value, ZEND_STRL("route"), &lcopy);
 	 }
+	 /* Resolve the matched route's URI key directly from the leaf instead of
+	  * via gene_router_set_uri() so we don't touch ctx->router_path. */
+	 {
+		 zval *key = zend_hash_str_find(Z_ARRVAL_P(lead), "key", 3);
+		 if (key && Z_TYPE_P(key) == IS_STRING) {
+			 add_assoc_stringl(return_value, "router_path", Z_STRVAL_P(key), Z_STRLEN_P(key));
+		 }
+	 }
+
+	 /* Free the buffers the match allocated and restore the saved context. */
+	 if (ctx->module) efree(ctx->module);
+	 if (ctx->controller) efree(ctx->controller);
+	 if (ctx->action) efree(ctx->action);
+	 if (Z_TYPE(ctx->path_params) == IS_ARRAY) {
+		 zval_ptr_dtor(&ctx->path_params);
+	 }
+	 ctx->module = saved_module;             ctx->module_len = saved_module_len;
+	 ctx->controller = saved_controller;     ctx->controller_len = saved_controller_len;
+	 ctx->action = saved_action;             ctx->action_len = saved_action_len;
+	 ctx->router_path = saved_router_path;   ctx->router_path_len = saved_router_path_len;
+	 ctx->path_params = saved_path_params;
  }
  /* }}} */
  

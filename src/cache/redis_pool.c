@@ -39,6 +39,11 @@ zend_class_entry *gene_redis_pool_ce;
  * property read + array hash lookup) on every Redis command. Lifetime is tied
  * to the static instances registry: inserted in create(), cleared in closeAll()
  * and at MSHUTDOWN. Refcount is owned by the static instances array. */
+/* [GENE_FIX:2026-08-07] Persistent heap, mirroring db/pool.c: this table
+ * is process-lifetime (cleared only by closeAll()/MSHUTDOWN, never at
+ * RSHUTDOWN and never reset to NULL), so an emalloc'd request-heap HT would
+ * be left dangling across requests on a multi-request SAPI. See the
+ * matching fix in db/pool.c. */
 static HashTable *gene_redis_pool_named_cache = NULL;
 
 static inline zend_object *gene_redis_pool_named_cache_get(zend_string *name) {
@@ -48,8 +53,8 @@ static inline zend_object *gene_redis_pool_named_cache_get(zend_string *name) {
 
 static inline void gene_redis_pool_named_cache_put(zend_string *name, zend_object *obj) {
     if (!gene_redis_pool_named_cache) {
-        ALLOC_HASHTABLE(gene_redis_pool_named_cache);
-        zend_hash_init(gene_redis_pool_named_cache, 8, NULL, NULL, 0);
+        PALLOC_HASHTABLE(gene_redis_pool_named_cache);
+        zend_hash_init(gene_redis_pool_named_cache, 8, NULL, NULL, 1);
     }
     zend_hash_update_ptr(gene_redis_pool_named_cache, name, obj);
 }
@@ -57,7 +62,7 @@ static inline void gene_redis_pool_named_cache_put(zend_string *name, zend_objec
 static inline void gene_redis_pool_named_cache_clear(void) {
     if (gene_redis_pool_named_cache) {
         zend_hash_destroy(gene_redis_pool_named_cache);
-        FREE_HASHTABLE(gene_redis_pool_named_cache);
+        pefree(gene_redis_pool_named_cache, 1);
         gene_redis_pool_named_cache = NULL;
     }
 }
@@ -424,6 +429,49 @@ static zend_bool rpool_atomic_cmpset(zval *atomic, zend_function *fn_cmpset, zen
     return ok;
 }
 
+/* [GENE_FIX:2026-08-07] Extracted CAS decrement loop so put() can reuse a
+ * caller-supplied fresh reading (`known_val`) for both the overflow check and
+ * the decrement — mirroring pool_decrement_count_cas in db/pool.c
+ * ([GENE_PERF:2026-08-06 PF1]). Pass known_val = -1 to read fresh. A stale
+ * reading is safe: a failed cmpset re-reads and retries. */
+static void rpool_decrement_count_cas(zval *atomic, zend_function *fn_get, zend_function *fn_cmpset, zend_long known_val)
+{
+    int rounds = 0;
+    zend_bool abandoned = 1;
+    zend_long val = known_val;
+    while (rounds++ < 64) {
+        if (val < 0) {
+            zval ret;
+            ZVAL_UNDEF(&ret);
+            rpool_atomic_call_fn(atomic, fn_get, 0, &ret);
+            val = (Z_TYPE(ret) == IS_LONG) ? Z_LVAL(ret) : 0;
+            if (!Z_ISUNDEF(ret)) zval_ptr_dtor(&ret);
+        }
+        if (val <= 0) { abandoned = 0; break; }
+        if (rpool_atomic_cmpset(atomic, fn_cmpset, val, val - 1)) { abandoned = 0; break; }
+        /* cmpset failed — another coroutine raced us; re-read and retry */
+        val = -1;
+    }
+    if (abandoned) {
+        /* [GENE_AUDIT:2026-07-30 L1] 64 CAS rounds exhausted: the counter
+         * stays one higher than reality. Previously this gave up silently,
+         * making a skewed counter unobservable. Under Swoole's cooperative
+         * scheduling Atomic get/cmpset never yields, so this is practically
+         * unreachable — a defense gap, not a live bug. No bare E_WARNING on
+         * every occurrence (long-running workers would drown in logs):
+         * count it (exported as redis_pool_cas_abandoned in
+         * Gene\Monitor::stats) and warn once via the
+         * co_contexts_cap_warned-style once pattern (0 -> 1 transition). */
+        if (GENE_G(redis_pool_cas_abandoned) == 0 && !GENE_G(redis_pool_cas_warned)) {
+            php_error_docref(NULL, E_WARNING,
+                "Gene: RedisPool count CAS decrement abandoned after 64 rounds; "
+                "counter may read high (see Gene\\Monitor::stats redis_pool_cas_abandoned)");
+            GENE_G(redis_pool_cas_warned) = 1;
+        }
+        GENE_G(redis_pool_cas_abandoned)++;
+    }
+}
+
 static void rpool_decrement_count(zval *self)
 {
     zval *atomic = zend_read_property(gene_redis_pool_ce, gene_strip_obj(self),
@@ -436,41 +484,26 @@ static void rpool_decrement_count(zval *self)
             fn_get = zend_hash_str_find_ptr(&Z_OBJCE_P(atomic)->function_table, ZEND_STRL("get"));
             fn_cmpset = zend_hash_str_find_ptr(&Z_OBJCE_P(atomic)->function_table, ZEND_STRL("cmpset"));
         }
-        if (!fn_get || !fn_cmpset) return;  /* Swoole\Atomic unavailable */
-
-        /* CAS loop: read val, if >0 atomically set val-1, retry on contention. */
-        int rounds = 0;
-        zend_bool abandoned = 1;
-        while (rounds++ < 64) {
+        /* [GENE_FIX:2026-08-07] cmpset unavailable (stubbed Atomic): fall back
+         * to legacy get→sub, mirroring db/pool.c. Returning here would leave
+         * the counter monotonically rising until the pool reads as permanently
+         * saturated — the decrement must still happen, just non-atomically. */
+        if (!fn_get || !fn_cmpset) {
             zval ret;
             ZVAL_UNDEF(&ret);
-            rpool_atomic_call_fn(atomic, fn_get, 0, &ret);
+            RPOOL_ATOMIC_CALL(atomic, "get", 0, &ret);
             zend_long val = (Z_TYPE(ret) == IS_LONG) ? Z_LVAL(ret) : 0;
             if (!Z_ISUNDEF(ret)) zval_ptr_dtor(&ret);
-            if (val <= 0) { abandoned = 0; break; }
-            if (rpool_atomic_cmpset(atomic, fn_cmpset, val, val - 1)) { abandoned = 0; break; }
-            /* cmpset failed — another coroutine raced us; retry */
-        }
-        if (abandoned) {
-            /* [GENE_AUDIT:2026-07-30 L1] 64 CAS rounds exhausted: the counter
-             * stays one higher than reality. Previously this gave up silently,
-             * making a skewed counter unobservable. Under Swoole's cooperative
-             * scheduling Atomic get/cmpset never yields, so this is practically
-             * unreachable — a defense gap, not a live bug. No bare E_WARNING on
-             * every occurrence (long-running workers would drown in logs):
-             * count it (exported as redis_pool_cas_abandoned in
-             * Gene\Monitor::stats) and warn once via the
-             * co_contexts_cap_warned-style once pattern (0 -> 1 transition). */
-            if (GENE_G(redis_pool_cas_abandoned) == 0 && !GENE_G(redis_pool_cas_warned)) {
-                php_error_docref(NULL, E_WARNING,
-                    "Gene: RedisPool count CAS decrement abandoned after 64 rounds; "
-                    "counter may read high (see Gene\\Monitor::stats redis_pool_cas_abandoned)");
-                GENE_G(redis_pool_cas_warned) = 1;
+            if (val > 0) {
+                RPOOL_ATOMIC_CALL(atomic, "sub", 1, NULL);
             }
-            GENE_G(redis_pool_cas_abandoned)++;
+            return;
         }
+
+        rpool_decrement_count_cas(atomic, fn_get, fn_cmpset, -1);
     }
 }
+/* }}} */
 
 /* [GENE_PERF:2026-04-27] Unchecked decrement — caller already knows it just
  * incremented the counter (rollback path), so the floor check + extra atomic
@@ -1291,14 +1324,49 @@ PHP_METHOD(gene_redis_pool, put)
     /* Skip liveness check — dead connections are caught by recycleIdle().
      * Avoiding Redis::ping() saves one network RT per put(). */
 
-    /* Auto-shrink overflow: discard connections above max */
+    /* [GENE_PERF:2026-08-07 PF1, ported from db/pool.c] Merge the overflow
+     * count read with the CAS decrement so a normal return costs 2 PHP
+     * crossings (Atomic::get + Channel::push) and the overflow/discard branch
+     * 2 as well (get + cmpset), instead of the previous get + (get + cmpset).
+     * The single get's value feeds both the >max comparison and the CAS loop
+     * via known_val. */
+    {
+        zval *atomic = zend_read_property(gene_redis_pool_ce, gene_strip_obj(self),
+                                          ZEND_STRL(GENE_REDIS_POOL_PROPERTY_COUNT), 1, NULL);
+        static zend_function *fn_get = NULL;
+        static zend_function *fn_cmpset = NULL;
+        if (atomic && Z_TYPE_P(atomic) == IS_OBJECT) {
+            if (UNEXPECTED(!fn_get)) {
+                fn_get = zend_hash_str_find_ptr(&Z_OBJCE_P(atomic)->function_table, ZEND_STRL("get"));
+                fn_cmpset = zend_hash_str_find_ptr(&Z_OBJCE_P(atomic)->function_table, ZEND_STRL("cmpset"));
+            }
+            if (fn_get && fn_cmpset) {
+                zval ret;
+                zend_long cur;
+                ZVAL_UNDEF(&ret);
+                rpool_atomic_call_fn(atomic, fn_get, 0, &ret);
+                cur = (Z_TYPE(ret) == IS_LONG) ? Z_LVAL(ret) : 0;
+                if (!Z_ISUNDEF(ret)) zval_ptr_dtor(&ret);
+                if (cur > rpool_get_max(self)) {
+                    /* Auto-shrink overflow: discard connections above max */
+                    rpool_decrement_count_cas(atomic, fn_get, fn_cmpset, cur);
+                    return;
+                }
+                if (!rpool_channel_push(channel, redis)) {
+                    /* Channel is full or push failed */
+                    rpool_decrement_count_cas(atomic, fn_get, fn_cmpset, cur);
+                }
+                return;
+            }
+        }
+    }
+
+    /* Fallback: Atomic/cmpset unavailable (stubbed Atomic). */
     if (rpool_get_count(self) > rpool_get_max(self)) {
         rpool_decrement_count(self);
         return;
     }
-
     if (!rpool_channel_push(channel, redis)) {
-        /* Push failed (e.g. channel already closed) */
         rpool_decrement_count(self);
     }
 }

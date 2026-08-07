@@ -39,19 +39,13 @@
  * to the static instances registry: inserted in Pool::create, cleared in
  * Pool::closeAll. Refcount is owned by the static `instances` array.
  *
- * [GENE_AUDIT:2026-04-28 LOW]
- * Allocated via emalloc (request-scope). In FPM/CLI the cache is freed at
- * request end and rebuilt next request — fine. In Swoole worker the
- * emalloc heap survives across requests (Swoole disables per-request GC),
- * so the cache persists with `instances`. Two latent caveats:
- *   1. No MSHUTDOWN handler clears it; relies on closeAll() being called
- *      on worker stop.  If a worker dies hard (signal), the HT is leaked
- *      to PHP's MM cleanup — harmless but ugly under valgrind.
- *   2. If runtime_type changes within a process (currently impossible —
- *      decided once at MINIT), the cache may outlive `instances` and
- *      hold dangling pointers.
- * Convert to pemalloc + zend_hash_init persistent if either becomes
- * possible. */
+ * [GENE_FIX:2026-08-07] Allocated via pemalloc (persistent) rather than
+ * emalloc. The previous request-scope allocation was only cleared by
+ * closeAll() and MSHUTDOWN, never at RSHUTDOWN and never reset to NULL —
+ * so on a multi-request SAPI with ext-swoole loaded but not in Server
+ * mode (runtime_type < 2 does not gate the pool constructor), a second
+ * request would dereference a HashTable already reclaimed by the request
+ * heap. A process-lifetime table must live on the persistent heap. */
 static HashTable *gene_pool_named_cache = NULL;
 
  static inline zend_object *gene_pool_named_cache_get(zend_string *name) {
@@ -61,8 +55,8 @@ static HashTable *gene_pool_named_cache = NULL;
 
  static inline void gene_pool_named_cache_put(zend_string *name, zend_object *obj) {
      if (!gene_pool_named_cache) {
-         ALLOC_HASHTABLE(gene_pool_named_cache);
-         zend_hash_init(gene_pool_named_cache, 8, NULL, NULL, 0);
+         PALLOC_HASHTABLE(gene_pool_named_cache);
+         zend_hash_init(gene_pool_named_cache, 8, NULL, NULL, 1);
      }
      zend_hash_update_ptr(gene_pool_named_cache, name, obj);
  }
@@ -70,7 +64,7 @@ static HashTable *gene_pool_named_cache = NULL;
  static inline void gene_pool_named_cache_clear(void) {
      if (gene_pool_named_cache) {
          zend_hash_destroy(gene_pool_named_cache);
-         FREE_HASHTABLE(gene_pool_named_cache);
+         pefree(gene_pool_named_cache, 1);
          gene_pool_named_cache = NULL;
      }
  }

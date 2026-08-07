@@ -1085,9 +1085,14 @@ PHP_METHOD(gene_db_mysql, union)
 				zval *data = zend_read_property(gene_db_mysql_ce, gene_strip_obj(self), ZEND_STRL(GENE_DB_MYSQL_DATA), 1, NULL);
 				zval *value;
 				if (Z_TYPE_P(data) == IS_ARRAY) {
+					/* [GENE_FIX:2026-08-07] Separate before mutating: the data
+					 * array may be shared (refcount>1) with userland, and
+					 * add_next_index_zval takes ownership before we addref —
+					 * addref first so a failed insert cannot leave a dangling ref. */
+					SEPARATE_ARRAY(data);
 					ZEND_HASH_FOREACH_VAL(Z_ARRVAL_P(sub_data), value) {
-						add_next_index_zval(data, value);
 						Z_TRY_ADDREF_P(value);
+						add_next_index_zval(data, value);
 					} ZEND_HASH_FOREACH_END();
 				} else {
 					zval params;
