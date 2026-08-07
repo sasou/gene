@@ -402,4 +402,26 @@ class Application
 
     }
 
+    /**
+     * stop
+     * Signal the router to stop dispatching the current request. After a
+     * before-hook or controller action calls stop(), the router skips the
+     * remaining action and after-hooks. The flag is per-request.
+     *
+     * @return $this
+     */
+    public function stop() {
+
+    }
+
+    /**
+     * isStopped
+     * Returns true if stop() has been called during the current request.
+     *
+     * @return bool
+     */
+    public static function isStopped() {
+
+    }
+
 }

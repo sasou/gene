@@ -386,6 +386,24 @@ class HttpTest
     }
     
     /**
+     * [GENE_FEATURE:2026-08-07] Test Request::isSecure()
+     */
+    public function testIsSecure()
+    {
+        echo "Testing Request isSecure():\n";
+
+        try {
+            $request = new \Gene\Request();
+            $secure = $request->isSecure();
+            echo "✓ isSecure() returns: " . var_export($secure, true) . "\n";
+        } catch (Exception $e) {
+            echo "✗ Error: " . $e->getMessage() . "\n";
+        }
+
+        echo "\n";
+    }
+
+    /**
      * Run all tests
      */
     public function runAllTests()
@@ -396,6 +414,7 @@ class HttpTest
         $this->testHttpWorkflowIntegration();
         $this->testHttpSecurityFeatures();
         $this->testHttpPerformance();
+        $this->testIsSecure();
         
         echo "=== HTTP Classes Test Suite Complete ===\n";
     }

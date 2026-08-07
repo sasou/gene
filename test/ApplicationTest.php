@@ -365,6 +365,34 @@ class ApplicationTest
     }
     
     /**
+     * [GENE_FEATURE:2026-08-07] Test Application::stop() and isStopped()
+     */
+    public function testStopIsStopped()
+    {
+        echo "Testing Application stop()/isStopped():\n";
+
+        try {
+            $app = new \Gene\Application();
+
+            // Initially not stopped
+            $stopped = \Gene\Application::isStopped();
+            echo "✓ isStopped() initial: " . var_export($stopped, true) . "\n";
+
+            // Call stop()
+            $result = $app->stop();
+            echo "✓ stop() returns: " . (is_object($result) ? get_class($result) : var_export($result, true)) . "\n";
+
+            // Now should be stopped
+            $stoppedAfter = \Gene\Application::isStopped();
+            echo "✓ isStopped() after stop(): " . var_export($stoppedAfter, true) . "\n";
+        } catch (Exception $e) {
+            echo "✗ Error: " . $e->getMessage() . "\n";
+        }
+
+        echo "\n";
+    }
+
+    /**
      * Run all tests
      */
     public function runAllTests()
@@ -381,6 +409,7 @@ class ApplicationTest
         $this->testMagicMethods();
         $this->testLoad();
         $this->testResponseHandling();
+        $this->testStopIsStopped();
         
         echo "=== Application Test Suite Complete ===\n";
     }

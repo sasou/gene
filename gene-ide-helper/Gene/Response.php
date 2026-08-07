@@ -163,4 +163,38 @@ class Response
 
     }
 
+    /**
+     * getStatusCode
+     * Returns the HTTP status code of the current response.
+     *
+     * @return int
+     */
+    public function getStatusCode() {
+
+    }
+
+    /**
+     * isSent
+     * Returns true if the response has already been sent to the client.
+     *
+     * @return bool
+     */
+    public function isSent() {
+
+    }
+
+    /**
+     * sendFile
+     * Send a file to the client with appropriate headers for download or
+     * inline display.
+     *
+     * @param string $path absolute path to the file
+     * @param string|null $filename download filename (defaults to basename)
+     * @param array $headers additional HTTP headers
+     * @return $this
+     */
+    public function sendFile(string $path, string $filename = null, array $headers = []) {
+
+    }
+
 }

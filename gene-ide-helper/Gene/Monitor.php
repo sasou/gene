@@ -40,4 +40,25 @@ class Monitor
 
     }
 
+    /**
+     * reset
+     * Reset all accumulated monitor counters (request_count, error_count,
+     * slow_query_count, db stats, cache stats) to zero.
+     *
+     * @return void
+     */
+    public static function reset() {
+
+    }
+
+    /**
+     * exportPrometheus
+     * Export monitor metrics in Prometheus text exposition format.
+     *
+     * @return string Prometheus-formatted text
+     */
+    public static function exportPrometheus() {
+
+    }
+
 }

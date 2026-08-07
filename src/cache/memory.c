@@ -62,6 +62,15 @@ ZEND_BEGIN_ARG_INFO_EX(gene_memory_arg_del, 0, 0, 1)
 	ZEND_ARG_INFO(0, key)
 ZEND_END_ARG_INFO()
 
+ZEND_BEGIN_ARG_INFO_EX(gene_memory_arg_mget, 0, 0, 1)
+	ZEND_ARG_INFO(0, keys)
+ZEND_END_ARG_INFO()
+
+ZEND_BEGIN_ARG_INFO_EX(gene_memory_arg_mset, 0, 0, 1)
+	ZEND_ARG_INFO(0, values)
+    ZEND_ARG_INFO(0, ttl)
+ZEND_END_ARG_INFO()
+
 /* }}} */
 
 static zend_string* gene_str_persistent(const char *str, size_t len) /* {{{ */{
@@ -1215,6 +1224,82 @@ PHP_METHOD(gene_memory, decr) {
 /* }}} */
 
 /*
+ * {{{ public gene_memory::mget(array $keys): array
+ * [GENE_FEATURE:2026-08-07] Batch read. Returns an assoc array mapping each
+ * requested key to its value (null on miss), preserving request order.
+ * Hit/miss telemetry is counted per key, same as get().
+ */
+PHP_METHOD(gene_memory, mget) {
+	zval *keys, *entry, *safe;
+	zend_string *orig_key;
+	zend_ulong num_idx;
+	char stack_buf[256];
+	if (zend_parse_parameters(ZEND_NUM_ARGS(), "a", &keys) == FAILURE) {
+		return;
+	}
+	safe = zend_read_property(gene_memory_ce, gene_strip_obj(getThis()), GENE_MEMORY_SAFE, strlen(GENE_MEMORY_SAFE), 1, NULL);
+	array_init(return_value);
+	ZEND_HASH_FOREACH_KEY_VAL(Z_ARRVAL_P(keys), num_idx, orig_key, entry) {
+		char *router_e;
+		size_t router_e_len;
+		int router_e_heap = 0;
+		zval *zvalue, item;
+		if (!orig_key) {
+			/* Numeric-keyed list of key names: the entry value is the key. */
+			if (Z_TYPE_P(entry) != IS_STRING) {
+				continue;
+			}
+			orig_key = Z_STR_P(entry);
+		} else if (ZSTR_LEN(orig_key) == 0) {
+			continue;
+		}
+		router_e = gene_memory_build_key(safe, orig_key, stack_buf, sizeof(stack_buf), &router_e_len, &router_e_heap);
+		zvalue = gene_memory_get(router_e, router_e_len);
+		if (router_e_heap) efree(router_e);
+		if (zvalue) {
+			GENE_G(memory_cache_hit)++;
+			gene_memory_zval_local(&item, zvalue);
+		} else {
+			GENE_G(memory_cache_miss)++;
+			ZVAL_NULL(&item);
+		}
+		zend_hash_update(Z_ARRVAL_P(return_value), orig_key, &item);
+	} ZEND_HASH_FOREACH_END();
+}
+/* }}} */
+
+/*
+ * {{{ public gene_memory::mset(array $values, int $ttl = 0): bool
+ * [GENE_FEATURE:2026-08-07] Batch write. Each assoc entry is stored under its
+ * (safe-prefixed) key via the same gene_memory_set() path as set(), including
+ * the workerReady() freeze guard. Non-string keys are skipped.
+ */
+PHP_METHOD(gene_memory, mset) {
+	zval *values, *entry, *safe;
+	zend_string *orig_key;
+	zend_ulong num_idx;
+	zend_long validity = 0;
+	char stack_buf[256];
+	if (zend_parse_parameters(ZEND_NUM_ARGS(), "a|l", &values, &validity) == FAILURE) {
+		return;
+	}
+	safe = zend_read_property(gene_memory_ce, gene_strip_obj(getThis()), GENE_MEMORY_SAFE, strlen(GENE_MEMORY_SAFE), 1, NULL);
+	ZEND_HASH_FOREACH_KEY_VAL(Z_ARRVAL_P(values), num_idx, orig_key, entry) {
+		char *router_e;
+		size_t router_e_len;
+		int router_e_heap = 0;
+		if (!orig_key || ZSTR_LEN(orig_key) == 0) {
+			continue;
+		}
+		router_e = gene_memory_build_key(safe, orig_key, stack_buf, sizeof(stack_buf), &router_e_len, &router_e_heap);
+		gene_memory_set(router_e, router_e_len, entry, (int)validity);
+		if (router_e_heap) efree(router_e);
+	} ZEND_HASH_FOREACH_END();
+	RETURN_TRUE;
+}
+/* }}} */
+
+/*
  * {{{ public gene_memory::clean()
  */
 PHP_METHOD(gene_memory, clean) {
@@ -1304,6 +1389,9 @@ const zend_function_entry gene_memory_methods[] = {
 	PHP_ME(gene_memory, del, gene_memory_arg_del, ZEND_ACC_PUBLIC)
 	PHP_ME(gene_memory, incr, gene_memory_arg_incr, ZEND_ACC_PUBLIC)
 	PHP_ME(gene_memory, decr, gene_memory_arg_incr, ZEND_ACC_PUBLIC)
+	/* [GENE_FEATURE:2026-08-07] Batch read/write. */
+	PHP_ME(gene_memory, mget, gene_memory_arg_mget, ZEND_ACC_PUBLIC)
+	PHP_ME(gene_memory, mset, gene_memory_arg_mset, ZEND_ACC_PUBLIC)
 	PHP_ME(gene_memory, clean, gene_memory_void_arginfo, ZEND_ACC_PUBLIC)
 	PHP_ME(gene_memory, stats, gene_memory_void_arginfo, ZEND_ACC_PUBLIC)
 	{ NULL, NULL, NULL }

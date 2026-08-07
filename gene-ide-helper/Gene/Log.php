@@ -15,6 +15,9 @@ class Log
     const LEVEL_NOTICE  = 3;
     const LEVEL_WARNING = 4;
     const LEVEL_ERROR   = 5;
+    const LEVEL_CRITICAL  = 6;
+    const LEVEL_ALERT     = 7;
+    const LEVEL_EMERGENCY = 8;
 
     /**
      * @var string|null
@@ -30,9 +33,10 @@ class Log
      * debug
      * 
      * @param string $message
+     * @param array $context structured context data (JSON-encoded in log line)
      * @return void
      */
-    public static function debug(string $message) {
+    public static function debug(string $message, array $context = []) {
 
     }
 
@@ -40,9 +44,10 @@ class Log
      * info
      * 
      * @param string $message
+     * @param array $context structured context data (JSON-encoded in log line)
      * @return void
      */
-    public static function info(string $message) {
+    public static function info(string $message, array $context = []) {
 
     }
 
@@ -50,9 +55,10 @@ class Log
      * notice
      * 
      * @param string $message
+     * @param array $context structured context data (JSON-encoded in log line)
      * @return void
      */
-    public static function notice(string $message) {
+    public static function notice(string $message, array $context = []) {
 
     }
 
@@ -60,9 +66,10 @@ class Log
      * warning
      * 
      * @param string $message
+     * @param array $context structured context data (JSON-encoded in log line)
      * @return void
      */
-    public static function warning(string $message) {
+    public static function warning(string $message, array $context = []) {
 
     }
 
@@ -70,9 +77,46 @@ class Log
      * error
      * 
      * @param string $message
+     * @param array $context structured context data (JSON-encoded in log line)
      * @return void
      */
-    public static function error(string $message) {
+    public static function error(string $message, array $context = []) {
+
+    }
+
+    /**
+     * critical
+     * Log a critical-level message (RFC-5424 severity above ERROR).
+     *
+     * @param string $message
+     * @param array $context structured context data (JSON-encoded in log line)
+     * @return void
+     */
+    public static function critical(string $message, array $context = []) {
+
+    }
+
+    /**
+     * alert
+     * Log an alert-level message (RFC-5424 severity).
+     *
+     * @param string $message
+     * @param array $context structured context data (JSON-encoded in log line)
+     * @return void
+     */
+    public static function alert(string $message, array $context = []) {
+
+    }
+
+    /**
+     * emergency
+     * Log an emergency-level message (RFC-5424 severity, highest).
+     *
+     * @param string $message
+     * @param array $context structured context data (JSON-encoded in log line)
+     * @return void
+     */
+    public static function emergency(string $message, array $context = []) {
 
     }
 

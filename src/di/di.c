@@ -105,12 +105,55 @@ ZEND_BEGIN_ARG_INFO_EX(gene_di_instance_arginfo, 0, 0, 1)
 	ZEND_ARG_INFO(0, class)
 	ZEND_ARG_INFO(0, params)
 ZEND_END_ARG_INFO()
+
+ZEND_BEGIN_ARG_INFO_EX(gene_di_alias_arginfo, 0, 0, 2)
+	ZEND_ARG_INFO(0, name)
+	ZEND_ARG_INFO(0, alias)
+ZEND_END_ARG_INFO()
 /* }}} */
+
+/* [GENE_FEATURE:2026-08-07 Di::alias] Lazily-initialized per-request alias
+ * map (alias name => target service name). Lives in the request context so
+ * Swoole coroutines stay isolated; cleared with the rest of the ctx at
+ * request/context boundaries. */
+static zval *gene_di_aliases(void) {
+	gene_request_context *ctx = gene_request_ctx();
+	if (UNEXPECTED(Z_TYPE(ctx->di_alias) == IS_UNDEF || Z_TYPE(ctx->di_alias) == IS_NULL)) {
+		if (Z_TYPE(ctx->di_alias) == IS_NULL) {
+			zval_ptr_dtor(&ctx->di_alias);
+		}
+		array_init_size(&ctx->di_alias, 4);
+	}
+	return &ctx->di_alias;
+}
+
+/* Resolve an alias chain to the final service name. Bounded at 8 hops so a
+ * cyclic alias (a=>b, b=>a) degrades to a registry miss instead of looping.
+ * Returns the (borrowed) target zend_string, or the input name unchanged. */
+static zend_string *gene_di_resolve_alias(zend_string *name) {
+	gene_request_context *ctx = gene_request_ctx();
+	int hops = 0;
+	if (Z_TYPE(ctx->di_alias) != IS_ARRAY) {
+		return name;
+	}
+	while (hops < 8) {
+		zval *target = zend_hash_find(Z_ARRVAL(ctx->di_alias), name);
+		if (!target || Z_TYPE_P(target) != IS_STRING) {
+			break;
+		}
+		name = Z_STR_P(target);
+		hops++;
+	}
+	return name;
+}
 
 
 zval *gene_di_get(zend_string *name) {
 	zval  *pzval = NULL,*class = NULL,*params = NULL, *instance = NULL,*cache = NULL, *entrys = NULL;
 
+	/* [GENE_FEATURE:2026-08-07 Di::alias] Resolve aliases before any lookup
+	 * so alias->get hits both the request registry and the config cache path. */
+	name = gene_di_resolve_alias(name);
 	entrys = gene_di_regs();
 	if ((pzval = zend_hash_find(Z_ARRVAL_P(entrys), name)) != NULL) {
 		return pzval;
@@ -420,10 +463,38 @@ PHP_METHOD(gene_di, has) {
 		RETURN_NULL();
 	}
 	entrys = gene_di_regs();
+	/* [GENE_FEATURE:2026-08-07 Di::alias] has() mirrors get() so an alias
+	 * reports the same existence as its target name. */
+	name = gene_di_resolve_alias(name);
 	if (zend_hash_exists(Z_ARRVAL_P(entrys), name) == 1) {
 		RETURN_TRUE;
 	}
 	RETURN_FALSE;
+}
+/* }}} */
+
+/*
+ *  {{{ public static gene_di::alias(string $name, string $alias): bool
+ * [GENE_FEATURE:2026-08-07] Register $alias as an alternate lookup name for
+ * the service registered (or lazily loadable) as $name. The mapping is
+ * request-scope (per-coroutine under Swoole) and does NOT instantiate
+ * anything; resolution happens in gene_di_get()/has(). Chained aliases are
+ * followed up to 8 hops; a cycle simply resolves to a miss.
+ */
+PHP_METHOD(gene_di, alias) {
+	zend_string *name, *alias;
+	zval *aliases, val;
+	if (zend_parse_parameters(ZEND_NUM_ARGS(), "SS", &name, &alias) == FAILURE) {
+		RETURN_NULL();
+	}
+	if (ZSTR_LEN(name) == 0 || ZSTR_LEN(alias) == 0) {
+		php_error_docref(NULL, E_WARNING, "Di::alias names must not be empty.");
+		RETURN_FALSE;
+	}
+	aliases = gene_di_aliases();
+	ZVAL_STR_COPY(&val, name);
+	zend_hash_update(Z_ARRVAL_P(aliases), alias, &val);
+	RETURN_TRUE;
 }
 /* }}} */
 
@@ -480,6 +551,7 @@ const zend_function_entry gene_di_methods[] = {
 	PHP_ME(gene_di, __clone, gene_di_void_arginfo, ZEND_ACC_PRIVATE)
 	PHP_ME(gene_di, getInstance, gene_di_void_arginfo, ZEND_ACC_PUBLIC|ZEND_ACC_STATIC)
 	PHP_ME(gene_di, instance, gene_di_instance_arginfo, ZEND_ACC_PUBLIC|ZEND_ACC_STATIC)
+	PHP_ME(gene_di, alias, gene_di_alias_arginfo, ZEND_ACC_PUBLIC|ZEND_ACC_STATIC)
 	PHP_ME(gene_di, get, gene_di_get_arginfo, ZEND_ACC_PUBLIC|ZEND_ACC_STATIC)
 	PHP_ME(gene_di, has, gene_di_has_arginfo, ZEND_ACC_PUBLIC|ZEND_ACC_STATIC)
 	PHP_ME(gene_di, set, gene_di_set_arginfo, ZEND_ACC_PUBLIC|ZEND_ACC_STATIC)

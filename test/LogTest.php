@@ -42,7 +42,24 @@ class LogTest
             // Test error method
             Log::error("This is an error message");
             echo "✓ error() method works\n";
-            
+
+            // [GENE_FEATURE:2026-08-07] RFC-5424 severity levels
+            Log::critical("This is a critical message");
+            echo "✓ critical() method works\n";
+
+            Log::alert("This is an alert message");
+            echo "✓ alert() method works\n";
+
+            Log::emergency("This is an emergency message");
+            echo "✓ emergency() method works\n";
+
+            // [GENE_FEATURE:2026-08-07] Structured context parameter
+            Log::info("User logged in", ['user_id' => 42, 'ip' => '10.0.0.1']);
+            echo "✓ info() with context array works\n";
+
+            Log::error("Payment failed", ['order_id' => 'ORD-123', 'amount' => 99.50]);
+            echo "✓ error() with context array works\n";
+
         } catch (Exception $e) {
             echo "✗ Error: " . $e->getMessage() . "\n";
         }
@@ -483,7 +500,7 @@ class LogTest
         $this->testConcurrentLogging();
         $this->testLogRotationScenarios();
         $this->testContextualLogging();
-        
+
         echo "=== Log Test Suite Complete ===\n";
     }
 }

@@ -293,8 +293,10 @@ void gene_request_context_init(gene_request_context *ctx) {
 	array_init_size(&ctx->path_params, 8);
 	ZVAL_UNDEF(&ctx->request_attr);
 	ZVAL_UNDEF(&ctx->di_regs);
+	ZVAL_UNDEF(&ctx->di_alias);
 	ZVAL_UNDEF(&ctx->response_obj);
 	ZVAL_UNDEF(&ctx->view_vars);
+	ZVAL_UNDEF(&ctx->bench_marks);
 	ZVAL_UNDEF(&ctx->db_mysql_history);
 	ZVAL_UNDEF(&ctx->db_pgsql_history);
 	ZVAL_UNDEF(&ctx->db_sqlite_history);
@@ -425,10 +427,22 @@ static void gene_request_context_free_fields(gene_request_context *ctx, int pres
 		zval_ptr_dtor(&ctx->di_regs);
 		ZVAL_UNDEF(&ctx->di_regs);
 	}
+	/* [GENE_FEATURE:2026-08-07 Di::alias] Alias map is request-scope, same
+	 * lifetime policy as di_regs. */
+	if (Z_TYPE(ctx->di_alias) != IS_UNDEF) {
+		zval_ptr_dtor(&ctx->di_alias);
+		ZVAL_UNDEF(&ctx->di_alias);
+	}
 	if (Z_TYPE(ctx->response_obj) != IS_UNDEF) {
 		zval_ptr_dtor(&ctx->response_obj);
 		ZVAL_UNDEF(&ctx->response_obj);
 	}
+	/* [GENE_FEATURE:2026-08-07 Benchmark mark/lap] */
+	if (Z_TYPE(ctx->bench_marks) != IS_UNDEF) {
+		zval_ptr_dtor(&ctx->bench_marks);
+		ZVAL_UNDEF(&ctx->bench_marks);
+	}
+	ctx->response_status = 0;
 	if (Z_TYPE(ctx->view_vars) != IS_UNDEF) {
 		zval_ptr_dtor(&ctx->view_vars);
 		ZVAL_UNDEF(&ctx->view_vars);
@@ -1024,6 +1038,8 @@ static void php_gene_init_globals() {
 	/* [GENE_FEATURE:2026-07-30 F2] */
 	GENE_G(request_count) = 0;
 	GENE_G(request_error_count) = 0;
+	/* [GENE_FEATURE:2026-08-07 Application::stop] */
+	GENE_G(app_stopped) = 0;
 	/* [GENE_FEATURE:2026-07-30 F5] */
 	GENE_G(validate_ext) = NULL;
 	/* [GENE_FEATURE:2026-07-30 F6] cache_easy_ttl comes from php.ini —

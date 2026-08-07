@@ -120,4 +120,23 @@ class Memory
      * }
      */
     public function stats() {}
+
+    /**
+     * mget
+     * Get multiple cache values by their keys at once.
+     *
+     * @param array $keys list of cache keys
+     * @return array associative array of found key=>value pairs
+     */
+    public function mget(array $keys) {}
+
+    /**
+     * mset
+     * Set multiple cache key=>value pairs at once with the same TTL.
+     *
+     * @param array $items associative array of key=>value pairs
+     * @param int $ttl time-to-live in seconds (0 = no expiry)
+     * @return bool
+     */
+    public function mset(array $items, int $ttl = 0) {}
 }

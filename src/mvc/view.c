@@ -22,6 +22,7 @@
 #include "php_ini.h"
 #include "main/SAPI.h"
 #include "main/php_streams.h"
+#include "main/php_output.h"
 #include "Zend/zend_API.h"
 #include "zend_exceptions.h"
 #include "zend_smart_str.h"
@@ -156,6 +157,11 @@ ZEND_END_ARG_INFO()
 
 ZEND_BEGIN_ARG_INFO_EX(gene_view_arg_url, 0, 0, 1)
     ZEND_ARG_INFO(0, path)
+ZEND_END_ARG_INFO()
+
+ZEND_BEGIN_ARG_INFO_EX(gene_view_arg_render, 0, 0, 1)
+    ZEND_ARG_INFO(0, file)
+    ZEND_ARG_INFO(0, parent_file)
 ZEND_END_ARG_INFO()
 
 /* [GENE_AUDIT:2026-07-03 P3] Centralized view-path safety check.
@@ -795,6 +801,54 @@ PHP_METHOD(gene_view, assign) {
 }
 /* }}} */
 
+/** {{{ public gene_view::render(string $file [, string $parent_file]): string
+ * [GENE_FEATURE:2026-08-07] Same template resolution as display(), but the
+ * output is captured into an output buffer and returned as a string instead
+ * of being sent to the client — for API responses / email bodies / tests.
+ * Unlike display(), render() does NOT clear the current scope's assigned
+ * vars, so one assign set can feed several renders. */
+PHP_METHOD(gene_view, render) {
+	zend_string *file, *parent_file = NULL;
+	zend_array *table = NULL;
+	zval *vars = NULL;
+	if (zend_parse_parameters(ZEND_NUM_ARGS(), "S|S", &file, &parent_file) == FAILURE) {
+		return;
+	}
+	zval *self = getThis();
+	vars = gene_view_get_vars();
+	table = gene_view_build_symbol_table(vars);
+
+	php_output_start_default();
+	if (parent_file && ZSTR_LEN(parent_file) > 0) {
+		gene_request_context *ctx = gene_request_ctx();
+		if (ctx->child_views) {
+			efree(ctx->child_views);
+			ctx->child_views = NULL;
+		}
+		ctx->child_views = estrndup(ZSTR_VAL(file), ZSTR_LEN(file));
+		ctx->child_views_len = ZSTR_LEN(file);
+		gene_view_display(ZSTR_VAL(parent_file), self, table);
+	} else {
+		gene_view_display(ZSTR_VAL(file), self, table);
+	}
+	if (table) {
+		zend_hash_destroy(table);
+		FREE_HASHTABLE(table);
+	}
+	php_output_get_contents(return_value);
+	php_output_discard_default();
+}
+/* }}} */
+
+/** {{{ public gene_view::clearAssign(): bool
+ * [GENE_FEATURE:2026-08-07] Drop all vars assigned in the current view
+ * scope (same cleanup display() performs after rendering). */
+PHP_METHOD(gene_view, clearAssign) {
+	gene_view_clear_vars();
+	RETURN_TRUE;
+}
+/* }}} */
+
 /** {{{ public gene_view::contains(string $file)
  */
 PHP_METHOD(gene_view, contains) {
@@ -974,6 +1028,9 @@ const zend_function_entry gene_view_methods[] = {
 	PHP_ME(gene_view, __construct, gene_view_void_arginfo, ZEND_ACC_PUBLIC)
 	PHP_ME(gene_view, display, gene_view_arg_display, ZEND_ACC_PUBLIC)
 	PHP_ME(gene_view, displayExt, gene_view_arg_display_ext, ZEND_ACC_PUBLIC)
+	/* [GENE_FEATURE:2026-08-07] render-to-string + scope var reset. */
+	PHP_ME(gene_view, render, gene_view_arg_render, ZEND_ACC_PUBLIC)
+	PHP_ME(gene_view, clearAssign, gene_view_void_arginfo, ZEND_ACC_PUBLIC)
 	PHP_ME(gene_view, assign, gene_view_arg_assign, ZEND_ACC_PUBLIC)
 	PHP_ME(gene_view, contains, gene_view_void_arginfo, ZEND_ACC_PUBLIC)
 	PHP_ME(gene_view, containsExt, gene_view_void_arginfo, ZEND_ACC_PUBLIC)

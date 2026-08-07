@@ -585,6 +585,45 @@ class DatabaseTest
     }
     
     /**
+     * [GENE_FEATURE:2026-08-07] Test Sqlite::attach() and detach()
+     */
+    public function testSqliteAttachDetach()
+    {
+        echo "Testing Sqlite attach()/detach():\n";
+
+        try {
+            // Create a temporary sqlite database for testing
+            $tempDb = tempnam(sys_get_temp_dir(), 'gene_attach_test');
+            $sqlite = new \Gene\Db\Sqlite($tempDb);
+
+            // Create a second temp database to attach
+            $tempDb2 = tempnam(sys_get_temp_dir(), 'gene_attach_test2');
+            $sqlite2 = new \Gene\Db\Sqlite($tempDb2);
+            $sqlite2->release();
+
+            // Test attach
+            $ok = $sqlite->attach($tempDb2, "auxdb");
+            echo "✓ attach() returns: " . var_export($ok, true) . "\n";
+
+            // Test detach
+            $ok2 = $sqlite->detach("auxdb");
+            echo "✓ detach() returns: " . var_export($ok2, true) . "\n";
+
+            // Test invalid schema name is rejected
+            $bad = $sqlite->attach($tempDb2, "aux; DROP TABLE");
+            echo "✓ attach() with invalid schema returns: " . var_export($bad, true) . "\n";
+
+            $sqlite->release();
+            @unlink($tempDb);
+            @unlink($tempDb2);
+        } catch (Exception $e) {
+            echo "✗ Error: " . $e->getMessage() . "\n";
+        }
+
+        echo "\n";
+    }
+
+    /**
      * Run all tests
      */
     public function runAllTests()
@@ -598,6 +637,7 @@ class DatabaseTest
         $this->testMigrations();
         $this->testDatabaseSecurity();
         $this->testDatabasePerformance();
+        $this->testSqliteAttachDetach();
         
         echo "=== Database Classes Test Suite Complete ===\n";
     }

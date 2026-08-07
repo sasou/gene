@@ -180,4 +180,20 @@ class Session
      * @return bool
      */
     public function __unset($name) {}
+
+    /**
+     * clear
+     * Clear all session data (destroy session variables).
+     *
+     * @return $this
+     */
+    public function clear() {}
+
+    /**
+     * all
+     * Returns all session data as an associative array.
+     *
+     * @return array
+     */
+    public function all() {}
 }

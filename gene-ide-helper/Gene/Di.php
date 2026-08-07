@@ -115,4 +115,17 @@ class Di
 
     }
 
+    /**
+     * alias
+     * Register a service alias. Subsequent instance($name) calls resolve
+     * the alias to its target service before the registry lookup.
+     *
+     * @param string $alias alias name
+     * @param string $target target service name
+     * @return $this
+     */
+    public function alias(string $alias, string $target) {
+
+    }
+
 }

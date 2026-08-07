@@ -414,4 +414,28 @@ class Sqlite
 
     }
 
+    /**
+     * attach
+     * Attach another SQLite database file to the current connection under
+     * $schema name. The schema name is validated as an identifier.
+     *
+     * @param string $path path to the SQLite database file
+     * @param string $schema schema alias name
+     * @return bool
+     */
+    public function attach(string $path, string $schema) {
+
+    }
+
+    /**
+     * detach
+     * Detach a previously-attached schema from the current connection.
+     *
+     * @param string $schema schema alias name
+     * @return bool
+     */
+    public function detach(string $schema) {
+
+    }
+
 }

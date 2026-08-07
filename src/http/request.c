@@ -390,6 +390,43 @@ GENE_REQUEST_IS_METHOD(gene_request, Delete);
 GENE_REQUEST_IS_METHOD(gene_request, Cli);
 /* }}} */
 
+/** {{{ public gene_request::isSecure(void)
+ * [GENE_FEATURE:2026-08-07] HTTPS detection. Checks, in order:
+ *  1. $_SERVER['HTTPS'] — non-empty and not "off" (the de-facto standard);
+ *  2. X-Forwarded-Proto: https (reverse-proxy deployments);
+ *  3. SERVER_PORT == 443 (fallback for SAPIs that omit HTTPS).
+ * Under Swoole these keys come from Request::init()'s server array.
+ */
+PHP_METHOD(gene_request, isSecure) {
+	zval *https = getVal(TRACK_VARS_SERVER, ZEND_STRL("HTTPS"));
+	if (https && Z_TYPE_P(https) == IS_STRING && Z_STRLEN_P(https) > 0
+		&& strcasecmp("off", Z_STRVAL_P(https)) != 0) {
+		RETURN_TRUE;
+	}
+	{
+		zval *proto = getVal(TRACK_VARS_SERVER, ZEND_STRL("HTTP_X_FORWARDED_PROTO"));
+		if (proto && Z_TYPE_P(proto) == IS_STRING
+			&& Z_STRLEN_P(proto) == sizeof("https") - 1
+			&& strncasecmp("https", Z_STRVAL_P(proto), sizeof("https") - 1) == 0) {
+			RETURN_TRUE;
+		}
+	}
+	{
+		zval *port = getVal(TRACK_VARS_SERVER, ZEND_STRL("SERVER_PORT"));
+		if (port) {
+			if (Z_TYPE_P(port) == IS_LONG && Z_LVAL_P(port) == 443) {
+				RETURN_TRUE;
+			}
+			if (Z_TYPE_P(port) == IS_STRING && Z_STRLEN_P(port) == 3
+				&& memcmp("443", Z_STRVAL_P(port), 3) == 0) {
+				RETURN_TRUE;
+			}
+		}
+	}
+	RETURN_FALSE;
+}
+/* }}} */
+
 /** {{{ public gene_request::header(mixed $name, mixed $default = NULL)
  */
 GENE_REQUEST_METHOD(gene_request, header, 7);
@@ -632,6 +669,8 @@ const zend_function_entry gene_request_methods[] = {
 	 * it was simply missing from the method table. */
 	PHP_ME(gene_request, isDelete, geme_request_void_arginfo, ZEND_ACC_PUBLIC|ZEND_ACC_STATIC)
 	PHP_ME(gene_request, isCli, geme_request_void_arginfo, ZEND_ACC_PUBLIC|ZEND_ACC_STATIC)
+	/* [GENE_FEATURE:2026-08-07] HTTPS detection (see isSecure impl). */
+	PHP_ME(gene_request, isSecure, geme_request_void_arginfo, ZEND_ACC_PUBLIC|ZEND_ACC_STATIC)
 	PHP_ME(gene_request, init, gene_request_init_arginfo, ZEND_ACC_PUBLIC|ZEND_ACC_STATIC)
 	PHP_ME(gene_request, clear, geme_request_void_arginfo, ZEND_ACC_PUBLIC|ZEND_ACC_STATIC)
 	PHP_ME(gene_request, rawContent, geme_request_void_arginfo, ZEND_ACC_PUBLIC|ZEND_ACC_STATIC)

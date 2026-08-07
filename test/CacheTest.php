@@ -425,6 +425,35 @@ class CacheTest
         echo "\n";
     }
 
+    /**
+     * [GENE_FEATURE:2026-08-07] Test Memory::mget() and mset()
+     */
+    public function testMgetMset()
+    {
+        echo "Testing Memory mget()/mset():\n";
+
+        try {
+            $memory = new \Gene\Memory();
+            // mset multiple keys at once
+            $ok = $memory->mset(["key1" => "value1", "key2" => "value2", "key3" => "value3"], 60);
+            echo "✓ mset() with 3 keys returns: " . var_export($ok, true) . "\n";
+
+            // mget multiple keys
+            $values = $memory->mget(["key1", "key2", "key3", "nonexistent"]);
+            echo "✓ mget() returns: " . (is_array($values) ? count($values) . " items" : var_export($values, true)) . "\n";
+
+            if (is_array($values) && isset($values["key1"]) && $values["key1"] === "value1") {
+                echo "✓ mget() returned correct value for key1\n";
+            } else {
+                echo "✗ mget() did not return expected value for key1\n";
+            }
+        } catch (Exception $e) {
+            echo "✗ Error: " . $e->getMessage() . "\n";
+        }
+
+        echo "\n";
+    }
+
     public function runAllTests()
     {
         $this->testConstructor();
@@ -439,6 +468,7 @@ class CacheTest
         $this->testPerformance();
         $this->testCacheConfigurations();
         $this->testMonitorStats();
+        $this->testMgetMset();
 
         echo "=== Cache Test Suite Complete ===\n";
     }

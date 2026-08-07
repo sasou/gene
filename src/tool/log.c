@@ -28,6 +28,7 @@
 #include "ext/date/php_date.h"
 
 #include "../gene.h"
+#include "../common/common.h"
 #include "../tool/log.h"
 
 zend_class_entry *gene_log_ce;
@@ -38,6 +39,14 @@ ZEND_END_ARG_INFO()
 
 ZEND_BEGIN_ARG_INFO_EX(gene_log_message_arginfo, 0, 0, 1)
 	ZEND_ARG_INFO(0, message)
+ZEND_END_ARG_INFO()
+
+/* [GENE_FEATURE:2026-08-07] Structured context: ($message, array $context).
+ * When $context is a non-empty array it is JSON-encoded and appended to the
+ * log line as ` {json}`, enabling machine-parseable structured logs. */
+ZEND_BEGIN_ARG_INFO_EX(gene_log_message_context_arginfo, 0, 0, 1)
+	ZEND_ARG_INFO(0, message)
+	ZEND_ARG_INFO(0, context)
 ZEND_END_ARG_INFO()
 
 ZEND_BEGIN_ARG_INFO_EX(gene_log_exception_arginfo, 0, 0, 1)
@@ -93,6 +102,9 @@ static const char *gene_log_level_name(zend_long level) {
 		case GENE_LOG_LEVEL_NOTICE:  return "NOTICE";
 		case GENE_LOG_LEVEL_WARNING: return "WARNING";
 		case GENE_LOG_LEVEL_ERROR:   return "ERROR";
+		case GENE_LOG_LEVEL_CRITICAL: return "CRITICAL";
+		case GENE_LOG_LEVEL_ALERT:   return "ALERT";
+		case GENE_LOG_LEVEL_EMERGENCY: return "EMERGENCY";
 		default: return "LOG";
 	}
 }
@@ -159,9 +171,14 @@ static void gene_log_call_error_log(char *log_line, size_t log_line_len, const c
 /* }}} */
 
 /* {{{ gene_log_write_message */
-static void gene_log_write_message(zend_long level, const char *msg) {
+/* [GENE_FEATURE:2026-08-07] Added context parameter: when non-NULL and an
+ * array with at least one element, it is JSON-encoded and appended to the
+ * log line as ` {json}` for structured logging. */
+static void gene_log_write_message(zend_long level, const char *msg, zval *context) {
 	char *datetime = NULL;
 	char *log_line = NULL;
+	char *ctx_json = NULL;
+	size_t log_line_len = 0;
 	const char *level_name;
 	const char *effective_file;
 
@@ -173,7 +190,26 @@ static void gene_log_write_message(zend_long level, const char *msg) {
 	gene_log_get_datetime(&datetime);
 	level_name = gene_log_level_name(level);
 
-	size_t log_line_len = spprintf(&log_line, 0, "[%s] [Gene.%s] %s", datetime, level_name, msg);
+	/* Build optional context suffix. */
+	size_t ctx_len = 0;
+	if (context && Z_TYPE_P(context) == IS_ARRAY && zend_hash_num_elements(Z_ARRVAL_P(context)) > 0) {
+		zval json_ret, json_opt;
+		ZVAL_LONG(&json_opt, 0);
+		gene_json_encode(context, &json_opt, &json_ret);
+		if (Z_TYPE(json_ret) == IS_STRING) {
+			ctx_len = Z_STRLEN(json_ret);
+			ctx_json = estrndup(Z_STRVAL(json_ret), ctx_len);
+		}
+		zval_ptr_dtor(&json_ret);
+	}
+
+	if (ctx_json) {
+		log_line_len = spprintf(&log_line, 0, "[%s] [Gene.%s] %s {%.*s}",
+			datetime, level_name, msg, (int)ctx_len, ctx_json);
+		efree(ctx_json);
+	} else {
+		log_line_len = spprintf(&log_line, 0, "[%s] [Gene.%s] %s", datetime, level_name, msg);
+	}
 	efree(datetime);
 
 	/* Check if custom log file is set */
@@ -183,53 +219,92 @@ static void gene_log_write_message(zend_long level, const char *msg) {
 }
 /* }}} */
 
-/* {{{ proto static void Gene\Log::debug(string $message) */
+/* {{{ proto static void Gene\Log::debug(string $message [, array $context]) */
 PHP_METHOD(gene_log, debug) {
 	zend_string *message;
-	if (zend_parse_parameters(ZEND_NUM_ARGS(), "S", &message) == FAILURE) {
+	zval *context = NULL;
+	if (zend_parse_parameters(ZEND_NUM_ARGS(), "S|a", &message, &context) == FAILURE) {
 		return;
 	}
-	gene_log_write_message(GENE_LOG_LEVEL_DEBUG, ZSTR_VAL(message));
+	gene_log_write_message(GENE_LOG_LEVEL_DEBUG, ZSTR_VAL(message), context);
 }
 /* }}} */
 
-/* {{{ proto static void Gene\Log::info(string $message) */
+/* {{{ proto static void Gene\Log::info(string $message [, array $context]) */
 PHP_METHOD(gene_log, info) {
 	zend_string *message;
-	if (zend_parse_parameters(ZEND_NUM_ARGS(), "S", &message) == FAILURE) {
+	zval *context = NULL;
+	if (zend_parse_parameters(ZEND_NUM_ARGS(), "S|a", &message, &context) == FAILURE) {
 		return;
 	}
-	gene_log_write_message(GENE_LOG_LEVEL_INFO, ZSTR_VAL(message));
+	gene_log_write_message(GENE_LOG_LEVEL_INFO, ZSTR_VAL(message), context);
 }
 /* }}} */
 
-/* {{{ proto static void Gene\Log::notice(string $message) */
+/* {{{ proto static void Gene\Log::notice(string $message [, array $context]) */
 PHP_METHOD(gene_log, notice) {
 	zend_string *message;
-	if (zend_parse_parameters(ZEND_NUM_ARGS(), "S", &message) == FAILURE) {
+	zval *context = NULL;
+	if (zend_parse_parameters(ZEND_NUM_ARGS(), "S|a", &message, &context) == FAILURE) {
 		return;
 	}
-	gene_log_write_message(GENE_LOG_LEVEL_NOTICE, ZSTR_VAL(message));
+	gene_log_write_message(GENE_LOG_LEVEL_NOTICE, ZSTR_VAL(message), context);
 }
 /* }}} */
 
-/* {{{ proto static void Gene\Log::warning(string $message) */
+/* {{{ proto static void Gene\Log::warning(string $message [, array $context]) */
 PHP_METHOD(gene_log, warning) {
 	zend_string *message;
-	if (zend_parse_parameters(ZEND_NUM_ARGS(), "S", &message) == FAILURE) {
+	zval *context = NULL;
+	if (zend_parse_parameters(ZEND_NUM_ARGS(), "S|a", &message, &context) == FAILURE) {
 		return;
 	}
-	gene_log_write_message(GENE_LOG_LEVEL_WARNING, ZSTR_VAL(message));
+	gene_log_write_message(GENE_LOG_LEVEL_WARNING, ZSTR_VAL(message), context);
 }
 /* }}} */
 
-/* {{{ proto static void Gene\Log::error(string $message) */
+/* {{{ proto static void Gene\Log::error(string $message [, array $context]) */
 PHP_METHOD(gene_log, error) {
 	zend_string *message;
-	if (zend_parse_parameters(ZEND_NUM_ARGS(), "S", &message) == FAILURE) {
+	zval *context = NULL;
+	if (zend_parse_parameters(ZEND_NUM_ARGS(), "S|a", &message, &context) == FAILURE) {
 		return;
 	}
-	gene_log_write_message(GENE_LOG_LEVEL_ERROR, ZSTR_VAL(message));
+	gene_log_write_message(GENE_LOG_LEVEL_ERROR, ZSTR_VAL(message), context);
+}
+/* }}} */
+
+/* [GENE_FEATURE:2026-08-07] RFC-5424 severity levels above ERROR. */
+/* {{{ proto static void Gene\Log::critical(string $message [, array $context]) */
+PHP_METHOD(gene_log, critical) {
+	zend_string *message;
+	zval *context = NULL;
+	if (zend_parse_parameters(ZEND_NUM_ARGS(), "S|a", &message, &context) == FAILURE) {
+		return;
+	}
+	gene_log_write_message(GENE_LOG_LEVEL_CRITICAL, ZSTR_VAL(message), context);
+}
+/* }}} */
+
+/* {{{ proto static void Gene\Log::alert(string $message [, array $context]) */
+PHP_METHOD(gene_log, alert) {
+	zend_string *message;
+	zval *context = NULL;
+	if (zend_parse_parameters(ZEND_NUM_ARGS(), "S|a", &message, &context) == FAILURE) {
+		return;
+	}
+	gene_log_write_message(GENE_LOG_LEVEL_ALERT, ZSTR_VAL(message), context);
+}
+/* }}} */
+
+/* {{{ proto static void Gene\Log::emergency(string $message [, array $context]) */
+PHP_METHOD(gene_log, emergency) {
+	zend_string *message;
+	zval *context = NULL;
+	if (zend_parse_parameters(ZEND_NUM_ARGS(), "S|a", &message, &context) == FAILURE) {
+		return;
+	}
+	gene_log_write_message(GENE_LOG_LEVEL_EMERGENCY, ZSTR_VAL(message), context);
 }
 /* }}} */
 
@@ -362,8 +437,8 @@ PHP_METHOD(gene_log, setLevel) {
 	if (zend_parse_parameters(ZEND_NUM_ARGS(), "l", &level) == FAILURE) {
 		return;
 	}
-	if (level < GENE_LOG_LEVEL_DEBUG || level > GENE_LOG_LEVEL_ERROR) {
-		php_error_docref(NULL, E_WARNING, "Log level must be between %d and %d", GENE_LOG_LEVEL_DEBUG, GENE_LOG_LEVEL_ERROR);
+	if (level < GENE_LOG_LEVEL_DEBUG || level > GENE_LOG_LEVEL_EMERGENCY) {
+		php_error_docref(NULL, E_WARNING, "Log level must be between %d and %d", GENE_LOG_LEVEL_DEBUG, GENE_LOG_LEVEL_EMERGENCY);
 		return;
 	}
 	ctx = gene_request_ctx();
@@ -384,11 +459,14 @@ PHP_METHOD(gene_log, getLevel) {
  * {{{ gene_log_methods
  */
 const zend_function_entry gene_log_methods[] = {
-	PHP_ME(gene_log, debug,     gene_log_message_arginfo,   ZEND_ACC_PUBLIC|ZEND_ACC_STATIC)
-	PHP_ME(gene_log, info,      gene_log_message_arginfo,   ZEND_ACC_PUBLIC|ZEND_ACC_STATIC)
-	PHP_ME(gene_log, notice,    gene_log_message_arginfo,   ZEND_ACC_PUBLIC|ZEND_ACC_STATIC)
-	PHP_ME(gene_log, warning,   gene_log_message_arginfo,   ZEND_ACC_PUBLIC|ZEND_ACC_STATIC)
-	PHP_ME(gene_log, error,     gene_log_message_arginfo,   ZEND_ACC_PUBLIC|ZEND_ACC_STATIC)
+	PHP_ME(gene_log, debug,     gene_log_message_context_arginfo, ZEND_ACC_PUBLIC|ZEND_ACC_STATIC)
+	PHP_ME(gene_log, info,      gene_log_message_context_arginfo, ZEND_ACC_PUBLIC|ZEND_ACC_STATIC)
+	PHP_ME(gene_log, notice,    gene_log_message_context_arginfo, ZEND_ACC_PUBLIC|ZEND_ACC_STATIC)
+	PHP_ME(gene_log, warning,   gene_log_message_context_arginfo, ZEND_ACC_PUBLIC|ZEND_ACC_STATIC)
+	PHP_ME(gene_log, error,     gene_log_message_context_arginfo, ZEND_ACC_PUBLIC|ZEND_ACC_STATIC)
+	PHP_ME(gene_log, critical,  gene_log_message_context_arginfo, ZEND_ACC_PUBLIC|ZEND_ACC_STATIC)
+	PHP_ME(gene_log, alert,     gene_log_message_context_arginfo, ZEND_ACC_PUBLIC|ZEND_ACC_STATIC)
+	PHP_ME(gene_log, emergency, gene_log_message_context_arginfo, ZEND_ACC_PUBLIC|ZEND_ACC_STATIC)
 	PHP_ME(gene_log, exception, gene_log_exception_arginfo, ZEND_ACC_PUBLIC|ZEND_ACC_STATIC)
 	PHP_ME(gene_log, setFile,   gene_log_file_arginfo,      ZEND_ACC_PUBLIC|ZEND_ACC_STATIC)
 	PHP_ME(gene_log, getFile,   gene_log_void_arginfo,      ZEND_ACC_PUBLIC|ZEND_ACC_STATIC)
@@ -421,6 +499,10 @@ GENE_MINIT_FUNCTION(log)
 	zend_declare_class_constant_long(gene_log_ce, ZEND_STRL("LEVEL_NOTICE"),  GENE_LOG_LEVEL_NOTICE);
 	zend_declare_class_constant_long(gene_log_ce, ZEND_STRL("LEVEL_WARNING"), GENE_LOG_LEVEL_WARNING);
 	zend_declare_class_constant_long(gene_log_ce, ZEND_STRL("LEVEL_ERROR"),   GENE_LOG_LEVEL_ERROR);
+	/* [GENE_FEATURE:2026-08-07] RFC-5424 severity levels above ERROR. */
+	zend_declare_class_constant_long(gene_log_ce, ZEND_STRL("LEVEL_CRITICAL"), GENE_LOG_LEVEL_CRITICAL);
+	zend_declare_class_constant_long(gene_log_ce, ZEND_STRL("LEVEL_ALERT"),    GENE_LOG_LEVEL_ALERT);
+	zend_declare_class_constant_long(gene_log_ce, ZEND_STRL("LEVEL_EMERGENCY"), GENE_LOG_LEVEL_EMERGENCY);
 
 	return SUCCESS; // @suppress("Symbol is not resolved")
 }

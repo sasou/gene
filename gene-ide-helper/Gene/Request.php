@@ -276,4 +276,14 @@ class Request
 
     }
 
+    /**
+     * isSecure
+     * Returns true if the current request was made over HTTPS/TLS.
+     *
+     * @return bool
+     */
+    public function isSecure() {
+
+    }
+
 }

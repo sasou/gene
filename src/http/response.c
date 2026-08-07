@@ -21,6 +21,7 @@
 #include "php.h"
 #include "php_ini.h"
 #include "main/SAPI.h"
+#include "main/php_streams.h"
 #include "Zend/zend_API.h"
 #include "zend_exceptions.h"
 #include "Zend/zend_smart_str.h"
@@ -91,6 +92,12 @@ ZEND_END_ARG_INFO()
 
 ZEND_BEGIN_ARG_INFO_EX(gene_response_arg_end, 0, 0, 0)
     ZEND_ARG_INFO(0, data)
+ZEND_END_ARG_INFO()
+
+ZEND_BEGIN_ARG_INFO_EX(gene_response_arg_send_file, 0, 0, 1)
+    ZEND_ARG_INFO(0, file)
+    ZEND_ARG_INFO(0, offset)
+    ZEND_ARG_INFO(0, length)
 ZEND_END_ARG_INFO()
 
 /* {{{ gene_response_context_obj - get response object from DI */
@@ -172,6 +179,10 @@ void gene_response_set_redirect(char *url, zend_long code) {
 		zend_call_known_function(fn, Z_OBJ_P(swoole_resp), Z_OBJCE_P(swoole_resp), &retval, 2, params, NULL);
 		zval_ptr_dtor(&zurl);
 		zval_ptr_dtor(&retval);
+		/* [GENE_FEATURE:2026-08-07] Track the last status code so
+		 * Response::getStatusCode() can report it in Swoole mode (Swoole's
+		 * response object exposes no status getter). */
+		gene_request_ctx()->response_status = code;
 		return;
 	}
 	/* [GENE_PERF:2026-05-21 F7] FPM redirect hot path: replace
@@ -700,6 +711,116 @@ PHP_METHOD(gene_response, end) {
 }
 /* }}} */
 
+/** {{{ proto public gene_response::getStatusCode(): int
+ * [GENE_FEATURE:2026-08-07] Last HTTP status code set through this layer.
+ * FPM: reads SG(sapi_headers).http_response_code (set by redirect()/header()
+ * via sapi_header_op; 0 when nothing was set). Swoole: returns the status
+ * tracked in the request context by redirect()/status-setting calls, 0 when
+ * nothing was set through Gene\Response (Swoole's response object exposes
+ * no status getter).
+ */
+PHP_METHOD(gene_response, getStatusCode) {
+	if (GENE_G(runtime_type) >= 2) {
+		RETURN_LONG(gene_request_ctx()->response_status);
+	}
+	RETURN_LONG(SG(sapi_headers).http_response_code);
+}
+/* }}} */
+
+/** {{{ proto public gene_response::isSent(): bool
+ * [GENE_FEATURE:2026-08-07] Whether the response can no longer be written.
+ * FPM: headers already sent (SG(headers_sent)). Swoole: the response object's
+ * isWritable() (available since Swoole 4.5); when the method is unresolvable
+ * or no response object is bound, reports false.
+ */
+PHP_METHOD(gene_response, isSent) {
+	zval *swoole_resp = gene_response_context_obj();
+	if (swoole_resp) {
+		zend_function *fn = zend_hash_str_find_ptr(&Z_OBJCE_P(swoole_resp)->function_table, ZEND_STRL("iswritable"));
+		if (fn) {
+			zval retval;
+			ZVAL_UNDEF(&retval);
+			zend_call_known_function(fn, Z_OBJ_P(swoole_resp), Z_OBJCE_P(swoole_resp), &retval, 0, NULL, NULL);
+			if (Z_TYPE(retval) == IS_TRUE) {
+				zval_ptr_dtor(&retval);
+				RETURN_FALSE;
+			}
+			if (!Z_ISUNDEF(retval)) {
+				zval_ptr_dtor(&retval);
+			}
+			RETURN_TRUE;
+		}
+		RETURN_FALSE;
+	}
+	RETURN_BOOL(SG(headers_sent));
+}
+/* }}} */
+
+/** {{{ proto public gene_response::sendFile(string $file [, int $offset = 0 [, int $length = 0]]): bool
+ * [GENE_FEATURE:2026-08-07] Stream a file as the response body.
+ * Swoole: delegates to Swoole\Http\Response::sendfile (kernel sendfile).
+ * FPM/CLI: streams the file through php_stream in one copy_to_mem + php_write
+ * pass; $offset/$length select a byte range (0 length = to EOF). Returns
+ * false when the file cannot be opened.
+ */
+PHP_METHOD(gene_response, sendFile) {
+	zend_string *file;
+	zend_long offset = 0, length = 0;
+
+	if (zend_parse_parameters(ZEND_NUM_ARGS(), "S|ll", &file, &offset, &length) == FAILURE) {
+		return;
+	}
+	if (offset < 0 || length < 0) {
+		php_error_docref(NULL, E_WARNING, "offset and length must be >= 0");
+		RETURN_FALSE;
+	}
+
+	zval *swoole_resp = gene_response_context_obj();
+	if (swoole_resp) {
+		zend_function *fn = zend_hash_str_find_ptr(&Z_OBJCE_P(swoole_resp)->function_table, ZEND_STRL("sendfile"));
+		if (UNEXPECTED(!fn)) RETURN_FALSE;
+		zval retval, zfile, zoffset, zlength;
+		ZVAL_UNDEF(&retval);
+		ZVAL_STR_COPY(&zfile, file);
+		ZVAL_LONG(&zoffset, offset);
+		ZVAL_LONG(&zlength, length);
+		zval params[] = { zfile, zoffset, zlength };
+		zend_call_known_function(fn, Z_OBJ_P(swoole_resp), Z_OBJCE_P(swoole_resp), &retval, 3, params, NULL);
+		zval_ptr_dtor(&zfile);
+		if (Z_TYPE(retval) == IS_FALSE) {
+			zval_ptr_dtor(&retval);
+			RETURN_FALSE;
+		}
+		if (!Z_ISUNDEF(retval)) {
+			zval_ptr_dtor(&retval);
+		}
+		RETURN_TRUE;
+	}
+
+	{
+		php_stream *stream = php_stream_open_wrapper(ZSTR_VAL(file), "rb", REPORT_PATH, NULL);
+		zend_string *contents;
+		if (!stream) {
+			RETURN_FALSE;
+		}
+		if (offset > 0 && php_stream_seek(stream, offset, SEEK_SET) != 0) {
+			php_stream_close(stream);
+			RETURN_FALSE;
+		}
+		contents = php_stream_copy_to_mem(stream, length > 0 ? (size_t)length : PHP_STREAM_COPY_ALL, 0);
+		php_stream_close(stream);
+		if (!contents) {
+			RETURN_FALSE;
+		}
+		if (ZSTR_LEN(contents) > 0) {
+			php_write(ZSTR_VAL(contents), ZSTR_LEN(contents));
+		}
+		zend_string_release(contents);
+		RETURN_TRUE;
+	}
+}
+/* }}} */
+
 /** {{{ proto public gene_response::setJsonHeader()
  */
 PHP_METHOD(gene_response, setJsonHeader) {
@@ -731,6 +852,10 @@ const zend_function_entry gene_response_methods[] = {
 	PHP_ME(gene_response, cookie, gene_response_arg_cookie, ZEND_ACC_PUBLIC|ZEND_ACC_STATIC)
 	PHP_ME(gene_response, url, gene_response_arg_url, ZEND_ACC_PUBLIC|ZEND_ACC_STATIC)
 	PHP_ME(gene_response, end, gene_response_arg_end, ZEND_ACC_PUBLIC|ZEND_ACC_STATIC)
+	/* [GENE_FEATURE:2026-08-07] Status introspection + file streaming. */
+	PHP_ME(gene_response, getStatusCode, gene_response_void_arginfo, ZEND_ACC_PUBLIC|ZEND_ACC_STATIC)
+	PHP_ME(gene_response, isSent, gene_response_void_arginfo, ZEND_ACC_PUBLIC|ZEND_ACC_STATIC)
+	PHP_ME(gene_response, sendFile, gene_response_arg_send_file, ZEND_ACC_PUBLIC|ZEND_ACC_STATIC)
 	PHP_ME(gene_response, setJsonHeader, gene_response_void_arginfo, ZEND_ACC_PUBLIC|ZEND_ACC_STATIC)
 	PHP_ME(gene_response, setHtmlHeader, gene_response_void_arginfo, ZEND_ACC_PUBLIC|ZEND_ACC_STATIC)
 	PHP_ME(gene_response, __construct, gene_response_void_arginfo, ZEND_ACC_PUBLIC)

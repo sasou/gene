@@ -161,8 +161,19 @@ static inline uint64_t gene_hrtime(void) {
 	 zval path_params;
 	 zval request_attr;
 	 zval di_regs;
+	 /* [GENE_FEATURE:2026-08-07 Di::alias] Per-request alias map (alias =>
+	 * target service name), consulted by gene_di_get before the registry
+	 * lookup. Lazy array, UNDEF until the first Di::alias() call. */
+	 zval di_alias;
 	 zval response_obj;
 	 zval view_vars;
+	 /* [GENE_FEATURE:2026-08-07 Benchmark mark/lap] Named lap timestamps
+	 * (name => last mark time in nanoseconds, IS_LONG). Lazy array. */
+	 zval bench_marks;
+	 /* [GENE_FEATURE:2026-08-07 Response::getStatusCode] Last status code set
+	  * through Gene\Response in Swoole mode (redirect/status); 0 = unset.
+	  * FPM reads SG(sapi_headers).http_response_code instead. */
+	 zend_long response_status;
 	 zend_long view_scope_no;
 	 zval db_mysql_history;
 	 zval db_pgsql_history;
@@ -362,6 +373,11 @@ zend_ulong cache_easy_expired;
  * Gene\Monitor::stats). */
 zend_long slow_query_ms;
 zend_ulong db_slow_query_count;
+/* [GENE_FEATURE:2026-08-07 Application::stop] Graceful-stop latch. Once set,
+ * Application::run() refuses to dispatch for the remainder of the process
+ * lifetime (intended for Swoole onWorkerStop / signal handlers). Runtime
+ * state, zeroed in php_gene_init_globals. */
+zend_bool app_stopped;
 ZEND_END_MODULE_GLOBALS (gene)
  
  extern ZEND_DECLARE_MODULE_GLOBALS (gene);

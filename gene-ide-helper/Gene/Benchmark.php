@@ -49,4 +49,27 @@ class Benchmark
 
     }
 
+    /**
+     * mark
+     * Record a named high-resolution timestamp for later lap() measurement.
+     *
+     * @param string $name mark name
+     * @return bool
+     */
+    public static function mark(string $name) {
+
+    }
+
+    /**
+     * lap
+     * Return milliseconds (float) elapsed since the last mark($name),
+     * then reset the mark to now. Returns false if no prior mark exists.
+     *
+     * @param string $name mark name
+     * @return float|false
+     */
+    public static function lap(string $name) {
+
+    }
+
 }

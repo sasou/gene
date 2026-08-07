@@ -173,6 +173,15 @@ ZEND_BEGIN_ARG_INFO_EX(gene_application_prewarm_ctx_pool, 0, 0, 0)
     ZEND_ARG_INFO(0, count)
 ZEND_END_ARG_INFO()
 
+/* [GENE_FEATURE:2026-08-07] stop(): signal the router to skip the remaining
+ * dispatch (controller action and after-hooks). isStopped(): query the flag.
+ * The flag is per-request, reset in RSHUTDOWN. */
+ZEND_BEGIN_ARG_INFO_EX(gene_application_stop, 0, 0, 0)
+ZEND_END_ARG_INFO()
+
+ZEND_BEGIN_ARG_INFO_EX(gene_application_is_stopped, 0, 0, 0)
+ZEND_END_ARG_INFO()
+
 /*
  * {{{ void load_file(char *key, size_t key_len,char *php_script, int validity)
  */
@@ -1427,6 +1436,34 @@ PHP_METHOD(gene_application, run) {
 /* }}} */
 
 /*
+ * {{{ public gene_application::stop()
+ * [GENE_FEATURE:2026-08-07] Signal the router to stop dispatching the current
+ * request. After a before-hook or controller action calls stop(), the router
+ * skips the remaining action and after-hooks for the matched route. The flag
+ * is per-request and reset in RSHUTDOWN. Useful for short-circuiting when a
+ * middleware has already produced the full response (e.g. auth redirect,
+ * rate-limit 429, cached response). Returns $this for chaining.
+ */
+PHP_METHOD(gene_application, stop)
+{
+	zval *self = getThis();
+	GENE_G(app_stopped) = 1;
+	RETURN_ZVAL(self, 1, 0);
+}
+/* }}} */
+
+/*
+ * {{{ public static bool gene_application::isStopped()
+ * [GENE_FEATURE:2026-08-07] Returns true if stop() has been called during the
+ * current request dispatch.
+ */
+PHP_METHOD(gene_application, isStopped)
+{
+	RETURN_BOOL(GENE_G(app_stopped));
+}
+/* }}} */
+
+/*
  * {{{ gene_application
  */
 PHP_METHOD(gene_application, __set)
@@ -1486,6 +1523,8 @@ const zend_function_entry gene_application_methods[] = {
 	PHP_ME(gene_application, exception, gene_application_exception, ZEND_ACC_PUBLIC)
 	PHP_ME(gene_application, webscan, gene_application_webscan, ZEND_ACC_PUBLIC)
 	PHP_ME(gene_application, run, gene_application_run, ZEND_ACC_PUBLIC)
+	PHP_ME(gene_application, stop, gene_application_stop, ZEND_ACC_PUBLIC)
+	PHP_ME(gene_application, isStopped, gene_application_is_stopped, ZEND_ACC_PUBLIC|ZEND_ACC_STATIC)
 	PHP_ME(gene_application, workerReady, gene_application_get_method, ZEND_ACC_PUBLIC|ZEND_ACC_STATIC)
 	PHP_ME(gene_application, waitWorkerReady, gene_application_wait_worker_ready, ZEND_ACC_PUBLIC|ZEND_ACC_STATIC)
 	PHP_ME(gene_application, clearState, gene_application_get_method, ZEND_ACC_PUBLIC|ZEND_ACC_STATIC)

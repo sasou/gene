@@ -28,6 +28,7 @@
 #include "../cache/memory.h"
 #include "../db/pool.h"
 #include "../cache/redis_pool.h"
+#include "Zend/zend_smart_str.h"
 
 zend_class_entry *gene_monitor_ce;
 
@@ -183,10 +184,159 @@ PHP_METHOD(gene_monitor, stats) {
 /* }}} */
 
 /*
+ * {{{ public static Gene\Monitor::reset(): bool
+ * [GENE_FEATURE:2026-08-07] Zero all cumulative telemetry counters. Config
+ * and threshold values (co_contexts_max, ctx_pool_max, slow_query_ms,
+ * cache_easy_ttl) are deliberately NOT touched. Watermarks are reset to 0 and
+ * re-derive from live table sizes on the next update. Intended use: metric
+ * scrapers that prefer delta-over-interval over monotonic counters.
+ * Note: with multiple Swoole workers each worker resets only its own
+ * process-local counters.
+ */
+PHP_METHOD(gene_monitor, reset) {
+	GENE_G(request_count) = 0;
+	GENE_G(request_error_count) = 0;
+	GENE_G(redis_pool_cas_abandoned) = 0;
+	GENE_G(db_pool_cas_abandoned) = 0;
+	GENE_G(db_pool_get_timeout) = 0;
+	GENE_G(memory_cache_hit) = 0;
+	GENE_G(memory_cache_miss) = 0;
+	GENE_G(db_slow_query_count) = 0;
+	GENE_G(swoole_auto_cleanup_defers) = 0;
+	GENE_G(swoole_auto_cleanup_reclaimed) = 0;
+	GENE_G(co_contexts_watermark) = 0;
+	GENE_G(co_contexts_sweep_count) = 0;
+	GENE_G(co_contexts_sweep_scanned) = 0;
+	GENE_G(co_contexts_sweep_us) = 0;
+	GENE_G(co_contexts_sweep_skipped) = 0;
+	GENE_G(ctx_pool_hit) = 0;
+	GENE_G(ctx_pool_miss) = 0;
+	GENE_G(closure_src_cache_flushes) = 0;
+	GENE_G(cache_easy_expired) = 0;
+	RETURN_TRUE;
+}
+/* }}} */
+
+/* {{{ gene_monitor_prom_counter / _labeled — append one Prometheus line. */
+static void gene_monitor_prom_counter(smart_str *buf, const char *name, const char *help, zend_long value) {
+	smart_str_appends(buf, "# HELP ");
+	smart_str_appends(buf, name);
+	smart_str_appendc(buf, ' ');
+	smart_str_appends(buf, help);
+	smart_str_appends(buf, "\n# TYPE ");
+	smart_str_appends(buf, name);
+	smart_str_appends(buf, " counter\n");
+	smart_str_appends(buf, name);
+	smart_str_appendc(buf, ' ');
+	smart_str_append_long(buf, value);
+	smart_str_appendc(buf, '\n');
+}
+
+/* Escape a Prometheus label value (\ " and newline). */
+static void gene_monitor_prom_label_escape(smart_str *buf, const char *s, size_t len) {
+	size_t i;
+	for (i = 0; i < len; i++) {
+		char c = s[i];
+		if (c == '\\' || c == '"') {
+			smart_str_appendc(buf, '\\');
+			smart_str_appendc(buf, c);
+		} else if (c == '\n') {
+			smart_str_appends(buf, "\\n");
+		} else {
+			smart_str_appendc(buf, c);
+		}
+	}
+}
+
+static void gene_monitor_prom_gauge_labeled(smart_str *buf, const char *name, const char *label_val, size_t label_len, zend_long value) {
+	smart_str_appends(buf, "# TYPE ");
+	smart_str_appends(buf, name);
+	smart_str_appends(buf, " gauge\n");
+	smart_str_appends(buf, name);
+	smart_str_appends(buf, "{pool=\"");
+	gene_monitor_prom_label_escape(buf, label_val, label_len);
+	smart_str_appends(buf, "\"} ");
+	smart_str_append_long(buf, value);
+	smart_str_appendc(buf, '\n');
+}
+
+/* Emit one pool partition (db_pools / redis_pools) as labeled gauges. */
+static void gene_monitor_prom_pools(smart_str *buf, zval *pools, const char *metric_prefix) {
+	static const char *fields[] = { "total", "idle", "using", "overflow", "min", "max", "closed" };
+	zend_string *pname;
+	zval *stats;
+	if (!pools || Z_TYPE_P(pools) != IS_ARRAY) {
+		return;
+	}
+	ZEND_HASH_FOREACH_STR_KEY_VAL(Z_ARRVAL_P(pools), pname, stats) {
+		size_t i;
+		if (!pname || Z_TYPE_P(stats) != IS_ARRAY) {
+			continue;
+		}
+		for (i = 0; i < sizeof(fields) / sizeof(fields[0]); i++) {
+			zval *v = zend_hash_str_find(Z_ARRVAL_P(stats), fields[i], strlen(fields[i]));
+			char metric[96];
+			if (!v) {
+				continue;
+			}
+			snprintf(metric, sizeof(metric), "%s_%s", metric_prefix, fields[i]);
+			gene_monitor_prom_gauge_labeled(buf, metric, ZSTR_VAL(pname), ZSTR_LEN(pname), zval_get_long(v));
+		}
+	} ZEND_HASH_FOREACH_END();
+}
+/* }}} */
+
+/*
+ * {{{ public static Gene\Monitor::prometheus(): string
+ * [GENE_FEATURE:2026-08-07] Prometheus text exposition of the same data
+ * stats() returns: flat counters for the process-level telemetry, labeled
+ * gauges for named DB/Redis pools. Pure read, zero side effects; scrape via
+ * a dedicated HTTP endpoint, e.g.:
+ *     $response->end(Gene\Monitor::prometheus());
+ */
+PHP_METHOD(gene_monitor, prometheus) {
+	smart_str buf = {0};
+	zval dbp, rdp;
+
+	gene_monitor_prom_counter(&buf, "gene_requests_total", "Total dispatched requests.", (zend_long)GENE_G(request_count));
+	gene_monitor_prom_counter(&buf, "gene_request_errors_total", "Requests that finished with a pending exception.", (zend_long)GENE_G(request_error_count));
+	gene_monitor_prom_counter(&buf, "gene_memory_cache_hits_total", "Userland Memory::get hits.", (zend_long)GENE_G(memory_cache_hit));
+	gene_monitor_prom_counter(&buf, "gene_memory_cache_misses_total", "Userland Memory::get misses.", (zend_long)GENE_G(memory_cache_miss));
+	gene_monitor_prom_counter(&buf, "gene_db_pool_get_timeouts_total", "Pool acquisitions that exhausted waitTimeout.", (zend_long)GENE_G(db_pool_get_timeout));
+	gene_monitor_prom_counter(&buf, "gene_db_pool_cas_abandoned_total", "DB pool CAS decrement rounds abandoned.", (zend_long)GENE_G(db_pool_cas_abandoned));
+	gene_monitor_prom_counter(&buf, "gene_redis_pool_cas_abandoned_total", "Redis pool CAS decrement rounds abandoned.", (zend_long)GENE_G(redis_pool_cas_abandoned));
+	gene_monitor_prom_counter(&buf, "gene_db_slow_queries_total", "Queries slower than gene.slow_query_ms.", (zend_long)GENE_G(db_slow_query_count));
+	gene_monitor_prom_counter(&buf, "gene_swoole_auto_cleanup_defers_total", "Registered coroutine auto-cleanup defers.", (zend_long)GENE_G(swoole_auto_cleanup_defers));
+	gene_monitor_prom_counter(&buf, "gene_swoole_auto_cleanup_reclaimed_total", "Contexts reclaimed by auto-cleanup.", (zend_long)GENE_G(swoole_auto_cleanup_reclaimed));
+	gene_monitor_prom_counter(&buf, "gene_co_contexts_sweeps_total", "Coroutine context sweep runs.", (zend_long)GENE_G(co_contexts_sweep_count));
+	gene_monitor_prom_counter(&buf, "gene_co_contexts_sweep_skipped_total", "Sweep triggers suppressed by the cooldown.", (zend_long)GENE_G(co_contexts_sweep_skipped));
+
+	array_init(&dbp);
+	gene_monitor_collect_pools(gene_pool_ce, ZEND_STRL(GENE_POOL_PROPERTY_INSTANCES), &dbp);
+	gene_monitor_prom_pools(&buf, &dbp, "gene_db_pool");
+	zval_ptr_dtor(&dbp);
+
+	array_init(&rdp);
+	gene_monitor_collect_pools(gene_redis_pool_ce, ZEND_STRL(GENE_REDIS_POOL_PROPERTY_INSTANCES), &rdp);
+	gene_monitor_prom_pools(&buf, &rdp, "gene_redis_pool");
+	zval_ptr_dtor(&rdp);
+
+	smart_str_0(&buf);
+	if (buf.s) {
+		RETURN_STR(buf.s);
+	}
+	RETURN_EMPTY_STRING();
+}
+/* }}} */
+
+/*
  * {{{ gene_monitor_methods
  */
 const zend_function_entry gene_monitor_methods[] = {
 	PHP_ME(gene_monitor, stats, gene_monitor_void_arginfo, ZEND_ACC_PUBLIC|ZEND_ACC_STATIC)
+	/* [GENE_FEATURE:2026-08-07] Counter reset + Prometheus text export. */
+	PHP_ME(gene_monitor, reset, gene_monitor_void_arginfo, ZEND_ACC_PUBLIC|ZEND_ACC_STATIC)
+	PHP_ME(gene_monitor, prometheus, gene_monitor_void_arginfo, ZEND_ACC_PUBLIC|ZEND_ACC_STATIC)
 	{ NULL, NULL, NULL }
 };
 /* }}} */

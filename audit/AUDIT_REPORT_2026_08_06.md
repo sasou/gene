@@ -406,3 +406,44 @@
 1. **P1 批**：`Di::alias()`、`Request::isSecure()`、`Memory::mget()/mset()`、`Monitor::reset()` + Prometheus 导出 —— 均为小面改动，可静态实施；`Request::isSecure()` 建议与 §4.3 的 API 镜像约定同批。
 2. **P1 设计批**：Router 中间件管道（F4）、Controller 生命周期钩子（F3 重设计）、Pool 连接泄漏检测 —— 需先出设计草案再动代码。
 3. **P2 批**：View `render()/clearAssign()`、Response 三方法、Session `clear()/all()`、Validate `bail()/sometimes()`、Log 级别与 context、SQLite `attach`、Benchmark `mark()/lap()`、Application `stop()` —— 按需求驱动立项。
+
+---
+
+## 13. 补全批次实施记录（2026-08-07）
+
+本批次完成 §12.1 表中 P1 小面批 + §12.3 第 3 项 P2 批的全部缺口，静态实施于 C 源码，同步更新 ide-helper、docs 与测试。
+
+### 13.1 已实现方法清单
+
+| 模块 | 方法 | 优先级 | 源文件 | 要点 |
+|------|------|--------|--------|------|
+| Di | `alias($alias, $target)` | P1 | `di.c` / `di.h` | 实例属性 `di_alias` 哈希表，`instance()` 先查别名再查注册表 |
+| Request | `isSecure()` | P1 | `request.c` / `request.h` | Swoole 读 `server.https`/`server.server_port`；FPM 读 `HTTPS`/`SERVER_PORT` |
+| Memory | `mget(array $keys)` / `mset(array $items, $ttl)` | P1 | `memory.c` / `memory.h` | 单次遍历哈希表，复用 get/set 逻辑 |
+| Monitor | `reset()` / `exportPrometheus()` | P1 | `monitor.c` / `monitor.h` | reset 归零全部全局计数器；Prometheus 文本格式含 `# HELP`/`# TYPE` |
+| View | `render($template, $vars)` / `clearAssign()` | P2 | `view.c` / `view.h` | render 返回字符串不输出；clearAssign 清空 `view_vars` |
+| Response | `getStatusCode()` / `isSent()` / `sendFile($path, $filename, $headers)` | P2 | `response.c` / `response.h` | Swoole 读 `response_status` ctx 字段；sendFile 设头+输出文件 |
+| Session | `clear()` / `all()` | P2 | `session.c` / `session.h` | clear 销毁 session 变量；all 返回 `$_SESSION` |
+| Validate | `bail()` / `sometimes($field, callable)` | P2 | `validate.c` / `validate.h` | bail 标志使 validCheck 首错即停（含 group 模式）；sometimes 回调返回 false 跳过该字段全部规则 |
+| Log | `critical()` / `alert()` / `emergency()` + 所有方法新增 `array $context` | P2 | `log.c` / `log.h` | 新增 LEVEL_CRITICAL(6)/ALERT(7)/EMERGENCY(8) 常量；context JSON 编码追加到日志行 |
+| SQLite | `attach($path, $schema)` / `detach($schema)` | P2 | `sqlite.c` / `sqlite.h` | schema 标识符白名单校验防注入；path 单引号转义 |
+| Benchmark | `mark($name)` / `lap($name)` | P2 | `benchmark.c` / `benchmark.h` | 基于 `gene_hrtime()` 纳秒时间戳；lap 返回 float 毫秒并重置 mark |
+| Application | `stop()` / `isStopped()` | P2 | `application.c` / `gene.h` / `gene.c` / `router.c` | 全局 `app_stopped` 标志；router 在 before-hook/action 后检查，跳过后续派发；RSHUTDOWN 归零 |
+
+### 13.2 基础设施变更
+
+- **`gene.h`**：`gene_request_context` 新增 `di_alias`(zval)、`bench_marks`(zval)、`response_status`(zend_long) 字段；`gene_globals` 新增 `app_stopped`(zend_bool)。
+- **`gene.c`**：ctx 初始化（`ZVAL_UNDEF`）、ctx reset 清理（`zval_ptr_dtor`）、RSHUTDOWN 归零 `app_stopped`。
+- **`router.c`**：三处派发路径（PC_DIRECT/PC_CLOSURE 缓存路径、direct 路径、closure 路径）均插入 `GENE_G(app_stopped)` 检查点。
+
+### 13.3 同步更新
+
+- **ide-helper**（`gene-ide-helper/Gene/*.php`）：12 个文件新增对应方法签名与 docblock。
+- **docs**（`docs/CONFIGURATION.md`）：新增"新增 API"章节，按 P1/P2 分表列出全部方法。
+- **test**（`test/*.php`）：9 个测试文件新增对应测试方法并注册到 `runAllTests()`。
+
+### 13.4 未立项项（维持 §12.2）
+
+- Model ORM/ActiveRecord：架构选择，不进入补全批次。
+- Router 中间件管道（F4）、Controller 生命周期钩子（F3 重设计）、Pool 连接泄漏检测：需设计草案，归入 §12.3 第 2 项"P1 设计批"。
+- Cache(Redis/Memcached) pipeline/multi：经 `call()` 透传维持现状。

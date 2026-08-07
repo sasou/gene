@@ -358,4 +358,29 @@ class Validate
 
     }
 
+    /**
+     * bail
+     * Stop validation at the first failing rule for every field.
+     * Fluent: returns $this.
+     *
+     * @return $this
+     */
+    public function bail() {
+
+    }
+
+    /**
+     * sometimes
+     * Register a conditional guard for $field. The callback receives the
+     * full data array and must return bool; when it returns false, all
+     * rules for that field are skipped.
+     *
+     * @param string $field field name
+     * @param callable $callback callback(array $data): bool
+     * @return $this
+     */
+    public function sometimes(string $field, callable $callback) {
+
+    }
+
 }

@@ -131,6 +131,18 @@ ZEND_BEGIN_ARG_INFO_EX(gene_db_sqlite_quote, 0, 0, 1)
 	ZEND_ARG_INFO(0, paramType)
 ZEND_END_ARG_INFO()
 
+/* [GENE_FEATURE:2026-08-07] attach($path, $schema): attach another SQLite
+ * database file to the current connection under $schema name. detach($schema)
+ * reverses it. Both validate $schema as an identifier to prevent injection. */
+ZEND_BEGIN_ARG_INFO_EX(gene_db_sqlite_attach, 0, 0, 2)
+	ZEND_ARG_INFO(0, path)
+	ZEND_ARG_INFO(0, schema)
+ZEND_END_ARG_INFO()
+
+ZEND_BEGIN_ARG_INFO_EX(gene_db_sqlite_detach, 0, 0, 1)
+	ZEND_ARG_INFO(0, schema)
+ZEND_END_ARG_INFO()
+
 void sqlite_reset_sql_params(zval *self)
 {
 	zend_update_property_null(gene_db_sqlite_ce, gene_strip_obj(self), ZEND_STRL(GENE_DB_SQLITE_SQL));
@@ -1415,6 +1427,115 @@ PHP_METHOD(gene_db_sqlite, __destruct)
 }
 /* }}} */
 
+/* [GENE_FEATURE:2026-08-07] Validate a schema identifier: only [A-Za-z_][A-Za-z0-9_]*
+ * is accepted. Returns 1 on success. Rejects empty, overlong (>63), or
+ * non-identifier chars to prevent SQL injection via ATTACH/DETACH. */
+static zend_bool gene_db_sqlite_valid_schema(const char *s, size_t len) {
+	size_t i;
+	if (len == 0 || len > 63) return 0;
+	if (!((s[0] >= 'A' && s[0] <= 'Z') || (s[0] >= 'a' && s[0] <= 'z') || s[0] == '_')) return 0;
+	for (i = 1; i < len; i++) {
+		unsigned char c = (unsigned char)s[i];
+		if (!((c >= 'A' && c <= 'Z') || (c >= 'a' && c <= 'z') ||
+		      (c >= '0' && c <= '9') || c == '_')) return 0;
+	}
+	return 1;
+}
+
+/*
+ * {{{ public gene_db::attach(string $path, string $schema)
+ * [GENE_FEATURE:2026-08-07] Attach another SQLite database file to the
+ * current connection under $schema. $schema is validated as an identifier;
+ * single quotes in $path are doubled (SQLite string-literal escaping).
+ * Returns true on success, false on failure.
+ */
+PHP_METHOD(gene_db_sqlite, attach)
+{
+	zval *self = getThis();
+	zend_string *path = NULL, *schema = NULL;
+	zval *pdo_object = NULL, retval;
+
+	if (zend_parse_parameters(ZEND_NUM_ARGS(), "SS", &path, &schema) == FAILURE) {
+		return;
+	}
+	if (!gene_db_sqlite_valid_schema(ZSTR_VAL(schema), ZSTR_LEN(schema))) {
+		php_error_docref(NULL, E_WARNING, "Attach schema name must be a valid identifier [A-Za-z_][A-Za-z0-9_]*");
+		RETURN_FALSE;
+	}
+	if (ZSTR_LEN(path) == 0) {
+		php_error_docref(NULL, E_WARNING, "Attach path must not be empty");
+		RETURN_FALSE;
+	}
+
+	pdo_object = zend_read_property(gene_db_sqlite_ce, gene_strip_obj(self), ZEND_STRL(GENE_DB_SQLITE_PDO), 1, NULL);
+	if (!pdo_object || Z_TYPE_P(pdo_object) != IS_OBJECT) {
+		php_error_docref(NULL, E_WARNING, "PDO connection is not initialized");
+		RETURN_FALSE;
+	}
+
+	/* Escape single quotes in path by doubling them (SQLite literal rule). */
+	smart_str sql = {0};
+	smart_str_appends(&sql, "ATTACH DATABASE '");
+	size_t i;
+	for (i = 0; i < ZSTR_LEN(path); i++) {
+		char c = ZSTR_VAL(path)[i];
+		smart_str_appendc(&sql, c);
+		if (c == '\'') smart_str_appendc(&sql, '\'');
+	}
+	smart_str_appends(&sql, "' AS ");
+	smart_str_appends(&sql, ZSTR_VAL(schema));
+	smart_str_0(&sql);
+
+	ZVAL_UNDEF(&retval);
+	gene_pdo_exec(pdo_object, ZSTR_VAL(sql.s), &retval);
+	smart_str_free(&sql);
+
+	zend_bool ok = (Z_TYPE(retval) != IS_UNDEF) ? 1 : 0;
+	if (Z_TYPE(retval) != IS_UNDEF) zval_ptr_dtor(&retval);
+	RETURN_BOOL(ok);
+}
+/* }}} */
+
+/*
+ * {{{ public gene_db::detach(string $schema)
+ * [GENE_FEATURE:2026-08-07] Detach a previously-attached schema. Same
+ * identifier validation as attach(). Returns true on success.
+ */
+PHP_METHOD(gene_db_sqlite, detach)
+{
+	zval *self = getThis();
+	zend_string *schema = NULL;
+	zval *pdo_object = NULL, retval;
+
+	if (zend_parse_parameters(ZEND_NUM_ARGS(), "S", &schema) == FAILURE) {
+		return;
+	}
+	if (!gene_db_sqlite_valid_schema(ZSTR_VAL(schema), ZSTR_LEN(schema))) {
+		php_error_docref(NULL, E_WARNING, "Detach schema name must be a valid identifier [A-Za-z_][A-Za-z0-9_]*");
+		RETURN_FALSE;
+	}
+
+	pdo_object = zend_read_property(gene_db_sqlite_ce, gene_strip_obj(self), ZEND_STRL(GENE_DB_SQLITE_PDO), 1, NULL);
+	if (!pdo_object || Z_TYPE_P(pdo_object) != IS_OBJECT) {
+		php_error_docref(NULL, E_WARNING, "PDO connection is not initialized");
+		RETURN_FALSE;
+	}
+
+	smart_str sql = {0};
+	smart_str_appends(&sql, "DETACH DATABASE ");
+	smart_str_appends(&sql, ZSTR_VAL(schema));
+	smart_str_0(&sql);
+
+	ZVAL_UNDEF(&retval);
+	gene_pdo_exec(pdo_object, ZSTR_VAL(sql.s), &retval);
+	smart_str_free(&sql);
+
+	zend_bool ok = (Z_TYPE(retval) != IS_UNDEF) ? 1 : 0;
+	if (Z_TYPE(retval) != IS_UNDEF) zval_ptr_dtor(&retval);
+	RETURN_BOOL(ok);
+}
+/* }}} */
+
 /*
  * {{{ public gene_db::history()
  */
@@ -1468,6 +1589,8 @@ const zend_function_entry gene_db_sqlite_methods[] = {
 		PHP_ME(gene_db_sqlite, commit, gene_db_sqlite_void_arginfo, ZEND_ACC_PUBLIC)
 		PHP_ME(gene_db_sqlite, release, gene_db_sqlite_void_arginfo, ZEND_ACC_PUBLIC)
 		PHP_ME(gene_db_sqlite, free, gene_db_sqlite_void_arginfo, ZEND_ACC_PUBLIC)
+		PHP_ME(gene_db_sqlite, attach, gene_db_sqlite_attach, ZEND_ACC_PUBLIC)
+		PHP_ME(gene_db_sqlite, detach, gene_db_sqlite_detach, ZEND_ACC_PUBLIC)
 		PHP_ME(gene_db_sqlite, __destruct, gene_db_sqlite_void_arginfo, ZEND_ACC_PUBLIC)
 		PHP_ME(gene_db_sqlite, history, gene_db_sqlite_void_arginfo, ZEND_ACC_PUBLIC)
 		{NULL, NULL, NULL}

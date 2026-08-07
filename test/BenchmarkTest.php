@@ -506,7 +506,62 @@ class BenchmarkTest
         
         echo "\n";
     }
-    
+
+    /**
+     * [GENE_FEATURE:2026-08-07] Test mark() and lap() named lap methods
+     */
+    public function testMarkAndLap()
+    {
+        echo "Testing Mark and Lap Methods:\n";
+
+        try {
+            // Test mark() records a named timestamp
+            $ok = Benchmark::mark("db_query");
+            echo "✓ mark('db_query') returns: " . var_export($ok, true) . "\n";
+
+            // Simulate work
+            usleep(15000); // 15ms
+
+            // Test lap() returns elapsed ms and resets the mark
+            $elapsed = Benchmark::lap("db_query");
+            echo "✓ lap('db_query') returns: " . var_export($elapsed, true) . " ms\n";
+
+            // Verify lap() returns a positive float
+            if (is_double($elapsed) && $elapsed > 0) {
+                echo "✓ lap() returned a positive float\n";
+            } else {
+                echo "✗ lap() did not return a positive float\n";
+            }
+
+            // Test second lap measures from the reset point
+            usleep(5000); // 5ms
+            $elapsed2 = Benchmark::lap("db_query");
+            echo "✓ second lap('db_query') returns: " . var_export($elapsed2, true) . " ms\n";
+
+            // Test lap() on unmarked name returns false
+            $noMark = Benchmark::lap("unmarked");
+            echo "✓ lap('unmarked') returns: " . var_export($noMark, true) . "\n";
+
+            // Test mark() with empty name returns false
+            $emptyMark = Benchmark::mark("");
+            echo "✓ mark('') returns: " . var_export($emptyMark, true) . "\n";
+
+            // Test multiple concurrent marks
+            Benchmark::mark("step1");
+            Benchmark::mark("step2");
+            usleep(10000);
+            $lap1 = Benchmark::lap("step1");
+            usleep(10000);
+            $lap2 = Benchmark::lap("step2");
+            echo "✓ concurrent marks: step1=" . var_export($lap1, true) . "ms, step2=" . var_export($lap2, true) . "ms\n";
+
+        } catch (Exception $e) {
+            echo "✗ Error: " . $e->getMessage() . "\n";
+        }
+
+        echo "\n";
+    }
+
     /**
      * Run all tests
      */
@@ -523,7 +578,8 @@ class BenchmarkTest
         $this->testDifferentDataTypes();
         $this->testBenchmarkPerformance();
         $this->testDebugMode();
-        
+        $this->testMarkAndLap();
+
         echo "=== Benchmark Test Suite Complete ===\n";
     }
 }

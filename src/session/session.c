@@ -1089,6 +1089,39 @@ PHP_METHOD(gene_session, destroy) {
 }
 /* }}} */
 
+/** {{{ public gene_session::clear(): bool
+ * [GENE_FEATURE:2026-08-07] Empty the session data but keep the session id
+ * and the storage record (unlike destroy(), which deletes the record through
+ * the handler). Marks the session dirty so save()/__destruct persists the
+ * empty state, and refreshes the cookie like set()/del() do.
+ */
+PHP_METHOD(gene_session, clear) {
+	zval *self = getThis();
+	zval empty;
+
+	array_init(&empty);
+	zend_update_property(gene_session_ce, gene_strip_obj(self), ZEND_STRL(GENE_SESSION_DATA), &empty);
+	zval_ptr_dtor(&empty);
+	gene_session_mark_dirty(self);
+	gene_session_auto_cookie(self);
+
+	RETURN_TRUE;
+}
+/* }}} */
+
+/** {{{ public gene_session::all(): array
+ * [GENE_FEATURE:2026-08-07] Return the whole session data array (equivalent
+ * to get() with no name, which goes through gene_session_get_by_path). */
+PHP_METHOD(gene_session, all) {
+	zval *self = getThis();
+	zval *sess = gene_session_get_data(self);
+	if (sess && Z_TYPE_P(sess) == IS_ARRAY) {
+		RETURN_ZVAL(sess, 1, 0);
+	}
+	RETURN_EMPTY_ARRAY();
+}
+/* }}} */
+
 /** {{{ public gene_session::has($name)
  */
 PHP_METHOD(gene_session, has) {
@@ -1258,6 +1291,9 @@ const zend_function_entry gene_session_methods[] = {
 	PHP_ME(gene_session, has, gene_session_has_arginfo, ZEND_ACC_PUBLIC)
 	PHP_ME(gene_session, set, gene_session_set_arginfo, ZEND_ACC_PUBLIC)
 	PHP_ME(gene_session, del, gene_session_del_arginfo, ZEND_ACC_PUBLIC)
+	/* [GENE_FEATURE:2026-08-07] clear data / dump data. */
+	PHP_ME(gene_session, clear, gene_session_void_arginfo, ZEND_ACC_PUBLIC)
+	PHP_ME(gene_session, all, gene_session_void_arginfo, ZEND_ACC_PUBLIC)
 	PHP_ME(gene_session, destroy, gene_session_void_arginfo, ZEND_ACC_PUBLIC)
 	PHP_ME(gene_session, cookie, gene_session_cookie_arginfo, ZEND_ACC_PUBLIC)
 	PHP_MALIAS(gene_session, __get, get, gene_session_get_arginfo, ZEND_ACC_PUBLIC)

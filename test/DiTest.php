@@ -168,12 +168,41 @@ class DiTest
         echo "\n";
     }
 
+    /**
+     * [GENE_FEATURE:2026-08-07] Test Di::alias()
+     */
+    public function testAlias()
+    {
+        echo "Testing Di alias():\n";
+
+        try {
+            $di = new \Gene\Di();
+            // Register a service then alias it
+            $di->set("db", function() { return new \stdClass(); });
+            $di->alias("database", "db");
+            echo "✓ alias('database', 'db') works\n";
+
+            // Resolve via alias
+            $instance = $di->instance("database");
+            if ($instance instanceof \stdClass) {
+                echo "✓ instance('database') resolved alias to target service\n";
+            } else {
+                echo "✗ instance('database') did not resolve to stdClass\n";
+            }
+        } catch (Exception $e) {
+            echo "✗ Error: " . $e->getMessage() . "\n";
+        }
+
+        echo "\n";
+    }
+
     public function runAllTests()
     {
         $this->testStaticRegistry();
         $this->testInstanceAndMagicAccess();
         $this->testValueSemantics();
         $this->testMissingKeys();
+        $this->testAlias();
 
         echo "=== Di Test Suite Complete ===\n";
     }

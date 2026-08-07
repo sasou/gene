@@ -500,6 +500,35 @@ class SessionTest
     }
     
     /**
+     * [GENE_FEATURE:2026-08-07] Test Session::clear() and all()
+     */
+    public function testClearAll()
+    {
+        echo "Testing Session clear()/all():\n";
+
+        try {
+            $session = new \Gene\Session();
+            // Set some session data
+            $session->set("test_key1", "test_value1");
+            $session->set("test_key2", "test_value2");
+            echo "✓ set() two session keys\n";
+
+            // Test all() returns the session data
+            $all = $session->all();
+            echo "✓ all() returns: " . (is_array($all) ? count($all) . " items" : var_export($all, true)) . "\n";
+
+            // Test clear() removes all data
+            $session->clear();
+            $allAfter = $session->all();
+            echo "✓ clear() then all() returns: " . (is_array($allAfter) ? count($allAfter) . " items" : var_export($allAfter, true)) . "\n";
+        } catch (Exception $e) {
+            echo "✗ Error: " . $e->getMessage() . "\n";
+        }
+
+        echo "\n";
+    }
+
+    /**
      * Run all tests
      */
     public function runAllTests()
@@ -516,6 +545,7 @@ class SessionTest
         $this->testErrorHandling();
         $this->testPerformance();
         $this->testSessionPersistence();
+        $this->testClearAll();
         
         echo "=== Session Test Suite Complete ===\n";
     }

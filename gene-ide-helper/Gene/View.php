@@ -115,4 +115,27 @@ class View
 
     }
 
+    /**
+     * render
+     * Render a template and return the output as a string without sending
+     * it to the response. Variables assigned via assign() are available.
+     *
+     * @param string $template template file path relative to view root
+     * @param array $vars optional extra variables for this render only
+     * @return string rendered template output
+     */
+    public function render(string $template, array $vars = []) {
+
+    }
+
+    /**
+     * clearAssign
+     * Clear all previously assigned view variables.
+     *
+     * @return $this
+     */
+    public function clearAssign() {
+
+    }
+
 }

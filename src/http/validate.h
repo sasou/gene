@@ -24,6 +24,12 @@
 #define GENE_VALIDATE_VALUE  "value"
 #define GENE_VALIDATE_ERROR  "error"
 #define GENE_VALIDATE_CLOSURE  "closure"
+/* [GENE_FEATURE:2026-08-07] bail(): stop validation at the first failure. */
+#define GENE_VALIDATE_BAIL  "bail"
+/* [GENE_FEATURE:2026-08-07] sometimes(): per-field conditional callback.
+ * Stores an array<field, callable($data):bool> on the instance; validCheck()
+ * skips a field's rules when its callback returns false. */
+#define GENE_VALIDATE_SOMETIMES  "sometimes"
 #define GENE_VALIDATE_MOBILE "/^(13[0-9]|14[01456879]|15[0-35-9]|16[2567]|17[0-8]|18[0-9]|19[0-35-9])\\d{8}$/"
 #define GENE_VALIDATE_DATE "/^\\d{4}[\\/-]\\d{1,2}[\\/-]\\d{1,2}$/"
 

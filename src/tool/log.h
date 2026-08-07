@@ -22,6 +22,10 @@
 #define GENE_LOG_LEVEL_NOTICE  3
 #define GENE_LOG_LEVEL_WARNING 4
 #define GENE_LOG_LEVEL_ERROR   5
+/* [GENE_FEATURE:2026-08-07] RFC-5424 style severity levels above ERROR. */
+#define GENE_LOG_LEVEL_CRITICAL 6
+#define GENE_LOG_LEVEL_ALERT    7
+#define GENE_LOG_LEVEL_EMERGENCY 8
 
 extern zend_class_entry *gene_log_ce;
 

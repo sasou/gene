@@ -89,3 +89,47 @@ $server->on('WorkerStart', function () {
   标记（仅 dev=0 时记录）。
 - **`view_compile_check_mtime`**：开发期设 `1`（改模板即时生效），生产设 `0`
   （性能最优）。
+
+## 新增 API（2026-08-07 审计补全批次）
+
+以下方法在审计报告 `AUDIT_REPORT_2026_08_06.md` 中列为缺口，本批次已实现：
+
+### P1 级
+
+| 类 | 方法 | 说明 |
+|----|------|------|
+| `Gene\Di` | `alias($alias, $target)` | 服务别名，`instance($alias)` 解析到目标服务 |
+| `Gene\Request` | `isSecure()` | 判断当前请求是否 HTTPS/TLS |
+| `Gene\Memory` | `mget(array $keys)` | 批量获取缓存值 |
+| `Gene\Memory` | `mset(array $items, int $ttl)` | 批量设置缓存值 |
+| `Gene\Monitor` | `reset()` | 重置所有累计计数器 |
+| `Gene\Monitor` | `exportPrometheus()` | Prometheus 文本格式导出 |
+
+### P2 级
+
+| 类 | 方法 | 说明 |
+|----|------|------|
+| `Gene\View` | `render($template, array $vars)` | 渲染模板返回字符串 |
+| `Gene\View` | `clearAssign()` | 清除所有已赋值变量 |
+| `Gene\Response` | `getStatusCode()` | 获取当前 HTTP 状态码 |
+| `Gene\Response` | `isSent()` | 判断响应是否已发送 |
+| `Gene\Response` | `sendFile($path, $filename, array $headers)` | 发送文件下载 |
+| `Gene\Session` | `clear()` | 清除所有 session 数据 |
+| `Gene\Session` | `all()` | 返回全部 session 数据 |
+| `Gene\Validate` | `bail()` | 首错即停 |
+| `Gene\Validate` | `sometimes($field, callable $callback)` | 条件验证（回调返回 false 跳过该字段规则） |
+| `Gene\Log` | `critical($message, array $context)` | CRITICAL 级别日志（RFC-5424） |
+| `Gene\Log` | `alert($message, array $context)` | ALERT 级别日志 |
+| `Gene\Log` | `emergency($message, array $context)` | EMERGENCY 级别日志 |
+| `Gene\Log` | 所有日志方法新增可选 `array $context` 参数 | 结构化上下文（JSON 编码追加到日志行） |
+| `Gene\Db\Sqlite` | `attach($path, $schema)` | 附加外部 SQLite 数据库 |
+| `Gene\Db\Sqlite` | `detach($schema)` | 分离已附加的 schema |
+| `Gene\Benchmark` | `mark($name)` | 记录命名高精度时间戳 |
+| `Gene\Benchmark` | `lap($name)` | 返回距上次 mark 的毫秒数并重置 |
+| `Gene\Application` | `stop()` | 中止当前请求派发（跳过 action 和 after-hook） |
+| `Gene\Application` | `isStopped()` | 查询 stop() 是否已调用 |
+
+### Log 级别常量
+
+新增 `LEVEL_CRITICAL`(6)、`LEVEL_ALERT`(7)、`LEVEL_EMERGENCY`(8) 三个类常量，
+对应 RFC-5424 严重级别。`setLevel()` 接受范围扩展为 1~8。

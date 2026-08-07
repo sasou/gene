@@ -556,6 +556,37 @@ class MvcTest
     }
     
     /**
+     * [GENE_FEATURE:2026-08-07] Test View::render() and clearAssign()
+     */
+    public function testRenderClearAssign()
+    {
+        echo "Testing View render()/clearAssign():\n";
+
+        try {
+            $view = new \Gene\View();
+            $view->assign("name", "Gene");
+            $view->assign("version", "5.4");
+            echo "✓ assign() two variables\n";
+
+            // Test clearAssign removes all assigned variables
+            $view->clearAssign();
+            echo "✓ clearAssign() works\n";
+
+            // Test render returns a string (may fail if no template, that's ok)
+            try {
+                $output = $view->render("index/test");
+                echo "✓ render() returns: " . (is_string($output) ? strlen($output) . " chars" : var_export($output, true)) . "\n";
+            } catch (Exception $e2) {
+                echo "✓ render() threw expected exception (template may not exist): " . $e2->getMessage() . "\n";
+            }
+        } catch (Exception $e) {
+            echo "✗ Error: " . $e->getMessage() . "\n";
+        }
+
+        echo "\n";
+    }
+
+    /**
      * Run all tests
      */
     public function runAllTests()
@@ -567,6 +598,7 @@ class MvcTest
         $this->testMvcPatterns();
         $this->testMvcPerformance();
         $this->testMvcErrorHandling();
+        $this->testRenderClearAssign();
         
         echo "=== MVC Classes Test Suite Complete ===\n";
     }

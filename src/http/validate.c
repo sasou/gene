@@ -126,6 +126,16 @@ ZEND_BEGIN_ARG_INFO_EX(gene_validate_call_arginfo, 0, 0, 2)
 	ZEND_ARG_INFO(0, params)
 ZEND_END_ARG_INFO()
 
+/* [GENE_FEATURE:2026-08-07] bail(): no args, fluent. */
+ZEND_BEGIN_ARG_INFO_EX(gene_validate_bail_arginfo, 0, 0, 0)
+ZEND_END_ARG_INFO()
+
+/* [GENE_FEATURE:2026-08-07] sometimes($field, callable $callback): fluent. */
+ZEND_BEGIN_ARG_INFO_EX(gene_validate_sometimes_arginfo, 0, 0, 2)
+	ZEND_ARG_INFO(0, field)
+	ZEND_ARG_INFO(0, callback)
+ZEND_END_ARG_INFO()
+
 void setRefCount(zval *arr) {
 	if (EXPECTED(arr && Z_TYPE_P(arr) == IS_ARRAY)) {
 		SEPARATE_ARRAY(arr);
@@ -158,6 +168,16 @@ void reset_params(zval *self)
 	array_init(&closure_tmp);
 	zend_update_property(gene_validate_ce, gene_strip_obj(self), ZEND_STRL(GENE_VALIDATE_CLOSURE), &closure_tmp);
 	zval_ptr_dtor(&closure_tmp);
+
+	/* [GENE_FEATURE:2026-08-07] bail flag resets with the rest of the
+	 * validator state on init()/__construct. */
+	zend_update_property_bool(gene_validate_ce, gene_strip_obj(self), ZEND_STRL(GENE_VALIDATE_BAIL), 0);
+
+	/* [GENE_FEATURE:2026-08-07] sometimes() callback registry resets too. */
+	zval sometimes_tmp;
+	array_init(&sometimes_tmp);
+	zend_update_property(gene_validate_ce, gene_strip_obj(self), ZEND_STRL(GENE_VALIDATE_SOMETIMES), &sometimes_tmp);
+	zval_ptr_dtor(&sometimes_tmp);
 }
 
 static void gene_split_comma(const char *str, size_t str_len, zval *retval) /*{{{*/
@@ -263,6 +283,12 @@ void gene_filter(zval *value, zend_long filter_l, zend_long options_l, zval *ret
 	}
 }/*}}}*/
 
+
+/* [GENE_FEATURE:2026-08-07] Read the instance bail flag (see bail()). */
+static int gene_validate_bail_enabled(zval *self) {
+	zval *bail = zend_read_property(gene_validate_ce, gene_strip_obj(self), ZEND_STRL(GENE_VALIDATE_BAIL), 1, NULL);
+	return (bail && Z_TYPE_P(bail) == IS_TRUE) ? 1 : 0;
+}
 
 int required (zval *self){
 	zval *field = NULL, *data = NULL, *val = NULL;
@@ -449,6 +475,63 @@ PHP_METHOD(gene_validate, skipOnEmpty)
 		zend_hash_str_update(Z_ARRVAL_P(keyArr), "skip", 4, &val);
 		zval_ptr_dtor(&val);
 	}
+
+	RETURN_ZVAL(self, 1, 0);
+}
+/* }}} */
+
+/*
+ * {{{ public gene_validate::bail()
+ * [GENE_FEATURE:2026-08-07] Stop validation at the first failing rule for
+ * every field. Fluent: returns $this. The flag is read by validCheck() in
+ * both single (valid()) and group (groupValid()) modes.
+ */
+PHP_METHOD(gene_validate, bail)
+{
+	zval *self = getThis();
+	zend_update_property_bool(gene_validate_ce, gene_strip_obj(self), ZEND_STRL(GENE_VALIDATE_BAIL), 1);
+	RETURN_ZVAL(self, 1, 0);
+}
+/* }}} */
+
+/*
+ * {{{ public gene_validate::sometimes($field, callable $callback)
+ * [GENE_FEATURE:2026-08-07] Register a conditional guard for $field. The
+ * callback receives the full data array and must return bool; when it
+ * returns false, validCheck() skips all rules for that field. Useful for
+ * "validate billing_address only when use_billing is on" style rules.
+ * Fluent: returns $this. The registry lives on the instance and is reset
+ * by init()/__construct.
+ */
+PHP_METHOD(gene_validate, sometimes)
+{
+	zend_string *field = NULL;
+	zend_fcall_info callback;
+	zend_fcall_info_cache fci_cache = empty_fcall_info_cache;
+	zval *self = getThis(), *registry = NULL, fn_zv;
+
+	if (zend_parse_parameters(ZEND_NUM_ARGS(), "Sf", &field, &callback, &fci_cache) == FAILURE) {
+		return;
+	}
+	if (!field || ZSTR_LEN(field) == 0) {
+		php_error_docref(NULL, E_WARNING, "Validate::sometimes field name must not be empty.");
+		RETURN_FALSE;
+	}
+
+	registry = zend_read_property(gene_validate_ce, gene_strip_obj(self), ZEND_STRL(GENE_VALIDATE_SOMETIMES), 1, NULL);
+	if (!registry || Z_TYPE_P(registry) != IS_ARRAY) {
+		zval reg_tmp;
+		array_init(&reg_tmp);
+		zend_update_property(gene_validate_ce, gene_strip_obj(self), ZEND_STRL(GENE_VALIDATE_SOMETIMES), &reg_tmp);
+		zval_ptr_dtor(&reg_tmp);
+		registry = zend_read_property(gene_validate_ce, gene_strip_obj(self), ZEND_STRL(GENE_VALIDATE_SOMETIMES), 1, NULL);
+	}
+
+	/* Store the callable zval (string/array/closure); the hash table owns
+	 * the refcount via ZVAL_COPY. Same pattern as extend(). */
+	ZVAL_COPY(&fn_zv, &callback.function_name);
+	setRefCount(registry);
+	zend_hash_str_update(Z_ARRVAL_P(registry), ZSTR_VAL(field), ZSTR_LEN(field), &fn_zv);
 
 	RETURN_ZVAL(self, 1, 0);
 }
@@ -733,6 +816,24 @@ int validCheck(zval *self, zval *date_field, zval *rules, int is_group) {
 		if (data && Z_TYPE_P(data) == IS_ARRAY) {
 			date_field_val = zend_hash_str_find(Z_ARRVAL_P(data), Z_STRVAL_P(date_field), Z_STRLEN_P(date_field));
 
+			/* [GENE_FEATURE:2026-08-07] sometimes(): if a conditional guard
+			 * is registered for this field, invoke it with the data array;
+			 * a false return means skip all rules for this field. */
+			zval *sometimes_reg = zend_read_property(gene_validate_ce, gene_strip_obj(self), ZEND_STRL(GENE_VALIDATE_SOMETIMES), 1, NULL);
+			if (sometimes_reg && Z_TYPE_P(sometimes_reg) == IS_ARRAY) {
+				zval *guard_fn = zend_hash_str_find(Z_ARRVAL_P(sometimes_reg), Z_STRVAL_P(date_field), Z_STRLEN_P(date_field));
+				if (guard_fn) {
+					zval guard_ret;
+					ZVAL_UNDEF(&guard_ret);
+					gene_factory_function_call_1(guard_fn, data, NULL, &guard_ret);
+					int proceed = (Z_TYPE(guard_ret) == IS_FALSE) ? 0 : 1;
+					zval_ptr_dtor(&guard_ret);
+					if (!proceed) {
+						return isValid;
+					}
+				}
+			}
+
 			values = zend_read_property(gene_validate_ce, gene_strip_obj(self), ZEND_STRL(GENE_VALIDATE_VALUE), 1, NULL);
 			errors = zend_read_property(gene_validate_ce, gene_strip_obj(self), ZEND_STRL(GENE_VALIDATE_ERROR), 1, NULL);
 
@@ -776,7 +877,9 @@ int validCheck(zval *self, zval *date_field, zval *rules, int is_group) {
 								zend_hash_str_update(Z_ARRVAL_P(errors), Z_STRVAL_P(date_field), Z_STRLEN_P(date_field), msg);
 							}
 							isValid = 0;
-							if (is_group == 0) {
+							/* [GENE_FEATURE:2026-08-07] bail(): in group mode
+							 * also stop at the first failing rule. */
+							if (is_group == 0 || gene_validate_bail_enabled(self)) {
 								zval_ptr_dtor(&ret);
 								return isValid;
 							}
@@ -830,7 +933,9 @@ int validCheck(zval *self, zval *date_field, zval *rules, int is_group) {
 								zend_hash_str_update(Z_ARRVAL_P(errors), Z_STRVAL_P(date_field), Z_STRLEN_P(date_field), msg);
 							}
 							isValid = 0;
-							if (is_group == 0) {
+							/* [GENE_FEATURE:2026-08-07] bail(): in group mode
+							 * also stop at the first failing rule. */
+							if (is_group == 0 || gene_validate_bail_enabled(self)) {
 								zval_ptr_dtor(&ret);
 								return isValid;
 							}
@@ -1595,6 +1700,8 @@ const zend_function_entry gene_validate_methods[] = {
 		PHP_ME(gene_validate, init, gene_validate_init, ZEND_ACC_PUBLIC)
 		PHP_ME(gene_validate, name, gene_validate_name, ZEND_ACC_PUBLIC)
 		PHP_ME(gene_validate, skipOnEmpty, gene_validate_void_arginfo, ZEND_ACC_PUBLIC)
+		PHP_ME(gene_validate, bail, gene_validate_bail_arginfo, ZEND_ACC_PUBLIC)
+		PHP_ME(gene_validate, sometimes, gene_validate_sometimes_arginfo, ZEND_ACC_PUBLIC)
 		PHP_ME(gene_validate, filter, gene_validate_filter, ZEND_ACC_PUBLIC)
 		PHP_ME(gene_validate, extend, gene_validate_extend, ZEND_ACC_PUBLIC|ZEND_ACC_STATIC)
 		PHP_ME(gene_validate, addValidator, gene_validate_addvalidator, ZEND_ACC_PUBLIC)

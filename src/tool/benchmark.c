@@ -52,6 +52,16 @@ ZEND_BEGIN_ARG_INFO_EX(gene_benchmark_memory, 0, 0, 0)
 	ZEND_ARG_INFO(0, type)
 ZEND_END_ARG_INFO()
 
+/* [GENE_FEATURE:2026-08-07] mark($name): record a named high-res timestamp.
+ * lap($name): return ms elapsed since the last mark($name) and reset it. */
+ZEND_BEGIN_ARG_INFO_EX(gene_benchmark_mark, 0, 0, 1)
+	ZEND_ARG_INFO(0, name)
+ZEND_END_ARG_INFO()
+
+ZEND_BEGIN_ARG_INFO_EX(gene_benchmark_lap, 0, 0, 1)
+	ZEND_ARG_INFO(0, name)
+ZEND_END_ARG_INFO()
+
 
 /*
  * {{{ void markStart(timeval *start, zend_long *memory_start)
@@ -209,6 +219,76 @@ PHP_METHOD(gene_benchmark, memory)
 }
 /* }}} */
 
+/* [GENE_FEATURE:2026-08-07] mark($name): record a named high-resolution
+ * timestamp (nanoseconds) on the request context. Subsequent lap($name)
+ * calls measure elapsed time against this mark. Returns true. */
+PHP_METHOD(gene_benchmark, mark)
+{
+	zend_string *name = NULL;
+	gene_request_context *ctx;
+
+	if (zend_parse_parameters(ZEND_NUM_ARGS(), "S", &name) == FAILURE) {
+		return;
+	}
+	if (ZSTR_LEN(name) == 0) {
+		php_error_docref(NULL, E_WARNING, "Benchmark::mark name must not be empty");
+		RETURN_FALSE;
+	}
+
+	ctx = gene_request_ctx();
+	if (!ctx) RETURN_FALSE;
+
+	if (Z_TYPE(ctx->bench_marks) != IS_ARRAY) {
+		array_init(&ctx->bench_marks);
+	}
+
+	zval ts;
+	ZVAL_LONG(&ts, (zend_long)gene_hrtime());
+	add_assoc_zval_ex(&ctx->bench_marks, ZSTR_VAL(name), ZSTR_LEN(name), &ts);
+
+	RETURN_TRUE;
+}
+/* }}} */
+
+/* [GENE_FEATURE:2026-08-07] lap($name): return milliseconds (float) elapsed
+ * since the last mark($name), then reset the mark to now. Returns false if
+ * no prior mark exists for $name. */
+PHP_METHOD(gene_benchmark, lap)
+{
+	zend_string *name = NULL;
+	gene_request_context *ctx;
+
+	if (zend_parse_parameters(ZEND_NUM_ARGS(), "S", &name) == FAILURE) {
+		return;
+	}
+	if (ZSTR_LEN(name) == 0) {
+		php_error_docref(NULL, E_WARNING, "Benchmark::lap name must not be empty");
+		RETURN_FALSE;
+	}
+
+	ctx = gene_request_ctx();
+	if (!ctx || Z_TYPE(ctx->bench_marks) != IS_ARRAY) {
+		RETURN_FALSE;
+	}
+
+	zval *prev = zend_hash_find(Z_ARRVAL(ctx->bench_marks), name);
+	if (!prev || Z_TYPE_P(prev) != IS_LONG) {
+		RETURN_FALSE;
+	}
+
+	uint64_t now = gene_hrtime();
+	uint64_t prev_ns = (uint64_t)Z_LVAL_P(prev);
+	double elapsed_ms = (double)(now - prev_ns) / 1000000.0;
+
+	/* Reset the mark to now for the next lap. */
+	zval ts;
+	ZVAL_LONG(&ts, (zend_long)now);
+	add_assoc_zval_ex(&ctx->bench_marks, ZSTR_VAL(name), ZSTR_LEN(name), &ts);
+
+	RETURN_DOUBLE(elapsed_ms);
+}
+/* }}} */
+
 /*
  * {{{ gene_benchmark_methods
  */
@@ -217,6 +297,8 @@ const zend_function_entry gene_benchmark_methods[] = {
 		PHP_ME(gene_benchmark, end, gene_benchmark_end, ZEND_ACC_PUBLIC|ZEND_ACC_STATIC)
 		PHP_ME(gene_benchmark, time, gene_benchmark_time, ZEND_ACC_PUBLIC|ZEND_ACC_STATIC)
 		PHP_ME(gene_benchmark, memory, gene_benchmark_memory, ZEND_ACC_PUBLIC|ZEND_ACC_STATIC)
+		PHP_ME(gene_benchmark, mark, gene_benchmark_mark, ZEND_ACC_PUBLIC|ZEND_ACC_STATIC)
+		PHP_ME(gene_benchmark, lap, gene_benchmark_lap, ZEND_ACC_PUBLIC|ZEND_ACC_STATIC)
 		{NULL, NULL, NULL}
 };
 /* }}} */
