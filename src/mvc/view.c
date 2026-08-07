@@ -818,7 +818,15 @@ PHP_METHOD(gene_view, render) {
 	vars = gene_view_get_vars();
 	table = gene_view_build_symbol_table(vars);
 
-	php_output_start_default();
+	/* [GENE_FIX:2026-08-07] Check the return: if the buffer fails to start,
+	 * template output would leak into the outer output buffer / client. */
+	if (php_output_start_default() == FAILURE) {
+		if (table) {
+			zend_hash_destroy(table);
+			FREE_HASHTABLE(table);
+		}
+		RETURN_FALSE;
+	}
 	if (parent_file && ZSTR_LEN(parent_file) > 0) {
 		gene_request_context *ctx = gene_request_ctx();
 		if (ctx->child_views) {

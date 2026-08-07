@@ -1466,6 +1466,13 @@ PHP_METHOD(gene_db_sqlite, attach)
 		php_error_docref(NULL, E_WARNING, "Attach path must not be empty");
 		RETURN_FALSE;
 	}
+	/* [GENE_FIX:2026-08-07] Reject NUL bytes: the SQL is passed to
+	 * gene_pdo_exec() as a C string, so an embedded NUL would silently
+	 * truncate the path. */
+	if (memchr(ZSTR_VAL(path), '\0', ZSTR_LEN(path)) != NULL) {
+		php_error_docref(NULL, E_WARNING, "Attach path must not contain NUL bytes");
+		RETURN_FALSE;
+	}
 
 	pdo_object = zend_read_property(gene_db_sqlite_ce, gene_strip_obj(self), ZEND_STRL(GENE_DB_SQLITE_PDO), 1, NULL);
 	if (!pdo_object || Z_TYPE_P(pdo_object) != IS_OBJECT) {
@@ -1490,7 +1497,9 @@ PHP_METHOD(gene_db_sqlite, attach)
 	gene_pdo_exec(pdo_object, ZSTR_VAL(sql.s), &retval);
 	smart_str_free(&sql);
 
-	zend_bool ok = (Z_TYPE(retval) != IS_UNDEF) ? 1 : 0;
+	/* [GENE_FIX:2026-08-07] PDO::exec() returns false on failure; anything
+	 * other than IS_FALSE/IS_UNDEF counts as success. */
+	zend_bool ok = (Z_TYPE(retval) != IS_UNDEF && Z_TYPE(retval) != IS_FALSE) ? 1 : 0;
 	if (Z_TYPE(retval) != IS_UNDEF) zval_ptr_dtor(&retval);
 	RETURN_BOOL(ok);
 }
@@ -1530,7 +1539,9 @@ PHP_METHOD(gene_db_sqlite, detach)
 	gene_pdo_exec(pdo_object, ZSTR_VAL(sql.s), &retval);
 	smart_str_free(&sql);
 
-	zend_bool ok = (Z_TYPE(retval) != IS_UNDEF) ? 1 : 0;
+	/* [GENE_FIX:2026-08-07] PDO::exec() returns false on failure; anything
+	 * other than IS_FALSE/IS_UNDEF counts as success. */
+	zend_bool ok = (Z_TYPE(retval) != IS_UNDEF && Z_TYPE(retval) != IS_FALSE) ? 1 : 0;
 	if (Z_TYPE(retval) != IS_UNDEF) zval_ptr_dtor(&retval);
 	RETURN_BOOL(ok);
 }

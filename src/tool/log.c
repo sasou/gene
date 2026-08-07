@@ -194,6 +194,9 @@ static void gene_log_write_message(zend_long level, const char *msg, zval *conte
 	size_t ctx_len = 0;
 	if (context && Z_TYPE_P(context) == IS_ARRAY && zend_hash_num_elements(Z_ARRVAL_P(context)) > 0) {
 		zval json_ret, json_opt;
+		/* [GENE_FIX:2026-08-07] Initialize defensively: if the json_encode
+		 * call ever fails to populate retval, Z_TYPE on garbage would be UB. */
+		ZVAL_UNDEF(&json_ret);
 		ZVAL_LONG(&json_opt, 0);
 		gene_json_encode(context, &json_opt, &json_ret);
 		if (Z_TYPE(json_ret) == IS_STRING) {

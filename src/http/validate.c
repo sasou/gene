@@ -1759,6 +1759,11 @@ GENE_MINIT_FUNCTION(validate)
     zend_declare_property_null(gene_validate_ce, ZEND_STRL(GENE_VALIDATE_VALUE), ZEND_ACC_PUBLIC);
     zend_declare_property_null(gene_validate_ce, ZEND_STRL(GENE_VALIDATE_ERROR), ZEND_ACC_PUBLIC);
     zend_declare_property_null(gene_validate_ce, ZEND_STRL(GENE_VALIDATE_CLOSURE), ZEND_ACC_PUBLIC);
+    /* [GENE_FIX:2026-08-07] Declare the bail/sometimes properties added by
+     * the 08-07 feature batch; without declarations they become dynamic
+     * properties and a subclass __set() would intercept the writes. */
+    zend_declare_property_bool(gene_validate_ce, ZEND_STRL(GENE_VALIDATE_BAIL), 0, ZEND_ACC_PUBLIC);
+    zend_declare_property_null(gene_validate_ce, ZEND_STRL(GENE_VALIDATE_SOMETIMES), ZEND_ACC_PUBLIC);
 	return SUCCESS;
 }
 /* }}} */

@@ -524,6 +524,11 @@ PHP_METHOD(gene_di, instance) {
 		RETURN_NULL();
 	}
 
+	/* [GENE_FIX:2026-08-07] Resolve aliases like get()/has() do, so an
+	 * alias registered for a class name works for explicit instantiation
+	 * too (borrowed pointer; no release needed). */
+	class_name = gene_di_resolve_alias(class_name);
+
 	if (gene_factory_load_class(ZSTR_VAL(class_name), ZSTR_LEN(class_name), &obj)) {
 		if (Z_OBJCE(obj)->constructor) {
 			zval tmp;

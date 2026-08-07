@@ -174,9 +174,43 @@ void gene_memory_init() {
 		PALLOC_HASHTABLE(GENE_G(cache_easy));
 		zend_hash_init(GENE_G(cache_easy), 8, NULL, NULL, 1);
 	}
+	if (!GENE_G(cache_expiry)) {
+		PALLOC_HASHTABLE(GENE_G(cache_expiry));
+		zend_hash_init(GENE_G(cache_expiry), 8, NULL, NULL, 1);
+	}
 	return;
 }
 /* }}} */
+
+/* [GENE_FIX:2026-08-07] TTL support helpers. The main persistent cache stores
+ * bare values; expiry timestamps live in GENE_G(cache_expiry) (unix ts,
+ * IS_LONG). All accesses happen under the same cache lock as the main table.
+ * Expired keys are treated as missing and lazily deleted by the reader when
+ * writes are still allowed (they are frozen after workerReady, where the
+ * lock macros no-op anyway and the table is stable). */
+static int gene_memory_expired_nolock(const char *keyString, size_t keyString_len) {
+	zval *exp;
+	if (!GENE_G(cache_expiry)) {
+		return 0;
+	}
+	exp = zend_hash_str_find(GENE_G(cache_expiry), keyString, keyString_len);
+	return (exp && Z_TYPE_P(exp) == IS_LONG && Z_LVAL_P(exp) <= (zend_long)time(NULL)) ? 1 : 0;
+}
+
+/* Caller must hold GENE_CACHE_WRLOCK. */
+static void gene_memory_set_expiry_nolock(const char *keyString, size_t keyString_len, int validity) {
+	if (!GENE_G(cache_expiry)) {
+		return;
+	}
+	if (validity > 0) {
+		zval exp;
+		ZVAL_LONG(&exp, (zend_long)time(NULL) + validity);
+		zend_hash_str_update(GENE_G(cache_expiry), keyString, keyString_len, &exp);
+	} else {
+		/* 0 = permanent: drop any stale expiry from a previous TTLed set. */
+		zend_hash_str_del(GENE_G(cache_expiry), keyString, keyString_len);
+	}
+}
 
 /* {{{ gene_memory_write_allowed
  * In Swoole mode workerReady() is the freeze boundary for the process-level
@@ -404,6 +438,10 @@ static int gene_memory_del_core(const char *keyString, size_t keyString_len) {
 	if (stored_key && (GC_FLAGS(stored_key) & (IS_STR_INTERNED | IS_STR_PERMANENT))) {
 		pefree(stored_key, 1);
 	}
+	/* [GENE_FIX:2026-08-07] Drop any TTL bookkeeping for the removed key. */
+	if (GENE_G(cache_expiry)) {
+		zend_hash_str_del(GENE_G(cache_expiry), keyString, keyString_len);
+	}
 	return 1;
 }
 
@@ -542,6 +580,9 @@ void gene_memory_set(char *keyString, size_t keyString_len, zval *zvalue,
 			return;
 		}
 		GENE_CACHE_WRLOCK();
+		/* [GENE_FIX:2026-08-07] validity was previously accepted and silently
+		 * dropped; record the expiry timestamp alongside the value. */
+		gene_memory_set_expiry_nolock(keyString, keyString_len, validity);
 		copyval = zend_symtable_str_find(GENE_G(cache), keyString, keyString_len);
 		if (copyval == NULL) {
 			gene_memory_zval_persistent(&ret, zvalue);
@@ -579,6 +620,16 @@ void gene_memory_set(char *keyString, size_t keyString_len, zval *zvalue,
 zval * gene_memory_get(char *keyString, size_t keyString_len) {
 	zval *zvalue;
 	GENE_CACHE_RDLOCK();
+	if (UNEXPECTED(gene_memory_expired_nolock(keyString, keyString_len))) {
+		GENE_CACHE_RDUNLOCK();
+		/* [GENE_FIX:2026-08-07] Lazy delete: only when writes are still
+		 * allowed (FPM / pre-workerReady); after the freeze the entry stays
+		 * but reads keep reporting a miss, which is the correct TTL semantic. */
+		if (!(GENE_G(runtime_type) >= 2 && GENE_G(worker_ready))) {
+			gene_memory_del(keyString, keyString_len);
+		}
+		return NULL;
+	}
 	zvalue = zend_symtable_str_find(GENE_G(cache), keyString, keyString_len);
 	GENE_CACHE_RDUNLOCK();
 	return zvalue;
@@ -816,6 +867,10 @@ int gene_memory_exists(char *keyString, size_t keyString_len) {
 	int result;
 	GENE_CACHE_RDLOCK();
 	result = zend_symtable_str_exists(GENE_G(cache), keyString, keyString_len) == 1 ? 1 : 0;
+	/* [GENE_FIX:2026-08-07] Honor TTL: expired entries are not "existing". */
+	if (result && gene_memory_expired_nolock(keyString, keyString_len)) {
+		result = 0;
+	}
 	GENE_CACHE_RDUNLOCK();
 	return result;
 }
@@ -1310,6 +1365,12 @@ PHP_METHOD(gene_memory, clean) {
 	if (GENE_G(cache)) {
 		gene_hash_destroy(GENE_G(cache));
 		GENE_G(cache) = NULL;
+	}
+	/* [GENE_FIX:2026-08-07] Wipe TTL bookkeeping together with the cache. */
+	if (GENE_G(cache_expiry)) {
+		zend_hash_destroy(GENE_G(cache_expiry));
+		pefree(GENE_G(cache_expiry), 1);
+		GENE_G(cache_expiry) = NULL;
 	}
 	/* [GENE_MEM:2026-06-19 M1] clean() wipes the whole persistent cache, so the
 	 * LRU tracking set's keys now point at freed entries — drop it too. It will

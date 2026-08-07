@@ -178,11 +178,15 @@ void gene_response_set_redirect(char *url, zend_long code) {
 		zval params[] = { zurl, zcode };
 		zend_call_known_function(fn, Z_OBJ_P(swoole_resp), Z_OBJCE_P(swoole_resp), &retval, 2, params, NULL);
 		zval_ptr_dtor(&zurl);
-		zval_ptr_dtor(&retval);
 		/* [GENE_FEATURE:2026-08-07] Track the last status code so
 		 * Response::getStatusCode() can report it in Swoole mode (Swoole's
-		 * response object exposes no status getter). */
-		gene_request_ctx()->response_status = code;
+		 * response object exposes no status getter).
+		 * [GENE_FIX:2026-08-07] Only record when the redirect actually
+		 * succeeded (not on exception / false return). */
+		if (!EG(exception) && !Z_ISUNDEF(retval) && Z_TYPE(retval) != IS_FALSE) {
+			gene_request_ctx()->response_status = code;
+		}
+		zval_ptr_dtor(&retval);
 		return;
 	}
 	/* [GENE_PERF:2026-05-21 F7] FPM redirect hot path: replace
@@ -741,7 +745,10 @@ PHP_METHOD(gene_response, isSent) {
 			zval retval;
 			ZVAL_UNDEF(&retval);
 			zend_call_known_function(fn, Z_OBJ_P(swoole_resp), Z_OBJCE_P(swoole_resp), &retval, 0, NULL, NULL);
-			if (Z_TYPE(retval) == IS_TRUE) {
+			/* [GENE_FIX:2026-08-07] Accept any truthy return, not just
+			 * IS_TRUE — a numeric 1 from a Swoole-compatible shim would
+			 * otherwise be misread as "already sent". */
+			if (!Z_ISUNDEF(retval) && zend_is_true(&retval)) {
 				zval_ptr_dtor(&retval);
 				RETURN_FALSE;
 			}
@@ -759,8 +766,8 @@ PHP_METHOD(gene_response, isSent) {
 /** {{{ proto public gene_response::sendFile(string $file [, int $offset = 0 [, int $length = 0]]): bool
  * [GENE_FEATURE:2026-08-07] Stream a file as the response body.
  * Swoole: delegates to Swoole\Http\Response::sendfile (kernel sendfile).
- * FPM/CLI: streams the file through php_stream in one copy_to_mem + php_write
- * pass; $offset/$length select a byte range (0 length = to EOF). Returns
+ * FPM/CLI: streams the file through php_stream in 8KB chunks + php_write;
+ * $offset/$length select a byte range (0 length = to EOF). Returns
  * false when the file cannot be opened.
  */
 PHP_METHOD(gene_response, sendFile) {
@@ -798,8 +805,10 @@ PHP_METHOD(gene_response, sendFile) {
 	}
 
 	{
-		php_stream *stream = php_stream_open_wrapper(ZSTR_VAL(file), "rb", REPORT_PATH, NULL);
-		zend_string *contents;
+		/* [GENE_FIX:2026-08-07] REPORT_PATH does not exist (compile error);
+		 * and the FPM path used to read the whole file into one zend_string,
+		 * which OOMs on large files — stream in 8KB chunks instead. */
+		php_stream *stream = php_stream_open_wrapper(ZSTR_VAL(file), "rb", REPORT_ERRORS, NULL);
 		if (!stream) {
 			RETURN_FALSE;
 		}
@@ -807,15 +816,25 @@ PHP_METHOD(gene_response, sendFile) {
 			php_stream_close(stream);
 			RETURN_FALSE;
 		}
-		contents = php_stream_copy_to_mem(stream, length > 0 ? (size_t)length : PHP_STREAM_COPY_ALL, 0);
+		{
+			char buf[8192];
+			zend_long remaining = length; /* 0 = until EOF */
+			while (!php_stream_eof(stream) && (length == 0 || remaining > 0)) {
+				size_t want = sizeof(buf);
+				if (length > 0 && (size_t)remaining < want) {
+					want = (size_t)remaining;
+				}
+				size_t got = php_stream_read(stream, buf, want);
+				if (got == 0) {
+					break;
+				}
+				php_write(buf, got);
+				if (length > 0) {
+					remaining -= (zend_long)got;
+				}
+			}
+		}
 		php_stream_close(stream);
-		if (!contents) {
-			RETURN_FALSE;
-		}
-		if (ZSTR_LEN(contents) > 0) {
-			php_write(ZSTR_VAL(contents), ZSTR_LEN(contents));
-		}
-		zend_string_release(contents);
 		RETURN_TRUE;
 	}
 }

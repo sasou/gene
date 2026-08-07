@@ -447,3 +447,59 @@
 - Model ORM/ActiveRecord：架构选择，不进入补全批次。
 - Router 中间件管道（F4）、Controller 生命周期钩子（F3 重设计）、Pool 连接泄漏检测：需设计草案，归入 §12.3 第 2 项"P1 设计批"。
 - Cache(Redis/Memcached) pipeline/multi：经 `call()` 透传维持现状。
+
+---
+
+## 14. §13 批次落地复核与缺陷修复回写（2026-08-07 三批）
+
+> 本节为 2026-08-07 三批：对 §13.1 全部新增 API 做第二轮独立复核（功能合理性 + 内存/并发安全），修复确认的问题。审查方式：三路并行逐方法静态审查 + 主线逐条原文核实。运行时验证约束不变（Windows 无法编译/ASAN）。
+
+### 14.1 复核总体结论
+
+- **未发现新的内存泄漏、重复释放或悬垂指针**。ctx 新字段（`di_alias` / `bench_marks` / `response_status`）的 init/reset/destroy 配对、`sendFile` 流关闭配对、router 检查点 goto 与 cleanup 标签关系、`benchmark` 惰性建表与 `lap` 指针时序、`monitor reset()` 对 gene.h 全部遥测计数器的覆盖，均核实通过。
+- **发现 1 处确定性编译错误、1 处跨请求状态泄漏（功能级高危）、1 处 TTL 静默失效（历史既有缺陷被新 API 继承）**，均已修复（§14.2）。
+- 功能合理性上确认 1 处需求/实现签名偏差：`sendFile` 实际签名为 `sendFile(string $file, int $offset = 0, int $length = 0)`，无 headers 参数；按现状收敛（headers 可经 `Response::header()` 先行设置），不视为缺陷。
+
+### 14.2 本批修复清单
+
+| # | 位置 | 问题 | 修复 |
+|---|------|------|------|
+| G1 | `src/http/response.c:801` | **编译错误**：`php_stream_open_wrapper` 使用不存在的 `REPORT_PATH`（全仓其余 5 处均为 `REPORT_ERRORS`） | 改为 `REPORT_ERRORS` |
+| G2 | `src/gene.c` RSHUTDOWN（`php_gene_close_request_globals`） | **`app_stopped` 跨请求泄漏**：只在 MINIT 归零，FPM 下某请求调用 `stop()` 后同 worker 后续所有请求派发被永久跳过；且 `gene.h`（process lifetime）与 `application.c`/`router.c`（per-request）注释语义互相矛盾 | RSHUTDOWN 补 `GENE_G(app_stopped) = 0`，统一为 per-request 语义（与 router 检查点意图一致） |
+| G3 | `src/router/router.c:1179` | direct 路径（`get_router_info_slow`）只在 action 之后检查 `app_stopped`，PC_DIRECT/closure 路径在 action 之前检查——同套路由开关 `route_precompile` 行为不一致 | dispatch 前补检查点（goto direct_cleanup，无资源跳过，已核实） |
+| G4 | `src/http/response.c:810` | `sendFile` FPM 路径 `php_stream_copy_to_mem` 整文件读入单个 `zend_string`，大文件 OOM；与 Swoole 内核 sendfile 路径内存特征差异巨大 | 改为 8KB 分块 `php_stream_read` + `php_write` 流式输出，遵守 `length` 上限递减 |
+| G5 | `src/cache/memory.c` / `src/gene.h` / `src/gene.c` | **TTL 静默失效**：`Memory::set/mset` 的 `validity` 参数传至 `gene_memory_set` 后被完全丢弃（`set()` 的既有缺陷，`mset()` 继承），文档却声称「TTL 0 表示永久」 | 新增进程级 `cache_expiry` 持久哈希表（key → 到期 unix ts）：set 时在 WRLOCK 内写入/清除；`gene_memory_get` / `gene_memory_exists` 读路径判过期（覆盖 get/mget/exists）；过期键在写未冻结时惰性 `del`；`del_core`/`clean()` 同步清理；GINIT 置 NULL、MSHUTDOWN 用 `zend_hash_destroy + pefree` 析构（键由表自身 pemalloc 复制，无需 manual key dance） |
+| G6 | `src/http/validate.c` MINIT | `bail` / `sometimes` 属性未声明，成为动态属性，子类 `__set` 会拦截内部写入 | MINIT 补 `zend_declare_property_bool(bail, 0)` / `zend_declare_property_null(sometimes)` |
+| G7 | `src/db/sqlite.c` `attach()`/`detach()` | 未拒绝 path 内 NUL 字节（SQL 以 C 串传给 `gene_pdo_exec`，NUL 会静默截断路径）；成功判定 `Z_TYPE != IS_UNDEF` 过宽——`PDO::exec` 失败返回 false 也被判为成功 | 补 `memchr` NUL 校验；成功判定排除 `IS_FALSE`（两处同修） |
+| G8 | `src/tool/log.c` `gene_log_write_message` | `zval json_ret` 未初始化即传给 `gene_json_encode` 后判 `Z_TYPE`，若调用方未填充则为 UB | 补 `ZVAL_UNDEF(&json_ret)` 防御初始化 |
+| G9 | `src/http/response.c` `isSent()` | Swoole `isWritable()` 返回非 bool 真值（如 int 1）时被误读为「未发送」 | 改用 `zend_is_true(&retval)` |
+| G10 | `src/http/response.c` redirect | Swoole redirect 调用抛异常/返回 false 时仍记录 `response_status` | 按 `EG(exception)` / `IS_FALSE` 门控后再记录 |
+| G11 | `src/mvc/view.c` `render()` | `php_output_start_default()` 返回值未检查，失败时模板输出污染外层输出缓冲/客户端 | 检查返回值，失败时按正常路径同款 `zend_hash_destroy + FREE_HASHTABLE` 清理符号表后 `RETURN_FALSE` |
+| G12 | `src/di/di.c` `instance()` | 不像 `get()/has()` 那样解析别名，别名注册后显式实例化行为不一致 | 入口处经 `gene_di_resolve_alias()` 解析（借用指针，无所有权变更） |
+| G13 | `src/gene.c:544-553` debug 块 | pool acquire 的 `#ifndef NDEBUG` 不变式文档块缺 `di_alias` / `bench_marks` 的 `ZVAL_UNDEF`（无实际 bug，destroy 已保证） | 补齐两行，维持块声称的不变式完整 |
+
+### 14.3 本批驳回 / 不改项
+
+| 候选 | 结论 |
+|------|------|
+| `sometimes` 守卫 fail-open（回调失败时继续校验该字段） | **不改**。回调失败的回退方向是「继续校验」，即更严格而非更宽松，属安全方向；语义已在方法注释中声明 |
+| `gene_json_encode` 缺 fn NULL 守卫 | **不改**。`GENE_CG_FN_LOOKUP` 对 `json_encode` 的解析是全仓既有约定（common.c 全部 helper 同型），仅改 log.c 会造成不对称；记录为约定项 |
+| `sendFile` 缺 headers 参数 | **收敛为文档偏差**。实际签名 `(file, offset, length)` 自洽；响应头可经 `Response::header()` 先设 |
+| `stop()` 非 static 方法被静态调用的崩溃面 | **不改**。Zend 对静态调用实例方法本身有 deprecated 保护，且 `getThis()==NULL` 场景在全仓实例方法中普遍存在，不单独立项 |
+
+### 14.4 新增运行时验证需求（并入 §9.3）
+
+9. Linux `--enable-debug` 编译需确认 G1 修复后零告警（本批唯一编译错误项）。
+10. FPM 下同一 worker 连续两请求：请求 A 调 `Application::stop()`，请求 B 断言路由正常派发（验证 G2）。
+11. `Memory::set('k','v',1)` 后 `sleep(2)`，断言 `get/exists/mget` 返回 miss 且 `Monitor` 命中率计数正确；`set('k','v',0)` 覆盖 TTLed 键后断言永久生效（验证 G5）。
+12. `sendFile` 对 >memory_limit/4 的大文件在 FPM 下断言 RSS 平坦（验证 G4）。
+13. `View::render()` 在输出缓冲嵌套满（`output_buffering` 极限）场景断言返回 false 且不污染外层输出（验证 G11）。
+
+### 14.5 剩余待办（合并 §11.4 / §13.4）
+
+| 条目 | 状态 | 说明 |
+|---|---|---|
+| C2 / C3 / ML1 / ML2 / C4 / PF2~PF4 | ⏸ 观察项 | 维持 §七 第 5 步结论 |
+| `gene.pool_max_overflow` / `gene.fn_cache_max` | ⏸ 待立项 | PLAN.md 既有项 |
+| Router 中间件管道（F4）、Controller 生命周期钩子（F3 重设计）、Pool 连接泄漏检测 | ⏸ 设计批 | §12.3 第 2 项，需先出设计草案 |
+| 运行时验证（§9.3 全部 + 11.3 两项 + 14.4 五项 + PLAN.md O6/O7） | ⏸ 悬置 | Windows 环境约束不变；G1~G13 全部修复需 Linux `--enable-debug` + ASAN 回归 |

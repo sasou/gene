@@ -1170,13 +1170,18 @@ static void gene_fn_cache_store(zval *closure, zval *fid_zv) {
 			 }
 		 }
  
-		 if (hook_src) {
-			 if (!gene_router_exec_hook_direct(Z_STRVAL_P(hook_src), NULL, 1)) {
-				 goto direct_cleanup;
-			 }
+	 if (hook_src) {
+		 if (!gene_router_exec_hook_direct(Z_STRVAL_P(hook_src), NULL, 1)) {
+			 goto direct_cleanup;
 		 }
- 
-		 gene_router_dispatch_direct(Z_STRVAL_P(src), &dispatch_result);
+	 }
+
+	 /* [GENE_FIX:2026-08-07] Application::stop(): check before dispatch too,
+	  * mirroring the PC_DIRECT / closure checkpoints, so a before-hook that
+	  * calls stop() also prevents the controller from running here. */
+	 if (GENE_G(app_stopped)) goto direct_cleanup;
+
+	 gene_router_dispatch_direct(Z_STRVAL_P(src), &dispatch_result);
  
 		 /* [GENE_FEATURE:2026-08-07] Application::stop(): skip after-hook if
 		  * the controller action called stop(). */

@@ -213,6 +213,11 @@ static inline uint64_t gene_hrtime(void) {
  bool view_compile_check_mtime;
  HashTable *cache;
  HashTable *cache_easy;
+ /* [GENE_FIX:2026-08-07] Per-key expiry (unix ts) for userland Memory::set
+  * TTL. The main cache stores bare values, so expiry lives in this parallel
+  * persistent table; reads check it under the same cache lock and treat
+  * expired keys as missing (lazy delete). */
+ HashTable *cache_expiry;
  /* [GENE_MEM:2026-06-19 M1] Approximate-LRU tracking set for the Gene\Cache
   * business partition (writes bracketed by cache_layer_memory_write_depth>0).
   * Insertion-ordered set of persistent key copies (least→most recently set);

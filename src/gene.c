@@ -550,6 +550,8 @@ gene_request_context *gene_request_context_pool_acquire(void) {
 		ZVAL_UNDEF(&ctx->db_pgsql_history);
 		ZVAL_UNDEF(&ctx->db_sqlite_history);
 		ZVAL_UNDEF(&ctx->db_mssql_history);
+		ZVAL_UNDEF(&ctx->di_alias);
+		ZVAL_UNDEF(&ctx->bench_marks);
 #endif
 		ctx->view_scope_no = 0;
 		ctx->log_level = 0;
@@ -1060,6 +1062,7 @@ static void php_gene_init_globals() {
 	GENE_G(route_pc) = NULL;
 	GENE_G(cache) = NULL;
 	GENE_G(cache_easy) = NULL;
+	GENE_G(cache_expiry) = NULL;
 	/* [GENE_MEM:2026-06-19 M1] LRU tracking set is lazily allocated on the
 	 * first business write; cache_max_items is loaded from php.ini before
 	 * MINIT so we must NOT zero it here (same rule as ctx_pool_prewarm). */
@@ -1125,6 +1128,10 @@ static void php_gene_close_request_globals() {
 	/* [GENE_FEATURE:2026-08-06 F1-6] Same bailout argument as run_depth: a
 	 * bailout inside a forwarded dispatch would skip the depth decrement. */
 	GENE_G(forward_depth) = 0;
+	/* [GENE_FIX:2026-08-07] app_stopped is per-request state (see router.c
+	 * checkpoints); without this reset a stop() in one request would skip
+	 * dispatch for every subsequent request served by the same worker. */
+	GENE_G(app_stopped) = 0;
 	/* [GENE_AUDIT:2026-07-30 D2] Reset the sweep cooldown bookkeeping at the
 	 * request boundary: both are triggers tied to the live co_contexts table
 	 * (destroyed above in FPM mode), so letting them carry across requests
@@ -1245,6 +1252,14 @@ PHP_MSHUTDOWN_FUNCTION(gene) {
 	if (GENE_G(cache)) {
 		gene_hash_destroy(GENE_G(cache));
 		GENE_G(cache) = NULL;
+	}
+	/* [GENE_FIX:2026-08-07] Expiry table uses plain zend_hash string keys
+	 * (duplicated via pemalloc by the table itself), so zend_hash_destroy
+	 * frees the keys — no manual key dance like gene_hash_destroy. */
+	if (GENE_G(cache_expiry)) {
+		zend_hash_destroy(GENE_G(cache_expiry));
+		pefree(GENE_G(cache_expiry), 1);
+		GENE_G(cache_expiry) = NULL;
 	}
 	/* [GENE_MEM:2026-06-19 M1] Tear down the business-cache LRU tracking set
 	 * (frees its persistent key copies) before the lock is destroyed. */
