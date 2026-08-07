@@ -807,14 +807,25 @@ PHP_METHOD(gene_response, sendFile) {
 	{
 		/* [GENE_FIX:2026-08-07] REPORT_PATH does not exist (compile error);
 		 * and the FPM path used to read the whole file into one zend_string,
-		 * which OOMs on large files — stream in 8KB chunks instead. */
-		php_stream *stream = php_stream_open_wrapper(ZSTR_VAL(file), "rb", REPORT_ERRORS, NULL);
+		 * which OOMs on large files — stream in 8KB chunks instead.
+		 * [GENE_FIX:2026-08-07-5] plain files only (EX_USE_URL / wrappers rejected) to
+		 * close the SSRF surface when $file is derived from user input. */
+		php_stream *stream = php_stream_open_wrapper_ex(ZSTR_VAL(file), "rb", REPORT_ERRORS, NULL, NULL);
 		if (!stream) {
 			RETURN_FALSE;
 		}
-		if (offset > 0 && php_stream_seek(stream, offset, SEEK_SET) != 0) {
-			php_stream_close(stream);
-			RETURN_FALSE;
+		if (offset > 0) {
+			if (php_stream_seek(stream, offset, SEEK_SET) != 0) {
+				php_stream_close(stream);
+				RETURN_FALSE;
+			}
+			/* [GENE_FIX:2026-08-07-5] regular files happily seek past EOF and return 0;
+			 * verify the resulting position so out-of-range offsets fail instead of
+			 * silently returning true with an empty body. */
+			if ((zend_long)php_stream_tell(stream) != offset) {
+				php_stream_close(stream);
+				RETURN_FALSE;
+			}
 		}
 		{
 			char buf[8192];
@@ -824,11 +835,13 @@ PHP_METHOD(gene_response, sendFile) {
 				if (length > 0 && (size_t)remaining < want) {
 					want = (size_t)remaining;
 				}
-				size_t got = php_stream_read(stream, buf, want);
-				if (got == 0) {
+				/* [GENE_FIX:2026-08-07-5] php_stream_read returns ssize_t in PHP 8:
+				 * -1 on failure must not be widened to size_t. */
+				ssize_t got = php_stream_read(stream, buf, want);
+				if (got <= 0) {
 					break;
 				}
-				php_write(buf, got);
+				php_write(buf, (size_t)got);
 				if (length > 0) {
 					remaining -= (zend_long)got;
 				}

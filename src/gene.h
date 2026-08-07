@@ -174,6 +174,12 @@ static inline uint64_t gene_hrtime(void) {
 	  * through Gene\Response in Swoole mode (redirect/status); 0 = unset.
 	  * FPM reads SG(sapi_headers).http_response_code instead. */
 	 zend_long response_status;
+	 /* [GENE_FIX:2026-08-07-5 N2] Application::stop() latch, moved here from
+	  * module globals: per-request state (reset by ctx reset), per-coroutine
+	  * isolated in Swoole mode. The old module-global latch was reset only in
+	  * RSHUTDOWN, which fires once per worker in Swoole mode — a single stop()
+	  * would have silenced dispatch for the worker's entire lifetime. */
+	 zend_bool app_stopped;
 	 zend_long view_scope_no;
 	 zval db_mysql_history;
 	 zval db_pgsql_history;
@@ -356,6 +362,9 @@ zend_bool db_pool_cas_warned;
 zend_ulong db_pool_get_timeout;
 zend_ulong memory_cache_hit;
 zend_ulong memory_cache_miss;
+/* [GENE_FIX:2026-08-07-5 N3] Write counter driving the sampling sweep of the
+ * TTL expiry table (see gene_memory_expiry_sweep_nolock). */
+zend_ulong memory_expiry_sweep_ctr;
 /* [GENE_FEATURE:2026-07-30 F2] Cumulative request telemetry for
  * Gene\Monitor::stats(). Incremented in Application::run(). */
 zend_ulong request_count;
@@ -378,16 +387,21 @@ zend_ulong cache_easy_expired;
  * Gene\Monitor::stats). */
 zend_long slow_query_ms;
 zend_ulong db_slow_query_count;
-/* [GENE_FEATURE:2026-08-07 Application::stop] Graceful-stop latch. Once set,
- * Application::run() refuses to dispatch for the remainder of the process
- * lifetime (intended for Swoole onWorkerStop / signal handlers). Runtime
- * state, zeroed in php_gene_init_globals. */
-zend_bool app_stopped;
 ZEND_END_MODULE_GLOBALS (gene)
  
  extern ZEND_DECLARE_MODULE_GLOBALS (gene);
  
 gene_request_context *gene_request_ctx(void);
+/* [GENE_FIX:2026-08-07-5 N2] Per-request/per-coroutine stop latch accessors
+ * (the flag lives in gene_request_context, see its declaration above). */
+static zend_always_inline zend_bool gene_app_stopped(void) {
+	gene_request_context *ctx = gene_request_ctx();
+	return ctx ? ctx->app_stopped : 0;
+}
+static zend_always_inline void gene_app_stop(void) {
+	gene_request_context *ctx = gene_request_ctx();
+	if (ctx) ctx->app_stopped = 1;
+}
 void gene_request_context_init(gene_request_context *ctx);
 void gene_request_context_reset(gene_request_context *ctx);
 void gene_request_context_destroy(gene_request_context *ctx);

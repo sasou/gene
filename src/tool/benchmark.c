@@ -242,6 +242,10 @@ PHP_METHOD(gene_benchmark, mark)
 		array_init(&ctx->bench_marks);
 	}
 
+	/* [GENE_NOTE:2026-08-07-5 N10] gene_hrtime() is uint64 nanoseconds; on
+	 * 32-bit platforms zend_long is 32-bit and wraps after ~4.3s, so lap()
+	 * would report garbage there. Gene targets 64-bit builds (same as the
+	 * Swoole ecosystem); do not rely on mark/lap on 32-bit PHP. */
 	zval ts;
 	ZVAL_LONG(&ts, (zend_long)gene_hrtime());
 	add_assoc_zval_ex(&ctx->bench_marks, ZSTR_VAL(name), ZSTR_LEN(name), &ts);

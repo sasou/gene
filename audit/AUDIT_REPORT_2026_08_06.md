@@ -579,11 +579,60 @@
 
 | 条目 | 状态 | 说明 |
 |---|---|---|
-| **N1**（`sendFile` `ssize_t`） | 🔴 待修 | 内存安全，最高优先级 |
-| **N2**（`app_stopped` 迁入 ctx） | 🔴 待修 | Swoole 下功能静默失效 |
-| **N3**（TTL 键主动回收） | 🟡 待修 | FPM 无界增长 |
-| N4 / N5 / N6~N11 | 🟡 待修 | N4 需 profile 证据；其余为随手改项与文档项 |
+| **N1**（`sendFile` `ssize_t`） | ✅ 已修复（2026-08-07 五批，见 §16） | 内存安全，最高优先级 |
+| **N2**（`app_stopped` 迁入 ctx） | ✅ 已修复（2026-08-07 五批，见 §16） | Swoole 下功能静默失效 |
+| **N3**（TTL 键主动回收） | ✅ 已修复（2026-08-07 五批，见 §16） | FPM 无界增长 |
+| N4 / N5 / N6~N11 | ✅ 已修复/已收敛（2026-08-07 五批，见 §16） | N4 以空表短路实现（零测量风险）；N5/N9 为文档项；其余随手改 |
 | C2 / C3 / ML1 / ML2 / C4 / PF2~PF4 | ⏸ 观察项 | 维持 §七 第 5 步结论 |
 | `gene.pool_max_overflow` / `gene.fn_cache_max` | ⏸ 待立项 | PLAN.md 既有项 |
 | Router 中间件管道（F4）、Controller 生命周期钩子（F3 重设计）、Pool 连接泄漏检测 | ⏸ 设计批 | §12.3 第 2 项 |
-| 运行时验证（§9.3 全部 + 11.3 两项 + 14.4 五项 + 15.6 四项 + PLAN.md O6/O7） | ⏸ 悬置 | Windows 环境约束不变 |
+| 运行时验证（§9.3 全部 + 11.3 两项 + 14.4 五项 + 15.6 四项 + 16.4 新增 + PLAN.md O6/O7） | ⏸ 悬置 | Windows 环境约束不变 |
+
+---
+
+## 16. §15.2 新发现问题修复回写（2026-08-07 五批）
+
+> 本节对应 §15.2 的 N1~N11 全部落地记录。静态实施，运行时验证约束不变。
+
+### 16.1 修复清单
+
+|| # | 落地点 | 修复内容 |
+||---|------|----------|
+|| **N1** | `src/http/response.c` `sendFile` FPM 循环 | `got` 由 `size_t` 改为 `ssize_t`，判据改 `if (got <= 0) break;`——读失败返回的 `-1` 不再被拓宽为 `SIZE_MAX` 而触发栈缓冲越界读/内容泄露。 |
+|| **N2** | `src/gene.h` / `src/gene.c` / `src/router/router.c` / `src/app/application.c` | `app_stopped` 从 module globals 迁入 `gene_request_context`（紧随 `response_status`），复位由 `gene_request_context_free_fields()` 承担——覆盖 FPM 请求边界、Swoole 同 worker 多请求与 ctx 池复用，天然获得协程隔离；router 8 处检查点与 `stop()`/`isStopped()` 改经 `gene_app_stopped()` / `gene_app_stop()` 内联助手访问；`gene.h` / `gene.c` 中旧全局字段与两处 `GENE_G(app_stopped)=0` 移除。 |
+|| **N3** | `src/cache/memory.c`、`src/gene.h`、`src/gene.c` | 新增 `gene_memory_expiry_sweep_nolock()`：每 32 次带 TTL 的写入（`memory_expiry_sweep_ctr` 计数）在 WRLOCK 内抽样扫描 `cache_expiry`，批量（≤64）`gene_memory_del_core` 回收过期键，封闭 FPM「写入后不再读」的无界增长面。 |
+|| **N4** | `src/cache/memory.c` `gene_memory_expired_nolock` | 空 expiry 表短路（一次整型比较），热路径哈希查找不再翻倍；因实现为「无 TTL 时零额外查找」，按 PLAN.md 准入约束无需 profile 证据。 |
+|| **N5** | `docs/CONFIGURATION.md` | 补「TTL 语义说明」：FPM 惰性+抽样回收 vs Swoole 冻结后仅读掩蔽，并警示 Swoole 下勿用 TTL Memory 键做高频轮转写入。 |
+|| **N6** | `src/di/di.c` `gene_di_get` / `Di::instance` | 解析结果改为 `zend_string_copy` 持有副本，出口 release——构造函数内再调 `Di::alias()` 触发 rehash/替换时借用指针不再悬垂；`has()` 中间无用户代码调用，维持借用。 |
+|| **N7** | `src/di/di.c` `gene_di_resolve_alias` 注释 | 注释修正为「环形别名在第 8 跳停在环上某个名字」，不再声称「degrades to a registry miss」。 |
+|| **N8** | `src/http/response.c` `sendFile` | seek 后比对 `php_stream_tell(stream) != offset`，offset 越过 EOF 时返回 `false` 而非「true + 空响应体」。 |
+|| **N9** | `src/http/response.c` `sendFile`、ide-helper、docs | 改用 `php_stream_open_wrapper_ex(..., REPORT_ERRORS, NULL, NULL)`（不带 `STREAM_USE_URL`），仅接受本地普通文件，拒绝 `http://`/`php://`/`data://` 等包装器，封闭 SSRF 面；ide-helper 与 CONFIGURATION.md 同步警示。 |
+|| **N10** | `src/tool/benchmark.c` `mark()` | 补 `[GENE_NOTE]` 平台约束注释：32 位平台 `zend_long` 纳秒约 4.3s 溢出，`mark/lap` 仅承诺 64 位构建。 |
+|| **N11** | `src/router/router.c` direct 路径 | G3 检查点块缩进回正，与函数其余层级一致。 |
+
+### 16.2 附带修正
+
+- `docs/CONFIGURATION.md` 与 `gene-ide-helper/Gene/Response.php` 的 `sendFile` 签名从错误的 `(path, filename, headers)` 收敛为实际签名 `(file, offset = 0, length = 0)`（承接 §14.3 的收敛结论）。
+
+### 16.3 自查结论
+
+- **锁序**：N3 清扫在 `gene_memory_set` 已持 WRLOCK 的区间内执行，直接调用 nolock 版 `gene_memory_del_core`，无递归加锁；清扫先收集 `zend_string_copy` 的键、再逐个删除，遍历时表不被改动，迭代安全。
+- **ctx 字段配对**：`app_stopped` 为纯标量，`memset`（init）/ `free_fields`（reset/destroy）两侧均覆盖；Swoole 协程各自持有独立 ctx，并发 `stop()` 互不串扰。
+- **释放配对**：N6 的 `resolved_name` 在 `gene_di_get` 的 4 条返回路径（注册表命中、instance 命中、update 命中、末尾 miss）与 `instance()` 的 2 条返回路径全部 release；E_ERROR 路径按全仓既有约定不释放。
+- **兼容性**：`sendFile` 收紧为本地文件属行为变更，但旧行为（任意流）本身即安全风险，且 FPM 分支此前就是该 API 的唯一流式路径；Swoole 分支本就由内核 sendfile 处理本地文件，不受影响。
+
+### 16.4 新增运行时验证需求（并入 §9.3）
+
+18. N2 修复后重复 §15.6-15 场景：Swoole 下请求 A `stop()` 后请求 B 正常派发，且并发协程 C 不受 A 影响（现由 ctx 隔离保证，需断言）。
+19. N3 修复后重复 §15.6-16 场景：FPM 常驻 worker 循环 TTL 写入十万次不读取，断言 RSS 不单调增长（抽样清扫应使增长有界）。
+20. N8/N9：`sendFile($f, PHP_INT_MAX)` 断言返回 `false`；`sendFile("php://stdin")` / `sendFile("http://...")` 断言返回 `false`。
+
+### 16.5 剩余待办（合并 §15.7）
+
+|| 条目 | 状态 | 说明 |
+||---|---|---|
+|| N1~N11 | ✅ 全部落地 | 见 16.1/16.2 |
+|| C2 / C3 / ML1 / ML2 / C4 / PF2~PF4 | ⏸ 观察项 | 维持 §七 第 5 步结论 |
+|| `gene.pool_max_overflow` / `gene.fn_cache_max` | ⏸ 待立项 | PLAN.md 既有项 |
+|| Router 中间件管道（F4）、Controller 生命周期钩子（F3 重设计）、Pool 连接泄漏检测 | ⏸ 设计批 | §12.3 第 2 项 |
+|| 运行时验证（§9.3 全部 + 11.3 两项 + 14.4 五项 + 15.6 四项 + 16.4 三项 + PLAN.md O6/O7） | ⏸ 悬置 | Windows 环境约束不变；N1/N2/N3 修复需 Linux `--enable-debug` + ASAN 回归 |

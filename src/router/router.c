@@ -1025,11 +1025,11 @@ static void gene_fn_cache_store(zval *closure, zval *fid_zv) {
 		 }
 		 /* [GENE_FEATURE:2026-08-07] Application::stop(): if a before/hook
 		  * called stop(), skip the controller action and after-hooks. */
-		 if (GENE_G(app_stopped)) goto pc_cleanup;
+		 if (gene_app_stopped()) goto pc_cleanup;
 		 if (pc->src) {
 			 gene_router_dispatch_direct((char *)pc->src, &dispatch_result);
 		 }
-		 if (GENE_G(app_stopped)) goto pc_cleanup;
+		 if (gene_app_stopped()) goto pc_cleanup;
 		 if (pc->is_after && pc->after_src) {
 			 gene_router_exec_hook_direct((char *)pc->after_src, &dispatch_result, 0);
 		 }
@@ -1046,13 +1046,13 @@ static void gene_fn_cache_store(zval *closure, zval *fid_zv) {
 		 } else if (pc->hook_src) {
 			 if (!gene_router_exec_hook_direct((char *)pc->hook_src, NULL, 1)) goto pc_cleanup;
 		 }
-		 if (GENE_G(app_stopped)) goto pc_cleanup;
+		 if (gene_app_stopped()) goto pc_cleanup;
 		 if (pc->route_cl) {
 			 gene_router_dispatch_closure(pc->route_cl, &dispatch_result);
 		 } else if (pc->src) {
 			 gene_router_dispatch_direct((char *)pc->src, &dispatch_result);
 		 }
-		 if (GENE_G(app_stopped)) goto pc_cleanup;
+		 if (gene_app_stopped()) goto pc_cleanup;
 		 if (pc->is_after) {
 			 if (pc->after_cl) {
 				 gene_router_exec_closure_hook(pc->after_cl, &dispatch_result, 0);
@@ -1170,22 +1170,22 @@ static void gene_fn_cache_store(zval *closure, zval *fid_zv) {
 			 }
 		 }
  
-	 if (hook_src) {
-		 if (!gene_router_exec_hook_direct(Z_STRVAL_P(hook_src), NULL, 1)) {
-			 goto direct_cleanup;
+		 if (hook_src) {
+			 if (!gene_router_exec_hook_direct(Z_STRVAL_P(hook_src), NULL, 1)) {
+				 goto direct_cleanup;
+			 }
 		 }
-	 }
 
-	 /* [GENE_FIX:2026-08-07] Application::stop(): check before dispatch too,
-	  * mirroring the PC_DIRECT / closure checkpoints, so a before-hook that
-	  * calls stop() also prevents the controller from running here. */
-	 if (GENE_G(app_stopped)) goto direct_cleanup;
+		 /* [GENE_FIX:2026-08-07] Application::stop(): check before dispatch too,
+		  * mirroring the PC_DIRECT / closure checkpoints, so a before-hook that
+		  * calls stop() also prevents the controller from running here. */
+		 if (gene_app_stopped()) goto direct_cleanup;
 
-	 gene_router_dispatch_direct(Z_STRVAL_P(src), &dispatch_result);
- 
+		 gene_router_dispatch_direct(Z_STRVAL_P(src), &dispatch_result);
+
 		 /* [GENE_FEATURE:2026-08-07] Application::stop(): skip after-hook if
 		  * the controller action called stop(). */
-		 if (GENE_G(app_stopped)) goto direct_cleanup;
+		 if (gene_app_stopped()) goto direct_cleanup;
 		 if (is_after && after_src) {
 			 gene_router_exec_hook_direct(Z_STRVAL_P(after_src), &dispatch_result, 0);
 		 }
@@ -1282,7 +1282,7 @@ static void gene_fn_cache_store(zval *closure, zval *fid_zv) {
 
 			 /* [GENE_FEATURE:2026-08-07] Application::stop(): skip action+after
 			  * if a before/named hook called stop(). */
-			 if (GENE_G(app_stopped)) goto closure_cleanup;
+			 if (gene_app_stopped()) goto closure_cleanup;
 
 			 /* Route action */
 			 if (route_cl) {
@@ -1293,7 +1293,7 @@ static void gene_fn_cache_store(zval *closure, zval *fid_zv) {
 
 			 /* [GENE_FEATURE:2026-08-07] Application::stop(): skip after-hook
 			  * if the controller action called stop(). */
-			 if (GENE_G(app_stopped)) goto closure_cleanup;
+			 if (gene_app_stopped()) goto closure_cleanup;
 
 			 /* After hook */
 			 if (is_after) {

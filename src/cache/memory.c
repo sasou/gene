@@ -190,7 +190,10 @@ void gene_memory_init() {
  * lock macros no-op anyway and the table is stable). */
 static int gene_memory_expired_nolock(const char *keyString, size_t keyString_len) {
 	zval *exp;
-	if (!GENE_G(cache_expiry)) {
+	/* [GENE_FIX:2026-08-07-5 N4] Most deployments never use TTL; skip the
+	 * extra hash lookup on the hot read path when the expiry table is empty
+	 * (one integer comparison instead of a full hash find per get). */
+	if (!GENE_G(cache_expiry) || zend_hash_num_elements(GENE_G(cache_expiry)) == 0) {
 		return 0;
 	}
 	exp = zend_hash_str_find(GENE_G(cache_expiry), keyString, keyString_len);
@@ -445,6 +448,44 @@ static int gene_memory_del_core(const char *keyString, size_t keyString_len) {
 	return 1;
 }
 
+/* [GENE_FIX:2026-08-07-5 N3] Sampling sweep for expired TTL entries.
+ * Lazy delete only fires when an expired key is read again; a rotating TTL key
+ * (e.g. Memory::set("rate:$ip", $v, 60)) that is never re-read would otherwise
+ * keep both the value and the expiry entry alive forever in FPM's process-level
+ * cache. Called from gene_memory_set() (WRLOCK held) on every 32nd TTL write;
+ * scans the expiry table and drops up to 64 expired entries per pass, so the
+ * worst-case growth between sweeps stays bounded. In Swoole the gate in
+ * gene_memory_write_allowed() already stops TTL writes after the freeze, so
+ * this only ever runs while writes are allowed. */
+#define GENE_MEMORY_EXPIRY_SWEEP_INTERVAL 32
+#define GENE_MEMORY_EXPIRY_SWEEP_BATCH 64
+static void gene_memory_expiry_sweep_nolock(void) {
+	HashTable *expiry = GENE_G(cache_expiry);
+	zend_string *keys[GENE_MEMORY_EXPIRY_SWEEP_BATCH];
+	uint32_t n = 0;
+	zend_string *k;
+	zval *zv;
+	zend_long now;
+	if (!expiry || zend_hash_num_elements(expiry) == 0) {
+		return;
+	}
+	now = (zend_long)time(NULL);
+	ZEND_HASH_FOREACH_STR_KEY_VAL(expiry, k, zv) {
+		if (k && Z_TYPE_P(zv) == IS_LONG && Z_LVAL_P(zv) <= now) {
+			keys[n++] = zend_string_copy(k);
+			if (n == GENE_MEMORY_EXPIRY_SWEEP_BATCH) {
+				break;
+			}
+		}
+	} ZEND_HASH_FOREACH_END();
+	while (n > 0) {
+		n--;
+		/* gene_memory_del_core also removes the key from the expiry table. */
+		gene_memory_del_core(ZSTR_VAL(keys[n]), ZSTR_LEN(keys[n]));
+		zend_string_release(keys[n]);
+	}
+}
+
 /* Remove a key from the LRU tracking set (if present) and free its persistent
  * key. The tracking set stores persistent interned keys (zend_string_release is
  * a no-op for those), so we must pefree the stored key manually — same contract
@@ -583,6 +624,11 @@ void gene_memory_set(char *keyString, size_t keyString_len, zval *zvalue,
 		/* [GENE_FIX:2026-08-07] validity was previously accepted and silently
 		 * dropped; record the expiry timestamp alongside the value. */
 		gene_memory_set_expiry_nolock(keyString, keyString_len, validity);
+		/* [GENE_FIX:2026-08-07-5 N3] Periodically reclaim expired TTL entries
+		 * that were written but never read again (closes the FPM growth path). */
+		if (validity > 0 && ++GENE_G(memory_expiry_sweep_ctr) % GENE_MEMORY_EXPIRY_SWEEP_INTERVAL == 0) {
+			gene_memory_expiry_sweep_nolock();
+		}
 		copyval = zend_symtable_str_find(GENE_G(cache), keyString, keyString_len);
 		if (copyval == NULL) {
 			gene_memory_zval_persistent(&ret, zvalue);

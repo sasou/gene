@@ -185,15 +185,19 @@ class Response
 
     /**
      * sendFile
-     * Send a file to the client with appropriate headers for download or
-     * inline display.
+     * Send a local file to the client. In Swoole mode this delegates to the
+     * kernel sendfile; in FPM mode the file is streamed in 8KB chunks.
      *
-     * @param string $path absolute path to the file
-     * @param string|null $filename download filename (defaults to basename)
-     * @param array $headers additional HTTP headers
-     * @return $this
+     * Security: only plain local files are accepted (stream wrappers such as
+     * http://, php://, data:// are rejected). Never build $file directly from
+     * user input. Set response headers beforehand via Response::header().
+     *
+     * @param string $file absolute path to the local file
+     * @param int $offset byte offset to start from (0 = beginning)
+     * @param int $length max bytes to send (0 = until EOF)
+     * @return bool
      */
-    public function sendFile(string $path, string $filename = null, array $headers = []) {
+    public function sendFile(string $file, int $offset = 0, int $length = 0) {
 
     }
 

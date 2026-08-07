@@ -443,6 +443,9 @@ static void gene_request_context_free_fields(gene_request_context *ctx, int pres
 		ZVAL_UNDEF(&ctx->bench_marks);
 	}
 	ctx->response_status = 0;
+	/* [GENE_FIX:2026-08-07-5 N2] Stop latch lives in the ctx, so it is
+	 * automatically re-armed for every request/coroutine that reuses it. */
+	ctx->app_stopped = 0;
 	if (Z_TYPE(ctx->view_vars) != IS_UNDEF) {
 		zval_ptr_dtor(&ctx->view_vars);
 		ZVAL_UNDEF(&ctx->view_vars);
@@ -1037,11 +1040,13 @@ static void php_gene_init_globals() {
 	GENE_G(db_pool_get_timeout) = 0;
 	GENE_G(memory_cache_hit) = 0;
 	GENE_G(memory_cache_miss) = 0;
+	/* [GENE_FIX:2026-08-07-5 N3] */
+	GENE_G(memory_expiry_sweep_ctr) = 0;
 	/* [GENE_FEATURE:2026-07-30 F2] */
 	GENE_G(request_count) = 0;
 	GENE_G(request_error_count) = 0;
-	/* [GENE_FEATURE:2026-08-07 Application::stop] */
-	GENE_G(app_stopped) = 0;
+	/* [GENE_FEATURE:2026-08-07 Application::stop] app_stopped now lives in
+	 * gene_request_context (see gene.h), no module-global state to init. */
 	/* [GENE_FEATURE:2026-07-30 F5] */
 	GENE_G(validate_ext) = NULL;
 	/* [GENE_FEATURE:2026-07-30 F6] cache_easy_ttl comes from php.ini —
@@ -1128,10 +1133,10 @@ static void php_gene_close_request_globals() {
 	/* [GENE_FEATURE:2026-08-06 F1-6] Same bailout argument as run_depth: a
 	 * bailout inside a forwarded dispatch would skip the depth decrement. */
 	GENE_G(forward_depth) = 0;
-	/* [GENE_FIX:2026-08-07] app_stopped is per-request state (see router.c
-	 * checkpoints); without this reset a stop() in one request would skip
-	 * dispatch for every subsequent request served by the same worker. */
-	GENE_G(app_stopped) = 0;
+	/* [GENE_FIX:2026-08-07-5 N2] app_stopped moved into gene_request_context;
+	 * it is reset by gene_request_context_free_fields(), which covers FPM,
+	 * Swoole multi-request and pooled-ctx reuse alike (the old RSHUTDOWN-only
+	 * reset never fired per-request under Swoole). */
 	/* [GENE_AUDIT:2026-07-30 D2] Reset the sweep cooldown bookkeeping at the
 	 * request boundary: both are triggers tied to the live co_contexts table
 	 * (destroyed above in FPM mode), so letting them carry across requests

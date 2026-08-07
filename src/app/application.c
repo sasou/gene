@@ -1440,14 +1440,15 @@ PHP_METHOD(gene_application, run) {
  * [GENE_FEATURE:2026-08-07] Signal the router to stop dispatching the current
  * request. After a before-hook or controller action calls stop(), the router
  * skips the remaining action and after-hooks for the matched route. The flag
- * is per-request and reset in RSHUTDOWN. Useful for short-circuiting when a
- * middleware has already produced the full response (e.g. auth redirect,
- * rate-limit 429, cached response). Returns $this for chaining.
+ * is per-request (stored in gene_request_context, reset on ctx reset), so it
+ * also isolates concurrent Swoole coroutines from each other. Useful for
+ * short-circuiting when a middleware has already produced the full response
+ * (e.g. auth redirect, rate-limit 429, cached response). Returns $this.
  */
 PHP_METHOD(gene_application, stop)
 {
 	zval *self = getThis();
-	GENE_G(app_stopped) = 1;
+	gene_app_stop();
 	RETURN_ZVAL(self, 1, 0);
 }
 /* }}} */
@@ -1459,7 +1460,7 @@ PHP_METHOD(gene_application, stop)
  */
 PHP_METHOD(gene_application, isStopped)
 {
-	RETURN_BOOL(GENE_G(app_stopped));
+	RETURN_BOOL(gene_app_stopped());
 }
 /* }}} */
 

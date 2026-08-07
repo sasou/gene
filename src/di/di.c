@@ -127,9 +127,12 @@ static zval *gene_di_aliases(void) {
 	return &ctx->di_alias;
 }
 
-/* Resolve an alias chain to the final service name. Bounded at 8 hops so a
- * cyclic alias (a=>b, b=>a) degrades to a registry miss instead of looping.
- * Returns the (borrowed) target zend_string, or the input name unchanged. */
+/* Resolve an alias chain to the final service name. Bounded at 8 hops: a
+ * cyclic alias (a=>b, b=>a) simply stops at whichever name the 8th hop lands
+ * on (a valid name on the cycle), it does NOT become a forced miss.
+ * Returns a BORROWED pointer — valid only until the next write to the alias
+ * table; callers that run user code (constructors) before using the result
+ * must zend_string_copy() it (see gene_di_get / gene_di::instance). */
 static zend_string *gene_di_resolve_alias(zend_string *name) {
 	gene_request_context *ctx = gene_request_ctx();
 	int hops = 0;
@@ -152,10 +155,15 @@ zval *gene_di_get(zend_string *name) {
 	zval  *pzval = NULL,*class = NULL,*params = NULL, *instance = NULL,*cache = NULL, *entrys = NULL;
 
 	/* [GENE_FEATURE:2026-08-07 Di::alias] Resolve aliases before any lookup
-	 * so alias->get hits both the request registry and the config cache path. */
-	name = gene_di_resolve_alias(name);
+	 * so alias->get hits both the request registry and the config cache path.
+	 * [GENE_FIX:2026-08-07-5 N6] Take an owned copy: a constructor invoked
+	 * below may call Di::alias() and rehash/replace the alias table, which
+	 * would dangle a borrowed pointer. */
+	zend_string *resolved_name = zend_string_copy(gene_di_resolve_alias(name));
+	name = resolved_name;
 	entrys = gene_di_regs();
 	if ((pzval = zend_hash_find(Z_ARRVAL_P(entrys), name)) != NULL) {
+		zend_string_release(resolved_name);
 		return pzval;
 	}
 
@@ -230,6 +238,7 @@ zval *gene_di_get(zend_string *name) {
 		if (type) {
 			if ((pzval = zend_hash_find(Z_ARRVAL_P(entrys), class_str)) != NULL) {
 				zval_ptr_dtor(&local_params);
+				zend_string_release(resolved_name);
 				return pzval;
 			}
 		}
@@ -257,12 +266,14 @@ zval *gene_di_get(zend_string *name) {
 		    if ((pzval = zend_hash_update(Z_ARRVAL_P(entrys), name, &classObject)) != NULL ) {
 		    	ZVAL_UNDEF(&classObject);
 		    	zval_ptr_dtor(&local_params);
+		    	zend_string_release(resolved_name);
 		    	return pzval;
 		    }
 		    zval_ptr_dtor(&classObject);
 		}
 		zval_ptr_dtor(&local_params);
 	}
+	zend_string_release(resolved_name);
 	return NULL;
 }
 
@@ -526,8 +537,11 @@ PHP_METHOD(gene_di, instance) {
 
 	/* [GENE_FIX:2026-08-07] Resolve aliases like get()/has() do, so an
 	 * alias registered for a class name works for explicit instantiation
-	 * too (borrowed pointer; no release needed). */
-	class_name = gene_di_resolve_alias(class_name);
+	 * too. [GENE_FIX:2026-08-07-5 N6] Owned copy: the constructor below may
+	 * call Di::alias() and rehash the alias table, dangling a borrowed
+	 * pointer before the RETURN_ZVAL. */
+	zend_string *resolved_name = zend_string_copy(gene_di_resolve_alias(class_name));
+	class_name = resolved_name;
 
 	if (gene_factory_load_class(ZSTR_VAL(class_name), ZSTR_LEN(class_name), &obj)) {
 		if (Z_OBJCE(obj)->constructor) {
@@ -542,8 +556,10 @@ PHP_METHOD(gene_di, instance) {
 			if (ctor_params_heap) efree(ctor_params);
 			if (!Z_ISUNDEF(tmp)) zval_ptr_dtor(&tmp);
 		}
+		zend_string_release(resolved_name);
 		RETURN_ZVAL(&obj, 0, 0);
 	}
+	zend_string_release(resolved_name);
 	RETURN_NULL();
 }
 /* }}} */

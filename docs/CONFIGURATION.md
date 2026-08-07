@@ -25,6 +25,8 @@
 | `gene.closure_src_cache_max` | `1024` | long | FPM 闭包源码缓存容量；`<=0` 关闭缓存 |
 | `gene.swoole_auto_cleanup` | `0` | bool | 协程 ctx 随协程结束自动归还（仅 Swoole，opt-in） |
 | `gene.cache_easy_ttl` | `0` | long | cache_easy 文件表 TTL 兜底秒数（0=禁用，惰性过期） |
+
+> **`Gene\Memory` TTL 语义说明**：`Memory::set($k, $v, $ttl)` 的 `$ttl` 以秒计，`0` 表示永久。两种运行模式下行为不同——**FPM**：过期键由读路径惰性删除 + 每 32 次 TTL 写入抽样主动清扫，内存可回收；**Swoole**：`workerReady()` 后进程级缓存冻结不可写，过期键仅在读路径被「掩蔽」（返回 miss），内存占用不回收。因此 Swoole 下请勿用带 TTL 的 Memory 键做高频轮转写入（如 `rate:$ip`），需要过期回收请用 `Gene\Cache`（Redis/Memcached）层。
 | `gene.slow_query_ms` | `0` | long | 慢查询阈值（毫秒，0=禁用）；超限 SQL 计入 `Monitor::stats()` 的 `db_slow_query_count` |
 
 ## 推荐最佳配置
@@ -113,7 +115,7 @@ $server->on('WorkerStart', function () {
 | `Gene\View` | `clearAssign()` | 清除所有已赋值变量 |
 | `Gene\Response` | `getStatusCode()` | 获取当前 HTTP 状态码 |
 | `Gene\Response` | `isSent()` | 判断响应是否已发送 |
-| `Gene\Response` | `sendFile($path, $filename, array $headers)` | 发送文件下载 |
+| `Gene\Response` | `sendFile(string $file, int $offset = 0, int $length = 0)` | 发送文件下载；仅限本地普通文件（不接受 `http://`、`php://` 等流包装器），`$file` 不要直接拼接用户输入；响应头需先经 `Response::header()` 设置 |
 | `Gene\Session` | `clear()` | 清除所有 session 数据 |
 | `Gene\Session` | `all()` | 返回全部 session 数据 |
 | `Gene\Validate` | `bail()` | 首错即停 |
