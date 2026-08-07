@@ -96,8 +96,8 @@ class DatabaseTest
             echo "✓ MySQL escape() method works\n";
             
             // Test last insert ID
-            $lastId = $this->mysql->lastInsertId();
-            echo "✓ MySQL lastInsertId() method works\n";
+            $lastId = $this->mysql->lastId();
+            echo "✓ MySQL lastId() method works\n";
             
             // Test affected rows
             $affectedRows = $this->mysql->affectedRows();

@@ -928,6 +928,8 @@ static void gene_db_mssql_do_join(zval *self, zend_string *table, zval *on, cons
 	if (type && type[0]) {
 		if (!gene_db_mssql_join_type(type, strlen(type), tbuf, sizeof(tbuf))) {
 			php_error_docref(NULL, E_WARNING, "Invalid JOIN type: %s", type);
+			smart_str_free(&on_str);
+			smart_str_free(&frag);
 			return;
 		}
 		ttype = tbuf;
@@ -936,6 +938,8 @@ static void gene_db_mssql_do_join(zval *self, zend_string *table, zval *on, cons
 	if (!gene_db_mssql_build_on(on, &on_str)) {
 		php_error_docref(NULL, E_WARNING,
 			"JOIN ON must be a non-empty assoc array of leftColumn => rightColumn");
+		smart_str_free(&on_str);
+		smart_str_free(&frag);
 		return;
 	}
 	{

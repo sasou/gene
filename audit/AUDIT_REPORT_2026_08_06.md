@@ -269,7 +269,7 @@
 | **F1-5** | ✅ 已实施 | `src/di/di.c` `instance()` | `instance($class, $params=[])` 走 `gene_class_instance` 但不入容器。 |
 | **F1-6** | ✅ 已实施 | `src/mvc/controller.c` `forward()` | `forward($controller, $action, $params=[])`，带转发深度上限（≤5）防无限递归。 |
 | **F1-7** | ✅ 已实施 | `src/tool/monitor.c` | 增补 `db_pool_cas_abandoned`（配合 C1）、`db_pool_get_timeout`（pool 获取超时次数）、`memory_cache_hit` / `memory_cache_miss`（用户态 Memory 命中率）。慢查询计数未纳入本轮（依赖 `gene.slow_query_ms` 配置项，留待后续）。 |
-| **F1-8** | ✅ 已实施 | `src/db/pdo.c` | `lastInsertId()` / `rowCount()` 透传底层 PDO。 |
+| **F1-8** | ⚠️ 部分实施（2026-08-07 复核更正） | `src/db/pdo.c` | 底层助手 `gene_pdo_last_insert_id` / `gene_pdo_statement_row_count` 存在于 `pdo.c` 并被四个驱动的 `lastId()` / `affectedRows()` 调用，但报告中声称的 `lastInsertId()` / `rowCount()` 方法**并未注册**。等价能力已由既有 `lastId()` / `affectedRows()` 覆盖，`quote()` 仍缺失。详见 §十。 |
 | **测试基础设施** | ✅ 已实施 | `test/DiTest.php`、`test/HookTest.php`、`test/TestRunner.php` | 新增 Di / Hook 回归测试并纳入 TestRunner；已在本机 `php -l` 与运行验证通过。 |
 | **ide-helper 同步** | ✅ 已实施 | `gene-ide-helper/Gene/*.php` | Session / Db\Mysql / Db\Pgsql / Db\Sqlite / Db\Mssql / Request / Memory / Pool / Di / Router / Controller / Monitor / Application 均已同步新增 API 与版本注解。 |
 
@@ -289,3 +289,45 @@
 4. `Session::regenerateId()` 并发场景下旧会话删除与新 cookie 刷新的一致性。
 5. `Controller::forward()` 深度上限在超限时的错误路径回归。
 6. `Router::match()` 与 `Router::dispatch()` 匹配结果等价性回归。
+
+---
+
+## 十、完成情况复核与缺陷修复回写（2026-08-07）
+
+> 本节为 2026-08-07 的落地复核：对 §9.1 全部「已实施」条目逐条源码核实，并对 08-06 批次新增代码做第二轮内存/并发审查，修复新发现的缺陷。仍为静态实施，运行时验证约束不变。
+
+### 10.1 §9.1 条目核实结果
+
+| 条目 | 核实结果 |
+|---|---|
+| C1（db/pool.c CAS 对称化 + `db_pool_cas_abandoned` 遥测） | ✅ 属实。`pool_atomic_cmpset` / `pool_count_cas_fns` / `pool_decrement_count_cas`（`src/db/pool.c:476-547`）与 redis_pool.c 修法对称；64 轮上限 + once 告警 + 计数导出（`monitor.c:167`）、RINIT 重置（`gene.c:1017-1018`）均到位；无 `cmpset` 时的 get→sub 回退保留。 |
+| PF1（put() 跨界调用合并） | ✅ 属实。`put()`（`pool.c:899-924`）单次 `Atomic::get` 复用于溢出判据与 CAS 递减，`pool_get_max` 为普通属性读，无原子语义误用。 |
+| F0-1（`Session::regenerateId()`） | ✅ 属实。`session.c:1175-1225`：`old_id` 的 `zend_string_copy`/`release` 配对、`hash_val` dtor、`RETURN_STR_COPY` 均正确。 |
+| F0-2 / F0-3（MySQL/PgSQL/MSSQL 构建器） | ✅ 属实，但本轮在错误路径上新发现 4 处泄漏，已修复（见 10.2-A）。 |
+| F1-1 / F1-2 / F1-3 / F1-5 / F1-6 | ✅ 属实。`Request::isDelete` 已注册；`Memory::incr/decr` 在 `GENE_CACHE_WRLOCK` 内完成读-改-写；`Router::match` 各分支（method/rkey/path）释放配对正确；`Di::instance` 与 `Controller::forward`（深度 ≤5，RSHUTDOWN 复位）refcount 配对正确。 |
+| F1-4（`Pool::healthCheck()`） | ✅ 属实。经复核 `pool.c:1048-1090` **无泄漏**：`conn_zv` 指向 `item` 数组内部元素，`zval_ptr_dtor(&item)` 会释放连接引用（PDO 析构即关闭连接）；push 回通道经 `pool_channel_push` 内部重新打包 `[conn, lastUsed]` 并 addref，所有权平衡。审查中「push 失败泄漏连接」的候选结论**驳回**（见 10.3）。 |
+| F1-7（Monitor 指标） | ✅ 属实。`db_pool_cas_abandoned` 等已导出。慢查询计数维持暂缓。 |
+| F1-8（PDO `lastInsertId()` / `rowCount()`） | ⚠️ **原状态不实，已更正**（§9.1 行已改写）。`lastInsertId()` / `rowCount()` 未注册为方法；既有 `lastId()` / `affectedRows()` 覆盖同等语义。`test/DatabaseTest.php:99` 原调用不存在的 `lastInsertId()`（会抛 `Error` 且不被 `catch (Exception)` 捕获），已改为 `lastId()`。 |
+
+### 10.2 本轮新修复的缺陷
+
+| # | 位置 | 问题 | 修复 |
+|---|------|------|------|
+| A | `src/db/mysql.c` / `pgsql.c` / `mssql.c` / `sqlite.c` 的 `gene_db_*_do_join`（08-06 批次新增） | 错误返回路径（非法 JOIN type、`build_on` 失败）未释放 `smart_str frag` / `on_str`；`build_on` 部分写入后失败时 `on_str` 为实际泄漏 | 4 个文件的 2 条错误路径均补 `smart_str_free`（对空 smart_str 安全），与正常路径对称 |
+| B | `test/DatabaseTest.php:99` | 调用未注册的 `lastInsertId()` | 改为已存在的 `lastId()`（`php -l` 通过） |
+
+### 10.3 本轮驳回的候选发现
+
+| 候选 | 驳回理由 |
+|------|----------|
+| `Pool::healthCheck()` push 失败泄漏连接对象 | **不成立**。`conn_zv` 是 `item` 数组内部元素的指针，`zval_ptr_dtor(&item)` 已释放其唯一引用；push 失败时 PDO 随析构关闭，无需显式 close。 |
+| `mssql.c` `where()` / `in()` 的 E_ERROR 路径泄漏 `smart_str` / `estrndup` | **不修**。`E_ERROR` 触发 `zend_bailout` 终止请求，泄漏无运行时意义；且该形态是 `mysql.c:680/686/783/847` 等处既有全仓约定，仅改 mssql 会造成不对称。记录为约定项，若未来统一治理再一并处理。 |
+
+### 10.4 更新后的待办清单
+
+| 条目 | 状态 | 说明 |
+|---|---|---|
+| F1-8 补注册 `lastInsertId()` / `rowCount()` 别名或文档注明等价 API | ⏸ 待决策 | 等价能力已存在（`lastId()` / `affectedRows()`）；若追求与 PDO 命名对齐可加别名方法，属兼容性新增，非缺陷。`quote()` 仍缺失，可与此同批。 |
+| F1-7 慢查询计数 | ⏸ 暂缓 | 依赖 `gene.slow_query_ms` 配置项立项。 |
+| C2 / C3 / ML1 / ML2 / C4 / PF2~PF4 | ⏸ 观察项 | 维持 §七 第 5 步结论，需 profile/ZTS 证据后立项。 |
+| 运行时验证（§9.3 六项 + PLAN.md O6/O7） | ⏸ 悬置 | Windows 无法编译/ASAN/压测；10.2-A 的修复需在 Linux `--enable-debug` + ASAN 下回归确认零告警。 |

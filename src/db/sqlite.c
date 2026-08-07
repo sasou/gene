@@ -924,6 +924,8 @@ static void gene_db_sqlite_do_join(zval *self, zend_string *table, zval *on, con
 	if (type && type[0]) {
 		if (!gene_db_sqlite_join_type(type, strlen(type), tbuf, sizeof(tbuf))) {
 			php_error_docref(NULL, E_WARNING, "Invalid JOIN type: %s", type);
+			smart_str_free(&on_str);
+			smart_str_free(&frag);
 			return;
 		}
 		ttype = tbuf;
@@ -932,6 +934,8 @@ static void gene_db_sqlite_do_join(zval *self, zend_string *table, zval *on, con
 	if (!gene_db_sqlite_build_on(on, &on_str)) {
 		php_error_docref(NULL, E_WARNING,
 			"JOIN ON must be a non-empty assoc array of leftColumn => rightColumn");
+		smart_str_free(&on_str);
+		smart_str_free(&frag);
 		return;
 	}
 	{
