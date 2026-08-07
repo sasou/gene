@@ -43,7 +43,11 @@ zend_class_entry *gene_redis_pool_ce;
  * is process-lifetime (cleared only by closeAll()/MSHUTDOWN, never at
  * RSHUTDOWN and never reset to NULL), so an emalloc'd request-heap HT would
  * be left dangling across requests on a multi-request SAPI. See the
- * matching fix in db/pool.c. */
+ * matching fix in db/pool.c.
+ * [GENE_FIX:2026-08-08] Only populated under runtime_type >= 2, and the key
+ * is copied onto the persistent heap — a persistent table holding
+ * request-lifetime objects/keys would hand out freed pointers on the next
+ * request. Same rationale as db/pool.c. */
 static HashTable *gene_redis_pool_named_cache = NULL;
 
 static inline zend_object *gene_redis_pool_named_cache_get(zend_string *name) {
@@ -52,11 +56,15 @@ static inline zend_object *gene_redis_pool_named_cache_get(zend_string *name) {
 }
 
 static inline void gene_redis_pool_named_cache_put(zend_string *name, zend_object *obj) {
+    zend_string *pkey;
+    if (GENE_G(runtime_type) < 2) return;
     if (!gene_redis_pool_named_cache) {
         PALLOC_HASHTABLE(gene_redis_pool_named_cache);
         zend_hash_init(gene_redis_pool_named_cache, 8, NULL, NULL, 1);
     }
-    zend_hash_update_ptr(gene_redis_pool_named_cache, name, obj);
+    pkey = zend_string_init(ZSTR_VAL(name), ZSTR_LEN(name), 1);
+    zend_hash_update_ptr(gene_redis_pool_named_cache, pkey, obj);
+    zend_string_release(pkey);
 }
 
 static inline void gene_redis_pool_named_cache_clear(void) {

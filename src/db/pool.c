@@ -45,7 +45,18 @@
  * so on a multi-request SAPI with ext-swoole loaded but not in Server
  * mode (runtime_type < 2 does not gate the pool constructor), a second
  * request would dereference a HashTable already reclaimed by the request
- * heap. A process-lifetime table must live on the persistent heap. */
+ * heap. A process-lifetime table must live on the persistent heap.
+ *
+ * [GENE_FIX:2026-08-08] A persistent table alone is not enough: the cached
+ * zend_object* and the zend_string key are both request-lifetime. On a
+ * multi-request SAPI the table would survive with entries pointing at
+ * objects the request shutdown already destroyed, turning a stale read into
+ * a use-after-free on the next getInstance(). The cache is therefore only
+ * populated under runtime_type >= 2 (Swoole Server), where the worker has no
+ * per-request teardown and the pool object genuinely outlives the request.
+ * Elsewhere the table is never created and getInstance() falls through to the
+ * static `instances` property. The key is copied onto the persistent heap so
+ * it cannot outlive its allocator either. */
 static HashTable *gene_pool_named_cache = NULL;
 
  static inline zend_object *gene_pool_named_cache_get(zend_string *name) {
@@ -54,11 +65,15 @@ static HashTable *gene_pool_named_cache = NULL;
  }
 
  static inline void gene_pool_named_cache_put(zend_string *name, zend_object *obj) {
+     zend_string *pkey;
+     if (GENE_G(runtime_type) < 2) return;
      if (!gene_pool_named_cache) {
          PALLOC_HASHTABLE(gene_pool_named_cache);
          zend_hash_init(gene_pool_named_cache, 8, NULL, NULL, 1);
      }
-     zend_hash_update_ptr(gene_pool_named_cache, name, obj);
+     pkey = zend_string_init(ZSTR_VAL(name), ZSTR_LEN(name), 1);
+     zend_hash_update_ptr(gene_pool_named_cache, pkey, obj);
+     zend_string_release(pkey);
  }
 
  static inline void gene_pool_named_cache_clear(void) {

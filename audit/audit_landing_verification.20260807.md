@@ -27,7 +27,10 @@ todos:
     content: 把 PF1 跨界调用合并对称移植到 redis_pool.c 的 put()
     status: completed
   - id: perf-batch
-    content: 性能批 P-1~P-5：需先取 profile 证据，按 tools/acceptance 准入约束立项
+    content: 性能批 P-1~P-5：已写入 audit/plan/PLAN.md §三，受 tools/acceptance profile 准入约束，未取证据前不进主线
+    status: completed
+  - id: named-cache-gate
+    content: named_cache 补 runtime_type >= 2 门禁与持久 key 副本，消除持久表持有请求期对象导致的 UAF
     status: completed
 isProject: false
 ---
@@ -66,6 +69,8 @@ zend_hash_init(gene_pool_named_cache, 8, NULL, NULL, 0);  /* persistent=0 */
 - 或在 RSHUTDOWN 中对 `runtime_type < 2` 调用 `..._clear()`。
 
 推荐前者，两个文件对称改，并同步订正注释。
+
+**08-08 追加**：只做 `pemalloc` 是不够的。表活下来之后，里面存的 `zend_object*`（`pool.c` 第 1418 行 `Z_OBJ_P(return_value)`）和 `zend_string` key 仍然是请求生命周期的，多请求 SAPI 下请求 2 会在 `getInstance()` 命中缓存并对已释放对象 `GC_ADDREF` —— 从「静默读脏数据」升级成确定的 use-after-free。最终落地为三件事：表在持久堆、key 用 `zend_string_init(..., 1)` 复制到持久堆、`..._put()` 入口加 `runtime_type >= 2` 门禁。非 Swoole Server 下表根本不会创建，`getInstance()` 回落到静态 `instances` 属性，行为不变。
 
 ### 2. `sendFile` 的 wrapper 拒绝从未实现（安全）
 

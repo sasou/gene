@@ -91,7 +91,20 @@
 - **待评估**：
   - `gene.fn_cache_max`：fn_cache LRU 容量治理。
   - `gene.pool_max_overflow`：连接池 overflow 硬熔断。
-  - `named_cache` 改用 `pemalloc`（见 §五 ML1，建议维持现状）。
+  - ~~`named_cache` 改用 `pemalloc`~~（08-08 已落地：持久堆 + 持久 key 副本 + `runtime_type >= 2` 门禁，见 ML1）。
+
+### 借还路径跨界调用与可观测性（08-07 核查新增，需 profile 达标）
+
+- **来源**：`audit/audit_landing_verification.20260807.md` 第三批
+- **背景**：静态计数下，DB 池「借 + 还」稳态 3 次跨界（`Channel::pop` + `Atomic::get` + `Channel::push`），理论下限 2 次。PF1 已把 put() 从 3 次压到 1~2 次，以下是剩余空间。
+
+| # | 位置 | 优化 | 备注 |
+|---|------|------|------|
+| P-1 | `src/db/pool.c:908` | 正常归还路径的 `Atomic::get` 仅用于 `cur > max` 溢出判断；溢出连接唯一来源是超时补偿，可改为「先 push，仅当 `db_pool_get_timeout` 计数非零时才做溢出检查」，稳态压到 1 次跨界 | 剩余空间最大的一处 |
+| P-2 | `src/db/pool.c:852-854`、`src/cache/redis_pool.c:1248-1251` | `php_error_docref` 的实参在 C 里无条件求值，E_NOTICE 被屏蔽时仍白付 1-2 次 `Atomic::get` | 改为先判 `EG(error_reporting)` 再取值 |
+| P-3 | `src/router/router.c:286` | `get_path_router_init` 在无 prefix / 无 langs 时返回 `str_init(path)`，复制出与入参相同的字符串后调用方 efree 原件；改为返回 `path` 本身、调用方用指针相等判断（该模式在 match 路径已存在） | 每请求省 1 次 emalloc + memcpy |
+| P-4 | `src/cache/memory.c:200` | TTL 表非空时 get 热路径每次调 `time(NULL)`，可换 `sapi_get_request_time` 或缓存的秒级时间戳 | 仅影响启用 TTL 的部署 |
+| P-5 | `src/tool/monitor.c:305` | Prometheus 导出缺 `worker_id` label，多 worker 抓取剧烈抖动（计数器本身是 per-worker module globals，语义正确） | 可观测性缺陷，非性能项，可不受 profile 准入约束单独立项 |
 
 ### 观察项（需 profile / ZTS 证据后立项，不主动改动）
 
@@ -100,7 +113,7 @@
 | C2 | `src/gene.c:89-90、102-103` | dlsym 解析结果为进程级 static，ZTS 下并发解析；`resolved` 标志与指针写入间无内存屏障，弱内存序架构（ARM）理论瑕疵。Swoole 不支持 ZTS，实际风险极低 | 08-06 §3.2 |
 | C3 | `src/db/pool.c:55`、`src/cache/redis_pool.c:42` | 进程级 static `HashTable *named_cache` 在 ZTS 下跨线程共享且无锁。同 C2，与 §五 function-local static 合并处理 | 08-06 §3.2 |
 | C4 | `src/cache/memory.c:565-570` | `GENE_CACHE_RDLOCK()` 依据 `worker_ready` 跳过加锁；仅在引入多线程 worker 时需重新评估 | 08-06 §3.2 |
-| ML1 | `src/db/pool.c:55-76`、`src/cache/redis_pool.c:42-63` | `named_cache` 用 `emalloc` 而非 `pemalloc`；已由 MSHUTDOWN 兜底无实际泄漏，**建议维持现状** | 08-06 §2.2 |
+| ML1 | `src/db/pool.c:35-84`、`src/cache/redis_pool.c:36-71` | ~~`named_cache` 用 `emalloc` 而非 `pemalloc`~~ **08-08 已关闭**：表改持久堆、key 改持久副本，并只在 `runtime_type >= 2` 下填充（多请求 SAPI 不再跨请求持有请求期对象）。C3 的 ZTS 竞争仍在观察 | 08-06 §2.2 |
 | ML2 | `src/gene.c:748` | sweep `emalloc(sizeof(zend_ulong) * total)` 瞬态分配；M1 cooldown 后触发频率大幅下降，除非压测显示 cap≥8192 时进入火焰图 | 08-06 §2.2 |
 | PF2 | `src/router/router.c:2233-2544` | `snprintf` 拼接改 `memcpy`；**几乎全在路由注册/编译阶段（冷路径）**，收益仅冷启动/reload | 08-06 §3.3 |
 | PF3 | `src/router/router.c:245-278` | `strtok` 字符串复制；仅在多语言路由中执行，核心匹配已是指针扫描 | 08-06 §3.3 |
