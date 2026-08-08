@@ -185,6 +185,10 @@ static inline uint64_t gene_hrtime(void) {
 	 zval db_pgsql_history;
 	 zval db_sqlite_history;
 	 zval db_mssql_history;
+	 /* [GENE_FEATURE:2026-08-08 ORM] Per-request / per-coroutine cache of
+	  * Gene\Orm\Model subclass metadata (class name => array). Must not be
+	  * process-persistent — mirrors di_regs lifetime. */
+	 zval orm_meta;
 	 struct timeval bench_start;
 	 struct timeval bench_end;
 	 zend_long bench_memory_start;

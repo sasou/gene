@@ -21,3 +21,11 @@ Swoole profile 会执行 `gene.swoole_getcid_capi` 与
    `route_pc_items` 与 `co_contexts_watermark`。
 4. 出现 crash、digest 不一致、UAF/OOB，或 p99/CPU 每请求退化超过 3%
    时，关闭该 INI 开关并保留输出目录作为回归证据。
+
+## ORM（Gene\Orm）
+
+`test/OrmTest.php` 已纳入 `TestRunner.php`（functional 默认命令会跑到）。
+在 Linux 编译安装含 `src/orm/` 的扩展后，验收应看到 ORM class surface + SQLite CRUD 用例通过。
+
+Swoole 长跑 / 池压测仍用既有 `swoole_context_soak.php`、`pool_concurrency.php`：
+ORM 不额外持有连接，仅要求 `db.instance=true` + Pool，并在请求 `cleanup(true)`。

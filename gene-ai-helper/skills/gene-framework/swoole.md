@@ -198,7 +198,32 @@ $config->set('redis', [
 
 `$this->redis` 或 `Di::get('redis')` 自动走池；需要时可 `$redis->release()` 提前归还（析构也会归还）。
 
-### 4.3 其他组件
+### 4.3 Gene\Orm（ActiveRecord）
+
+`Gene\Orm\Model` 继承 `Gene\Model`，通过 DI 取 `db`，内部对 `Gene\Db\*` 链式状态做 **reset 双保险**（终端方法 + `Query` 析构）。
+
+```php
+class User extends \Gene\Orm\Model {
+    protected static string $table = 'sys_user';
+    protected static string $primaryKey = 'user_id';
+    protected static array $fields = ['user_id', 'user_name', 'status'];
+}
+
+User::find(1);
+User::paginate(['status' => 1], 0, 20);
+User::create($data);
+User::query()->where(['status' => 1])->order('user_id desc')->all();
+```
+
+| 运行时 | 配置要求 | ORM 注意 |
+|--------|----------|----------|
+| FPM | `db.instance => false` 即可 | 每次新建 Db；仍会 reset |
+| Swoole | `instance => true` + `pool` + `Pool::create` | 协程级 Db 单例；**禁止** `ATTR_PERSISTENT` |
+| 请求结束 | `cleanup(true)` | meta 缓存随请求上下文释放，无需额外 flush |
+
+复杂 SQL（join / raw）继续用继承来的 `$this->db`。
+
+### 4.4 其他组件
 
 | 组件 | Swoole 建议 | 说明 |
 |------|-------------|------|

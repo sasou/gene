@@ -50,6 +50,7 @@
 #include "db/sqlite.h"
 #include "common/common.h"
 #include "mvc/model.h"
+#include "orm/orm.h"
 #include "mvc/hook.h"
 #include "service/service.h"
 #include "factory/factory.h"
@@ -301,6 +302,7 @@ void gene_request_context_init(gene_request_context *ctx) {
 	ZVAL_UNDEF(&ctx->db_pgsql_history);
 	ZVAL_UNDEF(&ctx->db_sqlite_history);
 	ZVAL_UNDEF(&ctx->db_mssql_history);
+	ZVAL_UNDEF(&ctx->orm_meta);
 	ctx->view_scope_no = 0;
 	ctx->log_file = NULL;
 	ctx->log_level = 0;
@@ -466,6 +468,11 @@ static void gene_request_context_free_fields(gene_request_context *ctx, int pres
 		zval_ptr_dtor(&ctx->db_mssql_history);
 		ZVAL_UNDEF(&ctx->db_mssql_history);
 	}
+	/* [GENE_FEATURE:2026-08-08 ORM] Request-scoped model meta cache. */
+	if (Z_TYPE(ctx->orm_meta) != IS_UNDEF) {
+		zval_ptr_dtor(&ctx->orm_meta);
+		ZVAL_UNDEF(&ctx->orm_meta);
+	}
 	ctx->log_level = 0;
 	ctx->log_level_set = 0;
 	ctx->view_scope_no = 0;
@@ -555,6 +562,7 @@ gene_request_context *gene_request_context_pool_acquire(void) {
 		ZVAL_UNDEF(&ctx->db_mssql_history);
 		ZVAL_UNDEF(&ctx->di_alias);
 		ZVAL_UNDEF(&ctx->bench_marks);
+		ZVAL_UNDEF(&ctx->orm_meta);
 #endif
 		ctx->view_scope_no = 0;
 		ctx->log_level = 0;
@@ -1218,6 +1226,7 @@ PHP_MINIT_FUNCTION(gene) {
 	GENE_STARTUP(db_pgsql);
 	GENE_STARTUP(db_sqlite);
 	GENE_STARTUP(model);
+	GENE_STARTUP(orm);
 	GENE_STARTUP(hook);
 	GENE_STARTUP(service);
 	GENE_STARTUP(factory);

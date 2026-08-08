@@ -20,6 +20,7 @@ $testFiles = [
     'HttpTest.php',
     'MvcTest.php',
     'DatabaseTest.php',
+    'OrmTest.php',
     'DiTest.php',
     'HookTest.php'
 ];
@@ -58,6 +59,7 @@ class TestRunner
             'HttpTest.php',
             'MvcTest.php',
             'DatabaseTest.php',
+            'OrmTest.php',
             'DiTest.php',
             'HookTest.php'
         ];

@@ -259,6 +259,22 @@ $title = $this->language->login_title; // 读取键值
 
 ---
 
+## Orm\Model / Orm\Query（ActiveRecord v1）
+
+数据 Model 继承 `\Gene\Orm\Model`（本身继承 `\Gene\Model`）。声明 `static $table` / `$primaryKey` / `$fields`。
+
+| 方法 | 说明 |
+|------|------|
+| find($id) / findAll($where) / paginate($where, $offset, $limit) | 查询，返回 array |
+| query() / where($where) | 返回 `Gene\Orm\Query` |
+| create($data) / updateBy($where, $data) / destroy($id) / destroyAll($ids) | 写入 |
+| fill($data) / save() / delete() / toArray() | 实例 ActiveRecord |
+| Query: where / in / order / limit / all / row / cell / count | 终端方法后 reset Db |
+
+复杂 SQL 仍用 `$this->db`。Swoole 下配合 `instance=>true` + Pool；见 `swoole.md` §4.3。
+
+---
+
 ## Service
 
 服务基类。通过 `$this->属性名` 使用注入组件。

@@ -59,6 +59,9 @@ if test "$PHP_GENE" != "no"; then
 	  db/mssql.c \
 	  db/pgsql.c \
 	  db/sqlite.c \
+	  orm/meta.c \
+	  orm/query.c \
+	  orm/model.c \
 	  mvc/model.c \
 	  mvc/hook.c \
 	  service/service.c \
@@ -78,6 +81,7 @@ if test "$PHP_GENE" != "no"; then
   PHP_ADD_BUILD_DIR([$ext_builddir/factory], 1)
   PHP_ADD_BUILD_DIR([$ext_builddir/http], 1)
   PHP_ADD_BUILD_DIR([$ext_builddir/mvc], 1)
+  PHP_ADD_BUILD_DIR([$ext_builddir/orm], 1)
   PHP_ADD_BUILD_DIR([$ext_builddir/router], 1)
   PHP_ADD_BUILD_DIR([$ext_builddir/service], 1)
   PHP_ADD_BUILD_DIR([$ext_builddir/session], 1)

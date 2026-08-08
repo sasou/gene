@@ -131,6 +131,21 @@ $server->on('WorkerStart', function () {
 | `Gene\Application` | `stop()` | 中止当前请求派发（跳过 action 和 after-hook） |
 | `Gene\Application` | `isStopped()` | 查询 stop() 是否已调用 |
 
+## Gene\Orm（ActiveRecord v1）
+
+数据访问 Model 请继承 `Gene\Orm\Model`（而非裸 `Gene\Model`）。`Gene\Model` 仍只负责 DI + `success/error/data`。
+
+| 类 | 方法 | 说明 |
+|----|------|------|
+| `Gene\Orm\Model` | `find / findAll / paginate / query / where` | 查询；默认返回 `array` |
+| `Gene\Orm\Model` | `create / updateBy / destroy / destroyAll` | 写入 |
+| `Gene\Orm\Model` | `fill / save / delete / toArray` | 实例 ActiveRecord |
+| `Gene\Orm\Query` | `where / in / order / limit / all / row / cell / count` | 链式；终端后 reset Db |
+
+子类声明：`protected static $table`、`$primaryKey`、`$fields`、可选 `$timestamps`、`$connection`。
+
+FPM：`db.instance => false`。Swoole：`instance => true` + 连接池；请求 `cleanup(true)` 即可释放 ORM 请求级 meta 缓存。
+
 ### Log 级别常量
 
 新增 `LEVEL_CRITICAL`(6)、`LEVEL_ALERT`(7)、`LEVEL_EMERGENCY`(8) 三个类常量，

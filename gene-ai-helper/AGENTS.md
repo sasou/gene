@@ -19,7 +19,7 @@
 |----|------|------|
 | Controller | `\Gene\Controller` | 取参、校验、调 Service、响应/视图 |
 | Service | `\Gene\Service` | 业务、版本缓存、`getInstance()` |
-| Model | `\Gene\Model` | `$this->db` 链式 SQL |
+| Model | `\Gene\Orm\Model`（数据）/ `\Gene\Model`（纯 DI） | ActiveRecord CRUD 或 `$this->db` 链式 SQL |
 | Hook | `\Gene\Hook` | 路由钩子（推荐类：`Hooks\Xxx@handle`） |
 
 命名空间与目录对齐，例如 `application/Controllers/Admin/User.php` → `Controllers\Admin\User`。
@@ -82,7 +82,18 @@ $config->set('db', [
 
 ## 6. Service / Model / 缓存
 
-**Model 示例**
+**Model 示例（推荐 Orm）**
+
+```php
+class User extends \Gene\Orm\Model {
+    protected static string $table = 'sys_user';
+    protected static string $primaryKey = 'user_id';
+    protected static array $fields = ['user_id', 'user_name', 'status'];
+}
+return User::query()->where(['status' => 1])->order('user_id DESC')->limit($start, $count)->all();
+```
+
+**Model 示例（手写 Db 链）**
 
 ```php
 return $this->db->select('sys_user', 'user_id, user_name')

@@ -2,155 +2,99 @@
 namespace Models\Admin;
 
 /**
- * User Model
- * 
+ * User Model — Gene\Orm\Model ActiveRecord
+ *
  * @author  sasou
- * @version  1.0
+ * @version  2.0
  */
-class User extends \Gene\Model
+class User extends \Gene\Orm\Model
 {
+    protected static string $table = 'sys_user';
+    protected static string $primaryKey = 'user_id';
+    protected static array $fields = [
+        'user_id', 'user_name', 'user_realname', 'user_icon', 'group_id', 'status',
+    ];
 
     /**
-     * lists
-     *
-     * @param  array   $params   查询条件
-     * @param  int     $start    开始
-     * @param  int     $limit    数量
-     * @return array
+     * lists — 兼容旧 Service / 缓存回调
      */
     function lists($params, $start, $limit)
     {
-        $count = $this->db
-                      ->count("sys_user")
-                      ->where($params)
-                      ->cell();
-        $list = $this->db
-                     ->select("sys_user", "user_id,user_name,user_realname,user_icon,group_id,status")
-                     ->where($params)
-                     ->order("user_id desc")
-                     ->limit($start, $limit)
-                     ->all();
-
-        return ["count" => $count, "list" => $list];
+        return static::paginate($params ?: [], (int) $start, (int) $limit);
     }
 
     /**
-     * row
-     *
-     * @param  int   $id  id
-     * @return array
+     * row — 兼容 cachedVersion(["\\Models\\Admin\\User", "row"], ...)
      */
     function row($id)
     {
-        return $this->db
-                    ->select("sys_user")
-                    ->where("user_id=?", $id)
-                    ->limit(1)
-                    ->row();
+        return static::find($id);
     }
 
-	/**
+    /**
      * getField
-     * 
-     * @param int    $id 
-     * @param string $field 
-     * @return string
      */
-    public function getField($id, $field ='user_name')
+    public function getField($id, $field = 'user_name')
     {
         $data = $this->row($id);
         return isset($data[$field]) ? $data[$field] : '';
     }
-    
+
     /**
      * add
-     *
-     * @param  array $data  添加数据
-     * @return int id
      */
     function add($data)
     {
-        return $this->db
-                    ->insert("sys_user", $data)
-                    ->lastId();
+        return static::create($data);
     }
 
     /**
      * edit
-     *
-     * @param  int   $id    更新id
-     * @param  array $data  更新数据
-     * @return int count
      */
     function edit($id, $data)
     {
-        return $this->db
-                    ->update("sys_user", $data)
-                    ->where("user_id=?", $id)
-                    ->affectedRows();
+        return static::updateBy($id, $data);
     }
 
     /**
-     * status
-     *
-     * @param  int   $id  更新id
-     * @return int count
+     * status — 非常规 SQL，仍走 $this->db
      */
     function status($id)
     {
         return $this->db
-                    ->sql("update sys_user set status=abs(status-1)")
-                    ->where("user_id=?", $id)
-                    ->affectedRows();
+            ->sql('update sys_user set status=abs(status-1)')
+            ->where('user_id=?', $id)
+            ->affectedRows();
     }
-    
+
     /**
      * del
-     *
-     * @param  int $id id
-     * @return int count
      */
     function del($id)
     {
-        return $this->db
-                    ->delete("sys_user")
-                    ->where("user_id=?", $id)
-                    ->affectedRows();
+        return static::destroy($id);
     }
 
     /**
      * delAll
-     *
-     * @param  array $id_arr id数组
-     * @return int   count
      */
     function delAll($id_arr)
     {
-        return $this->db
-                      ->delete("sys_user")
-                      ->in("user_id in(?)", $id_arr)
-                      ->affectedRows();
+        return static::destroyAll($id_arr);
     }
-    
+
     /**
-     * countChird
-     *
-     * @param  mixed $id_arr id数组或者id
-     * @return int   count
+     * countByGroupId
      */
     function countByGroupId($id_arr)
     {
-        return $this->db
-                       ->count("sys_user")
-                       ->in("group_id in(?)", $id_arr)
-                       ->cell();
+        return static::query()
+            ->in('group_id in(?)', (array) $id_arr)
+            ->count();
     }
-    
+
     /**
      * 按主键取登录名（直连库，供缓存失效用）
-     *
-     * @param int $id
-     * @return string
      */
     function userNameById($id)
     {
@@ -167,10 +111,7 @@ class User extends \Gene\Model
     }
 
     /**
-     * 批量主键取登录名（删除前解析，供缓存失效用）
-     *
-     * @param array $id_arr
-     * @return array
+     * 批量主键取登录名
      */
     function userNamesByIds(array $id_arr)
     {
@@ -191,10 +132,7 @@ class User extends \Gene\Model
     }
 
     /**
-     * 检查登录
-     * 
-     * @param string $username 用户名
-     * @return array
+     * 检查登录（多表 join，逃生舱）
      */
     function getUserInfoByName($username)
     {
@@ -208,5 +146,4 @@ class User extends \Gene\Model
                                 where 
                                     a.user_name=?", $username)->row();
     }
-
 }
