@@ -844,7 +844,10 @@ PHP_METHOD(gene_view, render) {
 		FREE_HASHTABLE(table);
 	}
 	php_output_get_contents(return_value);
-	php_output_discard_default();
+	/* [GENE_FIX:2026-08-08] php_output_discard_default() is not an exported
+	 * PHPAPI symbol in PHP 8.1; use php_output_discard() which discards the
+	 * active handler — exactly the default handler we started above. */
+	php_output_discard();
 }
 /* }}} */
 
