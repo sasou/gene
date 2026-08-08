@@ -44,14 +44,6 @@
 | Hook | 钩子优先级、`stopPropagation()` |
 | Cache(Redis/Memcached) | pipeline / multi（可经 `call()` 透传，非硬缺口） |
 
-### 2.3 已立项 / 已实现
-
-| 模块 | 能力 | 结论 |
-|------|------|------|
-| Orm | `Gene\Orm\Model` + `Gene\Orm\Query`（精简 ActiveRecord v1） | **已实现**（C 扩展 `src/orm/`）。`Gene\Model` 仍为 DI + 响应封装；数据 Model 继承 `Gene\Orm\Model`。见 ide-helper `Gene/Orm/*`。关联 / 事件 / Upsert 属 v2，不在本计划待办。 |
-
-> 原「Model 缺 ORM 不立项」条目关闭：ORM 作为独立模块落地，未改动 `Gene\Model` 语义。
-
 ---
 
 ## 三、性能 / 压测量化后待立项的优化
