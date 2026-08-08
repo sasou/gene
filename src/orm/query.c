@@ -34,12 +34,12 @@ ZEND_END_ARG_INFO()
 
 ZEND_BEGIN_ARG_INFO_EX(gene_orm_query_where_arginfo, 0, 0, 1)
 	ZEND_ARG_INFO(0, where)
-	ZEND_ARG_INFO(0, fields)
+	ZEND_ARG_INFO(0, bind)
 ZEND_END_ARG_INFO()
 
 ZEND_BEGIN_ARG_INFO_EX(gene_orm_query_in_arginfo, 0, 0, 1)
 	ZEND_ARG_INFO(0, in)
-	ZEND_ARG_INFO(0, fields)
+	ZEND_ARG_INFO(0, bind)
 ZEND_END_ARG_INFO()
 
 ZEND_BEGIN_ARG_INFO_EX(gene_orm_query_order_arginfo, 0, 0, 1)
@@ -48,7 +48,7 @@ ZEND_END_ARG_INFO()
 
 ZEND_BEGIN_ARG_INFO_EX(gene_orm_query_limit_arginfo, 0, 0, 1)
 	ZEND_ARG_INFO(0, num)
-	ZEND_ARG_INFO(0, offset)
+	ZEND_ARG_INFO(0, limit)
 ZEND_END_ARG_INFO()
 
 static void gene_orm_query_mark_dirty(zval *self, zend_bool dirty)
@@ -153,14 +153,14 @@ static int gene_orm_query_apply(zval *self, zval *db, zend_bool for_count)
 				ZEND_STRL(GENE_ORM_QUERY_LIMIT_A), 1, NULL);
 			lb = zend_read_property(gene_orm_query_ce, gene_strip_obj(self),
 				ZEND_STRL(GENE_ORM_QUERY_LIMIT_B), 1, NULL);
-			ZVAL_LONG(&args[0], la ? Z_LVAL_P(la) : 0);
 			if (lb && Z_TYPE_P(lb) == IS_LONG) {
-				ZVAL_LONG(&args[1], Z_LVAL_P(lb));
-				gene_orm_db_call(db, "limit", 2, args, &retval);
+				/* Two-arg form: (offset, count) — driver-aware via gene_orm_db_limit */
+				gene_orm_db_limit(db, la ? Z_LVAL_P(la) : 0, Z_LVAL_P(lb));
 			} else {
+				ZVAL_LONG(&args[0], la ? Z_LVAL_P(la) : 0);
 				gene_orm_db_call(db, "limit", 1, args, &retval);
+				zval_ptr_dtor(&retval);
 			}
-			zval_ptr_dtor(&retval);
 		}
 	}
 
@@ -177,7 +177,8 @@ static void gene_orm_query_finish(zval *self, zval *db)
 int gene_orm_query_init(zval *query, zval *db, zend_string *table, zval *fields)
 {
 	object_init_ex(query, gene_orm_query_ce);
-	Z_TRY_ADDREF_P(db);
+	/* zend_update_property ZVAL_COPY's the value; do not ADDREF beforehand
+	 * (db from gene_di_get is a borrowed pointer). */
 	zend_update_property(gene_orm_query_ce, gene_strip_obj(query),
 		ZEND_STRL(GENE_ORM_QUERY_DB), db);
 	zend_update_property_str(gene_orm_query_ce, gene_strip_obj(query),
@@ -234,16 +235,16 @@ PHP_METHOD(gene_orm_query, __destruct)
 
 PHP_METHOD(gene_orm_query, where)
 {
-	zval *self = getThis(), *where = NULL, *fields = NULL;
+	zval *self = getThis(), *where = NULL, *bind = NULL;
 
-	if (zend_parse_parameters(ZEND_NUM_ARGS(), "z|z", &where, &fields) == FAILURE) {
+	if (zend_parse_parameters(ZEND_NUM_ARGS(), "z|z", &where, &bind) == FAILURE) {
 		return;
 	}
 	zend_update_property(gene_orm_query_ce, gene_strip_obj(self),
 		ZEND_STRL(GENE_ORM_QUERY_WHERE), where);
-	if (fields) {
+	if (bind) {
 		zend_update_property(gene_orm_query_ce, gene_strip_obj(self),
-			ZEND_STRL(GENE_ORM_QUERY_WHERE_BIND), fields);
+			ZEND_STRL(GENE_ORM_QUERY_WHERE_BIND), bind);
 	} else {
 		zend_update_property_null(gene_orm_query_ce, gene_strip_obj(self),
 			ZEND_STRL(GENE_ORM_QUERY_WHERE_BIND));
@@ -253,17 +254,17 @@ PHP_METHOD(gene_orm_query, where)
 
 PHP_METHOD(gene_orm_query, in)
 {
-	zval *self = getThis(), *fields = NULL;
+	zval *self = getThis(), *bind = NULL;
 	zend_string *in = NULL;
 
-	if (zend_parse_parameters(ZEND_NUM_ARGS(), "S|z", &in, &fields) == FAILURE) {
+	if (zend_parse_parameters(ZEND_NUM_ARGS(), "S|z", &in, &bind) == FAILURE) {
 		return;
 	}
 	zend_update_property_str(gene_orm_query_ce, gene_strip_obj(self),
 		ZEND_STRL(GENE_ORM_QUERY_IN_SQL), in);
-	if (fields) {
+	if (bind) {
 		zend_update_property(gene_orm_query_ce, gene_strip_obj(self),
-			ZEND_STRL(GENE_ORM_QUERY_IN_BIND), fields);
+			ZEND_STRL(GENE_ORM_QUERY_IN_BIND), bind);
 	} else {
 		zend_update_property_null(gene_orm_query_ce, gene_strip_obj(self),
 			ZEND_STRL(GENE_ORM_QUERY_IN_BIND));
@@ -287,16 +288,18 @@ PHP_METHOD(gene_orm_query, order)
 PHP_METHOD(gene_orm_query, limit)
 {
 	zval *self = getThis();
-	zend_long num, offset = 0;
+	zend_long num, limit = 0;
 
-	if (zend_parse_parameters(ZEND_NUM_ARGS(), "l|l", &num, &offset) == FAILURE) {
+	if (zend_parse_parameters(ZEND_NUM_ARGS(), "l|l", &num, &limit) == FAILURE) {
 		return;
 	}
+	/* One arg: take num rows. Two args: (offset, count) like MySQL LIMIT a,b
+	 * and Model::paginate — apply() routes via gene_orm_db_limit. */
 	zend_update_property_long(gene_orm_query_ce, gene_strip_obj(self),
 		ZEND_STRL(GENE_ORM_QUERY_LIMIT_A), num);
 	if (ZEND_NUM_ARGS() > 1) {
 		zend_update_property_long(gene_orm_query_ce, gene_strip_obj(self),
-			ZEND_STRL(GENE_ORM_QUERY_LIMIT_B), offset);
+			ZEND_STRL(GENE_ORM_QUERY_LIMIT_B), limit);
 	} else {
 		zend_update_property_null(gene_orm_query_ce, gene_strip_obj(self),
 			ZEND_STRL(GENE_ORM_QUERY_LIMIT_B));
@@ -316,10 +319,14 @@ PHP_METHOD(gene_orm_query, all)
 		RETURN_NULL();
 	}
 	if (gene_orm_query_apply(self, db, 0) != SUCCESS) {
+		gene_orm_query_finish(self, db);
 		RETURN_NULL();
 	}
 	if (gene_orm_db_call(db, "all", 0, NULL, &retval) == SUCCESS) {
 		gene_orm_query_finish(self, db);
+		if (Z_ISUNDEF(retval)) {
+			RETURN_NULL();
+		}
 		RETURN_ZVAL(&retval, 0, 1);
 	}
 	gene_orm_query_finish(self, db);
@@ -336,10 +343,14 @@ PHP_METHOD(gene_orm_query, row)
 		RETURN_NULL();
 	}
 	if (gene_orm_query_apply(self, db, 0) != SUCCESS) {
+		gene_orm_query_finish(self, db);
 		RETURN_NULL();
 	}
 	if (gene_orm_db_call(db, "row", 0, NULL, &retval) == SUCCESS) {
 		gene_orm_query_finish(self, db);
+		if (Z_ISUNDEF(retval)) {
+			RETURN_NULL();
+		}
 		RETURN_ZVAL(&retval, 0, 1);
 	}
 	gene_orm_query_finish(self, db);
@@ -356,10 +367,14 @@ PHP_METHOD(gene_orm_query, cell)
 		RETURN_NULL();
 	}
 	if (gene_orm_query_apply(self, db, 0) != SUCCESS) {
+		gene_orm_query_finish(self, db);
 		RETURN_NULL();
 	}
 	if (gene_orm_db_call(db, "cell", 0, NULL, &retval) == SUCCESS) {
 		gene_orm_query_finish(self, db);
+		if (Z_ISUNDEF(retval)) {
+			RETURN_NULL();
+		}
 		RETURN_ZVAL(&retval, 0, 1);
 	}
 	gene_orm_query_finish(self, db);
@@ -370,17 +385,32 @@ PHP_METHOD(gene_orm_query, count)
 {
 	zval *self = getThis();
 	zval *db, retval;
+	zend_long n = 0;
 
 	db = gene_orm_query_db(self);
 	if (!db) {
 		RETURN_LONG(0);
 	}
 	if (gene_orm_query_apply(self, db, 1) != SUCCESS) {
+		gene_orm_query_finish(self, db);
 		RETURN_LONG(0);
 	}
 	if (gene_orm_db_call(db, "cell", 0, NULL, &retval) == SUCCESS) {
 		gene_orm_query_finish(self, db);
-		RETURN_ZVAL(&retval, 0, 1);
+		if (Z_ISUNDEF(retval)) {
+			RETURN_LONG(0);
+		}
+		if (Z_TYPE(retval) == IS_LONG) {
+			n = Z_LVAL(retval);
+		} else if (Z_TYPE(retval) == IS_STRING) {
+			n = zend_atol(Z_STRVAL(retval), Z_STRLEN(retval));
+		} else if (Z_TYPE(retval) == IS_DOUBLE) {
+			n = (zend_long)Z_DVAL(retval);
+		} else {
+			n = zval_get_long(&retval);
+		}
+		zval_ptr_dtor(&retval);
+		RETURN_LONG(n);
 	}
 	gene_orm_query_finish(self, db);
 	RETURN_LONG(0);

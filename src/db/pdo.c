@@ -865,6 +865,19 @@ void makeWhere(zval *self, smart_str *where_str, zval *where, zval *field_value)
 	bool pre = 0;
 	zend_string *key = NULL;
 	zend_long id;
+	char oq = '`', cq = '`';
+
+	/* Quote identifiers per driver (Mysql/Sqlite: `; Pgsql: "; Mssql: []) */
+	if (self && Z_TYPE_P(self) == IS_OBJECT) {
+		const char *cname = ZSTR_VAL(Z_OBJCE_P(self)->name);
+		if (strstr(cname, "Pgsql") || strstr(cname, "pgsql")) {
+			oq = cq = '"';
+		} else if (strstr(cname, "Mssql") || strstr(cname, "mssql")) {
+			oq = '[';
+			cq = ']';
+		}
+	}
+
 	/* [GENE_FIX:2026-04-27] Defensive NULL guard: ZSTR_LEN(where_str->s)
 	 * dereferences ->s. All current callers go through *_init_where which
 	 * allocates, but this prevents a future regression. */
@@ -901,7 +914,7 @@ void makeWhere(zval *self, smart_str *where_str, zval *where, zval *field_value)
 	        			smart_str_appends(where_str, Z_STRVAL_P(other));
 	        		}
 	        	}
-	        	smart_str_append(where_str, key);
+	        	gene_quote_identifier(where_str, ZSTR_VAL(key), ZSTR_LEN(key), oq, cq);
 		        if (ops && Z_TYPE_P(ops) == IS_STRING) {
 		        	if (strcmp("in", Z_STRVAL_P(ops)) == 0) {
 		        		if (Z_TYPE_P(value) == IS_ARRAY) {
@@ -986,7 +999,7 @@ void makeWhere(zval *self, smart_str *where_str, zval *where, zval *field_value)
 	    		    	} else {
 	    		    		pre = 1;
 	    		    	}
-	    	        	smart_str_append(where_str, key);
+	    	        	gene_quote_identifier(where_str, ZSTR_VAL(key), ZSTR_LEN(key), oq, cq);
 	    		        smart_str_appends(where_str, " = ?");
 	    		    	add_next_index_zval(field_value, obj);
 	    		    	Z_TRY_ADDREF_P(obj);
@@ -997,7 +1010,7 @@ void makeWhere(zval *self, smart_str *where_str, zval *where, zval *field_value)
     		    	} else {
     		    		pre = 1;
     		    	}
-    	        	smart_str_append(where_str, key);
+    	        	gene_quote_identifier(where_str, ZSTR_VAL(key), ZSTR_LEN(key), oq, cq);
     		        smart_str_appends(where_str, " = ?");
     		    	add_next_index_zval(field_value, obj);
     		    	Z_TRY_ADDREF_P(obj);

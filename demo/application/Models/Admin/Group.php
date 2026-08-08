@@ -21,7 +21,7 @@ class Group extends \Gene\Orm\Model
     function lists($start, $pagesize)
     {
         $where = ['group_pid' => 0];
-        $count = (int) static::query()->where($where)->count();
+        $count = static::query()->where($where)->count();
         $list = static::query()
             ->where($where)
             ->order('group_id asc')

@@ -54,6 +54,7 @@ class OrmTest
             'find', 'findAll', 'paginate', 'query', 'where',
             'create', 'updateBy', 'destroy', 'destroyAll',
             'fill', 'save', 'delete', 'toArray', 'getInstance',
+            '__get', '__set',
         ];
         foreach ($methods as $m) {
             if (!method_exists('\\Gene\\Orm\\Model', $m)) {
@@ -146,6 +147,20 @@ class OrmTest
                 $this->fail('query chain failed');
             }
 
+            $cnt = OrmTestUser::query()->where(['status' => 1])->count();
+            if (is_int($cnt) && $cnt >= 1) {
+                $this->ok("query()->count() returns int=$cnt");
+            } else {
+                $this->fail('count() type/value: ' . var_export($cnt, true));
+            }
+
+            $one = OrmTestUser::query()->where(['id' => $id])->limit(1)->row();
+            if (is_array($one) && ($one['name'] ?? '') === 'bob') {
+                $this->ok('query()->row() + limit(1)');
+            } else {
+                $this->fail('row/limit failed: ' . json_encode($one));
+            }
+
             // Chain isolation: second find must not inherit prior where
             OrmTestUser::create(['name' => 'carol', 'status' => 0]);
             $a = OrmTestUser::find($id);
@@ -159,10 +174,46 @@ class OrmTest
             $m = new OrmTestUser();
             $m->fill(['name' => 'dave', 'status' => 1]);
             $newId = $m->save();
-            if ($newId > 0 && $m->exists) {
-                $this->ok("instance fill/save id=$newId");
+            $arr = $m->toArray();
+            if ($newId > 0 && !empty($arr['id']) && ($arr['name'] ?? '') === 'dave') {
+                $this->ok("instance fill/save/toArray id=$newId");
             } else {
                 $this->fail('instance save failed');
+            }
+
+            // __get/__set attributes
+            $m2 = new OrmTestUser();
+            $m2->name = 'via_set';
+            $m2->status = 1;
+            if ($m2->name === 'via_set' && ($m2->toArray()['name'] ?? '') === 'via_set') {
+                $this->ok('__get/__set attributes');
+            } else {
+                $this->fail('__get/__set failed');
+            }
+            $updId = $m2->save();
+            if ($updId > 0 && $m2->exists) {
+                $this->ok("save via __set id=$updId exists=true");
+            } else {
+                $this->fail('save via __set failed');
+            }
+
+            // save() update path
+            $m2->name = 'via_update';
+            $aff = $m2->save();
+            $again = OrmTestUser::find($updId);
+            if ($aff >= 0 && is_array($again) && ($again['name'] ?? '') === 'via_update') {
+                $this->ok('save() update path');
+            } else {
+                $this->fail('save update path failed');
+            }
+
+            // instance delete clears pk
+            $delN = $m2->delete();
+            $afterDel = $m2->toArray();
+            if ($delN >= 0 && empty($afterDel['id']) && !$m2->exists && OrmTestUser::find($updId) === null) {
+                $this->ok('instance delete() clears pk + exists');
+            } else {
+                $this->fail('instance delete failed: ' . json_encode($afterDel));
             }
 
             $del = OrmTestUser::destroy($id);
@@ -177,6 +228,29 @@ class OrmTest
                 $this->ok("destroyAll()=$delAll");
             } else {
                 $this->fail('destroyAll failed');
+            }
+
+            // create() must not mutate caller array
+            $payload = ['name' => 'immutable', 'status' => 1];
+            $copy = $payload;
+            OrmTestUser::create($payload);
+            if ($payload === $copy) {
+                $this->ok('create() does not mutate caller array');
+            } else {
+                $this->fail('create() mutated caller: ' . json_encode($payload));
+            }
+
+            // find rejects non-scalar
+            $threw = false;
+            try {
+                OrmTestUser::find(['id' => 1]);
+            } catch (\Throwable $e) {
+                $threw = true;
+            }
+            if ($threw) {
+                $this->ok('find() rejects non-scalar id');
+            } else {
+                $this->fail('find() should reject array id');
             }
         } catch (\Throwable $e) {
             $this->fail('CRUD exception: ' . $e->getMessage());

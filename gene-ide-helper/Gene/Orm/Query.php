@@ -13,21 +13,21 @@ namespace Gene\Orm;
 final class Query
 {
     /**
-     * @param mixed $where
-     * @param mixed $fields
+     * @param mixed $where  array 条件或 SQL 片段
+     * @param mixed $bind   绑定参数（字符串 where 时）
      * @return $this
      */
-    public function where($where, $fields = null)
+    public function where($where, $bind = null)
     {
         return $this;
     }
 
     /**
      * @param string $in
-     * @param mixed $fields
+     * @param mixed $bind
      * @return $this
      */
-    public function in($in, $fields = null)
+    public function in($in, $bind = null)
     {
         return $this;
     }
@@ -42,11 +42,13 @@ final class Query
     }
 
     /**
-     * @param int $num
-     * @param int|null $offset
+     * 单参：取 $num 行；双参：LIMIT offset,count（与 paginate / MySQL 语义一致，驱动自适应）
+     *
+     * @param int $num   单参时为行数；双参时为 offset
+     * @param int|null $limit  行数（双参时）
      * @return $this
      */
-    public function limit($num, $offset = null)
+    public function limit($num, $limit = null)
     {
         return $this;
     }
@@ -76,7 +78,7 @@ final class Query
     }
 
     /**
-     * @return int|mixed
+     * @return int
      */
     public function count()
     {

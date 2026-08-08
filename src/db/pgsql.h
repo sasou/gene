@@ -34,6 +34,7 @@
 
 extern zend_class_entry *gene_db_pgsql_ce;
 
+void pgsql_reset_sql_params(zval *self);
 
 GENE_MINIT_FUNCTION(db_pgsql);
 

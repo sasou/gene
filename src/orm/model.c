@@ -18,6 +18,8 @@
 
 #include "../gene.h"
 #include "../mvc/model.h"
+#include "../di/di.h"
+#include "../common/common.h"
 #include "orm.h"
 
 zend_class_entry *gene_orm_model_ce;
@@ -41,16 +43,16 @@ ZEND_END_ARG_INFO()
 
 ZEND_BEGIN_ARG_INFO_EX(gene_orm_model_where_arginfo, 0, 0, 1)
 	ZEND_ARG_INFO(0, where)
-	ZEND_ARG_INFO(0, fields)
+	ZEND_ARG_INFO(0, bind)
 ZEND_END_ARG_INFO()
 
 ZEND_BEGIN_ARG_INFO_EX(gene_orm_model_create_arginfo, 0, 0, 1)
-	ZEND_ARG_INFO(0, data)
+	ZEND_ARG_ARRAY_INFO(0, data, 0)
 ZEND_END_ARG_INFO()
 
 ZEND_BEGIN_ARG_INFO_EX(gene_orm_model_updateby_arginfo, 0, 0, 2)
 	ZEND_ARG_INFO(0, where)
-	ZEND_ARG_INFO(0, data)
+	ZEND_ARG_ARRAY_INFO(0, data, 0)
 ZEND_END_ARG_INFO()
 
 ZEND_BEGIN_ARG_INFO_EX(gene_orm_model_destroy_arginfo, 0, 0, 1)
@@ -58,11 +60,20 @@ ZEND_BEGIN_ARG_INFO_EX(gene_orm_model_destroy_arginfo, 0, 0, 1)
 ZEND_END_ARG_INFO()
 
 ZEND_BEGIN_ARG_INFO_EX(gene_orm_model_destroyall_arginfo, 0, 0, 1)
-	ZEND_ARG_INFO(0, ids)
+	ZEND_ARG_ARRAY_INFO(0, ids, 0)
 ZEND_END_ARG_INFO()
 
 ZEND_BEGIN_ARG_INFO_EX(gene_orm_model_fill_arginfo, 0, 0, 1)
-	ZEND_ARG_INFO(0, data)
+	ZEND_ARG_ARRAY_INFO(0, data, 0)
+ZEND_END_ARG_INFO()
+
+ZEND_BEGIN_ARG_INFO_EX(gene_orm_model_get_arginfo, 0, 0, 1)
+	ZEND_ARG_INFO(0, name)
+ZEND_END_ARG_INFO()
+
+ZEND_BEGIN_ARG_INFO_EX(gene_orm_model_set_arginfo, 0, 0, 2)
+	ZEND_ARG_INFO(0, name)
+	ZEND_ARG_INFO(0, value)
 ZEND_END_ARG_INFO()
 
 static zend_class_entry *gene_orm_called_ce(void)
@@ -140,23 +151,23 @@ PHP_METHOD(gene_orm_model, query)
 /* }}} */
 
 /*
- * {{{ public static Gene\Orm\Model::where($where, $fields = null)
+ * {{{ public static Gene\Orm\Model::where($where, $bind = null)
  */
 PHP_METHOD(gene_orm_model, where)
 {
-	zval *where = NULL, *fields = NULL;
+	zval *where = NULL, *bind = NULL;
 	zval query, args[2], retval;
 	uint32_t argc = 1;
 
-	if (zend_parse_parameters(ZEND_NUM_ARGS(), "z|z", &where, &fields) == FAILURE) {
+	if (zend_parse_parameters(ZEND_NUM_ARGS(), "z|z", &where, &bind) == FAILURE) {
 		return;
 	}
 	if (gene_orm_new_query(&query) != SUCCESS) {
 		RETURN_NULL();
 	}
 	ZVAL_COPY(&args[0], where);
-	if (fields) {
-		ZVAL_COPY(&args[1], fields);
+	if (bind) {
+		ZVAL_COPY(&args[1], bind);
 		argc = 2;
 	}
 	gene_orm_db_call(&query, "where", argc, args, &retval);
@@ -182,6 +193,12 @@ PHP_METHOD(gene_orm_model, find)
 
 	if (zend_parse_parameters(ZEND_NUM_ARGS(), "z", &id) == FAILURE) {
 		return;
+	}
+	if (Z_TYPE_P(id) == IS_ARRAY || Z_TYPE_P(id) == IS_OBJECT ||
+		Z_TYPE_P(id) == IS_RESOURCE) {
+		zend_throw_exception_ex(NULL, 0,
+			"Gene\\Orm\\Model::find() expects a scalar primary key");
+		RETURN_NULL();
 	}
 	if (gene_orm_meta_load(ce, &meta) != SUCCESS) {
 		RETURN_NULL();
@@ -334,6 +351,7 @@ PHP_METHOD(gene_orm_model, create)
 	}
 
 	ZVAL_COPY(&data_copy, data);
+	SEPARATE_ARRAY(&data_copy);
 	if (meta.timestamps) {
 		gene_orm_apply_timestamps(&data_copy, 1);
 	}
@@ -377,6 +395,7 @@ PHP_METHOD(gene_orm_model, updateBy)
 	}
 
 	ZVAL_COPY(&data_copy, data);
+	SEPARATE_ARRAY(&data_copy);
 	if (meta.timestamps) {
 		gene_orm_apply_timestamps(&data_copy, 0);
 	}
@@ -412,6 +431,12 @@ PHP_METHOD(gene_orm_model, destroy)
 
 	if (zend_parse_parameters(ZEND_NUM_ARGS(), "z", &id) == FAILURE) {
 		return;
+	}
+	if (Z_TYPE_P(id) == IS_ARRAY || Z_TYPE_P(id) == IS_OBJECT ||
+		Z_TYPE_P(id) == IS_RESOURCE) {
+		zend_throw_exception_ex(NULL, 0,
+			"Gene\\Orm\\Model::destroy() expects a scalar primary key");
+		RETURN_LONG(0);
 	}
 	if (gene_orm_meta_load(ce, &meta) != SUCCESS) {
 		RETURN_LONG(0);
@@ -512,6 +537,7 @@ PHP_METHOD(gene_orm_model, fill)
 		ZEND_STRL(GENE_ORM_ATTRS), 1, NULL);
 	if (existing && Z_TYPE_P(existing) == IS_ARRAY) {
 		ZVAL_COPY(&attrs, existing);
+		SEPARATE_ARRAY(&attrs);
 	} else {
 		array_init(&attrs);
 	}
@@ -579,10 +605,13 @@ PHP_METHOD(gene_orm_model, save)
 	pk_val = zend_hash_find(Z_ARRVAL_P(attrs), meta.primary_key);
 
 	ZVAL_COPY(&data_copy, attrs);
+	SEPARATE_ARRAY(&data_copy);
 
 	if (exists && zend_is_true(exists) && pk_val &&
 		Z_TYPE_P(pk_val) != IS_NULL && Z_TYPE_P(pk_val) != IS_UNDEF) {
-		/* update — drop pk from payload */
+		/* update — copy pk first, then drop from payload (avoids UAF on shared HT) */
+		zval pk_copy;
+		ZVAL_COPY(&pk_copy, pk_val);
 		zend_hash_del(Z_ARRVAL(data_copy), meta.primary_key);
 		if (meta.timestamps) {
 			gene_orm_apply_timestamps(&data_copy, 0);
@@ -598,11 +627,12 @@ PHP_METHOD(gene_orm_model, save)
 		smart_str_appends(&buf, "=?");
 		smart_str_0(&buf);
 		ZVAL_STR(&args[0], buf.s);
-		ZVAL_COPY(&args[1], pk_val);
+		ZVAL_COPY(&args[1], &pk_copy);
 		gene_orm_db_call(db, "where", 2, args, &retval);
 		zval_ptr_dtor(&args[0]);
 		zval_ptr_dtor(&args[1]);
 		zval_ptr_dtor(&retval);
+		zval_ptr_dtor(&pk_copy);
 
 		if (gene_orm_db_call(db, "affectedRows", 0, NULL, return_value) != SUCCESS) {
 			RETVAL_LONG(0);
@@ -672,11 +702,14 @@ PHP_METHOD(gene_orm_model, delete)
 
 	/* Reuse destroy logic via static call pattern */
 	{
-		zval *db, args[2], retval;
+		zval *db, args[2], retval, pk_copy;
 		smart_str buf = {0};
+
+		ZVAL_COPY(&pk_copy, pk_val);
 
 		db = gene_orm_get_db(meta.connection);
 		if (!db) {
+			zval_ptr_dtor(&pk_copy);
 			gene_orm_meta_release(&meta);
 			RETURN_LONG(0);
 		}
@@ -689,11 +722,12 @@ PHP_METHOD(gene_orm_model, delete)
 		smart_str_appends(&buf, "=?");
 		smart_str_0(&buf);
 		ZVAL_STR(&args[0], buf.s);
-		ZVAL_COPY(&args[1], pk_val);
+		ZVAL_COPY(&args[1], &pk_copy);
 		gene_orm_db_call(db, "where", 2, args, &retval);
 		zval_ptr_dtor(&args[0]);
 		zval_ptr_dtor(&args[1]);
 		zval_ptr_dtor(&retval);
+		zval_ptr_dtor(&pk_copy);
 
 		if (gene_orm_db_call(db, "affectedRows", 0, NULL, return_value) != SUCCESS) {
 			RETVAL_LONG(0);
@@ -701,8 +735,110 @@ PHP_METHOD(gene_orm_model, delete)
 		gene_orm_db_reset(db);
 		zend_update_property_bool(gene_orm_model_ce, gene_strip_obj(self),
 			ZEND_STRL(GENE_ORM_EXISTS), 0);
+		/* Drop pk so a subsequent save() cannot revive the deleted id */
+		{
+			zval *attrs_w = zend_read_property(gene_orm_model_ce, gene_strip_obj(self),
+				ZEND_STRL(GENE_ORM_ATTRS), 0, NULL);
+			if (attrs_w && Z_TYPE_P(attrs_w) == IS_ARRAY) {
+				SEPARATE_ARRAY(attrs_w);
+				zend_hash_del(Z_ARRVAL_P(attrs_w), meta.primary_key);
+			}
+		}
 	}
 	gene_orm_meta_release(&meta);
+}
+/* }}} */
+
+/*
+ * {{{ public Gene\Orm\Model::__get($name) — attributes first, then DI (parent)
+ */
+PHP_METHOD(gene_orm_model, __get)
+{
+	zval *self = getThis();
+	zend_string *name = NULL;
+	zval *attrs, *val, *exists;
+
+	if (zend_parse_parameters(ZEND_NUM_ARGS(), "|S", &name) == FAILURE) {
+		return;
+	}
+	if (!name) {
+		RETURN_NULL();
+	}
+
+	if (zend_string_equals_literal(name, GENE_ORM_EXISTS)) {
+		exists = zend_read_property(gene_orm_model_ce, gene_strip_obj(self),
+			ZEND_STRL(GENE_ORM_EXISTS), 1, NULL);
+		RETURN_BOOL(exists && zend_is_true(exists));
+	}
+	if (zend_string_equals_literal(name, GENE_ORM_ATTRS)) {
+		attrs = zend_read_property(gene_orm_model_ce, gene_strip_obj(self),
+			ZEND_STRL(GENE_ORM_ATTRS), 1, NULL);
+		if (attrs && Z_TYPE_P(attrs) == IS_ARRAY) {
+			RETURN_ZVAL(attrs, 1, 0);
+		}
+		array_init(return_value);
+		return;
+	}
+
+	attrs = zend_read_property(gene_orm_model_ce, gene_strip_obj(self),
+		ZEND_STRL(GENE_ORM_ATTRS), 1, NULL);
+	if (attrs && Z_TYPE_P(attrs) == IS_ARRAY) {
+		val = zend_hash_find(Z_ARRVAL_P(attrs), name);
+		if (val) {
+			RETURN_ZVAL(val, 1, 0);
+		}
+	}
+
+	/* Fall through to Gene\Model DI lookup ($this->db, etc.) */
+	{
+		zend_string *class_name = gene_get_class_name_fast();
+		zval *pzval;
+		if (!class_name) {
+			RETURN_NULL();
+		}
+		pzval = gene_di_get_class(class_name, name);
+		if (pzval) {
+			RETURN_ZVAL(pzval, 1, 0);
+		}
+	}
+	RETURN_NULL();
+}
+/* }}} */
+
+/*
+ * {{{ public Gene\Orm\Model::__set($name, $value) — write attributes (not DI)
+ */
+PHP_METHOD(gene_orm_model, __set)
+{
+	zval *self = getThis();
+	zend_string *name;
+	zval *value, *attrs, attrs_copy;
+
+	if (zend_parse_parameters(ZEND_NUM_ARGS(), "Sz", &name, &value) == FAILURE) {
+		return;
+	}
+	if (zend_string_equals_literal(name, GENE_ORM_EXISTS) ||
+		zend_string_equals_literal(name, GENE_ORM_ATTRS)) {
+		RETURN_FALSE;
+	}
+
+	attrs = zend_read_property(gene_orm_model_ce, gene_strip_obj(self),
+		ZEND_STRL(GENE_ORM_ATTRS), 1, NULL);
+	if (attrs && Z_TYPE_P(attrs) == IS_ARRAY) {
+		ZVAL_COPY(&attrs_copy, attrs);
+		SEPARATE_ARRAY(&attrs_copy);
+	} else {
+		array_init(&attrs_copy);
+	}
+	{
+		zval tmp;
+		ZVAL_COPY(&tmp, value);
+		zend_hash_update(Z_ARRVAL(attrs_copy), name, &tmp);
+	}
+	zend_update_property(gene_orm_model_ce, gene_strip_obj(self),
+		ZEND_STRL(GENE_ORM_ATTRS), &attrs_copy);
+	zval_ptr_dtor(&attrs_copy);
+	RETURN_TRUE;
 }
 /* }}} */
 
@@ -720,6 +856,8 @@ const zend_function_entry gene_orm_model_methods[] = {
 	PHP_ME(gene_orm_model, save, gene_orm_model_void_arginfo, ZEND_ACC_PUBLIC)
 	PHP_ME(gene_orm_model, delete, gene_orm_model_void_arginfo, ZEND_ACC_PUBLIC)
 	PHP_ME(gene_orm_model, toArray, gene_orm_model_void_arginfo, ZEND_ACC_PUBLIC)
+	PHP_ME(gene_orm_model, __get, gene_orm_model_get_arginfo, ZEND_ACC_PUBLIC)
+	PHP_ME(gene_orm_model, __set, gene_orm_model_set_arginfo, ZEND_ACC_PUBLIC)
 	{NULL, NULL, NULL}
 };
 
@@ -752,7 +890,7 @@ GENE_MINIT_FUNCTION(orm)
 
 	/* Instance state */
 	zend_declare_property_null(gene_orm_model_ce, ZEND_STRL(GENE_ORM_ATTRS), ZEND_ACC_PROTECTED);
-	zend_declare_property_bool(gene_orm_model_ce, ZEND_STRL(GENE_ORM_EXISTS), 0, ZEND_ACC_PUBLIC);
+	zend_declare_property_bool(gene_orm_model_ce, ZEND_STRL(GENE_ORM_EXISTS), 0, ZEND_ACC_PROTECTED);
 
 	return SUCCESS;
 }

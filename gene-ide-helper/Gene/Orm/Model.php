@@ -36,8 +36,29 @@ class Model extends \Gene\Model
     /** @var array|null */
     protected $attributes;
 
-    /** @var bool */
-    public $exists = false;
+    /** @var bool 是否已持久化（由 fill/find/save 维护；勿外部篡改） */
+    protected $exists = false;
+
+    /**
+     * 属性优先；未命中时回退 DI（$this->db 等）
+     * @param string $name
+     * @return mixed
+     */
+    public function __get($name)
+    {
+        return null;
+    }
+
+    /**
+     * 写入 attributes（非 DI）
+     * @param string $name
+     * @param mixed $value
+     * @return bool
+     */
+    public function __set($name, $value)
+    {
+        return false;
+    }
 
     /**
      * @return Query
@@ -49,10 +70,10 @@ class Model extends \Gene\Model
 
     /**
      * @param mixed $where
-     * @param mixed $fields
+     * @param mixed $bind
      * @return Query
      */
-    public static function where($where, $fields = null)
+    public static function where($where, $bind = null)
     {
         return null;
     }

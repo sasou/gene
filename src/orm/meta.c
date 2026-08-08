@@ -13,12 +13,17 @@
 #include "php.h"
 #include "php_ini.h"
 #include "ext/date/php_date.h"
+#include "main/SAPI.h"
 #include "Zend/zend_API.h"
 #include "zend_exceptions.h"
 #include <string.h>
 
 #include "../gene.h"
 #include "../di/di.h"
+#include "../db/mysql.h"
+#include "../db/sqlite.h"
+#include "../db/pgsql.h"
+#include "../db/mssql.h"
 #include "orm.h"
 
 /* Request-scoped meta cache: class name => array{
@@ -213,16 +218,29 @@ zval *gene_orm_get_db(zend_string *connection)
 
 void gene_orm_db_reset(zval *db)
 {
-	zval fname, retval;
+	zend_class_entry *ce;
 
 	if (!db || Z_TYPE_P(db) != IS_OBJECT) {
 		return;
 	}
-	ZVAL_STRING(&fname, "reset");
-	ZVAL_UNDEF(&retval);
-	call_user_function(NULL, db, &fname, &retval, 0, NULL);
-	zval_ptr_dtor(&fname);
-	zval_ptr_dtor(&retval);
+	ce = Z_OBJCE_P(db);
+	if (ce == gene_db_mysql_ce) {
+		mysql_reset_sql_params(db);
+	} else if (ce == gene_db_sqlite_ce) {
+		sqlite_reset_sql_params(db);
+	} else if (ce == gene_db_pgsql_ce) {
+		pgsql_reset_sql_params(db);
+	} else if (ce == gene_db_mssql_ce) {
+		mssql_reset_sql_params(db);
+	} else {
+		/* Unknown driver — fall back to public reset() */
+		zval fname, retval;
+		ZVAL_STRING(&fname, "reset");
+		ZVAL_UNDEF(&retval);
+		call_user_function(NULL, db, &fname, &retval, 0, NULL);
+		zval_ptr_dtor(&fname);
+		zval_ptr_dtor(&retval);
+	}
 }
 
 int gene_orm_db_call(zval *db, const char *method, uint32_t argc, zval *argv, zval *retval)
@@ -291,7 +309,7 @@ void gene_orm_apply_timestamps(zval *data, zend_bool is_insert)
 	if (!data || Z_TYPE_P(data) != IS_ARRAY) {
 		return;
 	}
-	t = time(NULL);
+	t = (time_t)sapi_get_request_time();
 	now = php_format_date("Y-m-d H:i:s", sizeof("Y-m-d H:i:s") - 1, t, 1);
 	if (is_insert) {
 		if (!zend_hash_str_exists(Z_ARRVAL_P(data), ZEND_STRL("created_at"))) {

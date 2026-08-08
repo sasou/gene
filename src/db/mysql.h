@@ -34,6 +34,7 @@
 
 extern zend_class_entry *gene_db_mysql_ce;
 
+void mysql_reset_sql_params(zval *self);
 
 GENE_MINIT_FUNCTION(db_mysql);
 

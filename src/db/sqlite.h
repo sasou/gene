@@ -34,6 +34,7 @@
 
 extern zend_class_entry *gene_db_sqlite_ce;
 
+void sqlite_reset_sql_params(zval *self);
 
 GENE_MINIT_FUNCTION(db_sqlite);
 
