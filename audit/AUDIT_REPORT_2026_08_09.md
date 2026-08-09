@@ -7,6 +7,8 @@
 > 审计方式：**静态代码审查 + 运行时实测**（与前几轮纯静态审计不同，本轮跑通了扩展）
 > 运行环境：Windows / PHP 8.1.34 NTS x64 / `php_gene.dll`（2026-08-08 12:19 构建，含 ORM v1 + 08-08 加固）
 > 复现脚本：`audit/repro/*.php`（每条运行时结论均可一键复现）
+> **修复状态（2026-08-09 当日闭环）**：H1/H2/H3、M1/M2/M3/M4/M5/M7、L1、DatabaseTest 同步均已修复、
+> 重新编译并实测回归通过，M6 保留在 `audit/plan/PLAN.md` §7.2.3 —— 详见 §九「修复落地与复盘」。
 
 ---
 
@@ -402,3 +404,63 @@ failing create() on missing table                     +0 B (0.00 B/call)
 
 > 运行前提：已安装含 ORM 的 `gene` ≥ 6.0.0，且已加载 `pdo_sqlite`。
 > 除 `pdo_construct_null_crash.php`（预期崩溃）外，其余脚本均应以 exit 0 结束。
+
+---
+
+## 九、修复落地与复盘（2026-08-09 当日）
+
+> 修复构建：`php_gene.dll`（2026-08-09 23:58 构建，`F:\php_src\php-8.1.30-src` x64 Release NTS，
+> 已部署至运行环境）。验证环境与本报告审计环境一致（PHP 8.1.34 NTS x64 CLI）。
+> 改动文件：`src/db/pdo.c`、`src/router/router.c`、`src/orm/{meta,model,query}.c`、`src/orm/orm.h`、
+> `src/http/response.c`、`test/{OrmTest,DatabaseTest}.php`。
+
+### 9.1 逐项落地状态
+
+| # | 状态 | 修复内容 | 实测证据（修复后复跑） |
+|---|------|----------|------------------------|
+| H1 | ✅ 已修复 | `gene_pdo_construct()` 对 NULL `user`/`pass` 兜底（user→空串，pass→NULL zval），与 `pool_normalize_config()` 同约定；4 驱动一处生效 | `pdo_construct_null_crash.php`：STEP A→C 全部打印，exit 0（原为 0xC0000005） |
+| H2 | ✅ 已修复 | `match()` 命中/未命中恢复代码抽为共享 `restore:` 标签，未命中分支同样 dtor 新建的 `path_params` 数组 | `router_match_leak.php`：`+0 B (0.00 B/call)`（原 56 B/call × 2 万次 = 1.12 MB） |
+| H3 | ✅ 已修复 | `gene_orm_apply_timestamps()` 改 `time(NULL)`，与全仓其余 11 处一致 | `orm_timestamps_stale.php`：3 秒后 `created_at` 推进 3 秒，与墙钟一致（原冻结） |
+| M1 | ✅ 已修复 | ①`fill()` 在合并后 attributes 含非空主键时置 `exists=1`；②`find($id, $asModel=false)` 第二参为 true 时返回 hydrated 模型实例（未命中返回 null） | `orm_edge_cases.php`：`fill(find())->save()` 行数保持 1（UPDATE，原为唯一键冲突/重复行）；`OrmTest` 新增 5 项断言全绿 |
+| M2 | ✅ 已修复 | 新增 `gene_orm_normalize_id()`：`create()`/`save()` 的 `lastId` 返回值数字串归一为 long，写回 attributes 的主键同为 int | `create() => integer`、`save() insert => integer`（原均为 string） |
+| M3 | ✅ 已修复 | `orm.h` 新增 `gene_orm_has_exception()` 内联门禁；`model.c` 全部 9 个 db 调用序列与 `query.c::gene_orm_query_apply()` 每步后 `goto cleanup`/`return FAILURE`；`gene_orm_db_reset()` 未知驱动回退分支在异常挂起时跳过用户态 `reset()` | `orm_exception_paths.php`：异常路径 0 B/call，异常后健康查询不受污染 |
+| M4 | ✅ 已修复 | `gene_orm_db_limit()` 改 `ce == gene_db_mysql_ce` 判定（与 `gene_orm_db_reset()` 一致），未知驱动走文档化默认 `LIMIT count OFFSET offset` | `orm_crud_smoke.php` paginate 断言通过；静态审查确认子串判定已移除 |
+| M5 | ✅ 已修复 | `gene_orm_get_db()` 出口 `Z_TRY_ADDREF_P` 返回持有引用；`model.c` 全部 10 处调用点（含 `gene_orm_new_query`）在用毕 `zval_ptr_dtor(db)` | 全部泄漏探针（leak_probe / edge_cases / exception_paths）保持 0 B/call，无新增泄漏 |
+| M7 | ✅ 已修复 | 新增 `__isset`/`__unset`（attributes 语义，`exists`/`attributes` 保留名只读），注册进方法表 | `OrmTest`：`isset($m->name)` 为 true、`unset()` 后变 false |
+| L1 | ✅ 已修复 | `sendFile()` 的 plain-file wrapper 校验前置到 Swoole/FPM 分支之前，两模式安全边界一致 | 静态审查；运行时冒烟（CLI/FPM 分支）通过 |
+| M6 | 📌 保留 PLAN | Query 能力补齐（join/group/having/union/first/update/delete、事务、关联、软删除、mass-assignment 白名单）属大改动，记入 `PLAN.md` §7.2.3 分批推进 | — |
+| 测试同步 | ✅ 已修复 | `DatabaseTest.php`：SQLite 段按 6.0.0 真实 API 重写（`sql()->execute()`/`select()->where()->row()`/`history()` 等），dsn-only 构造保留为 H1 回归哨兵；全文件 `catch (Exception)` → `catch (Throwable)`，失效 API 降级为报告项不再中断套件；attach 测试的字符串 config 构造改为数组形式 | 套件跑至 `=== Complete ===` 退出 0（原在 `Sqlite::connect()` 处 fatal） |
+| 附带项 | ✅ 已修复 | 去掉 `Query` 的 `ALLOW_DYNAMIC_PROPERTIES`（原 §四 M6/M7 小节建议），与 `final`+protected 封闭设计对齐 | `OrmTest` class surface 全绿 |
+
+### 9.2 回归验证汇总（修复构建上全量复跑）
+
+```
+pdo_construct_null_crash.php   exit 0，STEP C 到达（原崩溃 0xC0000005）
+router_match_leak.php          0.00 B/call（原 56 B/call）
+orm_timestamps_stale.php       时间戳随墙钟推进（原冻结）
+orm_crud_smoke.php             exit 0，全链路输出与审计基线一致
+orm_edge_cases.php             hydrate trap 变 UPDATE；create/save/count 全 integer
+orm_leak_probe.php             7 条路径全部 0 B/call（与审计基线一致，无回归）
+orm_exception_paths.php        异常路径 0 B/call，异常后查询隔离正常
+orm_state_isolation.php        exit 0，9 步隔离检查全部符合预期
+test/OrmTest.php               55 passed / 0 failed（原：CRUD 段进程崩溃）
+test/DatabaseTest.php          exit 0，SQLite 段全绿（原：fatal 中断）
+test/RouterTest.php            exit 0，全部通过
+```
+
+### 9.3 复盘（本轮修复批的教训与确认）
+
+1. **「对称收尾」必须机械化**。H2 的根因是 08-07 的隔离修复在命中/未命中两条分支各写了一遍恢复代码，
+   未命中分支漏了一行 dtor。本轮按审计建议抽成单一 `restore:` 标签，两条分支共享同一段收尾 ——
+   今后同类「保存现场 → 探查 → 恢复现场」的代码一律禁止双份拷贝。
+2. **新代码的契约要下沉到最底层入口**。H1 的兜底本属于 `gene_pdo_construct()` 这个唯一汇聚点，
+   却只在 pool 路径做了；ORM 的新测试一进来就踩爆。教训：底层公共入口不接受「调用方保证非空」的隐式契约。
+3. **SAPI 时间语义是常驻进程的经典坑**（H3）。`sapi_get_request_time()` 在 CLI/Swoole 下覆盖整个进程
+   生命周期，全仓一致性检查（`time(NULL)` 11:1 的对比）是发现它的关键手段，值得保留为审计惯例。
+4. **借用指针跨 `call_user_function` 持有 = UAF 窗口**（M5）。`di.c` 08-07 已处理过同类别名悬垂，
+   但风险模型没有随新模块（ORM）同步铺开。本轮在 `gene_orm_get_db()` 单点加引用，比逐调用点加固更不易漏。
+5. **验证方式确认有效**：8 个 repro 脚本 + 3 个测试套件在修复构建上全部复跑，H1/H2/H3 三条运行时结论
+   全部翻转，泄漏探针维持 0 B/call 基线无回归。`audit/repro/` 的一键复现机制继续作为修复验收标准。
+6. **遗留共识**：M6（Query 能力补齐）与 7.2.4 的文档项不属缺陷修复，已按约定留在 `PLAN.md`；
+   L2（跨协程共享 Db 句柄）/L3（默认 SQL history ≈177 KB）/L4（create 无事务）为设计观察项，
+   以文档约束解决，不改代码。

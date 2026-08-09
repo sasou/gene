@@ -2291,13 +2291,12 @@ void get_router_content_run(char *methodin, char *pathin, const char *safe_str, 
 	 efree(path);
 
 	 if (!lead || Z_TYPE_P(lead) != IS_ARRAY) {
-		 /* No match — nothing was captured; restore the request context untouched. */
-		 ctx->module = saved_module;             ctx->module_len = saved_module_len;
-		 ctx->controller = saved_controller;     ctx->controller_len = saved_controller_len;
-		 ctx->action = saved_action;             ctx->action_len = saved_action_len;
-		 ctx->router_path = saved_router_path;   ctx->router_path_len = saved_router_path_len;
-		 ctx->path_params = saved_path_params;
-		 RETURN_FALSE;
+		 /* No match — nothing was captured; restore the request context untouched.
+		  * [GENE_FIX:2026-08-09 H2] Must still free the array that
+		  * gene_router_reset_path_params() allocated above — the miss branch used
+		  * to skip the dtor and leak one zend_array (56 B) per call. */
+		 RETVAL_FALSE;
+		 goto restore;
 	 }
 
 	 /* Build the result from the values the match captured, then restore the
@@ -2337,7 +2336,9 @@ void get_router_content_run(char *methodin, char *pathin, const char *safe_str, 
 		 }
 	 }
 
-	 /* Free the buffers the match allocated and restore the saved context. */
+	 /* Free the buffers the match allocated and restore the saved context.
+	  * Shared by the hit and miss paths so the two can never drift apart. */
+restore:
 	 if (ctx->module) efree(ctx->module);
 	 if (ctx->controller) efree(ctx->controller);
 	 if (ctx->action) efree(ctx->action);

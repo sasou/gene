@@ -217,48 +217,26 @@
 ## 七之二、2026-08-09 审计新增待办（ORM v1 + 近两周优化）
 
 > 来源：`AUDIT_REPORT_2026_08_09.md`（**含运行时实测证据**，复现脚本在 `audit/repro/`）。
-> 前 3 项为实锤缺陷，应作为一个修复批优先落地，不进「待评估」队列。
-
-### 7.2.1 待修复缺陷（P0）
-
-| # | 位置 | 问题 | 修法 |
-|---|------|------|------|
-| H1 | `src/db/pdo.c:513,516` | 缺 `username`/`password` 时 NULL 解引用 → 段错误（4 驱动全中，`test/OrmTest.php` 直接崩溃） | 参照 `pool.c:239-259` 的 `pool_normalize_config()` 补空值兜底 |
-| H2 | `src/router/router.c:2293-2301` | `match()` 未命中分支漏 `zval_ptr_dtor(&ctx->path_params)`，实测 56 B/call | 补对称释放；两段恢复代码抽 `restore:` 标签 |
-| H3 | `src/orm/meta.c:312` | `timestamps` 用 `sapi_get_request_time()`，常驻进程下时间戳冻结（全仓唯一一处，其余 11 处均 `time(NULL)`） | 改 `time(NULL)` |
-
-### 7.2.2 ORM v1 语义补齐（P1，建议同批或紧随）
-
-- **M1 hydrate 缺口（结构性）**：`find()`/`findAll()`/`Query::row()` 只返回数组，`exists` 仅能由成功 insert 置位
-  → `(new M)->fill(M::find($id))->save()` 走 INSERT 且带主键，造成唯一键冲突或静默重复行（已复现）。
-  方案：`fill()`/新增 `hydrate()` 在含非空主键时置 `exists=1`；并提供 `find($id, true)` / `Query::first()` 返回模型。
-- **M2 返回类型**：`create()`/`save()` 透传 PDO 的字符串 `lastId`，且把字符串主键写回 attributes，
-  与 `find()` 的 `int` 主键、`Query::count()` 的 int 归一化不一致 → 统一为 `ZVAL_LONG`。
-- **M4 方言判定**：`gene_orm_db_limit()` 用 `strstr(cname,"Mysql")` 判 MySQL，而 `gene_orm_db_reset()` 用
-  `ce ==`；非标准/包装/子类化驱动会拿到颠倒的 offset/limit，`paginate()` 静默返回错误页 → 统一 `ce ==`。
-- **M5 db 句柄借用**：`gene_orm_get_db()` 返回 DI 借用指针，静态方法跨多次 `call_user_function` 持有；
-  期间用户代码 `Di::del('db')` 即 UAF（`Query` 路径持强引用，已安全）→ 入口 `Z_TRY_ADDREF_P`、出口 dtor。
-- **M3 异常门禁**：`gene_orm_db_call()` 包 `call_user_function`，抛异常仍返回 SUCCESS，后续 SQL 继续下发
-  → 每个调用点后加 `if (UNEXPECTED(EG(exception))) goto cleanup;`。
-- **M7**：实现 `__isset`/`__unset`（当前 `isset($m->attr)` 恒 false、`unset()` 静默无效）。
-- 去掉 `Query` 的 `ALLOW_DYNAMIC_PROPERTIES`（`query.c:440-442`），与 `final` + protected 状态的封闭设计冲突。
+> **2026-08-09 修复批已落地**：H1/H2/H3、M1/M2/M3/M4/M5/M7、L1（sendFile 校验前置）、
+> `test/DatabaseTest.php` API 同步、Query 去 `ALLOW_DYNAMIC_PROPERTIES` 均已修复并实测通过，
+> 详见审计报告 §九「修复落地与复盘」。以下仅保留仍未实施的项。
 
 ### 7.2.3 ORM 能力缺口（P2，按需求驱动）
 
 - `Query` 缺 `join/group/having/union/offset/first/exists/pluck/update/delete`；无事务、关联、软删除、属性转换。
   底层 Db 层 08-06/08-07 刚补齐 `join/union/group/having`，ORM 未透出，落差明显。
+  （`Model::find($id, true)` 已返回模型实例，`Query::first()` 仍未实现。）
 - `$fields` 目前仅作 SELECT 列表，`fill()`/`__set()` 不校验字段名（数字键亦可写入）→ 缺 mass-assignment 白名单。
 - API 对称性：有 `Model::updateBy()` 无 `Query::update()`；`Model::destroy($id)` 与实例 `delete()` 语义重叠。
 
 ### 7.2.4 文档 / 测试待办
 
-- `test/DatabaseTest.php:191` 调用不存在的 `Sqlite::connect()`（另有 `getHistory()` 亦不存在），
-  测试套件在此 fatal —— 测试文件与 6.0.0 API 已脱节，需同步。
-- `Response::sendFile()`：FPM 分支拒绝非 plain-file wrapper，**Swoole 分支无任何校验**（`response.c:786-805`）；
-  两分支均不做路径规范化。建议把 wrapper 校验前置到分支之前，并在文档写明路径校验为调用方责任。
 - 文档需写明：ORM 不可跨协程共享同一 Db 实例（应走 `pool` 配置）；生产环境建议 `gene.run_environment=1`
   以关闭默认开启的 SQL history（单驱动单请求上限 200 条 ≈ 177 KB，非泄漏但会干扰内存 profiling）。
 - `create()` = insert + lastId 两次独立调用，无事务包裹，需在文档说明并发下的 id 语义。
+- `sendFile()` 路径规范化仍为调用方责任（wrapper 校验已于 08-09 前置统一），需在文档写明。
+- `test/DatabaseTest.php` 中 MySQL/PgSQL/Pool 段仍是旧 API 描述（如 `Pool::initialize()`），
+  现以 `catch (Throwable)` 降级为报告项不再中断套件；有真实数据库环境时应按 6.0.0 API 重写。
 
 ---
 

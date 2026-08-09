@@ -1,0 +1,36 @@
+# Gene 扩展 — 构建与验证速查
+
+## Windows 构建（本机已验证 2026-08-09）
+
+- PHP SDK：`F:\php-sdk-2.3.0`；构建树：`F:\php_src\php-8.1.30-src`（PHP 8.1 NTS x64，VS2019/vs16）。
+- `F:\php_src\php-8.1.30-src\ext\gene` 是指向本仓库 `src/` 的 **Junction**，改源码即改构建树。
+- 构建步骤（config.nice.bat 已配好 `--enable-gene=shared`，无需重跑 configure）：
+
+```bat
+rem task.bat 内容:  cd /d F:\php_src\php-8.1.30-src && nmake php_gene.dll
+F:\php-sdk-2.3.0\phpsdk-vs16-x64.bat -t <task.bat>
+```
+
+- 产物：`F:\php_src\php-8.1.30-src\x64\Release\php_gene.dll`。
+- 部署：`copy /Y` 到 `D:\wampServer-php8.1_x64_nts\php_ext\php_gene.dll`。
+  **注意**：WampServer 的 httpd/php-cgi 运行时会锁住旧 dll，需先确认无锁再覆盖。
+
+## 免部署验证（旧 dll 被占用时）
+
+```powershell
+php -n -d extension_dir="D:\wampServer-php8.1_x64_nts\php_ext" `
+      -d extension=pdo_sqlite `
+      -d extension="F:\php_src\php-8.1.30-src\x64\Release\php_gene.dll" <script.php>
+```
+
+## 验证入口
+
+- 审计复现脚本：`php audit\repro\<name>.php`（每条审计结论可一键复现）。
+- 测试套件：`php test\OrmTest.php`、`php test\DatabaseTest.php`、`php test\RouterTest.php`。
+- 注意：控制台重定向输出为 UTF-16 是 PowerShell 编码问题，非测试失败。
+
+## 约定
+
+- Db 驱动（Mysql/Sqlite/Pgsql/Mssql）的 `insert()` 等写方法是**惰性执行**：下一次读调用
+  （`lastId()`/`affectedRows()`/`row()`/`all()` 等）才真正执行，重复调用会重复执行。
+- ORM：`fill()` 含非空主键即视为已持久化（`exists=1`），`find($id, true)` 返回模型实例。

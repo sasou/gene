@@ -213,6 +213,12 @@ zval *gene_orm_get_db(zend_string *connection)
 			connection ? ZSTR_VAL(connection) : "db");
 		return NULL;
 	}
+	/* [GENE_FIX:2026-08-09 M5] gene_di_get() hands back a borrowed zval from the
+	 * DI registry. Callers hold it across several call_user_function round-trips
+	 * during which user code (getters, error handlers, __destruct) could
+	 * Di::del()/Di::set() the service and free the object → UAF. Take an owned
+	 * reference here; every caller must zval_ptr_dtor() it when done. */
+	Z_TRY_ADDREF_P(db);
 	return db;
 }
 
@@ -232,8 +238,10 @@ void gene_orm_db_reset(zval *db)
 		pgsql_reset_sql_params(db);
 	} else if (ce == gene_db_mssql_ce) {
 		mssql_reset_sql_params(db);
-	} else {
-		/* Unknown driver — fall back to public reset() */
+	} else if (!EG(exception)) {
+		/* Unknown driver — fall back to public reset(). Skip while an exception
+		 * is pending: running userland code mid-unwind would mask the first
+		 * error (the 4 known drivers above are pure C and always safe). */
 		zval fname, retval;
 		ZVAL_STRING(&fname, "reset");
 		ZVAL_UNDEF(&retval);
@@ -301,6 +309,23 @@ int gene_orm_db_select(zval *db, zend_string *table, zval *fields)
 	return r;
 }
 
+/* [GENE_FIX:2026-08-09 M2] PDO lastInsertId() is always a string, which made
+ * create()/save() return a string id and store a string pk into attributes
+ * while find() returns int — the same field with two types. Normalize numeric
+ * strings to long, mirroring Query::count()'s 2026-08-08 hardening. */
+void gene_orm_normalize_id(zval *id)
+{
+	zend_long l;
+	double d;
+
+	if (id && Z_TYPE_P(id) == IS_STRING) {
+		if (is_numeric_string(Z_STRVAL_P(id), Z_STRLEN_P(id), &l, &d, 0) == IS_LONG) {
+			zval_ptr_dtor(id);
+			ZVAL_LONG(id, l);
+		}
+	}
+}
+
 void gene_orm_apply_timestamps(zval *data, zend_bool is_insert)
 {
 	zend_string *now;
@@ -309,7 +334,11 @@ void gene_orm_apply_timestamps(zval *data, zend_bool is_insert)
 	if (!data || Z_TYPE_P(data) != IS_ARRAY) {
 		return;
 	}
-	t = (time_t)sapi_get_request_time();
+	/* [GENE_FIX:2026-08-09 H3] sapi_get_request_time() is constant for the whole
+	 * SAPI request — under CLI/Swoole that spans the process/worker lifetime, so
+	 * created_at/updated_at froze at worker start. Use wall clock like the rest
+	 * of the codebase (memory.c, pool.c, session.c, ...). */
+	t = time(NULL);
 	now = php_format_date("Y-m-d H:i:s", sizeof("Y-m-d H:i:s") - 1, t, 1);
 	if (is_insert) {
 		if (!zend_hash_str_exists(Z_ARRVAL_P(data), ZEND_STRL("created_at"))) {
@@ -328,14 +357,19 @@ void gene_orm_apply_timestamps(zval *data, zend_bool is_insert)
 void gene_orm_db_limit(zval *db, zend_long offset, zend_long limit)
 {
 	zval args[2], retval;
-	const char *cname;
+	zend_class_entry *ce;
 	zend_bool mysql_style = 0;
 
 	if (!db || Z_TYPE_P(db) != IS_OBJECT) {
 		return;
 	}
-	cname = ZSTR_VAL(Z_OBJCE_P(db)->name);
-	if (strstr(cname, "Mysql") || strstr(cname, "mysql")) {
+	/* [GENE_FIX:2026-08-09 M4] Class-name substring matching misidentified
+	 * custom subclasses, raw Gene\Db\Pdo handles and pool wrappers, silently
+	 * swapping offset/limit for real MySQL handles (and vice versa). Compare
+	 * class entries like gene_orm_db_reset() does; unknown drivers get the
+	 * documented default: LIMIT count OFFSET offset. */
+	ce = Z_OBJCE_P(db);
+	if (ce == gene_db_mysql_ce) {
 		mysql_style = 1;
 	}
 	if (mysql_style) {

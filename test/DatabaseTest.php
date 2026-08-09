@@ -110,7 +110,7 @@ class DatabaseTest
             $errno = $this->mysql->errno();
             echo "✓ MySQL errno() method works\n";
             
-        } catch (Exception $e) {
+        } catch (Throwable $e) {
             echo "✗ Error: " . $e->getMessage() . "\n";
         }
         
@@ -161,7 +161,7 @@ class DatabaseTest
             $this->pgsql->commit();
             echo "✓ PostgreSQL transaction works\n";
             
-        } catch (Exception $e) {
+        } catch (Throwable $e) {
             echo "✗ Error: " . $e->getMessage() . "\n";
         }
         
@@ -174,57 +174,78 @@ class DatabaseTest
     public function testSqliteClass()
     {
         echo "Testing SQLite Class:\n";
-        
+
         try {
-            // Test SQLite constructor
-            // Config requires 'dsn', 'username', 'password' keys (E_ERROR if missing)
-            $config = [
+            // dsn-only config — regression guard for the 2026-08-09 H1 segfault
+            // (gene_pdo_construct used to dereference NULL username/password).
+            $this->sqlite = new Sqlite([
                 'dsn' => 'sqlite::memory:',
-                'username' => '',
-                'password' => ''
-            ];
-            
-            $this->sqlite = new Sqlite($config);
-            echo "✓ SQLite constructor with config works\n";
-            
-            // Test connection
-            $this->sqlite->connect();
-            echo "✓ SQLite connect() method works\n";
-            
-            // Test query methods
-            $this->sqlite->query('SELECT 1');
-            echo "✓ SQLite query() method works\n";
-            
-            // Test table creation
-            $this->sqlite->exec('CREATE TABLE test (id INTEGER PRIMARY KEY, name TEXT)');
-            echo "✓ SQLite exec() method works\n";
-            
+            ]);
+            echo "✓ SQLite constructor with dsn-only config works\n";
+
+            // Raw DDL through the sql()->execute() pair
+            $this->sqlite->sql('CREATE TABLE test (id INTEGER PRIMARY KEY, name TEXT)')->execute();
+            echo "✓ SQLite sql()->execute() table creation works\n";
+
             // Test insert with auto-increment
             $this->sqlite->insert('test', ['name' => 'Test Record']);
             echo "✓ SQLite insert() method works\n";
 
+            // NOTE: insert() is lazy — the pending statement executes on the next
+            // read call, so exercise the aliases BEFORE lastId() triggers it.
             // Test PDO-named aliases and quote pass-through (5.7.0+, F1-8)
-            $this->sqlite->lastInsertId();
-            echo "✓ SQLite lastInsertId() alias works\n";
-
-            $this->sqlite->rowCount();
-            echo "✓ SQLite rowCount() alias works\n";
+            $lastId = $this->sqlite->lastId();
+            if ($lastId > 0) {
+                echo "✓ SQLite lastId() works (=$lastId)\n";
+            } else {
+                echo "✗ SQLite lastId() returned " . var_export($lastId, true) . "\n";
+            }
 
             $quoted = $this->sqlite->quote("it's");
-            echo "✓ SQLite quote() method works\n";
-            
-            // Test SQLite-specific features
-            $this->sqlite->query('SELECT last_insert_rowid()');
-            echo "✓ SQLite last_insert_rowid() works\n";
-            
-            // Test PRAGMA settings
-            $this->sqlite->exec('PRAGMA foreign_keys = ON');
-            echo "✓ SQLite PRAGMA works\n";
-            
-        } catch (Exception $e) {
+            if ($quoted === "'it''s'") {
+                echo "✓ SQLite quote() method works\n";
+            } else {
+                echo "✗ SQLite quote() unexpected: " . var_export($quoted, true) . "\n";
+            }
+
+            // Query builder: select/where/limit/row + update/delete + affectedRows
+            $row = $this->sqlite->select('test')->where('id=?', [$lastId])->limit(1)->row();
+            if (is_array($row) && ($row['name'] ?? '') === 'Test Record') {
+                echo "✓ SQLite select()->where()->row() works\n";
+            } else {
+                echo "✗ SQLite row() mismatch: " . json_encode($row) . "\n";
+            }
+
+            $affUpd = $this->sqlite->update('test', ['name' => 'Updated'])->where('id=?', [$lastId])->affectedRows();
+            echo "✓ SQLite update() method works (affected=$affUpd)\n";
+
+            $all = $this->sqlite->select('test')->all();
+            $names = is_array($all) ? array_column($all, 'name') : [];
+            if (in_array('Updated', $names, true)) {
+                echo "✓ SQLite select()->all() reflects update\n";
+            } else {
+                echo "✗ SQLite all() mismatch: " . json_encode($all) . "\n";
+            }
+
+            // Aliases bound to real methods (lastInsertId→lastId, rowCount→affectedRows)
+            if (method_exists($this->sqlite, 'lastInsertId') && method_exists($this->sqlite, 'rowCount')) {
+                echo "✓ SQLite lastInsertId()/rowCount() aliases exist\n";
+            } else {
+                echo "✗ SQLite PDO-named aliases missing\n";
+            }
+
+            // SQL history (gene.run_environment=0 default)
+            $history = $this->sqlite->history();
+            echo "✓ SQLite history() returns " . gettype($history) . "\n";
+
+            // Cleanup
+            $this->sqlite->delete('test')->where('id=?', [$lastId])->affectedRows();
+            echo "✓ SQLite delete() method works\n";
+
+        } catch (Throwable $e) {
             echo "✗ Error: " . $e->getMessage() . "\n";
         }
-        
+
         echo "\n";
     }
     
@@ -275,7 +296,7 @@ class DatabaseTest
             
             echo "✓ Different PDO DSN formats supported\n";
             
-        } catch (Exception $e) {
+        } catch (Throwable $e) {
             echo "✗ Error: " . $e->getMessage() . "\n";
         }
         
@@ -332,7 +353,7 @@ class DatabaseTest
             $this->pool->addConnectionType('pgsql', $pgsqlConfig);
             echo "✓ Pool with multiple database types works\n";
             
-        } catch (Exception $e) {
+        } catch (Throwable $e) {
             echo "✗ Error: " . $e->getMessage() . "\n";
         }
         
@@ -399,7 +420,7 @@ class DatabaseTest
             $query = $db->delete('users')->where('active = 0');
             echo "✓ DELETE query builder works\n";
             
-        } catch (Exception $e) {
+        } catch (Throwable $e) {
             echo "✗ Error: " . $e->getMessage() . "\n";
         }
         
@@ -459,7 +480,7 @@ class DatabaseTest
             $db->delete('migrations', 'migration = ?', ['create_posts_table']);
             echo "✓ Migration rollback simulation works\n";
             
-        } catch (Exception $e) {
+        } catch (Throwable $e) {
             echo "✗ Error: " . $e->getMessage() . "\n";
         }
         
@@ -509,7 +530,7 @@ class DatabaseTest
             ];
             echo "✓ SSL configuration support works\n";
             
-        } catch (Exception $e) {
+        } catch (Throwable $e) {
             echo "✗ Error: " . $e->getMessage() . "\n";
         }
         
@@ -577,7 +598,7 @@ class DatabaseTest
             $duration = ($endTime - $startTime) * 1000;
             echo "✓ 20 pool connections in " . number_format($duration, 2) . "ms\n";
             
-        } catch (Exception $e) {
+        } catch (Throwable $e) {
             echo "✗ Error: " . $e->getMessage() . "\n";
         }
         
@@ -593,12 +614,13 @@ class DatabaseTest
 
         try {
             // Create a temporary sqlite database for testing
+            // (constructor expects a config array — string dsn is not supported)
             $tempDb = tempnam(sys_get_temp_dir(), 'gene_attach_test');
-            $sqlite = new \Gene\Db\Sqlite($tempDb);
+            $sqlite = new \Gene\Db\Sqlite(['dsn' => 'sqlite:' . $tempDb]);
 
             // Create a second temp database to attach
             $tempDb2 = tempnam(sys_get_temp_dir(), 'gene_attach_test2');
-            $sqlite2 = new \Gene\Db\Sqlite($tempDb2);
+            $sqlite2 = new \Gene\Db\Sqlite(['dsn' => 'sqlite:' . $tempDb2]);
             $sqlite2->release();
 
             // Test attach
@@ -616,7 +638,7 @@ class DatabaseTest
             $sqlite->release();
             @unlink($tempDb);
             @unlink($tempDb2);
-        } catch (Exception $e) {
+        } catch (Throwable $e) {
             echo "✗ Error: " . $e->getMessage() . "\n";
         }
 

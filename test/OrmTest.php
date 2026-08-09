@@ -54,7 +54,7 @@ class OrmTest
             'find', 'findAll', 'paginate', 'query', 'where',
             'create', 'updateBy', 'destroy', 'destroyAll',
             'fill', 'save', 'delete', 'toArray', 'getInstance',
-            '__get', '__set',
+            '__get', '__set', '__isset', '__unset',
         ];
         foreach ($methods as $m) {
             if (!method_exists('\\Gene\\Orm\\Model', $m)) {
@@ -252,6 +252,70 @@ class OrmTest
             } else {
                 $this->fail('find() should reject array id');
             }
+
+            // M2 (2026-08-09): create()/save() return int ids, not strings
+            $intId = OrmTestUser::create(['name' => 'typed', 'status' => 1]);
+            if (is_int($intId) && $intId > 0) {
+                $this->ok("create() returns int id=$intId");
+            } else {
+                $this->fail('create() type: ' . gettype($intId));
+            }
+
+            // M1 (2026-08-09): fill(find()) + save() must UPDATE, not re-INSERT
+            $before = count(OrmTestUser::findAll([]));
+            $m3 = new OrmTestUser();
+            $m3->fill(OrmTestUser::find($intId));
+            if ($m3->exists) {
+                $this->ok('fill(row with pk) sets exists=true');
+            } else {
+                $this->fail('fill() did not set exists');
+            }
+            $m3->name = 'hydrated';
+            $affUpd = $m3->save();
+            $after = count(OrmTestUser::findAll([]));
+            $check = OrmTestUser::find($intId);
+            if ($affUpd >= 0 && $after === $before && ($check['name'] ?? '') === 'hydrated') {
+                $this->ok('fill(find())->save() is UPDATE (no duplicate row)');
+            } else {
+                $this->fail("hydrate trap: before=$before after=$after aff=$affUpd");
+            }
+
+            // M1: find($id, true) returns a hydrated model instance
+            $inst = OrmTestUser::find($intId, true);
+            if ($inst instanceof OrmTestUser && $inst->exists && ($inst->name ?? '') === 'hydrated') {
+                $this->ok('find($id, true) returns model instance');
+            } else {
+                $this->fail('find(asModel) mismatch: ' . gettype($inst));
+            }
+            $inst->name = 'model_save';
+            $inst->save();
+            if ((OrmTestUser::find($intId)['name'] ?? '') === 'model_save') {
+                $this->ok('model instance save() UPDATE path');
+            } else {
+                $this->fail('model instance save failed');
+            }
+            if (OrmTestUser::find(999999, true) === null) {
+                $this->ok('find(missing, true) returns null');
+            } else {
+                $this->fail('find(missing, true) should be null');
+            }
+
+            // M7 (2026-08-09): __isset/__unset operate on attributes
+            $m4 = new OrmTestUser();
+            $m4->name = 'isset_test';
+            if (isset($m4->name) && !isset($m4->missing)) {
+                $this->ok('isset() sees attributes');
+            } else {
+                $this->fail('__isset broken');
+            }
+            unset($m4->name);
+            if (!isset($m4->name)) {
+                $this->ok('unset() removes attribute');
+            } else {
+                $this->fail('__unset broken');
+            }
+
+            OrmTestUser::destroy($intId);
         } catch (\Throwable $e) {
             $this->fail('CRUD exception: ' . $e->getMessage());
         }

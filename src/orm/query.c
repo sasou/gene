@@ -97,6 +97,7 @@ static int gene_orm_query_apply(zval *self, zval *db, zend_bool for_count)
 			return FAILURE;
 		}
 	}
+	if (UNEXPECTED(gene_orm_has_exception())) return FAILURE;
 
 	where_zv = zend_read_property(gene_orm_query_ce, gene_strip_obj(self),
 		ZEND_STRL(GENE_ORM_QUERY_WHERE), 1, NULL);
@@ -115,6 +116,7 @@ static int gene_orm_query_apply(zval *self, zval *db, zend_bool for_count)
 			zval_ptr_dtor(&args[1]);
 		}
 		zval_ptr_dtor(&retval);
+		if (UNEXPECTED(gene_orm_has_exception())) return FAILURE;
 	}
 
 	in_sql = zend_read_property(gene_orm_query_ce, gene_strip_obj(self),
@@ -134,6 +136,7 @@ static int gene_orm_query_apply(zval *self, zval *db, zend_bool for_count)
 			zval_ptr_dtor(&args[1]);
 		}
 		zval_ptr_dtor(&retval);
+		if (UNEXPECTED(gene_orm_has_exception())) return FAILURE;
 	}
 
 	if (!for_count) {
@@ -144,6 +147,7 @@ static int gene_orm_query_apply(zval *self, zval *db, zend_bool for_count)
 			gene_orm_db_call(db, "order", 1, args, &retval);
 			zval_ptr_dtor(&args[0]);
 			zval_ptr_dtor(&retval);
+			if (UNEXPECTED(gene_orm_has_exception())) return FAILURE;
 		}
 
 		has_limit = zend_read_property(gene_orm_query_ce, gene_strip_obj(self),
@@ -161,6 +165,7 @@ static int gene_orm_query_apply(zval *self, zval *db, zend_bool for_count)
 				gene_orm_db_call(db, "limit", 1, args, &retval);
 				zval_ptr_dtor(&retval);
 			}
+			if (UNEXPECTED(gene_orm_has_exception())) return FAILURE;
 		}
 	}
 
@@ -437,9 +442,9 @@ void gene_orm_query_register(void)
 	GENE_INIT_CLASS_ENTRY(ce, "Gene_Orm_Query", "Gene\\Orm\\Query", gene_orm_query_methods);
 	gene_orm_query_ce = zend_register_internal_class_ex(&ce, NULL);
 	gene_orm_query_ce->ce_flags |= ZEND_ACC_FINAL;
-#if PHP_VERSION_ID >= 80200
-	gene_orm_query_ce->ce_flags |= ZEND_ACC_ALLOW_DYNAMIC_PROPERTIES;
-#endif
+	/* [GENE_FIX:2026-08-09] Dropped ALLOW_DYNAMIC_PROPERTIES: a final class
+	 * with protected internal state should stay closed; dynamic props would
+	 * bypass the dirty-latch bookkeeping. */
 
 	zend_declare_property_null(gene_orm_query_ce, ZEND_STRL(GENE_ORM_QUERY_DB), ZEND_ACC_PROTECTED);
 	zend_declare_property_null(gene_orm_query_ce, ZEND_STRL(GENE_ORM_QUERY_TABLE), ZEND_ACC_PROTECTED);

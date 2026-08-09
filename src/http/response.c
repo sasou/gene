@@ -782,6 +782,22 @@ PHP_METHOD(gene_response, sendFile) {
 		RETURN_FALSE;
 	}
 
+	/* [GENE_FIX:2026-08-09 L1] Wrapper check hoisted ahead of the branch so the
+	 * Swoole path gets the same boundary as FPM — previously $file was handed to
+	 * Swoole\Http\Response::sendfile() with no validation at all.
+	 * [GENE_FIX:2026-08-07-5] plain files only (EX_USE_URL / wrappers rejected) to
+	 * close the SSRF surface when $file is derived from user input.
+	 * REPORT_ERRORS alone does not gate the wrapper — reject anything that
+	 * is not the plain files wrapper (php://filter, data://, and http://
+	 * under allow_url_fopen=On would otherwise pass through). */
+	{
+		php_stream_wrapper *wrapper = php_stream_locate_url_wrapper(ZSTR_VAL(file), NULL, STREAM_LOCATE_WRAPPERS_ONLY);
+		if (!wrapper || wrapper != &php_plain_files_wrapper) {
+			php_error_docref(NULL, E_WARNING, "sendFile() only accepts local file paths");
+			RETURN_FALSE;
+		}
+	}
+
 	zval *swoole_resp = gene_response_context_obj();
 	if (swoole_resp) {
 		zend_function *fn = zend_hash_str_find_ptr(&Z_OBJCE_P(swoole_resp)->function_table, ZEND_STRL("sendfile"));
@@ -808,16 +824,7 @@ PHP_METHOD(gene_response, sendFile) {
 		/* [GENE_FIX:2026-08-07] REPORT_PATH does not exist (compile error);
 		 * and the FPM path used to read the whole file into one zend_string,
 		 * which OOMs on large files — stream in 8KB chunks instead.
-		 * [GENE_FIX:2026-08-07-5] plain files only (EX_USE_URL / wrappers rejected) to
-		 * close the SSRF surface when $file is derived from user input.
-		 * REPORT_ERRORS alone does not gate the wrapper — reject anything that
-		 * is not the plain files wrapper (php://filter, data://, and http://
-		 * under allow_url_fopen=On would otherwise pass through). */
-		php_stream_wrapper *wrapper = php_stream_locate_url_wrapper(ZSTR_VAL(file), NULL, STREAM_LOCATE_WRAPPERS_ONLY);
-		if (!wrapper || wrapper != &php_plain_files_wrapper) {
-			php_error_docref(NULL, E_WARNING, "sendFile() only accepts local file paths");
-			RETURN_FALSE;
-		}
+		 * (wrapper check hoisted above the Swoole branch on 2026-08-09, L1) */
 		php_stream *stream = php_stream_open_wrapper_ex(ZSTR_VAL(file), "rb", REPORT_ERRORS, NULL, NULL);
 		if (!stream) {
 			RETURN_FALSE;

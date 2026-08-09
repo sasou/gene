@@ -35,6 +35,14 @@ typedef struct _gene_orm_meta {
 
 GENE_MINIT_FUNCTION(orm);
 
+/* [GENE_FIX:2026-08-09 M3] call_user_function reports SUCCESS even when the
+ * callee threw — gate every db call sequence on the pending exception so the
+ * first error is not masked by follow-up SQL. */
+static zend_always_inline bool gene_orm_has_exception(void)
+{
+	return EG(exception) != NULL;
+}
+
 /* meta.c */
 int gene_orm_meta_load(zend_class_entry *ce, gene_orm_meta_t *meta);
 void gene_orm_meta_release(gene_orm_meta_t *meta);
@@ -44,6 +52,7 @@ int gene_orm_db_call(zval *db, const char *method, uint32_t argc, zval *argv, zv
 int gene_orm_db_select(zval *db, zend_string *table, zval *fields);
 void gene_orm_apply_timestamps(zval *data, zend_bool is_insert);
 void gene_orm_db_limit(zval *db, zend_long offset, zend_long limit);
+void gene_orm_normalize_id(zval *id);
 
 /* query.c */
 int gene_orm_query_init(zval *query, zval *db, zend_string *table, zval *fields);

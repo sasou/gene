@@ -505,7 +505,21 @@ void mssql_array_to_string(zval *array, char **result, char oq, char cq)
 void gene_pdo_construct(zval *pdo_object, zval *dsn, zval *user, zval *pass, zval *options) /*{{{*/
 {
     zval retval;
+    /* [GENE_FIX:2026-08-09 H1] Drivers look up username/password with
+     * zend_hash_str_find and pass NULL through unchecked — dereferencing a
+     * NULL zval here segfaults (0xC0000005) for dsn-only configs such as
+     * sqlite. Mirror pool_normalize_config()'s contract: missing username →
+     * empty string, missing password → NULL (PDO accepts both as nullable). */
+    zval z_empty_user, z_null_pass;
     ZVAL_UNDEF(&retval);
+    if (!user) {
+        ZVAL_EMPTY_STRING(&z_empty_user);
+        user = &z_empty_user;
+    }
+    if (!pass) {
+        ZVAL_NULL(&z_null_pass);
+        pass = &z_null_pass;
+    }
     zend_class_entry *ce = Z_OBJCE_P(pdo_object);
     zend_function *fn = ce->constructor;
     if (EXPECTED(fn)) {
