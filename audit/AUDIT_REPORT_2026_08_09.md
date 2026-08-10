@@ -464,3 +464,147 @@ test/RouterTest.php            exit 0，全部通过
 6. **遗留共识**：M6（Query 能力补齐）与 7.2.4 的文档项不属缺陷修复，已按约定留在 `PLAN.md`；
    L2（跨协程共享 Db 句柄）/L3（默认 SQL history ≈177 KB）/L4（create 无事务）为设计观察项，
    以文档约束解决，不改代码。
+
+---
+
+## 十、修复复检（2026-08-10）：落地确认 + 4 条新发现
+
+> 复检方式：对 §9.1 声称的 11 项修复逐条比对源码，并在当前构建上跑通测试套件与新增复现脚本。
+> 环境：`php -n` + `pdo_sqlite` + `F:\php_src\php-8.1.30-src\x64\Release\php_gene.dll`（PHP 8.1 NTS x64）。
+
+### 10.1 落地确认（11/11 在源码中存在，运行时可验证）
+
+| # | 源码位置 | 结论 |
+|---|----------|------|
+| H1 | `src/db/pdo.c:508-522` | ✅ `user`→`ZVAL_EMPTY_STRING`、`pass`→`ZVAL_NULL` 兜底，唯一汇聚点生效 |
+| H2 | `src/router/router.c:2293-2352` | ✅ 已抽 `restore:` 标签，命中/未命中共享同一段 dtor + 恢复 |
+| H3 | `src/orm/meta.c:341` | ✅ 改 `time(NULL)` |
+| M1 | `model.c:242-257`（find asModel）、`model.c:627-639`（fill hydrate） | ✅ 已实现（但引入 N2，见下） |
+| M2 | `meta.c:312-330` `gene_orm_normalize_id()` | ✅ create/save 两处调用 |
+| M3 | `orm/orm.h:38-44` + `model.c`/`query.c` 各调用点 `if (UNEXPECTED(gene_orm_has_exception())) goto cleanup;` | ✅ 覆盖 find/findAll/paginate/create/updateBy/destroy/destroyAll/save/delete 全部序列 |
+| M4 | `meta.c:366-…` | ✅ 子串判定已移除，改 `ce ==` |
+| M5 | `meta.c:216-222` + 10 处 `zval_ptr_dtor(db)` | ⚠️ **仅部分修复，残留 UAF —— 见 N1** |
+| M7 | `model.c:951-1005` + 方法表 1024-1025 | ✅ `__isset`/`__unset` 已注册 |
+| L1 | `response.c:785-799` | ✅ wrapper 校验已前置到 Swoole 分支之前 |
+| 附带 | `query.c:445` | ✅ `ALLOW_DYNAMIC_PROPERTIES` 已去掉 |
+
+`test/OrmTest.php` 在当前构建上 **55 passed / 0 failed**（含 M1/M7 的 5 项新断言），
+崩溃、泄漏、时间戳三条 H 级结论确认翻转。
+
+### 10.2 新发现清单
+
+| # | 等级 | 位置 | 问题 | 证据 |
+|---|------|------|------|------|
+| **N1** | **UAF（高）** | `src/orm/meta.c:198-223` + `model.c` 全部调用点 | M5 的修复只 ADDREF 了**对象**，却仍返回 DI 哈希表的**借用槽位指针**；槽位内容被换掉后，`gene_orm_db_reset(db)`/`zval_ptr_dtor(db)` 作用在**新对象**上 → 新对象在仍被 DI 注册的情况下被提前析构 | **运行时实测** |
+| **N2** | 数据丢失（中） | `model.c:627-639`、方法表 | M1 的 hydrate 规则使**客户端生成主键**（UUID/自然键/数据导入）无法再 `fill()+save()` 插入：恒走 UPDATE、影响 0 行、返回 0、无任何报错；且**没有任何逃生口**（`__set('exists')`/`__unset('exists')` 被硬拒，无 `setExists()`/`forceInsert()`/`isNew()`） | **运行时实测** |
+| **N3** | 一致性（低） | `model.c:246-257`、`meta.c:316-330` | ①`find($id,true)` 用 `object_init_ex()` 建对象，**跳过子类 `__construct`**，与 `new U()` 行为不一致；②非整型主键表上 `create()`/`save()` 返回的是 `lastInsertId()`（SQLite 的 rowid），与真实主键无关；③`normalize_id()` 会把形如 `'007'` 的**字符串主键**转成 `int 7` 并写回 attributes | **运行时实测** |
+| **N4** | 注释过期（信息） | `query.c:185-186` | 注释仍写 "db from gene_di_get is a borrowed pointer"，与 M5 之后的「调用方持有引用」契约矛盾，易误导下一次改动 | 静态 |
+
+### 10.3 N1 — M5 的 UAF 只是往后挪了一格（必须修）
+
+`gene_di_get()` 命中注册表时 `return pzval;`（`di.c:165-167`），返回的是 **`zend_array` 桶内的 zval 槽位指针**。
+M5 的修复在 `gene_orm_get_db()` 出口加了 `Z_TRY_ADDREF_P(db)`，保住了**当时那个对象**，
+但调用方一路持有的仍是**槽位指针**。于是当 ORM 序列中间执行的用户代码改动了注册表：
+
+- `Di::set('db', $other)` → 槽位内容被替换。后续 `gene_orm_db_call(db, ...)` 打到**错误的对象**上；
+  `cleanup` 里的 `zval_ptr_dtor(db)` 释放的是 **`$other` 的引用**（那一份属于注册表）→
+  `$other` 在仍被 DI 注册的情况下被析构；我们 ADDREF 的原对象则被泄漏到请求末尾。
+- `Di::del('db')` + 若干 `Di::set()` → 桶被删除、`arData` 可能 realloc → 槽位指针悬垂，
+  `zval_ptr_dtor(db)` 读的是已释放内存。
+
+**实测**（`audit/repro/orm_di_swap_uaf2.php`，`select()` 内 `Di::set('db', new FakeDb('B'))`）：
+
+```
+STEP A
+  [dtor B]                <-- B 在 ORM 调用尚未返回时就被析构，而它仍在 DI 注册表里
+STEP B result={"id":1}
+slot tag = B              <-- Di::get('db') 返回已释放对象（读到旧内存，靠运气没崩）
+STEP C: touch slot again
+slot tag = B
+STEP D done
+  [dtor A]                <-- 我们 ADDREF 的 A 被泄漏到脚本结束
+```
+
+`audit/repro/orm_di_swap_uaf.php`（`Di::del` + 64 次 `Di::set` 强制 rehash）则表现为
+**后续 db 调用全部静默失败**（`find()` 返回 null、`first->calls` 只停在 `select`），
+即指针已指向别的桶内容 —— 同样是越界/失效读，只是这次没有可观察的崩溃。
+
+**修复**：不要把注册表槽位指针交给调用方，改为**返回值语义**（调用方持有独立 zval）：
+
+```c
+/* meta.c —— 签名改为输出参数 */
+int gene_orm_get_db(zend_string *connection, zval *out)
+{
+    zval *db = gene_di_get(name);
+    if (!db || Z_TYPE_P(db) != IS_OBJECT) { /* throw */ return FAILURE; }
+    ZVAL_COPY(out, db);   /* 拷贝 zval 本身，而非借用槽位 */
+    return SUCCESS;
+}
+```
+
+调用点把 `zval *db` 改成局部 `zval db_holder`，`cleanup` 中 `zval_ptr_dtor(&db_holder)` 保持不变。
+这样即便注册表被删/被换，句柄仍指向我们自己那份对象，`reset()`/`dtor` 都作用在正确对象上。
+（`gene_orm_new_query()` 同理，`query_init` 内的 `zend_update_property` 会再拷一份。）
+
+> 教训补充（承 §9.3 第 4 条）：**「加引用」和「拿到独立 zval」是两件事**。
+> 对哈希表返回的槽位指针，ADDREF 只保住内容不保住容器；跨用户代码持有时必须拷贝 zval。
+
+### 10.4 N2 — M1 的 hydrate 规则让自然主键无法插入（语义回归）
+
+`fill()` 现在的规则是「payload 含非空主键 ⇒ `exists=1`」。对自增主键这是对的，
+但对**客户端生成主键**就把唯一的插入路径堵死了，且失败是**静默**的。
+
+**实测**（`audit/repro/orm_natural_pk_insert.php`，`doc(uuid TEXT PRIMARY KEY, title TEXT)`）：
+
+```
+exists after fill : true
+save() returned   : 0
+rows in table     : 0 -> []          <-- 数据静默丢失，无异常、无 warning
+__set('exists',false) => false       <-- 保留名被硬拒，改不动
+exists still        : true
+after unset(exists) : true           <-- __unset 同样拒绝
+has setExists()     : false
+has forceInsert()   : false          <-- 无任何逃生口
+create() rows       : 1              <-- 只有静态 create() 还能插
+```
+
+审计原始建议（§四 M1）本是三条**可选**方案，其中第 1 条（fill 置 exists）单独落地时正是这个副作用；
+原建议的第 3 条「INSERT 分支 payload 含主键时改走 UPDATE，或至少 `E_WARNING`」也未实现，
+因此现在既不报错也不回退。
+
+**修复建议（按优先级）**：
+1. `save()` 的 UPDATE 分支在 `affectedRows()==0` 时不要直接返回 0 —— 至少发 `E_NOTICE`/
+   或按配置回退 INSERT（upsert 语义需显式开关，勿默认）；
+2. 提供显式逃生口：`fill(array $data, bool $hydrate = true)` 第二参可关闭自动置位，
+   或加 `markNew()` / `setExists(bool)`（public 方法即可，不必放宽 `__set` 保留名）；
+3. 文档写明「`fill()` 含非空主键即视为已持久化」这一约定（`AGENTS.md` 已记，README/PLAN 也应同步），
+   并注明自然主键表应使用 `Model::create()`。
+
+### 10.5 N3/N4 — 一致性与注释
+
+- `find($id, true)` 走 `object_init_ex()`，**不调用子类构造函数**。基类 `Gene\Model::__construct` 是空的，
+  所以当前无害；但用户子类若在构造函数里设默认值/注入依赖，hydrate 出来的实例与 `new U()` 行为不同。
+  建议：要么在 `ce->constructor` 无必填参数时调用它，要么在文档明确「hydrate 不走构造函数」（Laravel 同此约定）。
+- 非整型主键下 `create()`/`save()` 返回 `lastInsertId()`（实测 uuid 表返回 `1`，即 SQLite rowid），
+  语义上不是主键。建议：主键不在 `insert` payload 中时才取 `lastId()`，否则回填 payload 里的主键值。
+- `normalize_id()` 无条件把数字串转 long。若主键列是 `CHAR(6)` 之类的零填充编号（`'007'`），
+  写回 attributes 的会是 `int 7`，下一次 `save()` 的 WHERE 就对不上。建议按 pk 列类型或仅在
+  「payload 未提供主键」的自增场景下归一化。
+- `query.c:185-186` 的注释请随 N1 的修复一并更新。
+
+### 10.6 新增复现脚本
+
+| 脚本 | 用途 | 对应发现 |
+|------|------|----------|
+| `orm_di_swap_uaf.php` | ORM 调用中 `Di::del('db')`+rehash → 后续 db 调用静默失效 | N1 |
+| `orm_di_swap_uaf2.php` | ORM 调用中 `Di::set('db', $other)` → `$other` 被提前析构（UAF），原句柄泄漏 | N1 |
+| `orm_natural_pk_insert.php` | UUID 主键表 `fill()+save()` 静默丢数据 + 无逃生口 | N2、N3 |
+
+### 10.7 修复优先级
+
+| 顺序 | 项 | 改动量 | 说明 |
+|------|-----|--------|------|
+| 1 | **N1** `gene_orm_get_db()` 改 `ZVAL_COPY` 输出参数 | 中（1 处函数 + 10 处调用点签名） | 实锤 UAF，优先级高于其余全部 |
+| 2 | **N2** `save()` 零影响行告警 + `fill()` hydrate 开关 / `setExists()` | 小~中 | 消除静默数据丢失 |
+| 3 | **N3** 非整型主键的 `lastId` 回填与 `normalize_id` 条件化 | 小 | 一致性 |
+| 4 | **N4** 更新 `query.c` 过期注释 | 1 行 | 防止下次改动被误导 |
