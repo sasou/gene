@@ -19,10 +19,41 @@ class DatabaseTest
     private $sqlite;
     private $pdo;
     private $pool;
-    
+
+    // [GENE_FIX:2026-08-10 R2] Failure/skip tallies. Previously every section
+    // ended with catch-all "✗ Error: ..." and the suite still exited 0, so a
+    // stale test calling a non-existent API was indistinguishable from a
+    // missing local driver. Now: Error => failed (API mismatch), Exception
+    // => skipped (environment missing), and runAllTests() reports/returns it.
+    private $failed = 0;
+    private $skipped = 0;
+
     public function __construct()
     {
         echo "=== Gene Database Classes Test Suite ===\n\n";
+    }
+
+    private function fail($msg)
+    {
+        $this->failed++;
+        echo "✗ $msg\n";
+    }
+
+    private function skip($msg)
+    {
+        $this->skipped++;
+        echo "- SKIP: $msg\n";
+    }
+
+    private function reportCaught(Throwable $e)
+    {
+        if ($e instanceof \Error) {
+            // Call to undefined method/class, TypeError, ... — test staleness.
+            $this->fail('Error: ' . $e->getMessage());
+        } else {
+            // PDOException 'could not find driver', connection refused, ... — env.
+            $this->skip($e->getMessage());
+        }
     }
     
     /**
@@ -111,7 +142,7 @@ class DatabaseTest
             echo "✓ MySQL errno() method works\n";
             
         } catch (Throwable $e) {
-            echo "✗ Error: " . $e->getMessage() . "\n";
+            $this->reportCaught($e);
         }
         
         echo "\n";
@@ -162,7 +193,7 @@ class DatabaseTest
             echo "✓ PostgreSQL transaction works\n";
             
         } catch (Throwable $e) {
-            echo "✗ Error: " . $e->getMessage() . "\n";
+            $this->reportCaught($e);
         }
         
         echo "\n";
@@ -198,14 +229,14 @@ class DatabaseTest
             if ($lastId > 0) {
                 echo "✓ SQLite lastId() works (=$lastId)\n";
             } else {
-                echo "✗ SQLite lastId() returned " . var_export($lastId, true) . "\n";
+                $this->fail("SQLite lastId() returned " . var_export($lastId, true));
             }
 
             $quoted = $this->sqlite->quote("it's");
             if ($quoted === "'it''s'") {
                 echo "✓ SQLite quote() method works\n";
             } else {
-                echo "✗ SQLite quote() unexpected: " . var_export($quoted, true) . "\n";
+                $this->fail("SQLite quote() unexpected: " . var_export($quoted, true));
             }
 
             // Query builder: select/where/limit/row + update/delete + affectedRows
@@ -213,7 +244,7 @@ class DatabaseTest
             if (is_array($row) && ($row['name'] ?? '') === 'Test Record') {
                 echo "✓ SQLite select()->where()->row() works\n";
             } else {
-                echo "✗ SQLite row() mismatch: " . json_encode($row) . "\n";
+                $this->fail("SQLite row() mismatch: " . json_encode($row));
             }
 
             $affUpd = $this->sqlite->update('test', ['name' => 'Updated'])->where('id=?', [$lastId])->affectedRows();
@@ -224,14 +255,14 @@ class DatabaseTest
             if (in_array('Updated', $names, true)) {
                 echo "✓ SQLite select()->all() reflects update\n";
             } else {
-                echo "✗ SQLite all() mismatch: " . json_encode($all) . "\n";
+                $this->fail("SQLite all() mismatch: " . json_encode($all));
             }
 
             // Aliases bound to real methods (lastInsertId→lastId, rowCount→affectedRows)
             if (method_exists($this->sqlite, 'lastInsertId') && method_exists($this->sqlite, 'rowCount')) {
                 echo "✓ SQLite lastInsertId()/rowCount() aliases exist\n";
             } else {
-                echo "✗ SQLite PDO-named aliases missing\n";
+                $this->fail("SQLite PDO-named aliases missing");
             }
 
             // SQL history (gene.run_environment=0 default)
@@ -243,7 +274,7 @@ class DatabaseTest
             echo "✓ SQLite delete() method works\n";
 
         } catch (Throwable $e) {
-            echo "✗ Error: " . $e->getMessage() . "\n";
+            $this->reportCaught($e);
         }
 
         echo "\n";
@@ -297,7 +328,7 @@ class DatabaseTest
             echo "✓ Different PDO DSN formats supported\n";
             
         } catch (Throwable $e) {
-            echo "✗ Error: " . $e->getMessage() . "\n";
+            $this->reportCaught($e);
         }
         
         echo "\n";
@@ -305,58 +336,115 @@ class DatabaseTest
     
     /**
      * Test Database Pool class
+     *
+     * [GENE_FIX:2026-08-10 R2] Rewritten against the real Gene\Pool API
+     * (src/db/pool.c method table): get()/put()/stats()/recycleIdle()/
+     * healthCheck()/close() plus static create()/getInstance()/closeAll()/
+     * stopTimers(). The previous version called six non-existent methods
+     * (initialize()/getConnection()/releaseConnection()/getStats()/cleanup()/
+     * addConnectionType()); the catch-all swallowed the Error each time, so
+     * the pool had zero real coverage while the suite still exited 0.
      */
     public function testPoolClass()
     {
         echo "Testing Database Pool Class:\n";
-        
+
         try {
-            // Test Pool constructor
+            // Real config keys (pool_normalize_config): min/max/idleTimeout/
+            // waitTimeout + dsn/username/password.
             $config = [
-                'min_connections' => 2,
-                'max_connections' => 10,
-                'connection_timeout' => 30,
-                'idle_timeout' => 300
+                'min' => 2,
+                'max' => 4,
+                'idleTimeout' => 60,
+                'waitTimeout' => 1,
+                'dsn' => 'sqlite::memory:',
             ];
-            
+
             $this->pool = new Pool($config);
             echo "✓ Pool constructor with config works\n";
-            
-            // Test pool management
-            $this->pool->initialize();
-            echo "✓ Pool initialize() method works\n";
-            
-            // Test connection acquisition
-            $connection1 = $this->pool->getConnection();
-            echo "✓ Pool getConnection() method works\n";
-            
-            $connection2 = $this->pool->getConnection();
-            echo "✓ Multiple connections from pool work\n";
-            
-            // Test connection release
-            $this->pool->releaseConnection($connection1);
-            echo "✓ Pool releaseConnection() method works\n";
-            
-            // Test pool statistics
-            $stats = $this->pool->getStats();
-            echo "✓ Pool getStats() method works\n";
-            
-            // Test pool cleanup
-            $this->pool->cleanup();
-            echo "✓ Pool cleanup() method works\n";
-            
-            // Test pool with different database types
-            $mysqlConfig = ['type' => 'mysql', 'host' => 'localhost', 'database' => 'test'];
-            $pgsqlConfig = ['type' => 'pgsql', 'host' => 'localhost', 'database' => 'test'];
-            
-            $this->pool->addConnectionType('mysql', $mysqlConfig);
-            $this->pool->addConnectionType('pgsql', $pgsqlConfig);
-            echo "✓ Pool with multiple database types works\n";
-            
+
+            // stats() reports the configured geometry; not closed yet
+            $stats = $this->pool->stats();
+            if (is_array($stats)
+                && ($stats['min'] ?? null) === 2
+                && ($stats['max'] ?? null) === 4
+                && ($stats['closed'] ?? true) === false
+                && array_key_exists('total', $stats) && array_key_exists('idle', $stats)
+                && array_key_exists('using', $stats) && array_key_exists('overflow', $stats)) {
+                echo "✓ Pool stats() works (min=2, max=4, closed=false)\n";
+            } else {
+                $this->fail('Pool stats() mismatch: ' . json_encode($stats));
+            }
+
+            // The connection lifecycle needs Swoole (Coroutine\Channel/Atomic).
+            // Without it the pool degrades gracefully: get()=null, healthCheck()=false.
+            if (class_exists('Swoole\Coroutine\Channel') && class_exists('Swoole\Atomic')) {
+                $conn = $this->pool->get();
+                if ($conn instanceof PDO) {
+                    echo "✓ Pool get() returns a PDO connection\n";
+                    $this->pool->put($conn);
+                    echo "✓ Pool put() returns the connection to the pool\n";
+
+                    $again = $this->pool->get();
+                    if ($again instanceof PDO) {
+                        echo "✓ Pool get() after put() reuses the connection\n";
+                        $this->pool->put($again);
+                    } else {
+                        $this->fail('Pool get() after put() returned ' . var_export($again, true));
+                    }
+
+                    $hc = $this->pool->healthCheck();
+                    if (is_array($hc) && array_key_exists('alive', $hc) && array_key_exists('dead', $hc)) {
+                        echo "✓ Pool healthCheck() works (alive={$hc['alive']}, dead={$hc['dead']})\n";
+                    } else {
+                        $this->fail('Pool healthCheck() unexpected: ' . var_export($hc, true));
+                    }
+                } else {
+                    $this->fail('Pool get() did not return PDO: ' . var_export($conn, true));
+                }
+                $this->pool->recycleIdle();
+                echo "✓ Pool recycleIdle() runs without error\n";
+            } else {
+                if ($this->pool->get() === null && $this->pool->healthCheck() === false) {
+                    $this->skip('Swoole not loaded — get()/healthCheck() degrade to null/false (verified)');
+                } else {
+                    $this->fail('Pool non-Swoole degradation contract broken');
+                }
+                $this->pool->recycleIdle();
+                echo "✓ Pool recycleIdle() is a safe no-op without Swoole\n";
+            }
+
+            // close() is idempotent; afterwards stats()['closed']===true and get()=null
+            $this->pool->close();
+            $this->pool->close();
+            $closed = $this->pool->stats();
+            if (($closed['closed'] ?? false) === true && $this->pool->get() === null) {
+                echo "✓ Pool close() is idempotent; get() on a closed pool returns null\n";
+            } else {
+                $this->fail('Pool close() state mismatch: ' . json_encode($closed));
+            }
+
+            // Static registry: create() registers a named pool, getInstance()
+            // retrieves the same object, closeAll()/stopTimers() sweep up.
+            $named = Pool::create('dbtest', 'dbtest', ['min' => 1, 'max' => 2]);
+            if ($named instanceof Pool && Pool::getInstance('dbtest') === $named) {
+                echo "✓ Pool::create()/getInstance() registry works\n";
+            } else {
+                $this->fail('Pool::create()/getInstance() registry broken');
+            }
+            if (Pool::getInstance('no-such-pool') === null) {
+                echo "✓ Pool::getInstance() returns null for an unknown name\n";
+            } else {
+                $this->fail('Pool::getInstance() should return null for an unknown name');
+            }
+            Pool::closeAll();
+            Pool::stopTimers();
+            echo "✓ Pool::closeAll()/stopTimers() work\n";
+
         } catch (Throwable $e) {
-            echo "✗ Error: " . $e->getMessage() . "\n";
+            $this->reportCaught($e);
         }
-        
+
         echo "\n";
     }
     
@@ -421,7 +509,7 @@ class DatabaseTest
             echo "✓ DELETE query builder works\n";
             
         } catch (Throwable $e) {
-            echo "✗ Error: " . $e->getMessage() . "\n";
+            $this->reportCaught($e);
         }
         
         echo "\n";
@@ -481,7 +569,7 @@ class DatabaseTest
             echo "✓ Migration rollback simulation works\n";
             
         } catch (Throwable $e) {
-            echo "✗ Error: " . $e->getMessage() . "\n";
+            $this->reportCaught($e);
         }
         
         echo "\n";
@@ -531,7 +619,7 @@ class DatabaseTest
             echo "✓ SSL configuration support works\n";
             
         } catch (Throwable $e) {
-            echo "✗ Error: " . $e->getMessage() . "\n";
+            $this->reportCaught($e);
         }
         
         echo "\n";
@@ -583,23 +671,25 @@ class DatabaseTest
             $duration = ($endTime - $startTime) * 1000;
             echo "✓ 10 inserts in transaction in " . number_format($duration, 2) . "ms\n";
             
-            // Test connection pool performance
-            $pool = new Pool(['min_connections' => 5, 'max_connections' => 20, 'dsn' => 'mysql:host=localhost;dbname=test_db', 'username' => 'test_user', 'password' => 'test_pass']);
-            $pool->initialize();
-            
+            // Test connection pool performance (real Pool API: get/put/close)
+            $pool = new Pool(['min' => 2, 'max' => 8, 'waitTimeout' => 1, 'dsn' => 'mysql:host=localhost;dbname=test_db', 'username' => 'test_user', 'password' => 'test_pass']);
+
             $startTime = microtime(true);
-            
+
             for ($i = 0; $i < 20; $i++) {
-                $conn = $pool->getConnection();
-                $pool->releaseConnection($conn);
+                $conn = $pool->get();
+                if ($conn instanceof PDO) {
+                    $pool->put($conn);
+                }
             }
-            
+
             $endTime = microtime(true);
             $duration = ($endTime - $startTime) * 1000;
-            echo "✓ 20 pool connections in " . number_format($duration, 2) . "ms\n";
+            $pool->close();
+            echo "✓ 20 pool get()/put() cycles in " . number_format($duration, 2) . "ms\n";
             
         } catch (Throwable $e) {
-            echo "✗ Error: " . $e->getMessage() . "\n";
+            $this->reportCaught($e);
         }
         
         echo "\n";
@@ -639,7 +729,7 @@ class DatabaseTest
             @unlink($tempDb);
             @unlink($tempDb2);
         } catch (Throwable $e) {
-            echo "✗ Error: " . $e->getMessage() . "\n";
+            $this->reportCaught($e);
         }
 
         echo "\n";
@@ -660,13 +750,17 @@ class DatabaseTest
         $this->testDatabaseSecurity();
         $this->testDatabasePerformance();
         $this->testSqliteAttachDetach();
-        
+
         echo "=== Database Classes Test Suite Complete ===\n";
+        echo "Summary: failed={$this->failed}, skipped={$this->skipped}\n";
+        return $this->failed === 0;
     }
 }
 
 // Run the tests if this file is executed directly
 if (basename(__FILE__) === basename($_SERVER['SCRIPT_NAME'])) {
     $test = new DatabaseTest();
-    $test->runAllTests();
+    // Non-zero exit on real failures (API mismatches / broken assertions);
+    // environment-missing sections are SKIPped and do not affect the exit code.
+    exit($test->runAllTests() ? 0 : 1);
 }

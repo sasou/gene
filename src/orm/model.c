@@ -281,7 +281,15 @@ PHP_METHOD(gene_orm_model, find)
 		 * existing attributes, so constructor writes survive (setting the
 		 * properties after the constructor would wipe them). A throwing
 		 * constructor aborts hydration and surfaces the exception. */
-		if (ce->constructor && ce->constructor->common.required_num_args == 0) {
+		/* [GENE_FIX:2026-08-10 R1] Only PUBLIC constructors are invoked:
+		 * zend_call_known_function() bypasses visibility checks, so without
+		 * this guard hydration would call private/protected constructors
+		 * (factory/singleton models) from outside the class — something
+		 * `new T()` at the same location would reject with a fatal Error.
+		 * Non-public constructors are treated as "hydration skips the
+		 * constructor" (Laravel semantics). */
+		if (ce->constructor && ce->constructor->common.required_num_args == 0 &&
+			(ce->constructor->common.fn_flags & ZEND_ACC_PUBLIC)) {
 			zval ctor_ret;
 			zend_call_known_function(ce->constructor, Z_OBJ(model), ce,
 				&ctor_ret, 0, NULL, NULL);

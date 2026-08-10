@@ -306,13 +306,21 @@ class RouterTest
                 $this->router = new Router();
             }
             
-            // Test readFile
-            try {
-                $content = $this->router->readFile('test.txt');
-                echo "✓ readFile() works\n";
-            } catch (Exception $e) {
-                echo "✓ readFile() handles missing file gracefully\n";
+            // Test readFile — [GENE_FIX:2026-08-10 R2] read this file itself
+            // as a guaranteed-existing fixture. The previous 'test.txt' did
+            // not exist: readFile() returned null (no exception, so the catch
+            // never ran) and a PHP Warning leaked into the normal output.
+            $content = $this->router->readFile(__FILE__);
+            if (is_string($content) && strpos($content, 'testFileOperations') !== false) {
+                echo "✓ readFile() reads an existing file\n";
+            } else {
+                echo "✗ readFile() returned unexpected content\n";
             }
+
+            // Missing file returns null (no exception); @ keeps the stream
+            // warning out of the test output.
+            $missing = @$this->router->readFile(__DIR__ . '/__definitely_not_here__.txt');
+            echo ($missing === null ? "✓" : "✗") . " readFile() returns null for a missing file\n";
             
         } catch (Exception $e) {
             echo "✗ Error: " . $e->getMessage() . "\n";

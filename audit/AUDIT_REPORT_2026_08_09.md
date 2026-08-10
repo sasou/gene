@@ -13,7 +13,9 @@
 > N1–N4 已于当日全部修复、重新编译并实测回归通过 —— 详见 §十「修复复检」与 §十一「修复落地」。
 > **修复状态（2026-08-10 晚 第二轮复检）**：§十二 确认 15 项修复全部落地、无回退；
 > 新发现 2 条低危残留项 R1（hydrate 忽略构造函数可见性）/R2（DatabaseTest Pool 段仍用不存在的 API，
-> 导致连接池零覆盖却 exit 0），修复方案见 §12.2 —— **尚未落地**。
+> 导致连接池零覆盖却 exit 0），修复方案见 §12.2。
+> **修复状态（2026-08-10 晚 第三轮闭环）**：R1/R2 已按 §12.2 方案全部修复、重新编译并实测回归
+> 通过（含 R2-2 分类探针双向验证）—— 详见 §十三「残留项修复落地」。
 
 ---
 
@@ -774,3 +776,44 @@ if (ce->constructor &&
 - 教训延伸：§9.3 第 1 条「对称收尾必须机械化」在测试层面同样适用 ——
   **凡是「失效 API 降级为报告项」的兜底，都必须能区分「环境缺失」与「API 不存在」**，
   否则套件的 exit 0 会掩盖真实脱节。
+
+---
+
+## 十三、残留项修复落地（2026-08-10 晚 第三轮闭环）：R1/R2 已修复并实测回归
+
+> 构建产物：`F:\php_src\php-8.1.30-src\x64\Release\php_gene.dll`（2026-08-10 17:38 构建，
+> 仅 model.c 改动需重编）。验证方式：`php -n` + `pdo_sqlite` + 新 dll 免部署运行（AGENTS.md §免部署验证）。
+
+### 13.1 修复内容
+
+| # | 位置 | 修复 |
+|---|------|------|
+| R1 | `src/orm/model.c:284-302` | hydrate 调用构造函数前增加 `(fn_flags & ZEND_ACC_PUBLIC)` 检查；非 public 构造函数按「hydrate 不走构造函数」处理（与 Laravel 一致）。`AGENTS.md` 的 ORM 约定同步补全为「**public 且**无必填参数的构造函数」 |
+| R2-1 | `test/DatabaseTest.php::testPoolClass()` | 按 `src/db/pool.c:1585-1600` 真实方法表重写：`new Pool([min/max/idleTimeout/waitTimeout/dsn])` → `stats()`（断言 min/max/closed 及 total/idle/using/overflow 键齐备）→ 连接生命周期（有 Swoole：`get()`→`put()`→复取复用→`healthCheck()`；无 Swoole：断言降级契约 `get()===null`、`healthCheck()===false`）→ `recycleIdle()` → `close()` 幂等且关闭后 `get()===null` → 静态注册表 `create()`/`getInstance()`（同名命中同一对象、未知名返回 null）→ `closeAll()`/`stopTimers()`。连接池从**零覆盖**变为 8 项真实断言 |
+| R2-1b | `test/DatabaseTest.php::testDatabasePerformance()` | 池化段同步改为真实 API（`get()`/`put()`/`close()`） |
+| R2-2 | `test/DatabaseTest.php` 全局 | 新增 failed/skipped 计数与 `reportCaught()` 分类：**`Error`（undefined method/class/TypeError 等 API 不匹配）计 failed**，`Exception`（`could not find driver`/连接拒绝等环境缺失）计 SKIP；SQLite 段 5 处内联 ✗ 断言接入计数；套件末尾打印 `Summary: failed=N, skipped=M` 且 **failed>0 时 exit 1** —— 测试脱节不再被 exit 0 掩盖（正是 R2 的成因） |
+| R2-3 | `test/RouterTest.php::testFileOperations()` | `readFile('test.txt')`（fixture 不存在：泄漏 `Failed to open stream` 告警、返回 null 却恒打印 ✓）改为读 `__FILE__` 做正向内容断言；缺失文件路径用 `@` 抑制告警并断言返回 null |
+
+### 13.2 验证结果（全部实测）
+
+- **R1**：`audit/repro/orm_hydrate_ctor_visibility.php` → `private ctor invoked: false`
+  （修复前为 true）、`new HidT()` 仍为 `Error`（可见性在 PHP 层照常强制）；
+  同脚本 N3③ 零填充字符串主键 `'007'` 全链路回归（create 原样返回 / save 走 UPDATE / 行内容正确）。
+- **R2-1**：`test/DatabaseTest.php` Pool 段 8 项断言全绿（构造/stats/降级契约/recycleIdle/
+  close 幂等/注册表/未知名 null/closeAll+stopTimers）；无 Swoole 的 CLI 下降级路径被显式断言而非跳过。
+- **R2-2**：套件输出 `Summary: failed=0, skipped=8`，exit 0；mysql/pgsql/pdo/query-builder/
+  migrations/security/performance 段在 `php -n` 下正确归类为 SKIP 而非 ✗。
+  分类探针（临时脚本，验证后已删除）双向确认：调用不存在的 `Pool::initialize()` →
+  `✗ Error` 计入 failed；缺 pdo_mysql 驱动 → `SKIP` 计入 skipped。
+- **回归**：`test/OrmTest.php` **61 passed / 0 failed**（含「find($id,true) 调无参构造函数」
+  用例 —— public 构造函数不受 R1 影响）；`test/RouterTest.php` exit 0，readFile 段两条 ✓，
+  输出中不再有 `Failed to open stream` 告警。
+- 工作区改动清单：`src/orm/model.c`（R1）、`test/DatabaseTest.php`（R2-1/R2-2）、
+  `test/RouterTest.php`（R2-3）、`AGENTS.md`（约定补全）。
+
+### 13.3 遗留说明
+
+- Pool 的**有 Swoole 分支**（真实 channel get/put/healthCheck）本机无法运行（Windows CLI 无
+  Swoole），该路径按源码契约编写并以降级断言兜底；建议在 Swoole 环境跑一次
+  `test/DatabaseTest.php` 确认全绿。
+- M6（Query 能力缺口）仍按原计划保留在 `audit/plan/PLAN.md` §7.2.3。
