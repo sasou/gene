@@ -6,6 +6,18 @@
 > 审计范围：`src/` 全模块（约 1.1MB C 代码，24 个子模块），另抽查 `test/`、`docs/`、`gene-ide-helper/`
 > 环境约束：本机为 Windows，**无法执行编译、ASAN/Valgrind、压测与长跑**；所有结论标注「静态确认」或「需运行时验证」
 > 落地情况见第九节，仅反映当前代码实际状态；未实现/待验证项汇总至 `audit/plan/PLAN.md`。
+>
+> **状态：已关闭（2026-08-10 复核）**。逐条对照源码复核结论：
+> C1 / PF1、F0-1 / F0-2 / F0-3、F1-1~F1-8 及 P1 小面批 / P2 批（`Di::alias`、`Request::isSecure`、
+> `Memory::mget/mset`、`Monitor::reset/prometheus`、`View::render/clearAssign`、
+> `Response::getStatusCode/isSent/sendFile`、`Session::clear/all`、`Validate::bail/sometimes`、
+> `Log::critical/alert/emergency`+context、`SQLite::attach/detach`、`Benchmark::mark/lap`、
+> `Application::stop/isStopped`）**全部已实现**，证据与 §9.1 一致。
+> §9.2 的未实现清单（F4、F3、Pool 连接泄漏检测、Hook 优先级/`stopPropagation`、
+> Redis/Memcached pipeline、`Application::getResponse()`、`gene.pool_max_overflow`、
+> `gene.fn_cache_max`、C2/C3/C4/ML1/ML2/PF2~PF4）**逐项复核属实**，且均已在
+> `audit/plan/PLAN.md` §一/§二/§三 立项跟踪。
+> 本次复核**未发现新问题**；运行时验证需求（§9.4 十二项）由 PLAN.md §四 承接。
 
 ---
 

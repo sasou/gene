@@ -112,6 +112,13 @@
 | PF2 | `src/router/router.c:2233-2544` | `snprintf` 拼接改 `memcpy`；**几乎全在路由注册/编译阶段（冷路径）**，收益仅冷启动/reload | 08-06 §3.3 |
 | PF3 | `src/router/router.c:245-278` | `strtok` 字符串复制；仅在多语言路由中执行，核心匹配已是指针扫描 | 08-06 §3.3 |
 | PF4 | `src/router/router.c:656` | 闭包 fn_cache key 改 `zend_hash_index_find`；闭包路由 1-2% 收益 | 08-06 §3.3 |
+| L3 | `src/cache/memory.c:517-527`（`gene_cache_lru_touch_nolock`） | 每次业务写在 WRLOCK 内做 remove + add + persistent key 拷贝/释放（≈2 次 hash 操作 + 1 次字符串持久化）。**08-10 核查确认代码未改动**，与 07-30 描述一致。单进程协作模型下无争用，仅高写频场景 WRLOCK 持有时间偏长。**方案**：仅新 key 做持久化拷贝，已跟踪 key 复用 Bucket 移动。需 profile 证明写路径占比后立项 | 07-30 L3/P3 |
+
+### 高成本结构重构（维持「profile 达标后独立 PR」纪律，不主动立项）
+
+- **来源**：`AUDIT_REPORT_2026_07_03.md` §10.3；`AUDIT_REPORT_2026_07_30.md` §4.2 P4 / §6「不建议本轮立项」
+- **清单**：视图解析状态机（28 趟 PCRE 合并）、C 层连接池原子计数（去 `Swoole\Atomic` 跨界）、request arena 分配器、路由递归改迭代。
+- **约束**：`tools/acceptance/profile_gate.php` 当前对全部候选输出 DEFER，无证据不重构。
 
 ---
 
@@ -192,6 +199,11 @@
   - 新增 `docs/ARCHITECTURE.md`（尤其是 Swoole 协程上下文模型与 `co_contexts` 语义，本扩展最难理解的部分）。
   - 新增 `docs/PERFORMANCE_TUNING.md`（INI 调参 + Monitor 指标解读）。
   - `docs/CONFIGURATION.md` 说明 `model.success/error` 的业务码空间（2000/4000）与 HTTP 状态码不同源。
+  - **容量默认值治理**（07-30 O2 / §4.3，08-10 补入）：
+    - `gene.cache_max_items=0`（无界）为兼容保留的默认语义，**代码不改**；需在配置文档写明无界风险，
+      并给出经 `Gene\Monitor::stats()` 回采生产水位后显式设值的操作指引。
+    - `gene.co_contexts_max=1024` 默认对高并发 Swoole 服务偏小，应按「单 worker 峰值协程 + 余量」显式配置；
+      F1 协程 defer 自动 cleanup 落地后风险已降，但默认值指引仍缺。
 - `gene-ide-helper/Gene/Application.php` 版本注解为 5.4.3，实际 5.6.9，需更新。
 - `Router::getRouterUri()` 在 C 层有实现但 ide-helper 中无声明。
 
@@ -245,3 +257,10 @@
 - 每轮审计完成后，将**仍未实现/未验证**的项从审计报告迁移到本文件。
 - **已落地或验证通过的项应及时删除**，不在本文件保留「✅ 已完成」条目；完成记录留在审计报告的「落地情况」节。
 - 新立项前必须在 `tools/acceptance` 拿到 profile/ASAN 证据，避免无依据的大范围改动。
+
+### 报告关闭台账
+
+| 报告 | 关闭日期 | 说明 |
+|------|----------|------|
+| `AUDIT_REPORT_2026_07_30.md` | 2026-08-10 | 全部已实现项经源码复核命中；遗留 L3、O2、`co_contexts_max` 默认值指引、四项结构重构候选已回写本文件 |
+| `AUDIT_REPORT_2026_08_06.md` | 2026-08-10 | §9.1 全部已实现项复核命中；§9.2 未实现项逐条属实且已在本文件立项 |
