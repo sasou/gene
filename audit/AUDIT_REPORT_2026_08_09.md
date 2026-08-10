@@ -1,4 +1,4 @@
-# Gene 扩展框架审计报告：近两周优化 + 新增 ORM（合理性 / 内存安全）
+﻿# Gene 扩展框架审计报告：近两周优化 + 新增 ORM（合理性 / 内存安全）
 
 > 审计版本：6.0.0（HEAD `daa9512`）
 > 审计日期：2026-08-09
@@ -16,6 +16,9 @@
 > 导致连接池零覆盖却 exit 0），修复方案见 §12.2。
 > **修复状态（2026-08-10 晚 第三轮闭环）**：R1/R2 已按 §12.2 方案全部修复、重新编译并实测回归
 > 通过（含 R2-2 分类探针双向验证）—— 详见 §十三「残留项修复落地」。
+> **最终状态：✅ 已结项（2026-08-10）** —— 第三轮复检全量复跑 12 个 repro 脚本 + 3 个测试套件，
+> 17 项发现（H1–H3 / M1–M5 / M7 / L1 / N1–N4 / R1–R2）全部修复且无回退；仅 M6（Query 能力缺口）
+> 按计划转入 `audit/plan/PLAN.md` §7.2.3。详见 §十四「结项复检」。
 
 ---
 
@@ -817,3 +820,62 @@ if (ce->constructor &&
   Swoole），该路径按源码契约编写并以降级断言兜底；建议在 Swoole 环境跑一次
   `test/DatabaseTest.php` 确认全绿。
 - M6（Query 能力缺口）仍按原计划保留在 `audit/plan/PLAN.md` §7.2.3。
+
+---
+
+## 十四、结项复检（2026-08-10）：全量回归通过，审计关闭
+
+> 复检方式：源码逐条比对 §9.1 / §11.1 / §13.1 声称的全部修复，并在
+> `F:\php_src\php-8.1.30-src\x64\Release\php_gene.dll`（2026-08-10 17:38 构建）上
+> 免部署复跑 **12 个 repro 脚本 + 3 个测试套件**。HEAD = `2e9a10a`，工作区仅本报告改动。
+
+### 14.1 源码落地确认（17/17）
+
+| # | 位置 | 结论 |
+|---|------|------|
+| H1 | `src/db/pdo.c:512-522` | ✅ `user`→`ZVAL_EMPTY_STRING`、`pass`→`ZVAL_NULL` |
+| H2 | `src/router/router.c:2296,2341` | ✅ 命中/未命中共享 `restore:` 收尾 |
+| H3 | `src/orm/meta.c:342-346` | ✅ `time(NULL)`，全仓已无 `sapi_get_request_time()` |
+| M1/M2/M7/N2/N3/R1 | `src/orm/model.c` | ✅ asModel / hydrate 开关 / `setExists()` / `__isset`+`__unset` / payload pk 回填 / `ZEND_ACC_PUBLIC` 可见性门禁（`model.c:291-292`） |
+| M3 | `orm/orm.h` + 各调用点 | ✅ 异常门禁齐备 |
+| M4 | `meta.c:238,377` | ✅ 两处均为 `ce == gene_db_mysql_ce` |
+| M5/N1 | `meta.c:198` + `model.c` 10 处 | ✅ `gene_orm_get_db(zend_string*, zval *out)`，10 处调用点与 `zval_ptr_dtor(db)` 一一配对 |
+| N4 | `query.c:186` | ✅ 注释与 N1 契约一致 |
+| L1 | `src/http/response.c` | ✅ wrapper 校验前置于 Swoole 分支 |
+| R2 | `test/DatabaseTest.php` / `test/RouterTest.php` | ✅ Pool 真实 API + `reportCaught()` 分类 + failed>0 非零退出；`readFile` 用真实文件 |
+
+### 14.2 运行时回归（本轮全部实测复跑）
+
+```
+test/OrmTest.php                61 passed, 0 failed              exit 0
+test/DatabaseTest.php           Summary: failed=0, skipped=8     exit 0
+test/RouterTest.php             套件跑完，readFile 两条 ✓        exit 0
+pdo_construct_null_crash.php    STEP A→B→C 全达（H1 不再崩溃）
+router_match_leak.php           0.00 B/call
+orm_timestamps_stale.php        时间戳随墙钟推进 3 秒
+orm_leak_probe.php              全部路径 0.00 B/call
+orm_exception_paths.php         异常路径 0 B/call，异常后查询隔离正常
+orm_crud_smoke.php              全链路与基线一致
+orm_edge_cases.php              hydrate trap 走 UPDATE；create/save/count 全 integer
+orm_state_isolation.php         9 步隔离检查符合预期
+orm_di_swap_uaf.php             调用全部命中原对象
+orm_di_swap_uaf2.php            A 及时析构、B 存活至脚本末
+orm_natural_pk_insert.php       Notice + 两个逃生口 INSERT + payload pk，N2 FIXED
+orm_hydrate_ctor_visibility.php private ctor invoked: false；'007' 主键全链路正确
+```
+
+> `DatabaseTest` 的 8 项 SKIP 均为 `php -n` 下缺 `pdo_mysql`/`pdo_pgsql` 的环境缺失，
+> 已被 R2-2 的分类逻辑正确归为 skipped 而非 failed；`RouterTest` 残留的 5 条 Warning
+> 来自被测的容错分支（缺 view/controller fixture 时的主动告警），非缺陷，
+> 且已不含 R2-3 修掉的 `Failed to open stream`。
+
+### 14.3 结项结论
+
+**本审计关闭。** 17 项发现（H1–H3 / M1–M5 / M7 / L1 / N1–N4 / R1–R2）全部闭环，
+无回退、本轮未发现新问题。遗留两项非缺陷事项：
+
+1. **M6**（Query 能力缺口：join/group/having/union/offset/first/update/delete、事务、
+   关联、软删除、写白名单）—— 按计划在 `audit/plan/PLAN.md` §7.2.3 作为后续功能推进。
+2. **Pool 的 Swoole 分支**本机（Windows CLI 无 Swoole）无法运行，按源码契约编写并以降级
+   断言兜底；建议在 Swoole 环境跑一次 `test/DatabaseTest.php` 确认全绿。
+
