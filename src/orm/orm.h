@@ -46,7 +46,7 @@ static zend_always_inline bool gene_orm_has_exception(void)
 /* meta.c */
 int gene_orm_meta_load(zend_class_entry *ce, gene_orm_meta_t *meta);
 void gene_orm_meta_release(gene_orm_meta_t *meta);
-zval *gene_orm_get_db(zend_string *connection);
+int gene_orm_get_db(zend_string *connection, zval *out);
 void gene_orm_db_reset(zval *db);
 int gene_orm_db_call(zval *db, const char *method, uint32_t argc, zval *argv, zval *retval);
 int gene_orm_db_select(zval *db, zend_string *table, zval *fields);

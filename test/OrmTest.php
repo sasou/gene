@@ -53,7 +53,7 @@ class OrmTest
         $methods = [
             'find', 'findAll', 'paginate', 'query', 'where',
             'create', 'updateBy', 'destroy', 'destroyAll',
-            'fill', 'save', 'delete', 'toArray', 'getInstance',
+            'fill', 'save', 'delete', 'toArray', 'getInstance', 'setExists',
             '__get', '__set', '__isset', '__unset',
         ];
         foreach ($methods as $m) {
@@ -313,6 +313,68 @@ class OrmTest
                 $this->ok('unset() removes attribute');
             } else {
                 $this->fail('__unset broken');
+            }
+
+            // N2/N3 (2026-08-10): client-generated primary keys — escape hatches,
+            // zero-row UPDATE warning, payload-pk passthrough, ctor on hydrate
+            if (!class_exists('OrmTestDoc')) {
+                eval('class OrmTestDoc extends \\Gene\\Orm\\Model {
+                    protected static $table = "orm_docs";
+                    protected static $primaryKey = "uuid";
+                    protected static $connection = "orm_db";
+                }');
+                eval('class OrmTestDocCtor extends \\Gene\\Orm\\Model {
+                    protected static $table = "orm_docs";
+                    protected static $primaryKey = "uuid";
+                    protected static $connection = "orm_db";
+                    public function __construct() { $this->ctorRan = true; }
+                }');
+            }
+            $db->sql('CREATE TABLE IF NOT EXISTS orm_docs (uuid TEXT PRIMARY KEY, title TEXT)')->execute();
+
+            $d1 = new OrmTestDoc();
+            $d1->fill(['uuid' => 't-0001', 'title' => 'x']);
+            $notice = null;
+            set_error_handler(function ($no, $str) use (&$notice) { $notice = $str; return true; }, E_NOTICE);
+            $r1 = $d1->save();
+            restore_error_handler();
+            if ($r1 === 0 && $notice !== null && count(OrmTestDoc::findAll([])) === 0) {
+                $this->ok('N2: hydrated save() on missing row warns (E_NOTICE), no silent write');
+            } else {
+                $this->fail('N2: save()=' . var_export($r1, true) . ' notice=' . var_export($notice, true));
+            }
+
+            $d2 = new OrmTestDoc();
+            $d2->fill(['uuid' => 't-0002', 'title' => 'y'], false);
+            $r2 = $d2->save();
+            if ($r2 === 't-0002' && $d2->exists && count(OrmTestDoc::findAll([])) === 1) {
+                $this->ok('N2/N3: fill($data, false) + save() INSERTs, returns payload pk');
+            } else {
+                $this->fail('N2 fill-hydrate-off: ' . var_export($r2, true));
+            }
+
+            $d3 = new OrmTestDoc();
+            $d3->fill(['uuid' => 't-0003', 'title' => 'z']);
+            $d3->setExists(false);
+            $r3 = $d3->save();
+            if ($r3 === 't-0003' && count(OrmTestDoc::findAll([])) === 2) {
+                $this->ok('N2: setExists(false) escape hatch INSERTs');
+            } else {
+                $this->fail('N2 setExists: ' . var_export($r3, true));
+            }
+
+            $r4 = OrmTestDoc::create(['uuid' => 't-0004', 'title' => 'w']);
+            if ($r4 === 't-0004' && count(OrmTestDoc::findAll([])) === 3) {
+                $this->ok('N3: create() returns payload pk (not rowid) on natural-key table');
+            } else {
+                $this->fail('N3 create pk: ' . var_export($r4, true));
+            }
+
+            $di = OrmTestDocCtor::find('t-0002', true);
+            if ($di instanceof OrmTestDocCtor && $di->ctorRan === true) {
+                $this->ok('N3: find($id, true) runs no-arg subclass constructor');
+            } else {
+                $this->fail('N3 ctor on hydrate broken');
             }
 
             OrmTestUser::destroy($intId);

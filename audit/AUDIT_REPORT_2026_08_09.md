@@ -9,6 +9,8 @@
 > 复现脚本：`audit/repro/*.php`（每条运行时结论均可一键复现）
 > **修复状态（2026-08-09 当日闭环）**：H1/H2/H3、M1/M2/M3/M4/M5/M7、L1、DatabaseTest 同步均已修复、
 > 重新编译并实测回归通过，M6 保留在 `audit/plan/PLAN.md` §7.2.3 —— 详见 §九「修复落地与复盘」。
+> **修复状态（2026-08-10 复检 + 二次闭环）**：§十复检确认 11 项修复落地，并新发现 N1–N4；
+> N1–N4 已于当日全部修复、重新编译并实测回归通过 —— 详见 §十「修复复检」与 §十一「修复落地」。
 
 ---
 
@@ -500,6 +502,8 @@ test/RouterTest.php            exit 0，全部通过
 | **N3** | 一致性（低） | `model.c:246-257`、`meta.c:316-330` | ①`find($id,true)` 用 `object_init_ex()` 建对象，**跳过子类 `__construct`**，与 `new U()` 行为不一致；②非整型主键表上 `create()`/`save()` 返回的是 `lastInsertId()`（SQLite 的 rowid），与真实主键无关；③`normalize_id()` 会把形如 `'007'` 的**字符串主键**转成 `int 7` 并写回 attributes | **运行时实测** |
 | **N4** | 注释过期（信息） | `query.c:185-186` | 注释仍写 "db from gene_di_get is a borrowed pointer"，与 M5 之后的「调用方持有引用」契约矛盾，易误导下一次改动 | 静态 |
 
+> **N1–N4 均已于 2026-08-10 当日修复闭环，复测全部翻转 —— 见 §十一。**
+
 ### 10.3 N1 — M5 的 UAF 只是往后挪了一格（必须修）
 
 `gene_di_get()` 命中注册表时 `return pzval;`（`di.c:165-167`），返回的是 **`zend_array` 桶内的 zval 槽位指针**。
@@ -608,3 +612,59 @@ create() rows       : 1              <-- 只有静态 create() 还能插
 | 2 | **N2** `save()` 零影响行告警 + `fill()` hydrate 开关 / `setExists()` | 小~中 | 消除静默数据丢失 |
 | 3 | **N3** 非整型主键的 `lastId` 回填与 `normalize_id` 条件化 | 小 | 一致性 |
 | 4 | **N4** 更新 `query.c` 过期注释 | 1 行 | 防止下次改动被误导 |
+
+---
+
+## 十一、修复落地（2026-08-10）：§十 N1–N4 全部闭环
+
+> 修复构建：`php_gene.dll`（2026-08-10 16:48 构建，`F:\php_src\php-8.1.30-src` x64 Release NTS，
+> 以免部署方式验证）。验证环境与 §十复检环境一致（PHP 8.1 NTS x64 CLI + pdo_sqlite）。
+> 改动文件：`src/orm/meta.c`、`src/orm/model.c`、`src/orm/query.c`、`src/orm/orm.h`、
+> `test/OrmTest.php`（+6 断言，55 → 61）、`audit/repro/orm_natural_pk_insert.php`（追加修复后验证段）、
+> `AGENTS.md`（同步约定）。
+> **附带处置**：构建树 `Makefile` 在当日 08:18 被一次 x86 环境的 configure 覆盖
+> （`PHP_ARCHITECTURE=x86`、CFLAGS 带 `_USE_32BIT_TIME_T`，导致任何 `time_t` 用法编译失败），
+> 本轮已在 phpsdk-vs16-x64 下重跑 `config.nice.bat` 恢复 x64/Release 配置。
+
+### 11.1 逐项落地状态
+
+| # | 状态 | 修复内容 | 实测证据（修复后复跑） |
+|---|------|----------|------------------------|
+| N1 | ✅ 已修复 | `gene_orm_get_db()` 改输出参数签名 `int gene_orm_get_db(zend_string *, zval *out)`，命中后 `ZVAL_COPY(out, db)` 拷贝 zval 本体——调用方持有独立句柄而非 DI 槽位指针（`gene_di_get()` 与拷贝之间不执行用户代码，槽位不可能在此期间悬垂）；`model.c` 全部 10 处调用点（含 `gene_orm_new_query`）改为局部 `db_holder`，cleanup 的 `zval_ptr_dtor(db)` 语义不变 | `orm_di_swap_uaf2.php`：`[dtor A]` 在 `find()` 返回后即触发（自有引用正确释放），B 存活至脚本结束（原：B 被提前析构、A 泄漏到请求末尾）；`orm_di_swap_uaf.php`：`first->calls = select,where,limit,row,reset` 全部落在原对象上（原：后续调用静默失效、find 返回 null） |
+| N2 | ✅ 已修复 | ①`save()` UPDATE 分支 `affectedRows()==0` 时发 `E_NOTICE`（附自然主键插入指引，不再静默丢数据）；②`fill(array $data, bool $hydrate = true)` 第二参可关闭自动置位；③新增 `setExists(bool)` 显式逃生口（返回 `$this` 可链式）；④约定同步进 `AGENTS.md`（README 无 ORM API 细节章节，约定以 AGENTS.md 为准；mass-assignment 白名单仍在 PLAN.md M6 轨道） | `orm_natural_pk_insert.php`：0 行 UPDATE 触发 Notice；`fill($data,false)+save()` 与 `setExists(false)+save()` 均真实 INSERT 并返回 payload 主键，表内 3 行齐全，末尾打印 `N2 FIXED`；`OrmTest` 对应断言全绿 |
+| N3 | ✅ 已修复 | ①`find($id,true)` hydrate 在 attributes/exists 写入**之后**调用无必填参数的（继承或子类）构造函数，行为与 `new U()` 对齐；有必填参数的构造函数跳过（hydrate 无法供参），构造函数抛异常则中止 hydrate 并透传；②`create()`/`save()` 在 payload 自带非空主键时原样返回该主键而非驱动 rowid（注意 insert 是惰性执行，仍调 `lastId()` 触发落库、丢弃其返回值）；③`normalize_id()` 由此只在自增场景（payload 无主键）生效，`'007'` 类零填充字符串主键不再被转成 `int 7` | `orm_natural_pk_insert.php`：`create() rows = 'u-0003'` 且行真实落库（原返回 rowid `1` 且与主键无关）；`OrmTest` 断言 `find($id,true)` 会执行子类无参构造函数、create 返回 payload pk |
+| N4 | ✅ 已修复 | `query.c::gene_orm_query_init()` 注释更新为「调用方传入自有引用、init 后自行 dtor」，与 N1 契约一致 | 静态审查 |
+
+### 11.2 回归验证汇总（修复构建上全量复跑）
+
+```
+pdo_construct_null_crash.php   exit 0，STEP A→B 到达（H1 基线保持）
+router_match_leak.php          0.00 B/call（H2 基线保持）
+orm_timestamps_stale.php       时间戳随墙钟推进 3 秒（H3 基线保持）
+orm_crud_smoke.php             exit 0，全链路输出与审计基线一致
+orm_edge_cases.php             全部 +0 B；hydrate trap 变 UPDATE；create/save/count 全 integer
+orm_leak_probe.php             7 条路径全部 0 B/call（无回归）
+orm_exception_paths.php        异常路径 0 B/call，异常后查询隔离正常
+orm_state_isolation.php        exit 0，9 步隔离检查全部符合预期
+orm_di_swap_uaf.php            N1：后续调用全部命中原对象（翻转）
+orm_di_swap_uaf2.php           N1：B 不再被提前析构、A 不再泄漏（翻转）
+orm_natural_pk_insert.php      N2/N3：Notice + 逃生口 INSERT + payload pk 返回，N2 FIXED（翻转）
+test/OrmTest.php               61 passed / 0 failed（55 + 新增 6 项 N2/N3 断言）
+test/DatabaseTest.php          exit 0，套件完整跑完
+test/RouterTest.php            exit 0，套件完整跑完
+```
+
+### 11.3 复盘（本轮修复批的教训）
+
+1. **N1 把 §9.3 第 4 条的教训钉死了**：对哈希表返回的槽位指针，ADDREF 只保内容不保容器；
+   跨用户代码持有必须 `ZVAL_COPY` 整个 zval。本轮把单点约定改成了函数签名（输出参数），
+   调用方想写错都难。
+2. **N3 修复自曝一个框架特性陷阱**：Gene Db 的 `insert()` 是惰性执行，读调用才真正落库 ——
+   跳过 `lastId()` 意味着 INSERT 根本没执行。复现脚本里「create 返回对了但行数没变」第一时间
+   暴露了它，随后补上 flush 调用。这条特性值得写进 Db 层文档。
+3. **N3① 的顺序坑由测试当场抓获**：首轮把构造函数放在 attributes 写入之前，构造函数里
+   `__set` 的默认值被随后的 `zend_update_property` 整体覆盖。调整为「先写 attributes/exists，
+   再跑构造函数」（`__set` 是合并写，两阶段互不丢失）。**新增断言先行**，再次验证 §9.3 第 5 条
+   的验收机制有效。
+4. **构建环境卫生**：Makefile 被 x86 configure 静默覆盖这类事故，只能靠「构建前先核对
+   `PHP_ARCHITECTURE`」或固定构建脚本来防；本轮已用 `config.nice.bat` 恢复并记录。

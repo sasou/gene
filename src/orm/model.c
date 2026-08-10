@@ -66,6 +66,11 @@ ZEND_END_ARG_INFO()
 
 ZEND_BEGIN_ARG_INFO_EX(gene_orm_model_fill_arginfo, 0, 0, 1)
 	ZEND_ARG_ARRAY_INFO(0, data, 0)
+	ZEND_ARG_INFO(0, hydrate)
+ZEND_END_ARG_INFO()
+
+ZEND_BEGIN_ARG_INFO_EX(gene_orm_model_setexists_arginfo, 0, 0, 1)
+	ZEND_ARG_INFO(0, exists)
 ZEND_END_ARG_INFO()
 
 ZEND_BEGIN_ARG_INFO_EX(gene_orm_model_get_arginfo, 0, 0, 1)
@@ -84,6 +89,24 @@ static zend_class_entry *gene_orm_called_ce(void)
 		ce = gene_orm_model_ce;
 	}
 	return ce;
+}
+
+/* Non-empty primary key in an attribute/payload array (NULL/UNDEF/''/0 count
+ * as empty, matching the fill() hydration rule). */
+static zend_always_inline zval *gene_orm_pk_value(zval *attrs, zend_string *pk)
+{
+	zval *v;
+
+	if (!pk || !attrs || Z_TYPE_P(attrs) != IS_ARRAY) {
+		return NULL;
+	}
+	v = zend_hash_find(Z_ARRVAL_P(attrs), pk);
+	if (!v || Z_TYPE_P(v) == IS_NULL || Z_TYPE_P(v) == IS_UNDEF ||
+		(Z_TYPE_P(v) == IS_STRING && Z_STRLEN_P(v) == 0) ||
+		(Z_TYPE_P(v) == IS_LONG && Z_LVAL_P(v) == 0)) {
+		return NULL;
+	}
+	return v;
 }
 
 static int gene_orm_apply_where(zval *db, zval *where, gene_orm_meta_t *meta)
@@ -125,18 +148,17 @@ static int gene_orm_new_query(zval *retval)
 {
 	gene_orm_meta_t meta;
 	zend_class_entry *ce = gene_orm_called_ce();
-	zval *db;
+	zval db_holder, *db = &db_holder;
 
 	if (gene_orm_meta_load(ce, &meta) != SUCCESS) {
 		return FAILURE;
 	}
-	db = gene_orm_get_db(meta.connection);
-	if (!db) {
+	if (gene_orm_get_db(meta.connection, db) != SUCCESS) {
 		gene_orm_meta_release(&meta);
 		return FAILURE;
 	}
 	gene_orm_query_init(retval, db, meta.table, &meta.fields);
-	zval_ptr_dtor(db); /* M5: query_init ZVAL_COPY'd the handle into a property */
+	zval_ptr_dtor(db); /* N1: query_init ZVAL_COPY'd the handle into a property */
 	gene_orm_meta_release(&meta);
 	return SUCCESS;
 }
@@ -190,7 +212,7 @@ PHP_METHOD(gene_orm_model, find)
 	zval *id = NULL;
 	gene_orm_meta_t meta;
 	zend_class_entry *ce = gene_orm_called_ce();
-	zval *db, args[2], retval, lim;
+	zval db_holder, *db = &db_holder, args[2], retval, lim;
 	smart_str buf = {0};
 	zend_bool as_model = 0;
 
@@ -206,8 +228,7 @@ PHP_METHOD(gene_orm_model, find)
 	if (gene_orm_meta_load(ce, &meta) != SUCCESS) {
 		RETURN_NULL();
 	}
-	db = gene_orm_get_db(meta.connection);
-	if (!db) {
+	if (gene_orm_get_db(meta.connection, db) != SUCCESS) {
 		gene_orm_meta_release(&meta);
 		RETURN_NULL();
 	}
@@ -252,13 +273,33 @@ PHP_METHOD(gene_orm_model, find)
 		zval_ptr_dtor(&attrs);
 		zend_update_property_bool(gene_orm_model_ce, gene_strip_obj(&model),
 			ZEND_STRL(GENE_ORM_EXISTS), 1);
+		/* [GENE_FIX:2026-08-10 N3] Run the (inherited or subclass) constructor
+		 * when it takes no required arguments so a hydrated instance behaves
+		 * like `new U()` (default values, injected deps). Constructors with
+		 * mandatory parameters are skipped — hydration cannot supply them.
+		 * Runs AFTER attributes/exists are set: __set() merges into the
+		 * existing attributes, so constructor writes survive (setting the
+		 * properties after the constructor would wipe them). A throwing
+		 * constructor aborts hydration and surfaces the exception. */
+		if (ce->constructor && ce->constructor->common.required_num_args == 0) {
+			zval ctor_ret;
+			zend_call_known_function(ce->constructor, Z_OBJ(model), ce,
+				&ctor_ret, 0, NULL, NULL);
+			zval_ptr_dtor(&ctor_ret);
+			if (UNEXPECTED(gene_orm_has_exception())) {
+				zval_ptr_dtor(&model);
+				zval_ptr_dtor(return_value);
+				ZVAL_NULL(return_value);
+				goto cleanup;
+			}
+		}
 		zval_ptr_dtor(return_value);
 		ZVAL_COPY_VALUE(return_value, &model);
 	}
 
 cleanup:
 	gene_orm_db_reset(db);
-	zval_ptr_dtor(db); /* M5: owned reference from gene_orm_get_db() */
+	zval_ptr_dtor(db); /* N1: owned copy from gene_orm_get_db() */
 	gene_orm_meta_release(&meta);
 }
 /* }}} */
@@ -271,7 +312,7 @@ PHP_METHOD(gene_orm_model, findAll)
 	zval *where = NULL;
 	gene_orm_meta_t meta;
 	zend_class_entry *ce = gene_orm_called_ce();
-	zval *db;
+	zval db_holder, *db = &db_holder;
 
 	if (zend_parse_parameters(ZEND_NUM_ARGS(), "|z", &where) == FAILURE) {
 		return;
@@ -279,8 +320,7 @@ PHP_METHOD(gene_orm_model, findAll)
 	if (gene_orm_meta_load(ce, &meta) != SUCCESS) {
 		RETURN_NULL();
 	}
-	db = gene_orm_get_db(meta.connection);
-	if (!db) {
+	if (gene_orm_get_db(meta.connection, db) != SUCCESS) {
 		gene_orm_meta_release(&meta);
 		RETURN_NULL();
 	}
@@ -296,7 +336,7 @@ PHP_METHOD(gene_orm_model, findAll)
 
 cleanup:
 	gene_orm_db_reset(db);
-	zval_ptr_dtor(db); /* M5 */
+	zval_ptr_dtor(db); /* N1: owned copy from gene_orm_get_db() */
 	gene_orm_meta_release(&meta);
 }
 /* }}} */
@@ -310,7 +350,7 @@ PHP_METHOD(gene_orm_model, paginate)
 	zend_long offset = 0, limit = 10;
 	gene_orm_meta_t meta;
 	zend_class_entry *ce = gene_orm_called_ce();
-	zval *db, args[2], retval, count_zv, list_zv;
+	zval db_holder, *db = &db_holder, args[2], retval, count_zv, list_zv;
 	zend_long count_val = 0;
 
 	if (zend_parse_parameters(ZEND_NUM_ARGS(), "zll", &where, &offset, &limit) == FAILURE) {
@@ -319,8 +359,7 @@ PHP_METHOD(gene_orm_model, paginate)
 	if (gene_orm_meta_load(ce, &meta) != SUCCESS) {
 		RETURN_NULL();
 	}
-	db = gene_orm_get_db(meta.connection);
-	if (!db) {
+	if (gene_orm_get_db(meta.connection, db) != SUCCESS) {
 		gene_orm_meta_release(&meta);
 		RETURN_NULL();
 	}
@@ -360,7 +399,7 @@ PHP_METHOD(gene_orm_model, paginate)
 
 cleanup:
 	gene_orm_db_reset(db);
-	zval_ptr_dtor(db); /* M5 */
+	zval_ptr_dtor(db); /* N1: owned copy from gene_orm_get_db() */
 	gene_orm_meta_release(&meta);
 
 	if (UNEXPECTED(gene_orm_has_exception())) {
@@ -380,7 +419,7 @@ PHP_METHOD(gene_orm_model, create)
 	zval *data = NULL;
 	gene_orm_meta_t meta;
 	zend_class_entry *ce = gene_orm_called_ce();
-	zval *db, args[2], retval, data_copy;
+	zval db_holder, *db = &db_holder, args[2], retval, data_copy;
 
 	if (zend_parse_parameters(ZEND_NUM_ARGS(), "a", &data) == FAILURE) {
 		return;
@@ -388,8 +427,7 @@ PHP_METHOD(gene_orm_model, create)
 	if (gene_orm_meta_load(ce, &meta) != SUCCESS) {
 		RETURN_LONG(0);
 	}
-	db = gene_orm_get_db(meta.connection);
-	if (!db) {
+	if (gene_orm_get_db(meta.connection, db) != SUCCESS) {
 		gene_orm_meta_release(&meta);
 		RETURN_LONG(0);
 	}
@@ -408,15 +446,30 @@ PHP_METHOD(gene_orm_model, create)
 	zval_ptr_dtor(&retval);
 	if (UNEXPECTED(gene_orm_has_exception())) goto cleanup;
 
-	if (gene_orm_db_call(db, "lastId", 0, NULL, return_value) != SUCCESS) {
-		RETVAL_LONG(0);
-	} else {
-		gene_orm_normalize_id(return_value); /* M2: string id → int */
+	{
+		zval *pk_in = gene_orm_pk_value(&data_copy, meta.primary_key);
+		if (pk_in) {
+			/* [GENE_FIX:2026-08-10 N3] Payload carries the (client-generated)
+			 * primary key: lastInsertId() is the driver rowid, not the pk —
+			 * return the payload pk verbatim. normalize_id() stays reserved for
+			 * the auto-increment scenario (payload without pk) only.
+			 * insert() is lazy: still issue a read call (lastId) to execute it,
+			 * discarding the rowid. */
+			zval lid;
+			ZVAL_COPY(return_value, pk_in);
+			if (gene_orm_db_call(db, "lastId", 0, NULL, &lid) == SUCCESS) {
+				zval_ptr_dtor(&lid);
+			}
+		} else if (gene_orm_db_call(db, "lastId", 0, NULL, return_value) != SUCCESS) {
+			RETVAL_LONG(0);
+		} else {
+			gene_orm_normalize_id(return_value); /* M2: string id → int (auto-increment only) */
+		}
 	}
 
 cleanup:
 	gene_orm_db_reset(db);
-	zval_ptr_dtor(db); /* M5 */
+	zval_ptr_dtor(db); /* N1: owned copy from gene_orm_get_db() */
 	zval_ptr_dtor(&data_copy);
 	gene_orm_meta_release(&meta);
 }
@@ -430,7 +483,7 @@ PHP_METHOD(gene_orm_model, updateBy)
 	zval *where = NULL, *data = NULL;
 	gene_orm_meta_t meta;
 	zend_class_entry *ce = gene_orm_called_ce();
-	zval *db, args[2], retval, data_copy;
+	zval db_holder, *db = &db_holder, args[2], retval, data_copy;
 
 	if (zend_parse_parameters(ZEND_NUM_ARGS(), "za", &where, &data) == FAILURE) {
 		return;
@@ -438,8 +491,7 @@ PHP_METHOD(gene_orm_model, updateBy)
 	if (gene_orm_meta_load(ce, &meta) != SUCCESS) {
 		RETURN_LONG(0);
 	}
-	db = gene_orm_get_db(meta.connection);
-	if (!db) {
+	if (gene_orm_get_db(meta.connection, db) != SUCCESS) {
 		gene_orm_meta_release(&meta);
 		RETURN_LONG(0);
 	}
@@ -467,7 +519,7 @@ PHP_METHOD(gene_orm_model, updateBy)
 
 cleanup:
 	gene_orm_db_reset(db);
-	zval_ptr_dtor(db); /* M5 */
+	zval_ptr_dtor(db); /* N1: owned copy from gene_orm_get_db() */
 	zval_ptr_dtor(&data_copy);
 	gene_orm_meta_release(&meta);
 }
@@ -481,7 +533,7 @@ PHP_METHOD(gene_orm_model, destroy)
 	zval *id = NULL;
 	gene_orm_meta_t meta;
 	zend_class_entry *ce = gene_orm_called_ce();
-	zval *db, args[2], retval;
+	zval db_holder, *db = &db_holder, args[2], retval;
 	smart_str buf = {0};
 
 	if (zend_parse_parameters(ZEND_NUM_ARGS(), "z", &id) == FAILURE) {
@@ -496,8 +548,7 @@ PHP_METHOD(gene_orm_model, destroy)
 	if (gene_orm_meta_load(ce, &meta) != SUCCESS) {
 		RETURN_LONG(0);
 	}
-	db = gene_orm_get_db(meta.connection);
-	if (!db) {
+	if (gene_orm_get_db(meta.connection, db) != SUCCESS) {
 		gene_orm_meta_release(&meta);
 		RETURN_LONG(0);
 	}
@@ -525,7 +576,7 @@ PHP_METHOD(gene_orm_model, destroy)
 
 cleanup:
 	gene_orm_db_reset(db);
-	zval_ptr_dtor(db); /* M5 */
+	zval_ptr_dtor(db); /* N1: owned copy from gene_orm_get_db() */
 	gene_orm_meta_release(&meta);
 }
 /* }}} */
@@ -538,7 +589,7 @@ PHP_METHOD(gene_orm_model, destroyAll)
 	zval *ids = NULL;
 	gene_orm_meta_t meta;
 	zend_class_entry *ce = gene_orm_called_ce();
-	zval *db, args[2], retval;
+	zval db_holder, *db = &db_holder, args[2], retval;
 	smart_str buf = {0};
 
 	if (zend_parse_parameters(ZEND_NUM_ARGS(), "a", &ids) == FAILURE) {
@@ -550,8 +601,7 @@ PHP_METHOD(gene_orm_model, destroyAll)
 	if (gene_orm_meta_load(ce, &meta) != SUCCESS) {
 		RETURN_LONG(0);
 	}
-	db = gene_orm_get_db(meta.connection);
-	if (!db) {
+	if (gene_orm_get_db(meta.connection, db) != SUCCESS) {
 		gene_orm_meta_release(&meta);
 		RETURN_LONG(0);
 	}
@@ -579,13 +629,13 @@ PHP_METHOD(gene_orm_model, destroyAll)
 
 cleanup:
 	gene_orm_db_reset(db);
-	zval_ptr_dtor(db); /* M5 */
+	zval_ptr_dtor(db); /* N1: owned copy from gene_orm_get_db() */
 	gene_orm_meta_release(&meta);
 }
 /* }}} */
 
 /*
- * {{{ public Gene\Orm\Model::fill(array $data)
+ * {{{ public Gene\Orm\Model::fill(array $data, bool $hydrate = true)
  */
 PHP_METHOD(gene_orm_model, fill)
 {
@@ -594,8 +644,9 @@ PHP_METHOD(gene_orm_model, fill)
 	zend_string *key;
 	zend_ulong idx;
 	gene_orm_meta_t meta;
+	zend_bool hydrate = 1;
 
-	if (zend_parse_parameters(ZEND_NUM_ARGS(), "a", &data) == FAILURE) {
+	if (zend_parse_parameters(ZEND_NUM_ARGS(), "a|b", &data, &hydrate) == FAILURE) {
 		return;
 	}
 	if (gene_orm_meta_load(Z_OBJCE_P(self), &meta) != SUCCESS) {
@@ -627,19 +678,38 @@ PHP_METHOD(gene_orm_model, fill)
 	/* [GENE_FIX:2026-08-09 M1] Hydration: when the merged attributes carry a
 	 * non-empty primary key (e.g. fill(Model::find($id))), mark the instance as
 	 * existing so save() takes the UPDATE branch instead of issuing a duplicate
-	 * INSERT with an explicit primary key (UNIQUE conflict / duplicated rows). */
-	if (meta.primary_key) {
-		zval *pk = zend_hash_find(Z_ARRVAL(attrs), meta.primary_key);
-		if (pk && Z_TYPE_P(pk) != IS_NULL && Z_TYPE_P(pk) != IS_UNDEF &&
-			!(Z_TYPE_P(pk) == IS_STRING && Z_STRLEN_P(pk) == 0) &&
-			!(Z_TYPE_P(pk) == IS_LONG && Z_LVAL_P(pk) == 0)) {
-			zend_update_property_bool(gene_orm_model_ce, gene_strip_obj(self),
-				ZEND_STRL(GENE_ORM_EXISTS), 1);
-		}
+	 * INSERT with an explicit primary key (UNIQUE conflict / duplicated rows).
+	 * [GENE_FIX:2026-08-10 N2] $hydrate=false opts out of the auto-marking —
+	 * the escape hatch for client-generated primary keys (UUID / natural key /
+	 * data import), where the payload pk means "new row", not "persisted". */
+	if (hydrate && gene_orm_pk_value(&attrs, meta.primary_key)) {
+		zend_update_property_bool(gene_orm_model_ce, gene_strip_obj(self),
+			ZEND_STRL(GENE_ORM_EXISTS), 1);
 	}
 
 	zval_ptr_dtor(&attrs);
 	gene_orm_meta_release(&meta);
+	RETURN_ZVAL(self, 1, 0);
+}
+/* }}} */
+
+/*
+ * {{{ public Gene\Orm\Model::setExists(bool $exists) — explicit exists flag
+ */
+PHP_METHOD(gene_orm_model, setExists)
+{
+	zval *self = getThis();
+	zend_bool exists = 0;
+
+	if (zend_parse_parameters(ZEND_NUM_ARGS(), "|b", &exists) == FAILURE) {
+		return;
+	}
+	/* [GENE_FIX:2026-08-10 N2] Escape hatch for the fill() hydration rule:
+	 * on client-generated-primary-key tables, fill($data) marks exists=1 and
+	 * save() would silently UPDATE 0 rows. setExists(false) (or
+	 * fill($data, false)) forces the INSERT branch. */
+	zend_update_property_bool(gene_orm_model_ce, gene_strip_obj(self),
+		ZEND_STRL(GENE_ORM_EXISTS), exists);
 	RETURN_ZVAL(self, 1, 0);
 }
 /* }}} */
@@ -667,7 +737,7 @@ PHP_METHOD(gene_orm_model, save)
 	zval *self = getThis();
 	gene_orm_meta_t meta;
 	zend_class_entry *ce = Z_OBJCE_P(self);
-	zval *db, *attrs, *exists, *pk_val, args[2], retval, data_copy;
+	zval db_holder, *db = &db_holder, *attrs, *exists, *pk_val, args[2], retval, data_copy;
 	smart_str buf = {0};
 
 	if (gene_orm_meta_load(ce, &meta) != SUCCESS) {
@@ -679,8 +749,7 @@ PHP_METHOD(gene_orm_model, save)
 		gene_orm_meta_release(&meta);
 		RETURN_LONG(0);
 	}
-	db = gene_orm_get_db(meta.connection);
-	if (!db) {
+	if (gene_orm_get_db(meta.connection, db) != SUCCESS) {
 		gene_orm_meta_release(&meta);
 		RETURN_LONG(0);
 	}
@@ -726,6 +795,16 @@ PHP_METHOD(gene_orm_model, save)
 
 		if (gene_orm_db_call(db, "affectedRows", 0, NULL, return_value) != SUCCESS) {
 			RETVAL_LONG(0);
+		} else if ((Z_TYPE_P(return_value) == IS_LONG && Z_LVAL_P(return_value) == 0) ||
+			(Z_TYPE_P(return_value) == IS_STRING &&
+				zend_atol(Z_STRVAL_P(return_value), Z_STRLEN_P(return_value)) == 0)) {
+			/* [GENE_FIX:2026-08-10 N2] A hydrated model whose row is missing
+			 * (typical: client-generated primary key inserted via fill()+save())
+			 * used to fail silently — 0 rows affected, return 0, no error. */
+			php_error_docref(NULL, E_NOTICE,
+				"UPDATE affected 0 rows on \"%s\" -- the row may not exist; "
+				"to insert with a client-generated primary key use fill($data, false) + save(), setExists(false), or Model::create()",
+				ZSTR_VAL(meta.table));
 		}
 	} else {
 		if (meta.timestamps) {
@@ -739,31 +818,49 @@ PHP_METHOD(gene_orm_model, save)
 		zval_ptr_dtor(&retval);
 		if (UNEXPECTED(gene_orm_has_exception())) goto cleanup;
 
-		if (gene_orm_db_call(db, "lastId", 0, NULL, return_value) == SUCCESS) {
-			gene_orm_normalize_id(return_value); /* M2: string id → int */
-			if (Z_TYPE_P(return_value) != IS_NULL &&
-				!(Z_TYPE_P(return_value) == IS_LONG && Z_LVAL_P(return_value) == 0)) {
-				zval tmp, *attrs_w;
-				ZVAL_COPY(&tmp, return_value);
-				attrs_w = zend_read_property(gene_orm_model_ce, gene_strip_obj(self),
-					ZEND_STRL(GENE_ORM_ATTRS), 0, NULL);
-				if (attrs_w && Z_TYPE_P(attrs_w) == IS_ARRAY) {
-					SEPARATE_ARRAY(attrs_w);
-					zend_hash_update(Z_ARRVAL_P(attrs_w), meta.primary_key, &tmp);
-				} else {
-					zval_ptr_dtor(&tmp);
+		{
+			zval *pk_in = gene_orm_pk_value(&data_copy, meta.primary_key);
+			if (pk_in) {
+				/* [GENE_FIX:2026-08-10 N3] The payload already carries a non-empty
+				 * (client-generated) primary key: lastInsertId() would be the driver
+				 * rowid, not the pk. Return the payload pk verbatim and skip
+				 * normalize_id() — that normalization is for the auto-increment
+				 * scenario only (a zero-padded string key like '007' must not be
+				 * mangled to int 7). insert() is lazy, so a read call (lastId)
+				 * is still needed to actually execute it; its rowid is discarded. */
+				zval lid;
+				ZVAL_COPY(return_value, pk_in);
+				if (gene_orm_db_call(db, "lastId", 0, NULL, &lid) == SUCCESS) {
+					zval_ptr_dtor(&lid);
 				}
 				zend_update_property_bool(gene_orm_model_ce, gene_strip_obj(self),
 					ZEND_STRL(GENE_ORM_EXISTS), 1);
+			} else if (gene_orm_db_call(db, "lastId", 0, NULL, return_value) == SUCCESS) {
+				gene_orm_normalize_id(return_value); /* M2: string id → int (auto-increment only) */
+				if (Z_TYPE_P(return_value) != IS_NULL &&
+					!(Z_TYPE_P(return_value) == IS_LONG && Z_LVAL_P(return_value) == 0)) {
+					zval tmp, *attrs_w;
+					ZVAL_COPY(&tmp, return_value);
+					attrs_w = zend_read_property(gene_orm_model_ce, gene_strip_obj(self),
+						ZEND_STRL(GENE_ORM_ATTRS), 0, NULL);
+					if (attrs_w && Z_TYPE_P(attrs_w) == IS_ARRAY) {
+						SEPARATE_ARRAY(attrs_w);
+						zend_hash_update(Z_ARRVAL_P(attrs_w), meta.primary_key, &tmp);
+					} else {
+						zval_ptr_dtor(&tmp);
+					}
+					zend_update_property_bool(gene_orm_model_ce, gene_strip_obj(self),
+						ZEND_STRL(GENE_ORM_EXISTS), 1);
+				}
+			} else {
+				RETVAL_LONG(0);
 			}
-		} else {
-			RETVAL_LONG(0);
 		}
 	}
 
 cleanup:
 	gene_orm_db_reset(db);
-	zval_ptr_dtor(db); /* M5 */
+	zval_ptr_dtor(db); /* N1: owned copy from gene_orm_get_db() */
 	zval_ptr_dtor(&data_copy);
 	gene_orm_meta_release(&meta);
 }
@@ -796,13 +893,12 @@ PHP_METHOD(gene_orm_model, delete)
 
 	/* Reuse destroy logic via static call pattern */
 	{
-		zval *db, args[2], retval, pk_copy;
+		zval db_holder, *db = &db_holder, args[2], retval, pk_copy;
 		smart_str buf = {0};
 
 		ZVAL_COPY(&pk_copy, pk_val);
 
-		db = gene_orm_get_db(meta.connection);
-		if (!db) {
+		if (gene_orm_get_db(meta.connection, db) != SUCCESS) {
 			zval_ptr_dtor(&pk_copy);
 			gene_orm_meta_release(&meta);
 			RETURN_LONG(0);
@@ -846,7 +942,7 @@ cleanup:
 			zval_ptr_dtor(&pk_copy);
 		}
 		gene_orm_db_reset(db);
-		zval_ptr_dtor(db); /* M5 */
+		zval_ptr_dtor(db); /* N1: owned copy from gene_orm_get_db() */
 	}
 	gene_orm_meta_release(&meta);
 }
@@ -1016,6 +1112,7 @@ const zend_function_entry gene_orm_model_methods[] = {
 	PHP_ME(gene_orm_model, destroy, gene_orm_model_destroy_arginfo, ZEND_ACC_PUBLIC|ZEND_ACC_STATIC)
 	PHP_ME(gene_orm_model, destroyAll, gene_orm_model_destroyall_arginfo, ZEND_ACC_PUBLIC|ZEND_ACC_STATIC)
 	PHP_ME(gene_orm_model, fill, gene_orm_model_fill_arginfo, ZEND_ACC_PUBLIC)
+	PHP_ME(gene_orm_model, setExists, gene_orm_model_setexists_arginfo, ZEND_ACC_PUBLIC)
 	PHP_ME(gene_orm_model, save, gene_orm_model_void_arginfo, ZEND_ACC_PUBLIC)
 	PHP_ME(gene_orm_model, delete, gene_orm_model_void_arginfo, ZEND_ACC_PUBLIC)
 	PHP_ME(gene_orm_model, toArray, gene_orm_model_void_arginfo, ZEND_ACC_PUBLIC)

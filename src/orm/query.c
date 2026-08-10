@@ -182,8 +182,9 @@ static void gene_orm_query_finish(zval *self, zval *db)
 int gene_orm_query_init(zval *query, zval *db, zend_string *table, zval *fields)
 {
 	object_init_ex(query, gene_orm_query_ce);
-	/* zend_update_property ZVAL_COPY's the value; do not ADDREF beforehand
-	 * (db from gene_di_get is a borrowed pointer). */
+	/* zend_update_property ZVAL_COPY's the value; callers pass an owned copy
+	 * obtained from gene_orm_get_db() and zval_ptr_dtor() it after init
+	 * (see [GENE_FIX:2026-08-10 N1] in meta.c). */
 	zend_update_property(gene_orm_query_ce, gene_strip_obj(query),
 		ZEND_STRL(GENE_ORM_QUERY_DB), db);
 	zend_update_property_str(gene_orm_query_ce, gene_strip_obj(query),

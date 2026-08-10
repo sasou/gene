@@ -41,4 +41,22 @@ echo "has forceInsert()   : ", var_export(method_exists($d2, 'forceInsert'), tru
 echo "create() rows       : ", var_export(Doc::create(['uuid' => 'u-0003', 'title' => 'y']), true), "\n";
 $rows = $db->select('doc')->all();
 echo "rows in table       : ", count($rows), "\n";
+
+/* [FIX 2026-08-10 N2] escape hatches must turn fill()+save() back into INSERT */
+$d3 = new Doc();
+$d3->fill(['uuid' => 'u-0004', 'title' => 'via fill-hydrate-off'], false);
+echo "fill(,false) exists : ", var_export($d3->exists, true), "\n";
+$ret3 = $d3->save();
+echo "fill(,false) save() : ", var_export($ret3, true), "\n";
+
+$d4 = new Doc();
+$d4->fill(['uuid' => 'u-0005', 'title' => 'via setExists']);
+$d4->setExists(false);
+echo "setExists(false)    : ", var_export($d4->exists, true), "\n";
+$ret4 = $d4->save();
+echo "setExists save()    : ", var_export($ret4, true), "\n";
+
+$rows = $db->select('doc')->all();
+echo "rows in table       : ", count($rows), " -> ", json_encode(array_column($rows, 'uuid')), "\n";
+echo (count($rows) === 3 && $ret3 === 'u-0004' && $ret4 === 'u-0005') ? "N2 FIXED\n" : "N2 STILL BROKEN\n";
 @unlink($file);

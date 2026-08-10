@@ -195,7 +195,7 @@ void gene_orm_meta_release(gene_orm_meta_t *meta)
 	ZVAL_UNDEF(&meta->fields);
 }
 
-zval *gene_orm_get_db(zend_string *connection)
+int gene_orm_get_db(zend_string *connection, zval *out)
 {
 	zval *db;
 	zend_string *name = connection;
@@ -211,15 +211,20 @@ zval *gene_orm_get_db(zend_string *connection)
 		zend_throw_exception_ex(NULL, 0,
 			"Gene\\Orm: DI service \"%s\" is not an object (configure db)",
 			connection ? ZSTR_VAL(connection) : "db");
-		return NULL;
+		return FAILURE;
 	}
-	/* [GENE_FIX:2026-08-09 M5] gene_di_get() hands back a borrowed zval from the
-	 * DI registry. Callers hold it across several call_user_function round-trips
-	 * during which user code (getters, error handlers, __destruct) could
-	 * Di::del()/Di::set() the service and free the object → UAF. Take an owned
-	 * reference here; every caller must zval_ptr_dtor() it when done. */
-	Z_TRY_ADDREF_P(db);
-	return db;
+	/* [GENE_FIX:2026-08-10 N1] gene_di_get() returns a borrowed pointer to a
+	 * DI registry hashtable *slot*. The 2026-08-09 M5 fix only ADDREF'd the
+	 * object but kept handing out the slot pointer: callers hold it across
+	 * several call_user_function round-trips during which user code (getters,
+	 * error handlers, __destruct) could Di::del()/Di::set() the service —
+	 * deleting/replacing the slot so the later gene_orm_db_reset()/dtor acted
+	 * on the replacement object or freed memory (UAF + leak). Copy the zval
+	 * itself so the caller owns an independent handle; no user code runs
+	 * between gene_di_get() and this copy, so the slot cannot dangle here.
+	 * Every caller must zval_ptr_dtor() the out zval when done. */
+	ZVAL_COPY(out, db);
+	return SUCCESS;
 }
 
 void gene_orm_db_reset(zval *db)
