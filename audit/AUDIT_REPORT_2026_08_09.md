@@ -11,6 +11,9 @@
 > 重新编译并实测回归通过，M6 保留在 `audit/plan/PLAN.md` §7.2.3 —— 详见 §九「修复落地与复盘」。
 > **修复状态（2026-08-10 复检 + 二次闭环）**：§十复检确认 11 项修复落地，并新发现 N1–N4；
 > N1–N4 已于当日全部修复、重新编译并实测回归通过 —— 详见 §十「修复复检」与 §十一「修复落地」。
+> **修复状态（2026-08-10 晚 第二轮复检）**：§十二 确认 15 项修复全部落地、无回退；
+> 新发现 2 条低危残留项 R1（hydrate 忽略构造函数可见性）/R2（DatabaseTest Pool 段仍用不存在的 API，
+> 导致连接池零覆盖却 exit 0），修复方案见 §12.2 —— **尚未落地**。
 
 ---
 
@@ -668,3 +671,106 @@ test/RouterTest.php            exit 0，套件完整跑完
    的验收机制有效。
 4. **构建环境卫生**：Makefile 被 x86 configure 静默覆盖这类事故，只能靠「构建前先核对
    `PHP_ARCHITECTURE`」或固定构建脚本来防；本轮已用 `config.nice.bat` 恢复并记录。
+
+---
+
+## 十二、第二轮修复复检（2026-08-10 晚）：15/15 落地确认 + 2 条残留项
+
+> 复检方式：对 §9.1（11 项）与 §11.1（N1–N4）声称的全部修复逐条比对源码，并在当前构建上
+> 复跑 11 个 repro 脚本 + 3 个测试套件，另做 2 项针对性探针。
+> 环境：`php -n` + `pdo_sqlite` + `F:\php_src\php-8.1.30-src\x64\Release\php_gene.dll`
+> （2026-08-10 16:48 构建，与 §11 同一产物）；工作区 `git status` 干净，HEAD = `a8769bc`。
+
+### 12.1 落地确认（15/15）
+
+| # | 源码位置 | 结论 |
+|---|----------|------|
+| H1 | `src/db/pdo.c:505-537` | ✅ `user`→`ZVAL_EMPTY_STRING`、`pass`→`ZVAL_NULL`，唯一汇聚点；`pdo_construct_null_crash.php` STEP A→C 全达 |
+| H2 | `src/router/router.c:2293-2352` | ✅ 命中/未命中共享 `restore:`，`router_match_leak.php` 0.00 B/call |
+| H3 | `src/orm/meta.c:334-357` | ✅ `time(NULL)`；时间戳随墙钟推进 3 秒 |
+| M1 | `model.c:263-298`（find asModel）、`model.c:678-688`（fill hydrate） | ✅ |
+| M2 | `meta.c:317-332` | ✅ `normalize_id()` 仅在自增场景调用（见 N3） |
+| M3 | `orm/orm.h` + `model.c`/`query.c` 各调用点 | ✅ 9 个 db 序列 + `query_apply()` 每步门禁齐备；异常路径 0 B/call |
+| M4 | `meta.c:362-389` | ✅ 改 `ce == gene_db_mysql_ce`。**补充确认**：4 个驱动类均带 `ZEND_ACC_FINAL`（`mysql.c:1511` 等），故精确比较不会漏判「Mysql 子类」——M4 注释中「custom subclasses 会被误判」的说法对当前代码已不成立，属注释措辞冗余，不构成缺陷 |
+| M5/N1 | `meta.c:198-228` + `model.c` 10 处 `db_holder` | ✅ `gene_orm_get_db()` 已是 `(zend_string*, zval *out)` 输出参数 + `ZVAL_COPY`；`orm_di_swap_uaf.php` 全部命中原对象、`orm_di_swap_uaf2.php` B 存活至脚本末 |
+| M7 | `model.c` `__isset`/`__unset` + 方法表 | ✅ |
+| L1 | `response.c:785-799` | ✅ wrapper 校验在 Swoole 分支之前，两模式同边界 |
+| N2 | `model.c:640-714`、`798-808` | ✅ `fill($data,$hydrate)`、`setExists()`、0 行 UPDATE 的 `E_NOTICE` 三件套齐全 |
+| N3 | `model.c:263-298`、`449-468`、`821-858` | ✅ hydrate 调无必填参构造；payload 自带主键时原样返回主键（并仍调 `lastId()` 触发惰性 insert） |
+| N4 | `query.c:182-189` | ✅ 注释已改为「调用方传入自有引用」 |
+| 附带 | `query.c:440-449` | ✅ `ALLOW_DYNAMIC_PROPERTIES` 已移除 |
+| 测试同步 | `test/OrmTest.php` | ✅ **61 passed / 0 failed** |
+
+回归复跑（11 个 repro 脚本 + 3 套件）全部与 §11.2 一致：泄漏探针 12 条路径全 0 B、
+异常路径 0 B、`DatabaseTest`/`RouterTest` exit 0。**未发现任何已修项回退。**
+
+### 12.2 新发现的残留项
+
+| # | 等级 | 位置 | 问题 | 证据 |
+|---|------|------|------|------|
+| **R1** | 低（一致性/封装） | `src/orm/model.c:284-295` | N3① 的 hydrate 只检查 `required_num_args == 0`，**不检查构造函数可见性**：`private`/`protected` 构造函数（工厂/单例模型）会被从类外调用，而同一位置的 `new T()` 是 fatal `Error` —— 封装被绕过，与「行为对齐 `new U()`」的初衷相反 | **运行时实测** |
+| **R2** | 低（测试覆盖假象） | `test/DatabaseTest.php:326-353,588-594` | §9.1「测试同步」只重写了 SQLite 段，**Pool 段仍调 6 个不存在的方法**（`initialize()`/`getConnection()`/`releaseConnection()`/`getStats()`/`cleanup()`/`addConnectionType()`；真实 API 为 `get()`/`put()`/`stats()`/`recycleIdle()`/`healthCheck()`/`close()`/`closeAll()`）。因同批把 `catch` 放宽成 `Throwable` 且「失效 API 降级为报告项」，套件仍 exit 0 —— **连接池实际零覆盖却看不出来** | **运行时实测** |
+
+#### R1 详情与修复方案
+
+`model.c` 现有条件：
+
+```c
+if (ce->constructor && ce->constructor->common.required_num_args == 0) {
+    zend_call_known_function(ce->constructor, Z_OBJ(model), ce, &ctor_ret, 0, NULL, NULL);
+```
+
+`zend_call_known_function()` 不做可见性检查。实测（`audit/repro/orm_hydrate_ctor_visibility.php`）：
+
+```
+hydrated class          : HidT
+private ctor invoked    : true (expected: false)
+new HidT()              : Error (visibility enforced here)
+```
+
+**修复**：只调用 public 构造函数，其余按「hydrate 不走构造函数」处理（与 Laravel 一致）：
+
+```c
+if (ce->constructor &&
+    ce->constructor->common.required_num_args == 0 &&
+    (ce->constructor->common.fn_flags & ZEND_ACC_PUBLIC)) {
+```
+
+并在 `AGENTS.md` 的 ORM 约定里把「hydrate 会调用无必填参数的构造函数」补全为
+「**public 且**无必填参数的构造函数」。
+
+#### R2 详情与修复方案
+
+```
+> php test\DatabaseTest.php
+? Error: Call to undefined method Gene\Pool::initialize()
+... === Database Classes Test Suite Complete ===   (exit 0)
+```
+
+**修复**：
+1. Pool 段按 `src/db/pool.c:1586-1598` 的真实方法表重写：
+   `new Pool($config)` → `get()` / `put($conn)` / `stats()` / `recycleIdle()` / `healthCheck()` /
+   `close()`、静态 `Pool::create()` / `getInstance()` / `closeAll()` / `stopTimers()`；
+2. 把「失效 API 降级为报告项」的兜底分支区分成两类输出：
+   环境缺失（如 `could not find driver`，`php -n` 下 mysql/pgsql 段的正常表现）打印 `SKIP`，
+   `Error: Call to undefined method` 一类**API 不匹配则计入 failed** —— 否则测试staleness 会
+   再次被 exit 0 掩盖（这正是 §9 修 `Sqlite::connect()` 后仍漏掉 Pool 段的原因）。
+3. 附带：`test/RouterTest.php:311` 的 `readFile('test.txt')` 依赖不存在的 fixture，
+   跑出 `Warning: Failed to open stream` 后走「优雅处理」分支；建议改用 `__FILE__`
+   或临时文件，让告警不再混入正常输出。
+
+### 12.3 新增复现脚本
+
+| 脚本 | 用途 | 对应发现 |
+|------|------|----------|
+| `orm_hydrate_ctor_visibility.php` | hydrate 调用 private 构造函数；并附 N3③ 零填充字符串主键（`'007'`）全链路回归守卫 | R1（+N3 回归） |
+
+### 12.4 复检结论
+
+- §九、§十一 声称的 15 项修复**全部在源码中存在且运行时可验证**，无一回退，
+  H1/H2/H3/N1/N2/N3 的判定证据均可一键复现。
+- 新增 2 条**残留项均为低危**：R1 是 N3① 修复自身的边界遗漏（可见性），
+  R2 是测试同步没做完 + 兜底过宽导致的覆盖假象。二者都不影响内存安全。
+- 教训延伸：§9.3 第 1 条「对称收尾必须机械化」在测试层面同样适用 ——
+  **凡是「失效 API 降级为报告项」的兜底，都必须能区分「环境缺失」与「API 不存在」**，
+  否则套件的 exit 0 会掩盖真实脱节。
