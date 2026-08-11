@@ -265,11 +265,11 @@ $title = $this->language->login_title; // 读取键值
 
 | 方法 | 说明 |
 |------|------|
-| find($id) / findAll($where) / paginate($where, $offset, $limit) | 查询，返回 array |
-| query() / where($where) | 返回 `Gene\Orm\Query` |
+| find($id, $asModel = false) / findAll($where = []) / paginate($where, $offset, $limit) | 查询；默认返回数组，`find($id, true)` 返回模型实例 |
+| query() / where($where, $bind = null) | 返回 `Gene\Orm\Query` |
 | create($data) / updateBy($where, $data) / destroy($id) / destroyAll($ids) | 写入 |
-| fill($data) / save() / delete() / toArray() | 实例 ActiveRecord |
-| Query: where / in / order / limit / all / row / cell / count | 终端方法后 reset Db |
+| fill($data, $hydrate = true) / setExists($exists = false) / save() / delete() / toArray() | 实例 ActiveRecord；含非空主键的 `fill()` 默认标记为已持久化，新增自然主键/UUID 数据请用 `fill($data, false)`、`setExists(false)` 或 `create()` |
+| Query: where / in / order / limit / all / row / cell / count | 终端方法后 reset Db；`Query` 不应直接 new |
 
 复杂 SQL 仍用 `$this->db`。Swoole 下配合 `instance=>true` + Pool；见 `swoole.md` §4.3。
 
@@ -447,7 +447,9 @@ $stats = \Gene\Monitor::stats();
 
 | 方法 | 说明 |
 |------|------|
-| stats() | 静态；返回上示聚合数组。demo 端点示例见 `demo/application/Controllers/Monitor.php`（`GET /monitor`） |
+| stats() | 静态；返回上示聚合数组 |
+| reset() | 静态；重置累计监控计数器 |
+| prometheus() | 静态；导出 Prometheus 文本格式指标 |
 
 相关 INI：`gene.swoole_auto_cleanup`（默认 0，协程自动 cleanup 兜底）、`gene.cache_easy_ttl`（默认 0 关闭，cache_easy 惰性过期秒数）。
 

@@ -23,7 +23,7 @@ class Controller
      * 
      * @return mixed
      */
-    public function __construct() {
+    public function __construct($debug = 0) {
 
     }
 
@@ -34,7 +34,7 @@ class Controller
      * @param mixed $value value
      * @return mixed
      */
-    public static function get($key, $value = null) {
+    public static function get($key = null, $value = null) {
 
     }
 

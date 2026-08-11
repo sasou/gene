@@ -52,12 +52,12 @@ class Monitor
     }
 
     /**
-     * exportPrometheus
+     * prometheus
      * Export monitor metrics in Prometheus text exposition format.
      *
      * @return string Prometheus-formatted text
      */
-    public static function exportPrometheus() {
+    public static function prometheus() {
 
     }
 

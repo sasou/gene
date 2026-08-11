@@ -60,6 +60,15 @@ class Model extends \Gene\Model
         return false;
     }
 
+    public function __isset($name)
+    {
+        return false;
+    }
+
+    public function __unset($name)
+    {
+    }
+
     /**
      * @return Query
      */
@@ -80,9 +89,10 @@ class Model extends \Gene\Model
 
     /**
      * @param mixed $id
-     * @return array|null
+     * @param bool $asModel return a hydrated model instance when true
+     * @return array|static|null
      */
-    public static function find($id)
+    public static function find($id, $asModel = false)
     {
         return null;
     }
@@ -148,7 +158,18 @@ class Model extends \Gene\Model
      * @param array $data
      * @return static
      */
-    public function fill(array $data)
+    public function fill(array $data, $hydrate = true)
+    {
+        return $this;
+    }
+
+    /**
+     * Explicitly set whether this model represents a persisted row.
+     *
+     * @param bool $exists
+     * @return static
+     */
+    public function setExists($exists = false)
     {
         return $this;
     }

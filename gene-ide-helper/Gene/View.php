@@ -38,7 +38,7 @@ class View
      * @param mixed $parent_file parent_file
      * @return mixed
      */
-    public function display($file, $parent_file) {
+    public function display($file, $parent_file = null) {
 
     }
 
@@ -50,7 +50,7 @@ class View
      * @param mixed $isCompile isCompile
      * @return mixed
      */
-    public function displayExt($file, $parent_file, $isCompile) {
+    public function displayExt($file, $parent_file = null, $isCompile = null) {
 
     }
 

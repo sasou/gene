@@ -75,7 +75,7 @@ class Response
      * @param mixed $code code
      * @return mixed
      */
-    public static function data($data, $count = 0, $msg = null, $code = null) {
+    public static function data($data, $count = -1, $msg = null, $code = 2000) {
 
     }
 
@@ -87,7 +87,7 @@ class Response
      * @param mixed $code code
      * @return mixed
      */
-    public static function json($data, $callback = null, $code = null) {
+    public static function json($data, $callback = null, $code = 256) {
 
     }
 
@@ -109,7 +109,7 @@ class Response
      * @param mixed $value value
      * @return mixed
      */
-    public static function cookie($key, $value = null) {
+    public static function cookie($key, $value = null, $expires = null, $path = null, $domain = null, $secure = null, $httponly = null, $samesite = null) {
 
     }
 

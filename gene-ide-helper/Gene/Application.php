@@ -84,7 +84,7 @@ class Application
      * @param mixed $tpl_ext tpl_ext
      * @return mixed
      */
-    public function setView($view, $tpl_ext = null) {
+    public function setView($view = null, $tpl_ext = null) {
 
     }
 
@@ -107,7 +107,7 @@ class Application
      * @param mixed $callback callback
      * @return mixed
      */
-    public function exception($type, $callback) {
+    public function exception($type, $callback = null) {
 
     }
 

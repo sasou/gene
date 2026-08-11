@@ -105,7 +105,7 @@ $server->on('WorkerStart', function () {
 | `Gene\Memory` | `mget(array $keys)` | 批量获取缓存值 |
 | `Gene\Memory` | `mset(array $items, int $ttl)` | 批量设置缓存值 |
 | `Gene\Monitor` | `reset()` | 重置所有累计计数器 |
-| `Gene\Monitor` | `exportPrometheus()` | Prometheus 文本格式导出 |
+| `Gene\Monitor` | `prometheus()` | Prometheus 文本格式导出 |
 
 ### P2 级
 

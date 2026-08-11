@@ -42,7 +42,7 @@ Controller → Service → Model
 
 - **Controller**：`$this->request` 取参 → `$this->validate` 校验 → 调 `XxxService::getInstance()` → `return $this->data()/success()/error()` 或 `display()`
 - **Service**：继承 `\Gene\Service`，业务与 `cachedVersion` / `updateVersion`
-- **Model**：继承 `\Gene\Model`，仅 `$this->db` 链式 SQL
+- **Model**：数据模型继承 `\Gene\Orm\Model` 使用 ActiveRecord；需要手写 SQL 时继承 `\Gene\Model` 并使用 `$this->db` 链式调用
 
 继承：`\Gene\Controller`、`\Gene\Service`、`\Gene\Model`、`\Gene\Hook`。
 
