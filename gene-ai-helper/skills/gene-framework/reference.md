@@ -511,7 +511,7 @@ $list = $this->db
 ->in("group_id in(?)", [1, 2, 3])           // IN 条件
 ```
 
-**属性**：`$config`, `$pdo`, `$sql`, `$where`, `$group`, `$having`, `$order`, `$limit`, `$data`
+**属性**：`$config`, `$pdo`, `$sql`, `$where`, `$group`, `$having`, `$order`, `$limit`, `$lock`, `$data`
 
 | 方法 | 说明 |
 |------|------|
@@ -521,19 +521,28 @@ $list = $this->db
 | count($table, $fields = null) | 构建 SELECT count，返回 $this |
 | insert($table, $fields) | 构建 INSERT（$fields 为关联数组），返回 $this |
 | batchInsert($table, $fields) | 构建批量 INSERT（$fields 为二维数组），返回 $this |
+| insertIgnore($table, $fields) | 幂等写入（MySQL INSERT IGNORE / SQLite INSERT OR IGNORE；Pgsql/Mssql 抛异常），惰性执行（6.1.0+） |
+| upsert($table, $fields, $updateCols) | INSERT ... ON DUPLICATE KEY UPDATE（MySQL 专属；SQLite/Pgsql/Mssql 抛异常），惰性执行（6.1.0+） |
 | update($table, $fields) | 构建 UPDATE（$fields 为关联数组），返回 $this |
 | delete($table) | 构建 DELETE，返回 $this |
 | where($where, $fields = null) | 设置 WHERE 条件，返回 $this |
 | in($in, $fields = null) | 设置 IN 条件（含 `in(?)` 占位符），返回 $this |
+| join($table, $on, $type = 'INNER') | JOIN：$on 为 leftColumn=>rightColumn 关联数组；type 支持 INNER/LEFT/RIGHT/CROSS/FULL（6.1.0+） |
+| leftJoin($table, $on) / rightJoin($table, $on) | LEFT/RIGHT JOIN 简写（6.1.0+） |
+| union($query, $all = false) | UNION / UNION ALL；$query 可为 SQL 字符串或构建器对象（6.1.0+） |
+| reset() | 重置构建器状态（sql/join/where/group/having/union/order/limit/data），便于复用同一实例（6.1.0+） |
 | sql($sql, $fields = null) | 设置原始 SQL，返回 $this |
 | limit($num, $offset = null) | 单参时 `$num` 为返回行数，生成 `LIMIT $num`；双参时 `$num` 为偏移量、`$offset` 为返回行数，生成 `LIMIT $num, $offset`，返回 $this |
 | order($order), group($group), having($having) | ORDER BY / GROUP BY / HAVING，返回 $this |
+| lockForUpdate() | SELECT ... FOR UPDATE（MySQL/Pgsql）；Sqlite no-op+E_NOTICE；Mssql 抛异常；须在事务内（6.1.0+） |
+| sharedLock() | SELECT ... LOCK IN SHARE MODE（MySQL）/ FOR SHARE（Pgsql）；Sqlite no-op+E_NOTICE；Mssql 抛异常；须在事务内（6.1.0+） |
 | execute() | 执行 SQL，返回 PDOStatement |
 | all() | 执行并 fetchAll()，返回数组或 null |
 | row() | 执行并 fetch()，返回单行或 null |
 | cell() | 执行并 fetchColumn()，返回单列值或 null |
-| lastId() | 写操作后返回最后插入 ID |
-| affectedRows() | 写操作后返回受影响行数 |
+| lastId() / lastInsertId() | 写操作后返回最后插入 ID（lastInsertId 为 PDO 命名别名，5.7.0+） |
+| affectedRows() / rowCount() | 写操作后返回受影响行数（rowCount 为 PDO 命名别名，5.7.0+） |
+| quote($str, $paramType = PDO::PARAM_STR) | PDO::quote 透传，字符串字面量转义（5.7.0+） |
 | print() | 不执行，返回 `['sql' => ..., 'param' => ...]`（调试用） |
 | beginTransaction(), inTransaction(), rollBack(), commit() | 事务操作 |
 | release() | 将 PDO 连接归还连接池（启用 pool 时），非 pool 模式为空操作 |
@@ -544,22 +553,29 @@ $list = $this->db
 
 ## Gene\Db\Sqlite
 
-SQLite 数据库。API 与 Mysql 完全一致。
-`limit($num, $offset)` 生成 `LIMIT $offset OFFSET $num`。
+SQLite 数据库。API 与 Mysql 一致，差异如下：
+- `limit($num, $offset)` 生成 `LIMIT $offset OFFSET $num`
+- `insertIgnore` 走 `INSERT OR IGNORE`（6.1.0+）；`upsert` 抛异常（用 `sql()` + ON CONFLICT）
+- `lockForUpdate`/`sharedLock`：no-op + E_NOTICE（SQLite 写锁为整库级，6.1.0+）
+- `attach($path, $schema)` / `detach($schema)`：附加/分离外部 SQLite 数据库文件
 
 ---
 
 ## Gene\Db\Pgsql
 
-PostgreSQL 数据库。API 与 Mysql 完全一致。
-`limit($num, $offset)` 生成 `LIMIT $offset OFFSET $num`。
+PostgreSQL 数据库。API 与 Mysql 一致，差异如下：
+- `limit($num, $offset)` 生成 `LIMIT $offset OFFSET $num`
+- `insertIgnore`/`upsert` 抛异常（用 `sql()` + ON CONFLICT DO NOTHING/UPDATE，6.1.0+）
+- `lockForUpdate` → `FOR UPDATE`；`sharedLock` → `FOR SHARE`（6.1.0+）
 
 ---
 
 ## Gene\Db\Mssql
 
-MS SQL Server 数据库。API 与 Mysql 完全一致。
-表名使用方括号包裹；`limit($num, $offset)` 生成 `OFFSET $num ROWS FETCH NEXT $offset ROWS ONLY`。
+MS SQL Server 数据库。API 与 Mysql 一致，差异如下：
+- 表名使用方括号包裹；`limit($num, $offset)` 生成 `OFFSET $num ROWS FETCH NEXT $offset ROWS ONLY`
+- `insertIgnore`/`upsert` 抛异常（用 `sql()` + MERGE/IF NOT EXISTS，6.1.0+）
+- `lockForUpdate`/`sharedLock` 抛异常（WITH (UPDLOCK)/HOLDLOCK 是表提示，需写在 FROM 处，6.1.0+）
 
 ---
 
