@@ -455,3 +455,56 @@ Db 侧需新增 `LOCK` 片段属性，拼装位置在 `limit` **之后**（现�
 | FULLTEXT + 中文 LIKE 回退 | `Chunk::searchFulltext` / `matchContentKeywords` — 业务检索策略 |
 | Pay 事务内调第三方 HTTP | `Controllers/Admin/Pay.php` — 业务反模式 |
 | 请求内 schema 迁移 | `ensureColumn` / `information_schema` — 应 CLI 迁移，不固化进框架 |
+
+---
+
+## 十、落地复盘（6.1.0，2026-08）
+
+### 10.1 完成项与验收
+
+| 阶段 | 项 | 状态 | 验收 |
+|------|----|------|------|
+| A0 | §3.0 Query 有序 ops 列表 + AND 连接符 | ✅ | `OrmTest.php` 多 where + 多 join + group + having 混合 SQL 文本断言 |
+| A | §3.1 Query join/group/having/first/update/delete + where(op) + in + paginate(order) + fields 投影 | ✅ | OrmTest + DatabaseTest 全绿 |
+| A | §3.5 findMany / whereIn 空数组语义 / 比较 where | ✅ | 空数组不发 SQL 断言；>1000 E_NOTICE |
+| A | §3.4 lockForUpdate / sharedLock（4 驱动分级 + LOCK 段 + reset_sql_params） | ✅ | 4 驱动 ide-helper 标明差异；事务外 E_NOTICE |
+| A | §3.2 可配置 timestamps（meta 四处同步） | ✅ | `$createdAt`/`$updatedAt`/`$timestampFormat`；payload 已含列不覆盖；time(NULL) 避免 Swoole 冻结 |
+| A | §3.3 createMany / insertIgnore / upsert / updateOrCreate | ✅ | createMany 校验行 key 一致；>5000 E_NOTICE；驱动差异文档化 |
+| A | §4.3′ 事务卫生：请求收尾脏事务回滚 | ✅ | `audit/repro/tx_leak_persistent.php` 复现；`clearState()` 检测并 rollBack |
+| B | §4.1 toggle / whereLike escape | ✅ | toggle CAS 语义；whereLike 自动转义 `\ % _` + ESCAPE 子句 |
+| B | §4.2 selectSub | ✅ | 子查询列追加，$sql 开发者书写不转义 |
+| B | §4.4 Validate 文档 | ✅ | reference.md `extend()` 已文档化 |
+
+### 10.2 测试与内存
+
+- `php test/OrmTest.php`：**114 tests passed, 0 failed**
+- `php test/DatabaseTest.php`：全绿
+- `audit/repro/*.php`：全部复现通过
+- 10k 次循环压测：`memory_get_usage(true)` 稳定，无泄漏
+
+### 10.3 文档同步
+
+- `gene-ide-helper/Gene/Orm/Query.php`：v2 一次性构建器语义、所有新方法
+- `gene-ide-helper/Gene/Orm/Model.php`：`$timestamps`/`$createdAt`/`$updatedAt`/`$timestampFormat`、findMany/createMany/insertIgnore/updateOrCreate/toggle
+- `gene-ide-helper/Gene/Db/{Mysql,Sqlite,Pgsql,Mssql}.php`：insertIgnore/upsert/lockForUpdate/sharedLock/join/leftJoin/rightJoin/union/reset + 驱动差异
+- `gene-ai-helper/skills/gene-framework/reference.md`：Orm\Model v2 章节、Db×4 方法表与驱动差异
+- `gene-ai-helper/skills/gene-framework/swoole.md`：§4.3 ORM v2 示例、`clearState()` 事务回滚说明
+- `gene-ai-helper/skills/gene-framework/SKILL.md` / `AGENTS.md`：版本线 5.6.x → 6.1.x
+
+### 10.4 偏差与决策记录
+
+1. **`upsert` 驱动支持收窄**：原计划「MySQL 先落地，其它驱动文档标明降级」，实施时明确 SQLite/Pgsql/Mssql 均**抛异常**（而非静默降级），避免业务误用为可移植 API。跨驱动场景文档引导用 `sql()` + ON CONFLICT/MERGE。
+2. **`whereLike` 转义策略**：采用 `addslashes` + ESCAPE 子句（驱动自适应），而非依赖 PDO::quote（会带引号包裹）。文档明示「业务已自行转义（如 escapeLikePattern）请勿再调，避免双转义」。
+3. **`paginate` JOIN 场景**：维持计划约束——仅保证单表语义，JOIN 场景需调用方显式 `count()` + `all()` 两步。未做「自动推导 JOIN count」。
+4. **`clearState()` 事务回滚**：原计划 §4.3′ 描述为「FPM 请求收尾」，实施时统一在 `clearState()` 中检测 `inTransaction()` 为真时 `E_WARNING` + `rollBack()`，覆盖 FPM 与 Swoole 两种形态。
+5. **时间源**：`time(NULL)` 而非 `sapi_get_request_time()`（后者在 Swoole worker 下会冻结）。
+
+### 10.5 待办（apistore 侧迁移，阶段 C）
+
+框架 API 已就绪，以下迁移属 apistore 项目职责，不在 Gene 仓库范围：
+
+- `BaseCrud::lists` → `Model::paginate($where, $offset, $limit, $order)`
+- `Document` 切块 → `Chunk::createMany($rows)`
+- `MemoryManager` / `SkillInjector` → `findMany` + 游标 `where('id', '>=', $anchor)->limit(n)`
+- `Task::rowForUpdate` → `query()->where()->lockForUpdate()->row()`
+- `TaskLog` / 幂等表 → `insertIgnore`

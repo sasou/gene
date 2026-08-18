@@ -1,9 +1,9 @@
 ---
 name: gene-framework
 description: >-
-  基于 Gene PHP C 扩展框架（5.6.x）开发 Web、REST、CLI 或 Swoole 常驻应用。
+  基于 Gene PHP C 扩展框架（6.1.x）开发 Web、REST、CLI 或 Swoole 常驻应用。
   在用户编写/修改 Gene 项目的控制器、路由、配置、Service、Model、钩子、缓存、
-  多语言、Session，或询问 Gene API、Swoole 连接池、版本化缓存时使用。
+  多语言、Session，或询问 Gene API、Swoole 连接池、版本化缓存、ORM v2 时使用。
 ---
 
 # Gene 框架开发

@@ -207,21 +207,36 @@ class User extends \Gene\Orm\Model {
     protected static string $table = 'sys_user';
     protected static string $primaryKey = 'user_id';
     protected static array $fields = ['user_id', 'user_name', 'status'];
+    protected static bool $timestamps = true;       // 6.1.0+：自动填充 created_at/updated_at
 }
 
 User::find(1);
-User::paginate(['status' => 1], 0, 20);
+User::findMany([1, 2, 3]);                          // 6.1.0+：主键 IN 批量取
+User::paginate(['status' => 1], 0, 20, 'user_id desc');
 User::create($data);
-User::query()->where(['status' => 1])->order('user_id desc')->all();
+User::createMany([$row1, $row2]);                   // 6.1.0+：批量插入
+User::insertIgnore($data);                          // 6.1.0+：幂等写入
+User::updateOrCreate(['name' => $n], $data);        // 6.1.0+：查到更新/否则插入
+User::toggle($id, 'status');                        // 6.1.0+：CAS 状态翻转
+User::query()
+    ->fields(['u.user_id', 'u.user_name'])
+    ->join('orders o', ['o.user_id' => 'u.user_id'], 'LEFT')
+    ->where(['u.status' => 1])
+    ->where('u.user_id', '>=', $anchor)             // 6.1.0+：比较简写
+    ->whereLike('u.user_name', $kw)                 // 6.1.0+：LIKE %kw%（自动转义）
+    ->selectSub('SELECT count(*) FROM orders WHERE user_id=u.user_id', 'oc')
+    ->group('u.user_id')->having('oc >= 1')
+    ->order('u.user_id desc')->limit(0, 20)
+    ->all();
 ```
 
 | 运行时 | 配置要求 | ORM 注意 |
 |--------|----------|----------|
 | FPM | `db.instance => false` 即可 | 每次新建 Db；仍会 reset |
 | Swoole | `instance => true` + `pool` + `Pool::create` | 协程级 Db 单例；**禁止** `ATTR_PERSISTENT` |
-| 请求结束 | `cleanup(true)` | meta 缓存随请求上下文释放，无需额外 flush |
+| 请求结束 | `cleanup(true)` | meta 缓存随请求上下文释放；`clearState()` 会 rollBack 残留事务（6.1.0+） |
 
-复杂 SQL（join / raw）继续用继承来的 `$this->db`。
+复杂 SQL（join / raw）继续用继承来的 `$this->db`。`Query` 是一次性构建器（构建→执行→丢弃），不可缓存复用，也不可交错构建两个（共享同一 DI Db 句柄）。
 
 ### 4.4 其他组件
 
@@ -288,7 +303,7 @@ API 与 `Gene\Pool` 对称：
 | `setResponse($response)` | 每个 `request`，在 `run()` 前 |
 | `run()` | 无参；等价于自动检测当前 Request |
 | `cleanup($gc = false)` | 每个 `request` 的 `finally`；推荐 `cleanup(true)` |
-| `clearState()` / `destroyContext()` | 低层拆分清理；**优先用 `cleanup()`** |
+| `clearState()` / `destroyContext()` | 低层拆分清理；**优先用 `cleanup()`**。`clearState()` 会检测仍开启的事务并 rollBack（6.1.0+），避免持久连接上脏事务跨请求泄漏 |
 
 ### `workerReady()` 的副作用
 

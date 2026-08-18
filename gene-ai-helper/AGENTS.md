@@ -7,7 +7,7 @@
 
 ## 1. 框架认知
 
-- Gene 是 **PHP 扩展**（`extension=gene`），版本线 **5.6.x**，要求 **PHP 8.0+**
+- Gene 是 **PHP 扩展**（`extension=gene`），版本线 **6.1.x**，要求 **PHP 8.0+**
 - 权威 API 来源：`gene-ide-helper/Gene/**/*.php`、`demo/` 示例
 - **禁止**编造类名、方法名或配置键；不确定时 grep 仓库或读 reference
 
