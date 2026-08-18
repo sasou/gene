@@ -25,6 +25,7 @@ class Pgsql
     public $having;
     public $order;
     public $limit;
+    public $lock;
     public $data;
     protected static $history;
 
@@ -210,6 +211,50 @@ class Pgsql
      * @return static
      */
     public function limit($num, $offset = null) {
+
+    }
+
+    /**
+     * insertIgnore — Pgsql 不支持该构建器 API（6.1.0+），调用即抛异常；
+     * 请用 sql() 书写 ON CONFLICT DO NOTHING。
+     *
+     * @param string $table
+     * @param array $fields
+     * @return static
+     */
+    public function insertIgnore($table, $fields) {
+
+    }
+
+    /**
+     * upsert — Pgsql 不支持该构建器 API（6.1.0+），调用即抛异常；
+     * 请用 sql() 书写 ON CONFLICT ... DO UPDATE。
+     *
+     * @param string $table
+     * @param array $fields
+     * @param array $updateCols
+     * @return static
+     */
+    public function upsert($table, $fields, $updateCols) {
+
+    }
+
+    /**
+     * lockForUpdate — SELECT ... FOR UPDATE（6.1.0+），拼在 LIMIT 之后。
+     * 锁只在事务内有效：不在事务中调用会发 E_NOTICE。
+     *
+     * @return static
+     */
+    public function lockForUpdate() {
+
+    }
+
+    /**
+     * sharedLock — SELECT ... FOR SHARE（6.1.0+）。同须在事务内。
+     *
+     * @return static
+     */
+    public function sharedLock() {
 
     }
 

@@ -259,17 +259,55 @@ $title = $this->language->login_title; // 读取键值
 
 ---
 
-## Orm\Model / Orm\Query（ActiveRecord v1）
+## Orm\Model / Orm\Query（ActiveRecord v2，6.1.0+）
 
 数据 Model 继承 `\Gene\Orm\Model`（本身继承 `\Gene\Model`）。声明 `static $table` / `$primaryKey` / `$fields`。
 
+| 静态属性 | 说明 |
+|----------|------|
+| $timestamps | true 时 create/save/updateBy/toggle/createMany 自动填充时间列；payload 已含该列则不覆盖 |
+| $createdAt / $updatedAt | 时间列名，默认 `created_at`/`updated_at`；设为 `null`/`''` 则该列不写（6.1.0+） |
+| $timestampFormat | `'datetime'`（Y-m-d H:i:s，默认）或 `'unix'`（int 秒）（6.1.0+） |
+
 | 方法 | 说明 |
 |------|------|
-| find($id, $asModel = false) / findAll($where = []) / paginate($where, $offset, $limit) | 查询；默认返回数组，`find($id, true)` 返回模型实例 |
+| find($id, $asModel = false) / findAll($where = []) | 查询；默认返回数组，`find($id, true)` 返回模型实例 |
+| findMany($ids, $preserveOrder = false) | 主键 IN 批量取（一次查询）；空数组返回 [] 不发 SQL；>1000 发 E_NOTICE（6.1.0+） |
+| paginate($where, $offset, $limit, $order = null) | {count, list}；order 仅作用于列表阶段（6.1.0+） |
 | query() / where($where, $bind = null) | 返回 `Gene\Orm\Query` |
 | create($data) / updateBy($where, $data) / destroy($id) / destroyAll($ids) | 写入 |
+| createMany($rows) | 批量插入（一次 round-trip），返回影响行数；每行键集合与顺序必须一致，否则抛异常；大批量在调用方分片（建议 500/批），>5000 发 E_NOTICE（6.1.0+） |
+| insertIgnore($data) | 幂等写入（MySQL INSERT IGNORE / SQLite INSERT OR IGNORE；Pgsql/Mssql 抛异常），返回影响行数（6.1.0+） |
+| updateOrCreate($where, $data) | 查到则更新（返回影响行数），否则插入（返回新 id，关联数组 where 并入新行）；非原子，并发竞争用唯一键 + insertIgnore（6.1.0+） |
+| toggle($id, $field, $values = [0, 1]) | 状态翻转（CAS：WHERE pk=? AND field=?，并发败者返回 0）；$timestamps 开启时同步 $updatedAt（6.1.0+） |
 | fill($data, $hydrate = true) / setExists($exists = false) / save() / delete() / toArray() | 实例 ActiveRecord；含非空主键的 `fill()` 默认标记为已持久化，新增自然主键/UUID 数据请用 `fill($data, false)`、`setExists(false)` 或 `create()` |
-| Query: where / in / order / limit / all / row / cell / count | 终端方法后 reset Db；`Query` 不应直接 new |
+
+### Query（有序 ops 列表，6.1.0+）
+
+Query 是**一次性构建器**（构建 → 执行 → 丢弃），不可缓存或交错构建两个（共享同一 DI Db 句柄，执行时先 reset）。条件**累加**而非覆盖：
+
+```php
+User::query()
+    ->fields(['u.id', 'u.name'])
+    ->join('orders o', ['o.user_id' => 'u.id'], 'LEFT')
+    ->where(['u.status' => 1])          // 数组条件
+    ->where('u.name != ?', $x)          // 原始片段（之间自动 AND）
+    ->where('u.id', '>=', $anchor)      // 比较简写：> >= < <= != =（白名单外抛异常）
+    ->in('u.id', $ids)                  // 列形式；空数组 → 终端直接返回空，不发 SQL
+    ->whereLike('u.name', $kw)          // LIKE %kw%（自动转义 \ % _，勿双转义）
+    ->selectSub('SELECT count(*) FROM orders', 'oc')  // 子查询列（$sql 开发者书写不转义）
+    ->group('u.id')->having('count(o.id) >= 1')
+    ->order('u.id desc')->limit($off, $n)
+    ->all();
+```
+
+| 终端方法 | 说明 |
+|----------|------|
+| all() / row() / cell() / first() | 查询；first() = limit(1)+row() |
+| count() | 继承 where/join/group/having，忽略 order/limit/lock |
+| paginate($offset, $limit) | {count, list}；仅保证单表语义，JOIN 场景用 count()+all() 两步 |
+| update($data) / delete() | 立即执行，返回影响行数；**必须**带 where()/in() 条件，否则抛异常；不支持 join |
+| lockForUpdate() / sharedLock() | 行锁（仅 select 终端；MySQL FOR UPDATE / LOCK IN SHARE MODE，Pgsql FOR UPDATE / FOR SHARE，Sqlite no-op+E_NOTICE，Mssql 抛异常）；须在事务内，否则 E_NOTICE |
 
 复杂 SQL 仍用 `$this->db`。Swoole 下配合 `instance=>true` + Pool；见 `swoole.md` §4.3。
 

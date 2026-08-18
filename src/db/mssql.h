@@ -27,6 +27,7 @@
 #define GENE_DB_MSSQL_UNION "union"
 #define GENE_DB_MSSQL_ORDER "order"
 #define GENE_DB_MSSQL_LIMIT "limit"
+#define GENE_DB_MSSQL_LOCK "lock"
 #define GENE_DB_MSSQL_DATA "data"
 #define GENE_DB_MSSQL_HISTORY "history"
 #define GENE_DB_MSSQL_POOL "pool"

@@ -54,6 +54,7 @@ class OrmTest
             'find', 'findAll', 'paginate', 'query', 'where',
             'create', 'updateBy', 'destroy', 'destroyAll',
             'fill', 'save', 'delete', 'toArray', 'getInstance', 'setExists',
+            'findMany', 'createMany', 'insertIgnore', 'updateOrCreate', 'toggle',
             '__get', '__set', '__isset', '__unset',
         ];
         foreach ($methods as $m) {
@@ -64,7 +65,9 @@ class OrmTest
             }
         }
 
-        foreach (['where', 'in', 'order', 'limit', 'all', 'row', 'cell', 'count'] as $m) {
+        foreach (['where', 'in', 'order', 'limit', 'all', 'row', 'cell', 'count',
+            'join', 'group', 'having', 'fields', 'first', 'paginate', 'update', 'delete',
+            'lockForUpdate', 'sharedLock', 'selectSub', 'whereLike'] as $m) {
             if (!method_exists('\\Gene\\Orm\\Query', $m)) {
                 $this->fail("missing method Query::$m");
             } else {
@@ -383,10 +386,466 @@ class OrmTest
         }
     }
 
+    /**
+     * Last executed SQL for a db handle via history(). Returns null when
+     * history is disabled (gene.run_environment=1) — callers skip text
+     * assertions gracefully in that case.
+     */
+    private function lastSql($db)
+    {
+        $h = $db->history();
+        if (!is_array($h) || !count($h)) {
+            return null;
+        }
+        $last = end($h);
+        return $last['sql'] ?? null;
+    }
+
+    public function testQueryOpsList()
+    {
+        echo "\nTesting Query ops list / v2 API (SQLite):\n";
+
+        if (!class_exists('\\Gene\\Orm\\Model') || !class_exists('\\Gene\\Db\\Sqlite')) {
+            $this->fail('skip Query ops — extension classes missing');
+            return;
+        }
+
+        try {
+            $db = new \Gene\Db\Sqlite(['dsn' => 'sqlite::memory:']);
+            $db->sql('CREATE TABLE q_users (id INTEGER PRIMARY KEY AUTOINCREMENT, name TEXT, status INTEGER DEFAULT 1)')->execute();
+            $db->sql('CREATE TABLE q_orders (id INTEGER PRIMARY KEY AUTOINCREMENT, user_id INTEGER, amount INTEGER)')->execute();
+            \Gene\Di::set('q_db', $db);
+
+            if (!class_exists('OrmTestQUser')) {
+                eval('class OrmTestQUser extends \\Gene\\Orm\\Model {
+                    protected static $table = "q_users";
+                    protected static $connection = "q_db";
+                }');
+                eval('class OrmTestQOrder extends \\Gene\\Orm\\Model {
+                    protected static $table = "q_orders";
+                    protected static $connection = "q_db";
+                }');
+            }
+
+            OrmTestQUser::create(['name' => 'u1', 'status' => 1]);
+            OrmTestQUser::create(['name' => 'u2', 'status' => 1]);
+            OrmTestQUser::create(['name' => 'u3', 'status' => 0]);
+            OrmTestQOrder::create(['user_id' => 1, 'amount' => 10]);
+            OrmTestQOrder::create(['user_id' => 1, 'amount' => 20]);
+            OrmTestQOrder::create(['user_id' => 2, 'amount' => 5]);
+
+            // [A0] 3 wheres (mixed array/string/3-arg) must ALL apply — v1
+            // silently kept only the last one.
+            $rows = OrmTestQUser::query()
+                ->where(['status' => 1])
+                ->where('name != ?', 'u9')
+                ->where('id', '>=', 1)
+                ->all();
+            if (is_array($rows) && count($rows) === 2) {
+                $this->ok('A0: 3 mixed wheres accumulate (2 rows)');
+            } else {
+                $this->fail('A0 multi-where: ' . json_encode($rows));
+            }
+            $sql = $this->lastSql($db);
+            if ($sql !== null) {
+                if (strpos($sql, ' AND ') !== false && strpos($sql, 'name != ?') !== false
+                    && strpos($sql, 'id >= ?') !== false) {
+                    $this->ok("A0: SQL has AND connectors: $sql");
+                } else {
+                    $this->fail("A0 SQL text: $sql");
+                }
+            }
+
+            // [A0] multiple joins + group + having
+            $rows = OrmTestQUser::query()
+                ->fields(['q_users.id', 'name'])
+                ->join('q_orders', ['q_orders.user_id' => 'q_users.id'], 'INNER')
+                ->group('q_users.id')
+                ->having('count(q_orders.id) >= 2')
+                ->selectSub('SELECT count(*) FROM q_orders', 'oc')
+                ->all();
+            $sql = $this->lastSql($db);
+            if (is_array($rows) && count($rows) === 1 && ($rows[0]['name'] ?? '') === 'u1'
+                && isset($rows[0]['oc']) && (int)$rows[0]['oc'] === 3) {
+                $this->ok('A0/4.2: join+group+having+selectSub result');
+            } else {
+                $this->fail('join/group/having/selectSub: ' . json_encode($rows));
+            }
+            if ($sql !== null) {
+                if (strpos($sql, 'INNER JOIN') !== false && strpos($sql, 'GROUP BY') !== false
+                    && strpos($sql, 'HAVING') !== false && strpos($sql, ') AS `oc`') !== false) {
+                    $this->ok("A0: SQL text: $sql");
+                } else {
+                    $this->fail("A0 join SQL: $sql");
+                }
+            }
+
+            // 3-arg where rejects non-whitelisted operator
+            $threw = false;
+            try {
+                OrmTestQUser::query()->where('id', '; DROP TABLE q_users; --', 1)->all();
+            } catch (\Throwable $e) {
+                $threw = true;
+            }
+            if ($threw) {
+                $this->ok('where($col, $op, $val) rejects rogue operator');
+            } else {
+                $this->fail('where() operator whitelist not enforced');
+            }
+
+            // in() column form + empty-array semantics
+            $rows = OrmTestQUser::query()->in('id', [1, 3])->order('id asc')->all();
+            if (is_array($rows) && count($rows) === 2 && ($rows[0]['id'] ?? 0) == 1 && ($rows[1]['id'] ?? 0) == 3) {
+                $this->ok('in($col, array) expands');
+            } else {
+                $this->fail('in($col, array): ' . json_encode($rows));
+            }
+            $before = count((array)$db->history());
+            $rows = OrmTestQUser::query()->in('id', [])->all();
+            $after = count((array)$db->history());
+            if (is_array($rows) && count($rows) === 0 && $after === $before) {
+                $this->ok('in($col, []) returns [] with NO sql');
+            } else {
+                $this->fail("empty in: rows=" . json_encode($rows) . " sql_delta=" . ($after - $before));
+            }
+            $cnt = OrmTestQUser::query()->in('id', [])->count();
+            if ($cnt === 0) {
+                $this->ok('in($col, []) -> count()=0');
+            } else {
+                $this->fail('empty in count: ' . var_export($cnt, true));
+            }
+            $pg = OrmTestQUser::query()->in('id', [])->paginate(0, 10);
+            if (is_array($pg) && $pg['count'] === 0 && $pg['list'] === []) {
+                $this->ok('in($col, []) -> paginate {0, []}');
+            } else {
+                $this->fail('empty in paginate: ' . json_encode($pg));
+            }
+
+            // first()
+            $one = OrmTestQUser::query()->order('id desc')->first();
+            if (is_array($one) && ($one['name'] ?? '') === 'u3') {
+                $this->ok('first() = limit(1)+row()');
+            } else {
+                $this->fail('first(): ' . json_encode($one));
+            }
+
+            // Query::paginate inherits order on list, count unpolluted
+            $pg = OrmTestQUser::query()->where('status', '=', 1)->order('id desc')->paginate(0, 1);
+            if (is_array($pg) && $pg['count'] === 2 && count($pg['list']) === 1
+                && ($pg['list'][0]['name'] ?? '') === 'u2') {
+                $this->ok('Query::paginate(offset, limit) + order');
+            } else {
+                $this->fail('Query::paginate: ' . json_encode($pg));
+            }
+
+            // Model::paginate 4th arg order
+            $pg = OrmTestQUser::paginate(['status' => 1], 0, 1, 'id desc');
+            if (is_array($pg) && $pg['count'] === 2 && ($pg['list'][0]['name'] ?? '') === 'u2') {
+                $this->ok('Model::paginate(..., $order)');
+            } else {
+                $this->fail('Model::paginate order: ' . json_encode($pg));
+            }
+
+            // Query::update / delete (immediate, require conditions)
+            $n = OrmTestQUser::query()->where(['name' => 'u3'])->update(['status' => 9]);
+            $chk = OrmTestQUser::query()->where(['name' => 'u3'])->first();
+            if ($n === 1 && ($chk['status'] ?? null) == 9) {
+                $this->ok('Query::update executes (affected=1)');
+            } else {
+                $this->fail("Query::update n=$n row=" . json_encode($chk));
+            }
+            $threw = false;
+            try {
+                OrmTestQUser::query()->update(['status' => 0]);
+            } catch (\Throwable $e) {
+                $threw = true;
+            }
+            if ($threw) {
+                $this->ok('Query::update without where throws');
+            } else {
+                $this->fail('Query::update without where did not throw');
+            }
+            $threw = false;
+            try {
+                OrmTestQUser::query()->join('q_orders', ['q_orders.user_id' => 'q_users.id'])
+                    ->where('id', '>=', 1)->delete();
+            } catch (\Throwable $e) {
+                $threw = true;
+            }
+            if ($threw) {
+                $this->ok('Query::delete with join throws');
+            } else {
+                $this->fail('Query::delete with join did not throw');
+            }
+            $n = OrmTestQUser::query()->where(['name' => 'u3'])->delete();
+            if ($n === 1 && OrmTestQUser::query()->where(['name' => 'u3'])->count() === 0) {
+                $this->ok('Query::delete executes (affected=1)');
+            } else {
+                $this->fail("Query::delete n=$n");
+            }
+
+            // whereLike escapes % and _
+            OrmTestQUser::create(['name' => '100%real', 'status' => 1]);
+            OrmTestQUser::create(['name' => '100xreal', 'status' => 1]);
+            $rows = OrmTestQUser::query()->whereLike('name', '100%r')->all();
+            if (is_array($rows) && count($rows) === 1 && ($rows[0]['name'] ?? '') === '100%real') {
+                $this->ok('whereLike escapes % (did not match 100xreal)');
+            } else {
+                $this->fail('whereLike: ' . json_encode($rows));
+            }
+            $sql = $this->lastSql($db);
+            if ($sql !== null) {
+                if (strpos($sql, 'LIKE ? ESCAPE') !== false) {
+                    $this->ok("whereLike SQL: $sql");
+                } else {
+                    $this->fail("whereLike SQL: $sql");
+                }
+            }
+
+            // lockForUpdate on sqlite: E_NOTICE no-op, query still works
+            $notice = null;
+            set_error_handler(function ($no, $str) use (&$notice) { $notice = $str; return true; }, E_NOTICE);
+            $rows = OrmTestQUser::query()->where('id', '>=', 1)->lockForUpdate()->all();
+            restore_error_handler();
+            if ($notice !== null && is_array($rows) && count($rows) >= 1) {
+                $this->ok('lockForUpdate no-op + E_NOTICE on sqlite');
+            } else {
+                $this->fail('sqlite lockForUpdate: notice=' . var_export($notice, true));
+            }
+
+            OrmTestQUser::destroyAll([]); // no-op sanity (0 rows)
+        } catch (\Throwable $e) {
+            $this->fail('Query ops exception: ' . $e->getMessage());
+        }
+    }
+
+    public function testBatchAndIdempotent()
+    {
+        echo "\nTesting createMany / insertIgnore / updateOrCreate / findMany / toggle (SQLite):\n";
+
+        if (!class_exists('\\Gene\\Orm\\Model') || !class_exists('\\Gene\\Db\\Sqlite')) {
+            $this->fail('skip batch — extension classes missing');
+            return;
+        }
+
+        try {
+            $db = new \Gene\Db\Sqlite(['dsn' => 'sqlite::memory:']);
+            $db->sql('CREATE TABLE b_items (id INTEGER PRIMARY KEY AUTOINCREMENT, sku TEXT UNIQUE, qty INTEGER DEFAULT 0)')->execute();
+            \Gene\Di::set('b_db', $db);
+
+            if (!class_exists('OrmTestBItem')) {
+                eval('class OrmTestBItem extends \\Gene\\Orm\\Model {
+                    protected static $table = "b_items";
+                    protected static $connection = "b_db";
+                }');
+            }
+
+            // createMany: one round-trip, returns affected rows
+            $n = OrmTestBItem::createMany([
+                ['sku' => 'a', 'qty' => 1],
+                ['sku' => 'b', 'qty' => 2],
+                ['sku' => 'c', 'qty' => 3],
+            ]);
+            if ($n === 3 && OrmTestBItem::query()->count() === 3) {
+                $this->ok('createMany 3 rows, affected=3');
+            } else {
+                $this->fail("createMany n=$n");
+            }
+
+            // key-order mismatch must throw (VALUES align by position)
+            $threw = false;
+            try {
+                OrmTestBItem::createMany([
+                    ['sku' => 'd', 'qty' => 4],
+                    ['qty' => 5, 'sku' => 'e'],
+                ]);
+            } catch (\Throwable $e) {
+                $threw = true;
+            }
+            if ($threw) {
+                $this->ok('createMany rejects reordered keys');
+            } else {
+                $this->fail('createMany accepted reordered keys (misaligned VALUES)');
+            }
+
+            // insertIgnore: duplicate sku ignored, affected=0
+            $n = OrmTestBItem::insertIgnore(['sku' => 'a', 'qty' => 99]);
+            if ($n === 0 && (int)OrmTestBItem::query()->where(['sku' => 'a'])->cell() !== 99) {
+                $this->ok('insertIgnore duplicate -> 0 affected, row untouched');
+            } else {
+                $this->fail("insertIgnore n=$n");
+            }
+            $n = OrmTestBItem::insertIgnore(['sku' => 'z', 'qty' => 7]);
+            if ($n === 1) {
+                $this->ok('insertIgnore new row -> 1 affected');
+            } else {
+                $this->fail("insertIgnore new n=$n");
+            }
+
+            // updateOrCreate both branches
+            $r = OrmTestBItem::updateOrCreate(['sku' => 'b'], ['qty' => 42]);
+            $q = OrmTestBItem::query()->where(['sku' => 'b'])->first();
+            if ($r >= 1 && (int)($q['qty'] ?? 0) === 42) {
+                $this->ok('updateOrCreate updates existing');
+            } else {
+                $this->fail("updateOrCreate update: r=$r " . json_encode($q));
+            }
+            $r = OrmTestBItem::updateOrCreate(['sku' => 'fresh'], ['qty' => 5]);
+            $q = OrmTestBItem::query()->where(['sku' => 'fresh'])->first();
+            if ($r > 0 && is_array($q) && (int)$q['qty'] === 5) {
+                $this->ok('updateOrCreate inserts with where attrs merged');
+            } else {
+                $this->fail("updateOrCreate create: r=" . var_export($r, true) . ' ' . json_encode($q));
+            }
+
+            // findMany + preserveOrder
+            $all = OrmTestBItem::query()->fields(['id', 'sku'])->order('id asc')->all();
+            $ids = array_column($all, 'id');
+            $rev = array_reverse($ids);
+            $rows = OrmTestBItem::findMany($rev, true);
+            $got = array_column($rows, 'id');
+            if ($got === $rev) {
+                $this->ok('findMany preserveOrder');
+            } else {
+                $this->fail('findMany order: ' . json_encode($got) . ' want ' . json_encode($rev));
+            }
+            $rows = OrmTestBItem::findMany([]);
+            if (is_array($rows) && count($rows) === 0) {
+                $this->ok('findMany([]) = [] (no SQL)');
+            } else {
+                $this->fail('findMany([])');
+            }
+
+            // toggle with CAS
+            $id = (int)$all[0]['id'];
+            $n = OrmTestBItem::toggle($id, 'qty', [1, 100]); // qty=1 -> 100
+            $q = OrmTestBItem::find($id);
+            if ($n === 1 && (int)$q['qty'] === 100) {
+                $this->ok('toggle flips value (1 -> 100)');
+            } else {
+                $this->fail("toggle n=$n " . json_encode($q));
+            }
+            $n = OrmTestBItem::toggle($id, 'qty', [1, 100]); // 100 not in[0] pos... cur=100 -> values[0]=1
+            $q = OrmTestBItem::find($id);
+            if ($n === 1 && (int)$q['qty'] === 1) {
+                $this->ok('toggle flips back (100 -> 1)');
+            } else {
+                $this->fail("toggle back n=$n " . json_encode($q));
+            }
+            $n = OrmTestBItem::toggle(999999, 'qty');
+            if ($n === 0) {
+                $this->ok('toggle missing row -> 0');
+            } else {
+                $this->fail("toggle missing n=$n");
+            }
+        } catch (\Throwable $e) {
+            $this->fail('batch exception: ' . $e->getMessage());
+        }
+    }
+
+    public function testConfigurableTimestamps()
+    {
+        echo "\nTesting configurable timestamps (3.2, SQLite):\n";
+
+        if (!class_exists('\\Gene\\Orm\\Model') || !class_exists('\\Gene\\Db\\Sqlite')) {
+            $this->fail('skip timestamps — extension classes missing');
+            return;
+        }
+
+        try {
+            $db = new \Gene\Db\Sqlite(['dsn' => 'sqlite::memory:']);
+            $db->sql('CREATE TABLE t_items (id INTEGER PRIMARY KEY AUTOINCREMENT, name TEXT, addtime INTEGER, updatetime INTEGER, note TEXT)')->execute();
+            \Gene\Di::set('t_db', $db);
+
+            if (!class_exists('OrmTestTItem')) {
+                eval('class OrmTestTItem extends \\Gene\\Orm\\Model {
+                    protected static $table = "t_items";
+                    protected static $connection = "t_db";
+                    protected static $timestamps = true;
+                    protected static $createdAt = "addtime";
+                    protected static $updatedAt = "updatetime";
+                    protected static $timestampFormat = "unix";
+                }');
+                eval('class OrmTestTOnlyAdd extends \\Gene\\Orm\\Model {
+                    protected static $table = "t_items";
+                    protected static $connection = "t_db";
+                    protected static $timestamps = true;
+                    protected static $createdAt = "addtime";
+                    protected static $updatedAt = null;
+                    protected static $timestampFormat = "unix";
+                }');
+            }
+
+            $t0 = time();
+            $id = OrmTestTItem::create(['name' => 'x']);
+            $row = OrmTestTItem::find($id);
+            if (is_array($row) && is_int($row['addtime']) && $row['addtime'] >= $t0
+                && is_int($row['updatetime']) && $row['updatetime'] >= $t0) {
+                $this->ok('unix timestamps on custom columns (addtime/updatetime)');
+            } else {
+                $this->fail('custom ts create: ' . json_encode($row));
+            }
+
+            // second call in the same request must hit the meta cache and
+            // still use the custom columns (from_array round-trip)
+            $id2 = OrmTestTItem::create(['name' => 'y']);
+            $row2 = OrmTestTItem::find($id2);
+            if (is_array($row2) && !empty($row2['addtime']) && !empty($row2['updatetime'])) {
+                $this->ok('meta cache keeps custom ts config (2nd call)');
+            } else {
+                $this->fail('meta cache lost ts config: ' . json_encode($row2));
+            }
+
+            // payload-supplied values are never overwritten
+            $id3 = OrmTestTItem::create(['name' => 'z', 'addtime' => 111, 'updatetime' => 222]);
+            $row3 = OrmTestTItem::find($id3);
+            if ((int)$row3['addtime'] === 111 && (int)$row3['updatetime'] === 222) {
+                $this->ok('payload ts values win');
+            } else {
+                $this->fail('payload ts overwritten: ' . json_encode($row3));
+            }
+
+            // update path fills updatetime only
+            sleep(1);
+            OrmTestTItem::updateBy($id, ['name' => 'x2']);
+            $row = OrmTestTItem::find($id);
+            if ((int)$row['updatetime'] >= $t0 + 1 && (int)$row['addtime'] >= $t0) {
+                $this->ok('updateBy fills updatetime, keeps addtime');
+            } else {
+                $this->fail('updateBy ts: ' . json_encode($row));
+            }
+
+            // updatedAt = null -> column never written (sqlite returns ''
+            // for NULL columns through this driver, so assert empty())
+            $id4 = OrmTestTOnlyAdd::create(['name' => 'n']);
+            $row4 = OrmTestTOnlyAdd::find($id4);
+            if (!empty($row4['addtime']) && empty($row4['updatetime'])) {
+                $this->ok('updatedAt=null disables that column');
+            } else {
+                $this->fail('updatedAt=null: ' . json_encode($row4));
+            }
+
+            // toggle syncs updatetime via meta timestamps
+            OrmTestTItem::updateBy($id, ['updatetime' => 5, 'note' => 'a']);
+            OrmTestTItem::toggle($id, 'note', ['a', 'b']);
+            $row = OrmTestTItem::find($id);
+            if (($row['note'] ?? '') === 'b' && (int)$row['updatetime'] > 5) {
+                $this->ok('toggle syncs updatetime');
+            } else {
+                $this->fail('toggle ts sync: ' . json_encode($row));
+            }
+        } catch (\Throwable $e) {
+            $this->fail('timestamps exception: ' . $e->getMessage());
+        }
+    }
+
     public function run()
     {
         $this->testClassSurface();
         $this->testSqliteCrud();
+        $this->testQueryOpsList();
+        $this->testBatchAndIdempotent();
+        $this->testConfigurableTimestamps();
         echo "\n--- ORM results: {$this->passed} passed, {$this->failed} failed ---\n";
         return $this->failed === 0;
     }
