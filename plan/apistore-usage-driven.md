@@ -4,6 +4,8 @@
 > Gene 版本基线：**6.0.0**。  
 > 审计遗留项见 [`audit/plan/PLAN.md`](../audit/plan/PLAN.md) §7.2.3，本文在其基础上按 apistore 证据具体化。
 
+**方案定位（评审结论）**：补齐 **Db ↔ ORM 对称性** 与少量约定（时间戳、批量写、锁、IN 批量读），**不是** Eloquent 式高度抽象（关联图、Scope、模型事件、Unit of Work）。C 层只加 apistore 重复 ≥3 处或热路径 API；框架补完后须迁移 `BaseCrud::lists` 等消费方，否则无收益。
+
 ---
 
 ## 一、apistore 用法画像
@@ -70,7 +72,7 @@ flowchart LR
     Q2["Query v2 + paginate order"]
     Ts2["可配置时间戳列名与 unix/datetime"]
     Write["createMany / insertIgnore / upsert / lockForUpdate"]
-    Find["findMany / whereIn / after"]
+    Find["findMany / whereIn / 比较 where"]
   end
   BaseCrud --> Paginate
   Timestamps --> Ts
@@ -98,11 +100,28 @@ flowchart LR
 
 **规格**
 
-- `Query` 增加：`join` / `leftJoin` / `rightJoin` / `group` / `having` / `union` / `first` / `exists` / `pluck` / `update` / `delete`
-- `Query::paginate($offset, $limit)` 与 `Model::paginate($where, $offset, $limit, $order = null)` 返回 `{count, list}`
-- 支持模型级 `$listFields` / `$fields` 投影（对齐 `BaseCrud::resolveListSelectFields`）
+**P0 首批（必做）** — 透出已有 Db 能力，不新增 SQL 语义：
 
-**apistore 替换点**：`BaseCrud::lists`、旧 `lists()` 模板、RunLog/Session 分页 JOIN
+| API | 说明 |
+|-----|------|
+| `join($table, $on, $type = 'INNER')` | 对齐 `Db::join`；`LEFT`/`RIGHT` 走 `$type`，**不**单独加 `leftJoin`/`rightJoin` |
+| `group` / `having` | 对齐 Db |
+| `first` | 等价 `limit(1)->row()` |
+| `update` / `delete` | 对齐 Db；与 `Model::updateBy` / `destroy` 对称 |
+| `where($col, $op, $val)` | 比较运算符：`>`, `>=`, `<`, `<=`, `!=` |
+| `in($col, array $ids)` | 数组形式；现有 `in($sql, $bind)` 保留 |
+| `Query::paginate($offset, $limit)` | 返回 `{count, list}`，继承当前 `order` |
+| `Model::paginate($where, $offset, $limit, $order = null)` | 同上，补 `order` 参数 |
+| `$listFields` / `$fields` 投影 | 对齐 `BaseCrud::resolveListSelectFields` |
+
+**暂缓（出现第 3 处重复再立项）**：`union`、`pluck`、`exists`（`count() > 0` 可顶一阵）。
+
+**JOIN 分页约束（重要）**
+
+- `paginate` **仅保证单表**（或调用方显式传入与 list 一致的 count 条件）。
+- JOIN 列表（`listsViaKbTenant`、`RunLog::paginateFiltered`）保持 **`count()` + `all()` 两步**，调用方自行保证 count SQL 与 list SQL 的 FROM/WHERE 一致；**不做**「自动推导 JOIN count」——易错且与 apistore 现状不符。
+
+**apistore 替换点**：`BaseCrud::lists`、旧 `lists()` 模板；RunLog/Session JOIN 分页改为 `query()->join(...)->count()` + `query()->join(...)->order()->limit()->all()`
 
 ---
 
@@ -123,10 +142,10 @@ protected static $updatedAt = 'updatetime';
 protected static $timestampFormat = 'unix'; // unix | datetime
 ```
 
-- `create` / `save` / `updateBy` 自动填充；业务已传入则不覆盖
-- `toggle` / 手写 status SQL 可顺带更新 `$updatedAt`（见 P1）
+- `create` / `save` / `updateBy` 自动填充；**业务 payload 已含时间戳列则不覆盖**
+- `toggle`（P1）若落地：翻转字段时**可选**同步写 `$updatedAt`；**手写 `status()` 裸 SQL 不走 ORM**，仍须业务自行 `updatetime=time()` 或迁到 `toggle`
 
-**apistore 替换点**：`Services/Agent/BaseCrud::add/edit`、各 Model `status()`
+**apistore 替换点**：`Services/Agent/BaseCrud::add/edit`、各 Model `status()`（`toggle` 落地后可减样板）
 
 ---
 
@@ -147,8 +166,9 @@ protected static $timestampFormat = 'unix'; // unix | datetime
 | `Db::upsert($table, $fields, $updateCols)` | `ON DUPLICATE KEY UPDATE`；其它驱动文档标明降级 |
 | `Model::insertIgnore` / `Model::updateOrCreate` | ORM 薄封装 |
 
-- 惰性执行约定保持：终端方法才真正执行
-- 文档对比「循环 `create()`」与 `createMany` 的性能差
+- 惰性执行约定保持：终端方法（`lastId` / `affectedRows` / `row` / `all` 等）才真正执行；**`createMany` 须在文档与测试中强调「须调终端方法」**，避免构建了批量 SQL 却未执行
+- **驱动语义须在 ide-helper 标明**：`insertIgnore` / `upsert` 以 **MySQL 先落地**；其它驱动文档写清降级或 `UnsupportedOperationException`，业务不得当可移植 API 用
+- 文档对比「循环 `create()`」与 `createMany` 的性能差（RAG 切块为**数量级**收益项）
 
 **apistore 替换点**：`Document` 切块索引、`TaskLog` / 幂等表写入
 
@@ -172,7 +192,7 @@ protected static $timestampFormat = 'unix'; // unix | datetime
 
 ---
 
-### 3.5 whereIn / findMany / 游标 after
+### 3.5 findMany / whereIn / 比较 where
 
 **证据**
 
@@ -184,10 +204,11 @@ protected static $timestampFormat = 'unix'; // unix | datetime
 
 | API | 说明 |
 |-----|------|
-| `Model::findMany(array $ids): array` | 按主键批量取，保持 id 顺序可选 |
-| `Query::in('id', $ids)` | 数组形式；现有 `in($sql, $bind)` 保留 |
-| `Query::after($column, $id)` | 等价 `where($col, '>=', $id)` + order，支撑 `id >= anchor LIMIT n` |
-| `Query::where($col, $op, $val)` | 比较运算符：`>`, `>=`, `<`, `<=`, `!=` |
+| `Model::findMany(array $ids, bool $preserveOrder = false): array` | 按主键 `IN` 批量取；`$preserveOrder=true` 时结果顺序与 `$ids` 一致 |
+| `Query::in($col, array $ids)` | 见 §3.1；空数组语义：返回空结果，不生成 `IN ()` |
+| `Query::where($col, $op, $val)` | 见 §3.1；会话记忆游标用 `where('id', '>=', $anchor)->order(...)->limit(n)`，**不**单独加 `after()` 动词 |
+
+**性能说明**：`findMany` / `IN` 替代全表 + N 次 `row` 为**数据量放大**项，与 §3.3 `createMany` 同属 P0 性能收益核心。
 
 **apistore 替换点**：`MemoryManager`、`SkillInjector`、DM-API tool 批量加载
 
@@ -204,12 +225,12 @@ protected static $timestampFormat = 'unix'; // unix | datetime
 
 **规格**
 
-- `Model::toggle($id, 'status', $values = [0, 1])` 或 `toggle($id, 'status')` 默认 0/1 翻转
-- where 数组 `['%keyword%', 'like']` 自动 escape `%`、`_`
+- `Model::toggle($id, 'status', $values = [0, 1])` 或 `toggle($id, 'status')` 默认 0/1 翻转；可选同步 `$updatedAt`（见 §3.2）
+- where 数组 `['%keyword%', 'like']` 自动 escape `%`、`_`；**若业务已手转义（如 `Chunk::escapeLikePattern`），须文档说明勿双转义**
 
 ---
 
-### 4.2 相关计数（withCount 级）
+### 4.2 相关计数（selectSub）
 
 **证据**
 
@@ -217,25 +238,12 @@ protected static $timestampFormat = 'unix'; // unix | datetime
 
 **规格**
 
-- `Query::selectSub($sql, $alias)` 或 `withCount('agent_message', 'session_id', 'message_count')`
-- **不做** hasMany / belongsTo 完整关联
+- **只做** `Query::selectSub($sql, $alias)`（或等价 `selectRaw` 子查询别名）
+- **不做** `withCount` 伪关联封装；**不做** hasMany / belongsTo
 
 ---
 
-### 4.3 JSON 表达式（MySQL dialect）
-
-**证据**
-
-- `RunLog.php`：`JSON_VALID` / `JSON_EXTRACT` / `JSON_UNQUOTE` 静态方法拼 SQL
-
-**规格**
-
-- `Query::whereJson($col, $path, $op, $val)` / `jsonUnquote($col, $path)`
-- 标为 MySQL dialect；Sqlite 测试用简化或 skip
-
----
-
-### 4.4 FPM 下 instance=true 链式隔离
+### 4.3 FPM 下 instance=true 链式隔离
 
 **证据**
 
@@ -245,11 +253,12 @@ protected static $timestampFormat = 'unix'; // unix | datetime
 **规格**
 
 - 请求结束自动 `Db::reset()`（FPM RSHUTDOWN / `Application::cleanup`）
-- 持久连接与链式状态脱钩，不改业务配置习惯
+- **仅清链式构建状态**（where/order/limit/join 等），**不**隐式 `rollBack` 活动事务；有未提交事务时行为与现有一致（由调用方负责 commit/rollBack）
+- 持久连接与链式状态脱钩，不改 apistore `instance=true` + `PDO::ATTR_PERSISTENT` 习惯
 
 ---
 
-### 4.5 Validate 快捷绑定（不做中间件）
+### 4.4 Validate 快捷绑定（不做中间件）
 
 **证据**
 
@@ -270,6 +279,8 @@ protected static $timestampFormat = 'unix'; // unix | datetime
 | casts / 模型事件 | json_encode 遍地但运行时自控；apistore 0 使用 |
 | 软删除 | `status` 同时表示启用/禁用与 Message 软删，语义冲突 |
 | 关联 `with()` | JOIN 点少，Query::join 足够 |
+| `Query::whereJson` / `jsonUnquote` | 仅 `RunLog.php` 一处；重复 <3，业务静态方法拼 SQL 或文档示例即可 |
+| `union` / `pluck` / `exists` | 见 §3.1 暂缓项 |
 | Schema ensure / 热路径 ALTER | `BaseCrud::ensureColumn` 是项目债；Gene **不应**提供请求内 ALTER API |
 | 树查询 | 仅 `Module` 依赖外部 `\Ext\Helper\Tree` |
 | 路由中间件 / `Controller::init` | 已在 audit PLAN；apistore 未形成痛点 |
@@ -289,11 +300,43 @@ protected static $timestampFormat = 'unix'; // unix | datetime
 
 ## 七、实现约束
 
-1. **保持精简**：C 层只加「apistore 重复 ≥3 处或热路径」的 API
+1. **保持精简**：C 层只加「apistore 重复 ≥3 处或热路径」的 API；暂缓项见 §3.1 / §五
 2. **惰性写语义不变**：`insert`/`batchInsert`/`update`/`delete` 构建 SQL；`all`/`row`/`lastId`/`affectedRows` 执行
 3. **测试**：新 API 必须在 `test/OrmTest.php`、`test/DatabaseTest.php` 加用例
-4. **文档同步**：`gene-ide-helper/`、`gene-ai-helper/skills/gene-framework/reference.md`
+4. **文档同步**：`gene-ide-helper/`、`gene-ai-helper/skills/gene-framework/reference.md`；驱动差异（`insertIgnore`/`upsert`）必须写入
 5. **与 audit 分工**：性能项（route_pc 预热、连接池泄漏等）留在 `audit/plan/PLAN.md`，不在此重复立项
+6. **消费方迁移**：框架 API 落地后，apistore 须以 `BaseCrud::lists` 为第一迁移点，否则开发/性能收益为零
+
+### 7.1 收益类型（避免误判）
+
+| 类别 | 项 | 说明 |
+|------|-----|------|
+| **开发效率** | paginate+order、Query join、timestamps、toggle、selectSub | 减样板；count+list 双查询次数不变 |
+| **运行性能（数量级）** | `createMany`、`findMany`/IN、会话游标 `where+limit` 替代全量拉取 | 少 round-trip / 少行 |
+| **正确性 + 可配性能** | `lockForUpdate`、FPM `Db::reset()` | 非「更快」，但使 `instance=true` 可安全使用 |
+| **勿夸大** | join 进 Query、timestamps、JSON helper | 与裸 SQL 同路径或仅语法糖 |
+
+### 7.2 建议落地顺序
+
+```text
+阶段 A（P0 核心，可并行）
+  3.1 Query 首批 + paginate order
+  3.2 可配置 timestamps
+  3.3 createMany + insertIgnore（upsert 可紧随）
+  3.5 findMany + in(数组) + 比较 where
+  3.4 lockForUpdate
+  4.4 FPM Db::reset
+
+阶段 B（P1，框架稳定后）
+  4.1 toggle / LIKE escape
+  4.2 selectSub
+  4.4 Validate 文档
+
+阶段 C（apistore 迁移）
+  BaseCrud::lists → ORM paginate
+  Document 切块 → createMany
+  MemoryManager / SkillInjector → findMany + 游标 where
+```
 
 ---
 
