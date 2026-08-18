@@ -40,6 +40,7 @@ ZEND_BEGIN_ARG_INFO_EX(gene_orm_model_paginate_arginfo, 0, 0, 3)
 	ZEND_ARG_INFO(0, where)
 	ZEND_ARG_INFO(0, offset)
 	ZEND_ARG_INFO(0, limit)
+	ZEND_ARG_INFO(0, order)
 ZEND_END_ARG_INFO()
 
 ZEND_BEGIN_ARG_INFO_EX(gene_orm_model_where_arginfo, 0, 0, 1)
@@ -80,6 +81,26 @@ ZEND_END_ARG_INFO()
 ZEND_BEGIN_ARG_INFO_EX(gene_orm_model_set_arginfo, 0, 0, 2)
 	ZEND_ARG_INFO(0, name)
 	ZEND_ARG_INFO(0, value)
+ZEND_END_ARG_INFO()
+
+ZEND_BEGIN_ARG_INFO_EX(gene_orm_model_findmany_arginfo, 0, 0, 1)
+	ZEND_ARG_ARRAY_INFO(0, ids, 0)
+	ZEND_ARG_INFO(0, preserveOrder)
+ZEND_END_ARG_INFO()
+
+ZEND_BEGIN_ARG_INFO_EX(gene_orm_model_createmany_arginfo, 0, 0, 1)
+	ZEND_ARG_ARRAY_INFO(0, rows, 0)
+ZEND_END_ARG_INFO()
+
+ZEND_BEGIN_ARG_INFO_EX(gene_orm_model_updateorcreate_arginfo, 0, 0, 2)
+	ZEND_ARG_INFO(0, where)
+	ZEND_ARG_ARRAY_INFO(0, data, 0)
+ZEND_END_ARG_INFO()
+
+ZEND_BEGIN_ARG_INFO_EX(gene_orm_model_toggle_arginfo, 0, 0, 2)
+	ZEND_ARG_INFO(0, id)
+	ZEND_ARG_INFO(0, field)
+	ZEND_ARG_INFO(0, values)
 ZEND_END_ARG_INFO()
 
 static zend_class_entry *gene_orm_called_ce(void)
@@ -350,18 +371,20 @@ cleanup:
 /* }}} */
 
 /*
- * {{{ public static Gene\Orm\Model::paginate($where, $offset, $limit)
- */
+ * {{{ public static Gene\Orm\Model::paginate($where, $offset, $limit, $order = null)
+ * [GENE_FEATURE:2026-08-18 3.1] Optional $order (e.g. "id desc") — applied to
+ * the list phase only; the count phase never emits ORDER BY. */
 PHP_METHOD(gene_orm_model, paginate)
 {
 	zval *where = NULL;
 	zend_long offset = 0, limit = 10;
+	zend_string *order = NULL;
 	gene_orm_meta_t meta;
 	zend_class_entry *ce = gene_orm_called_ce();
 	zval db_holder, *db = &db_holder, args[2], retval, count_zv, list_zv;
 	zend_long count_val = 0;
 
-	if (zend_parse_parameters(ZEND_NUM_ARGS(), "zll", &where, &offset, &limit) == FAILURE) {
+	if (zend_parse_parameters(ZEND_NUM_ARGS(), "zll|S", &where, &offset, &limit, &order) == FAILURE) {
 		return;
 	}
 	if (gene_orm_meta_load(ce, &meta) != SUCCESS) {
@@ -379,7 +402,7 @@ PHP_METHOD(gene_orm_model, paginate)
 	zval_ptr_dtor(&retval);
 	if (UNEXPECTED(gene_orm_has_exception())) goto cleanup;
 	gene_orm_apply_where(db, where, &meta);
-	if (UNEXPECTED(gene_orm_has_exception())) goto cleanup;
+	if (UNEXPECTED(gene_orm_has_exception()) ) goto cleanup;
 	if (gene_orm_db_call(db, "cell", 0, NULL, &count_zv) == SUCCESS) {
 		if (Z_TYPE(count_zv) == IS_LONG) {
 			count_val = Z_LVAL(count_zv);
@@ -398,6 +421,13 @@ PHP_METHOD(gene_orm_model, paginate)
 	if (UNEXPECTED(gene_orm_has_exception())) goto cleanup;
 	gene_orm_apply_where(db, where, &meta);
 	if (UNEXPECTED(gene_orm_has_exception())) goto cleanup;
+	if (order && ZSTR_LEN(order) > 0) {
+		ZVAL_STR_COPY(&args[0], order);
+		gene_orm_db_call(db, "order", 1, args, &retval);
+		zval_ptr_dtor(&args[0]);
+		zval_ptr_dtor(&retval);
+		if (UNEXPECTED(gene_orm_has_exception())) goto cleanup;
+	}
 	gene_orm_db_limit(db, offset, limit);
 	if (UNEXPECTED(gene_orm_has_exception())) goto cleanup;
 
@@ -443,7 +473,7 @@ PHP_METHOD(gene_orm_model, create)
 	ZVAL_COPY(&data_copy, data);
 	SEPARATE_ARRAY(&data_copy);
 	if (meta.timestamps) {
-		gene_orm_apply_timestamps(&data_copy, 1);
+		gene_orm_apply_timestamps(&data_copy, 1, &meta);
 	}
 
 	ZVAL_STR_COPY(&args[0], meta.table);
@@ -507,7 +537,7 @@ PHP_METHOD(gene_orm_model, updateBy)
 	ZVAL_COPY(&data_copy, data);
 	SEPARATE_ARRAY(&data_copy);
 	if (meta.timestamps) {
-		gene_orm_apply_timestamps(&data_copy, 0);
+		gene_orm_apply_timestamps(&data_copy, 0, &meta);
 	}
 
 	ZVAL_STR_COPY(&args[0], meta.table);
@@ -639,6 +669,557 @@ cleanup:
 	gene_orm_db_reset(db);
 	zval_ptr_dtor(db); /* N1: owned copy from gene_orm_get_db() */
 	gene_orm_meta_release(&meta);
+}
+/* }}} */
+
+/*
+ * {{{ public static Gene\Orm\Model::findMany(array $ids, bool $preserveOrder = false)
+ * [GENE_FEATURE:2026-08-18 3.5] Batch primary-key fetch (one IN query)
+ * replacing N x find() or full-table scans. Empty $ids returns [] WITHOUT
+ * SQL. $preserveOrder reorders in PHP (no FIELD() — not portable). */
+PHP_METHOD(gene_orm_model, findMany)
+{
+	zval *ids = NULL;
+	zend_bool preserve = 0;
+	gene_orm_meta_t meta;
+	zend_class_entry *ce = gene_orm_called_ce();
+	zval db_holder, *db = &db_holder, args[2], retval;
+	smart_str buf = {0};
+
+	if (zend_parse_parameters(ZEND_NUM_ARGS(), "a|b", &ids, &preserve) == FAILURE) {
+		return;
+	}
+	if (zend_hash_num_elements(Z_ARRVAL_P(ids)) == 0) {
+		array_init(return_value);
+		return;
+	}
+	if (zend_hash_num_elements(Z_ARRVAL_P(ids)) > 1000) {
+		php_error_docref(NULL, E_NOTICE,
+			"Gene\\Orm\\Model::findMany() with %u ids; consider chunking "
+			"(max_prepared_stmt_count / packet limits)",
+			zend_hash_num_elements(Z_ARRVAL_P(ids)));
+	}
+	if (gene_orm_meta_load(ce, &meta) != SUCCESS) {
+		RETURN_NULL();
+	}
+	if (gene_orm_get_db(meta.connection, db) != SUCCESS) {
+		gene_orm_meta_release(&meta);
+		RETURN_NULL();
+	}
+
+	gene_orm_db_select(db, meta.table, &meta.fields);
+	if (UNEXPECTED(gene_orm_has_exception())) goto cleanup;
+
+	smart_str_appends(&buf, ZSTR_VAL(meta.primary_key));
+	smart_str_appends(&buf, " in(?)");
+	smart_str_0(&buf);
+	ZVAL_STR(&args[0], buf.s);
+	ZVAL_COPY(&args[1], ids);
+	gene_orm_db_call(db, "in", 2, args, &retval);
+	zval_ptr_dtor(&args[1]);
+	/* args[0] borrows buf.s — freed below, not here */
+	zval_ptr_dtor(&retval);
+	if (UNEXPECTED(gene_orm_has_exception())) goto cleanup;
+
+	if (gene_orm_db_call(db, "all", 0, NULL, return_value) != SUCCESS ||
+		Z_TYPE_P(return_value) != IS_ARRAY) {
+		zval_ptr_dtor(return_value);
+		array_init(return_value);
+	}
+
+	if (preserve && Z_TYPE_P(return_value) == IS_ARRAY) {
+		/* pk values come back driver-typed (int|string); normalize both sides
+		 * to strings so lookup is type-stable. */
+		zval map, out, *row, *idv;
+		array_init(&map);
+		ZEND_HASH_FOREACH_VAL(Z_ARRVAL_P(return_value), row) {
+			zval *pk;
+			if (Z_TYPE_P(row) != IS_ARRAY) {
+				continue;
+			}
+			pk = zend_hash_find(Z_ARRVAL_P(row), meta.primary_key);
+			if (!pk) {
+				continue;
+			}
+			{
+				zend_string *ks = zval_get_string(pk);
+				Z_TRY_ADDREF_P(row);
+				zend_hash_update(Z_ARRVAL(map), ks, row);
+				zend_string_release(ks);
+			}
+		} ZEND_HASH_FOREACH_END();
+		array_init(&out);
+		ZEND_HASH_FOREACH_VAL(Z_ARRVAL_P(ids), idv) {
+			zend_string *ks = zval_get_string(idv);
+			zval *hit = zend_hash_find(Z_ARRVAL(map), ks);
+			if (hit) {
+				Z_TRY_ADDREF_P(hit);
+				add_next_index_zval(&out, hit);
+			}
+			zend_string_release(ks);
+		} ZEND_HASH_FOREACH_END();
+		zval_ptr_dtor(&map);
+		zval_ptr_dtor(return_value);
+		ZVAL_COPY_VALUE(return_value, &out);
+	}
+
+cleanup:
+	gene_orm_db_reset(db);
+	zval_ptr_dtor(db); /* N1: owned copy from gene_orm_get_db() */
+	gene_orm_meta_release(&meta);
+	smart_str_free(&buf);
+}
+/* }}} */
+
+/* Compare two rows' key SEQUENCE (count + keys in order). batchInsert takes
+ * the column list from the first row but values in each row's own iteration
+ * order, so a reordered-but-equal key set would silently misalign values. */
+static zend_bool gene_orm_same_key_seq(HashTable *a, HashTable *b)
+{
+	HashPosition pa = 0, pb = 0;
+
+	if (zend_hash_num_elements(a) != zend_hash_num_elements(b)) {
+		return 0;
+	}
+	for (;;) {
+		zend_string *ka = NULL, *kb = NULL;
+		zend_ulong ia = 0, ib = 0;
+		int ta = zend_hash_get_current_key_ex(a, &ka, &ia, &pa);
+		int tb = zend_hash_get_current_key_ex(b, &kb, &ib, &pb);
+		if (ta == HASH_KEY_NON_EXISTENT || tb == HASH_KEY_NON_EXISTENT) {
+			return ta == tb;
+		}
+		if (ta != tb) {
+			return 0;
+		}
+		if (ta == HASH_KEY_IS_STRING) {
+			if (!zend_string_equals(ka, kb)) {
+				return 0;
+			}
+		} else if (ia != ib) {
+			return 0;
+		}
+		zend_hash_move_forward_ex(a, &pa);
+		zend_hash_move_forward_ex(b, &pb);
+	}
+}
+
+/*
+ * {{{ public static Gene\Orm\Model::createMany(array $rows): int
+ * [GENE_FEATURE:2026-08-18 3.3] One-round-trip batch insert via
+ * Db::batchInsert. ORM layer is "call = execute" (plan §7.2), so this runs
+ * affectedRows() itself and returns the row count. Every row must carry the
+ * same keys in the same order (see gene_orm_same_key_seq). Timestamps are
+ * applied per row. Callers chunk oversized batches (plan: 500/batch); the
+ * framework only warns beyond 5000 rows. */
+PHP_METHOD(gene_orm_model, createMany)
+{
+	zval *rows = NULL, *row, *first = NULL;
+	uint32_t n;
+	gene_orm_meta_t meta;
+	zend_class_entry *ce = gene_orm_called_ce();
+	zval db_holder, *db = &db_holder, args[2], retval, rows_copy;
+
+	if (zend_parse_parameters(ZEND_NUM_ARGS(), "a", &rows) == FAILURE) {
+		return;
+	}
+	n = zend_hash_num_elements(Z_ARRVAL_P(rows));
+	if (n == 0) {
+		RETURN_LONG(0);
+	}
+	if (n > 5000) {
+		php_error_docref(NULL, E_NOTICE,
+			"Gene\\Orm\\Model::createMany() with %u rows; chunk large batches "
+			"(~500/batch) to stay under max_allowed_packet", n);
+	}
+	ZEND_HASH_FOREACH_VAL(Z_ARRVAL_P(rows), row) {
+		if (Z_TYPE_P(row) != IS_ARRAY || zend_hash_num_elements(Z_ARRVAL_P(row)) == 0) {
+			zend_throw_exception_ex(NULL, 0,
+				"Gene\\Orm\\Model::createMany() rows must be non-empty arrays");
+			RETURN_LONG(0);
+		}
+		if (!first) {
+			first = row;
+		} else if (!gene_orm_same_key_seq(Z_ARRVAL_P(first), Z_ARRVAL_P(row))) {
+			zend_throw_exception_ex(NULL, 0,
+				"Gene\\Orm\\Model::createMany() requires identical keys in the "
+				"same order for every row (batchInsert aligns VALUES by position)");
+			RETURN_LONG(0);
+		}
+	} ZEND_HASH_FOREACH_END();
+
+	if (gene_orm_meta_load(ce, &meta) != SUCCESS) {
+		RETURN_LONG(0);
+	}
+	if (gene_orm_get_db(meta.connection, db) != SUCCESS) {
+		gene_orm_meta_release(&meta);
+		RETURN_LONG(0);
+	}
+
+	array_init_size(&rows_copy, n);
+	ZEND_HASH_FOREACH_VAL(Z_ARRVAL_P(rows), row) {
+		zval rc;
+		ZVAL_COPY(&rc, row);
+		SEPARATE_ARRAY(&rc);
+		if (meta.timestamps) {
+			gene_orm_apply_timestamps(&rc, 1, &meta);
+		}
+		add_next_index_zval(&rows_copy, &rc);
+	} ZEND_HASH_FOREACH_END();
+
+	ZVAL_STR_COPY(&args[0], meta.table);
+	ZVAL_COPY(&args[1], &rows_copy);
+	gene_orm_db_call(db, "batchInsert", 2, args, &retval);
+	zval_ptr_dtor(&args[0]);
+	zval_ptr_dtor(&args[1]);
+	zval_ptr_dtor(&retval);
+	if (UNEXPECTED(gene_orm_has_exception())) goto cleanup;
+
+	if (gene_orm_db_call(db, "affectedRows", 0, NULL, return_value) != SUCCESS) {
+		RETVAL_LONG(0);
+	} else if (Z_TYPE_P(return_value) == IS_STRING) {
+		zend_long v = zend_atol(Z_STRVAL_P(return_value), Z_STRLEN_P(return_value));
+		zval_ptr_dtor(return_value);
+		RETVAL_LONG(v);
+	}
+
+cleanup:
+	gene_orm_db_reset(db);
+	zval_ptr_dtor(db); /* N1: owned copy from gene_orm_get_db() */
+	zval_ptr_dtor(&rows_copy);
+	gene_orm_meta_release(&meta);
+}
+/* }}} */
+
+/*
+ * {{{ public static Gene\Orm\Model::insertIgnore(array $data): int
+ * [GENE_FEATURE:2026-08-18 3.3] Idempotent insert (MySQL INSERT IGNORE,
+ * SQLite INSERT OR IGNORE; pgsql/mssql throw at the Db layer — see
+ * ide-helper). Returns affected rows (0 when ignored). */
+PHP_METHOD(gene_orm_model, insertIgnore)
+{
+	zval *data = NULL;
+	gene_orm_meta_t meta;
+	zend_class_entry *ce = gene_orm_called_ce();
+	zval db_holder, *db = &db_holder, args[2], retval, data_copy;
+
+	if (zend_parse_parameters(ZEND_NUM_ARGS(), "a", &data) == FAILURE) {
+		return;
+	}
+	if (gene_orm_meta_load(ce, &meta) != SUCCESS) {
+		RETURN_LONG(0);
+	}
+	if (gene_orm_get_db(meta.connection, db) != SUCCESS) {
+		gene_orm_meta_release(&meta);
+		RETURN_LONG(0);
+	}
+
+	ZVAL_COPY(&data_copy, data);
+	SEPARATE_ARRAY(&data_copy);
+	if (meta.timestamps) {
+		gene_orm_apply_timestamps(&data_copy, 1, &meta);
+	}
+
+	ZVAL_STR_COPY(&args[0], meta.table);
+	ZVAL_COPY(&args[1], &data_copy);
+	gene_orm_db_call(db, "insertIgnore", 2, args, &retval);
+	zval_ptr_dtor(&args[0]);
+	zval_ptr_dtor(&args[1]);
+	zval_ptr_dtor(&retval);
+	if (UNEXPECTED(gene_orm_has_exception())) goto cleanup;
+
+	if (gene_orm_db_call(db, "affectedRows", 0, NULL, return_value) != SUCCESS) {
+		RETVAL_LONG(0);
+	} else if (Z_TYPE_P(return_value) == IS_STRING) {
+		zend_long v = zend_atol(Z_STRVAL_P(return_value), Z_STRLEN_P(return_value));
+		zval_ptr_dtor(return_value);
+		RETVAL_LONG(v);
+	}
+
+cleanup:
+	gene_orm_db_reset(db);
+	zval_ptr_dtor(db); /* N1: owned copy from gene_orm_get_db() */
+	zval_ptr_dtor(&data_copy);
+	gene_orm_meta_release(&meta);
+}
+/* }}} */
+
+/*
+ * {{{ public static Gene\Orm\Model::updateOrCreate($where, array $data)
+ * [GENE_FEATURE:2026-08-18 3.3] Lookup-then-write convenience: when $where
+ * matches, updateBy() it and return affected rows; otherwise create() with
+ * $data plus any assoc-$where attributes not already present, returning the
+ * new id. Not atomic — use a UNIQUE key + insertIgnore/upsert when races
+ * matter. */
+PHP_METHOD(gene_orm_model, updateOrCreate)
+{
+	zval *where = NULL, *data = NULL;
+	gene_orm_meta_t meta;
+	zend_class_entry *ce = gene_orm_called_ce();
+	zval db_holder, *db = &db_holder, args[2], retval, row, data_copy, lim;
+	zend_bool exists = 0;
+
+	if (zend_parse_parameters(ZEND_NUM_ARGS(), "za", &where, &data) == FAILURE) {
+		return;
+	}
+	if (gene_orm_meta_load(ce, &meta) != SUCCESS) {
+		RETURN_LONG(0);
+	}
+	if (gene_orm_get_db(meta.connection, db) != SUCCESS) {
+		gene_orm_meta_release(&meta);
+		RETURN_LONG(0);
+	}
+
+	/* exists check */
+	gene_orm_db_select(db, meta.table, &meta.fields);
+	if (UNEXPECTED(gene_orm_has_exception())) { ZVAL_UNDEF(&row); goto cleanup; }
+	gene_orm_apply_where(db, where, &meta);
+	if (UNEXPECTED(gene_orm_has_exception())) { ZVAL_UNDEF(&row); goto cleanup; }
+	ZVAL_LONG(&lim, 1);
+	gene_orm_db_call(db, "limit", 1, &lim, &retval);
+	zval_ptr_dtor(&retval);
+	if (UNEXPECTED(gene_orm_has_exception())) { ZVAL_UNDEF(&row); goto cleanup; }
+	if (gene_orm_db_call(db, "row", 0, NULL, &row) != SUCCESS ||
+		Z_TYPE(row) != IS_ARRAY) {
+		if (!Z_ISUNDEF(row)) {
+			zval_ptr_dtor(&row);
+		}
+		ZVAL_UNDEF(&row);
+	} else {
+		exists = 1;
+	}
+	gene_orm_db_reset(db);
+	if (UNEXPECTED(gene_orm_has_exception())) goto cleanup;
+
+	ZVAL_COPY(&data_copy, data);
+	SEPARATE_ARRAY(&data_copy);
+
+	if (exists) {
+		if (meta.timestamps) {
+			gene_orm_apply_timestamps(&data_copy, 0, &meta);
+		}
+		ZVAL_STR_COPY(&args[0], meta.table);
+		ZVAL_COPY(&args[1], &data_copy);
+		gene_orm_db_call(db, "update", 2, args, &retval);
+		zval_ptr_dtor(&args[0]);
+		zval_ptr_dtor(&args[1]);
+		zval_ptr_dtor(&retval);
+		if (UNEXPECTED(gene_orm_has_exception())) goto cleanup_data;
+		gene_orm_apply_where(db, where, &meta);
+		if (UNEXPECTED(gene_orm_has_exception())) goto cleanup_data;
+		if (gene_orm_db_call(db, "affectedRows", 0, NULL, return_value) != SUCCESS) {
+			RETVAL_LONG(0);
+		}
+	} else {
+		/* carry assoc where attributes into the new row */
+		if (Z_TYPE_P(where) == IS_ARRAY) {
+			zend_string *k;
+			zend_ulong idx;
+			zval *v;
+			ZEND_HASH_FOREACH_KEY_VAL(Z_ARRVAL_P(where), idx, k, v) {
+				if (k && Z_TYPE_P(v) != IS_ARRAY &&
+					!zend_hash_exists(Z_ARRVAL(data_copy), k)) {
+					zval tmp;
+					ZVAL_COPY(&tmp, v);
+					zend_hash_update(Z_ARRVAL(data_copy), k, &tmp);
+				}
+			} ZEND_HASH_FOREACH_END();
+		}
+		if (meta.timestamps) {
+			gene_orm_apply_timestamps(&data_copy, 1, &meta);
+		}
+		ZVAL_STR_COPY(&args[0], meta.table);
+		ZVAL_COPY(&args[1], &data_copy);
+		gene_orm_db_call(db, "insert", 2, args, &retval);
+		zval_ptr_dtor(&args[0]);
+		zval_ptr_dtor(&args[1]);
+		zval_ptr_dtor(&retval);
+		if (UNEXPECTED(gene_orm_has_exception())) goto cleanup_data;
+		{
+			zval *pk_in = gene_orm_pk_value(&data_copy, meta.primary_key);
+			if (pk_in) {
+				zval lid;
+				ZVAL_COPY(return_value, pk_in);
+				if (gene_orm_db_call(db, "lastId", 0, NULL, &lid) == SUCCESS) {
+					zval_ptr_dtor(&lid);
+				}
+			} else if (gene_orm_db_call(db, "lastId", 0, NULL, return_value) != SUCCESS) {
+				RETVAL_LONG(0);
+			} else {
+				gene_orm_normalize_id(return_value);
+			}
+		}
+	}
+
+cleanup_data:
+	zval_ptr_dtor(&data_copy);
+cleanup:
+	if (!Z_ISUNDEF(row)) {
+		zval_ptr_dtor(&row);
+	}
+	gene_orm_db_reset(db);
+	zval_ptr_dtor(db); /* N1: owned copy from gene_orm_get_db() */
+	gene_orm_meta_release(&meta);
+}
+/* }}} */
+
+/*
+ * {{{ public static Gene\Orm\Model::toggle($id, string $field, array $values = [0, 1])
+ * [GENE_FEATURE:2026-08-18 4.1] Compare-and-swap status flip:
+ *   UPDATE t SET field=:new [, updated_at=...] WHERE pk=:id AND field=:cur
+ * The CAS guard means a concurrent toggle loses instead of double-flipping.
+ * Returns affected rows (0 when the row vanished or lost the race).
+ * $updatedAt is synced automatically when $timestamps is on (3.2). */
+PHP_METHOD(gene_orm_model, toggle)
+{
+	zval *id = NULL, *values = NULL;
+	zend_string *field = NULL;
+	gene_orm_meta_t meta;
+	zend_class_entry *ce = gene_orm_called_ce();
+	zval db_holder, *db = &db_holder, args[2], retval, row, lim, data_arr, where_arr;
+	zval defaults;
+	smart_str buf = {0};
+
+	if (zend_parse_parameters(ZEND_NUM_ARGS(), "zS|a", &id, &field, &values) == FAILURE) {
+		return;
+	}
+	if (!values) {
+		array_init(&defaults);
+		{
+			zval v0, v1;
+			ZVAL_LONG(&v0, 0);
+			ZVAL_LONG(&v1, 1);
+			add_next_index_zval(&defaults, &v0);
+			add_next_index_zval(&defaults, &v1);
+		}
+		values = &defaults;
+	} else {
+		ZVAL_UNDEF(&defaults);
+	}
+	if (zend_hash_num_elements(Z_ARRVAL_P(values)) != 2) {
+		if (!Z_ISUNDEF(defaults)) {
+			zval_ptr_dtor(&defaults);
+		}
+		zend_throw_exception_ex(NULL, 0,
+			"Gene\\Orm\\Model::toggle() expects exactly 2 values");
+		RETURN_LONG(0);
+	}
+	if (gene_orm_meta_load(ce, &meta) != SUCCESS) {
+		if (!Z_ISUNDEF(defaults)) {
+			zval_ptr_dtor(&defaults);
+		}
+		RETURN_LONG(0);
+	}
+	if (gene_orm_get_db(meta.connection, db) != SUCCESS) {
+		gene_orm_meta_release(&meta);
+		if (!Z_ISUNDEF(defaults)) {
+			zval_ptr_dtor(&defaults);
+		}
+		RETURN_LONG(0);
+	}
+
+	/* read current value */
+	gene_orm_db_select(db, meta.table, &meta.fields);
+	if (UNEXPECTED(gene_orm_has_exception())) { ZVAL_UNDEF(&row); goto cleanup; }
+	smart_str_appends(&buf, ZSTR_VAL(meta.primary_key));
+	smart_str_appends(&buf, "=?");
+	smart_str_0(&buf);
+	ZVAL_STR(&args[0], buf.s);
+	ZVAL_COPY(&args[1], id);
+	gene_orm_db_call(db, "where", 2, args, &retval);
+	zval_ptr_dtor(&args[1]);
+	zval_ptr_dtor(&retval);
+	/* args[0] borrows buf.s — freed below */
+	if (UNEXPECTED(gene_orm_has_exception())) { ZVAL_UNDEF(&row); goto cleanup; }
+	ZVAL_LONG(&lim, 1);
+	gene_orm_db_call(db, "limit", 1, &lim, &retval);
+	zval_ptr_dtor(&retval);
+	if (UNEXPECTED(gene_orm_has_exception())) { ZVAL_UNDEF(&row); goto cleanup; }
+	if (gene_orm_db_call(db, "row", 0, NULL, &row) != SUCCESS ||
+		Z_TYPE(row) != IS_ARRAY) {
+		if (!Z_ISUNDEF(row)) {
+			zval_ptr_dtor(&row);
+		}
+		ZVAL_UNDEF(&row);
+		gene_orm_db_reset(db);
+		RETVAL_LONG(0);
+		goto cleanup;
+	}
+	gene_orm_db_reset(db);
+
+	{
+		zval *cur = zend_hash_find(Z_ARRVAL(row), field);
+		zval *v0 = zend_hash_index_find(Z_ARRVAL_P(values), 0);
+		zval *v1 = zend_hash_index_find(Z_ARRVAL_P(values), 1);
+		zval cmp, new_val;
+		if (!v0 || !v1) {
+			zval_ptr_dtor(&row);
+			zend_throw_exception_ex(NULL, 0,
+				"Gene\\Orm\\Model::toggle() values must be a list of 2");
+			ZVAL_UNDEF(&row);
+			goto cleanup;
+		}
+		ZVAL_LONG(&cmp, -1);
+		if (cur && Z_TYPE_P(cur) != IS_NULL) {
+			compare_function(&cmp, cur, v0);
+		}
+		ZVAL_COPY(&new_val, (Z_TYPE(cmp) == IS_LONG && Z_LVAL(cmp) == 0) ? v1 : v0);
+
+		array_init(&data_arr);
+		zend_hash_update(Z_ARRVAL(data_arr), field, &new_val); /* moves new_val */
+		if (meta.timestamps) {
+			gene_orm_apply_timestamps(&data_arr, 0, &meta);
+		}
+
+		array_init(&where_arr);
+		{
+			zval t;
+			ZVAL_COPY(&t, id);
+			zend_hash_update(Z_ARRVAL(where_arr), meta.primary_key, &t);
+			if (cur && Z_TYPE_P(cur) != IS_NULL) {
+				/* CAS guard; a NULL current value can't be matched with "= ?"
+				 * (NULL never equals), so it falls back to the pk-only update */
+				ZVAL_COPY(&t, cur);
+				zend_hash_update(Z_ARRVAL(where_arr), field, &t);
+			}
+		}
+
+		ZVAL_STR_COPY(&args[0], meta.table);
+		ZVAL_COPY(&args[1], &data_arr);
+		gene_orm_db_call(db, "update", 2, args, &retval);
+		zval_ptr_dtor(&args[0]);
+		zval_ptr_dtor(&args[1]);
+		zval_ptr_dtor(&retval);
+		if (UNEXPECTED(gene_orm_has_exception())) goto cleanup_arrays;
+
+		ZVAL_COPY(&args[0], &where_arr);
+		gene_orm_db_call(db, "where", 1, args, &retval);
+		zval_ptr_dtor(&args[0]);
+		zval_ptr_dtor(&retval);
+		if (UNEXPECTED(gene_orm_has_exception())) goto cleanup_arrays;
+
+		if (gene_orm_db_call(db, "affectedRows", 0, NULL, return_value) != SUCCESS) {
+			RETVAL_LONG(0);
+		}
+
+cleanup_arrays:
+		zval_ptr_dtor(&data_arr);
+		zval_ptr_dtor(&where_arr);
+		zval_ptr_dtor(&row);
+		ZVAL_UNDEF(&row);
+	}
+
+cleanup:
+	if (!Z_ISUNDEF(row)) {
+		zval_ptr_dtor(&row);
+	}
+	gene_orm_db_reset(db);
+	zval_ptr_dtor(db); /* N1: owned copy from gene_orm_get_db() */
+	gene_orm_meta_release(&meta);
+	smart_str_free(&buf);
+	if (!Z_ISUNDEF(defaults)) {
+		zval_ptr_dtor(&defaults);
+	}
 }
 /* }}} */
 
@@ -776,7 +1357,7 @@ PHP_METHOD(gene_orm_model, save)
 		ZVAL_COPY(&pk_copy, pk_val);
 		zend_hash_del(Z_ARRVAL(data_copy), meta.primary_key);
 		if (meta.timestamps) {
-			gene_orm_apply_timestamps(&data_copy, 0);
+			gene_orm_apply_timestamps(&data_copy, 0, &meta);
 		}
 		ZVAL_STR_COPY(&args[0], meta.table);
 		ZVAL_COPY(&args[1], &data_copy);
@@ -816,7 +1397,7 @@ PHP_METHOD(gene_orm_model, save)
 		}
 	} else {
 		if (meta.timestamps) {
-			gene_orm_apply_timestamps(&data_copy, 1);
+			gene_orm_apply_timestamps(&data_copy, 1, &meta);
 		}
 		ZVAL_STR_COPY(&args[0], meta.table);
 		ZVAL_COPY(&args[1], &data_copy);
@@ -1119,6 +1700,11 @@ const zend_function_entry gene_orm_model_methods[] = {
 	PHP_ME(gene_orm_model, updateBy, gene_orm_model_updateby_arginfo, ZEND_ACC_PUBLIC|ZEND_ACC_STATIC)
 	PHP_ME(gene_orm_model, destroy, gene_orm_model_destroy_arginfo, ZEND_ACC_PUBLIC|ZEND_ACC_STATIC)
 	PHP_ME(gene_orm_model, destroyAll, gene_orm_model_destroyall_arginfo, ZEND_ACC_PUBLIC|ZEND_ACC_STATIC)
+	PHP_ME(gene_orm_model, findMany, gene_orm_model_findmany_arginfo, ZEND_ACC_PUBLIC|ZEND_ACC_STATIC)
+	PHP_ME(gene_orm_model, createMany, gene_orm_model_createmany_arginfo, ZEND_ACC_PUBLIC|ZEND_ACC_STATIC)
+	PHP_ME(gene_orm_model, insertIgnore, gene_orm_model_create_arginfo, ZEND_ACC_PUBLIC|ZEND_ACC_STATIC)
+	PHP_ME(gene_orm_model, updateOrCreate, gene_orm_model_updateorcreate_arginfo, ZEND_ACC_PUBLIC|ZEND_ACC_STATIC)
+	PHP_ME(gene_orm_model, toggle, gene_orm_model_toggle_arginfo, ZEND_ACC_PUBLIC|ZEND_ACC_STATIC)
 	PHP_ME(gene_orm_model, fill, gene_orm_model_fill_arginfo, ZEND_ACC_PUBLIC)
 	PHP_ME(gene_orm_model, setExists, gene_orm_model_setexists_arginfo, ZEND_ACC_PUBLIC)
 	PHP_ME(gene_orm_model, save, gene_orm_model_void_arginfo, ZEND_ACC_PUBLIC)
@@ -1156,6 +1742,14 @@ GENE_MINIT_FUNCTION(orm)
 	zend_declare_property_bool(gene_orm_model_ce, ZEND_STRL(GENE_ORM_TIMESTAMPS), 0,
 		ZEND_ACC_PROTECTED | ZEND_ACC_STATIC);
 	zend_declare_property_string(gene_orm_model_ce, ZEND_STRL(GENE_ORM_CONNECTION), "db",
+		ZEND_ACC_PROTECTED | ZEND_ACC_STATIC);
+	/* [GENE_FEATURE:2026-08-18 3.2] Timestamp column/format config. Defaults
+	 * reproduce the pre-3.2 hardcoded behaviour; null/'' disables a column. */
+	zend_declare_property_string(gene_orm_model_ce, ZEND_STRL(GENE_ORM_CREATED_AT), "created_at",
+		ZEND_ACC_PROTECTED | ZEND_ACC_STATIC);
+	zend_declare_property_string(gene_orm_model_ce, ZEND_STRL(GENE_ORM_UPDATED_AT), "updated_at",
+		ZEND_ACC_PROTECTED | ZEND_ACC_STATIC);
+	zend_declare_property_string(gene_orm_model_ce, ZEND_STRL(GENE_ORM_TS_FORMAT), "datetime",
 		ZEND_ACC_PROTECTED | ZEND_ACC_STATIC);
 
 	/* Instance state */

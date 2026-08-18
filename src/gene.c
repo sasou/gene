@@ -367,6 +367,55 @@ static zend_always_inline void gene_ctx_reuse_lazy_array(zval *zv) {
 }
 /* }}} */
 
+/* {{{ gene_di_regs_tx_hygiene
+ * [GENE_FIX:2026-08-18 4.3'] Transaction hygiene at the request boundary.
+ * With PDO::ATTR_PERSISTENT (apistore's FPM config) the underlying
+ * connection outlives the request in EG(persistent_list): if user code
+ * opened a transaction and bailed without rollBack(), PHP object teardown
+ * does NOT send ROLLBACK — the next request reusing that connection would
+ * inherit the open transaction and its row locks. Before di_regs (and with
+ * it the Db handles) is destroyed, roll back any still-open transaction and
+ * warn loudly. On non-persistent connections this rollback is a zero-cost
+ * no-op safety net. */
+static void gene_di_regs_tx_hygiene(zval *di_regs) {
+	zend_string *key;
+	zval *val;
+	if (Z_TYPE_P(di_regs) != IS_ARRAY) {
+		return;
+	}
+	ZEND_HASH_FOREACH_STR_KEY_VAL(Z_ARRVAL_P(di_regs), key, val) {
+		zend_class_entry *ce;
+		zval *pdo, r, rr;
+		if (Z_TYPE_P(val) != IS_OBJECT) {
+			continue;
+		}
+		ce = Z_OBJCE_P(val);
+		if (ce != gene_db_mysql_ce && ce != gene_db_sqlite_ce &&
+			ce != gene_db_pgsql_ce && ce != gene_db_mssql_ce) {
+			continue;
+		}
+		pdo = zend_read_property(ce, gene_strip_obj(val), ZEND_STRL("pdo"), 1, NULL);
+		if (!pdo || Z_TYPE_P(pdo) != IS_OBJECT) {
+			continue;
+		}
+		gene_pdo_in_transaction(pdo, &r);
+		if (!Z_ISUNDEF(r) && zend_is_true(&r)) {
+			php_error_docref(NULL, E_WARNING,
+				"Gene: request ended with an open transaction on DI service \"%s\" "
+				"— rolling back to protect persistent-connection reuse",
+				key ? ZSTR_VAL(key) : "?");
+			gene_pdo_rollback(pdo, &rr);
+			if (!Z_ISUNDEF(rr)) {
+				zval_ptr_dtor(&rr);
+			}
+		}
+		if (!Z_ISUNDEF(r)) {
+			zval_ptr_dtor(&r);
+		}
+	} ZEND_HASH_FOREACH_END();
+}
+/* }}} */
+
 /* {{{ gene_request_context_free_fields - shared cleanup for reset/destroy
  * preserve_for_reuse: 1 on reset() (request boundary for a recycled ctx) —
  * path_params and request_attr are recycled in place rather than freed; 0 on
@@ -425,6 +474,9 @@ static void gene_request_context_free_fields(gene_request_context *ctx, int pres
 		zval_ptr_dtor(&ctx->request_attr);
 		ZVAL_UNDEF(&ctx->request_attr);
 	}
+	/* [GENE_FIX:2026-08-18 4.3'] Roll back orphaned transactions BEFORE the
+	 * DI registry (and its Db handles) is destroyed. */
+	gene_di_regs_tx_hygiene(&ctx->di_regs);
 	if (Z_TYPE(ctx->di_regs) != IS_UNDEF) {
 		zval_ptr_dtor(&ctx->di_regs);
 		ZVAL_UNDEF(&ctx->di_regs);

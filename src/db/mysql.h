@@ -27,6 +27,7 @@
 #define GENE_DB_MYSQL_UNION "union"
 #define GENE_DB_MYSQL_ORDER "order"
 #define GENE_DB_MYSQL_LIMIT "limit"
+#define GENE_DB_MYSQL_LOCK "lock"
 #define GENE_DB_MYSQL_DATA "data"
 #define GENE_DB_MYSQL_HISTORY "history"
 #define GENE_DB_MYSQL_POOL "pool"

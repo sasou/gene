@@ -736,6 +736,95 @@ class DatabaseTest
     }
 
     /**
+     * [GENE_FEATURE:2026-08-18 3.3/3.4] Db-level insertIgnore / upsert /
+     * lockForUpdate / sharedLock — sqlite semantics (OR IGNORE works,
+     * upsert unsupported, locks are documented no-ops with E_NOTICE).
+     */
+    public function testSqliteV2WriteApis()
+    {
+        echo "Testing Sqlite insertIgnore/upsert/lock APIs:\n";
+
+        try {
+            $db = new \Gene\Db\Sqlite(['dsn' => 'sqlite::memory:']);
+            $db->sql('CREATE TABLE kv (k TEXT PRIMARY KEY, v INTEGER)')->execute();
+
+            // insertIgnore: first write lands, duplicate is ignored
+            $n = $db->insertIgnore('kv', ['k' => 'a', 'v' => 1])->affectedRows();
+            if ((int)$n === 1) {
+                echo "✓ insertIgnore() first write affected=1\n";
+            } else {
+                $this->fail("insertIgnore first affected=" . var_export($n, true));
+            }
+            $n = $db->insertIgnore('kv', ['k' => 'a', 'v' => 99])->affectedRows();
+            $row = $db->select('kv')->where('k=?', ['a'])->row();
+            if ((int)$n === 0 && (int)($row['v'] ?? 0) === 1) {
+                echo "✓ insertIgnore() duplicate ignored (affected=0, row untouched)\n";
+            } else {
+                $this->fail("insertIgnore dup affected=" . var_export($n, true) . " row=" . json_encode($row));
+            }
+
+            // upsert unsupported on sqlite -> exception, no partial SQL state
+            $threw = false;
+            try {
+                $db->upsert('kv', ['k' => 'a', 'v' => 2], ['v']);
+            } catch (\Throwable $e) {
+                $threw = true;
+            }
+            if ($threw) {
+                echo "✓ upsert() throws on sqlite (documented degradation)\n";
+            } else {
+                $this->fail("upsert() did not throw on sqlite");
+            }
+
+            // locks: no-op + E_NOTICE, chainable, SQL unchanged
+            $notice = null;
+            set_error_handler(function ($no, $str) use (&$notice) { $notice = $str; return true; }, E_NOTICE);
+            $rows = $db->select('kv')->lockForUpdate()->all();
+            restore_error_handler();
+            if ($notice !== null && is_array($rows) && count($rows) === 1) {
+                echo "✓ lockForUpdate() no-op + E_NOTICE on sqlite\n";
+            } else {
+                $this->fail("lockForUpdate sqlite: notice=" . var_export($notice, true));
+            }
+            $notice = null;
+            set_error_handler(function ($no, $str) use (&$notice) { $notice = $str; return true; }, E_NOTICE);
+            $rows = $db->select('kv')->sharedLock()->all();
+            restore_error_handler();
+            if ($notice !== null && is_array($rows)) {
+                echo "✓ sharedLock() no-op + E_NOTICE on sqlite\n";
+            } else {
+                $this->fail("sharedLock sqlite: notice=" . var_export($notice, true));
+            }
+
+            // LOCK fragment must not leak into the next statement on the
+            // same handle (M8: lock is cleared by reset_sql_params)
+            $sql = $db->select('kv')->where('k=?', ['a'])->print();
+            if (is_array($sql) && isset($sql['sql']) && stripos($sql['sql'], 'FOR UPDATE') === false) {
+                echo "✓ no LOCK residue after reset\n";
+            } else {
+                $this->fail("LOCK residue: " . json_encode($sql));
+            }
+
+            // method surface on all 4 drivers
+            foreach (['\\Gene\\Db\\Mysql', '\\Gene\\Db\\Pgsql', '\\Gene\\Db\\Sqlite', '\\Gene\\Db\\Mssql'] as $cls) {
+                if (!class_exists($cls)) {
+                    continue;
+                }
+                foreach (['insertIgnore', 'upsert', 'lockForUpdate', 'sharedLock'] as $m) {
+                    if (!method_exists($cls, $m)) {
+                        $this->fail("$cls missing $m");
+                    }
+                }
+            }
+            echo "✓ all drivers expose insertIgnore/upsert/lockForUpdate/sharedLock\n";
+        } catch (Throwable $e) {
+            $this->reportCaught($e);
+        }
+
+        echo "\n";
+    }
+
+    /**
      * Run all tests
      */
     public function runAllTests()
@@ -750,6 +839,7 @@ class DatabaseTest
         $this->testDatabaseSecurity();
         $this->testDatabasePerformance();
         $this->testSqliteAttachDetach();
+        $this->testSqliteV2WriteApis();
 
         echo "=== Database Classes Test Suite Complete ===\n";
         echo "Summary: failed={$this->failed}, skipped={$this->skipped}\n";

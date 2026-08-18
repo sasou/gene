@@ -4,25 +4,46 @@ namespace Gene\Orm;
 /**
  * ORM 查询构建器（薄代理 Gene\Db\*）
  *
- * 条件存于 Query 对象，终端方法再应用到 Db；执行后与析构时 reset，
- * 避免 FPM/Swoole 下链式状态污染。
+ * v2（6.1.0）：条件记录在 Query 对象的有序 ops 列表中，终端方法按调用
+ * 顺序重放到 Db。重复的 where()/join()/in() 是**累加**而非覆盖；字符串
+ * 条件之间由 Query 生成 " AND " 连接符。执行后与析构时 reset Db，避免
+ * FPM/Swoole 下链式状态污染。
+ *
+ * 一次性语义：Query 是「构建 → 执行 → 丢弃」的一次性构建器，不可缓存
+ * 复用，也不可交错构建两个 Query（它们共享同一 DI Db 句柄，执行时会先
+ * reset）。paginate 在同一 Query 上串行重放两次（count/list）是安全的。
  *
  * @author  sasou<admin@php-gene.com>
- * @version 6.0.0
+ * @version 6.1.0
  */
 final class Query
 {
     /**
-     * @param mixed $where  array 条件或 SQL 片段
-     * @param mixed $bind   绑定参数（字符串 where 时）
+     * where — 三种形式：
+     *  - where(['col' => $v, ...])        关联数组（走 Db makeWhere，标识符加引号）
+     *  - where('name != ?', $bind)        原始片段 + 绑定（$bind 可为标量/数组）
+     *  - where('id', '>=', 1)             比较运算简写：$op 白名单 > >= < <= != =，
+     *                                     $col 必须是纯标识符（[A-Za-z0-9_.]），否则抛异常
+     * 多次调用以 AND 累加；数组 where 同名键后写覆盖先写。
+     *
+     * @param mixed $where
+     * @param mixed $op_or_bind
+     * @param mixed $val
      * @return $this
      */
-    public function where($where, $bind = null)
+    public function where($where, $op_or_bind = null, $val = null)
     {
         return $this;
     }
 
     /**
+     * in — 两种形式：
+     *  - in('id', [1, 2, 3])        列形式，展开为 id IN (?,?,?)
+     *  - in('id in(?)', [1, 2])     原始占位符形式（透传 Db::in）
+     * 空数组：不发 SQL，终端方法直接返回空结果（all()=[]、count()=0、
+     * row()/cell()=null、paginate()={count:0,list:[]}、update()/delete()=0）
+     * —— 绝不退化为无条件全表。>1000 个值发 E_NOTICE（建议分批）。
+     *
      * @param string $in
      * @param mixed $bind
      * @return $this
@@ -33,6 +54,41 @@ final class Query
     }
 
     /**
+     * join — 对齐 Db::join；可多次调用。LEFT/RIGHT 等走 $type。
+     * update()/delete() 不支持 join（调用即抛异常）。
+     *
+     * @param string $table 关联表（可带别名）
+     * @param array $on ON 条件：leftColumn => rightColumn（两侧按标识符加引号）
+     * @param string $type INNER/LEFT/RIGHT/CROSS/FULL/LEFT OUTER/...（默认 INNER）
+     * @return $this
+     */
+    public function join($table, $on, $type = 'INNER')
+    {
+        return $this;
+    }
+
+    /**
+     * group — 多次调用以 ", " 累加
+     * @param string $group
+     * @return $this
+     */
+    public function group($group)
+    {
+        return $this;
+    }
+
+    /**
+     * having — 多次调用以 " AND " 累加
+     * @param string $having
+     * @return $this
+     */
+    public function having($having)
+    {
+        return $this;
+    }
+
+    /**
+     * order — 多次调用以 ", " 累加（如 'id desc'）
      * @param string $order
      * @return $this
      */
@@ -43,6 +99,7 @@ final class Query
 
     /**
      * 单参：取 $num 行；双参：LIMIT offset,count（与 paginate / MySQL 语义一致，驱动自适应）
+     * 多次调用后者覆盖前者。
      *
      * @param int $num   单参时为行数；双参时为 offset
      * @param int|null $limit  行数（双参时）
@@ -54,17 +111,90 @@ final class Query
     }
 
     /**
-     * @return array|null
+     * fields — 本次查询的字段投影，覆盖 Model::$fields（array|string）
+     *
+     * @param array|string $fields
+     * @return $this
+     */
+    public function fields($fields)
+    {
+        return $this;
+    }
+
+    /**
+     * selectSub — 追加一个子查询列：", ($sql) AS `$alias`"。
+     * $sql 为开发者书写（与 Db::sql() 同信任级别，不做转义）；
+     * $alias 必须是纯标识符。仅 select 类终端生效（count 忽略）。
+     *
+     * @param string $sql
+     * @param string $alias
+     * @return $this
+     */
+    public function selectSub($sql, $alias)
+    {
+        return $this;
+    }
+
+    /**
+     * whereLike — LIKE 模糊匹配：自动转义 \ % _ 并包成 %kw%，追加
+     * ESCAPE 子句（驱动自适应）。业务若已自行转义（如 escapeLikePattern）
+     * 请勿再调本方法，避免双转义。
+     *
+     * @param string $col 纯标识符列名
+     * @param string $keyword 原始关键字（其中的 % _ 按字面量匹配）
+     * @return $this
+     */
+    public function whereLike($col, $keyword)
+    {
+        return $this;
+    }
+
+    /**
+     * lockForUpdate — 行锁（仅 select 终端生效）。
+     * MySQL: FOR UPDATE；Pgsql: FOR UPDATE；Sqlite: no-op + E_NOTICE；
+     * Mssql: 抛异常（需 WITH (UPDLOCK) 表提示，请用 sql()）。
+     * 必须在事务内使用，否则 E_NOTICE。不可移植 API，见驱动差异说明。
+     *
+     * @return $this
+     */
+    public function lockForUpdate()
+    {
+        return $this;
+    }
+
+    /**
+     * sharedLock — 共享锁。MySQL: LOCK IN SHARE MODE；Pgsql: FOR SHARE；
+     * Sqlite no-op + E_NOTICE；Mssql 抛异常。同样须在事务内。
+     *
+     * @return $this
+     */
+    public function sharedLock()
+    {
+        return $this;
+    }
+
+    /**
+     * @return array
      */
     public function all()
     {
-        return null;
+        return [];
     }
 
     /**
      * @return array|null
      */
     public function row()
+    {
+        return null;
+    }
+
+    /**
+     * first — 等价 limit(1) + row()（不污染 op 列表）
+     *
+     * @return array|null
+     */
+    public function first()
     {
         return null;
     }
@@ -78,9 +208,47 @@ final class Query
     }
 
     /**
+     * count — 继承 where/join/group/having，忽略 order/limit/lock/fields
+     *
      * @return int
      */
     public function count()
+    {
+        return 0;
+    }
+
+    /**
+     * paginate — {count, list}；list 阶段继承 order 并强制 offset/limit，
+     * count 阶段不带 order。仅保证单表语义；JOIN 场景请显式
+     * count() + all() 两步并自行保证 FROM/WHERE 一致。
+     *
+     * @param int $offset
+     * @param int $limit
+     * @return array{count:int,list:array}
+     */
+    public function paginate($offset, $limit)
+    {
+        return ['count' => 0, 'list' => []];
+    }
+
+    /**
+     * update — 立即执行（调用即执行，与 Model::updateBy 对称），
+     * 返回影响行数。要求至少一个 where()/in() 条件，否则抛异常。
+     *
+     * @param array $data
+     * @return int
+     */
+    public function update(array $data)
+    {
+        return 0;
+    }
+
+    /**
+     * delete — 立即执行，返回影响行数。要求至少一个 where()/in() 条件。
+     *
+     * @return int
+     */
+    public function delete()
     {
         return 0;
     }

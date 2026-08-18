@@ -25,6 +25,7 @@ class Mssql
     public $having;
     public $order;
     public $limit;
+    public $lock;
     public $data;
     protected static $history;
 
@@ -210,6 +211,50 @@ class Mssql
      * @return static
      */
     public function limit($num, $offset = null) {
+
+    }
+
+    /**
+     * insertIgnore — Mssql 不支持该构建器 API（6.1.0+），调用即抛异常；
+     * 请用 sql() 书写 MERGE/IF NOT EXISTS。
+     *
+     * @param string $table
+     * @param array $fields
+     * @return static
+     */
+    public function insertIgnore($table, $fields) {
+
+    }
+
+    /**
+     * upsert — Mssql 不支持该构建器 API（6.1.0+），调用即抛异常；
+     * 请用 sql() 书写 MERGE。
+     *
+     * @param string $table
+     * @param array $fields
+     * @param array $updateCols
+     * @return static
+     */
+    public function upsert($table, $fields, $updateCols) {
+
+    }
+
+    /**
+     * lockForUpdate — Mssql 不支持（WITH (UPDLOCK) 是必须写在 FROM 处的
+     * 表提示，后缀方案不成立），调用即抛异常；请用 sql()（6.1.0+）。
+     *
+     * @return static
+     */
+    public function lockForUpdate() {
+
+    }
+
+    /**
+     * sharedLock — Mssql 不支持（WITH (HOLDLOCK) 表提示），调用即抛异常（6.1.0+）。
+     *
+     * @return static
+     */
+    public function sharedLock() {
 
     }
 

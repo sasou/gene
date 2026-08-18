@@ -70,6 +70,12 @@ ZEND_BEGIN_ARG_INFO_EX(gene_db_sqlite_insert, 0, 0, 2)
     ZEND_ARG_INFO(0, fields)
 ZEND_END_ARG_INFO()
 
+ZEND_BEGIN_ARG_INFO_EX(gene_db_sqlite_upsert, 0, 0, 3)
+	ZEND_ARG_INFO(0, table)
+    ZEND_ARG_INFO(0, fields)
+    ZEND_ARG_ARRAY_INFO(0, updateCols, 0)
+ZEND_END_ARG_INFO()
+
 ZEND_BEGIN_ARG_INFO_EX(gene_db_sqlite_batch_insert, 0, 0, 2)
 	ZEND_ARG_INFO(0, table)
     ZEND_ARG_INFO(0, fields)
@@ -153,6 +159,10 @@ void sqlite_reset_sql_params(zval *self)
 	zend_update_property_null(gene_db_sqlite_ce, gene_strip_obj(self), ZEND_STRL(GENE_DB_SQLITE_UNION));
 	zend_update_property_null(gene_db_sqlite_ce, gene_strip_obj(self), ZEND_STRL(GENE_DB_SQLITE_ORDER));
 	zend_update_property_null(gene_db_sqlite_ce, gene_strip_obj(self), ZEND_STRL(GENE_DB_SQLITE_LIMIT));
+	/* [GENE_FEATURE:2026-08-18 3.4] M8: clear the LOCK fragment with every
+	 * other SQL part (unused on sqlite — no-op lock methods — but kept for
+	 * cross-driver symmetry). */
+	zend_update_property_null(gene_db_sqlite_ce, gene_strip_obj(self), ZEND_STRL(GENE_DB_SQLITE_LOCK));
     zend_update_property_null(gene_db_sqlite_ce, gene_strip_obj(self), ZEND_STRL(GENE_DB_SQLITE_DATA));
 }
 
@@ -274,7 +284,7 @@ bool sqliteInitPdo (zval * self, zval *config) {
 
 bool gene_sqlite_pdo_execute (zval *self, zval *statement)
 {
-	zval *pdo_object = NULL, *params = NULL, *pdo_sql = NULL, *pdo_join = NULL, *pdo_where = NULL, *pdo_group = NULL,*pdo_having = NULL, *pdo_union = NULL,*pdo_order = NULL, *pdo_limit = NULL;
+	zval *pdo_object = NULL, *params = NULL, *pdo_sql = NULL, *pdo_join = NULL, *pdo_where = NULL, *pdo_group = NULL,*pdo_having = NULL, *pdo_union = NULL,*pdo_order = NULL, *pdo_limit = NULL, *pdo_lock = NULL;
 	zval retval;
 	smart_str sql = {0};
 	struct timeval db_start, db_end;
@@ -289,6 +299,7 @@ bool gene_sqlite_pdo_execute (zval *self, zval *statement)
 	pdo_union = zend_read_property(gene_db_sqlite_ce, gene_strip_obj(self), ZEND_STRL(GENE_DB_SQLITE_UNION), 1, NULL);
 	pdo_order = zend_read_property(gene_db_sqlite_ce, gene_strip_obj(self), ZEND_STRL(GENE_DB_SQLITE_ORDER), 1, NULL);
 	pdo_limit = zend_read_property(gene_db_sqlite_ce, gene_strip_obj(self), ZEND_STRL(GENE_DB_SQLITE_LIMIT), 1, NULL);
+	pdo_lock = zend_read_property(gene_db_sqlite_ce, gene_strip_obj(self), ZEND_STRL(GENE_DB_SQLITE_LOCK), 1, NULL);
 
 	/* [GENE_FEATURE:2026-08-06 F0-2] Assembly order: base SQL + JOIN + WHERE
 	 * + GROUP + HAVING + UNION + ORDER + LIMIT. JOIN binds to the leading
@@ -317,6 +328,11 @@ bool gene_sqlite_pdo_execute (zval *self, zval *statement)
 	}
 	if (Z_TYPE_P(pdo_limit) == IS_STRING) {
 		smart_str_appends(&sql, Z_STRVAL_P(pdo_limit));
+	}
+	/* [GENE_FEATURE:2026-08-18 3.4] LOCK fragment goes last (cross-driver
+	 * symmetry; sqlite lock methods are no-ops so this stays empty). */
+	if (Z_TYPE_P(pdo_lock) == IS_STRING) {
+		smart_str_appends(&sql, Z_STRVAL_P(pdo_lock));
 	}
 	smart_str_0(&sql);
 	if (!GENE_G(run_environment)) {
@@ -472,19 +488,12 @@ PHP_METHOD(gene_db_sqlite, count)
 /* }}} */
 
 
-/*
- * {{{ public gene_db::insert($key)
- */
-PHP_METHOD(gene_db_sqlite, insert)
+/* Shared INSERT builder. ignore=1 → INSERT OR IGNORE (sqlite idempotent
+ * write, equivalent to MySQL INSERT IGNORE). */
+static void gene_db_sqlite_do_insert(zval *self, char *table, zval *fields, zend_bool ignore)
 {
-	zval *self = getThis(),*fields = NULL;
-	char *table = NULL;
-	size_t table_len;// @suppress("Type cannot be resolved")
 	smart_str field_str = {0} , value_str = {0};
 	zval field_value;
-	if (zend_parse_parameters(ZEND_NUM_ARGS(), "s|z", &table, &table_len, &fields) == FAILURE) {
-		return;
-	}
 	sqlite_reset_sql_params(self);
 	ZVAL_NULL(&field_value);
 	smart_str_appends(&field_str, "");
@@ -500,12 +509,59 @@ PHP_METHOD(gene_db_sqlite, insert)
 	smart_str_0(&value_str);
     {
     	char *qt = gene_quote_table(table, '`', '`');
-    	GENE_DB_SQLITE_SET_PROP(GENE_DB_SQLITE_SQL, "INSERT INTO %s(%s) VALUES(%s)", qt, field_str.s->val, value_str.s->val);
+    	if (ignore) {
+    		GENE_DB_SQLITE_SET_PROP(GENE_DB_SQLITE_SQL, "INSERT OR IGNORE INTO %s(%s) VALUES(%s)", qt, field_str.s->val, value_str.s->val);
+    	} else {
+    		GENE_DB_SQLITE_SET_PROP(GENE_DB_SQLITE_SQL, "INSERT INTO %s(%s) VALUES(%s)", qt, field_str.s->val, value_str.s->val);
+    	}
     	efree(qt);
     }
     smart_str_free(&field_str);
     smart_str_free(&value_str);
+}
+
+/*
+ * {{{ public gene_db::insert($key)
+ */
+PHP_METHOD(gene_db_sqlite, insert)
+{
+	zval *self = getThis(),*fields = NULL;
+	char *table = NULL;
+	size_t table_len;// @suppress("Type cannot be resolved")
+	if (zend_parse_parameters(ZEND_NUM_ARGS(), "s|z", &table, &table_len, &fields) == FAILURE) {
+		return;
+	}
+	gene_db_sqlite_do_insert(self, table, fields, 0);
 	RETURN_ZVAL(self, 1, 0);
+}
+/* }}} */
+
+/*
+ * {{{ public gene_db_sqlite::insertIgnore($table, $fields)
+ * [GENE_FEATURE:2026-08-18 3.3] INSERT OR IGNORE — sqlite equivalent of
+ * MySQL INSERT IGNORE. Lazy like insert(): execute via lastId()/affectedRows(). */
+PHP_METHOD(gene_db_sqlite, insertIgnore)
+{
+	zval *self = getThis(),*fields = NULL;
+	char *table = NULL;
+	size_t table_len;// @suppress("Type cannot be resolved")
+	if (zend_parse_parameters(ZEND_NUM_ARGS(), "s|z", &table, &table_len, &fields) == FAILURE) {
+		return;
+	}
+	gene_db_sqlite_do_insert(self, table, fields, 1);
+	RETURN_ZVAL(self, 1, 0);
+}
+/* }}} */
+
+/*
+ * {{{ public gene_db_sqlite::upsert($table, $fields, $updateCols)
+ * [GENE_FEATURE:2026-08-18 3.3] Not folded into the builder: sqlite's
+ * ON CONFLICT needs an explicit conflict target, which this API does not
+ * model. Use sql() with ON CONFLICT(col) DO UPDATE directly. */
+PHP_METHOD(gene_db_sqlite, upsert)
+{
+	zend_throw_exception_ex(NULL, 0,
+		"Gene\\Db\\Sqlite::upsert() is not supported; use sql() with ON CONFLICT(col) DO UPDATE");
 }
 /* }}} */
 
@@ -1181,6 +1237,25 @@ PHP_METHOD(gene_db_sqlite, limit)
 }
 /* }}} */
 
+/* [GENE_FEATURE:2026-08-18 3.4] SQLite has no row-lock syntax (write locks
+ * are database-wide and implicit). Keep the methods as documented no-ops so
+ * cross-driver code degrades loudly instead of fataling. */
+PHP_METHOD(gene_db_sqlite, lockForUpdate)
+{
+	zval *self = getThis();
+	php_error_docref(NULL, E_NOTICE,
+		"Gene\\Db\\Sqlite::lockForUpdate() is a no-op — SQLite has no FOR UPDATE syntax");
+	RETURN_ZVAL(self, 1, 0);
+}
+
+PHP_METHOD(gene_db_sqlite, sharedLock)
+{
+	zval *self = getThis();
+	php_error_docref(NULL, E_NOTICE,
+		"Gene\\Db\\Sqlite::sharedLock() is a no-op — SQLite has no shared-lock syntax");
+	RETURN_ZVAL(self, 1, 0);
+}
+
 
 /*
  * {{{ public gene_db::all()
@@ -1293,7 +1368,7 @@ PHP_METHOD(gene_db_sqlite, quote)
  */
 PHP_METHOD(gene_db_sqlite, print)
 {
-	zval *self = getThis(),*pdo_object = NULL, *pdo_sql = NULL, *pdo_join = NULL, *pdo_where = NULL, *pdo_order = NULL,*pdo_group = NULL,*pdo_having = NULL, *pdo_union = NULL, *pdo_limit = NULL, *params = NULL;
+	zval *self = getThis(),*pdo_object = NULL, *pdo_sql = NULL, *pdo_join = NULL, *pdo_where = NULL, *pdo_order = NULL,*pdo_group = NULL,*pdo_having = NULL, *pdo_union = NULL, *pdo_limit = NULL, *pdo_lock = NULL, *params = NULL;
 	smart_str sql = {0};
 	pdo_object = zend_read_property(gene_db_sqlite_ce, gene_strip_obj(self), ZEND_STRL(GENE_DB_SQLITE_PDO), 1, NULL);
 	pdo_sql = zend_read_property(gene_db_sqlite_ce, gene_strip_obj(self), ZEND_STRL(GENE_DB_SQLITE_SQL), 1, NULL);
@@ -1304,6 +1379,7 @@ PHP_METHOD(gene_db_sqlite, print)
 	pdo_union = zend_read_property(gene_db_sqlite_ce, gene_strip_obj(self), ZEND_STRL(GENE_DB_SQLITE_UNION), 1, NULL);
 	pdo_order = zend_read_property(gene_db_sqlite_ce, gene_strip_obj(self), ZEND_STRL(GENE_DB_SQLITE_ORDER), 1, NULL);
 	pdo_limit = zend_read_property(gene_db_sqlite_ce, gene_strip_obj(self), ZEND_STRL(GENE_DB_SQLITE_LIMIT), 1, NULL);
+	pdo_lock = zend_read_property(gene_db_sqlite_ce, gene_strip_obj(self), ZEND_STRL(GENE_DB_SQLITE_LOCK), 1, NULL);
 	params = zend_read_property(gene_db_sqlite_ce, gene_strip_obj(self), ZEND_STRL(GENE_DB_SQLITE_DATA), 1, NULL);
 
 	if (Z_TYPE_P(pdo_sql) == IS_STRING) {
@@ -1329,6 +1405,9 @@ PHP_METHOD(gene_db_sqlite, print)
 	}
 	if (Z_TYPE_P(pdo_limit) == IS_STRING) {
 		smart_str_appends(&sql, Z_STRVAL_P(pdo_limit));
+	}
+	if (Z_TYPE_P(pdo_lock) == IS_STRING) {
+		smart_str_appends(&sql, Z_STRVAL_P(pdo_lock));
 	}
 	smart_str_0(&sql);
 	zval z_row, z_sql;
@@ -1570,6 +1649,8 @@ const zend_function_entry gene_db_sqlite_methods[] = {
 		PHP_ME(gene_db_sqlite, select, gene_db_sqlite_select, ZEND_ACC_PUBLIC)
 		PHP_ME(gene_db_sqlite, count, gene_db_sqlite_count, ZEND_ACC_PUBLIC)
 		PHP_ME(gene_db_sqlite, insert, gene_db_sqlite_insert, ZEND_ACC_PUBLIC)
+		PHP_ME(gene_db_sqlite, insertIgnore, gene_db_sqlite_insert, ZEND_ACC_PUBLIC)
+		PHP_ME(gene_db_sqlite, upsert, gene_db_sqlite_upsert, ZEND_ACC_PUBLIC)
 		PHP_ME(gene_db_sqlite, batchInsert, gene_db_sqlite_batch_insert, ZEND_ACC_PUBLIC)
 		PHP_ME(gene_db_sqlite, update, gene_db_sqlite_update, ZEND_ACC_PUBLIC)
 		PHP_ME(gene_db_sqlite, delete, gene_db_sqlite_delete, ZEND_ACC_PUBLIC)
@@ -1582,6 +1663,8 @@ const zend_function_entry gene_db_sqlite_methods[] = {
 		PHP_ME(gene_db_sqlite, reset, gene_db_sqlite_void_arginfo, ZEND_ACC_PUBLIC)
 		PHP_ME(gene_db_sqlite, sql, gene_db_sqlite_sql, ZEND_ACC_PUBLIC)
 		PHP_ME(gene_db_sqlite, limit, gene_db_sqlite_limit, ZEND_ACC_PUBLIC)
+		PHP_ME(gene_db_sqlite, lockForUpdate, gene_db_sqlite_void_arginfo, ZEND_ACC_PUBLIC)
+		PHP_ME(gene_db_sqlite, sharedLock, gene_db_sqlite_void_arginfo, ZEND_ACC_PUBLIC)
 		PHP_ME(gene_db_sqlite, order, gene_db_sqlite_order, ZEND_ACC_PUBLIC)
 		PHP_ME(gene_db_sqlite, group, gene_db_sqlite_group, ZEND_ACC_PUBLIC)
 		PHP_ME(gene_db_sqlite, having, gene_db_sqlite_having, ZEND_ACC_PUBLIC)
@@ -1634,6 +1717,7 @@ GENE_MINIT_FUNCTION(db_sqlite)
     zend_declare_property_null(gene_db_sqlite_ce, ZEND_STRL(GENE_DB_SQLITE_UNION), ZEND_ACC_PUBLIC);
     zend_declare_property_null(gene_db_sqlite_ce, ZEND_STRL(GENE_DB_SQLITE_ORDER), ZEND_ACC_PUBLIC);
     zend_declare_property_null(gene_db_sqlite_ce, ZEND_STRL(GENE_DB_SQLITE_LIMIT), ZEND_ACC_PUBLIC);
+    zend_declare_property_null(gene_db_sqlite_ce, ZEND_STRL(GENE_DB_SQLITE_LOCK), ZEND_ACC_PUBLIC);
     zend_declare_property_null(gene_db_sqlite_ce, ZEND_STRL(GENE_DB_SQLITE_DATA), ZEND_ACC_PUBLIC);
 	zend_declare_property_null(gene_db_sqlite_ce, ZEND_STRL(GENE_DB_SQLITE_POOL), ZEND_ACC_PROTECTED);
 	zend_declare_property_null(gene_db_sqlite_ce, ZEND_STRL(GENE_DB_SQLITE_HISTORY), ZEND_ACC_PROTECTED | ZEND_ACC_STATIC);
