@@ -68,7 +68,8 @@ final class Query
     }
 
     /**
-     * group — 多次调用以 ", " 累加
+     * group — 多次调用以 ", " 累加。
+     * 注意：与 count()/paginate() 组合会抛异常（见 count() 注释）。
      * @param string $group
      * @return $this
      */
@@ -208,7 +209,10 @@ final class Query
     }
 
     /**
-     * count — 继承 where/join/group/having，忽略 order/limit/lock/fields
+     * count — 继承 where/join，忽略 order/limit/lock/fields。
+     * 不得与 group() 组合（count over GROUP BY 会静默返回第一个分组的
+     * 行数而非分组数）——检测到 group 时抛异常；分组统计请用
+     * count() + all() 两步或 Db::cell() 手写聚合。
      *
      * @return int
      */
@@ -221,6 +225,7 @@ final class Query
      * paginate — {count, list}；list 阶段继承 order 并强制 offset/limit，
      * count 阶段不带 order。仅保证单表语义；JOIN 场景请显式
      * count() + all() 两步并自行保证 FROM/WHERE 一致。
+     * 与 group() 组合时抛异常（同 count() 的限制）。
      *
      * @param int $offset
      * @param int $limit
@@ -233,7 +238,10 @@ final class Query
 
     /**
      * update — 立即执行（调用即执行，与 Model::updateBy 对称），
-     * 返回影响行数。要求至少一个 where()/in() 条件，否则抛异常。
+     * 返回影响行数。要求至少一个**有效** where()/in() 条件，否则抛异常：
+     * where([])（空数组）与 where('')（空串）会被静默跳过、不构成条件，
+     * 同样拒绝执行——杜绝「动态拼条件为空时全表覆写」。
+     * in('id', []) 是例外：它是安全空操作，返回 0 且不抛异常。
      *
      * @param array $data
      * @return int
@@ -244,7 +252,9 @@ final class Query
     }
 
     /**
-     * delete — 立即执行，返回影响行数。要求至少一个 where()/in() 条件。
+     * delete — 立即执行，返回影响行数。条件护栏同 update()：
+     * 无条件 / where([]) / where('') 一律抛异常，不会生成无 WHERE 的
+     * DELETE；in('id', []) 为安全空操作（返回 0）。
      *
      * @return int
      */

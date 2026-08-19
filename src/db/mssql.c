@@ -1388,7 +1388,9 @@ PHP_METHOD(gene_db_mssql, print)
 	}
 	smart_str_0(&sql);
 	zval z_row, z_sql;
-	ZVAL_STRING(&z_sql, ZSTR_VAL(sql.s));
+	/* [GENE_FIX:2026-08-19] sql.s stays NULL when no statement was built
+	 * (fresh handle / right after reset) — ZSTR_VAL(NULL) segfaults. */
+	ZVAL_STRING(&z_sql, sql.s ? ZSTR_VAL(sql.s) : "");
 	smart_str_free(&sql);
 
 	array_init(&z_row);

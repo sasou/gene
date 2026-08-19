@@ -163,30 +163,6 @@ static zend_bool gene_orm_query_is_empty(zval *self)
 	return e && zend_is_true(e);
 }
 
-/* Does any where-ish op exist? update()/delete() refuse to run unscoped. */
-static zend_bool gene_orm_query_has_condition(zval *ops)
-{
-	zval *op;
-
-	if (!ops || Z_TYPE_P(ops) != IS_ARRAY) {
-		return 0;
-	}
-	ZEND_HASH_FOREACH_VAL(Z_ARRVAL_P(ops), op) {
-		zval *tag;
-		if (Z_TYPE_P(op) != IS_ARRAY) {
-			continue;
-		}
-		tag = zend_hash_index_find(Z_ARRVAL_P(op), 0);
-		if (tag && Z_TYPE_P(tag) == IS_STRING &&
-			(zend_string_equals_literal(Z_STR_P(tag), "where") ||
-			 zend_string_equals_literal(Z_STR_P(tag), "in") ||
-			 zend_string_equals_literal(Z_STR_P(tag), "inraw"))) {
-			return 1;
-		}
-	} ZEND_HASH_FOREACH_END();
-	return 0;
-}
-
 /* Rebuild the db chain from the op list.
  * mode: GENE_ORM_Q_*; data: payload for UPDATE; force_limit overrides any
  * limit op (paginate list phase / first()). */
@@ -415,6 +391,17 @@ static int gene_orm_query_apply(zval *self, zval *db, int mode, zval *data,
 				}
 			} else if (strcmp(t, "group") == 0) {
 				if (a1 && Z_TYPE_P(a1) == IS_STRING && Z_STRLEN_P(a1) > 0) {
+					/* [GENE_FIX:2026-08-19 P2-5] count over GROUP BY makes
+					 * cell() return the FIRST GROUP's row count — a silently
+					 * wrong number (count=3 vs list of 2 groups, verified by
+					 * audit/repro/group_count_semantics.php). Refuse loudly;
+					 * callers keep the explicit count()+all() two-step. */
+					if (mode == GENE_ORM_Q_COUNT) {
+						zend_throw_exception_ex(NULL, 0,
+							"Gene\\Orm\\Query: group() cannot be combined with count()/paginate(); "
+							"use count() and all() as separate steps");
+						goto out;
+					}
 					if (group_buf.s && ZSTR_LEN(group_buf.s) > 0) {
 						smart_str_appends(&group_buf, ", ");
 					}
@@ -454,6 +441,24 @@ static int gene_orm_query_apply(zval *self, zval *db, int mode, zval *data,
 			}
 			/* "fields" handled by the verb */
 		} ZEND_HASH_FOREACH_END();
+	}
+
+	/* --- [GENE_FIX:2026-08-19 P0-2] semantic write guard ---
+	 * The previous pre-check only looked at op TAGS: a where([]) (dropped
+	 * by pass 1's non-empty test) or where('') (skipped by pass 2) still
+	 * carried a "where" tag and passed — producing an unscoped
+	 * UPDATE/DELETE (full-table rewrite, verified by
+	 * audit/repro/guard_unscoped_write.php). Decide HERE, on where_started,
+	 * i.e. on what the generated SQL actually contains, so the guard can
+	 * never drift from the generator. The in([]) emptyResult early-exit in
+	 * the terminal methods runs BEFORE apply(), so a safe no-op does not
+	 * turn into an exception. The verb call above only BUILT sql (lazy);
+	 * nothing has executed yet. */
+	if ((mode == GENE_ORM_Q_UPDATE || mode == GENE_ORM_Q_DELETE) && !where_started) {
+		zend_throw_exception_ex(NULL, 0,
+			"Gene\\Orm\\Query::%s() requires at least one effective where()/in() condition",
+			mode == GENE_ORM_Q_UPDATE ? "update" : "delete");
+		goto out;
 	}
 
 	/* --- flush accumulated group/having/order/limit/lock ---
@@ -1139,7 +1144,14 @@ PHP_METHOD(gene_orm_query, paginate)
 		gene_orm_query_finish(self, db);
 		RETURN_NULL();
 	}
-	if (gene_orm_db_call(db, "all", 0, NULL, &list_zv) != SUCCESS || Z_ISUNDEF(list_zv)) {
+	/* [GENE_FIX:2026-08-19 P2-6] Fall back to an empty list whenever all()
+	 * did not yield an ARRAY — a driver error path can return SUCCESS with
+	 * false, which would break the {count:int, list:array} contract and
+	 * fatal the caller's foreach. */
+	if (gene_orm_db_call(db, "all", 0, NULL, &list_zv) != SUCCESS || Z_TYPE(list_zv) != IS_ARRAY) {
+		if (!Z_ISUNDEF(list_zv)) {
+			zval_ptr_dtor(&list_zv);
+		}
 		array_init(&list_zv);
 	}
 	gene_orm_query_finish(self, db);
@@ -1157,7 +1169,7 @@ PHP_METHOD(gene_orm_query, paginate)
 PHP_METHOD(gene_orm_query, update)
 {
 	zval *self = getThis(), *data = NULL;
-	zval *db, retval, *ops_zv;
+	zval *db, retval;
 
 	if (zend_parse_parameters(ZEND_NUM_ARGS(), "a", &data) == FAILURE) {
 		return;
@@ -1170,13 +1182,8 @@ PHP_METHOD(gene_orm_query, update)
 		gene_orm_query_finish(self, db);
 		RETURN_LONG(0);
 	}
-	ops_zv = zend_read_property(gene_orm_query_ce, gene_strip_obj(self),
-		ZEND_STRL(GENE_ORM_QUERY_OPS), 1, NULL);
-	if (!gene_orm_query_has_condition(ops_zv)) {
-		zend_throw_exception_ex(NULL, 0,
-			"Gene\\Orm\\Query::update() requires at least one where()/in() condition");
-		RETURN_LONG(0);
-	}
+	/* The write guard lives INSIDE apply() (P0-2): it judges where_started
+	 * after replay, i.e. the SQL that would actually run. */
 	if (gene_orm_query_apply(self, db, GENE_ORM_Q_UPDATE, data, 0, 0, 0) != SUCCESS) {
 		gene_orm_query_finish(self, db);
 		RETURN_LONG(0);
@@ -1195,7 +1202,7 @@ PHP_METHOD(gene_orm_query, update)
 PHP_METHOD(gene_orm_query, delete)
 {
 	zval *self = getThis();
-	zval *db, retval, *ops_zv;
+	zval *db, retval;
 
 	db = gene_orm_query_db(self);
 	if (!db) {
@@ -1205,13 +1212,7 @@ PHP_METHOD(gene_orm_query, delete)
 		gene_orm_query_finish(self, db);
 		RETURN_LONG(0);
 	}
-	ops_zv = zend_read_property(gene_orm_query_ce, gene_strip_obj(self),
-		ZEND_STRL(GENE_ORM_QUERY_OPS), 1, NULL);
-	if (!gene_orm_query_has_condition(ops_zv)) {
-		zend_throw_exception_ex(NULL, 0,
-			"Gene\\Orm\\Query::delete() requires at least one where()/in() condition");
-		RETURN_LONG(0);
-	}
+	/* Guard inside apply() — see update() / P0-2. */
 	if (gene_orm_query_apply(self, db, GENE_ORM_Q_DELETE, NULL, 0, 0, 0) != SUCCESS) {
 		gene_orm_query_finish(self, db);
 		RETURN_LONG(0);
