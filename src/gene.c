@@ -398,20 +398,49 @@ static void gene_di_regs_tx_hygiene(zval *di_regs) {
 		if (!pdo || Z_TYPE_P(pdo) != IS_OBJECT) {
 			continue;
 		}
+		/* [GENE_FIX:2026-08-19 P1-4] Three shutdown-hardening rules:
+		 * 1. Save/restore any PENDING exception around the whole window:
+		 *    requests typically end dirty BECAUSE of an uncaught exception;
+		 *    with EG(exception) set, zend_call_known_function would silently
+		 *    skip inTransaction()/rollBack() — the exact case this exists for.
+		 * 2. Roll back BEFORE warning: a user error handler converting the
+		 *    E_WARNING into an exception (see
+		 *    audit/repro/tx_hygiene_error_handler.php) must not skip the
+		 *    rollback, or the dirty transaction rides the persistent
+		 *    connection into the next request.
+		 * 3. Emit the warning with the user handler bypassed: shutdown
+		 *    hygiene cannot be hijacked into throwing mid-RSHUTDOWN /
+		 *    mid-clearState(). */
+		zend_exception_save();
 		gene_pdo_in_transaction(pdo, &r);
 		if (!Z_ISUNDEF(r) && zend_is_true(&r)) {
-			php_error_docref(NULL, E_WARNING,
-				"Gene: request ended with an open transaction on DI service \"%s\" "
-				"— rolling back to protect persistent-connection reuse",
-				key ? ZSTR_VAL(key) : "?");
+			zval saved_handler;
 			gene_pdo_rollback(pdo, &rr);
 			if (!Z_ISUNDEF(rr)) {
 				zval_ptr_dtor(&rr);
+			}
+			if (EG(exception)) {
+				/* PDO::rollBack() may throw under ERRMODE_EXCEPTION; the
+				 * request is ending — never let that escape into RSHUTDOWN
+				 * as an uncaught exception. */
+				zend_clear_exception();
+			}
+			ZVAL_COPY_VALUE(&saved_handler, &EG(user_error_handler));
+			ZVAL_UNDEF(&EG(user_error_handler));
+			php_error_docref(NULL, E_WARNING,
+				"Gene: request ended with an open transaction on DI service \"%s\" "
+				"— rolled back to protect persistent-connection reuse",
+				key ? ZSTR_VAL(key) : "?");
+			if (Z_TYPE(EG(user_error_handler)) == IS_UNDEF) {
+				ZVAL_COPY_VALUE(&EG(user_error_handler), &saved_handler);
+			} else {
+				zval_ptr_dtor(&saved_handler);
 			}
 		}
 		if (!Z_ISUNDEF(r)) {
 			zval_ptr_dtor(&r);
 		}
+		zend_exception_restore();
 	} ZEND_HASH_FOREACH_END();
 }
 /* }}} */
@@ -1493,6 +1522,10 @@ ZEND_GET_MODULE(gene)
 const zend_module_dep gene_deps[] = {
 	// Audit [2026-03-25] cannot add comma separation, window compilation fails
 	ZEND_MOD_REQUIRED("spl")
+	/* [GENE_FIX:2026-08-19 P1-4] Transaction hygiene (request boundary) and
+	 * pool return both call PDO methods during RSHUTDOWN/destructors — pin
+	 * the module shutdown order so pdo is still loaded when gene tears down. */
+	ZEND_MOD_REQUIRED("pdo")
 	{ NULL, NULL, NULL }
 };
 #endif

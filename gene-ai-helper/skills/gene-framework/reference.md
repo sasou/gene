@@ -304,9 +304,9 @@ User::query()
 | 终端方法 | 说明 |
 |----------|------|
 | all() / row() / cell() / first() | 查询；first() = limit(1)+row() |
-| count() | 继承 where/join/group/having，忽略 order/limit/lock |
-| paginate($offset, $limit) | {count, list}；仅保证单表语义，JOIN 场景用 count()+all() 两步 |
-| update($data) / delete() | 立即执行，返回影响行数；**必须**带 where()/in() 条件，否则抛异常；不支持 join |
+| count() | 继承 where/join，忽略 order/limit/lock；**不得与 group() 组合**（count over GROUP BY 语义会错，检测到即抛异常），分组统计用 count()+all() 两步 |
+| paginate($offset, $limit) | {count, list}；仅保证单表语义，JOIN 场景用 count()+all() 两步；与 group() 组合抛异常 |
+| update($data) / delete() | 立即执行，返回影响行数；**必须**带**有效** where()/in() 条件——无条件、`where([])`、`where('')` 一律抛异常（不会生成无 WHERE 的全表写）；`in('id', [])` 为安全空操作（返回 0）；不支持 join |
 | lockForUpdate() / sharedLock() | 行锁（仅 select 终端；MySQL FOR UPDATE / LOCK IN SHARE MODE，Pgsql FOR UPDATE / FOR SHARE，Sqlite no-op+E_NOTICE，Mssql 抛异常）；须在事务内，否则 E_NOTICE |
 
 复杂 SQL 仍用 `$this->db`。Swoole 下配合 `instance=>true` + Pool；见 `swoole.md` §4.3。
@@ -545,7 +545,7 @@ $list = $this->db
 | quote($str, $paramType = PDO::PARAM_STR) | PDO::quote 透传，字符串字面量转义（5.7.0+） |
 | print() | 不执行，返回 `['sql' => ..., 'param' => ...]`（调试用） |
 | beginTransaction(), inTransaction(), rollBack(), commit() | 事务操作 |
-| release() | 将 PDO 连接归还连接池（启用 pool 时），非 pool 模式为空操作 |
+| release() | 将 PDO 连接归还连接池（启用 pool 时），非 pool 模式为空操作；归还时若仍有未提交事务会先 rollBack 并 E_WARNING（6.1.0+） |
 | free() | 释放/归还 PDO 连接；启用 pool 时等价于 `release()`，否则关闭连接 |
 | history() | 返回 SQL 执行历史数组（含 sql/param/time/memory） |
 

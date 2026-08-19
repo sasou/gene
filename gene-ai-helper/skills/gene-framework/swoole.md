@@ -236,6 +236,13 @@ User::query()
 | Swoole | `instance => true` + `pool` + `Pool::create` | 协程级 Db 单例；**禁止** `ATTR_PERSISTENT` |
 | 请求结束 | `cleanup(true)` | meta 缓存随请求上下文释放；`clearState()` 会 rollBack 残留事务（6.1.0+） |
 
+**事务卫生（6.1.0+，两道防线）**：
+
+1. **请求边界**：`clearState()`/`cleanup()`（及 FPM 的 RSHUTDOWN）扫描 DI 里的 Db 句柄，发现未提交事务则**先回滚、后告警**（E_WARNING 走 PHP 标准错误通道，**不经过** `set_error_handler`，避免「warning 转异常」的 handler 把回滚跳掉）。
+2. **连接池边界**：`release()`/`free()`/析构归还 PDO 前同样检查 `inTransaction()`，脏连接先回滚再入池——覆盖未经 DI 的 `Pool::get()` 直取句柄（Swoole 下推荐形态）。
+
+两道防线都是兜底而非鼓励残留事务：业务代码仍应 `try { ... commit() } catch { rollBack(); throw; }`。
+
 复杂 SQL（join / raw）继续用继承来的 `$this->db`。`Query` 是一次性构建器（构建→执行→丢弃），不可缓存复用，也不可交错构建两个（共享同一 DI Db 句柄）。
 
 ### 4.4 其他组件

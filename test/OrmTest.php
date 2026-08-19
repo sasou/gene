@@ -584,6 +584,83 @@ class OrmTest
                 $this->fail("Query::delete n=$n");
             }
 
+            // [P0-2] where([]) / where('') replay to NOTHING — update()/delete()
+            // must throw (guard lives in apply(), not a tag pre-check) and the
+            // table must stay untouched. 4 paths: {array,string} x {update,delete}.
+            $rowsBefore = OrmTestQUser::query()->count();
+            foreach ([
+                'where([])->update' => function () { OrmTestQUser::query()->where([])->update(['status' => 7]); },
+                "where('')->update" => function () { OrmTestQUser::query()->where('')->update(['status' => 7]); },
+                'where([])->delete' => function () { OrmTestQUser::query()->where([])->delete(); },
+                "where('')->delete" => function () { OrmTestQUser::query()->where('')->delete(); },
+            ] as $label => $fn) {
+                $threw = false;
+                try {
+                    $fn();
+                } catch (\Throwable $e) {
+                    $threw = true;
+                }
+                if ($threw) {
+                    $this->ok("P0-2: $label throws (no unscoped write)");
+                } else {
+                    $this->fail("P0-2: $label did NOT throw");
+                }
+            }
+            if (OrmTestQUser::query()->count() === $rowsBefore
+                && OrmTestQUser::query()->where(['status' => 7])->count() === 0) {
+                $this->ok('P0-2: table untouched by rejected writes');
+            } else {
+                $this->fail('P0-2: rejected write still modified rows');
+            }
+
+            // [P0-2 order constraint] in([]) stays a SAFE no-op (emptyResult
+            // early-exit runs before the guard): returns 0, never throws.
+            $threw = false;
+            $nUpd = $nDel = -1;
+            try {
+                $nUpd = OrmTestQUser::query()->in('id', [])->update(['status' => 7]);
+                $nDel = OrmTestQUser::query()->in('id', [])->delete();
+            } catch (\Throwable $e) {
+                $threw = true;
+            }
+            if (!$threw && $nUpd === 0 && $nDel === 0 && OrmTestQUser::query()->count() === $rowsBefore) {
+                $this->ok('P0-2: in([])->update()/delete() = safe no-op (no throw, 0 rows)');
+            } else {
+                $this->fail("P0-2: in([]) semantics broke (threw=" . var_export($threw, true) . " upd=$nUpd del=$nDel)");
+            }
+
+            // [P2-5] group() + count()/paginate() must throw (count over
+            // GROUP BY would silently return the first group's row count).
+            $threw = false;
+            try {
+                OrmTestQUser::query()->group('status')->count();
+            } catch (\Throwable $e) {
+                $threw = true;
+            }
+            if ($threw) {
+                $this->ok('P2-5: group()->count() throws');
+            } else {
+                $this->fail('P2-5: group()->count() did not throw');
+            }
+            $threw = false;
+            try {
+                OrmTestQUser::query()->group('status')->paginate(0, 10);
+            } catch (\Throwable $e) {
+                $threw = true;
+            }
+            if ($threw) {
+                $this->ok('P2-5: group()->paginate() throws');
+            } else {
+                $this->fail('P2-5: group()->paginate() did not throw');
+            }
+            // group() + all() keeps working (only the count phase is refused)
+            $grows = OrmTestQUser::query()->group('status')->all();
+            if (is_array($grows) && count($grows) >= 1) {
+                $this->ok('P2-5: group()->all() unaffected');
+            } else {
+                $this->fail('P2-5: group()->all() broke: ' . json_encode($grows));
+            }
+
             // whereLike escapes % and _
             OrmTestQUser::create(['name' => '100%real', 'status' => 1]);
             OrmTestQUser::create(['name' => '100xreal', 'status' => 1]);
