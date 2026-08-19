@@ -150,6 +150,9 @@ class Model extends \Gene\Model
      *
      * $where 语义（注意：不是 raw SQL 片段）：
      *  - 关联数组：条件集合（如 ['status' => 1]，值可以是 ['%kw%', 'like'] 等）
+     *    · 键必须是字符串列名；数字键（如 [0 => 1]）不会产出谓词，会响亮失败
+     *      （PDOException: incomplete input）或匹配 0 行，**不会**静默全表写
+     *    · 值为空 op 数组（如 ['id' => []]）同上：响亮失败或 0 行
      *  - 标量：视为**主键值**（生成 `pk=?` 并绑定原值；'status=1' 这类字符串
      *    会静默匹配 0 行，需要 raw 片段请用 query()->where('…')->update($data)）
      *  - 空数组 / null：**抛异常**（6.1.0+，拒绝无 WHERE 全表更新）
@@ -157,7 +160,8 @@ class Model extends \Gene\Model
      * @param array|int|string $where
      * @param array $data
      * @return int 影响行数
-     * @throws \Exception 空条件时抛出
+     * @throws \Exception 空条件（[] / null）时抛出；非空但语义为空的数组
+     *                 （数字键、空 op 数组）由 makeWhere 响亮失败，不会静默全表写
      */
     public static function updateBy($where, array $data)
     {

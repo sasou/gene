@@ -718,6 +718,40 @@ class OrmTest
                 $this->fail('sqlite lockForUpdate: notice=' . var_export($notice, true));
             }
 
+            // [N7] Non-empty but semantically-empty $where arrays must NOT
+            // silently rewrite every row. The N1 guard keys on "did
+            // gene_orm_apply_where() call db->where()?", so these shapes pass
+            // the guard; makeWhere() then either emits a bare " WHERE " (loud
+            // PDOException) or returns no predicate (0 rows). Either outcome
+            // is acceptable; the only failure mode is a silent full-table write.
+            $rowsBeforeEdge = OrmTestQUser::query()->count();
+            $edgeBad = 0;
+            foreach ([
+                'numeric-key scalar [0=>1]'   => [0 => 1],
+                'numeric-key null   [0=>null]' => [0 => null],
+                'empty op array     [id=>[]]' => ['id' => []],
+                'op array no value  [id=>[[]]]' => ['id' => [[]]],
+            ] as $label => $where) {
+                $threw = false;
+                try {
+                    OrmTestQUser::updateBy($where, ['status' => 7]);
+                } catch (\Throwable $e) {
+                    $threw = true;
+                }
+                $after = OrmTestQUser::query()->where(['status' => 7])->count();
+                if ($after > 0) {
+                    $edgeBad++;
+                    $this->fail("N7: $label silently rewrote rows (status=7 count=$after)");
+                } else {
+                    $this->ok("N7: $label " . ($threw ? 'throws (loud)' : 'no-op (0 rows)') . " — no silent full-table write");
+                }
+            }
+            if (OrmTestQUser::query()->count() === $rowsBeforeEdge && $edgeBad === 0) {
+                $this->ok('N7: table untouched by semantically-empty $where shapes');
+            } else {
+                $this->fail("N7: rows changed (before=$rowsBeforeEdge after=" . OrmTestQUser::query()->count() . " bad=$edgeBad)");
+            }
+
             OrmTestQUser::destroyAll([]); // no-op sanity (0 rows)
         } catch (\Throwable $e) {
             $this->fail('Query ops exception: ' . $e->getMessage());

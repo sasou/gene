@@ -844,6 +844,129 @@ class DatabaseTest
     }
 
     /**
+     * [GENE_FIX:2026-08-19 N2/N6/N8] Transaction hygiene on shutdown/release.
+     *
+     * Covers the half of P1-4 / N2 that §13.5-4 originally deferred to MySQL:
+     * hygiene runs while a business exception is IN FLIGHT *and* PDO::rollBack()
+     * itself would throw. We desync PDO's in_txn bookkeeping WITHOUT MySQL by
+     * issuing a raw COMMIT through Gene while PDO believes a transaction is
+     * still open; the subsequent rollBack() would then error under the forced
+     * ERRMODE_EXCEPTION. After N6 the hygiene path forces ERRMODE_SILENT around
+     * rollBack(), so no exception is raised at all and the business exception
+     * survives cleanly.
+     *
+     * Also asserts the basic "dirty request -> rolled back + E_WARNING" path
+     * (P1-4) and that a userland error handler cannot hijack shutdown cleanup.
+     */
+    public function testTxHygiene()
+    {
+        echo "Testing transaction hygiene (N2/N6/N8, SQLite):\n";
+
+        if (!class_exists('\\Gene\\Db\\Sqlite') || !class_exists('\\Gene\\Application')) {
+            $this->skip('skip tx hygiene — extension classes missing');
+            return;
+        }
+
+        try {
+            // --- P1-4 baseline: dirty request ends, hygiene rolls back + warns.
+            // The warning is captured via error_log to avoid user handler noise.
+            $f = sys_get_temp_dir() . '/gene_tx_hygiene_test.db';
+            $log = sys_get_temp_dir() . '/gene_tx_hygiene_test.log';
+            @unlink($f);
+            @unlink($log);
+            ini_set('log_errors', '1');
+            ini_set('error_log', $log);
+
+            $db = new \Gene\Db\Sqlite(['dsn' => 'sqlite:' . $f]);
+            $db->sql('CREATE TABLE t (a int)')->execute();
+            \Gene\Di::set('tx_hygiene_db', $db);
+            $db->beginTransaction();
+            $db->sql('INSERT INTO t VALUES (1)')->execute();
+
+            // clearState() triggers the DI-scan hygiene: open transaction must
+            // be rolled back and an E_WARNING emitted via the bypassed handler.
+            $warned = false;
+            set_error_handler(function ($no, $str) use (&$warned) {
+                if (strpos($str, 'open transaction') !== false) {
+                    $warned = true;
+                }
+                return true;
+            }, E_WARNING);
+            \Gene\Application::clearState();
+            restore_error_handler();
+
+            // After clearState() the connection is rolled back; a fresh handle
+            // on the same file must see 0 rows.
+            $check = new \Gene\Db\Sqlite(['dsn' => 'sqlite:' . $f]);
+            $rows = $check->select('t')->all();
+            $rolledBack = is_array($rows) && count($rows) === 0;
+            if (!$db->inTransaction() && $rolledBack) {
+                echo "✓ hygiene rolled back the dirty transaction\n";
+            } else {
+                $this->fail("hygiene baseline: inTransaction=" . var_export($db->inTransaction(), true)
+                    . " rows=" . json_encode($rows));
+            }
+            // The warning is emitted with the user handler bypassed, so it goes
+            // to error_log, not to the local handler. Verify via the log file.
+            $logContent = (string) @file_get_contents($log);
+            if (strpos($logContent, 'open transaction') !== false) {
+                echo "✓ hygiene emitted E_WARNING (via error_log, handler bypassed)\n";
+            } else {
+                $this->fail("hygiene warning missing in error_log: " . substr($logContent, 0, 200));
+            }
+
+            // --- N2 / N6: business exception in flight + rollBack() would throw.
+            // Desync PDO's in_txn by issuing a raw COMMIT behind its back; PDO
+            // still reports inTransaction()=true but a subsequent rollBack()
+            // would raise under ERRMODE_EXCEPTION. After N6 hygiene forces
+            // ERRMODE_SILENT around rollBack(), so no exception is raised and
+            // the business exception propagates untouched.
+            // Release the first segment's handles before unlinking the file
+            // (sqlite keeps the file locked until all PDOs on it are gone).
+            unset($db, $check);
+            \Gene\Di::set('tx_hygiene_db', null);
+            @unlink($f);
+            @unlink($log);
+            $db2 = new \Gene\Db\Sqlite(['dsn' => 'sqlite:' . $f]);
+            $db2->sql('CREATE TABLE t (a int)')->execute();
+            \Gene\Di::set('tx_hygiene_db2', $db2);
+            $db2->beginTransaction();
+            $db2->sql('INSERT INTO t VALUES (1)')->execute();
+            try { $db2->sql('COMMIT')->execute(); } catch (Throwable $e) {}
+            $desynced = $db2->inTransaction();
+
+            $caught = null;
+            try {
+                try {
+                    throw new RuntimeException('BIZ');
+                } finally {
+                    \Gene\Application::clearState();
+                }
+            } catch (Throwable $e) {
+                $caught = get_class($e) . ':' . $e->getMessage();
+            }
+            if ($caught === 'RuntimeException:BIZ') {
+                echo "✓ N2/N6: business exception survives hygiene (rollBack cannot throw under SILENT)\n";
+            } else {
+                $this->fail("N2/N6: caught=" . var_export($caught, true) . " desynced=" . var_export($desynced, true));
+            }
+            if ($desynced) {
+                echo "✓ N2/N6: PDO in_txn desync reproduced on sqlite (no MySQL needed)\n";
+            } else {
+                // Not a failure — some driver builds read autocommit directly.
+                echo "- NOTE: PDO in_txn did not desync on this build; N6 silent-errmode branch still exercised\n";
+            }
+
+            @unlink($f);
+            @unlink($log);
+        } catch (Throwable $e) {
+            $this->reportCaught($e);
+        }
+
+        echo "\n";
+    }
+
+    /**
      * Run all tests
      */
     public function runAllTests()
@@ -859,6 +982,7 @@ class DatabaseTest
         $this->testDatabasePerformance();
         $this->testSqliteAttachDetach();
         $this->testSqliteV2WriteApis();
+        $this->testTxHygiene();
 
         echo "=== Database Classes Test Suite Complete ===\n";
         echo "Summary: failed={$this->failed}, skipped={$this->skipped}\n";

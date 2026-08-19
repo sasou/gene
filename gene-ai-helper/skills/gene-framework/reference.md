@@ -275,7 +275,7 @@ $title = $this->language->login_title; // 读取键值
 | findMany($ids, $preserveOrder = false) | 主键 IN 批量取（一次查询）；空数组返回 [] 不发 SQL；>1000 发 E_NOTICE（6.1.0+） |
 | paginate($where, $offset, $limit, $order = null) | {count, list}；order 仅作用于列表阶段（6.1.0+） |
 | query() / where($where, $bind = null) | 返回 `Gene\Orm\Query` |
-| create($data) / updateBy($where, $data) / destroy($id) / destroyAll($ids) | 写入。**$where 语义**：数组=条件集合、标量=主键值（**非 raw SQL 片段**；'status=1' 这类字符串会静默匹配 0 行）；空数组/null 抛异常（拒绝全表更新，6.1.0+）。raw 片段请用 `query()->where('…')->update($data)` |
+| create($data) / updateBy($where, $data) / destroy($id) / destroyAll($ids) | 写入。**$where 语义**：数组=条件集合（键须为字符串列名，值可为标量或 `[val, op]`；数字键 / 空 op 数组等「非空但语义为空」形态由 makeWhere 响亮失败或匹配 0 行，**不会**静默全表写）、标量=主键值（**非 raw SQL 片段**；'status=1' 这类字符串会静默匹配 0 行）；空数组/null 抛异常（拒绝全表更新，6.1.0+）。raw 片段请用 `query()->where('…')->update($data)` |
 | createMany($rows) | 批量插入（一次 round-trip），返回影响行数；每行键集合与顺序必须一致，否则抛异常；大批量在调用方分片（建议 500/批），>5000 发 E_NOTICE（6.1.0+） |
 | insertIgnore($data) | 幂等写入（MySQL INSERT IGNORE / SQLite INSERT OR IGNORE；Pgsql/Mssql 抛异常），返回影响行数（6.1.0+） |
 | updateOrCreate($where, $data) | 查到则更新（返回影响行数），否则插入（返回新 id，关联数组 where 并入新行）；非原子，并发竞争用唯一键 + insertIgnore（6.1.0+）。$where 语义同 updateBy，空数组/null 在更新分支抛异常 |
