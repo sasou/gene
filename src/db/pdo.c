@@ -27,6 +27,7 @@
 
 #include "../gene.h"
 #include "../common/common.h"
+#include "pdo.h"
 
 /* [GENE_AUDIT:2026-07-03 P1->security] Identifier quoting.
  * Previously gene_quote_table/columns/order/identifier were empty stubs that
@@ -676,6 +677,43 @@ void gene_pdo_rollback(zval *pdo_object, zval *retval) /*{{{*/
     if (EXPECTED(fn)) {
         zend_call_known_function(fn, Z_OBJ_P(pdo_object), Z_OBJCE_P(pdo_object), retval, 0, NULL, NULL);
     }
+}/*}}}*/
+
+void gene_db_tx_hygiene(zval *pdo_object, const char *who) /*{{{*/
+{
+    zval r, rr;
+
+    if (!pdo_object || Z_TYPE_P(pdo_object) != IS_OBJECT) {
+        return;
+    }
+    zend_exception_save();
+    gene_pdo_in_transaction(pdo_object, &r);
+    if (!Z_ISUNDEF(r) && zend_is_true(&r)) {
+        zval saved_handler;
+        gene_pdo_rollback(pdo_object, &rr);
+        if (!Z_ISUNDEF(rr)) {
+            zval_ptr_dtor(&rr);
+        }
+        /* PDO::rollBack() may throw under ERRMODE_EXCEPTION (gone away,
+         * in_txn flag desync after DDL implicit commit, ...). Discard only
+         * that exception; the saved business exception must survive. */
+        gene_discard_current_exception();
+        ZVAL_COPY_VALUE(&saved_handler, &EG(user_error_handler));
+        ZVAL_UNDEF(&EG(user_error_handler));
+        php_error_docref(NULL, E_WARNING,
+            "Gene: %s with an open transaction "
+            "- rolled back to protect persistent-connection reuse",
+            who ? who : "connection released");
+        if (Z_TYPE(EG(user_error_handler)) == IS_UNDEF) {
+            ZVAL_COPY_VALUE(&EG(user_error_handler), &saved_handler);
+        } else {
+            zval_ptr_dtor(&saved_handler);
+        }
+    }
+    if (!Z_ISUNDEF(r)) {
+        zval_ptr_dtor(&r);
+    }
+    zend_exception_restore();
 }/*}}}*/
 
 void gene_pdo_statement_execute(zval *pdostatement_obj, zval *bind_parameters, zval *retval)/*{{{*/

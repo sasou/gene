@@ -1581,6 +1581,11 @@ PHP_METHOD(gene_db_mysql, free)
 	if (pool && Z_TYPE_P(pool) == IS_OBJECT) {
 		gene_pool_return_pdo(gene_db_mysql_ce, self, ZEND_STRL(GENE_DB_MYSQL_POOL), ZEND_STRL(GENE_DB_MYSQL_PDO));
 	} else {
+		/* [GENE_FIX:2026-08-19 N3] No-pool handles (e.g. a direct
+		 * new \Gene\Db\Mysql with ATTR_PERSISTENT) are covered by neither
+		 * the DI scan nor the pool chokepoint — check the transaction here. */
+		zval *pdo = zend_read_property(gene_db_mysql_ce, gene_strip_obj(self), ZEND_STRL(GENE_DB_MYSQL_PDO), 1, NULL);
+		gene_db_tx_hygiene(pdo, "Db\\Mysql handle freed");
 		zend_update_property_null(gene_db_mysql_ce, gene_strip_obj(self), ZEND_STRL(GENE_DB_MYSQL_PDO));
 	}
 	RETURN_NULL();
@@ -1596,6 +1601,9 @@ PHP_METHOD(gene_db_mysql, __destruct)
 	zval *pool = zend_read_property(gene_db_mysql_ce, gene_strip_obj(self), ZEND_STRL(GENE_DB_MYSQL_POOL), 1, NULL);
 	if (pool && Z_TYPE_P(pool) == IS_OBJECT) {
 		gene_pool_return_pdo(gene_db_mysql_ce, self, ZEND_STRL(GENE_DB_MYSQL_POOL), ZEND_STRL(GENE_DB_MYSQL_PDO));
+	} else {
+		zval *pdo = zend_read_property(gene_db_mysql_ce, gene_strip_obj(self), ZEND_STRL(GENE_DB_MYSQL_PDO), 1, NULL);
+		gene_db_tx_hygiene(pdo, "Db\\Mysql handle destructed");
 	}
 }
 /* }}} */

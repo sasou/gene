@@ -53,4 +53,32 @@ void gene_update_field_value(zval *fields, smart_str *field_str, zval *field_val
 void makeWhere(zval *self, smart_str *where_str, zval *where, zval *field_value);
 bool checkPdoError(zend_object *ex);
 
+/* [GENE_FIX:2026-08-19 N2] Discard ONLY the currently-pending exception.
+ * zend_clear_exception() also releases EG(prev_exception), which is exactly
+ * where zend_exception_save() stashes an in-flight business exception, so
+ * calling it inside a save/restore window silently destroys the business
+ * exception whenever e.g. PDO::rollBack() throws while the request unwinds.
+ * Cleanup paths (tx hygiene, best-effort reset) must discard only the NEW
+ * exception raised by the cleanup call itself. */
+static zend_always_inline void gene_discard_current_exception(void)
+{
+	if (EG(exception)) {
+		zend_object *ex = EG(exception);
+		EG(exception) = NULL;
+		OBJ_RELEASE(ex);
+		if (EG(current_execute_data)) {
+			EG(current_execute_data)->opline = EG(opline_before_exception);
+		}
+	}
+}
+
+/* [GENE_FIX:2026-08-19 N3] Shared transaction hygiene for every path that
+ * releases a PDO handle: the DI registry scan, gene_pool_return_pdo(), and
+ * the 4 drivers' free()/__destruct no-pool branches. Hardening rules
+ * (P1-4 + N2): save/restore any pending exception around the window, roll
+ * back BEFORE warning, discard only rollBack()'s own exception, and emit
+ * the E_WARNING with the user error handler bypassed. `who` completes the
+ * warning sentence "... with an open transaction". */
+void gene_db_tx_hygiene(zval *pdo_object, const char *who);
+
 #endif

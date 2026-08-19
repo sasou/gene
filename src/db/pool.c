@@ -1549,49 +1549,14 @@ PHP_METHOD(gene_pool, get)
               * coroutine yield inside channel->push() */
              zend_update_property_null(db_ce, gene_strip_obj(self), pdo_key, pdo_key_len);
 
-             /* [GENE_FIX:2026-08-19 P1-3] Transaction hygiene at the pool
+             /* [GENE_FIX:2026-08-19 P1-3/N3] Transaction hygiene at the pool
               * boundary — same rule as gene_di_regs_tx_hygiene (plan 4.3'):
               * a pooled connection outlives the request/coroutine, so
               * returning it with an open transaction would hand the dirty
               * transaction and its row locks to the next borrower. This is
               * the single chokepoint for all 4 drivers x release()/free()/
-              * __destruct. Same P1-4 hardening as the DI path: pending
-              * exceptions are saved/restored around the window (a dirty
-              * return usually HAPPENS because the coroutine is unwinding),
-              * rollback runs BEFORE the warning, and the warning bypasses
-              * the user error handler so cleanup cannot be hijacked into
-              * throwing. */
-             {
-                 zval r, rr;
-                 zend_exception_save();
-                 gene_pdo_in_transaction(&pdo_copy, &r);
-                 if (!Z_ISUNDEF(r) && zend_is_true(&r)) {
-                     zval saved_handler;
-                     gene_pdo_rollback(&pdo_copy, &rr);
-                     if (!Z_ISUNDEF(rr)) {
-                         zval_ptr_dtor(&rr);
-                     }
-                     if (EG(exception)) {
-                         /* PDO::rollBack() may throw under ERRMODE_EXCEPTION;
-                          * never let that escape a destructor/shutdown path. */
-                         zend_clear_exception();
-                     }
-                     ZVAL_COPY_VALUE(&saved_handler, &EG(user_error_handler));
-                     ZVAL_UNDEF(&EG(user_error_handler));
-                     php_error_docref(NULL, E_WARNING,
-                         "Gene: pooled connection returned with an open transaction "
-                         "— rolled back before returning it to the pool");
-                     if (Z_TYPE(EG(user_error_handler)) == IS_UNDEF) {
-                         ZVAL_COPY_VALUE(&EG(user_error_handler), &saved_handler);
-                     } else {
-                         zval_ptr_dtor(&saved_handler);
-                     }
-                 }
-                 if (!Z_ISUNDEF(r)) {
-                     zval_ptr_dtor(&r);
-                 }
-                 zend_exception_restore();
-             }
+              * __destruct. Implementation shared via gene_db_tx_hygiene(). */
+             gene_db_tx_hygiene(&pdo_copy, "pooled connection returned");
 
              /* [GENE_PERF:2026-04-26] Direct call via cached fn ptr. */
              zend_function *fn_put = pool_method(&fn_pool_put, ZEND_STRL("put"));

@@ -629,6 +629,34 @@ class OrmTest
                 $this->fail("P0-2: in([]) semantics broke (threw=" . var_export($threw, true) . " upd=$nUpd del=$nDel)");
             }
 
+            // [N1] Same semantic guard on the NON-Query write entries:
+            // updateBy([]) / updateBy(null) / updateOrCreate([]) must throw
+            // BEFORE affectedRows() (Db is lazy — no SQL has executed) and
+            // the table must stay untouched.
+            foreach ([
+                'updateBy([])'        => function () { OrmTestQUser::updateBy([], ['status' => 7]); },
+                'updateBy(null)'      => function () { OrmTestQUser::updateBy(null, ['status' => 7]); },
+                'updateOrCreate([])'  => function () { OrmTestQUser::updateOrCreate([], ['name' => 'x', 'status' => 7]); },
+            ] as $label => $fn) {
+                $threw = false;
+                try {
+                    $fn();
+                } catch (\Throwable $e) {
+                    $threw = true;
+                }
+                if ($threw) {
+                    $this->ok("N1: $label throws (no unscoped write)");
+                } else {
+                    $this->fail("N1: $label did NOT throw");
+                }
+            }
+            if (OrmTestQUser::query()->count() === $rowsBefore
+                && OrmTestQUser::query()->where(['status' => 7])->count() === 0) {
+                $this->ok('N1: table untouched by rejected model writes');
+            } else {
+                $this->fail('N1: rejected model write still modified rows');
+            }
+
             // [P2-5] group() + count()/paginate() must throw (count over
             // GROUP BY would silently return the first group's row count).
             $threw = false;
