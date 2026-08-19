@@ -1,5 +1,9 @@
 # Gene Framework Changelog
 
+## [6.1.0]
+
+> 本版以 apistore 生产用法为驱动，补齐 Db ↔ ORM 对称性（Query 有序条件列表、lockForUpdate、timestamps 配置化、IN 批量读、批量写），以及审计遗留项落地。
+
 ## [6.0.0]
 
 > 本版整合 2026-08-06 三向审计报告（`AUDIT_REPORT_2026_08_06.md`）的全部落地项：C1 并发修复、F0 系列安全/功能补全、F1 系列功能增强与可观测性补齐，以及 Windows 构建链编码/类型警告修复。版本号升至 6.0.0 标志功能面的显著扩展（DB 构建器 join/union、Session 防固定、Router 纯匹配、Controller 内部转发、Memory 原子计数、Pool 健康探活、Di 显式实例化）。
