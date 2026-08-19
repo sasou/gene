@@ -14,7 +14,7 @@ namespace Gene\Orm;
  * @property \Gene\Validate $validate
  *
  * @author  sasou<admin@php-gene.com>
- * @version 6.0.0
+ * @version 6.1.0
  */
 class Model extends \Gene\Model
 {

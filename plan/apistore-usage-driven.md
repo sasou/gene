@@ -1,7 +1,7 @@
 # apistore 使用驱动的 Gene 增强需求
 
 > 来源：apistore 生产代码用法分析（FPM + `\Gene\Model` / `$this->db` 为主）。  
-> Gene 版本基线：**6.0.0**。  
+> Gene 版本基线：**6.1.0**。  
 > 审计遗留项见 [`audit/plan/PLAN.md`](../audit/plan/PLAN.md) §7.2.3，本文在其基础上按 apistore 证据具体化。  
 > **v2（源码核对版）**：已对照 `src/orm/query.c`、`src/orm/meta.c`、`src/orm/model.c`、`src/db/mysql.c`、`src/gene.c`
 > 核实每一项的可实施性，修正 5 处会导致返工的偏差（见 §0）。
