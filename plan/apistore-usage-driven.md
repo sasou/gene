@@ -798,3 +798,114 @@ php -n -d extension_dir="D:\wampServer-php8.1_x64_nts\php_ext" `
 ### 13.6 放行结论
 
 §12.4 的下调条件（N1 先修、N2 同批）已全部满足，N3/N4/N5 亦同步完成。**阶段 C（apistore 迁移）放行条件恢复**，框架层无已知阻塞缺陷；§13.5 的 1/2/3/4 项须在迁移完成前于 MySQL + Swoole 真实环境合并补一次验收。
+
+> **四轮独立复核结论（见 §十四）**：N1–N5 五项**均已真实落地且行为正确**（源码 + 动态双验证），
+> 无内存泄漏，阶段 C 放行结论**成立**。新发现 1 个 P2（`N6`：RSHUTDOWN 无栈帧时 `rollBack()` 抛异常逃逸）
+> 与 2 个低危加固项（`N7`/`N8`），均不阻塞阶段 C。另有一项**好消息**：§13.5-4「N2 异常分支需 MySQL 验收」
+> 已可在 sqlite 上复现并**通过**，该遗留项可关闭。
+
+---
+
+## 十四、四轮独立复核（2026-08-19，N1–N5 落地情况 + 生产可用性判定）
+
+**目标**：判定最新一轮（`4286e6c`）修复是否科学合理、无内存泄漏、FPM 与 Swoole 均可生产级使用。
+**方法**：逐行核对 `4286e6c` 全部 17 个文件的 diff（不采信提交说明），再对每条结论做动态执行验证。
+**环境**：`php_gene.dll` 2026-08-19 17:03:32 / 616960 B（**新于最新源码 16:42:33**，验证链有效），`phpversion('gene')=6.1.0`，PHP 8.1.30 NTS x64 + pdo_sqlite。
+
+### 14.1 N1–N5 落地核实（结论：全部真实落地，实现方式合理）
+
+| 项 | 源码证据 | 独立判定 |
+|----|----------|----------|
+| **N1** | `src/orm/model.c:133-180` `gene_orm_apply_where(..., zend_bool *emitted)`；`:562-580` `updateBy`、`:1033-1050` `updateOrCreate` 的 update 分支在 `!emitted` 时 `zend_throw_exception_ex` + `goto cleanup`；读路径 3 处（`findAll`、`paginate` ×2、`updateOrCreate` 的 exists 查询）传 `NULL` | ✅ **正确**。异常在 `affectedRows()` **之前**抛出，Db 惰性语义保证 UPDATE 从未执行；实测 `updateBy([])`/`updateBy(null)`/`updateOrCreate([])` 三条路径全 `threw` 且三行数据完好。读路径未被误加护栏（无条件 SELECT 仍合法），符合设计 |
+| **N2** | `src/db/pdo.h:56-73` `gene_discard_current_exception()`：只 `OBJ_RELEASE(EG(exception))` + 恢复 `opline_before_exception`，**不碰** `EG(prev_exception)` | ✅ **正确**，且与 PHP 8.1 `zend_clear_exception()` 逐行对照后确认是其**安全子集**（后者额外释放 `prev_exception`，正是 `zend_exception_save()` 的寄存位）。**动态验证成功**：见 §14.3-1 |
+| **N3** | `src/db/pdo.c:682-717` `gene_db_tx_hygiene()`；调用方 6+2 处：`src/gene.c:412`（DI 扫描）、`src/db/pool.c:1559`（池归还唯一收口）、mysql/sqlite/pgsql/mssql **各 2 处**（`free()` else 分支 + `__destruct` 无 pool 分支） | ✅ **正确且覆盖完整**（4 驱动 × 2 入口全在位，无遗漏）。抽函数同时消除了 P1-4 逻辑在三处重复的隐患。实测裸句柄 `free()`/`__destruct` 两条路径均回滚 |
+| **N4** | `src/orm/meta.c:311-330`：未知驱动兜底改为 `zend_exception_save()` → `reset()` → `gene_discard_current_exception()` → `zend_exception_restore()` | ✅ **正确**。清理路径不再因异常待处理而放弃清理；内置 4 驱动走纯 C 分支不受影响 |
+| **N5** | `gene-ide-helper/Gene/Orm/Model.php` + `reference.md` 已写明「数组=条件集合／标量=主键值（非 raw 片段）／空数组与 null 抛异常」 | ✅ 文档与 `src/orm/model.c:164-179` 的实际行为一致 |
+
+**回归实测**（本轮亲自执行，非采信自述）：
+
+| 套件 / 脚本 | 结果 |
+|------|------|
+| `test/OrmTest.php` | **124 passed, 0 failed** —— §13.2 数字可复现 |
+| `test/DatabaseTest.php` | **failed=0, skipped=8** —— skip 均为 MySQL 路径 |
+| `audit/repro/*.php`（25 个） | **24 个 exit=0**，`tx_leak_pool.php` exit=77（按设计 SKIP，待 Swoole） |
+
+### 14.2 内存与生命周期（结论：无泄漏）
+
+| 检查点 | 结论 |
+|--------|------|
+| 新增 C 侧结构 | **无**。N1 用局部 `zend_bool`，hygiene 用局部 `zval r, rr` + 192B 栈缓冲 `who[]`，符合 M1 |
+| retval 所有权 | `gene_pdo_in_transaction`/`gene_pdo_rollback` 入口即 `ZVAL_UNDEF(retval)`（`pdo.c:580`/`:675`），hygiene 内 `r`/`rr` 均判 `Z_ISUNDEF` 后 `zval_ptr_dtor`，配对完整（M4） |
+| 异常路径单出口 | N1 两处护栏 `goto cleanup`/`cleanup_data`，复用既有 `gene_orm_db_reset` + `zval_ptr_dtor(db)` + `meta_release`（M2/M5） |
+| `EG(user_error_handler)` 交换 | `ZVAL_COPY_VALUE` 出/入配对，且处理了「handler 在窗口内被替换」的分支（`else zval_ptr_dtor(&saved_handler)`），无 refcount 泄漏 |
+| 进程级/类级缓存 | **未新增**（M6）；未新增请求级数组（M7）；未新增 SQL 片段（M8） |
+| 压测 | 新增 `guard_where_semantic_edges.php`：**5000 次 N1 护栏抛异常**循环，`memory_get_usage(true)` delta = **0 bytes**，且共享 Db 句柄在每次抛异常后仍可用（证明 `reset` 兜底生效、无残留 SQL）；`orm_v2_leak_probe.php`、`query_v2_spot_checks.php`（10k 次）同为 0 |
+
+> 仍未覆盖：Linux ASAN/valgrind（§13.5-5）。Windows 侧 `memory_get_usage` 只能证明 ZMM 峰值稳定，`zend_string` 引用计数错误需 ASAN。**结论保持「无已知泄漏」而非「已证明无泄漏」**。
+
+### 14.3 本轮新增结论
+
+1. **§13.5-4「N2 异常分支需 MySQL 验收」可以关闭——已在 sqlite 上复现并通过。**
+   不需要 MySQL kill 连接：通过 Gene 发一条**裸 `COMMIT`** 即可让 PDO 的 `in_txn` 记账与底层失同步
+   （实测 `inTransaction()` 仍为 `true`，而后续 `rollBack()` 抛
+   `PDOException: cannot rollback - no transaction is active`）。
+   新增 `audit/repro/tx_hygiene_rollback_throws.php`：在「业务异常在飞 + `rollBack()` 抛异常」的
+   `finally { clearState(); }` 形态下，实测 `caught = 'RuntimeException:BIZ'`（**业务异常存活**）、
+   `E_WARNING` 走标准通道、`exit=0`。**N2 修复有效，不再是纸面结论。**
+2. **P1-3/N3 的 DI 扫描在 FPM 下实际是第二道而非第一道防线**：PHP 在 RSHUTDOWN **之前**先跑
+   `zend_objects_store_call_destructors`，故 Db `__destruct` 的 hygiene（有栈帧、N2 生效）先执行，
+   DI 扫描（`gene_request_context_destroy`，无栈帧）后执行且通常已无脏事务。
+   这一顺序事实是 §11.2「DI 扫描早于 Db `__destruct`」的**修正**——只有显式调用
+   `Application::clearState()`（Swoole 形态）时 DI 扫描才真正是第一道。三道防线互为冗余，结论不变。
+3. `updateBy` 的标量分支即使传空串（`updateBy('', …)`）也生成 `pk=''` 绑定 → 0 行，**不会**退化为全表；
+   §12.2 N5 的文档化描述与实际行为一致。
+
+### 14.4 新发现问题（均不阻塞阶段 C）
+
+| # | 级别 | 位置 | 问题 | 后果 | 解决方案 |
+|---|------|------|------|------|----------|
+| **N6** | **P2 生产可用性（实测复现）** | `src/db/pdo.c:682-717` `gene_db_tx_hygiene()`，被 `src/gene.c:412` 从 RSHUTDOWN 调用时 | hygiene 依赖 N2 的「抛出后丢弃」策略，但**在没有活跃用户栈帧时这个策略失效**：RSHUTDOWN 阶段 `EG(current_execute_data) == NULL`，此时 `PDO::rollBack()` 抛出的异常被引擎在 `zend_throw_exception_internal` 里**立即升级为 `Uncaught` E_ERROR 并 bailout**，`gene_discard_current_exception()` 根本得不到执行 | 触发条件与 N2 完全相同（MySQL `server has gone away`、DDL 隐式提交导致 `in_txn` 失同步），但走的是**未显式 `clearState()` 的 FPM 请求收尾**路径。实测输出为**两个 Fatal**：业务的 + 一条伪造的 `Uncaught PDOException ... in [no active file]:0`。附带后果：bailout **截断 `gene_request_context_free_fields()` 的剩余部分**，同一请求中后续 DI 条目的 hygiene 被跳过（实测双连接场景只有一条 frameless fatal、无第三条 warning）。Swoole 形态**不受影响**（`clearState()` 由 userland 调用，有栈帧，见 §14.3-1）。**非数据正确性问题**：脏事务此前已由 `__destruct` 那道防线回滚（§14.3-2），故影响限于日志噪声 + 清理尾部被截断 | 不要「先抛再丢」，而是**让清理路径不产生异常**：在 `gene_db_tx_hygiene()` 内 `rollBack()` 前后临时把 PDO 的 `ATTR_ERRMODE` 置为 `PDO::ERRMODE_SILENT` 再还原（`rollBack()` 转为返回 `false`），`gene_discard_current_exception()` 保留为二道保险。次选：用 `zend_try/zend_catch` 包住 `rollBack()`，可阻止 bailout 截断清理但仍会打印伪 Fatal。验收：`audit/repro/tx_hygiene_rshutdown_throw.php`（**已新增**，当前 `exit=1`，修复后应 `exit=0`） |
+| **N7** | 低（语义质量，实测确认） | `src/orm/model.c:150-161` 与 `src/db/pdo.c:915-1090` `makeWhere()` | N1 护栏判定的是「是否调用了 `db->where()`」，而非「`makeWhere()` 是否真的产出了谓词」——与 P0-2 当初被否决的「浅检查」属同一类偏差。存在**非空但语义为空**的数组形态可通过护栏：`[0=>1]`、`[0=>null]`（数字键 + 非字符串值 → `makeWhere` 一字不输出）、`['id'=>[]]`（op 数组缺 index 0 → `makeWhere` 提前 `return`） | **不构成数据破坏**：实测三种形态均产出裸 ` WHERE ` 片段 → `PDOException: incomplete input`（**响亮失败**），三行数据完好；`['id'=>[[]]]` 返回 0 且不改数据 | 可接受现状。若要彻底贴合生成器，应让 `makeWhere()` 回报「实际产出的谓词数」并由 `emitted` 采用该值；否则**至少在 ide-helper 注明** `$where` 数组的键必须为字符串列名、值不得为空 op 数组。已新增 `audit/repro/guard_where_semantic_edges.php` 固化该边界（含 N1 控制组 + 5k 压测），建议转成 `OrmTest` 断言防回归 |
+| **N8** | 低（加固） | `src/db/pdo.c:682-717`、`src/orm/meta.c:311-330` | ①`zend_exception_save()/restore()` 借用 `EG(prev_exception)` 作寄存位，**不可重入**：若窗口内触发嵌套 hygiene（如 zval 释放引发另一个 Db 对象析构），内层 `restore()` 会把外层的业务异常提前放回 `EG(exception)`。当前 hygiene 窗口内只释放 bool 型 `zval`，实际无法触发，属理论风险。②`EG(user_error_handler)` 交换未用 `zend_try` 包裹，若 `php_error_docref` 因任何原因 bailout，用户 handler 不会被还原 | 当前不可触发；但两处都是「未来改动一旦在窗口内引入对象释放/调用就变成真 bug」的脆弱点 | ①改为局部保存：`zend_object *saved = EG(exception); EG(exception) = NULL; … EG(exception) = saved;`——完全可重入，不依赖 `prev_exception`。②handler 交换用 `zend_try { … } zend_end_try();` 或把还原写在函数唯一出口 |
+
+### 14.5 生产可用性判定
+
+| 形态 | 判定 | 依据与前提 |
+|------|------|------------|
+| **FPM**（`db.instance=true` + `ATTR_PERSISTENT`，apistore 现状） | ✅ **可生产使用** | 三道事务卫生防线齐备；N1/P0-2 护栏封住了全表改写；124 项 ORM 断言 + 24 个复现脚本全过；5k/10k 压测无内存增长。**已知瑕疵**：N6 会在「请求以未捕获异常结束 **且** `rollBack()` 抛异常」时多打一条伪 Fatal（脏事务本身已被 `__destruct` 防线回滚），属日志噪声级 |
+| **Swoole**（`runtime_type>=2`，池 + 强制关闭 `ATTR_PERSISTENT`） | ⚠️ **代码就绪，验收未完成** | `gene_pool_return_pdo()` 的收口正确、`clearState()` 有栈帧故 N2 生效、N6 不触发 —— 但 `tx_leak_pool.php` 在 CLI 下按设计 SKIP（`runtime_type=1<2`），**池归还路径至今没有一次真实执行验证**。这是「生产级可用」目前唯一的实质性空白（§13.5-2） |
+| **CLI 长任务** | ✅ | 与 FPM 同路径；建议 `db.instance=false` + 关持久连接（§4.3′ 配置矩阵） |
+
+**结论**：最新一轮修复**科学合理、落地真实、无已知内存泄漏**；FPM 已可生产级使用；
+**Swoole 仍需在 `runtime_type>=2` 环境跑一次 `tx_leak_pool.php` 才能同等结论**。
+
+### 14.6 本轮新增脚本
+
+| 脚本 | 用途 | 当前结果 |
+|------|------|----------|
+| `audit/repro/tx_hygiene_rollback_throws.php` | N2 的「`rollBack()` 自身抛异常 + 业务异常在飞」分支（sqlite 裸 `COMMIT` desync，**不需 MySQL**） | **exit=0**（业务异常存活）——关闭 §13.5-4 |
+| `audit/repro/tx_hygiene_rshutdown_throw.php` | N6：RSHUTDOWN 无栈帧时 `rollBack()` 抛异常逃逸（子进程输出断言） | **exit=1**（缺陷成立），修复后应 exit=0 |
+| `audit/repro/guard_where_semantic_edges.php` | N7：非空但语义为空的 `$where` 形态 + N1 控制组 + 5k 护栏压测 | **exit=0**（均响亮失败，无静默全表写；delta=0 bytes） |
+
+### 14.7 建议后续顺序
+
+```text
+1. N6  hygiene 内 rollBack() 前后置 ATTR_ERRMODE=SILENT（约 15 行，零行为风险）
+       验收：tx_hygiene_rshutdown_throw.php exit 1 -> 0
+2. N8① 改用局部 EG(exception) 保存，去掉对 prev_exception 的依赖（可重入）
+3. 三个新脚本转成 OrmTest / DatabaseTest 正式断言（否则 N1/N2/N6 会回归）
+4. Swoole 环境跑 tx_leak_pool.php（§13.5-2）—— 这是宣称「Swoole 生产级」的必要条件
+5. MySQL 集成用例（§13.5-1/3）+ Linux ASAN（§13.5-5）
+6. N7 文档化（ide-helper 注明 $where 数组的键/值约束）
+```
+
+### 14.8 §13.5 遗留项状态更新
+
+| # | 项 | 状态 |
+|---|----|------|
+| 1 | MySQL 集成用例（`FOR UPDATE`/`INSERT IGNORE`/`ON DUPLICATE KEY UPDATE`） | 仍开放 |
+| 2 | P1-3 Swoole 池验收（`tx_leak_pool.php`） | 仍开放（**Swoole 生产级结论的唯一硬门槛**） |
+| 3 | `tx_leak_persistent.php` MySQL + `ATTR_PERSISTENT` 真验收 | 仍开放 |
+| 4 | N2 异常分支验收 | **✅ 已关闭**（sqlite 裸 `COMMIT` desync 即可复现，见 §14.3-1／§14.6） |
+| 5 | Linux ASAN/valgrind | 仍开放 |
+| 6 | `Db::print()` 崩溃回归用例 | ✅ 已关闭（§13.2） |
