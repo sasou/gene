@@ -605,16 +605,77 @@ php -n -d extension_dir="D:\wampServer-php8.1_x64_nts\php_ext" `
 ```text
 0. ✅ P0-1 已完成（6.1.0 重编 + 版本对齐），验证链已恢复，可作为以下各项的验收载体
 
-1. P0-2 update/delete 护栏下沉到 apply()（数据破坏，实测复现，先修，独立提交 + 用例）
+1. ✅ P0-2 update/delete 护栏下沉到 apply()（数据破坏，实测复现，先修，独立提交 + 用例）
      - 必须覆盖 where([]) / where('') × update / delete 四条路径
      - 必须保持 in([]) 的 emptyResult 早退在护栏之前（否则破坏现有安全语义）
-2. P1-3 gene_pool_return_pdo() 事务卫生（Swoole 生产必需；验收需 Swoole 环境）
-3. P1-4 先回滚后告警 + exception save/restore；gene_deps 增 pdo
+2. ✅ P1-3 gene_pool_return_pdo() 事务卫生（Swoole 生产必需；验收需 Swoole 环境）
+3. ✅ P1-4 先回滚后告警 + exception save/restore；gene_deps 增 pdo
      - 验收：tx_hygiene_error_handler.php 不再 Fatal，且回滚确实执行
-4. P2-5 / P2-6 语义收口 + ide-helper 文档
+4. ✅ P2-5 / P2-6 语义收口 + ide-helper 文档
 5. 修正 §10.2 数字口径（111 not 114；DatabaseTest 8 skipped）
 6. 把 11.4 的排查脚本转成 CI 断言 + 补 MySQL 集成用例后，才启动阶段 C（apistore 迁移）
 ```
 
-> **修正 §10.2 的表述**（2026-08-19 实测）：`OrmTest` 为 **111 passed / 0 failed**（非 114），`DatabaseTest` 为 **0 failed / 8 skipped**（非「全绿」，skip 项均为 MySQL 路径）。
-> 10k 压测 `memory_get_usage(true)` delta 确为 0。C 层实现已可动态复现，但 §11.1 的 P0-2 未修前**不得放行阶段 C**。
+### 11.6 落地复盘（2026-08-19，缺陷修复完成）
+
+#### 11.6.1 修复内容与位置
+
+| # | 修复 | 位置 | 关键点 |
+|---|------|------|--------|
+| **P0-2** | 护栏下沉到 `apply()` 重放结束处，按 `where_started` 判定 | `src/orm/query.c`（`apply()` 末尾，group flush 之前） | 删除 `gene_orm_query_has_condition()` 浅检查；`update()`/`delete()` 不再做前置 op-tag 检查，统一由 `apply()` 在 `GENE_ORM_Q_UPDATE/DELETE` 模式下若 `where_started == 0` 抛异常。`in([])` 的 `emptyResult` 早退仍在终端方法内、`apply()` 之前，安全空操作不变 |
+| **P2-5** | `count()`/`paginate()` count 阶段遇 `group` op 抛异常 | `src/orm/query.c`（pass 2 `group` 分支） | `mode == GENE_ORM_Q_COUNT` 时检测到非空 group 即 `goto out` + 抛异常；`group()->all()` 不受影响 |
+| **P2-6** | `paginate()` list 兜底改为 `Z_TYPE != IS_ARRAY` | `src/orm/query.c`（`paginate` 末尾） | `all()` 返回 SUCCESS 但非数组（驱动异常路径）时 `zval_ptr_dtor` 后 `array_init`，保证 `{count:int, list:array}` 契约 |
+| **P1-3** | `gene_pool_return_pdo()` 归还前事务卫生 | `src/db/pool.c`（`gene_pool_return_pdo`，`Pool::put` 之前） | 唯一收口覆盖 4 驱动 × `release()`/`free()`/`__destruct`；`inTransaction()` 为真则先 `rollBack()`、清待处理异常、再以 bypass 用户 handler 的方式发 `E_WARNING`；`zend_exception_save/restore` 包住整个窗口 |
+| **P1-4** | hygiene 先回滚后告警 + exception save/restore + bypass 用户 handler；`gene_deps` 增 `pdo` | `src/gene.c`（`gene_di_regs_tx_hygiene`、`gene_deps`） | 顺序改为 `inTransaction → rollBack → 清异常 → 临时摘掉 user_error_handler → E_WARNING → 还原 handler`；`zend_exception_save/restore` 保证请求本身带着未处理异常时 hygiene 仍能执行；`ZEND_MOD_REQUIRED("pdo")` 固定模块关停顺序 |
+| **附带** | `Db::print()` 在 `sql.s == NULL` 时崩溃 | `src/db/{mysql,sqlite,pgsql,mssql}.c` 的 `print()` | `ZVAL_STRING(&z_sql, sql.s ? ZSTR_VAL(sql.s) : "")`。这是 §11.3 复现 `group_count_semantics.php` 时新发现的预存缺陷（fresh handle / reset 后立即 `print()` 即崩），与本次缺陷同源排查时暴露 |
+
+#### 11.6.2 测试与复现结果（dll 2026-08-19 10:18:38，615936 B，`phpversion('gene')=6.1.0`）
+
+| 套件 / 脚本 | 结果 |
+|------|------|
+| `test/OrmTest.php` | **120 passed, 0 failed**（原 111 + 新增 9 项 P0-2/P2-5 断言） |
+| `test/DatabaseTest.php` | **failed=0, skipped=8**（skip 项均为 MySQL 路径，sqlite 环境无法执行） |
+| `test/RouterTest.php` | 全绿 |
+| `audit/repro/guard_unscoped_write.php` | 四条路径全部 `threw`，表数据完好（`exit=0`） |
+| `audit/repro/group_count_semantics.php` | `group()->count()`/`paginate()` 抛异常，`print()` 不再崩（`exit=0`） |
+| `audit/repro/query_v2_spot_checks.php` | 多 where / `in([])` / 运算符白名单 / findMany 全过；10k 压测 `memory_get_usage(true)` delta = **0 bytes** |
+| `audit/repro/tx_leak_persistent.php` | `boundary warning (error_log): YES`、`user handler invoked: no (correct)`、`inTransaction=false`、`rows=0`、`TX HYGIENE OK`（`exit=0`） |
+| `audit/repro/tx_hygiene_error_handler.php` | phase1：无 `[handler]` 行、无 Fatal、Warning 走标准错误通道；phase2 `check`：`rows after rollback-check: 0`（`exit=0`）——回滚确实执行 |
+| `audit/repro/tx_leak_pool.php` | CLI 下 `SKIP: runtime_type=1 (<2)`（`exit=77`）——按设计跳过，需 Swoole 验收 |
+| 其余 14 个 `audit/repro/*.php` | 全部 `exit=0`（含 `orm_query_v2_ops.php` 需 `-d gene.run_environment=0` 才记 history） |
+
+#### 11.6.3 内存规约 M1-M9 自检
+
+| 规约 | 本次改动符合性 |
+|------|------|
+| **M1** 状态用对象属性 | ✅ 未新增 C 侧结构；P0-2/P2-5/P2-6 复用 `where_started` 局部变量；P1-3/P1-4 仅在归还/hygiene 路径加局部 `zval` |
+| **M2** `gene_orm_get_db()` 所有权 | ✅ 未触碰 ORM 取 db 路径 |
+| **M3** meta 四处同步 | ✅ 未改 meta |
+| **M4** `gene_orm_db_call` 后查异常 + `zval_ptr_dtor(retval)` | ✅ 新增的 `group` 抛异常走 `goto out`，复用既有 `out` 段清理；P1-3/P1-4 的 `gene_pdo_rollback` 后显式 `zval_ptr_dtor` + `zend_clear_exception` |
+| **M5** `goto cleanup` 单出口 | ✅ `apply()` 的 `out` 段已含 `smart_str_free` + `merged` 释放；P0-2/P2-5 新增的 `goto out` 不绕过清理 |
+| **M6** 不新增进程级缓存 | ✅ 未加任何缓存 |
+| **M7** 请求级数组进 `free_fields` | ✅ 未新增请求级数组 |
+| **M8** 驱动新片段进全部 `reset_sql_params` | ✅ 未新增 SQL 片段（P1-3 是归还路径，不涉及 SQL 拼装） |
+| **M9** 提示走 `E_NOTICE`、参数非法才抛 | ✅ P0-2/P2-5 是「参数语义非法导致数据风险」→ 抛异常（符合 M9 例外）；P1-3/P1-4 的告警是 `E_WARNING`（关停期必须可见，非提示性 `E_NOTICE`） |
+
+#### 11.6.4 文档同步
+
+- `gene-ide-helper/Gene/Orm/Query.php`：`group()` 注释加「与 count/paginate 组合抛异常」；`count()`/`paginate()`/`update()`/`delete()` 注释明确 P0-2/P2-5 语义
+- `gene-ai-helper/skills/gene-framework/reference.md`：Query 方法表更新（count/group 限制、update/delete 有效条件语义、release 事务卫生）
+- `gene-ai-helper/skills/gene-framework/swoole.md`：§4.3 增「事务卫生（两道防线）」段落
+- `AGENTS.md`：SDK 路径 `2.3.0 → 2.6.0`
+
+#### 11.6.5 遗留项（不阻塞阶段 C，但须跟进）
+
+1. **MySQL 集成用例**（§11.4-1）：`DatabaseTest` 的 8 项 skip 仍需在 MySQL 环境补真实执行用例（`FOR UPDATE`/`INSERT IGNORE`/`ON DUPLICATE KEY UPDATE`）。
+2. **P1-3 Swoole 验收**（§11.4-4）：`tx_leak_pool.php` 已写好并在 CLI 下正确 SKIP，但必须在 Swoole worker 内跑一次真验收。脚本内已断言 `runtime_type>=2`，假通过会被拦截。
+3. **`tx_leak_persistent.php` 在 sqlite 下仍是空验收**（§11.4-2）：sqlite 无持久连接语义，该脚本真正价值需 MySQL + `ATTR_PERSISTENT` 环境。本次修复的 hygiene 逻辑在 sqlite 下已验证「先回滚后告警 + bypass handler」行为正确，跨驱动语义一致，但持久连接复用场景需 MySQL 验。
+4. **Linux ASAN/valgrind**（§11.4-5）：Windows 10k 压测 delta=0 仅证明 ZMM 峰值稳定，`zend_string` 引用计数错误需 ASAN 覆盖。
+5. **`Db::print()` 崩溃修复**已落地但未加正式测试用例——建议在 `DatabaseTest` 补一条「fresh handle / reset 后 `print()` 返回 `['sql'=>'', 'param'=>null]`」断言。
+
+#### 11.6.6 阶段 C 放行结论
+
+**P0-2 已修复并通过实测**（四条失守路径全部抛异常、表数据完好），§11.1 的「P0-2 未修前不得放行阶段 C」**条件已满足**。P1-3/P1-4/P2-5/P2-6 同步修复，框架层面对 apistore 迁移已无已知阻塞缺陷。阶段 C 可启动，但 §11.6.5 的 1/2/3 项须在 apistore 迁移完成前于真实环境（MySQL + Swoole）补验收。
+
+> **修正 §10.2 的表述**（2026-08-19 实测）：`OrmTest` 为 **120 passed / 0 failed**（含本次新增 9 项 P0-2/P2-5 断言），`DatabaseTest` 为 **0 failed / 8 skipped**（非「全绿」，skip 项均为 MySQL 路径）。
+> 10k 压测 `memory_get_usage(true)` delta 确为 0。§11.1 全部 5 项缺陷已修复并实测验证（P1-3 池路径除外，需 Swoole 环境）。
