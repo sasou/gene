@@ -317,16 +317,20 @@ void gene_orm_db_reset(zval *db)
 		 * (e.g. P0-2/N1) leaves a built but unexecuted WHERE-less UPDATE on
 		 * the handle, and skipping reset would let a later read terminal
 		 * execute it. Save the in-flight exception, run reset(), discard
-		 * only an exception reset() itself raises, then restore. */
+		 * only an exception reset() itself raises, then restore.
+		 * [GENE_FIX:2026-08-19 N8a] The exception is parked in a LOCAL
+		 * variable instead of EG(prev_exception) (zend_exception_save) so
+		 * the window is reentrant and cannot disturb an outer window. */
 		zval fname, retval;
-		zend_exception_save();
+		zend_object *saved_exception = EG(exception);
+		EG(exception) = NULL;
 		ZVAL_STRING(&fname, "reset");
 		ZVAL_UNDEF(&retval);
 		call_user_function(NULL, db, &fname, &retval, 0, NULL);
 		zval_ptr_dtor(&fname);
 		zval_ptr_dtor(&retval);
 		gene_discard_current_exception();
-		zend_exception_restore();
+		EG(exception) = saved_exception;
 	}
 }
 

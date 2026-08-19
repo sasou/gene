@@ -37,6 +37,8 @@ void gene_pdo_error_info(zval *pdo_object, zval *retval);
 bool show_sql_errors(zval *pdo_object);
 void gene_pdo_prepare(zval *pdo_object, char *sql, zval *retval);
 void gene_pdo_rollback(zval *pdo_object, zval *retval);
+void gene_pdo_get_attribute(zval *pdo_object, zend_long attr, zval *retval);
+void gene_pdo_set_attribute(zval *pdo_object, zend_long attr, zend_long value);
 void gene_pdo_statement_execute(zval *pdostatement_obj, zval *bind_parameters, zval *retval);
 void gene_pdo_statement_fetch(zval *pdostatement_obj, zval *retval);
 void gene_pdo_statement_fetch_all(zval *pdostatement_obj, zval *retval);
@@ -75,10 +77,14 @@ static zend_always_inline void gene_discard_current_exception(void)
 /* [GENE_FIX:2026-08-19 N3] Shared transaction hygiene for every path that
  * releases a PDO handle: the DI registry scan, gene_pool_return_pdo(), and
  * the 4 drivers' free()/__destruct no-pool branches. Hardening rules
- * (P1-4 + N2): save/restore any pending exception around the window, roll
- * back BEFORE warning, discard only rollBack()'s own exception, and emit
- * the E_WARNING with the user error handler bypassed. `who` completes the
- * warning sentence "... with an open transaction". */
+ * (P1-4 + N2 + N6 + N8): park any pending exception in a LOCAL variable
+ * (reentrant, never touches EG(prev_exception)), roll back BEFORE warning,
+ * force PDO::ERRMODE_SILENT around rollBack() so the cleanup path cannot
+ * throw at all (frameless RSHUTDOWN would escalate the exception to E_ERROR
+ * + bailout), keep gene_discard_current_exception() as second insurance,
+ * and emit the E_WARNING with the user error handler bypassed under
+ * zend_try so it is always restored. `who` completes the warning sentence
+ * "... with an open transaction". */
 void gene_db_tx_hygiene(zval *pdo_object, const char *who);
 
 #endif
