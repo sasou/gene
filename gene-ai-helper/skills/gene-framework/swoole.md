@@ -242,6 +242,10 @@ User::query()
 2. **连接池边界**：`release()`/`free()`/析构归还 PDO 前同样检查 `inTransaction()`，脏连接先回滚再入池——覆盖未经 DI 的 `Pool::get()` 直取句柄（Swoole 下推荐形态）。
 3. **裸句柄边界**：既不在 DI 也不走池的句柄（如直接 `new \Gene\Db\Mysql(...)`），`free()`/`__destruct` 在释放 PDO 前同样回滚 + 告警——补上 `ATTR_PERSISTENT` 裸用场景的缺口。
 
+**回滚不抛异常（N6，6.1.0+）**：`gene_db_tx_hygiene()` 在 `rollBack()` 前后临时把 PDO `ATTR_ERRMODE` 置为 `ERRMODE_SILENT` 再还原，使清理路径**根本不会抛异常**。此前「先抛再丢」策略在 RSHUTDOWN 无栈帧时会升级为 E_ERROR + bailout，打印伪 `Uncaught PDOException [no active file]` 并截断后续 DI 条目的清理。SILENT 模式下 `rollBack()` 退化为返回 `false`，`gene_discard_current_exception()` 仍作为二道保险保留。
+
+**异常寄存可重入（N8，6.1.0+）**：清理窗口内待处理业务异常保存在**局部变量**而非 `EG(prev_exception)`（`zend_exception_save/restore` 的寄存位），嵌套 hygiene 窗口（如 zval 释放级联触发另一个 Db 释放）不会互相干扰。`E_WARNING` 发射用 `zend_try` 包裹，保证用户 error handler 总被还原。
+
 三道防线都是兜底而非鼓励残留事务：业务代码仍应 `try { ... commit() } catch { rollBack(); throw; }`。
 
 复杂 SQL（join / raw）继续用继承来的 `$this->db`。`Query` 是一次性构建器（构建→执行→丢弃），不可缓存复用，也不可交错构建两个（共享同一 DI Db 句柄）。
