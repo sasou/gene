@@ -21,6 +21,7 @@
 
 #include "../gene.h"
 #include "../di/di.h"
+#include "../db/pdo.h"
 #include "../db/mysql.h"
 #include "../db/sqlite.h"
 #include "../db/pgsql.h"
@@ -310,16 +311,22 @@ void gene_orm_db_reset(zval *db)
 		pgsql_reset_sql_params(db);
 	} else if (ce == gene_db_mssql_ce) {
 		mssql_reset_sql_params(db);
-	} else if (!EG(exception)) {
-		/* Unknown driver — fall back to public reset(). Skip while an exception
-		 * is pending: running userland code mid-unwind would mask the first
-		 * error (the 4 known drivers above are pure C and always safe). */
+	} else {
+		/* Unknown driver — fall back to public reset(). [GENE_FIX:2026-08-19 N4]
+		 * Even with a pending exception we MUST clean: a guard exception
+		 * (e.g. P0-2/N1) leaves a built but unexecuted WHERE-less UPDATE on
+		 * the handle, and skipping reset would let a later read terminal
+		 * execute it. Save the in-flight exception, run reset(), discard
+		 * only an exception reset() itself raises, then restore. */
 		zval fname, retval;
+		zend_exception_save();
 		ZVAL_STRING(&fname, "reset");
 		ZVAL_UNDEF(&retval);
 		call_user_function(NULL, db, &fname, &retval, 0, NULL);
 		zval_ptr_dtor(&fname);
 		zval_ptr_dtor(&retval);
+		gene_discard_current_exception();
+		zend_exception_restore();
 	}
 }
 

@@ -805,6 +805,25 @@ class DatabaseTest
                 $this->fail("LOCK residue: " . json_encode($sql));
             }
 
+            // [GENE_FIX:2026-08-19 print-crash] print() on a handle with no
+            // SQL built must not crash (sql.s was NULL-dereferenced).
+            $fresh = new \Gene\Db\Sqlite(['dsn' => 'sqlite::memory:']);
+            $sql = $fresh->print();
+            if (is_array($sql) && ($sql['sql'] ?? null) === '') {
+                echo "✓ print() on fresh handle returns empty sql (no crash)\n";
+            } else {
+                $this->fail("print() fresh: " . json_encode($sql));
+            }
+            $fresh->select('kv');
+            $sql = $fresh->print();
+            $fresh->select('kv')->reset();
+            $sql = $fresh->print();
+            if (is_array($sql) && ($sql['sql'] ?? null) === '') {
+                echo "✓ print() after reset returns empty sql (no crash)\n";
+            } else {
+                $this->fail("print() after reset: " . json_encode($sql));
+            }
+
             // method surface on all 4 drivers
             foreach (['\\Gene\\Db\\Mysql', '\\Gene\\Db\\Pgsql', '\\Gene\\Db\\Sqlite', '\\Gene\\Db\\Mssql'] as $cls) {
                 if (!class_exists($cls)) {

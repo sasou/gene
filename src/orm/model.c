@@ -130,12 +130,20 @@ static zend_always_inline zval *gene_orm_pk_value(zval *attrs, zend_string *pk)
 	return v;
 }
 
-static int gene_orm_apply_where(zval *db, zval *where, gene_orm_meta_t *meta)
+/* [GENE_FIX:2026-08-19 N1] emitted (out, may be NULL): set to 1 only when a
+ * condition was actually handed to db->where(). Write entry points
+ * (updateBy/updateOrCreate) use this as a semantic guard — an empty array or
+ * null $where must abort the UPDATE, not silently become a full-table write.
+ * Read paths pass NULL: an unscoped SELECT is legal. */
+static int gene_orm_apply_where(zval *db, zval *where, gene_orm_meta_t *meta, zend_bool *emitted)
 {
 	zval args[2], retval, cond;
 	uint32_t argc = 1;
 	smart_str buf = {0};
 
+	if (emitted) {
+		*emitted = 0;
+	}
 	if (!where || Z_TYPE_P(where) == IS_NULL || Z_TYPE_P(where) == IS_UNDEF) {
 		return SUCCESS;
 	}
@@ -147,6 +155,9 @@ static int gene_orm_apply_where(zval *db, zval *where, gene_orm_meta_t *meta)
 		gene_orm_db_call(db, "where", 1, args, &retval);
 		zval_ptr_dtor(&args[0]);
 		zval_ptr_dtor(&retval);
+		if (emitted) {
+			*emitted = 1;
+		}
 		return SUCCESS;
 	}
 
@@ -162,6 +173,9 @@ static int gene_orm_apply_where(zval *db, zval *where, gene_orm_meta_t *meta)
 	zval_ptr_dtor(&args[1]);
 	zval_ptr_dtor(&retval);
 	zval_ptr_dtor(&cond);
+	if (emitted) {
+		*emitted = 1;
+	}
 	return SUCCESS;
 }
 
@@ -356,7 +370,7 @@ PHP_METHOD(gene_orm_model, findAll)
 
 	gene_orm_db_select(db, meta.table, &meta.fields);
 	if (UNEXPECTED(gene_orm_has_exception())) goto cleanup;
-	gene_orm_apply_where(db, where, &meta);
+	gene_orm_apply_where(db, where, &meta, NULL);
 	if (UNEXPECTED(gene_orm_has_exception())) goto cleanup;
 
 	if (gene_orm_db_call(db, "all", 0, NULL, return_value) != SUCCESS) {
@@ -401,7 +415,7 @@ PHP_METHOD(gene_orm_model, paginate)
 	zval_ptr_dtor(&args[0]);
 	zval_ptr_dtor(&retval);
 	if (UNEXPECTED(gene_orm_has_exception())) goto cleanup;
-	gene_orm_apply_where(db, where, &meta);
+	gene_orm_apply_where(db, where, &meta, NULL);
 	if (UNEXPECTED(gene_orm_has_exception()) ) goto cleanup;
 	if (gene_orm_db_call(db, "cell", 0, NULL, &count_zv) == SUCCESS) {
 		if (Z_TYPE(count_zv) == IS_LONG) {
@@ -419,7 +433,7 @@ PHP_METHOD(gene_orm_model, paginate)
 	/* list */
 	gene_orm_db_select(db, meta.table, &meta.fields);
 	if (UNEXPECTED(gene_orm_has_exception())) goto cleanup;
-	gene_orm_apply_where(db, where, &meta);
+	gene_orm_apply_where(db, where, &meta, NULL);
 	if (UNEXPECTED(gene_orm_has_exception())) goto cleanup;
 	if (order && ZSTR_LEN(order) > 0) {
 		ZVAL_STR_COPY(&args[0], order);
@@ -548,8 +562,22 @@ PHP_METHOD(gene_orm_model, updateBy)
 	zval_ptr_dtor(&retval);
 	if (UNEXPECTED(gene_orm_has_exception())) goto cleanup;
 
-	gene_orm_apply_where(db, where, &meta);
-	if (UNEXPECTED(gene_orm_has_exception())) goto cleanup;
+	{
+		zend_bool emitted = 0;
+		gene_orm_apply_where(db, where, &meta, &emitted);
+		if (UNEXPECTED(gene_orm_has_exception())) goto cleanup;
+		/* [GENE_FIX:2026-08-19 N1] Semantic guard: $where that resolves to
+		 * nothing (empty array / null) must abort BEFORE affectedRows() —
+		 * Db is lazy, so the UPDATE has only been built, never executed. */
+		if (UNEXPECTED(!emitted)) {
+			zend_throw_exception_ex(NULL, 0,
+				"Gene\\Orm\\Model::updateBy() requires a condition: $where resolved "
+				"to nothing (empty array or null). Pass a non-empty assoc array or "
+				"a primary-key value; an unscoped full-table update is refused.");
+			RETVAL_LONG(0);
+			goto cleanup;
+		}
+	}
 
 	if (gene_orm_db_call(db, "affectedRows", 0, NULL, return_value) != SUCCESS) {
 		RETVAL_LONG(0);
@@ -970,10 +998,10 @@ PHP_METHOD(gene_orm_model, updateOrCreate)
 		RETURN_LONG(0);
 	}
 
-	/* exists check */
+	/* exists check (read path — an unscoped lookup is legal, no guard) */
 	gene_orm_db_select(db, meta.table, &meta.fields);
 	if (UNEXPECTED(gene_orm_has_exception())) { ZVAL_UNDEF(&row); goto cleanup; }
-	gene_orm_apply_where(db, where, &meta);
+	gene_orm_apply_where(db, where, &meta, NULL);
 	if (UNEXPECTED(gene_orm_has_exception())) { ZVAL_UNDEF(&row); goto cleanup; }
 	ZVAL_LONG(&lim, 1);
 	gene_orm_db_call(db, "limit", 1, &lim, &retval);
@@ -1005,8 +1033,21 @@ PHP_METHOD(gene_orm_model, updateOrCreate)
 		zval_ptr_dtor(&args[1]);
 		zval_ptr_dtor(&retval);
 		if (UNEXPECTED(gene_orm_has_exception())) goto cleanup_data;
-		gene_orm_apply_where(db, where, &meta);
-		if (UNEXPECTED(gene_orm_has_exception())) goto cleanup_data;
+		{
+			zend_bool emitted = 0;
+			gene_orm_apply_where(db, where, &meta, &emitted);
+			if (UNEXPECTED(gene_orm_has_exception())) goto cleanup_data;
+			/* [GENE_FIX:2026-08-19 N1] Same guard as updateBy(): the UPDATE
+			 * built above stays unexecuted (Db is lazy until affectedRows). */
+			if (UNEXPECTED(!emitted)) {
+				zend_throw_exception_ex(NULL, 0,
+					"Gene\\Orm\\Model::updateOrCreate() requires a condition for its "
+					"update branch: $where resolved to nothing (empty array or null). "
+					"An unscoped full-table update is refused.");
+				RETVAL_LONG(0);
+				goto cleanup_data;
+			}
+		}
 		if (gene_orm_db_call(db, "affectedRows", 0, NULL, return_value) != SUCCESS) {
 			RETVAL_LONG(0);
 		}

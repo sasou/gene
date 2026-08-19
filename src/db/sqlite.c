@@ -1490,6 +1490,9 @@ PHP_METHOD(gene_db_sqlite, free)
 	if (pool && Z_TYPE_P(pool) == IS_OBJECT) {
 		gene_pool_return_pdo(gene_db_sqlite_ce, self, ZEND_STRL(GENE_DB_SQLITE_POOL), ZEND_STRL(GENE_DB_SQLITE_PDO));
 	} else {
+		/* [GENE_FIX:2026-08-19 N3] No-pool handle — see Db\Mysql::free(). */
+		zval *pdo = zend_read_property(gene_db_sqlite_ce, gene_strip_obj(self), ZEND_STRL(GENE_DB_SQLITE_PDO), 1, NULL);
+		gene_db_tx_hygiene(pdo, "Db\\Sqlite handle freed");
 		zend_update_property_null(gene_db_sqlite_ce, gene_strip_obj(self), ZEND_STRL(GENE_DB_SQLITE_PDO));
 	}
 	RETURN_NULL();
@@ -1505,6 +1508,9 @@ PHP_METHOD(gene_db_sqlite, __destruct)
 	zval *pool = zend_read_property(gene_db_sqlite_ce, gene_strip_obj(self), ZEND_STRL(GENE_DB_SQLITE_POOL), 1, NULL);
 	if (pool && Z_TYPE_P(pool) == IS_OBJECT) {
 		gene_pool_return_pdo(gene_db_sqlite_ce, self, ZEND_STRL(GENE_DB_SQLITE_POOL), ZEND_STRL(GENE_DB_SQLITE_PDO));
+	} else {
+		zval *pdo = zend_read_property(gene_db_sqlite_ce, gene_strip_obj(self), ZEND_STRL(GENE_DB_SQLITE_PDO), 1, NULL);
+		gene_db_tx_hygiene(pdo, "Db\\Sqlite handle destructed");
 	}
 }
 /* }}} */

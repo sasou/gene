@@ -146,9 +146,18 @@ class Model extends \Gene\Model
     }
 
     /**
-     * @param array|mixed $where
+     * updateBy — 按条件更新。
+     *
+     * $where 语义（注意：不是 raw SQL 片段）：
+     *  - 关联数组：条件集合（如 ['status' => 1]，值可以是 ['%kw%', 'like'] 等）
+     *  - 标量：视为**主键值**（生成 `pk=?` 并绑定原值；'status=1' 这类字符串
+     *    会静默匹配 0 行，需要 raw 片段请用 query()->where('…')->update($data)）
+     *  - 空数组 / null：**抛异常**（6.1.0+，拒绝无 WHERE 全表更新）
+     *
+     * @param array|int|string $where
      * @param array $data
-     * @return int
+     * @return int 影响行数
+     * @throws \Exception 空条件时抛出
      */
     public static function updateBy($where, array $data)
     {
@@ -219,8 +228,10 @@ class Model extends \Gene\Model
      * updateOrCreate — 按 $where 查到则更新（返回影响行数），否则插入
      * （返回新 id；关联数组 $where 的键值会并入新行）。非原子操作；
      * 有并发竞争时请用唯一键 + insertIgnore/upsert。
+     * $where 语义同 updateBy：数组=条件集合、标量=主键值；
+     * 空数组 / null 在更新分支**抛异常**（6.1.0+，拒绝全表更新）。
      *
-     * @param array|mixed $where
+     * @param array|int|string $where
      * @param array $data
      * @return int|string
      * @since 6.1.0
