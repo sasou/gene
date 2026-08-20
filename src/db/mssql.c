@@ -137,6 +137,10 @@ ZEND_BEGIN_ARG_INFO_EX(gene_db_mssql_quote, 0, 0, 1)
 	ZEND_ARG_INFO(0, paramType)
 ZEND_END_ARG_INFO()
 
+ZEND_BEGIN_ARG_INFO_EX(gene_db_mssql_transaction, 0, 0, 1)
+	ZEND_ARG_CALLABLE_INFO(0, fn, 0)
+ZEND_END_ARG_INFO()
+
 void mssql_reset_sql_params(zval *self)
 {
 	zend_update_property_null(gene_db_mssql_ce, gene_strip_obj(self), ZEND_STRL(GENE_DB_MSSQL_SQL));
@@ -1447,6 +1451,23 @@ PHP_METHOD(gene_db_mssql, commit)
 /* }}} */
 
 /*
+ * {{{ public gene_db::transaction(callable $fn)
+ */
+PHP_METHOD(gene_db_mssql, transaction)
+{
+	zend_fcall_info fci;
+	zend_fcall_info_cache fcc = empty_fcall_info_cache;
+	zval *self = getThis(), *pdo_object = NULL;
+
+	if (zend_parse_parameters(ZEND_NUM_ARGS(), "f", &fci, &fcc) == FAILURE) {
+		return;
+	}
+	pdo_object = zend_read_property(gene_db_mssql_ce, gene_strip_obj(self), ZEND_STRL(GENE_DB_MSSQL_PDO), 1, NULL);
+	gene_pdo_run_transaction(pdo_object, &fci, &fcc, return_value);
+}
+/* }}} */
+
+/*
  * {{{ public gene_db::release()
  */
 PHP_METHOD(gene_db_mssql, release)
@@ -1547,6 +1568,8 @@ const zend_function_entry gene_db_mssql_methods[] = {
 		PHP_ME(gene_db_mssql, inTransaction, gene_db_mssql_void_arginfo, ZEND_ACC_PUBLIC)
 		PHP_ME(gene_db_mssql, rollBack, gene_db_mssql_void_arginfo, ZEND_ACC_PUBLIC)
 		PHP_ME(gene_db_mssql, commit, gene_db_mssql_void_arginfo, ZEND_ACC_PUBLIC)
+		PHP_ME(gene_db_mssql, transaction, gene_db_mssql_transaction, ZEND_ACC_PUBLIC)
+		PHP_MALIAS(gene_db_mssql, transact, transaction, gene_db_mssql_transaction, ZEND_ACC_PUBLIC)
 		PHP_ME(gene_db_mssql, release, gene_db_mssql_void_arginfo, ZEND_ACC_PUBLIC)
 		PHP_ME(gene_db_mssql, free, gene_db_mssql_void_arginfo, ZEND_ACC_PUBLIC)
 		PHP_ME(gene_db_mssql, __destruct, gene_db_mssql_void_arginfo, ZEND_ACC_PUBLIC)

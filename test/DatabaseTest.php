@@ -844,6 +844,67 @@ class DatabaseTest
     }
 
     /**
+     * Callback transaction: commit, rollback, nested no-op begin.
+     */
+    public function testTransactionCallback()
+    {
+        echo "Testing Db::transaction() (SQLite):\n";
+
+        if (!class_exists('\\Gene\\Db\\Sqlite')) {
+            $this->skip('skip transaction callback — Sqlite missing');
+            return;
+        }
+
+        try {
+            $db = new \Gene\Db\Sqlite(['dsn' => 'sqlite::memory:']);
+            $db->sql('CREATE TABLE tx_cb (id INTEGER PRIMARY KEY AUTOINCREMENT, v int)')->execute();
+
+            $n = $db->transaction(function () use ($db) {
+                $db->insert('tx_cb', ['v' => 1])->execute();
+                return 42;
+            });
+            $rows = $db->select('tx_cb')->all();
+            if ($n === 42 && is_array($rows) && count($rows) === 1 && !$db->inTransaction()) {
+                echo "✓ transaction() commits and returns callback value\n";
+            } else {
+                $this->fail('transaction commit: ret=' . var_export($n, true) . ' rows=' . json_encode($rows));
+            }
+
+            try {
+                $db->transaction(function () use ($db) {
+                    $db->insert('tx_cb', ['v' => 2])->execute();
+                    throw new \RuntimeException('db tx rollback');
+                });
+                $this->fail('transaction should rethrow');
+            } catch (\RuntimeException $e) {
+                $rows2 = $db->select('tx_cb')->all();
+                if (is_array($rows2) && count($rows2) === 1 && !$db->inTransaction()
+                    && strpos($e->getMessage(), 'db tx rollback') !== false) {
+                    echo "✓ transaction() rolls back and rethrows\n";
+                } else {
+                    $this->fail('transaction rollback rows=' . json_encode($rows2));
+                }
+            }
+
+            $innerOwn = null;
+            $db->transaction(function () use ($db, &$innerOwn) {
+                $db->transact(function () use ($db, &$innerOwn) {
+                    $innerOwn = $db->inTransaction();
+                });
+            });
+            if ($innerOwn === true && !$db->inTransaction()) {
+                echo "✓ nested transact() shares the outer transaction\n";
+            } else {
+                $this->fail('nested transact inTx inner=' . var_export($innerOwn, true));
+            }
+        } catch (\Throwable $e) {
+            $this->reportCaught($e);
+        }
+
+        echo "\n";
+    }
+
+    /**
      * [GENE_FIX:2026-08-19 N2/N6/N8] Transaction hygiene on shutdown/release.
      *
      * Covers the half of P1-4 / N2 that §13.5-4 originally deferred to MySQL:
@@ -982,6 +1043,7 @@ class DatabaseTest
         $this->testDatabasePerformance();
         $this->testSqliteAttachDetach();
         $this->testSqliteV2WriteApis();
+        $this->testTransactionCallback();
         $this->testTxHygiene();
 
         echo "=== Database Classes Test Suite Complete ===\n";

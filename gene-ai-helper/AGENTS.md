@@ -106,15 +106,15 @@ return $this->db->select('sys_user', 'user_id, user_name')
     ->all();
 ```
 
-**版本缓存（写操作后必须 updateVersion）**
+**版本缓存（写操作后必须 updateVersion；事务提交后再 bump）**
 
 ```php
-// 读
-$version = ['db.sys_user.id' => $id];
-$row = $this->cache->cachedVersion(['\Models\User', 'row'], [$id], $version, 3600);
-
-// 写
-$this->cache->updateVersion(['db.sys_user.id' => $id, 'db.sys_user' => null]);
+$id = $this->db->transaction(function () use ($data) {
+    $id = User::create($data);
+    Role::create(['user_id' => $id]);
+    return $id;
+});
+$this->cache->updateVersion(['db.sys_user' => null, 'db.sys_role' => null]);
 ```
 
 ---

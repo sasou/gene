@@ -679,6 +679,92 @@ void gene_pdo_rollback(zval *pdo_object, zval *retval) /*{{{*/
     }
 }/*}}}*/
 
+static zend_bool gene_pdo_is_in_tx(zval *pdo_object)
+{
+	zval r;
+	zend_bool in;
+
+	if (!pdo_object || Z_TYPE_P(pdo_object) != IS_OBJECT) {
+		return 0;
+	}
+	gene_pdo_in_transaction(pdo_object, &r);
+	if (UNEXPECTED(EG(exception))) {
+		zval_ptr_dtor(&r);
+		return 0;
+	}
+	in = zend_is_true(&r);
+	zval_ptr_dtor(&r);
+	return in;
+}
+
+/* [GENE_FEATURE:2026-08-20] PDO has no nested begin. Outer caller owns
+ * commit/rollBack; inner transaction() only runs the callback. */
+void gene_pdo_run_transaction(zval *pdo_object, zend_fcall_info *fci, zend_fcall_info_cache *fcc, zval *retval)
+{
+	zval tmp, cb_ret;
+	zend_bool own;
+
+	ZVAL_UNDEF(retval);
+	if (!pdo_object || Z_TYPE_P(pdo_object) != IS_OBJECT) {
+		zend_throw_exception_ex(NULL, 0, "Gene\\Db::transaction() has no PDO connection");
+		return;
+	}
+
+	own = !gene_pdo_is_in_tx(pdo_object);
+	if (UNEXPECTED(EG(exception))) {
+		return;
+	}
+	if (own) {
+		gene_pdo_begin_transaction(pdo_object, &tmp);
+		zval_ptr_dtor(&tmp);
+		if (UNEXPECTED(EG(exception))) {
+			return;
+		}
+	}
+
+	ZVAL_UNDEF(&cb_ret);
+	fci->retval = &cb_ret;
+	fci->param_count = 0;
+	fci->params = NULL;
+	if (zend_call_function(fci, fcc) == FAILURE && !EG(exception)) {
+		zend_throw_exception_ex(NULL, 0, "Gene\\Db::transaction() callback failed");
+	}
+
+	if (EG(exception)) {
+		if (own) {
+			zend_object *saved = EG(exception);
+			EG(exception) = NULL;
+			if (gene_pdo_is_in_tx(pdo_object)) {
+				gene_pdo_rollback(pdo_object, &tmp);
+				zval_ptr_dtor(&tmp);
+			}
+			gene_discard_current_exception();
+			EG(exception) = saved;
+		}
+		zval_ptr_dtor(&cb_ret);
+		return;
+	}
+
+	if (own) {
+		gene_pdo_commit(pdo_object, &tmp);
+		zval_ptr_dtor(&tmp);
+		if (UNEXPECTED(EG(exception))) {
+			zend_object *saved = EG(exception);
+			EG(exception) = NULL;
+			if (gene_pdo_is_in_tx(pdo_object)) {
+				gene_pdo_rollback(pdo_object, &tmp);
+				zval_ptr_dtor(&tmp);
+			}
+			gene_discard_current_exception();
+			EG(exception) = saved;
+			zval_ptr_dtor(&cb_ret);
+			return;
+		}
+	}
+
+	ZVAL_COPY_VALUE(retval, &cb_ret);
+}
+
 void gene_pdo_get_attribute(zval *pdo_object, zend_long attr, zval *retval) /*{{{*/
 {
     ZVAL_UNDEF(retval);

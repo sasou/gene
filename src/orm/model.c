@@ -20,6 +20,7 @@
 #include "../mvc/model.h"
 #include "../di/di.h"
 #include "../common/common.h"
+#include "../db/pdo.h"
 #include "orm.h"
 
 zend_class_entry *gene_orm_model_ce;
@@ -101,6 +102,10 @@ ZEND_BEGIN_ARG_INFO_EX(gene_orm_model_toggle_arginfo, 0, 0, 2)
 	ZEND_ARG_INFO(0, id)
 	ZEND_ARG_INFO(0, field)
 	ZEND_ARG_INFO(0, values)
+ZEND_END_ARG_INFO()
+
+ZEND_BEGIN_ARG_INFO_EX(gene_orm_model_transaction_arginfo, 0, 0, 1)
+	ZEND_ARG_CALLABLE_INFO(0, fn, 0)
 ZEND_END_ARG_INFO()
 
 static zend_class_entry *gene_orm_called_ce(void)
@@ -1731,6 +1736,37 @@ PHP_METHOD(gene_orm_model, __unset)
 }
 /* }}} */
 
+/*
+ * {{{ public static Gene\Orm\Model::transaction(callable $fn)
+ * Uses this model's $connection (default "db"). Nested calls on the same
+ * PDO connection do not begin a second transaction.
+ */
+PHP_METHOD(gene_orm_model, transaction)
+{
+	zend_fcall_info fci;
+	zend_fcall_info_cache fcc = empty_fcall_info_cache;
+	gene_orm_meta_t meta;
+	zend_class_entry *ce = gene_orm_called_ce();
+	zval db, *pdo;
+
+	if (zend_parse_parameters(ZEND_NUM_ARGS(), "f", &fci, &fcc) == FAILURE) {
+		return;
+	}
+	if (gene_orm_meta_load(ce, &meta) != SUCCESS) {
+		return;
+	}
+	if (gene_orm_get_db(meta.connection, &db) != SUCCESS) {
+		gene_orm_meta_release(&meta);
+		return;
+	}
+	gene_orm_meta_release(&meta);
+
+	pdo = zend_read_property(Z_OBJCE(db), gene_strip_obj(&db), ZEND_STRL("pdo"), 1, NULL);
+	gene_pdo_run_transaction(pdo, &fci, &fcc, return_value);
+	zval_ptr_dtor(&db);
+}
+/* }}} */
+
 const zend_function_entry gene_orm_model_methods[] = {
 	PHP_ME(gene_orm_model, query, gene_orm_model_void_arginfo, ZEND_ACC_PUBLIC|ZEND_ACC_STATIC)
 	PHP_ME(gene_orm_model, where, gene_orm_model_where_arginfo, ZEND_ACC_PUBLIC|ZEND_ACC_STATIC)
@@ -1746,6 +1782,8 @@ const zend_function_entry gene_orm_model_methods[] = {
 	PHP_ME(gene_orm_model, insertIgnore, gene_orm_model_create_arginfo, ZEND_ACC_PUBLIC|ZEND_ACC_STATIC)
 	PHP_ME(gene_orm_model, updateOrCreate, gene_orm_model_updateorcreate_arginfo, ZEND_ACC_PUBLIC|ZEND_ACC_STATIC)
 	PHP_ME(gene_orm_model, toggle, gene_orm_model_toggle_arginfo, ZEND_ACC_PUBLIC|ZEND_ACC_STATIC)
+	PHP_ME(gene_orm_model, transaction, gene_orm_model_transaction_arginfo, ZEND_ACC_PUBLIC|ZEND_ACC_STATIC)
+	PHP_MALIAS(gene_orm_model, transact, transaction, gene_orm_model_transaction_arginfo, ZEND_ACC_PUBLIC|ZEND_ACC_STATIC)
 	PHP_ME(gene_orm_model, fill, gene_orm_model_fill_arginfo, ZEND_ACC_PUBLIC)
 	PHP_ME(gene_orm_model, setExists, gene_orm_model_setexists_arginfo, ZEND_ACC_PUBLIC)
 	PHP_ME(gene_orm_model, save, gene_orm_model_void_arginfo, ZEND_ACC_PUBLIC)

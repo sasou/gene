@@ -55,6 +55,7 @@ class OrmTest
             'create', 'updateBy', 'destroy', 'destroyAll',
             'fill', 'save', 'delete', 'toArray', 'getInstance', 'setExists',
             'findMany', 'createMany', 'insertIgnore', 'updateOrCreate', 'toggle',
+            'transaction', 'transact',
             '__get', '__set', '__isset', '__unset',
         ];
         foreach ($methods as $m) {
@@ -155,6 +156,50 @@ class OrmTest
                 $this->ok("query()->count() returns int=$cnt");
             } else {
                 $this->fail('count() type/value: ' . var_export($cnt, true));
+            }
+
+            $countUsers = function () use ($db) {
+                $rows = $db->select('orm_users')->all();
+                return is_array($rows) ? count($rows) : 0;
+            };
+            $before = $countUsers();
+            $newId = OrmTestUser::transaction(function () {
+                return OrmTestUser::create(['name' => 'tx-ok', 'status' => 1]);
+            });
+            $afterOk = $countUsers();
+            if ($newId > 0 && $afterOk === $before + 1 && !$db->inTransaction()) {
+                $this->ok('Model::transaction() commits');
+            } else {
+                $this->fail("transaction commit: id=$newId count $before->$afterOk inTx=" . var_export($db->inTransaction(), true));
+            }
+
+            $beforeFail = $countUsers();
+            try {
+                OrmTestUser::transaction(function () {
+                    OrmTestUser::create(['name' => 'tx-fail', 'status' => 1]);
+                    throw new \RuntimeException('orm tx rollback');
+                });
+                $this->fail('transaction should rethrow');
+            } catch (\RuntimeException $e) {
+                $afterFail = $countUsers();
+                if ($afterFail === $beforeFail && !$db->inTransaction() && strpos($e->getMessage(), 'orm tx rollback') !== false) {
+                    $this->ok('Model::transaction() rolls back and rethrows');
+                } else {
+                    $this->fail("transaction rollback: count $beforeFail->$afterFail inTx=" . var_export($db->inTransaction(), true));
+                }
+            }
+
+            $nested = $db->transaction(function () use ($db) {
+                $id1 = OrmTestUser::create(['name' => 'outer', 'status' => 1]);
+                $id2 = OrmTestUser::transaction(function () {
+                    return OrmTestUser::create(['name' => 'inner', 'status' => 1]);
+                });
+                return [$id1, $id2, $db->inTransaction()];
+            });
+            if (is_array($nested) && $nested[0] > 0 && $nested[1] > 0 && $nested[2] === true && !$db->inTransaction()) {
+                $this->ok('nested transaction() does not double-begin');
+            } else {
+                $this->fail('nested transaction: ' . json_encode($nested) . ' inTx=' . var_export($db->inTransaction(), true));
             }
 
             $one = OrmTestUser::query()->where(['id' => $id])->limit(1)->row();

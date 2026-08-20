@@ -133,7 +133,20 @@ $this->session->destroy();
 ## 版本化缓存（Service 层）
 
 读：`$this->cache->cachedVersion([$callable, $method], $args, $version, $ttl);`  
-写：`$this->cache->updateVersion($version);`
+写：`$this->cache->updateVersion($version);` **在事务提交之后**调用（事务中 bump 版本，rollBack 后缓存已失效）。
+
+多表写入用回调事务（PDO 不支持嵌套 begin；内层只跑回调）：
+
+```php
+$id = $this->db->transaction(function () use ($data) {
+    $id = User::create($data);
+    Role::create(['user_id' => $id]);
+    return $id;
+});
+$this->cache->updateVersion(['db.sys_user' => null, 'db.sys_role' => null]);
+```
+
+同一连接上也可 `User::transaction($fn)`（走该模型 `$connection`）。
 
 版本键约定：
 

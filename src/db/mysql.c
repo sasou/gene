@@ -139,6 +139,10 @@ ZEND_BEGIN_ARG_INFO_EX(gene_db_mysql_quote, 0, 0, 1)
 	ZEND_ARG_INFO(0, paramType)
 ZEND_END_ARG_INFO()
 
+ZEND_BEGIN_ARG_INFO_EX(gene_db_mysql_transaction, 0, 0, 1)
+	ZEND_ARG_CALLABLE_INFO(0, fn, 0)
+ZEND_END_ARG_INFO()
+
 void mysql_reset_sql_params(zval *self)
 {
 	zend_update_property_null(gene_db_mysql_ce, gene_strip_obj(self), ZEND_STRL(GENE_DB_MYSQL_SQL));
@@ -1561,6 +1565,23 @@ PHP_METHOD(gene_db_mysql, commit)
 /* }}} */
 
 /*
+ * {{{ public gene_db::transaction(callable $fn)
+ */
+PHP_METHOD(gene_db_mysql, transaction)
+{
+	zend_fcall_info fci;
+	zend_fcall_info_cache fcc = empty_fcall_info_cache;
+	zval *self = getThis(), *pdo_object = NULL;
+
+	if (zend_parse_parameters(ZEND_NUM_ARGS(), "f", &fci, &fcc) == FAILURE) {
+		return;
+	}
+	pdo_object = zend_read_property(gene_db_mysql_ce, gene_strip_obj(self), ZEND_STRL(GENE_DB_MYSQL_PDO), 1, NULL);
+	gene_pdo_run_transaction(pdo_object, &fci, &fcc, return_value);
+}
+/* }}} */
+
+/*
  * {{{ public gene_db::release()
  */
 PHP_METHOD(gene_db_mysql, release)
@@ -1663,6 +1684,8 @@ const zend_function_entry gene_db_mysql_methods[] = {
 		PHP_ME(gene_db_mysql, inTransaction, gene_db_mysql_void_arginfo, ZEND_ACC_PUBLIC)
 		PHP_ME(gene_db_mysql, rollBack, gene_db_mysql_void_arginfo, ZEND_ACC_PUBLIC)
 		PHP_ME(gene_db_mysql, commit, gene_db_mysql_void_arginfo, ZEND_ACC_PUBLIC)
+		PHP_ME(gene_db_mysql, transaction, gene_db_mysql_transaction, ZEND_ACC_PUBLIC)
+		PHP_MALIAS(gene_db_mysql, transact, transaction, gene_db_mysql_transaction, ZEND_ACC_PUBLIC)
 		PHP_ME(gene_db_mysql, release, gene_db_mysql_void_arginfo, ZEND_ACC_PUBLIC)
 		PHP_ME(gene_db_mysql, free, gene_db_mysql_void_arginfo, ZEND_ACC_PUBLIC)
 		PHP_ME(gene_db_mysql, __destruct, gene_db_mysql_void_arginfo, ZEND_ACC_PUBLIC)

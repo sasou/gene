@@ -262,6 +262,31 @@ class Model extends \Gene\Model
     }
 
     /**
+     * transaction — 在本模型 $connection 对应的 Db 上执行回调事务。
+     * 语义同 Gene\Db\*::transaction()；跨模型只要共用同一连接即可嵌套。
+     * transact() 为别名。
+     *
+     * @param callable $fn
+     * @return mixed
+     * @since 6.1.0
+     */
+    public static function transaction($fn)
+    {
+        return null;
+    }
+
+    /**
+     * @see transaction()
+     * @param callable $fn
+     * @return mixed
+     * @since 6.1.0
+     */
+    public static function transact($fn)
+    {
+        return null;
+    }
+
+    /**
      * @param array $data
      * @return static
      */
