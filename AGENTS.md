@@ -1,15 +1,22 @@
 # Gene 扩展 — 构建与验证速查
 
-## Windows 构建（本机已验证 2026-08-09）
+## Windows 构建（本机已验证 2026-08-20）
 
-- PHP SDK：`F:\php-sdk-2.3.0`；构建树：`F:\php_src\php-8.1.30-src`（PHP 8.1 NTS x64，VS2019/vs16）。
+- PHP SDK：`F:\php-sdk-2.6.0`；构建树：`F:\php_src\php-8.1.30-src`（PHP 8.1 NTS x64，VS2019/vs16）。
 - `F:\php_src\php-8.1.30-src\ext\gene` 是指向本仓库 `src/` 的 **Junction**，改源码即改构建树。
-- 构建步骤（config.nice.bat 已配好 `--enable-gene=shared`，无需重跑 configure）：
+- 构建步骤（config.nice.bat 已配好 `--enable-gene=shared`）：
 
 ```bat
-rem task.bat 内容:  cd /d F:\php_src\php-8.1.30-src && nmake php_gene.dll
-F:\php-sdk-2.3.0\phpsdk-vs16-x64.bat -t <task.bat>
+rem task.bat 内容:
+cd /d F:\php_src\php-8.1.30-src
+call config.nice.bat
+nmake php_gene.dll
+F:\php-sdk-2.6.0\phpsdk-vs16-x64.bat -t <task.bat>
 ```
+
+- **注意**：Makefile 必须在 x64 环境下生成（`BUILD_DIR=x64\Release`，不含 `_USE_32BIT_TIME_T`）。
+  若 Makefile 被误在 x86 环境下重新 configure，需在 phpsdk-vs16-x64 环境中重跑 `config.nice.bat`。
+  新版 Windows SDK (10.0.26100.0) 的 `corecrt.h` 会对 x64 构建中出现的 `_USE_32BIT_TIME_T` 报 `#error`。
 
 - 产物：`F:\php_src\php-8.1.30-src\x64\Release\php_gene.dll`。
 - 部署：`copy /Y` 到 `D:\wampServer-php8.1_x64_nts\php_ext\php_gene.dll`。
@@ -17,10 +24,8 @@ F:\php-sdk-2.3.0\phpsdk-vs16-x64.bat -t <task.bat>
 
 ## 免部署验证（旧 dll 被占用时）
 
-```powershell
-php -n -d extension_dir="D:\wampServer-php8.1_x64_nts\php_ext" `
-      -d extension=pdo_sqlite `
-      -d extension="F:\php_src\php-8.1.30-src\x64\Release\php_gene.dll" <script.php>
+```bat
+D:\wampServer-php8.1_x64_nts\bin\php.exe -n -d extension_dir=D:\wampServer-php8.1_x64_nts\php_ext -d extension=pdo_sqlite -d extension=F:\php_src\php-8.1.30-src\x64\Release\php_gene.dll <script.php>
 ```
 
 ## 验证入口

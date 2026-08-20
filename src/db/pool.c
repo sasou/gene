@@ -29,6 +29,7 @@
  #include "../config/configs.h"
  #include "../cache/memory.h"
  #include "../db/pool.h"
+ #include "../db/pdo.h"
   
  zend_class_entry *gene_pool_ce;
 
@@ -1547,7 +1548,16 @@ PHP_METHOD(gene_pool, get)
              /* Null the property BEFORE put() to prevent re-use during
               * coroutine yield inside channel->push() */
              zend_update_property_null(db_ce, gene_strip_obj(self), pdo_key, pdo_key_len);
- 
+
+             /* [GENE_FIX:2026-08-19 P1-3/N3] Transaction hygiene at the pool
+              * boundary — same rule as gene_di_regs_tx_hygiene (plan 4.3'):
+              * a pooled connection outlives the request/coroutine, so
+              * returning it with an open transaction would hand the dirty
+              * transaction and its row locks to the next borrower. This is
+              * the single chokepoint for all 4 drivers x release()/free()/
+              * __destruct. Implementation shared via gene_db_tx_hygiene(). */
+             gene_db_tx_hygiene(&pdo_copy, "pooled connection returned");
+
              /* [GENE_PERF:2026-04-26] Direct call via cached fn ptr. */
              zend_function *fn_put = pool_method(&fn_pool_put, ZEND_STRL("put"));
              zval retval, args[1];

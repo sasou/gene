@@ -103,9 +103,15 @@ ZEND_BEGIN_ARG_INFO_EX(gene_application_wait_worker_ready, 0, 0, 0)
 ZEND_END_ARG_INFO()
 
 ZEND_BEGIN_ARG_INFO_EX(gene_application_get_path, 0, 0, 0)
+	ZEND_ARG_INFO(0, withoutLang)
 ZEND_END_ARG_INFO()
 
 ZEND_BEGIN_ARG_INFO_EX(gene_application_get_uri, 0, 0, 0)
+ZEND_END_ARG_INFO()
+
+ZEND_BEGIN_ARG_INFO_EX(gene_application_arg_url, 0, 0, 1)
+	ZEND_ARG_INFO(0, path)
+	ZEND_ARG_INFO(0, lang)
 ZEND_END_ARG_INFO()
 
 ZEND_BEGIN_ARG_INFO_EX(gene_application_get_lang, 0, 0, 0)
@@ -586,14 +592,15 @@ PHP_METHOD(gene_application, getMethod) {
 /* }}} */
 
 /*
- * {{{ public gene_application::getPath()
+ * {{{ public gene_application::getPath([bool $withoutLang = false])
+ *  返回当前请求路径。$withoutLang=true 时去除语言前缀。
  */
 PHP_METHOD(gene_application, getPath) {
-	gene_request_context *ctx = gene_request_ctx();
-	if (ctx->path) {
-		RETURN_STRINGL(ctx->path, ctx->path_len);
+	zend_bool without_lang = 0;
+	if (zend_parse_parameters(ZEND_NUM_ARGS(), "|b", &without_lang) == FAILURE) {
+		return;
 	}
-	RETURN_NULL();
+	gene_get_path(return_value, without_lang);
 }
 /* }}} */
 
@@ -647,45 +654,29 @@ PHP_METHOD(gene_application, getLang) {
 
 /*
  * {{{ public gene_application::getRouterUri()
- * [GENE_PERF:2026-04-20] Use cached module_len/controller_len/action_len so
- * each strreplace_fast skips a per-length strlen(). router_path_len is also
- * cached; copy via emalloc+memcpy instead of str_init (avoids one extra strlen).
+ *  返回当前路由 URI（:m/:c/:a 替换后，小写）。
  */
 PHP_METHOD(gene_application, getRouterUri) {
-	char *path = NULL, *new_path = NULL;
-	size_t path_len;
-	gene_request_context *ctx = gene_request_ctx();
-	if (!ctx->router_path) {
-		RETURN_NULL();
-	}
+	gene_get_router_uri(return_value);
+}
+/* }}} */
 
-	path_len = ctx->router_path_len;
-	path = emalloc(path_len + 1);
-	memcpy(path, ctx->router_path, path_len + 1);
-	if (ctx->module != NULL) {
-		new_path = gene_strreplace_fast(path, path_len, ":m", 2, ctx->module, ctx->module_len, &path_len);
-		if (new_path) {
-			efree(path);
-			path = new_path;
-		}
+/*
+ * {{{ public gene_application::url(string $path [, string $lang])
+ *  返回带语言前缀的 URL。$lang 未传时使用当前请求语言；传空串则不加语言前缀。
+ */
+PHP_METHOD(gene_application, url) {
+	zend_string *path_str = NULL, *lang_str = NULL;
+	const char *lang = NULL;
+	size_t lang_len = 0;
+	if (zend_parse_parameters(ZEND_NUM_ARGS(), "S|S", &path_str, &lang_str) == FAILURE) {
+		return;
 	}
-	if (ctx->controller != NULL) {
-		new_path = gene_strreplace_fast(path, path_len, ":c", 2, ctx->controller, ctx->controller_len, &path_len);
-		if (new_path) {
-			efree(path);
-			path = new_path;
-		}
+	if (lang_str) {
+		lang = ZSTR_VAL(lang_str);
+		lang_len = ZSTR_LEN(lang_str);
 	}
-	if (ctx->action != NULL) {
-		new_path = gene_strreplace_fast(path, path_len, ":a", 2, ctx->action, ctx->action_len, &path_len);
-		if (new_path) {
-			efree(path);
-			path = new_path;
-		}
-	}
-	gene_strtolower(path);
-	RETVAL_STRINGL(path, path_len);
-	efree(path);
+	gene_build_url(return_value, ZSTR_VAL(path_str), ZSTR_LEN(path_str), lang, lang_len);
 }
 /* }}} */
 
@@ -1536,6 +1527,7 @@ const zend_function_entry gene_application_methods[] = {
 	PHP_ME(gene_application, getMethod, gene_application_get_method, ZEND_ACC_PUBLIC|ZEND_ACC_STATIC)
 	PHP_ME(gene_application, getPath, gene_application_get_path, ZEND_ACC_PUBLIC|ZEND_ACC_STATIC)
 	PHP_ME(gene_application, getRouterUri, gene_application_get_uri, ZEND_ACC_PUBLIC|ZEND_ACC_STATIC)
+	PHP_ME(gene_application, url, gene_application_arg_url, ZEND_ACC_PUBLIC|ZEND_ACC_STATIC)
 	PHP_ME(gene_application, getLang, gene_application_get_lang, ZEND_ACC_PUBLIC|ZEND_ACC_STATIC)
 	PHP_ME(gene_application, getModule, gene_application_get_module, ZEND_ACC_PUBLIC|ZEND_ACC_STATIC)
 	PHP_ME(gene_application, getController, gene_application_get_controller, ZEND_ACC_PUBLIC|ZEND_ACC_STATIC)

@@ -87,6 +87,11 @@ ZEND_END_ARG_INFO()
 
 ZEND_BEGIN_ARG_INFO_EX(gene_hook_arg_url, 0, 0, 1)
     ZEND_ARG_INFO(0, path)
+    ZEND_ARG_INFO(0, lang)
+ZEND_END_ARG_INFO()
+
+ZEND_BEGIN_ARG_INFO_EX(gene_hook_get_path, 0, 0, 0)
+    ZEND_ARG_INFO(0, withoutLang)
 ZEND_END_ARG_INFO()
 
 ZEND_BEGIN_ARG_INFO_EX(gene_hook_se, 0, 0, 2)
@@ -397,90 +402,41 @@ PHP_METHOD(gene_hook, containsExt) {
 }
 /* }}} */
 
-/** {{{ public gene_hook::url(string $path)
+/** {{{ public gene_hook::getPath([bool $withoutLang = false])
+ *  返回当前请求路径。$withoutLang=true 时去除语言前缀。
+ */
+PHP_METHOD(gene_hook, getPath) {
+	zend_bool without_lang = 0;
+	if (zend_parse_parameters(ZEND_NUM_ARGS(), "|b", &without_lang) == FAILURE) {
+		return;
+	}
+	gene_get_path(return_value, without_lang);
+}
+/* }}} */
+
+/** {{{ public gene_hook::getRouterUri()
+ *  返回当前路由 URI（:m/:c/:a 替换后，小写）。
+ */
+PHP_METHOD(gene_hook, getRouterUri) {
+	gene_get_router_uri(return_value);
+}
+/* }}} */
+
+/** {{{ public gene_hook::url(string $path [, string $lang])
+ *  返回带语言前缀的 URL。$lang 未传时使用当前请求语言；传空串则不加语言前缀。
  */
 PHP_METHOD(gene_hook, url) {
-	zend_string *path_str;
-	const char *p;
-	size_t path_len;
-	gene_request_context *ctx;
-	const char *lang;
-	size_t lang_len;
-
-	if (zend_parse_parameters(ZEND_NUM_ARGS(), "S", &path_str) == FAILURE) {
+	zend_string *path_str = NULL, *lang_str = NULL;
+	const char *lang = NULL;
+	size_t lang_len = 0;
+	if (zend_parse_parameters(ZEND_NUM_ARGS(), "S|S", &path_str, &lang_str) == FAILURE) {
 		return;
 	}
-	p = ZSTR_VAL(path_str);
-	path_len = ZSTR_LEN(path_str);
-	for (; path_len > 0 && *p == '/'; p++, path_len--) {}
-	ctx = gene_request_ctx();
-	/* [GENE_PERF:2026-04-27] Use cached ctx->lang_len; eliminates strlen per call. */
-	if (ctx->lang && ctx->lang[0] != '\0') {
-		lang = ctx->lang;
-		lang_len = ctx->lang_len;
-	} else {
-		lang = NULL;
-		lang_len = 0;
+	if (lang_str) {
+		lang = ZSTR_VAL(lang_str);
+		lang_len = ZSTR_LEN(lang_str);
 	}
-	if (path_len == 0) {
-		if (lang) {
-			size_t out_len = lang_len + 2;
-			char out_buf[256];
-			char *out_ptr = out_buf;
-			int out_heap = 0;
-			if (out_len >= sizeof(out_buf)) {
-				out_ptr = emalloc(out_len + 1);
-				out_heap = 1;
-			}
-			out_ptr[0] = '/';
-			memcpy(out_ptr + 1, lang, lang_len);
-			out_ptr[lang_len + 1] = '/';
-			out_ptr[lang_len + 2] = '\0';
-			RETVAL_STRINGL(out_ptr, out_len);
-			if (out_heap) {
-				efree(out_ptr);
-			}
-		} else {
-			RETURN_STRING("/");
-		}
-		return;
-	}
-	if (lang) {
-		/* [GENE_PERF:2026-04-27] memcpy + RETVAL_STRINGL — same pattern as Gene\Controller::url(). */
-		size_t out_len = lang_len + path_len + 2;
-		char out_buf[512];
-		char *out_ptr = out_buf;
-		int out_heap = 0;
-		if (out_len >= sizeof(out_buf)) {
-			out_ptr = emalloc(out_len + 1);
-			out_heap = 1;
-		}
-		out_ptr[0] = '/';
-		memcpy(out_ptr + 1, lang, lang_len);
-		out_ptr[lang_len + 1] = '/';
-		memcpy(out_ptr + lang_len + 2, p, path_len);
-		out_ptr[out_len] = '\0';
-		RETVAL_STRINGL(out_ptr, out_len);
-		if (out_heap) {
-			efree(out_ptr);
-		}
-	} else {
-		size_t out_len = path_len + 1;
-		char out_buf[512];
-		char *out_ptr = out_buf;
-		int out_heap = 0;
-		if (out_len >= sizeof(out_buf)) {
-			out_ptr = emalloc(out_len + 1);
-			out_heap = 1;
-		}
-		out_ptr[0] = '/';
-		memcpy(out_ptr + 1, p, path_len);
-		out_ptr[out_len] = '\0';
-		RETVAL_STRINGL(out_ptr, out_len);
-		if (out_heap) {
-			efree(out_ptr);
-		}
-	}
+	gene_build_url(return_value, ZSTR_VAL(path_str), ZSTR_LEN(path_str), lang, lang_len);
 }
 /* }}} */
 
@@ -691,6 +647,8 @@ const zend_function_entry gene_hook_methods[] = {
 	PHP_ME(gene_hook, contains, gene_hook_void_arginfo, ZEND_ACC_PUBLIC|ZEND_ACC_STATIC)
 	PHP_ME(gene_hook, containsExt, gene_hook_void_arginfo, ZEND_ACC_PUBLIC|ZEND_ACC_STATIC)
 	PHP_ME(gene_hook, url, gene_hook_arg_url, ZEND_ACC_PUBLIC|ZEND_ACC_STATIC)
+	PHP_ME(gene_hook, getPath, gene_hook_get_path, ZEND_ACC_PUBLIC|ZEND_ACC_STATIC)
+	PHP_ME(gene_hook, getRouterUri, gene_hook_void_arginfo, ZEND_ACC_PUBLIC|ZEND_ACC_STATIC)
 	PHP_ME(gene_hook, success, gene_hook_se, ZEND_ACC_PUBLIC|ZEND_ACC_STATIC)
 	PHP_ME(gene_hook, error, gene_hook_se, ZEND_ACC_PUBLIC|ZEND_ACC_STATIC)
 	PHP_ME(gene_hook, data, gene_hook_se_data, ZEND_ACC_PUBLIC|ZEND_ACC_STATIC)

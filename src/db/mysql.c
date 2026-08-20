@@ -72,6 +72,12 @@ ZEND_BEGIN_ARG_INFO_EX(gene_db_mysql_insert, 0, 0, 2)
     ZEND_ARG_INFO(0, fields)
 ZEND_END_ARG_INFO()
 
+ZEND_BEGIN_ARG_INFO_EX(gene_db_mysql_upsert, 0, 0, 3)
+	ZEND_ARG_INFO(0, table)
+    ZEND_ARG_INFO(0, fields)
+    ZEND_ARG_ARRAY_INFO(0, updateCols, 0)
+ZEND_END_ARG_INFO()
+
 ZEND_BEGIN_ARG_INFO_EX(gene_db_mysql_batch_insert, 0, 0, 2)
 	ZEND_ARG_INFO(0, table)
     ZEND_ARG_INFO(0, fields)
@@ -133,6 +139,10 @@ ZEND_BEGIN_ARG_INFO_EX(gene_db_mysql_quote, 0, 0, 1)
 	ZEND_ARG_INFO(0, paramType)
 ZEND_END_ARG_INFO()
 
+ZEND_BEGIN_ARG_INFO_EX(gene_db_mysql_transaction, 0, 0, 1)
+	ZEND_ARG_CALLABLE_INFO(0, fn, 0)
+ZEND_END_ARG_INFO()
+
 void mysql_reset_sql_params(zval *self)
 {
 	zend_update_property_null(gene_db_mysql_ce, gene_strip_obj(self), ZEND_STRL(GENE_DB_MYSQL_SQL));
@@ -143,6 +153,10 @@ void mysql_reset_sql_params(zval *self)
 	zend_update_property_null(gene_db_mysql_ce, gene_strip_obj(self), ZEND_STRL(GENE_DB_MYSQL_UNION));
 	zend_update_property_null(gene_db_mysql_ce, gene_strip_obj(self), ZEND_STRL(GENE_DB_MYSQL_ORDER));
 	zend_update_property_null(gene_db_mysql_ce, gene_strip_obj(self), ZEND_STRL(GENE_DB_MYSQL_LIMIT));
+	/* [GENE_FEATURE:2026-08-18 3.4] M8: the LOCK fragment must be cleared with
+	 * every other SQL part, or it leaks into the next statement built on this
+	 * handle (same-request residue). */
+	zend_update_property_null(gene_db_mysql_ce, gene_strip_obj(self), ZEND_STRL(GENE_DB_MYSQL_LOCK));
     zend_update_property_null(gene_db_mysql_ce, gene_strip_obj(self), ZEND_STRL(GENE_DB_MYSQL_DATA));
 }
 
@@ -266,7 +280,7 @@ bool mysqlInitPdo (zval * self, zval *config) {
 
 bool gene_mysql_pdo_execute (zval *self, zval *statement)
 {
-	zval *pdo_object = NULL, *params = NULL, *pdo_sql = NULL, *pdo_join = NULL, *pdo_where = NULL, *pdo_group = NULL,*pdo_having = NULL, *pdo_union = NULL,*pdo_order = NULL, *pdo_limit = NULL;
+	zval *pdo_object = NULL, *params = NULL, *pdo_sql = NULL, *pdo_join = NULL, *pdo_where = NULL, *pdo_group = NULL,*pdo_having = NULL, *pdo_union = NULL,*pdo_order = NULL, *pdo_limit = NULL, *pdo_lock = NULL;
 	zval retval;
 	smart_str sql = {0};
 	struct timeval db_start, db_end;
@@ -281,6 +295,7 @@ bool gene_mysql_pdo_execute (zval *self, zval *statement)
 	pdo_union = zend_read_property(gene_db_mysql_ce, gene_strip_obj(self), ZEND_STRL(GENE_DB_MYSQL_UNION), 1, NULL);
 	pdo_order = zend_read_property(gene_db_mysql_ce, gene_strip_obj(self), ZEND_STRL(GENE_DB_MYSQL_ORDER), 1, NULL);
 	pdo_limit = zend_read_property(gene_db_mysql_ce, gene_strip_obj(self), ZEND_STRL(GENE_DB_MYSQL_LIMIT), 1, NULL);
+	pdo_lock = zend_read_property(gene_db_mysql_ce, gene_strip_obj(self), ZEND_STRL(GENE_DB_MYSQL_LOCK), 1, NULL);
 
 	/* [GENE_FEATURE:2026-08-06 F0-2] Assembly order: base SQL + JOIN + WHERE
 	 * + GROUP + HAVING + UNION + ORDER + LIMIT. JOIN binds to the leading
@@ -309,6 +324,11 @@ bool gene_mysql_pdo_execute (zval *self, zval *statement)
 	}
 	if (Z_TYPE_P(pdo_limit) == IS_STRING) {
 		smart_str_appends(&sql, Z_STRVAL_P(pdo_limit));
+	}
+	/* [GENE_FEATURE:2026-08-18 3.4] LOCK fragment goes last (FOR UPDATE etc.
+	 * are statement suffixes in mysql/pgsql). */
+	if (Z_TYPE_P(pdo_lock) == IS_STRING) {
+		smart_str_appends(&sql, Z_STRVAL_P(pdo_lock));
 	}
 	smart_str_0(&sql);
 	if (!GENE_G(run_environment)) {
@@ -476,19 +496,11 @@ PHP_METHOD(gene_db_mysql, count)
 }
 /* }}} */
 
-/*
- * {{{ public gene_db::insert($key)
- */
-PHP_METHOD(gene_db_mysql, insert)
+/* Shared INSERT builder. verb selects plain INSERT / INSERT IGNORE. */
+static void gene_db_mysql_do_insert(zval *self, char *table, zval *fields, zend_bool ignore)
 {
-	zval *self = getThis(),*fields = NULL;
-	char *table = NULL;
-	size_t table_len;// @suppress("Type cannot be resolved")
 	smart_str field_str = {0} , value_str = {0};
 	zval field_value;
-	if (zend_parse_parameters(ZEND_NUM_ARGS(), "s|z", &table, &table_len, &fields) == FAILURE) {
-		return;
-	}
 	mysql_reset_sql_params(self);
 	ZVAL_NULL(&field_value);
 	smart_str_appends(&field_str, "");
@@ -504,11 +516,113 @@ PHP_METHOD(gene_db_mysql, insert)
 	smart_str_0(&value_str);
     {
     	char *qt = gene_quote_table(table, '`', '`');
-    	GENE_DB_MYSQL_SET_PROP(GENE_DB_MYSQL_SQL, "INSERT INTO %s(%s) VALUES(%s)", qt, field_str.s->val, value_str.s->val);
+    	if (ignore) {
+    		GENE_DB_MYSQL_SET_PROP(GENE_DB_MYSQL_SQL, "INSERT IGNORE INTO %s(%s) VALUES(%s)", qt, field_str.s->val, value_str.s->val);
+    	} else {
+    		GENE_DB_MYSQL_SET_PROP(GENE_DB_MYSQL_SQL, "INSERT INTO %s(%s) VALUES(%s)", qt, field_str.s->val, value_str.s->val);
+    	}
     	efree(qt);
     }
     smart_str_free(&field_str);
     smart_str_free(&value_str);
+}
+
+/*
+ * {{{ public gene_db::insert($key)
+ */
+PHP_METHOD(gene_db_mysql, insert)
+{
+	zval *self = getThis(),*fields = NULL;
+	char *table = NULL;
+	size_t table_len;// @suppress("Type cannot be resolved")
+	if (zend_parse_parameters(ZEND_NUM_ARGS(), "s|z", &table, &table_len, &fields) == FAILURE) {
+		return;
+	}
+	gene_db_mysql_do_insert(self, table, fields, 0);
+	RETURN_ZVAL(self, 1, 0);
+}
+/* }}} */
+
+/*
+ * {{{ public gene_db_mysql::insertIgnore($table, $fields)
+ * [GENE_FEATURE:2026-08-18 3.3] Idempotent write (INSERT IGNORE) for
+ * task-log / idempotency-key style tables. Lazy like insert(): execute via
+ * lastId()/affectedRows(). */
+PHP_METHOD(gene_db_mysql, insertIgnore)
+{
+	zval *self = getThis(),*fields = NULL;
+	char *table = NULL;
+	size_t table_len;// @suppress("Type cannot be resolved")
+	if (zend_parse_parameters(ZEND_NUM_ARGS(), "s|z", &table, &table_len, &fields) == FAILURE) {
+		return;
+	}
+	gene_db_mysql_do_insert(self, table, fields, 1);
+	RETURN_ZVAL(self, 1, 0);
+}
+/* }}} */
+
+/*
+ * {{{ public gene_db_mysql::upsert($table, $fields, array $updateCols)
+ * [GENE_FEATURE:2026-08-18 3.3] INSERT ... ON DUPLICATE KEY UPDATE
+ * `c`=VALUES(`c`). MySQL-only; other drivers throw. Lazy like insert(). */
+PHP_METHOD(gene_db_mysql, upsert)
+{
+	zval *self = getThis(),*fields = NULL, *update_cols = NULL, *col = NULL;
+	char *table = NULL;
+	size_t table_len;// @suppress("Type cannot be resolved")
+	smart_str field_str = {0} , value_str = {0}, upd_str = {0};
+	zval field_value;
+	bool pre = 0;
+	if (zend_parse_parameters(ZEND_NUM_ARGS(), "s|za", &table, &table_len, &fields, &update_cols) == FAILURE) {
+		return;
+	}
+	if (!update_cols || zend_hash_num_elements(Z_ARRVAL_P(update_cols)) == 0) {
+		zend_throw_exception_ex(NULL, 0,
+			"Gene\\Db\\Mysql::upsert() requires a non-empty updateCols array");
+		return;
+	}
+	mysql_reset_sql_params(self);
+	ZVAL_NULL(&field_value);
+	smart_str_appends(&field_str, "");
+	smart_str_appends(&value_str, "");
+    if (fields && Z_TYPE_P(fields) == IS_ARRAY) {
+    	gene_insert_field_value (fields, &field_str, &value_str, &field_value, '`', '`');
+    	zend_update_property(gene_db_mysql_ce, gene_strip_obj(self), ZEND_STRL(GENE_DB_MYSQL_DATA), &field_value);
+    	zval_ptr_dtor(&field_value);
+    } else {
+    	php_error_docref(NULL, E_ERROR, "Data Parameter can only be array.");
+    }
+    ZEND_HASH_FOREACH_VAL(Z_ARRVAL_P(update_cols), col) {
+    	if (Z_TYPE_P(col) != IS_STRING || Z_STRLEN_P(col) == 0) {
+    		smart_str_free(&field_str);
+    		smart_str_free(&value_str);
+    		smart_str_free(&upd_str);
+    		zend_throw_exception_ex(NULL, 0,
+    			"Gene\\Db\\Mysql::upsert() updateCols entries must be column names");
+    		return;
+    	}
+    	if (pre) {
+    		smart_str_appends(&upd_str, ",");
+    	} else {
+    		pre = 1;
+    	}
+    	gene_quote_identifier(&upd_str, Z_STRVAL_P(col), Z_STRLEN_P(col), '`', '`');
+    	smart_str_appends(&upd_str, "=VALUES(");
+    	gene_quote_identifier(&upd_str, Z_STRVAL_P(col), Z_STRLEN_P(col), '`', '`');
+    	smart_str_appends(&upd_str, ")");
+    } ZEND_HASH_FOREACH_END();
+	smart_str_0(&field_str);
+	smart_str_0(&value_str);
+	smart_str_0(&upd_str);
+    {
+    	char *qt = gene_quote_table(table, '`', '`');
+    	GENE_DB_MYSQL_SET_PROP(GENE_DB_MYSQL_SQL, "INSERT INTO %s(%s) VALUES(%s) ON DUPLICATE KEY UPDATE %s",
+    		qt, field_str.s->val, value_str.s->val, upd_str.s->val);
+    	efree(qt);
+    }
+    smart_str_free(&field_str);
+    smart_str_free(&value_str);
+    smart_str_free(&upd_str);
 	RETURN_ZVAL(self, 1, 0);
 }
 /* }}} */
@@ -1193,6 +1307,50 @@ PHP_METHOD(gene_db_mysql, limit)
 }
 /* }}} */
 
+/* [GENE_FEATURE:2026-08-18 3.4] Row locks are statement suffixes appended
+ * after LIMIT. They only hold until the surrounding transaction ends, so
+ * calling outside a transaction is almost always a mistake — warn cheaply
+ * via inTransaction() (plan: E_NOTICE, not an exception). */
+static void gene_db_mysql_set_lock(zval *self, const char *frag)
+{
+	zval *pdo_object = zend_read_property(gene_db_mysql_ce, gene_strip_obj(self), ZEND_STRL(GENE_DB_MYSQL_PDO), 1, NULL);
+	if (pdo_object && Z_TYPE_P(pdo_object) == IS_OBJECT) {
+		zval r;
+		gene_pdo_in_transaction(pdo_object, &r);
+		if (!zend_is_true(&r)) {
+			php_error_docref(NULL, E_NOTICE,
+				"%s outside a transaction — the lock is released when the statement ends",
+				strstr(frag, "SHARE") ? "sharedLock()" : "lockForUpdate()");
+		}
+		if (!Z_ISUNDEF(r)) {
+			zval_ptr_dtor(&r);
+		}
+	}
+	zend_update_property_string(gene_db_mysql_ce, gene_strip_obj(self), ZEND_STRL(GENE_DB_MYSQL_LOCK), frag);
+}
+
+/*
+ * {{{ public gene_db_mysql::lockForUpdate()
+ */
+PHP_METHOD(gene_db_mysql, lockForUpdate)
+{
+	zval *self = getThis();
+	gene_db_mysql_set_lock(self, " FOR UPDATE");
+	RETURN_ZVAL(self, 1, 0);
+}
+/* }}} */
+
+/*
+ * {{{ public gene_db_mysql::sharedLock()
+ */
+PHP_METHOD(gene_db_mysql, sharedLock)
+{
+	zval *self = getThis();
+	gene_db_mysql_set_lock(self, " LOCK IN SHARE MODE");
+	RETURN_ZVAL(self, 1, 0);
+}
+/* }}} */
+
 
 /*
  * {{{ public gene_db::all()
@@ -1305,7 +1463,7 @@ PHP_METHOD(gene_db_mysql, quote)
  */
 PHP_METHOD(gene_db_mysql, print)
 {
-	zval *self = getThis(),*pdo_object = NULL, *pdo_sql = NULL, *pdo_join = NULL, *pdo_where = NULL, *pdo_order = NULL,*pdo_group = NULL,*pdo_having = NULL, *pdo_union = NULL, *pdo_limit = NULL, *params = NULL;
+	zval *self = getThis(),*pdo_object = NULL, *pdo_sql = NULL, *pdo_join = NULL, *pdo_where = NULL, *pdo_order = NULL,*pdo_group = NULL,*pdo_having = NULL, *pdo_union = NULL, *pdo_limit = NULL, *pdo_lock = NULL, *params = NULL;
 	smart_str sql = {0};
 	pdo_object = zend_read_property(gene_db_mysql_ce, gene_strip_obj(self), ZEND_STRL(GENE_DB_MYSQL_PDO), 1, NULL);
 	pdo_sql = zend_read_property(gene_db_mysql_ce, gene_strip_obj(self), ZEND_STRL(GENE_DB_MYSQL_SQL), 1, NULL);
@@ -1316,6 +1474,7 @@ PHP_METHOD(gene_db_mysql, print)
 	pdo_union = zend_read_property(gene_db_mysql_ce, gene_strip_obj(self), ZEND_STRL(GENE_DB_MYSQL_UNION), 1, NULL);
 	pdo_order = zend_read_property(gene_db_mysql_ce, gene_strip_obj(self), ZEND_STRL(GENE_DB_MYSQL_ORDER), 1, NULL);
 	pdo_limit = zend_read_property(gene_db_mysql_ce, gene_strip_obj(self), ZEND_STRL(GENE_DB_MYSQL_LIMIT), 1, NULL);
+	pdo_lock = zend_read_property(gene_db_mysql_ce, gene_strip_obj(self), ZEND_STRL(GENE_DB_MYSQL_LOCK), 1, NULL);
 	params = zend_read_property(gene_db_mysql_ce, gene_strip_obj(self), ZEND_STRL(GENE_DB_MYSQL_DATA), 1, NULL);
 
 	if (Z_TYPE_P(pdo_sql) == IS_STRING) {
@@ -1342,9 +1501,14 @@ PHP_METHOD(gene_db_mysql, print)
 	if (Z_TYPE_P(pdo_limit) == IS_STRING) {
 		smart_str_appends(&sql, Z_STRVAL_P(pdo_limit));
 	}
+	if (Z_TYPE_P(pdo_lock) == IS_STRING) {
+		smart_str_appends(&sql, Z_STRVAL_P(pdo_lock));
+	}
 	smart_str_0(&sql);
 	zval z_row, z_sql;
-	ZVAL_STRING(&z_sql, ZSTR_VAL(sql.s));
+	/* [GENE_FIX:2026-08-19] sql.s stays NULL when no statement was built
+	 * (fresh handle / right after reset) — ZSTR_VAL(NULL) segfaults. */
+	ZVAL_STRING(&z_sql, sql.s ? ZSTR_VAL(sql.s) : "");
 	smart_str_free(&sql);
 
 	array_init(&z_row);
@@ -1401,6 +1565,23 @@ PHP_METHOD(gene_db_mysql, commit)
 /* }}} */
 
 /*
+ * {{{ public gene_db::transaction(callable $fn)
+ */
+PHP_METHOD(gene_db_mysql, transaction)
+{
+	zend_fcall_info fci;
+	zend_fcall_info_cache fcc = empty_fcall_info_cache;
+	zval *self = getThis(), *pdo_object = NULL;
+
+	if (zend_parse_parameters(ZEND_NUM_ARGS(), "f", &fci, &fcc) == FAILURE) {
+		return;
+	}
+	pdo_object = zend_read_property(gene_db_mysql_ce, gene_strip_obj(self), ZEND_STRL(GENE_DB_MYSQL_PDO), 1, NULL);
+	gene_pdo_run_transaction(pdo_object, &fci, &fcc, return_value);
+}
+/* }}} */
+
+/*
  * {{{ public gene_db::release()
  */
 PHP_METHOD(gene_db_mysql, release)
@@ -1421,6 +1602,11 @@ PHP_METHOD(gene_db_mysql, free)
 	if (pool && Z_TYPE_P(pool) == IS_OBJECT) {
 		gene_pool_return_pdo(gene_db_mysql_ce, self, ZEND_STRL(GENE_DB_MYSQL_POOL), ZEND_STRL(GENE_DB_MYSQL_PDO));
 	} else {
+		/* [GENE_FIX:2026-08-19 N3] No-pool handles (e.g. a direct
+		 * new \Gene\Db\Mysql with ATTR_PERSISTENT) are covered by neither
+		 * the DI scan nor the pool chokepoint — check the transaction here. */
+		zval *pdo = zend_read_property(gene_db_mysql_ce, gene_strip_obj(self), ZEND_STRL(GENE_DB_MYSQL_PDO), 1, NULL);
+		gene_db_tx_hygiene(pdo, "Db\\Mysql handle freed");
 		zend_update_property_null(gene_db_mysql_ce, gene_strip_obj(self), ZEND_STRL(GENE_DB_MYSQL_PDO));
 	}
 	RETURN_NULL();
@@ -1436,6 +1622,9 @@ PHP_METHOD(gene_db_mysql, __destruct)
 	zval *pool = zend_read_property(gene_db_mysql_ce, gene_strip_obj(self), ZEND_STRL(GENE_DB_MYSQL_POOL), 1, NULL);
 	if (pool && Z_TYPE_P(pool) == IS_OBJECT) {
 		gene_pool_return_pdo(gene_db_mysql_ce, self, ZEND_STRL(GENE_DB_MYSQL_POOL), ZEND_STRL(GENE_DB_MYSQL_PDO));
+	} else {
+		zval *pdo = zend_read_property(gene_db_mysql_ce, gene_strip_obj(self), ZEND_STRL(GENE_DB_MYSQL_PDO), 1, NULL);
+		gene_db_tx_hygiene(pdo, "Db\\Mysql handle destructed");
 	}
 }
 /* }}} */
@@ -1462,6 +1651,8 @@ const zend_function_entry gene_db_mysql_methods[] = {
 		PHP_ME(gene_db_mysql, select, gene_db_mysql_select, ZEND_ACC_PUBLIC)
 		PHP_ME(gene_db_mysql, count, gene_db_mysql_count, ZEND_ACC_PUBLIC)
 		PHP_ME(gene_db_mysql, insert, gene_db_mysql_insert, ZEND_ACC_PUBLIC)
+		PHP_ME(gene_db_mysql, insertIgnore, gene_db_mysql_insert, ZEND_ACC_PUBLIC)
+		PHP_ME(gene_db_mysql, upsert, gene_db_mysql_upsert, ZEND_ACC_PUBLIC)
 		PHP_ME(gene_db_mysql, batchInsert, gene_db_mysql_batch_insert, ZEND_ACC_PUBLIC)
 		PHP_ME(gene_db_mysql, update, gene_db_mysql_update, ZEND_ACC_PUBLIC)
 		PHP_ME(gene_db_mysql, delete, gene_db_mysql_delete, ZEND_ACC_PUBLIC)
@@ -1474,6 +1665,8 @@ const zend_function_entry gene_db_mysql_methods[] = {
 		PHP_ME(gene_db_mysql, reset, gene_db_mysql_void_arginfo, ZEND_ACC_PUBLIC)
 		PHP_ME(gene_db_mysql, sql, gene_db_mysql_sql, ZEND_ACC_PUBLIC)
 		PHP_ME(gene_db_mysql, limit, gene_db_mysql_limit, ZEND_ACC_PUBLIC)
+		PHP_ME(gene_db_mysql, lockForUpdate, gene_db_mysql_void_arginfo, ZEND_ACC_PUBLIC)
+		PHP_ME(gene_db_mysql, sharedLock, gene_db_mysql_void_arginfo, ZEND_ACC_PUBLIC)
 		PHP_ME(gene_db_mysql, order, gene_db_mysql_order, ZEND_ACC_PUBLIC)
 		PHP_ME(gene_db_mysql, group, gene_db_mysql_group, ZEND_ACC_PUBLIC)
 		PHP_ME(gene_db_mysql, having, gene_db_mysql_having, ZEND_ACC_PUBLIC)
@@ -1491,6 +1684,8 @@ const zend_function_entry gene_db_mysql_methods[] = {
 		PHP_ME(gene_db_mysql, inTransaction, gene_db_mysql_void_arginfo, ZEND_ACC_PUBLIC)
 		PHP_ME(gene_db_mysql, rollBack, gene_db_mysql_void_arginfo, ZEND_ACC_PUBLIC)
 		PHP_ME(gene_db_mysql, commit, gene_db_mysql_void_arginfo, ZEND_ACC_PUBLIC)
+		PHP_ME(gene_db_mysql, transaction, gene_db_mysql_transaction, ZEND_ACC_PUBLIC)
+		PHP_MALIAS(gene_db_mysql, transact, transaction, gene_db_mysql_transaction, ZEND_ACC_PUBLIC)
 		PHP_ME(gene_db_mysql, release, gene_db_mysql_void_arginfo, ZEND_ACC_PUBLIC)
 		PHP_ME(gene_db_mysql, free, gene_db_mysql_void_arginfo, ZEND_ACC_PUBLIC)
 		PHP_ME(gene_db_mysql, __destruct, gene_db_mysql_void_arginfo, ZEND_ACC_PUBLIC)
@@ -1524,6 +1719,7 @@ GENE_MINIT_FUNCTION(db_mysql)
     zend_declare_property_null(gene_db_mysql_ce, ZEND_STRL(GENE_DB_MYSQL_UNION), ZEND_ACC_PUBLIC);
     zend_declare_property_null(gene_db_mysql_ce, ZEND_STRL(GENE_DB_MYSQL_ORDER), ZEND_ACC_PUBLIC);
     zend_declare_property_null(gene_db_mysql_ce, ZEND_STRL(GENE_DB_MYSQL_LIMIT), ZEND_ACC_PUBLIC);
+    zend_declare_property_null(gene_db_mysql_ce, ZEND_STRL(GENE_DB_MYSQL_LOCK), ZEND_ACC_PUBLIC);
     zend_declare_property_null(gene_db_mysql_ce, ZEND_STRL(GENE_DB_MYSQL_DATA), ZEND_ACC_PUBLIC);
     zend_declare_property_null(gene_db_mysql_ce, ZEND_STRL(GENE_DB_MYSQL_POOL), ZEND_ACC_PROTECTED);
     zend_declare_property_null(gene_db_mysql_ce, ZEND_STRL(GENE_DB_MYSQL_HISTORY), ZEND_ACC_PROTECTED | ZEND_ACC_STATIC);

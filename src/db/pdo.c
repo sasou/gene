@@ -27,6 +27,7 @@
 
 #include "../gene.h"
 #include "../common/common.h"
+#include "pdo.h"
 
 /* [GENE_AUDIT:2026-07-03 P1->security] Identifier quoting.
  * Previously gene_quote_table/columns/order/identifier were empty stubs that
@@ -676,6 +677,196 @@ void gene_pdo_rollback(zval *pdo_object, zval *retval) /*{{{*/
     if (EXPECTED(fn)) {
         zend_call_known_function(fn, Z_OBJ_P(pdo_object), Z_OBJCE_P(pdo_object), retval, 0, NULL, NULL);
     }
+}/*}}}*/
+
+static zend_bool gene_pdo_is_in_tx(zval *pdo_object)
+{
+	zval r;
+	zend_bool in;
+
+	if (!pdo_object || Z_TYPE_P(pdo_object) != IS_OBJECT) {
+		return 0;
+	}
+	gene_pdo_in_transaction(pdo_object, &r);
+	if (UNEXPECTED(EG(exception))) {
+		zval_ptr_dtor(&r);
+		return 0;
+	}
+	in = zend_is_true(&r);
+	zval_ptr_dtor(&r);
+	return in;
+}
+
+/* [GENE_FEATURE:2026-08-20] PDO has no nested begin. Outer caller owns
+ * commit/rollBack; inner transaction() only runs the callback. */
+void gene_pdo_run_transaction(zval *pdo_object, zend_fcall_info *fci, zend_fcall_info_cache *fcc, zval *retval)
+{
+	zval tmp, cb_ret;
+	zend_bool own;
+
+	ZVAL_UNDEF(retval);
+	if (!pdo_object || Z_TYPE_P(pdo_object) != IS_OBJECT) {
+		zend_throw_exception_ex(NULL, 0, "Gene\\Db::transaction() has no PDO connection");
+		return;
+	}
+
+	own = !gene_pdo_is_in_tx(pdo_object);
+	if (UNEXPECTED(EG(exception))) {
+		return;
+	}
+	if (own) {
+		gene_pdo_begin_transaction(pdo_object, &tmp);
+		zval_ptr_dtor(&tmp);
+		if (UNEXPECTED(EG(exception))) {
+			return;
+		}
+	}
+
+	ZVAL_UNDEF(&cb_ret);
+	fci->retval = &cb_ret;
+	fci->param_count = 0;
+	fci->params = NULL;
+	if (zend_call_function(fci, fcc) == FAILURE && !EG(exception)) {
+		zend_throw_exception_ex(NULL, 0, "Gene\\Db::transaction() callback failed");
+	}
+
+	if (EG(exception)) {
+		if (own) {
+			zend_object *saved = EG(exception);
+			EG(exception) = NULL;
+			if (gene_pdo_is_in_tx(pdo_object)) {
+				gene_pdo_rollback(pdo_object, &tmp);
+				zval_ptr_dtor(&tmp);
+			}
+			gene_discard_current_exception();
+			EG(exception) = saved;
+		}
+		zval_ptr_dtor(&cb_ret);
+		return;
+	}
+
+	if (own) {
+		gene_pdo_commit(pdo_object, &tmp);
+		zval_ptr_dtor(&tmp);
+		if (UNEXPECTED(EG(exception))) {
+			zend_object *saved = EG(exception);
+			EG(exception) = NULL;
+			if (gene_pdo_is_in_tx(pdo_object)) {
+				gene_pdo_rollback(pdo_object, &tmp);
+				zval_ptr_dtor(&tmp);
+			}
+			gene_discard_current_exception();
+			EG(exception) = saved;
+			zval_ptr_dtor(&cb_ret);
+			return;
+		}
+	}
+
+	ZVAL_COPY_VALUE(retval, &cb_ret);
+}
+
+void gene_pdo_get_attribute(zval *pdo_object, zend_long attr, zval *retval) /*{{{*/
+{
+    ZVAL_UNDEF(retval);
+    zend_function *fn = zend_hash_str_find_ptr(&Z_OBJCE_P(pdo_object)->function_table, ZEND_STRL("getattribute"));
+    if (EXPECTED(fn)) {
+        zval param;
+        ZVAL_LONG(&param, attr);
+        zend_call_known_function(fn, Z_OBJ_P(pdo_object), Z_OBJCE_P(pdo_object), retval, 1, &param, NULL);
+    }
+}/*}}}*/
+
+void gene_pdo_set_attribute(zval *pdo_object, zend_long attr, zend_long value) /*{{{*/
+{
+    zval retval, params[2];
+    zend_function *fn = zend_hash_str_find_ptr(&Z_OBJCE_P(pdo_object)->function_table, ZEND_STRL("setattribute"));
+    if (EXPECTED(fn)) {
+        ZVAL_LONG(&params[0], attr);
+        ZVAL_LONG(&params[1], value);
+        ZVAL_UNDEF(&retval);
+        zend_call_known_function(fn, Z_OBJ_P(pdo_object), Z_OBJCE_P(pdo_object), &retval, 2, params, NULL);
+        if (!Z_ISUNDEF(retval)) {
+            zval_ptr_dtor(&retval);
+        }
+    }
+}/*}}}*/
+
+void gene_db_tx_hygiene(zval *pdo_object, const char *who) /*{{{*/
+{
+    zval r, rr;
+    zend_object *saved_exception;
+
+    if (!pdo_object || Z_TYPE_P(pdo_object) != IS_OBJECT) {
+        return;
+    }
+    /* [GENE_FIX:2026-08-19 N8a] Save the in-flight exception LOCALLY instead
+     * of zend_exception_save()/restore(): the API parks it in
+     * EG(prev_exception), a shared slot that is NOT reentrant — a nested
+     * hygiene window (e.g. a zval dtor cascading into another Db release)
+     * would restore the outer exception too early. A local variable nests
+     * cleanly and never touches EG(prev_exception). */
+    saved_exception = EG(exception);
+    EG(exception) = NULL;
+    gene_pdo_in_transaction(pdo_object, &r);
+    if (!Z_ISUNDEF(r) && zend_is_true(&r)) {
+        zval saved_handler;
+        zval errmode;
+        /* PDO::ERRMODE_EXCEPTION, forced by Gene at connect time (pool.c) —
+         * the safe restore fallback if getAttribute() fails. */
+        zend_long errmode_restore = 2;
+
+        /* [GENE_FIX:2026-08-19 N6] Force ERRMODE_SILENT around rollBack() so
+         * the cleanup path CANNOT throw: the previous "throw then discard"
+         * strategy fails when hygiene runs from RSHUTDOWN with no active
+         * userland frame — zend_throw_exception_internal() escalates the
+         * PDOException to E_ERROR + bailout before the discard runs, printing
+         * a bogus "Uncaught PDOException [no active file]" AND aborting the
+         * rest of the request-context cleanup (later dirty DI entries never
+         * get rolled back). With ERRMODE_SILENT rollBack() degrades to
+         * returning false. PDO::ATTR_ERRMODE = 3, PDO::ERRMODE_SILENT = 0. */
+        gene_pdo_get_attribute(pdo_object, 3, &errmode);
+        if (!Z_ISUNDEF(errmode)) {
+            if (Z_TYPE(errmode) == IS_LONG) {
+                errmode_restore = Z_LVAL(errmode);
+            }
+            zval_ptr_dtor(&errmode);
+        }
+        gene_pdo_set_attribute(pdo_object, 3, 0);
+        gene_discard_current_exception(); /* get/setAttribute must not leak one */
+        gene_pdo_rollback(pdo_object, &rr);
+        if (!Z_ISUNDEF(rr)) {
+            zval_ptr_dtor(&rr);
+        }
+        gene_pdo_set_attribute(pdo_object, 3, errmode_restore);
+        /* Second insurance (N2): discard only an exception raised inside this
+         * window; the saved business exception must survive. */
+        gene_discard_current_exception();
+
+        /* Bypass the user error handler so a Laravel-style handler cannot
+         * hijack shutdown cleanup. [GENE_FIX:2026-08-19 N8b] zend_try
+         * guarantees the handler is restored even if php_error_docref were
+         * to bail out for any reason. */
+        ZVAL_COPY_VALUE(&saved_handler, &EG(user_error_handler));
+        ZVAL_UNDEF(&EG(user_error_handler));
+        zend_try {
+            php_error_docref(NULL, E_WARNING,
+                "Gene: %s with an open transaction "
+                "- rolled back to protect persistent-connection reuse",
+                who ? who : "connection released");
+        } zend_end_try();
+        if (Z_TYPE(EG(user_error_handler)) == IS_UNDEF) {
+            ZVAL_COPY_VALUE(&EG(user_error_handler), &saved_handler);
+        } else {
+            zval_ptr_dtor(&saved_handler);
+        }
+    }
+    if (!Z_ISUNDEF(r)) {
+        zval_ptr_dtor(&r);
+    }
+    /* Drop anything still raised inside the window, then restore the business
+     * exception exactly as it was (local save => fully reentrant). */
+    gene_discard_current_exception();
+    EG(exception) = saved_exception;
 }/*}}}*/
 
 void gene_pdo_statement_execute(zval *pdostatement_obj, zval *bind_parameters, zval *retval)/*{{{*/

@@ -25,6 +25,7 @@ class Mysql
     public $having;
     public $order;
     public $limit;
+    public $lock;
     public $data;
     protected static $history;
 
@@ -88,6 +89,31 @@ class Mysql
      * @return mixed
      */
     public function batchInsert($table, $fields) {
+
+    }
+
+    /**
+     * insertIgnore — INSERT IGNORE，唯一键冲突时静默忽略（6.1.0+）。
+     * 与 insert 同为惰性执行：由 lastId()/affectedRows() 触发。
+     *
+     * @param string $table
+     * @param array $fields
+     * @return static
+     */
+    public function insertIgnore($table, $fields) {
+
+    }
+
+    /**
+     * upsert — INSERT ... ON DUPLICATE KEY UPDATE `c`=VALUES(`c`)（6.1.0+，MySQL 专属）。
+     * 惰性执行，同 insert。
+     *
+     * @param string $table
+     * @param array $fields
+     * @param array $updateCols 冲突时要更新的列名（非空，否则抛异常）
+     * @return static
+     */
+    public function upsert($table, $fields, $updateCols) {
 
     }
 
@@ -221,6 +247,25 @@ class Mysql
      * @return mixed
      */
     public function order($order) {
+
+    }
+
+    /**
+     * lockForUpdate — SELECT ... FOR UPDATE（6.1.0+）。拼在 LIMIT 之后。
+     * 锁只在事务内有效：不在事务中调用会发 E_NOTICE。
+     *
+     * @return static
+     */
+    public function lockForUpdate() {
+
+    }
+
+    /**
+     * sharedLock — SELECT ... LOCK IN SHARE MODE（6.1.0+）。同须在事务内。
+     *
+     * @return static
+     */
+    public function sharedLock() {
 
     }
 
@@ -370,6 +415,29 @@ class Mysql
      */
     public function commit() {
 
+    }
+
+    /**
+     * transaction — 回调事务。PDO 不支持嵌套 begin：已在事务中则只执行 $fn，
+     * 由外层 commit / rollBack。异常时仅当本层 begin 时 rollBack 并原样抛出。
+     * transact() 为别名。
+     *
+     * @param callable $fn
+     * @return mixed $fn 的返回值
+     * @since 6.1.0
+     */
+    public function transaction($fn) {
+        return null;
+    }
+
+    /**
+     * @see transaction()
+     * @param callable $fn
+     * @return mixed
+     * @since 6.1.0
+     */
+    public function transact($fn) {
+        return null;
     }
 
     /**

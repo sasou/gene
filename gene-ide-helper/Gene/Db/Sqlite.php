@@ -25,6 +25,7 @@ class Sqlite
     public $having;
     public $order;
     public $limit;
+    public $lock;
     public $data;
     protected static $history;
 
@@ -214,6 +215,49 @@ class Sqlite
     }
 
     /**
+     * insertIgnore — INSERT OR IGNORE（6.1.0+，等价 MySQL INSERT IGNORE）。
+     * 惰性执行：由 lastId()/affectedRows() 触发。
+     *
+     * @param string $table
+     * @param array $fields
+     * @return static
+     */
+    public function insertIgnore($table, $fields) {
+
+    }
+
+    /**
+     * upsert — SQLite 不支持折叠进构建器（ON CONFLICT 需要显式冲突目标），
+     * 调用即抛异常；请用 sql() 书写 ON CONFLICT(col) DO UPDATE。
+     *
+     * @param string $table
+     * @param array $fields
+     * @param array $updateCols
+     * @return static
+     */
+    public function upsert($table, $fields, $updateCols) {
+
+    }
+
+    /**
+     * lockForUpdate — SQLite 无行锁语法（写锁为整库级），no-op + E_NOTICE（6.1.0+）。
+     *
+     * @return static
+     */
+    public function lockForUpdate() {
+
+    }
+
+    /**
+     * sharedLock — 同上，no-op + E_NOTICE（6.1.0+）。
+     *
+     * @return static
+     */
+    public function sharedLock() {
+
+    }
+
+    /**
      * order
      * 
      * @param mixed $order order
@@ -369,6 +413,29 @@ class Sqlite
      */
     public function commit() {
 
+    }
+
+    /**
+     * transaction — 回调事务。PDO 不支持嵌套 begin：已在事务中则只执行 $fn，
+     * 由外层 commit / rollBack。异常时仅当本层 begin 时 rollBack 并原样抛出。
+     * transact() 为别名。
+     *
+     * @param callable $fn
+     * @return mixed $fn 的返回值
+     * @since 6.1.0
+     */
+    public function transaction($fn) {
+        return null;
+    }
+
+    /**
+     * @see transaction()
+     * @param callable $fn
+     * @return mixed
+     * @since 6.1.0
+     */
+    public function transact($fn) {
+        return null;
     }
 
     /**

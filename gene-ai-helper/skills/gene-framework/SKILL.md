@@ -1,9 +1,9 @@
 ---
 name: gene-framework
 description: >-
-  基于 Gene PHP C 扩展框架（5.6.x）开发 Web、REST、CLI 或 Swoole 常驻应用。
+  基于 Gene PHP C 扩展框架（6.1.x）开发 Web、REST、CLI 或 Swoole 常驻应用。
   在用户编写/修改 Gene 项目的控制器、路由、配置、Service、Model、钩子、缓存、
-  多语言、Session，或询问 Gene API、Swoole 连接池、版本化缓存时使用。
+  多语言、Session，或询问 Gene API、Swoole 连接池、版本化缓存、ORM v2 时使用。
 ---
 
 # Gene 框架开发
@@ -102,7 +102,7 @@ $router->clear()
 $config->set('db', [
     'class'    => '\Gene\Db\Mysql',
     'params'   => [[ 'dsn' => '...', 'username' => '...', 'password' => '...' ]],
-    'instance' => false,  // FPM：每次新建，避免链式状态污染
+    'instance' => true,   // 请求内按类名单例；FPM/Swoole 均可
 ]);
 $config->set('redis', [
     'class'    => '\Gene\Cache\Redis',
@@ -110,6 +110,11 @@ $config->set('redis', [
     'instance' => true,
 ]);
 ```
+
+`instance` 语义（两者均为**请求级**，请求结束随 `di_regs` 销毁，不跨请求复用）：
+
+- `false` — 请求内按 name 单例：同 name 复用，同 class 不同 name 各自新建
+- `true` — 请求内按类名单例：同 class 不同 name 共享实例
 
 常用组件名：`view`、`request`、`response`、`validate`、`session` / `websession` / `adminsession`、`db`、`memcache`、`redis`、`cache`、`memory`、`language`。
 
@@ -128,7 +133,20 @@ $this->session->destroy();
 ## 版本化缓存（Service 层）
 
 读：`$this->cache->cachedVersion([$callable, $method], $args, $version, $ttl);`  
-写：`$this->cache->updateVersion($version);`
+写：`$this->cache->updateVersion($version);` **在事务提交之后**调用（事务中 bump 版本，rollBack 后缓存已失效）。
+
+多表写入用回调事务（PDO 不支持嵌套 begin；内层只跑回调）：
+
+```php
+$id = $this->db->transaction(function () use ($data) {
+    $id = User::create($data);
+    Role::create(['user_id' => $id]);
+    return $id;
+});
+$this->cache->updateVersion(['db.sys_user' => null, 'db.sys_role' => null]);
+```
+
+同一连接上也可 `User::transaction($fn)`（走该模型 `$connection`）。
 
 版本键约定：
 

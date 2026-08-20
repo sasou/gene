@@ -157,6 +157,11 @@ ZEND_END_ARG_INFO()
 
 ZEND_BEGIN_ARG_INFO_EX(gene_view_arg_url, 0, 0, 1)
     ZEND_ARG_INFO(0, path)
+    ZEND_ARG_INFO(0, lang)
+ZEND_END_ARG_INFO()
+
+ZEND_BEGIN_ARG_INFO_EX(gene_view_get_path, 0, 0, 0)
+    ZEND_ARG_INFO(0, withoutLang)
 ZEND_END_ARG_INFO()
 
 ZEND_BEGIN_ARG_INFO_EX(gene_view_arg_render, 0, 0, 1)
@@ -878,93 +883,41 @@ PHP_METHOD(gene_view, containsExt) {
 }
 /* }}} */
 
-/** {{{ public gene_view::url(string $path)
- *  返回带当前语言前缀的 URL，如 url("login.html") => "/en/login.html"
+/** {{{ public gene_view::getPath([bool $withoutLang = false])
+ *  返回当前请求路径。$withoutLang=true 时去除语言前缀。
+ */
+PHP_METHOD(gene_view, getPath) {
+	zend_bool without_lang = 0;
+	if (zend_parse_parameters(ZEND_NUM_ARGS(), "|b", &without_lang) == FAILURE) {
+		return;
+	}
+	gene_get_path(return_value, without_lang);
+}
+/* }}} */
+
+/** {{{ public gene_view::getRouterUri()
+ *  返回当前路由 URI（:m/:c/:a 替换后，小写）。
+ */
+PHP_METHOD(gene_view, getRouterUri) {
+	gene_get_router_uri(return_value);
+}
+/* }}} */
+
+/** {{{ public gene_view::url(string $path [, string $lang])
+ *  返回带语言前缀的 URL。$lang 未传时使用当前请求语言；传空串则不加语言前缀。
  */
 PHP_METHOD(gene_view, url) {
-	zend_string *path_str;
-	const char *p;
-	size_t path_len;
-	gene_request_context *ctx;
-	const char *lang;
-
-	if (zend_parse_parameters(ZEND_NUM_ARGS(), "S", &path_str) == FAILURE) {
+	zend_string *path_str = NULL, *lang_str = NULL;
+	const char *lang = NULL;
+	size_t lang_len = 0;
+	if (zend_parse_parameters(ZEND_NUM_ARGS(), "S|S", &path_str, &lang_str) == FAILURE) {
 		return;
 	}
-	p = ZSTR_VAL(path_str);
-	path_len = ZSTR_LEN(path_str);
-	/* 跳过 path 前导斜杠 */
-	for (; path_len > 0 && *p == '/'; p++, path_len--) {}
-	ctx = gene_request_ctx();
-	/* [GENE_PERF:2026-04-27] Use cached ctx->lang_len; eliminates strlen per call. */
-	size_t lang_len;
-	if (ctx->lang && ctx->lang[0] != '\0') {
-		lang = ctx->lang;
-		lang_len = ctx->lang_len;
-	} else {
-		lang = NULL;
-		lang_len = 0;
+	if (lang_str) {
+		lang = ZSTR_VAL(lang_str);
+		lang_len = ZSTR_LEN(lang_str);
 	}
-	if (path_len == 0) {
-		/* 如果只有斜杠，也加上语言前缀 */
-		if (lang) {
-			size_t out_len = lang_len + 2;
-			char out_buf[256];
-			char *out_ptr = out_buf;
-			int out_heap = 0;
-			if (out_len >= sizeof(out_buf)) {
-				out_ptr = emalloc(out_len + 1);
-				out_heap = 1;
-			}
-			out_ptr[0] = '/';
-			memcpy(out_ptr + 1, lang, lang_len);
-			out_ptr[lang_len + 1] = '/';
-			out_ptr[lang_len + 2] = '\0';
-			RETVAL_STRINGL(out_ptr, out_len);
-			if (out_heap) {
-				efree(out_ptr);
-			}
-		} else {
-			RETURN_STRING("/");
-		}
-		return;
-	}
-	if (lang) {
-		/* [GENE_PERF:2026-04-27] memcpy + RETVAL_STRINGL — same pattern as Gene\Controller::url(). */
-		size_t out_len = lang_len + path_len + 2;
-		char out_buf[512];
-		char *out_ptr = out_buf;
-		int out_heap = 0;
-		if (out_len >= sizeof(out_buf)) {
-			out_ptr = emalloc(out_len + 1);
-			out_heap = 1;
-		}
-		out_ptr[0] = '/';
-		memcpy(out_ptr + 1, lang, lang_len);
-		out_ptr[lang_len + 1] = '/';
-		memcpy(out_ptr + lang_len + 2, p, path_len);
-		out_ptr[out_len] = '\0';
-		RETVAL_STRINGL(out_ptr, out_len);
-		if (out_heap) {
-			efree(out_ptr);
-		}
-	} else {
-		size_t out_len = path_len + 1;
-		char out_buf[512];
-		char *out_ptr = out_buf;
-		int out_heap = 0;
-		if (out_len >= sizeof(out_buf)) {
-			out_ptr = emalloc(out_len + 1);
-			out_heap = 1;
-		}
-		out_ptr[0] = '/';
-		memcpy(out_ptr + 1, p, path_len);
-		out_ptr[out_len] = '\0';
-		RETVAL_STRINGL(out_ptr, out_len);
-		if (out_heap) {
-			efree(out_ptr);
-		}
-	}
+	gene_build_url(return_value, ZSTR_VAL(path_str), ZSTR_LEN(path_str), lang, lang_len);
 }
 /* }}} */
 
@@ -1046,6 +999,8 @@ const zend_function_entry gene_view_methods[] = {
 	PHP_ME(gene_view, contains, gene_view_void_arginfo, ZEND_ACC_PUBLIC)
 	PHP_ME(gene_view, containsExt, gene_view_void_arginfo, ZEND_ACC_PUBLIC)
 	PHP_ME(gene_view, url, gene_view_arg_url, ZEND_ACC_PUBLIC)
+	PHP_ME(gene_view, getPath, gene_view_get_path, ZEND_ACC_PUBLIC)
+	PHP_ME(gene_view, getRouterUri, gene_view_void_arginfo, ZEND_ACC_PUBLIC)
 	PHP_ME(gene_view, scope, gene_view_arg_scope, ZEND_ACC_PUBLIC)
 	PHP_ME(gene_view, __get, gene_view_arg_get, ZEND_ACC_PUBLIC)
 	PHP_ME(gene_view, __set, gene_view_arg_set, ZEND_ACC_PUBLIC)

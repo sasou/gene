@@ -259,17 +259,56 @@ $title = $this->language->login_title; // 读取键值
 
 ---
 
-## Orm\Model / Orm\Query（ActiveRecord v1）
+## Orm\Model / Orm\Query（ActiveRecord v2，6.1.0+）
 
 数据 Model 继承 `\Gene\Orm\Model`（本身继承 `\Gene\Model`）。声明 `static $table` / `$primaryKey` / `$fields`。
 
+| 静态属性 | 说明 |
+|----------|------|
+| $timestamps | true 时 create/save/updateBy/toggle/createMany 自动填充时间列；payload 已含该列则不覆盖 |
+| $createdAt / $updatedAt | 时间列名，默认 `created_at`/`updated_at`；设为 `null`/`''` 则该列不写（6.1.0+） |
+| $timestampFormat | `'datetime'`（Y-m-d H:i:s，默认）或 `'unix'`（int 秒）（6.1.0+） |
+
 | 方法 | 说明 |
 |------|------|
-| find($id, $asModel = false) / findAll($where = []) / paginate($where, $offset, $limit) | 查询；默认返回数组，`find($id, true)` 返回模型实例 |
+| find($id, $asModel = false) / findAll($where = []) | 查询；默认返回数组，`find($id, true)` 返回模型实例 |
+| findMany($ids, $preserveOrder = false) | 主键 IN 批量取（一次查询）；空数组返回 [] 不发 SQL；>1000 发 E_NOTICE（6.1.0+） |
+| paginate($where, $offset, $limit, $order = null) | {count, list}；order 仅作用于列表阶段（6.1.0+） |
 | query() / where($where, $bind = null) | 返回 `Gene\Orm\Query` |
-| create($data) / updateBy($where, $data) / destroy($id) / destroyAll($ids) | 写入 |
+| create($data) / updateBy($where, $data) / destroy($id) / destroyAll($ids) | 写入。**$where 语义**：数组=条件集合（键须为字符串列名，值可为标量或 `[val, op]`；数字键 / 空 op 数组等「非空但语义为空」形态由 makeWhere 响亮失败或匹配 0 行，**不会**静默全表写）、标量=主键值（**非 raw SQL 片段**；'status=1' 这类字符串会静默匹配 0 行）；空数组/null 抛异常（拒绝全表更新，6.1.0+）。raw 片段请用 `query()->where('…')->update($data)` |
+| createMany($rows) | 批量插入（一次 round-trip），返回影响行数；每行键集合与顺序必须一致，否则抛异常；大批量在调用方分片（建议 500/批），>5000 发 E_NOTICE（6.1.0+） |
+| insertIgnore($data) | 幂等写入（MySQL INSERT IGNORE / SQLite INSERT OR IGNORE；Pgsql/Mssql 抛异常），返回影响行数（6.1.0+） |
+| updateOrCreate($where, $data) | 查到则更新（返回影响行数），否则插入（返回新 id，关联数组 where 并入新行）；非原子，并发竞争用唯一键 + insertIgnore（6.1.0+）。$where 语义同 updateBy，空数组/null 在更新分支抛异常 |
+| toggle($id, $field, $values = [0, 1]) | 状态翻转（CAS：WHERE pk=? AND field=?，并发败者返回 0）；$timestamps 开启时同步 $updatedAt（6.1.0+） |
+| transaction($fn) / transact($fn) | 在本模型 `$connection` 对应 Db 上执行回调事务，语义同 `Gene\Db\*::transaction()`（6.1.0+） |
 | fill($data, $hydrate = true) / setExists($exists = false) / save() / delete() / toArray() | 实例 ActiveRecord；含非空主键的 `fill()` 默认标记为已持久化，新增自然主键/UUID 数据请用 `fill($data, false)`、`setExists(false)` 或 `create()` |
-| Query: where / in / order / limit / all / row / cell / count | 终端方法后 reset Db；`Query` 不应直接 new |
+
+### Query（有序 ops 列表，6.1.0+）
+
+Query 是**一次性构建器**（构建 → 执行 → 丢弃），不可缓存或交错构建两个（共享同一 DI Db 句柄，执行时先 reset）。条件**累加**而非覆盖：
+
+```php
+User::query()
+    ->fields(['u.id', 'u.name'])
+    ->join('orders o', ['o.user_id' => 'u.id'], 'LEFT')
+    ->where(['u.status' => 1])          // 数组条件
+    ->where('u.name != ?', $x)          // 原始片段（之间自动 AND）
+    ->where('u.id', '>=', $anchor)      // 比较简写：> >= < <= != =（白名单外抛异常）
+    ->in('u.id', $ids)                  // 列形式；空数组 → 终端直接返回空，不发 SQL
+    ->whereLike('u.name', $kw)          // LIKE %kw%（自动转义 \ % _，勿双转义）
+    ->selectSub('SELECT count(*) FROM orders', 'oc')  // 子查询列（$sql 开发者书写不转义）
+    ->group('u.id')->having('count(o.id) >= 1')
+    ->order('u.id desc')->limit($off, $n)
+    ->all();
+```
+
+| 终端方法 | 说明 |
+|----------|------|
+| all() / row() / cell() / first() | 查询；first() = limit(1)+row() |
+| count() | 继承 where/join，忽略 order/limit/lock；**不得与 group() 组合**（count over GROUP BY 语义会错，检测到即抛异常），分组统计用 count()+all() 两步 |
+| paginate($offset, $limit) | {count, list}；仅保证单表语义，JOIN 场景用 count()+all() 两步；与 group() 组合抛异常 |
+| update($data) / delete() | 立即执行，返回影响行数；**必须**带**有效** where()/in() 条件——无条件、`where([])`、`where('')` 一律抛异常（不会生成无 WHERE 的全表写）；`in('id', [])` 为安全空操作（返回 0）；不支持 join |
+| lockForUpdate() / sharedLock() | 行锁（仅 select 终端；MySQL FOR UPDATE / LOCK IN SHARE MODE，Pgsql FOR UPDATE / FOR SHARE，Sqlite no-op+E_NOTICE，Mssql 抛异常）；须在事务内，否则 E_NOTICE |
 
 复杂 SQL 仍用 `$this->db`。Swoole 下配合 `instance=>true` + Pool；见 `swoole.md` §4.3。
 
@@ -473,7 +512,7 @@ $list = $this->db
 ->in("group_id in(?)", [1, 2, 3])           // IN 条件
 ```
 
-**属性**：`$config`, `$pdo`, `$sql`, `$where`, `$group`, `$having`, `$order`, `$limit`, `$data`
+**属性**：`$config`, `$pdo`, `$sql`, `$where`, `$group`, `$having`, `$order`, `$limit`, `$lock`, `$data`
 
 | 方法 | 说明 |
 |------|------|
@@ -483,22 +522,32 @@ $list = $this->db
 | count($table, $fields = null) | 构建 SELECT count，返回 $this |
 | insert($table, $fields) | 构建 INSERT（$fields 为关联数组），返回 $this |
 | batchInsert($table, $fields) | 构建批量 INSERT（$fields 为二维数组），返回 $this |
+| insertIgnore($table, $fields) | 幂等写入（MySQL INSERT IGNORE / SQLite INSERT OR IGNORE；Pgsql/Mssql 抛异常），惰性执行（6.1.0+） |
+| upsert($table, $fields, $updateCols) | INSERT ... ON DUPLICATE KEY UPDATE（MySQL 专属；SQLite/Pgsql/Mssql 抛异常），惰性执行（6.1.0+） |
 | update($table, $fields) | 构建 UPDATE（$fields 为关联数组），返回 $this |
 | delete($table) | 构建 DELETE，返回 $this |
 | where($where, $fields = null) | 设置 WHERE 条件，返回 $this |
 | in($in, $fields = null) | 设置 IN 条件（含 `in(?)` 占位符），返回 $this |
+| join($table, $on, $type = 'INNER') | JOIN：$on 为 leftColumn=>rightColumn 关联数组；type 支持 INNER/LEFT/RIGHT/CROSS/FULL（6.1.0+） |
+| leftJoin($table, $on) / rightJoin($table, $on) | LEFT/RIGHT JOIN 简写（6.1.0+） |
+| union($query, $all = false) | UNION / UNION ALL；$query 可为 SQL 字符串或构建器对象（6.1.0+） |
+| reset() | 重置构建器状态（sql/join/where/group/having/union/order/limit/data），便于复用同一实例（6.1.0+） |
 | sql($sql, $fields = null) | 设置原始 SQL，返回 $this |
 | limit($num, $offset = null) | 单参时 `$num` 为返回行数，生成 `LIMIT $num`；双参时 `$num` 为偏移量、`$offset` 为返回行数，生成 `LIMIT $num, $offset`，返回 $this |
 | order($order), group($group), having($having) | ORDER BY / GROUP BY / HAVING，返回 $this |
+| lockForUpdate() | SELECT ... FOR UPDATE（MySQL/Pgsql）；Sqlite no-op+E_NOTICE；Mssql 抛异常；须在事务内（6.1.0+） |
+| sharedLock() | SELECT ... LOCK IN SHARE MODE（MySQL）/ FOR SHARE（Pgsql）；Sqlite no-op+E_NOTICE；Mssql 抛异常；须在事务内（6.1.0+） |
 | execute() | 执行 SQL，返回 PDOStatement |
 | all() | 执行并 fetchAll()，返回数组或 null |
 | row() | 执行并 fetch()，返回单行或 null |
 | cell() | 执行并 fetchColumn()，返回单列值或 null |
-| lastId() | 写操作后返回最后插入 ID |
-| affectedRows() | 写操作后返回受影响行数 |
+| lastId() / lastInsertId() | 写操作后返回最后插入 ID（lastInsertId 为 PDO 命名别名，5.7.0+） |
+| affectedRows() / rowCount() | 写操作后返回受影响行数（rowCount 为 PDO 命名别名，5.7.0+） |
+| quote($str, $paramType = PDO::PARAM_STR) | PDO::quote 透传，字符串字面量转义（5.7.0+） |
 | print() | 不执行，返回 `['sql' => ..., 'param' => ...]`（调试用） |
-| beginTransaction(), inTransaction(), rollBack(), commit() | 事务操作 |
-| release() | 将 PDO 连接归还连接池（启用 pool 时），非 pool 模式为空操作 |
+| beginTransaction(), inTransaction(), rollBack(), commit() | 事务操作（手动） |
+| transaction($fn) / transact($fn) | 回调事务：未在事务中则 begin→$fn→commit；已在事务中只执行 $fn。异常时仅本层 begin 才 rollBack 并原样抛出。PDO 不支持嵌套 begin（6.1.0+） |
+| release() | 将 PDO 连接归还连接池（启用 pool 时），非 pool 模式为空操作；归还时若仍有未提交事务会先 rollBack 并 E_WARNING（6.1.0+） |
 | free() | 释放/归还 PDO 连接；启用 pool 时等价于 `release()`，否则关闭连接 |
 | history() | 返回 SQL 执行历史数组（含 sql/param/time/memory） |
 
@@ -506,22 +555,29 @@ $list = $this->db
 
 ## Gene\Db\Sqlite
 
-SQLite 数据库。API 与 Mysql 完全一致。
-`limit($num, $offset)` 生成 `LIMIT $offset OFFSET $num`。
+SQLite 数据库。API 与 Mysql 一致，差异如下：
+- `limit($num, $offset)` 生成 `LIMIT $offset OFFSET $num`
+- `insertIgnore` 走 `INSERT OR IGNORE`（6.1.0+）；`upsert` 抛异常（用 `sql()` + ON CONFLICT）
+- `lockForUpdate`/`sharedLock`：no-op + E_NOTICE（SQLite 写锁为整库级，6.1.0+）
+- `attach($path, $schema)` / `detach($schema)`：附加/分离外部 SQLite 数据库文件
 
 ---
 
 ## Gene\Db\Pgsql
 
-PostgreSQL 数据库。API 与 Mysql 完全一致。
-`limit($num, $offset)` 生成 `LIMIT $offset OFFSET $num`。
+PostgreSQL 数据库。API 与 Mysql 一致，差异如下：
+- `limit($num, $offset)` 生成 `LIMIT $offset OFFSET $num`
+- `insertIgnore`/`upsert` 抛异常（用 `sql()` + ON CONFLICT DO NOTHING/UPDATE，6.1.0+）
+- `lockForUpdate` → `FOR UPDATE`；`sharedLock` → `FOR SHARE`（6.1.0+）
 
 ---
 
 ## Gene\Db\Mssql
 
-MS SQL Server 数据库。API 与 Mysql 完全一致。
-表名使用方括号包裹；`limit($num, $offset)` 生成 `OFFSET $num ROWS FETCH NEXT $offset ROWS ONLY`。
+MS SQL Server 数据库。API 与 Mysql 一致，差异如下：
+- 表名使用方括号包裹；`limit($num, $offset)` 生成 `OFFSET $num ROWS FETCH NEXT $offset ROWS ONLY`
+- `insertIgnore`/`upsert` 抛异常（用 `sql()` + MERGE/IF NOT EXISTS，6.1.0+）
+- `lockForUpdate`/`sharedLock` 抛异常（WITH (UPDLOCK)/HOLDLOCK 是表提示，需写在 FROM 处，6.1.0+）
 
 ---
 

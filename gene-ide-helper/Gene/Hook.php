@@ -303,11 +303,34 @@ class Hook
 
     /**
      * url
-     * 
+     * 返回带语言前缀的 URL。$lang 未传时使用当前请求语言；传空串则不加语言前缀。
+     *
      * @param string $path path
+     * @param string $lang 指定语言；未传时使用当前请求语言，传 "" 则返回不含语言前缀的 URL
      * @return string
      */
-    public static function url($path) {
+    public static function url($path, $lang = null) {
+
+    }
+
+    /**
+     * getPath
+     * 返回当前请求路径。$withoutLang=true 时去除语言前缀。
+     *
+     * @param bool $withoutLang 是否去除语言前缀
+     * @return string|null
+     */
+    public static function getPath($withoutLang = false) {
+
+    }
+
+    /**
+     * getRouterUri
+     * 返回当前路由 URI（:m/:c/:a 替换后，小写）。
+     *
+     * @return string|null
+     */
+    public static function getRouterUri() {
 
     }
 

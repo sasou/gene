@@ -70,6 +70,12 @@ ZEND_BEGIN_ARG_INFO_EX(gene_db_mssql_insert, 0, 0, 2)
     ZEND_ARG_INFO(0, fields)
 ZEND_END_ARG_INFO()
 
+ZEND_BEGIN_ARG_INFO_EX(gene_db_mssql_upsert, 0, 0, 3)
+	ZEND_ARG_INFO(0, table)
+    ZEND_ARG_INFO(0, fields)
+    ZEND_ARG_ARRAY_INFO(0, updateCols, 0)
+ZEND_END_ARG_INFO()
+
 ZEND_BEGIN_ARG_INFO_EX(gene_db_mssql_batch_insert, 0, 0, 2)
 	ZEND_ARG_INFO(0, table)
     ZEND_ARG_INFO(0, fields)
@@ -131,6 +137,10 @@ ZEND_BEGIN_ARG_INFO_EX(gene_db_mssql_quote, 0, 0, 1)
 	ZEND_ARG_INFO(0, paramType)
 ZEND_END_ARG_INFO()
 
+ZEND_BEGIN_ARG_INFO_EX(gene_db_mssql_transaction, 0, 0, 1)
+	ZEND_ARG_CALLABLE_INFO(0, fn, 0)
+ZEND_END_ARG_INFO()
+
 void mssql_reset_sql_params(zval *self)
 {
 	zend_update_property_null(gene_db_mssql_ce, gene_strip_obj(self), ZEND_STRL(GENE_DB_MSSQL_SQL));
@@ -141,6 +151,10 @@ void mssql_reset_sql_params(zval *self)
 	zend_update_property_null(gene_db_mssql_ce, gene_strip_obj(self), ZEND_STRL(GENE_DB_MSSQL_UNION));
 	zend_update_property_null(gene_db_mssql_ce, gene_strip_obj(self), ZEND_STRL(GENE_DB_MSSQL_ORDER));
 	zend_update_property_null(gene_db_mssql_ce, gene_strip_obj(self), ZEND_STRL(GENE_DB_MSSQL_LIMIT));
+	/* [GENE_FEATURE:2026-08-18 3.4] M8: the LOCK fragment must be cleared with
+	 * every other SQL part, or it leaks into the next statement built on this
+	 * handle (same-request residue). */
+	zend_update_property_null(gene_db_mssql_ce, gene_strip_obj(self), ZEND_STRL(GENE_DB_MSSQL_LOCK));
     zend_update_property_null(gene_db_mssql_ce, gene_strip_obj(self), ZEND_STRL(GENE_DB_MSSQL_DATA));
 }
 
@@ -258,7 +272,7 @@ bool mssqlInitPdo (zval * self, zval *config) {
 
 bool gene_mssql_pdo_execute (zval *self, zval *statement)
 {
-	zval *pdo_object = NULL, *params = NULL, *pdo_sql = NULL, *pdo_join = NULL, *pdo_where = NULL, *pdo_group = NULL,*pdo_having = NULL, *pdo_union = NULL,*pdo_order = NULL, *pdo_limit = NULL;
+	zval *pdo_object = NULL, *params = NULL, *pdo_sql = NULL, *pdo_join = NULL, *pdo_where = NULL, *pdo_group = NULL,*pdo_having = NULL, *pdo_union = NULL,*pdo_order = NULL, *pdo_limit = NULL, *pdo_lock = NULL;
 	zval retval;
 	smart_str sql = {0};
 	struct timeval db_start, db_end;
@@ -273,6 +287,7 @@ bool gene_mssql_pdo_execute (zval *self, zval *statement)
 	pdo_union = zend_read_property(gene_db_mssql_ce, gene_strip_obj(self), ZEND_STRL(GENE_DB_MSSQL_UNION), 1, NULL);
 	pdo_order = zend_read_property(gene_db_mssql_ce, gene_strip_obj(self), ZEND_STRL(GENE_DB_MSSQL_ORDER), 1, NULL);
 	pdo_limit = zend_read_property(gene_db_mssql_ce, gene_strip_obj(self), ZEND_STRL(GENE_DB_MSSQL_LIMIT), 1, NULL);
+	pdo_lock = zend_read_property(gene_db_mssql_ce, gene_strip_obj(self), ZEND_STRL(GENE_DB_MSSQL_LOCK), 1, NULL);
 
 	/* [GENE_FEATURE:2026-08-06 F0-3] Assembly order mirrors the MySQL builder:
 	 * base SQL + JOIN + WHERE + GROUP + HAVING + UNION + ORDER + LIMIT. */
@@ -299,6 +314,11 @@ bool gene_mssql_pdo_execute (zval *self, zval *statement)
 	}
 	if (Z_TYPE_P(pdo_limit) == IS_STRING) {
 		smart_str_appends(&sql, Z_STRVAL_P(pdo_limit));
+	}
+	/* [GENE_FEATURE:2026-08-18 3.4] LOCK fragment goes last (FOR UPDATE etc.
+	 * are statement suffixes in mysql/pgsql). */
+	if (Z_TYPE_P(pdo_lock) == IS_STRING) {
+		smart_str_appends(&sql, Z_STRVAL_P(pdo_lock));
 	}
 	smart_str_0(&sql);
 	if (!GENE_G(run_environment)) {
@@ -1173,6 +1193,50 @@ PHP_METHOD(gene_db_mssql, limit)
 }
 /* }}} */
 
+/*
+ * {{{ public gene_db_mssql::lockForUpdate()
+ * [GENE_FEATURE:2026-08-18 3.4] Row locks in MSSQL are table hints
+ * (WITH (UPDLOCK)), not statement suffixes, so no builder support. */
+PHP_METHOD(gene_db_mssql, lockForUpdate)
+{
+	zend_throw_exception_ex(NULL, 0,
+		"Gene\\Db\\Mssql::lockForUpdate() is not supported; MSSQL needs WITH (UPDLOCK) table hints, use sql()");
+}
+/* }}} */
+
+/*
+ * {{{ public gene_db_mssql::sharedLock()
+ * [GENE_FEATURE:2026-08-18 3.4] Row locks in MSSQL are table hints
+ * (WITH (HOLDLOCK)), not statement suffixes, so no builder support. */
+PHP_METHOD(gene_db_mssql, sharedLock)
+{
+	zend_throw_exception_ex(NULL, 0,
+		"Gene\\Db\\Mssql::sharedLock() is not supported; MSSQL needs WITH (HOLDLOCK) table hints, use sql()");
+}
+/* }}} */
+
+/*
+ * {{{ public gene_db_mssql::insertIgnore($table, $fields)
+ * [GENE_FEATURE:2026-08-18 3.3] INSERT IGNORE has no MSSQL equivalent;
+ * point the caller at MERGE / IF NOT EXISTS via sql(). */
+PHP_METHOD(gene_db_mssql, insertIgnore)
+{
+	zend_throw_exception_ex(NULL, 0,
+		"Gene\\Db\\Mssql::insertIgnore() is not supported; use sql() with a MERGE/IF NOT EXISTS statement");
+}
+/* }}} */
+
+/*
+ * {{{ public gene_db_mssql::upsert($table, $fields, array $updateCols)
+ * [GENE_FEATURE:2026-08-18 3.3] ON DUPLICATE KEY UPDATE is MySQL-only;
+ * point the caller at MERGE via sql(). */
+PHP_METHOD(gene_db_mssql, upsert)
+{
+	zend_throw_exception_ex(NULL, 0,
+		"Gene\\Db\\Mssql::upsert() is not supported; use sql() with MERGE");
+}
+/* }}} */
+
 
 /*
  * {{{ public gene_db::all()
@@ -1285,7 +1349,7 @@ PHP_METHOD(gene_db_mssql, quote)
  */
 PHP_METHOD(gene_db_mssql, print)
 {
-	zval *self = getThis(),*pdo_object = NULL, *pdo_sql = NULL, *pdo_join = NULL, *pdo_where = NULL, *pdo_order = NULL,*pdo_group = NULL,*pdo_having = NULL, *pdo_union = NULL, *pdo_limit = NULL, *params = NULL;
+	zval *self = getThis(),*pdo_object = NULL, *pdo_sql = NULL, *pdo_join = NULL, *pdo_where = NULL, *pdo_order = NULL,*pdo_group = NULL,*pdo_having = NULL, *pdo_union = NULL, *pdo_limit = NULL, *pdo_lock = NULL, *params = NULL;
 	smart_str sql = {0};
 	pdo_object = zend_read_property(gene_db_mssql_ce, gene_strip_obj(self), ZEND_STRL(GENE_DB_MSSQL_PDO), 1, NULL);
 	pdo_sql = zend_read_property(gene_db_mssql_ce, gene_strip_obj(self), ZEND_STRL(GENE_DB_MSSQL_SQL), 1, NULL);
@@ -1296,6 +1360,7 @@ PHP_METHOD(gene_db_mssql, print)
 	pdo_union = zend_read_property(gene_db_mssql_ce, gene_strip_obj(self), ZEND_STRL(GENE_DB_MSSQL_UNION), 1, NULL);
 	pdo_order = zend_read_property(gene_db_mssql_ce, gene_strip_obj(self), ZEND_STRL(GENE_DB_MSSQL_ORDER), 1, NULL);
 	pdo_limit = zend_read_property(gene_db_mssql_ce, gene_strip_obj(self), ZEND_STRL(GENE_DB_MSSQL_LIMIT), 1, NULL);
+	pdo_lock = zend_read_property(gene_db_mssql_ce, gene_strip_obj(self), ZEND_STRL(GENE_DB_MSSQL_LOCK), 1, NULL);
 	params = zend_read_property(gene_db_mssql_ce, gene_strip_obj(self), ZEND_STRL(GENE_DB_MSSQL_DATA), 1, NULL);
 
 	if (Z_TYPE_P(pdo_sql) == IS_STRING) {
@@ -1322,9 +1387,14 @@ PHP_METHOD(gene_db_mssql, print)
 	if (Z_TYPE_P(pdo_limit) == IS_STRING) {
 		smart_str_appends(&sql, Z_STRVAL_P(pdo_limit));
 	}
+	if (Z_TYPE_P(pdo_lock) == IS_STRING) {
+		smart_str_appends(&sql, Z_STRVAL_P(pdo_lock));
+	}
 	smart_str_0(&sql);
 	zval z_row, z_sql;
-	ZVAL_STRING(&z_sql, ZSTR_VAL(sql.s));
+	/* [GENE_FIX:2026-08-19] sql.s stays NULL when no statement was built
+	 * (fresh handle / right after reset) — ZSTR_VAL(NULL) segfaults. */
+	ZVAL_STRING(&z_sql, sql.s ? ZSTR_VAL(sql.s) : "");
 	smart_str_free(&sql);
 
 	array_init(&z_row);
@@ -1381,6 +1451,23 @@ PHP_METHOD(gene_db_mssql, commit)
 /* }}} */
 
 /*
+ * {{{ public gene_db::transaction(callable $fn)
+ */
+PHP_METHOD(gene_db_mssql, transaction)
+{
+	zend_fcall_info fci;
+	zend_fcall_info_cache fcc = empty_fcall_info_cache;
+	zval *self = getThis(), *pdo_object = NULL;
+
+	if (zend_parse_parameters(ZEND_NUM_ARGS(), "f", &fci, &fcc) == FAILURE) {
+		return;
+	}
+	pdo_object = zend_read_property(gene_db_mssql_ce, gene_strip_obj(self), ZEND_STRL(GENE_DB_MSSQL_PDO), 1, NULL);
+	gene_pdo_run_transaction(pdo_object, &fci, &fcc, return_value);
+}
+/* }}} */
+
+/*
  * {{{ public gene_db::release()
  */
 PHP_METHOD(gene_db_mssql, release)
@@ -1401,6 +1488,9 @@ PHP_METHOD(gene_db_mssql, free)
 	if (pool && Z_TYPE_P(pool) == IS_OBJECT) {
 		gene_pool_return_pdo(gene_db_mssql_ce, self, ZEND_STRL(GENE_DB_MSSQL_POOL), ZEND_STRL(GENE_DB_MSSQL_PDO));
 	} else {
+		/* [GENE_FIX:2026-08-19 N3] No-pool handle — see Db\Mysql::free(). */
+		zval *pdo = zend_read_property(gene_db_mssql_ce, gene_strip_obj(self), ZEND_STRL(GENE_DB_MSSQL_PDO), 1, NULL);
+		gene_db_tx_hygiene(pdo, "Db\\Mssql handle freed");
 		zend_update_property_null(gene_db_mssql_ce, gene_strip_obj(self), ZEND_STRL(GENE_DB_MSSQL_PDO));
 	}
 	RETURN_NULL();
@@ -1416,6 +1506,9 @@ PHP_METHOD(gene_db_mssql, __destruct)
 	zval *pool = zend_read_property(gene_db_mssql_ce, gene_strip_obj(self), ZEND_STRL(GENE_DB_MSSQL_POOL), 1, NULL);
 	if (pool && Z_TYPE_P(pool) == IS_OBJECT) {
 		gene_pool_return_pdo(gene_db_mssql_ce, self, ZEND_STRL(GENE_DB_MSSQL_POOL), ZEND_STRL(GENE_DB_MSSQL_PDO));
+	} else {
+		zval *pdo = zend_read_property(gene_db_mssql_ce, gene_strip_obj(self), ZEND_STRL(GENE_DB_MSSQL_PDO), 1, NULL);
+		gene_db_tx_hygiene(pdo, "Db\\Mssql handle destructed");
 	}
 }
 /* }}} */
@@ -1442,6 +1535,8 @@ const zend_function_entry gene_db_mssql_methods[] = {
 		PHP_ME(gene_db_mssql, select, gene_db_mssql_select, ZEND_ACC_PUBLIC)
 		PHP_ME(gene_db_mssql, count, gene_db_mssql_count, ZEND_ACC_PUBLIC)
 		PHP_ME(gene_db_mssql, insert, gene_db_mssql_insert, ZEND_ACC_PUBLIC)
+		PHP_ME(gene_db_mssql, insertIgnore, gene_db_mssql_insert, ZEND_ACC_PUBLIC)
+		PHP_ME(gene_db_mssql, upsert, gene_db_mssql_upsert, ZEND_ACC_PUBLIC)
 		PHP_ME(gene_db_mssql, batchInsert, gene_db_mssql_batch_insert, ZEND_ACC_PUBLIC)
 		PHP_ME(gene_db_mssql, update, gene_db_mssql_update, ZEND_ACC_PUBLIC)
 		PHP_ME(gene_db_mssql, delete, gene_db_mssql_delete, ZEND_ACC_PUBLIC)
@@ -1454,6 +1549,8 @@ const zend_function_entry gene_db_mssql_methods[] = {
 		PHP_ME(gene_db_mssql, reset, gene_db_mssql_void_arginfo, ZEND_ACC_PUBLIC)
 		PHP_ME(gene_db_mssql, sql, gene_db_mssql_sql, ZEND_ACC_PUBLIC)
 		PHP_ME(gene_db_mssql, limit, gene_db_mssql_limit, ZEND_ACC_PUBLIC)
+		PHP_ME(gene_db_mssql, lockForUpdate, gene_db_mssql_void_arginfo, ZEND_ACC_PUBLIC)
+		PHP_ME(gene_db_mssql, sharedLock, gene_db_mssql_void_arginfo, ZEND_ACC_PUBLIC)
 		PHP_ME(gene_db_mssql, order, gene_db_mssql_order, ZEND_ACC_PUBLIC)
 		PHP_ME(gene_db_mssql, group, gene_db_mssql_group, ZEND_ACC_PUBLIC)
 		PHP_ME(gene_db_mssql, having, gene_db_mssql_having, ZEND_ACC_PUBLIC)
@@ -1471,6 +1568,8 @@ const zend_function_entry gene_db_mssql_methods[] = {
 		PHP_ME(gene_db_mssql, inTransaction, gene_db_mssql_void_arginfo, ZEND_ACC_PUBLIC)
 		PHP_ME(gene_db_mssql, rollBack, gene_db_mssql_void_arginfo, ZEND_ACC_PUBLIC)
 		PHP_ME(gene_db_mssql, commit, gene_db_mssql_void_arginfo, ZEND_ACC_PUBLIC)
+		PHP_ME(gene_db_mssql, transaction, gene_db_mssql_transaction, ZEND_ACC_PUBLIC)
+		PHP_MALIAS(gene_db_mssql, transact, transaction, gene_db_mssql_transaction, ZEND_ACC_PUBLIC)
 		PHP_ME(gene_db_mssql, release, gene_db_mssql_void_arginfo, ZEND_ACC_PUBLIC)
 		PHP_ME(gene_db_mssql, free, gene_db_mssql_void_arginfo, ZEND_ACC_PUBLIC)
 		PHP_ME(gene_db_mssql, __destruct, gene_db_mssql_void_arginfo, ZEND_ACC_PUBLIC)
@@ -1503,6 +1602,7 @@ GENE_MINIT_FUNCTION(db_mssql)
     zend_declare_property_null(gene_db_mssql_ce, ZEND_STRL(GENE_DB_MSSQL_UNION), ZEND_ACC_PUBLIC);
     zend_declare_property_null(gene_db_mssql_ce, ZEND_STRL(GENE_DB_MSSQL_ORDER), ZEND_ACC_PUBLIC);
     zend_declare_property_null(gene_db_mssql_ce, ZEND_STRL(GENE_DB_MSSQL_LIMIT), ZEND_ACC_PUBLIC);
+    zend_declare_property_null(gene_db_mssql_ce, ZEND_STRL(GENE_DB_MSSQL_LOCK), ZEND_ACC_PUBLIC);
     zend_declare_property_null(gene_db_mssql_ce, ZEND_STRL(GENE_DB_MSSQL_DATA), ZEND_ACC_PUBLIC);
     zend_declare_property_null(gene_db_mssql_ce, ZEND_STRL(GENE_DB_MSSQL_POOL), ZEND_ACC_PROTECTED);
     zend_declare_property_null(gene_db_mssql_ce, ZEND_STRL(GENE_DB_MSSQL_HISTORY), ZEND_ACC_PROTECTED | ZEND_ACC_STATIC);

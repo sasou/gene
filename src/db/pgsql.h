@@ -27,6 +27,7 @@
 #define GENE_DB_PGSQL_UNION "union"
 #define GENE_DB_PGSQL_ORDER "order"
 #define GENE_DB_PGSQL_LIMIT "limit"
+#define GENE_DB_PGSQL_LOCK "lock"
 #define GENE_DB_PGSQL_DATA "data"
 #define GENE_DB_PGSQL_HISTORY "history"
 #define GENE_DB_PGSQL_POOL "pool"

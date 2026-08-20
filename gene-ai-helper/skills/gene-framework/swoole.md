@@ -166,17 +166,19 @@ $config->set('db', [
         'username' => 'user',
         'password' => 'pass',
         'pool'     => 'dbPool',   // 与 Pool::create 第一个参数一致
-        // 不要加 PDO::ATTR_PERSISTENT => true
+        // PDO::ATTR_PERSISTENT 可保留 true：Swoole 模式下扩展自动改为 false
     ]],
-    'instance' => true,           // Swoole：每协程独立 Mysql 实例
+    'instance' => true,           // 请求内按类名单例；FPM/Swoole 均可
 ]);
 ```
 
 | FPM | Swoole |
 |-----|--------|
-| `instance => false` 常见 | **`instance => true`**（协程级 DI，避免 socket 跨协程绑定） |
+| `instance => true/false` 均可（请求级，不跨请求复用） | 同左（协程级 `di_regs` 隔离，与 `instance` 无关） |
 | 无 `pool` 键 | **`pool` => 池名**，且 workerStart 中 `Pool::create` |
-| 可用持久 PDO | **禁止** `PDO::ATTR_PERSISTENT`（进程级 socket，协程争用） |
+| `ATTR_PERSISTENT => true` 可用（持久 TCP 连接） | 扩展自动改为 `false`（四驱动一致），配置可保留 `true` 适配双模式 |
+
+`instance` 语义：`true` = 请求内按类名单例（同 class 不同 name 共享）；`false` = 请求内按 name 单例。两者均在请求结束随 `di_regs` 销毁，不跨请求/跨协程复用。协程隔离靠 `ctx->di_regs` 按协程 ID 分离，与 `instance` 无关。
 
 `Gene\Db\Mysql` 在配置了 `pool` 后，内部从 `Gene\Pool` 借还 PDO，业务层仍写 `$this->db->select(...)`，无需手写 `get/put`。
 
@@ -207,29 +209,56 @@ class User extends \Gene\Orm\Model {
     protected static string $table = 'sys_user';
     protected static string $primaryKey = 'user_id';
     protected static array $fields = ['user_id', 'user_name', 'status'];
+    protected static bool $timestamps = true;       // 6.1.0+：自动填充 created_at/updated_at
 }
 
 User::find(1);
-User::paginate(['status' => 1], 0, 20);
+User::findMany([1, 2, 3]);                          // 6.1.0+：主键 IN 批量取
+User::paginate(['status' => 1], 0, 20, 'user_id desc');
 User::create($data);
-User::query()->where(['status' => 1])->order('user_id desc')->all();
+User::createMany([$row1, $row2]);                   // 6.1.0+：批量插入
+User::insertIgnore($data);                          // 6.1.0+：幂等写入
+User::updateOrCreate(['name' => $n], $data);        // 6.1.0+：查到更新/否则插入
+User::toggle($id, 'status');                        // 6.1.0+：CAS 状态翻转
+User::query()
+    ->fields(['u.user_id', 'u.user_name'])
+    ->join('orders o', ['o.user_id' => 'u.user_id'], 'LEFT')
+    ->where(['u.status' => 1])
+    ->where('u.user_id', '>=', $anchor)             // 6.1.0+：比较简写
+    ->whereLike('u.user_name', $kw)                 // 6.1.0+：LIKE %kw%（自动转义）
+    ->selectSub('SELECT count(*) FROM orders WHERE user_id=u.user_id', 'oc')
+    ->group('u.user_id')->having('oc >= 1')
+    ->order('u.user_id desc')->limit(0, 20)
+    ->all();
 ```
 
 | 运行时 | 配置要求 | ORM 注意 |
 |--------|----------|----------|
 | FPM | `db.instance => false` 即可 | 每次新建 Db；仍会 reset |
 | Swoole | `instance => true` + `pool` + `Pool::create` | 协程级 Db 单例；**禁止** `ATTR_PERSISTENT` |
-| 请求结束 | `cleanup(true)` | meta 缓存随请求上下文释放，无需额外 flush |
+| 请求结束 | `cleanup(true)` | meta 缓存随请求上下文释放；`clearState()` 会 rollBack 残留事务（6.1.0+） |
 
-复杂 SQL（join / raw）继续用继承来的 `$this->db`。
+**事务卫生（6.1.0+，三道防线，共用 `gene_db_tx_hygiene()`）**：
+
+1. **请求边界**：`clearState()`/`cleanup()`（及 FPM 的 RSHUTDOWN）扫描 DI 里的 Db 句柄，发现未提交事务则**先回滚、后告警**（E_WARNING 走 PHP 标准错误通道，**不经过** `set_error_handler`，避免「warning 转异常」的 handler 把回滚跳掉）。
+2. **连接池边界**：`release()`/`free()`/析构归还 PDO 前同样检查 `inTransaction()`，脏连接先回滚再入池——覆盖未经 DI 的 `Pool::get()` 直取句柄（Swoole 下推荐形态）。
+3. **裸句柄边界**：既不在 DI 也不走池的句柄（如直接 `new \Gene\Db\Mysql(...)`），`free()`/`__destruct` 在释放 PDO 前同样回滚 + 告警——补上 `ATTR_PERSISTENT` 裸用场景的缺口。
+
+**回滚不抛异常（N6，6.1.0+）**：`gene_db_tx_hygiene()` 在 `rollBack()` 前后临时把 PDO `ATTR_ERRMODE` 置为 `ERRMODE_SILENT` 再还原，使清理路径**根本不会抛异常**。此前「先抛再丢」策略在 RSHUTDOWN 无栈帧时会升级为 E_ERROR + bailout，打印伪 `Uncaught PDOException [no active file]` 并截断后续 DI 条目的清理。SILENT 模式下 `rollBack()` 退化为返回 `false`，`gene_discard_current_exception()` 仍作为二道保险保留。
+
+**异常寄存可重入（N8，6.1.0+）**：清理窗口内待处理业务异常保存在**局部变量**而非 `EG(prev_exception)`（`zend_exception_save/restore` 的寄存位），嵌套 hygiene 窗口（如 zval 释放级联触发另一个 Db 释放）不会互相干扰。`E_WARNING` 发射用 `zend_try` 包裹，保证用户 error handler 总被还原。
+
+三道防线都是兜底而非鼓励残留事务：业务代码优先 `$this->db->transaction(function () { ... })`；手动路径仍应 `try { ... commit() } catch { rollBack(); throw; }`。
+
+复杂 SQL（join / raw）继续用继承来的 `$this->db`。`Query` 是一次性构建器（构建→执行→丢弃），不可缓存复用，也不可交错构建两个（共享同一 DI Db 句柄）。
 
 ### 4.4 其他组件
 
 | 组件 | Swoole 建议 | 说明 |
 |------|-------------|------|
-| `memcache` / `redis`（无 pool 时） | `instance => true` | 单次调用无链式状态；协程 Hook 隔离 socket |
-| `cache` (`Gene\Cache\Cache`) | `instance => false` 可按项目 | 代理层，按 FPM 习惯即可 |
-| `session` | `instance => false` 或自定义 | 状态存外部驱动（redis/memcache） |
+| `memcache` / `redis`（无 pool 时） | `instance => true` | 请求内按类名单例；协程隔离靠 `di_regs`，与 `instance` 无关 |
+| `cache` (`Gene\Cache\Cache`) | `true`/`false` 均可 | 代理层，`instance` 只影响同 class 不同 name 是否共享 |
+| `session` | `true`/`false` 均可 | 状态存外部驱动（redis/memcache）；`instance` 不影响隔离 |
 | `memory` (`Gene\Memory`) | `instance => true` | **仅在 `workerReady()` 之前** 写入；请求期只读 |
 
 ---
@@ -288,7 +317,7 @@ API 与 `Gene\Pool` 对称：
 | `setResponse($response)` | 每个 `request`，在 `run()` 前 |
 | `run()` | 无参；等价于自动检测当前 Request |
 | `cleanup($gc = false)` | 每个 `request` 的 `finally`；推荐 `cleanup(true)` |
-| `clearState()` / `destroyContext()` | 低层拆分清理；**优先用 `cleanup()`** |
+| `clearState()` / `destroyContext()` | 低层拆分清理；**优先用 `cleanup()`**。`clearState()` 会检测仍开启的事务并 rollBack（6.1.0+），避免持久连接上脏事务跨请求泄漏 |
 
 ### `workerReady()` 的副作用
 
@@ -334,7 +363,7 @@ Swoole 无 PHP 超全局，必须用 `init` 注入：
 
 | 错误做法 | 后果 / 正确做法 |
 |----------|-----------------|
-| 使用 `PDO::ATTR_PERSISTENT` | 多协程争用同一 socket → 用 **Pool** |
+| ~~使用 `PDO::ATTR_PERSISTENT`~~ | **已无需手动处理**：Swoole/coroutine 模式下扩展自动改为 `false`（四驱动一致），配置可保留 `true` 适配 FPM/Swoole 双模式 |
 | 忘记 `cleanup()` | 协程上下文泄漏、内存上涨（5.6.8+ 可用 `gene.swoole_auto_cleanup=1` 兜底，见 §7.1） |
 | 忘记 `workerReady()` / `waitWorkerReady()` | 首批请求异常或竞态 |
 | `workerReady()` 后在请求里 `Memory::set` | 运行期禁止写入；改 Redis 或 worker 启动前预热 |

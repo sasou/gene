@@ -736,6 +736,298 @@ class DatabaseTest
     }
 
     /**
+     * [GENE_FEATURE:2026-08-18 3.3/3.4] Db-level insertIgnore / upsert /
+     * lockForUpdate / sharedLock — sqlite semantics (OR IGNORE works,
+     * upsert unsupported, locks are documented no-ops with E_NOTICE).
+     */
+    public function testSqliteV2WriteApis()
+    {
+        echo "Testing Sqlite insertIgnore/upsert/lock APIs:\n";
+
+        try {
+            $db = new \Gene\Db\Sqlite(['dsn' => 'sqlite::memory:']);
+            $db->sql('CREATE TABLE kv (k TEXT PRIMARY KEY, v INTEGER)')->execute();
+
+            // insertIgnore: first write lands, duplicate is ignored
+            $n = $db->insertIgnore('kv', ['k' => 'a', 'v' => 1])->affectedRows();
+            if ((int)$n === 1) {
+                echo "✓ insertIgnore() first write affected=1\n";
+            } else {
+                $this->fail("insertIgnore first affected=" . var_export($n, true));
+            }
+            $n = $db->insertIgnore('kv', ['k' => 'a', 'v' => 99])->affectedRows();
+            $row = $db->select('kv')->where('k=?', ['a'])->row();
+            if ((int)$n === 0 && (int)($row['v'] ?? 0) === 1) {
+                echo "✓ insertIgnore() duplicate ignored (affected=0, row untouched)\n";
+            } else {
+                $this->fail("insertIgnore dup affected=" . var_export($n, true) . " row=" . json_encode($row));
+            }
+
+            // upsert unsupported on sqlite -> exception, no partial SQL state
+            $threw = false;
+            try {
+                $db->upsert('kv', ['k' => 'a', 'v' => 2], ['v']);
+            } catch (\Throwable $e) {
+                $threw = true;
+            }
+            if ($threw) {
+                echo "✓ upsert() throws on sqlite (documented degradation)\n";
+            } else {
+                $this->fail("upsert() did not throw on sqlite");
+            }
+
+            // locks: no-op + E_NOTICE, chainable, SQL unchanged
+            $notice = null;
+            set_error_handler(function ($no, $str) use (&$notice) { $notice = $str; return true; }, E_NOTICE);
+            $rows = $db->select('kv')->lockForUpdate()->all();
+            restore_error_handler();
+            if ($notice !== null && is_array($rows) && count($rows) === 1) {
+                echo "✓ lockForUpdate() no-op + E_NOTICE on sqlite\n";
+            } else {
+                $this->fail("lockForUpdate sqlite: notice=" . var_export($notice, true));
+            }
+            $notice = null;
+            set_error_handler(function ($no, $str) use (&$notice) { $notice = $str; return true; }, E_NOTICE);
+            $rows = $db->select('kv')->sharedLock()->all();
+            restore_error_handler();
+            if ($notice !== null && is_array($rows)) {
+                echo "✓ sharedLock() no-op + E_NOTICE on sqlite\n";
+            } else {
+                $this->fail("sharedLock sqlite: notice=" . var_export($notice, true));
+            }
+
+            // LOCK fragment must not leak into the next statement on the
+            // same handle (M8: lock is cleared by reset_sql_params)
+            $sql = $db->select('kv')->where('k=?', ['a'])->print();
+            if (is_array($sql) && isset($sql['sql']) && stripos($sql['sql'], 'FOR UPDATE') === false) {
+                echo "✓ no LOCK residue after reset\n";
+            } else {
+                $this->fail("LOCK residue: " . json_encode($sql));
+            }
+
+            // [GENE_FIX:2026-08-19 print-crash] print() on a handle with no
+            // SQL built must not crash (sql.s was NULL-dereferenced).
+            $fresh = new \Gene\Db\Sqlite(['dsn' => 'sqlite::memory:']);
+            $sql = $fresh->print();
+            if (is_array($sql) && ($sql['sql'] ?? null) === '') {
+                echo "✓ print() on fresh handle returns empty sql (no crash)\n";
+            } else {
+                $this->fail("print() fresh: " . json_encode($sql));
+            }
+            $fresh->select('kv');
+            $sql = $fresh->print();
+            $fresh->select('kv')->reset();
+            $sql = $fresh->print();
+            if (is_array($sql) && ($sql['sql'] ?? null) === '') {
+                echo "✓ print() after reset returns empty sql (no crash)\n";
+            } else {
+                $this->fail("print() after reset: " . json_encode($sql));
+            }
+
+            // method surface on all 4 drivers
+            foreach (['\\Gene\\Db\\Mysql', '\\Gene\\Db\\Pgsql', '\\Gene\\Db\\Sqlite', '\\Gene\\Db\\Mssql'] as $cls) {
+                if (!class_exists($cls)) {
+                    continue;
+                }
+                foreach (['insertIgnore', 'upsert', 'lockForUpdate', 'sharedLock'] as $m) {
+                    if (!method_exists($cls, $m)) {
+                        $this->fail("$cls missing $m");
+                    }
+                }
+            }
+            echo "✓ all drivers expose insertIgnore/upsert/lockForUpdate/sharedLock\n";
+        } catch (Throwable $e) {
+            $this->reportCaught($e);
+        }
+
+        echo "\n";
+    }
+
+    /**
+     * Callback transaction: commit, rollback, nested no-op begin.
+     */
+    public function testTransactionCallback()
+    {
+        echo "Testing Db::transaction() (SQLite):\n";
+
+        if (!class_exists('\\Gene\\Db\\Sqlite')) {
+            $this->skip('skip transaction callback — Sqlite missing');
+            return;
+        }
+
+        try {
+            $db = new \Gene\Db\Sqlite(['dsn' => 'sqlite::memory:']);
+            $db->sql('CREATE TABLE tx_cb (id INTEGER PRIMARY KEY AUTOINCREMENT, v int)')->execute();
+
+            $n = $db->transaction(function () use ($db) {
+                $db->insert('tx_cb', ['v' => 1])->execute();
+                return 42;
+            });
+            $rows = $db->select('tx_cb')->all();
+            if ($n === 42 && is_array($rows) && count($rows) === 1 && !$db->inTransaction()) {
+                echo "✓ transaction() commits and returns callback value\n";
+            } else {
+                $this->fail('transaction commit: ret=' . var_export($n, true) . ' rows=' . json_encode($rows));
+            }
+
+            try {
+                $db->transaction(function () use ($db) {
+                    $db->insert('tx_cb', ['v' => 2])->execute();
+                    throw new \RuntimeException('db tx rollback');
+                });
+                $this->fail('transaction should rethrow');
+            } catch (\RuntimeException $e) {
+                $rows2 = $db->select('tx_cb')->all();
+                if (is_array($rows2) && count($rows2) === 1 && !$db->inTransaction()
+                    && strpos($e->getMessage(), 'db tx rollback') !== false) {
+                    echo "✓ transaction() rolls back and rethrows\n";
+                } else {
+                    $this->fail('transaction rollback rows=' . json_encode($rows2));
+                }
+            }
+
+            $innerOwn = null;
+            $db->transaction(function () use ($db, &$innerOwn) {
+                $db->transact(function () use ($db, &$innerOwn) {
+                    $innerOwn = $db->inTransaction();
+                });
+            });
+            if ($innerOwn === true && !$db->inTransaction()) {
+                echo "✓ nested transact() shares the outer transaction\n";
+            } else {
+                $this->fail('nested transact inTx inner=' . var_export($innerOwn, true));
+            }
+        } catch (\Throwable $e) {
+            $this->reportCaught($e);
+        }
+
+        echo "\n";
+    }
+
+    /**
+     * [GENE_FIX:2026-08-19 N2/N6/N8] Transaction hygiene on shutdown/release.
+     *
+     * Covers the half of P1-4 / N2 that §13.5-4 originally deferred to MySQL:
+     * hygiene runs while a business exception is IN FLIGHT *and* PDO::rollBack()
+     * itself would throw. We desync PDO's in_txn bookkeeping WITHOUT MySQL by
+     * issuing a raw COMMIT through Gene while PDO believes a transaction is
+     * still open; the subsequent rollBack() would then error under the forced
+     * ERRMODE_EXCEPTION. After N6 the hygiene path forces ERRMODE_SILENT around
+     * rollBack(), so no exception is raised at all and the business exception
+     * survives cleanly.
+     *
+     * Also asserts the basic "dirty request -> rolled back + E_WARNING" path
+     * (P1-4) and that a userland error handler cannot hijack shutdown cleanup.
+     */
+    public function testTxHygiene()
+    {
+        echo "Testing transaction hygiene (N2/N6/N8, SQLite):\n";
+
+        if (!class_exists('\\Gene\\Db\\Sqlite') || !class_exists('\\Gene\\Application')) {
+            $this->skip('skip tx hygiene — extension classes missing');
+            return;
+        }
+
+        try {
+            // --- P1-4 baseline: dirty request ends, hygiene rolls back + warns.
+            // The warning is captured via error_log to avoid user handler noise.
+            $f = sys_get_temp_dir() . '/gene_tx_hygiene_test.db';
+            $log = sys_get_temp_dir() . '/gene_tx_hygiene_test.log';
+            @unlink($f);
+            @unlink($log);
+            ini_set('log_errors', '1');
+            ini_set('error_log', $log);
+
+            $db = new \Gene\Db\Sqlite(['dsn' => 'sqlite:' . $f]);
+            $db->sql('CREATE TABLE t (a int)')->execute();
+            \Gene\Di::set('tx_hygiene_db', $db);
+            $db->beginTransaction();
+            $db->sql('INSERT INTO t VALUES (1)')->execute();
+
+            // clearState() triggers the DI-scan hygiene: open transaction must
+            // be rolled back and an E_WARNING emitted via the bypassed handler.
+            $warned = false;
+            set_error_handler(function ($no, $str) use (&$warned) {
+                if (strpos($str, 'open transaction') !== false) {
+                    $warned = true;
+                }
+                return true;
+            }, E_WARNING);
+            \Gene\Application::clearState();
+            restore_error_handler();
+
+            // After clearState() the connection is rolled back; a fresh handle
+            // on the same file must see 0 rows.
+            $check = new \Gene\Db\Sqlite(['dsn' => 'sqlite:' . $f]);
+            $rows = $check->select('t')->all();
+            $rolledBack = is_array($rows) && count($rows) === 0;
+            if (!$db->inTransaction() && $rolledBack) {
+                echo "✓ hygiene rolled back the dirty transaction\n";
+            } else {
+                $this->fail("hygiene baseline: inTransaction=" . var_export($db->inTransaction(), true)
+                    . " rows=" . json_encode($rows));
+            }
+            // The warning is emitted with the user handler bypassed, so it goes
+            // to error_log, not to the local handler. Verify via the log file.
+            $logContent = (string) @file_get_contents($log);
+            if (strpos($logContent, 'open transaction') !== false) {
+                echo "✓ hygiene emitted E_WARNING (via error_log, handler bypassed)\n";
+            } else {
+                $this->fail("hygiene warning missing in error_log: " . substr($logContent, 0, 200));
+            }
+
+            // --- N2 / N6: business exception in flight + rollBack() would throw.
+            // Desync PDO's in_txn by issuing a raw COMMIT behind its back; PDO
+            // still reports inTransaction()=true but a subsequent rollBack()
+            // would raise under ERRMODE_EXCEPTION. After N6 hygiene forces
+            // ERRMODE_SILENT around rollBack(), so no exception is raised and
+            // the business exception propagates untouched.
+            // Release the first segment's handles before unlinking the file
+            // (sqlite keeps the file locked until all PDOs on it are gone).
+            unset($db, $check);
+            \Gene\Di::set('tx_hygiene_db', null);
+            @unlink($f);
+            @unlink($log);
+            $db2 = new \Gene\Db\Sqlite(['dsn' => 'sqlite:' . $f]);
+            $db2->sql('CREATE TABLE t (a int)')->execute();
+            \Gene\Di::set('tx_hygiene_db2', $db2);
+            $db2->beginTransaction();
+            $db2->sql('INSERT INTO t VALUES (1)')->execute();
+            try { $db2->sql('COMMIT')->execute(); } catch (Throwable $e) {}
+            $desynced = $db2->inTransaction();
+
+            $caught = null;
+            try {
+                try {
+                    throw new RuntimeException('BIZ');
+                } finally {
+                    \Gene\Application::clearState();
+                }
+            } catch (Throwable $e) {
+                $caught = get_class($e) . ':' . $e->getMessage();
+            }
+            if ($caught === 'RuntimeException:BIZ') {
+                echo "✓ N2/N6: business exception survives hygiene (rollBack cannot throw under SILENT)\n";
+            } else {
+                $this->fail("N2/N6: caught=" . var_export($caught, true) . " desynced=" . var_export($desynced, true));
+            }
+            if ($desynced) {
+                echo "✓ N2/N6: PDO in_txn desync reproduced on sqlite (no MySQL needed)\n";
+            } else {
+                // Not a failure — some driver builds read autocommit directly.
+                echo "- NOTE: PDO in_txn did not desync on this build; N6 silent-errmode branch still exercised\n";
+            }
+
+            @unlink($f);
+            @unlink($log);
+        } catch (Throwable $e) {
+            $this->reportCaught($e);
+        }
+
+        echo "\n";
+    }
+
+    /**
      * Run all tests
      */
     public function runAllTests()
@@ -750,6 +1042,9 @@ class DatabaseTest
         $this->testDatabaseSecurity();
         $this->testDatabasePerformance();
         $this->testSqliteAttachDetach();
+        $this->testSqliteV2WriteApis();
+        $this->testTransactionCallback();
+        $this->testTxHygiene();
 
         echo "=== Database Classes Test Suite Complete ===\n";
         echo "Summary: failed={$this->failed}, skipped={$this->skipped}\n";

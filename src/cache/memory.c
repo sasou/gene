@@ -241,6 +241,7 @@ static void gene_memory_hash_copy(HashTable *target, HashTable *source) /* {{{ *
 
 	ZEND_HASH_FOREACH_KEY_VAL(source, idx, key, element)
 	{
+		ZVAL_DEREF(element);
 		gene_memory_zval_persistent(&rv, element);
 		if (key) {
 			gene_symtable_update(target,
@@ -272,6 +273,9 @@ static void gene_memory_zval_persistent(zval *dst, zval *source) /* {{{ */{
 	case IS_RESOURCE:
 	case IS_OBJECT:
 		zend_error(E_ERROR, "An unsupported data type");
+		break;
+	default:
+		ZVAL_NULL(dst);
 		break;
 	}
 } /* }}} */
@@ -309,6 +313,9 @@ static void * gene_memory_zval_edit_persistent(zval *dst, zval *source) {
 	case IS_OBJECT:
 		zend_error(E_ERROR, "An unsupported data type");
 		break;
+	default:
+		ZVAL_NULL(dst);
+		break;
 	}
 	return NULL;
 }
@@ -321,23 +328,18 @@ void gene_memory_hash_copy_local(HashTable *target, HashTable *source) /* {{{ */
 	ZEND_HASH_FOREACH_KEY_VAL(source, idx, key, element)
 	{
 		zval rv;
+		ZVAL_DEREF(element);
 		gene_memory_zval_local(&rv, element);
 		if (key) {
-			/* [GENE_PERF:2026-04-24 v5.5.8] Persistent cache keys are created
-			 * via gene_str_persistent() which sets IS_STR_INTERNED|IS_STR_PERMANENT.
-			 * PHP's hash_update/zend_string_release on such strings is a safe
-			 * no-op for refcount management, so we can hand the persistent
-			 * zend_string directly to the request-scope HashTable instead of
-			 * rebuilding a fresh request-scope copy via zend_string_init.
-			 * Saves one emalloc+memcpy per hash entry on every config read,
-			 * DI graph traversal, and Memory::get() on array values. */
-			if (GC_FLAGS(key) & IS_STR_INTERNED) {
-				zend_symtable_update(target, key, &rv);
-			} else {
-				zend_string *str_key = zend_string_init(ZSTR_VAL(key), ZSTR_LEN(key), 0);
-				zend_symtable_update(target, str_key, &rv);
-				zend_string_release(str_key);
-			}
+			/* Always copy keys into request-scope strings.
+			 * gene_str_persistent() stamps IS_STR_INTERNED|IS_STR_PERMANENT on
+			 * pemalloc strings that are NOT in CG(interned_strings). Sharing
+			 * those pointers with a request HashTable lets FPM RSHUTDOWN interned
+			 * restore / GC free them while GENE_G(cache) still holds them —
+			 * UAF / worker exit on the next processCachedVersion hit. */
+			zend_string *str_key = zend_string_init(ZSTR_VAL(key), ZSTR_LEN(key), 0);
+			zend_symtable_update(target, str_key, &rv);
+			zend_string_release(str_key);
 		} else {
 			zend_hash_index_update(target, idx, &rv);
 		}
@@ -346,27 +348,19 @@ void gene_memory_hash_copy_local(HashTable *target, HashTable *source) /* {{{ */
 
 zval *gene_memory_zval_local(zval *dst, zval *source) /* {{{ */
 {
-	switch (Z_TYPE_P(source)) {
-	case IS_STRING:
-		/* [GENE_PERF:2026-04-24 v5.5.8] Persistent cache entries are stored
-		 * as interned (IS_STR_INTERNED|IS_STR_PERMANENT) zend_strings. Share
-		 * the interned pointer into the request scope via ZVAL_STR — no ref
-		 * bump, no emalloc. The request-scope zval_ptr_dtor that eventually
-		 * frees this container is a no-op for interned strings (the string
-		 * header bypasses refcount release). This removes one emalloc +
-		 * memcpy per string value returned from Gene\Memory::get,
-		 * Gene\Application::config, and every DI/service config read, which
-		 * in the DI-heavy path compounds across dozens of entries per req.
-		 * Non-interned strings (shouldn't happen for values built via
-		 * gene_memory_zval_persistent, but defensive here) fall through to
-		 * the old-style fresh-copy path. */
-		if (EXPECTED(GC_FLAGS(Z_STR_P(source)) & IS_STR_INTERNED)) {
-			ZVAL_STR(dst, Z_STR_P(source));
-		} else {
-			zend_string *str_key = zend_string_init(Z_STRVAL_P(source), Z_STRLEN_P(source), 0);
-			ZVAL_NEW_STR(dst, str_key);
+	if (UNEXPECTED(!source || !dst)) {
+		if (dst) {
+			ZVAL_NULL(dst);
 		}
+		return dst;
+	}
+	ZVAL_DEREF(source);
+	switch (Z_TYPE_P(source)) {
+	case IS_STRING: {
+		zend_string *str_key = zend_string_init(Z_STRVAL_P(source), Z_STRLEN_P(source), 0);
+		ZVAL_NEW_STR(dst, str_key);
 		break;
+	}
 	case IS_ARRAY:
 		array_init_size(dst, zend_hash_num_elements(Z_ARRVAL_P(source)));
 		gene_memory_hash_copy_local(Z_ARRVAL_P(dst), Z_ARRVAL_P(source));
@@ -381,6 +375,9 @@ zval *gene_memory_zval_local(zval *dst, zval *source) /* {{{ */
 	case IS_RESOURCE:
 	case IS_OBJECT:
 		zend_error(E_ERROR, "An unsupported data type");
+		break;
+	default:
+		ZVAL_NULL(dst);
 		break;
 	}
 	return dst;
