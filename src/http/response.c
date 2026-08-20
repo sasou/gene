@@ -88,6 +88,7 @@ ZEND_END_ARG_INFO()
 
 ZEND_BEGIN_ARG_INFO_EX(gene_response_arg_url, 0, 0, 1)
     ZEND_ARG_INFO(0, path)
+    ZEND_ARG_INFO(0, lang)
 ZEND_END_ARG_INFO()
 
 ZEND_BEGIN_ARG_INFO_EX(gene_response_arg_end, 0, 0, 0)
@@ -588,93 +589,21 @@ PHP_METHOD(gene_response, cookie) {
 }
 /* }}} */
 
-/** {{{ public gene_response::url(string $path)
- *  返回带当前语言前缀的 URL，如 url("login.html") => "/en/login.html"
+/** {{{ public gene_response::url(string $path [, string $lang])
+ *  返回带语言前缀的 URL。$lang 为 null 时使用当前请求语言。
  */
 PHP_METHOD(gene_response, url) {
-	zend_string *path_str;
-	const char *p;
-	size_t path_len;
-	gene_request_context *ctx;
-	const char *lang;
-	size_t lang_len;
-
-	if (zend_parse_parameters(ZEND_NUM_ARGS(), "S", &path_str) == FAILURE) {
+	zend_string *path_str = NULL, *lang_str = NULL;
+	const char *lang = NULL;
+	size_t lang_len = 0;
+	if (zend_parse_parameters(ZEND_NUM_ARGS(), "S|S", &path_str, &lang_str) == FAILURE) {
 		return;
 	}
-	p = ZSTR_VAL(path_str);
-	path_len = ZSTR_LEN(path_str);
-	/* 跳过 path 前导斜杠 */
-	for (; path_len > 0 && *p == '/'; p++, path_len--) {}
-	ctx = gene_request_ctx();
-	/* [GENE_PERF:2026-04-27] Use cached ctx->lang_len; eliminates strlen per call. */
-	if (ctx->lang && ctx->lang[0] != '\0') {
-		lang = ctx->lang;
-		lang_len = ctx->lang_len;
-	} else {
-		lang = NULL;
-		lang_len = 0;
+	if (lang_str && ZSTR_LEN(lang_str) > 0) {
+		lang = ZSTR_VAL(lang_str);
+		lang_len = ZSTR_LEN(lang_str);
 	}
-	if (path_len == 0) {
-		/* 如果只有斜杠，也加上语言前缀 */
-		if (lang) {
-			size_t out_len = lang_len + 2;
-			char out_buf[256];
-			char *out_ptr = out_buf;
-			int out_heap = 0;
-			if (out_len >= sizeof(out_buf)) {
-				out_ptr = emalloc(out_len + 1);
-				out_heap = 1;
-			}
-			out_ptr[0] = '/';
-			memcpy(out_ptr + 1, lang, lang_len);
-			out_ptr[lang_len + 1] = '/';
-			out_ptr[lang_len + 2] = '\0';
-			RETVAL_STRINGL(out_ptr, out_len);
-			if (out_heap) {
-				efree(out_ptr);
-			}
-		} else {
-			RETURN_STRING("/");
-		}
-		return;
-	}
-	if (lang) {
-		/* [GENE_PERF:2026-04-27] memcpy + RETVAL_STRINGL — same pattern as Gene\Controller::url(). */
-		size_t out_len = lang_len + path_len + 2;
-		char out_buf[512];
-		char *out_ptr = out_buf;
-		int out_heap = 0;
-		if (out_len >= sizeof(out_buf)) {
-			out_ptr = emalloc(out_len + 1);
-			out_heap = 1;
-		}
-		out_ptr[0] = '/';
-		memcpy(out_ptr + 1, lang, lang_len);
-		out_ptr[lang_len + 1] = '/';
-		memcpy(out_ptr + lang_len + 2, p, path_len);
-		out_ptr[out_len] = '\0';
-		RETVAL_STRINGL(out_ptr, out_len);
-		if (out_heap) {
-			efree(out_ptr);
-		}
-	} else {
-		size_t out_len = path_len + 1;
-		char out_buf[512];
-		char *out_ptr = out_buf;
-		int out_heap = 0;
-		if (out_len >= sizeof(out_buf)) {
-			out_ptr = emalloc(out_len + 1);
-			out_heap = 1;
-		}
-		out_ptr[0] = '/';
-		memcpy(out_ptr + 1, p, path_len);
-		out_ptr[out_len] = '\0';
-		RETVAL_STRINGL(out_ptr, out_len);
-		if (out_heap) {
-			efree(out_ptr);
-		}
-	}
+	gene_build_url(return_value, ZSTR_VAL(path_str), ZSTR_LEN(path_str), lang, lang_len);
 }
 /* }}} */
 

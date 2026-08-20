@@ -19,11 +19,14 @@ namespace Gene\Orm;
 final class Query
 {
     /**
-     * where — 三种形式：
+     * where — 四种形式：
      *  - where(['col' => $v, ...])        关联数组（走 Db makeWhere，标识符加引号）
      *  - where('name != ?', $bind)        原始片段 + 绑定（$bind 可为标量/数组）
      *  - where('id', '>=', 1)             比较运算简写：$op 白名单 > >= < <= != =，
      *                                     $col 必须是纯标识符（[A-Za-z0-9_.]），否则抛异常
+     *  - where(34)                        标量主键简写：自动转为 primaryKey=? 并绑定
+     *  - where("34")                      数字字符串同上（URL 参数等场景）
+     *                                     （ primaryKey 取自 Model 的 $primaryKey 属性）
      * 多次调用以 AND 累加；数组 where 同名键后写覆盖先写。
      *
      * @param mixed $where
@@ -172,6 +175,17 @@ final class Query
     public function sharedLock()
     {
         return $this;
+    }
+
+    /**
+     * print — 构建并输出 SQL（不执行），返回 Db::print() 结果。
+     * 调用后 reset Db 句柄，Query 仍可继续用于真正的终端调用。
+     *
+     * @return array{sql:string,param:array}
+     */
+    public function print()
+    {
+        return ['sql' => '', 'param' => []];
     }
 
     /**

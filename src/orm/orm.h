@@ -25,6 +25,7 @@
  * `ops` array property (each op = [tag, ...args]) instead of one slot per
  * condition type — repeated where()/join() no longer silently overwrite. */
 #define GENE_ORM_QUERY_OPS "ops"
+#define GENE_ORM_QUERY_PK "primaryKey"
 /* Set by Query::in($col, []) — terminal methods must return an empty result
  * WITHOUT issuing SQL (an empty IN must never degrade to "no condition"). */
 #define GENE_ORM_QUERY_EMPTY "emptyResult"
@@ -82,7 +83,7 @@ void gene_orm_normalize_id(zval *id);
 zend_bool gene_orm_valid_ident(zend_string *s);
 
 /* query.c */
-int gene_orm_query_init(zval *query, zval *db, zend_string *table, zval *fields);
+int gene_orm_query_init(zval *query, zval *db, zend_string *table, zval *fields, zend_string *primary_key);
 void gene_orm_query_register(void);
 
 #endif
