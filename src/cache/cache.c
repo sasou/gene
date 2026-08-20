@@ -1573,14 +1573,34 @@ PHP_METHOD(gene_cache, processCachedVersion)
 		RETURN_NULL();
 	}
 	gene_cache_get(hook, &cache_key, &cur_version);
+	if (EG(exception)) {
+		zval_ptr_dtor(&cur_version);
+		zval_ptr_dtor(&cache_key);
+		zval_ptr_dtor(&key);
+		RETURN_NULL();
+	}
 
 	cached_val = gene_memory_get(Z_STRVAL(key), Z_STRLEN(key));
 	if (cached_val && Z_TYPE_P(cached_val) == IS_ARRAY) {
 		zval *cacheData = zend_hash_str_find(Z_ARRVAL_P(cached_val), ZEND_STRL("data"));
 		zval *cacheVersion = zend_hash_str_find(Z_ARRVAL_P(cached_val), ZEND_STRL("version"));
-		if (cacheVersion == NULL || checkVersion(cacheVersion, &cur_version, mode) == 0) {
+		if (cacheData != NULL && cacheVersion != NULL && checkVersion(cacheVersion, &cur_version, mode)) {
+			gene_memory_zval_local(return_value, cacheData);
+			zval_ptr_dtor(&key);
+			zval_ptr_dtor(&cache_key);
+			zval_ptr_dtor(&cur_version);
+			return;
+		}
+		{
 			zval data_new, cur_data;
 			gene_cache_call(obj, args, &cur_data);
+			if (EG(exception)) {
+				zval_ptr_dtor(&cur_data);
+				zval_ptr_dtor(&cur_version);
+				zval_ptr_dtor(&cache_key);
+				zval_ptr_dtor(&key);
+				RETURN_NULL();
+			}
 			gene_cache_build_version_payload(&data_new, &cur_data, &cur_version);
 			GENE_CACHE_LAYER_MEMORY_WRITE_ENTER();
 			gene_memory_set(Z_STRVAL(key), Z_STRLEN(key), &data_new, 0);
@@ -1591,15 +1611,17 @@ PHP_METHOD(gene_cache, processCachedVersion)
 			zval_ptr_dtor(&key);
 			RETURN_ZVAL(&cur_data, 1, 1);
 		}
-		gene_memory_zval_local(return_value, cacheData);
-		zval_ptr_dtor(&key);
-		zval_ptr_dtor(&cache_key);
-		zval_ptr_dtor(&cur_version);
-		return;
 	}
 
 	zval data_new, cur_data;
 	gene_cache_call(obj, args, &cur_data);
+	if (EG(exception)) {
+		zval_ptr_dtor(&cur_data);
+		zval_ptr_dtor(&cur_version);
+		zval_ptr_dtor(&cache_key);
+		zval_ptr_dtor(&key);
+		RETURN_NULL();
+	}
 	gene_cache_build_version_payload(&data_new, &cur_data, &cur_version);
 	GENE_CACHE_LAYER_MEMORY_WRITE_ENTER();
 	gene_memory_set(Z_STRVAL(key), Z_STRLEN(key), &data_new, 0);
@@ -2205,7 +2227,7 @@ PHP_METHOD(gene_cache, processCachedVersionBatch)
 		if (cached_val && Z_TYPE_P(cached_val) == IS_ARRAY) {
 			zval *cacheData = zend_hash_str_find(Z_ARRVAL_P(cached_val), ZEND_STRL("data"));
 			zval *cacheVersion = zend_hash_str_find(Z_ARRVAL_P(cached_val), ZEND_STRL("version"));
-			if (cacheVersion && checkVersion(cacheVersion, &cur_version, mode)) {
+			if (cacheData && cacheVersion && checkVersion(cacheVersion, &cur_version, mode)) {
 				zval local_val;
 				gene_memory_zval_local(&local_val, cacheData);
 				add_next_index_zval(return_value, &local_val);
