@@ -192,7 +192,7 @@ static int gene_orm_new_query(zval *retval)
 		gene_orm_meta_release(&meta);
 		return FAILURE;
 	}
-	gene_orm_query_init(retval, db, meta.table, &meta.fields);
+	gene_orm_query_init(retval, db, meta.table, &meta.fields, meta.primary_key);
 	zval_ptr_dtor(db); /* N1: query_init ZVAL_COPY'd the handle into a property */
 	gene_orm_meta_release(&meta);
 	return SUCCESS;

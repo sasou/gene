@@ -308,13 +308,36 @@ class Controller
 
     /**
      * url
-     * 返回带当前语言前缀的 URL，如 url("login.html") => "/en/login.html"
+     * 返回带语言前缀的 URL，如 url("login.html") => "/en/login.html"
      * 传入 "/" 也会加上语言前缀，如 url("/") => "/en/"
+     * $lang 为 null 时使用当前请求语言，指定 $lang 则返回该语言的 URL。
      *
      * @param string $path 路径，如 login.html 或 "/"
+     * @param string|null $lang 指定语言，null 时使用当前请求语言
      * @return string
      */
-    public static function url($path) {
+    public static function url($path, $lang = null) {
+
+    }
+
+    /**
+     * getPath
+     * 返回当前请求路径。$withoutLang=true 时去除语言前缀。
+     *
+     * @param bool $withoutLang 是否去除语言前缀
+     * @return string|null
+     */
+    public static function getPath($withoutLang = false) {
+
+    }
+
+    /**
+     * getRouterUri
+     * 返回当前路由 URI（:m/:c/:a 替换后，小写）。
+     *
+     * @return string|null
+     */
+    public static function getRouterUri() {
 
     }
 

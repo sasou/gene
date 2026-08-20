@@ -115,13 +115,15 @@ class Response
 
     /**
      * url
-     * 返回带当前语言前缀的 URL，如 url("login.html") => "/en/login.html"
+     * 返回带语言前缀的 URL，如 url("login.html") => "/en/login.html"
      * 传入 "/" 也会加上语言前缀，如 url("/") => "/en/"
+     * $lang 为 null 时使用当前请求语言，指定 $lang 则返回该语言的 URL。
      *
      * @param string $path 路径，如 login.html 或 "/"
+     * @param string|null $lang 指定语言，null 时使用当前请求语言
      * @return string
      */
-    public static function url($path) {
+    public static function url($path, $lang = null) {
 
     }
 

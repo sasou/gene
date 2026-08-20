@@ -531,7 +531,7 @@ static void gene_orm_query_finish(zval *self, zval *db)
 	gene_orm_query_mark_dirty(self, 0);
 }
 
-int gene_orm_query_init(zval *query, zval *db, zend_string *table, zval *fields)
+int gene_orm_query_init(zval *query, zval *db, zend_string *table, zval *fields, zend_string *primary_key)
 {
 	zval ops;
 
@@ -543,6 +543,13 @@ int gene_orm_query_init(zval *query, zval *db, zend_string *table, zval *fields)
 		ZEND_STRL(GENE_ORM_QUERY_DB), db);
 	zend_update_property_str(gene_orm_query_ce, gene_strip_obj(query),
 		ZEND_STRL(GENE_ORM_QUERY_TABLE), table);
+	if (primary_key && ZSTR_LEN(primary_key) > 0) {
+		zend_update_property_str(gene_orm_query_ce, gene_strip_obj(query),
+			ZEND_STRL(GENE_ORM_QUERY_PK), primary_key);
+	} else {
+		zend_update_property_null(gene_orm_query_ce, gene_strip_obj(query),
+			ZEND_STRL(GENE_ORM_QUERY_PK));
+	}
 	if (fields && Z_TYPE_P(fields) != IS_UNDEF && Z_TYPE_P(fields) != IS_NULL) {
 		zend_update_property(gene_orm_query_ce, gene_strip_obj(query),
 			ZEND_STRL(GENE_ORM_QUERY_FIELDS), fields);
@@ -643,6 +650,38 @@ PHP_METHOD(gene_orm_query, where)
 	}
 	array_init_size(&op, 3);
 	gene_orm_query_op_tag(&op, ZEND_STRL("where"));
+	/* [GENE_FIX:2026-08-20] Scalar where (e.g. where(34) or where("34"))
+	 * must not be silently dropped nor treated as a raw SQL fragment —
+	 * apply() pass 1 only handles arrays, pass 2 splices strings verbatim
+	 * into WHERE (so where("4") becomes "WHERE 4" = constant true).
+	 * Convert scalar / numeric-string to "pk=?" with bind, matching
+	 * Model::find() semantics. */
+	if (where && Z_TYPE_P(where) != IS_ARRAY
+		&& Z_TYPE_P(where) != IS_NULL && Z_TYPE_P(where) != IS_UNDEF) {
+		zend_bool is_scalar_id = (Z_TYPE_P(where) != IS_STRING);
+		if (!is_scalar_id) {
+			zend_long l;
+			double d;
+			is_scalar_id = (is_numeric_string(Z_STRVAL_P(where),
+				Z_STRLEN_P(where), &l, &d, 0) != 0);
+		}
+		if (is_scalar_id) {
+			zval *pk_zv = zend_read_property(gene_orm_query_ce,
+				gene_strip_obj(self), ZEND_STRL(GENE_ORM_QUERY_PK), 1, NULL);
+			if (pk_zv && Z_TYPE_P(pk_zv) == IS_STRING && Z_STRLEN_P(pk_zv) > 0) {
+				smart_str frag = {0};
+				smart_str_appendl(&frag, Z_STRVAL_P(pk_zv), Z_STRLEN_P(pk_zv));
+				smart_str_appends(&frag, "=?");
+				smart_str_0(&frag);
+				zval t;
+				ZVAL_STR(&t, frag.s);
+				add_next_index_zval(&op, &t);
+				gene_orm_query_op_val(&op, where);
+				gene_orm_query_push(self, &op);
+				RETURN_ZVAL(self, 1, 0);
+			}
+		}
+	}
 	gene_orm_query_op_val(&op, where);
 	gene_orm_query_op_val(&op, bind);
 	gene_orm_query_push(self, &op);
@@ -928,6 +967,46 @@ PHP_METHOD(gene_orm_query, whereLike)
 	smart_str_free(&esc);
 	gene_orm_query_push(self, &op);
 	RETURN_ZVAL(self, 1, 0);
+}
+/* }}} */
+
+/* {{{ print() — build SQL without executing, return Db::print() result.
+ * Applies the op list to the db handle (same as row()/all()), calls
+ * Db::print() to inspect the generated SQL + bind params, then resets the
+ * handle so the Query can still be used for a real terminal call. */
+PHP_METHOD(gene_orm_query, print)
+{
+	zval *self = getThis();
+	zval *db, retval;
+
+	db = gene_orm_query_db(self);
+	if (!db) {
+		RETURN_NULL();
+	}
+	if (gene_orm_query_is_empty(self)) {
+		gene_orm_query_finish(self, db);
+		array_init(return_value);
+		zval z_sql;
+		ZVAL_STRING(&z_sql, "");
+		add_assoc_zval_ex(return_value, ZEND_STRL("sql"), &z_sql);
+		zval z_param;
+		array_init(&z_param);
+		add_assoc_zval_ex(return_value, ZEND_STRL("param"), &z_param);
+		return;
+	}
+	if (gene_orm_query_apply(self, db, GENE_ORM_Q_SELECT, NULL, 0, 0, 0) != SUCCESS) {
+		gene_orm_query_finish(self, db);
+		RETURN_NULL();
+	}
+	if (gene_orm_db_call(db, "print", 0, NULL, &retval) == SUCCESS) {
+		gene_orm_query_finish(self, db);
+		if (Z_ISUNDEF(retval)) {
+			RETURN_NULL();
+		}
+		RETURN_ZVAL(&retval, 0, 1);
+	}
+	gene_orm_query_finish(self, db);
+	RETURN_NULL();
 }
 /* }}} */
 
@@ -1246,6 +1325,7 @@ const zend_function_entry gene_orm_query_methods[] = {
 	PHP_ME(gene_orm_query, sharedLock, gene_orm_query_void_arginfo, ZEND_ACC_PUBLIC)
 	PHP_ME(gene_orm_query, selectSub, gene_orm_query_selectsub_arginfo, ZEND_ACC_PUBLIC)
 	PHP_ME(gene_orm_query, whereLike, gene_orm_query_wherelike_arginfo, ZEND_ACC_PUBLIC)
+	PHP_ME(gene_orm_query, print, gene_orm_query_void_arginfo, ZEND_ACC_PUBLIC)
 	PHP_ME(gene_orm_query, all, gene_orm_query_void_arginfo, ZEND_ACC_PUBLIC)
 	PHP_ME(gene_orm_query, row, gene_orm_query_void_arginfo, ZEND_ACC_PUBLIC)
 	PHP_ME(gene_orm_query, first, gene_orm_query_void_arginfo, ZEND_ACC_PUBLIC)
@@ -1270,6 +1350,7 @@ void gene_orm_query_register(void)
 
 	zend_declare_property_null(gene_orm_query_ce, ZEND_STRL(GENE_ORM_QUERY_DB), ZEND_ACC_PROTECTED);
 	zend_declare_property_null(gene_orm_query_ce, ZEND_STRL(GENE_ORM_QUERY_TABLE), ZEND_ACC_PROTECTED);
+	zend_declare_property_null(gene_orm_query_ce, ZEND_STRL(GENE_ORM_QUERY_PK), ZEND_ACC_PROTECTED);
 	zend_declare_property_null(gene_orm_query_ce, ZEND_STRL(GENE_ORM_QUERY_FIELDS), ZEND_ACC_PROTECTED);
 	zend_declare_property_bool(gene_orm_query_ce, ZEND_STRL(GENE_ORM_QUERY_DIRTY), 0, ZEND_ACC_PROTECTED);
 	zend_declare_property_null(gene_orm_query_ce, ZEND_STRL(GENE_ORM_QUERY_OPS), ZEND_ACC_PROTECTED);

@@ -201,19 +201,37 @@ class Application
 
     /**
      * getPath
-     * 
-     * @return mixed
+     *
+     * 返回当前请求路径。$withoutLang=true 时去除语言前缀。
+     *
+     * @param bool $withoutLang 是否去除语言前缀
+     * @return string|null
      */
-    public static function getPath() {
+    public static function getPath($withoutLang = false) {
 
     }
 
     /**
      * getRouterUri
-     * 
+     *
+     * 返回当前路由 URI（:m/:c/:a 替换后，小写）。
+     *
      * @return string|null
      */
     public static function getRouterUri() {
+
+    }
+
+    /**
+     * url
+     *
+     * 返回带语言前缀的 URL。$lang 为 null 时使用当前请求语言。
+     *
+     * @param string $path 路径
+     * @param string|null $lang 指定语言，null 时使用当前请求语言
+     * @return string
+     */
+    public static function url($path, $lang = null) {
 
     }
 
