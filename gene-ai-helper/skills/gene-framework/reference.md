@@ -280,6 +280,7 @@ $title = $this->language->login_title; // 读取键值
 | insertIgnore($data) | 幂等写入（MySQL INSERT IGNORE / SQLite INSERT OR IGNORE；Pgsql/Mssql 抛异常），返回影响行数（6.1.0+） |
 | updateOrCreate($where, $data) | 查到则更新（返回影响行数），否则插入（返回新 id，关联数组 where 并入新行）；非原子，并发竞争用唯一键 + insertIgnore（6.1.0+）。$where 语义同 updateBy，空数组/null 在更新分支抛异常 |
 | toggle($id, $field, $values = [0, 1]) | 状态翻转（CAS：WHERE pk=? AND field=?，并发败者返回 0）；$timestamps 开启时同步 $updatedAt（6.1.0+） |
+| transaction($fn) / transact($fn) | 在本模型 `$connection` 对应 Db 上执行回调事务，语义同 `Gene\Db\*::transaction()`（6.1.0+） |
 | fill($data, $hydrate = true) / setExists($exists = false) / save() / delete() / toArray() | 实例 ActiveRecord；含非空主键的 `fill()` 默认标记为已持久化，新增自然主键/UUID 数据请用 `fill($data, false)`、`setExists(false)` 或 `create()` |
 
 ### Query（有序 ops 列表，6.1.0+）
@@ -544,7 +545,8 @@ $list = $this->db
 | affectedRows() / rowCount() | 写操作后返回受影响行数（rowCount 为 PDO 命名别名，5.7.0+） |
 | quote($str, $paramType = PDO::PARAM_STR) | PDO::quote 透传，字符串字面量转义（5.7.0+） |
 | print() | 不执行，返回 `['sql' => ..., 'param' => ...]`（调试用） |
-| beginTransaction(), inTransaction(), rollBack(), commit() | 事务操作 |
+| beginTransaction(), inTransaction(), rollBack(), commit() | 事务操作（手动） |
+| transaction($fn) / transact($fn) | 回调事务：未在事务中则 begin→$fn→commit；已在事务中只执行 $fn。异常时仅本层 begin 才 rollBack 并原样抛出。PDO 不支持嵌套 begin（6.1.0+） |
 | release() | 将 PDO 连接归还连接池（启用 pool 时），非 pool 模式为空操作；归还时若仍有未提交事务会先 rollBack 并 E_WARNING（6.1.0+） |
 | free() | 释放/归还 PDO 连接；启用 pool 时等价于 `release()`，否则关闭连接 |
 | history() | 返回 SQL 执行历史数组（含 sql/param/time/memory） |

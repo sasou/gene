@@ -248,7 +248,7 @@ User::query()
 
 **异常寄存可重入（N8，6.1.0+）**：清理窗口内待处理业务异常保存在**局部变量**而非 `EG(prev_exception)`（`zend_exception_save/restore` 的寄存位），嵌套 hygiene 窗口（如 zval 释放级联触发另一个 Db 释放）不会互相干扰。`E_WARNING` 发射用 `zend_try` 包裹，保证用户 error handler 总被还原。
 
-三道防线都是兜底而非鼓励残留事务：业务代码仍应 `try { ... commit() } catch { rollBack(); throw; }`。
+三道防线都是兜底而非鼓励残留事务：业务代码优先 `$this->db->transaction(function () { ... })`；手动路径仍应 `try { ... commit() } catch { rollBack(); throw; }`。
 
 复杂 SQL（join / raw）继续用继承来的 `$this->db`。`Query` 是一次性构建器（构建→执行→丢弃），不可缓存复用，也不可交错构建两个（共享同一 DI Db 句柄）。
 

@@ -137,6 +137,10 @@ ZEND_BEGIN_ARG_INFO_EX(gene_db_sqlite_quote, 0, 0, 1)
 	ZEND_ARG_INFO(0, paramType)
 ZEND_END_ARG_INFO()
 
+ZEND_BEGIN_ARG_INFO_EX(gene_db_sqlite_transaction, 0, 0, 1)
+	ZEND_ARG_CALLABLE_INFO(0, fn, 0)
+ZEND_END_ARG_INFO()
+
 /* [GENE_FEATURE:2026-08-07] attach($path, $schema): attach another SQLite
  * database file to the current connection under $schema name. detach($schema)
  * reverses it. Both validate $schema as an identifier to prevent injection. */
@@ -1470,6 +1474,23 @@ PHP_METHOD(gene_db_sqlite, commit)
 /* }}} */
 
 /*
+ * {{{ public gene_db::transaction(callable $fn)
+ */
+PHP_METHOD(gene_db_sqlite, transaction)
+{
+	zend_fcall_info fci;
+	zend_fcall_info_cache fcc = empty_fcall_info_cache;
+	zval *self = getThis(), *pdo_object = NULL;
+
+	if (zend_parse_parameters(ZEND_NUM_ARGS(), "f", &fci, &fcc) == FAILURE) {
+		return;
+	}
+	pdo_object = zend_read_property(gene_db_sqlite_ce, gene_strip_obj(self), ZEND_STRL(GENE_DB_SQLITE_PDO), 1, NULL);
+	gene_pdo_run_transaction(pdo_object, &fci, &fcc, return_value);
+}
+/* }}} */
+
+/*
  * {{{ public gene_db::release()
  */
 PHP_METHOD(gene_db_sqlite, release)
@@ -1690,6 +1711,8 @@ const zend_function_entry gene_db_sqlite_methods[] = {
 		PHP_ME(gene_db_sqlite, inTransaction, gene_db_sqlite_void_arginfo, ZEND_ACC_PUBLIC)
 		PHP_ME(gene_db_sqlite, rollBack, gene_db_sqlite_void_arginfo, ZEND_ACC_PUBLIC)
 		PHP_ME(gene_db_sqlite, commit, gene_db_sqlite_void_arginfo, ZEND_ACC_PUBLIC)
+		PHP_ME(gene_db_sqlite, transaction, gene_db_sqlite_transaction, ZEND_ACC_PUBLIC)
+		PHP_MALIAS(gene_db_sqlite, transact, transaction, gene_db_sqlite_transaction, ZEND_ACC_PUBLIC)
 		PHP_ME(gene_db_sqlite, release, gene_db_sqlite_void_arginfo, ZEND_ACC_PUBLIC)
 		PHP_ME(gene_db_sqlite, free, gene_db_sqlite_void_arginfo, ZEND_ACC_PUBLIC)
 		PHP_ME(gene_db_sqlite, attach, gene_db_sqlite_attach, ZEND_ACC_PUBLIC)

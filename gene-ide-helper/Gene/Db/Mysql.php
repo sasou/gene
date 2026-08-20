@@ -418,6 +418,29 @@ class Mysql
     }
 
     /**
+     * transaction — 回调事务。PDO 不支持嵌套 begin：已在事务中则只执行 $fn，
+     * 由外层 commit / rollBack。异常时仅当本层 begin 时 rollBack 并原样抛出。
+     * transact() 为别名。
+     *
+     * @param callable $fn
+     * @return mixed $fn 的返回值
+     * @since 6.1.0
+     */
+    public function transaction($fn) {
+        return null;
+    }
+
+    /**
+     * @see transaction()
+     * @param callable $fn
+     * @return mixed
+     * @since 6.1.0
+     */
+    public function transact($fn) {
+        return null;
+    }
+
+    /**
      * release
      * 
      * 将PDO连接归还到连接池（仅在启用pool时有效）

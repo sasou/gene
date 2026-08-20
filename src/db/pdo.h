@@ -18,6 +18,7 @@
 #define GENE_DB_PDO_H
 
 #include "zend_smart_str_public.h"
+#include "Zend/zend_API.h"
 
 void array_to_string(zval *array, char **result, char oq, char cq);
 void mssql_array_to_string(zval *array, char **result, char oq, char cq);
@@ -28,6 +29,9 @@ char *gene_quote_order(const char *name, char oq, char cq);
 void gene_pdo_construct(zval *pdo_object, zval *dsn, zval *user, zval *pass, zval *options);
 void gene_pdo_begin_transaction(zval *pdo_object, zval *retval);
 void gene_pdo_commit(zval *pdo_object, zval *retval);
+/* Callback transaction: own begin/commit when not already in a PDO tx;
+ * nested calls only run $fn. Alias in userland: transact(). */
+void gene_pdo_run_transaction(zval *pdo_object, zend_fcall_info *fci, zend_fcall_info_cache *fcc, zval *retval);
 void gene_pdo_exec(zval *pdo_object, char *sql, zval *retval);
 void gene_pdo_in_transaction(zval *pdo_object, zval *retval);
 void gene_pdo_last_insert_id(zval *pdo_object, char *name, zval *retval);
