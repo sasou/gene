@@ -310,10 +310,11 @@ class Controller
      * url
      * 返回带语言前缀的 URL，如 url("login.html") => "/en/login.html"
      * 传入 "/" 也会加上语言前缀，如 url("/") => "/en/"
-     * $lang 为 null 时使用当前请求语言，指定 $lang 则返回该语言的 URL。
+     * $lang 未传时使用当前请求语言，指定 $lang 则返回该语言的 URL；
+     * 传空串 "" 则返回不含语言前缀的 URL，如 url("login.html", "") => "/login.html"。
      *
      * @param string $path 路径，如 login.html 或 "/"
-     * @param string|null $lang 指定语言，null 时使用当前请求语言
+     * @param string $lang 指定语言；未传时使用当前请求语言，传 "" 则不加语言前缀
      * @return string
      */
     public static function url($path, $lang = null) {

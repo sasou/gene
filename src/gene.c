@@ -284,9 +284,9 @@ zend_class_entry *gene_lookup_class_str(const char *name, size_t len) {
  * Controller, View, Hook, Response so they all behave identically.
  *
  * gene_build_url: build "/lang/path" or "/path" from a raw path string and
- *   an explicit lang (NULL ⇒ use current request lang). Strips leading
- *   slashes from the input path. If the path is empty, returns "/lang/" or
- *   "/" depending on lang availability.
+ *   an explicit lang (NULL ⇒ use current request lang; empty string ⇒ no
+ *   lang prefix). Strips leading slashes from the input path. If the path
+ *   is empty, returns "/lang/" or "/" depending on lang availability.
  *
  * gene_get_path: return ctx->path. When without_lang=1 and the path starts
  *   with "/lang/", strip that prefix.
@@ -314,7 +314,7 @@ void gene_build_url(zval *return_value, const char *path_str, size_t path_len, c
 	}
 
 	if (plen == 0) {
-		if (lang) {
+		if (lang && lang_len > 0) {
 			size_t out_len = lang_len + 2;
 			char out_buf[256];
 			char *out_ptr = out_buf;
@@ -335,7 +335,7 @@ void gene_build_url(zval *return_value, const char *path_str, size_t path_len, c
 		return;
 	}
 
-	if (lang) {
+	if (lang && lang_len > 0) {
 		size_t out_len = lang_len + plen + 2;
 		char out_buf[512];
 		char *out_ptr = out_buf;
