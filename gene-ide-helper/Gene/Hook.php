@@ -303,10 +303,10 @@ class Hook
 
     /**
      * url
-     * 返回带语言前缀的 URL。$lang 为 null 时使用当前请求语言。
+     * 返回带语言前缀的 URL。$lang 未传时使用当前请求语言；传空串则不加语言前缀。
      *
      * @param string $path path
-     * @param string|null $lang 指定语言，null 时使用当前请求语言
+     * @param string $lang 指定语言；未传时使用当前请求语言，传 "" 则返回不含语言前缀的 URL
      * @return string
      */
     public static function url($path, $lang = null) {

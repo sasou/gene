@@ -466,7 +466,7 @@ zend_class_entry *gene_lookup_class_str(const char *name, size_t len);
 /* [GENE_FEATURE:2026-08-20] Shared URL/path helpers used by Application,
  * Controller, View, Hook, Response to guarantee consistent behaviour.
  * gene_build_url: build "/lang/path" or "/path" from a path string and
- *   optional explicit lang (NULL ⇒ current request lang).
+ *   optional explicit lang (NULL ⇒ current request lang; "" ⇒ no prefix).
  * gene_get_path: return the request path, optionally stripping the lang prefix.
  * gene_get_router_uri: return the router URI with :m/:c/:a replaced. */
 void gene_build_url(zval *return_value, const char *path_str, size_t path_len, const char *lang, size_t lang_len);

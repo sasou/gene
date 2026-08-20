@@ -423,7 +423,7 @@ PHP_METHOD(gene_hook, getRouterUri) {
 /* }}} */
 
 /** {{{ public gene_hook::url(string $path [, string $lang])
- *  返回带语言前缀的 URL。$lang 为 null 时使用当前请求语言。
+ *  返回带语言前缀的 URL。$lang 未传时使用当前请求语言；传空串则不加语言前缀。
  */
 PHP_METHOD(gene_hook, url) {
 	zend_string *path_str = NULL, *lang_str = NULL;
@@ -432,7 +432,7 @@ PHP_METHOD(gene_hook, url) {
 	if (zend_parse_parameters(ZEND_NUM_ARGS(), "S|S", &path_str, &lang_str) == FAILURE) {
 		return;
 	}
-	if (lang_str && ZSTR_LEN(lang_str) > 0) {
+	if (lang_str) {
 		lang = ZSTR_VAL(lang_str);
 		lang_len = ZSTR_LEN(lang_str);
 	}
