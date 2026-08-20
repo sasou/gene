@@ -166,17 +166,19 @@ $config->set('db', [
         'username' => 'user',
         'password' => 'pass',
         'pool'     => 'dbPool',   // 与 Pool::create 第一个参数一致
-        // 不要加 PDO::ATTR_PERSISTENT => true
+        // PDO::ATTR_PERSISTENT 可保留 true：Swoole 模式下扩展自动改为 false
     ]],
-    'instance' => true,           // Swoole：每协程独立 Mysql 实例
+    'instance' => true,           // 请求内按类名单例；FPM/Swoole 均可
 ]);
 ```
 
 | FPM | Swoole |
 |-----|--------|
-| `instance => false` 常见 | **`instance => true`**（协程级 DI，避免 socket 跨协程绑定） |
+| `instance => true/false` 均可（请求级，不跨请求复用） | 同左（协程级 `di_regs` 隔离，与 `instance` 无关） |
 | 无 `pool` 键 | **`pool` => 池名**，且 workerStart 中 `Pool::create` |
-| 可用持久 PDO | **禁止** `PDO::ATTR_PERSISTENT`（进程级 socket，协程争用） |
+| `ATTR_PERSISTENT => true` 可用（持久 TCP 连接） | 扩展自动改为 `false`（四驱动一致），配置可保留 `true` 适配双模式 |
+
+`instance` 语义：`true` = 请求内按类名单例（同 class 不同 name 共享）；`false` = 请求内按 name 单例。两者均在请求结束随 `di_regs` 销毁，不跨请求/跨协程复用。协程隔离靠 `ctx->di_regs` 按协程 ID 分离，与 `instance` 无关。
 
 `Gene\Db\Mysql` 在配置了 `pool` 后，内部从 `Gene\Pool` 借还 PDO，业务层仍写 `$this->db->select(...)`，无需手写 `get/put`。
 
@@ -254,9 +256,9 @@ User::query()
 
 | 组件 | Swoole 建议 | 说明 |
 |------|-------------|------|
-| `memcache` / `redis`（无 pool 时） | `instance => true` | 单次调用无链式状态；协程 Hook 隔离 socket |
-| `cache` (`Gene\Cache\Cache`) | `instance => false` 可按项目 | 代理层，按 FPM 习惯即可 |
-| `session` | `instance => false` 或自定义 | 状态存外部驱动（redis/memcache） |
+| `memcache` / `redis`（无 pool 时） | `instance => true` | 请求内按类名单例；协程隔离靠 `di_regs`，与 `instance` 无关 |
+| `cache` (`Gene\Cache\Cache`) | `true`/`false` 均可 | 代理层，`instance` 只影响同 class 不同 name 是否共享 |
+| `session` | `true`/`false` 均可 | 状态存外部驱动（redis/memcache）；`instance` 不影响隔离 |
 | `memory` (`Gene\Memory`) | `instance => true` | **仅在 `workerReady()` 之前** 写入；请求期只读 |
 
 ---
@@ -361,7 +363,7 @@ Swoole 无 PHP 超全局，必须用 `init` 注入：
 
 | 错误做法 | 后果 / 正确做法 |
 |----------|-----------------|
-| 使用 `PDO::ATTR_PERSISTENT` | 多协程争用同一 socket → 用 **Pool** |
+| ~~使用 `PDO::ATTR_PERSISTENT`~~ | **已无需手动处理**：Swoole/coroutine 模式下扩展自动改为 `false`（四驱动一致），配置可保留 `true` 适配 FPM/Swoole 双模式 |
 | 忘记 `cleanup()` | 协程上下文泄漏、内存上涨（5.6.8+ 可用 `gene.swoole_auto_cleanup=1` 兜底，见 §7.1） |
 | 忘记 `workerReady()` / `waitWorkerReady()` | 首批请求异常或竞态 |
 | `workerReady()` 后在请求里 `Memory::set` | 运行期禁止写入；改 Redis 或 worker 启动前预热 |

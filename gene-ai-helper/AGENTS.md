@@ -70,12 +70,15 @@ $router->clear()
 $config->set('db', [
     'class'    => '\Gene\Db\Mysql',
     'params'   => [[ /* dsn, username, password, pool? */ ]],
-    'instance' => false,  // FPM 常用 false；Swoole 见 swoole.md
+    'instance' => true,  // FPM/Swoole 均可用 true；详见下方语义说明
 ]);
 ```
 
-- `instance: false` — 每次新建（FPM 下 db 防链式污染）
-- `instance: true` — Worker/进程单例（redis、memory、session 等）
+- `instance: false` — **请求内按 name 单例**：同一 name 复用实例；同 class 不同 name 各自新建。请求结束随 `di_regs` 销毁
+- `instance: true` — **请求内按类名单例**：同 class 不同 name 共享同一实例（如 `db` 与 `db_backup` 同为 `\Gene\Db\Mysql` 时复用）。请求结束随 `di_regs` 销毁
+- 两者均为**请求级生命周期**（FPM 由 RINIT/RSHUTDOWN 管控，Swoole 由 `cleanup()` 管控），不存在跨请求/跨协程复用
+- `instance` 不影响链式状态安全：`Gene\Db\*` 起始方法（`select/insert/update/delete/sql`）自动 reset；ORM `Query` 有终端方法 + 析构双保险 reset
+- `PDO::ATTR_PERSISTENT`：Swoole/coroutine 模式下扩展自动改为 `false`（四驱动一致），配置可保留 `true` 以适配 FPM/Swoole 双模式
 - 访问：`$this->db`、`$this->cache` 等（Controller / Service / Hook）
 
 ---
