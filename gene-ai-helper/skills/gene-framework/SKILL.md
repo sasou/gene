@@ -102,7 +102,7 @@ $router->clear()
 $config->set('db', [
     'class'    => '\Gene\Db\Mysql',
     'params'   => [[ 'dsn' => '...', 'username' => '...', 'password' => '...' ]],
-    'instance' => false,  // FPM：每次新建，避免链式状态污染
+    'instance' => true,   // 请求内按类名单例；FPM/Swoole 均可
 ]);
 $config->set('redis', [
     'class'    => '\Gene\Cache\Redis',
@@ -110,6 +110,11 @@ $config->set('redis', [
     'instance' => true,
 ]);
 ```
+
+`instance` 语义（两者均为**请求级**，请求结束随 `di_regs` 销毁，不跨请求复用）：
+
+- `false` — 请求内按 name 单例：同 name 复用，同 class 不同 name 各自新建
+- `true` — 请求内按类名单例：同 class 不同 name 共享实例
 
 常用组件名：`view`、`request`、`response`、`validate`、`session` / `websession` / `adminsession`、`db`、`memcache`、`redis`、`cache`、`memory`、`language`。
 
