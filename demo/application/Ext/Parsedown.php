@@ -137,7 +137,8 @@ class Parsedown
             }
             while (($beforeTab = strstr($line, "\t", true)) !== false)
             {
-                $shortage = 4 - mb_strlen($beforeTab, 'utf-8') % 4;
+                $tabWidth = function_exists('mb_strlen') ? mb_strlen($beforeTab, 'utf-8') : strlen($beforeTab);
+                $shortage = 4 - $tabWidth % 4;
                 $line = $beforeTab
                     . str_repeat(' ', $shortage)
                     . substr($line, strlen($beforeTab) + 1)
@@ -1077,7 +1078,7 @@ class Parsedown
         );
         $extent = 0;
         $remainder = $Excerpt['text'];
-        if (preg_match('/\[((?:[^][]++|(?R))*+)\]/', $remainder, $matches))
+        if (preg_match('/\[([^\[\]]*+)\]/', $remainder, $matches))
         {
             $Element['handler']['argument'] = $matches[1];
             $extent += strlen($matches[0]);
