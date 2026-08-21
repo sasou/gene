@@ -1,45 +1,57 @@
 # Gene 产品驱动需求计划
 
-本目录存放**由业务项目真实用法推导**的 Gene 扩展增强需求，供后续立项与实现参考。
+本目录存放**由典型应用用法推导**的 Gene 扩展增强需求，供后续立项与实现参考。
 
 与 [`audit/plan/PLAN.md`](../audit/plan/PLAN.md) 的分工：
 
 | 目录 | 内容 | 立项依据 |
 |------|------|----------|
 | `audit/plan/` | 审计遗留项、profile 准入项、已 revert 功能重设计 | 源码审计、压测、ASAN |
-| `plan/`（本目录） | 产品/业务驱动的 API 缺口与优先级 | 生产项目（如 apistore）重复模式、热路径 |
+| `plan/`（本目录） | 产品驱动的 API 缺口与优先级 | 重复模式、热路径、生命周期覆盖 |
 
 **维护约定**
 
-- 新需求须附**代码证据**（文件路径 + 重复次数或热路径说明）
+- 新需求须附**代码证据**（本仓库缺口或可复现的重复模式 + 热路径说明）
 - 不与 `audit/plan` 抢审计项；交叉引用即可
-- 实现约束：C 层只加「重复 ≥3 处或热路径」的 API；惰性写语义不变；`test/OrmTest.php` / `test/DatabaseTest.php` 加用例；ide-helper + `gene-ai-helper/skills/gene-framework/reference.md` 同步
+- 实现约束：C 层只加「重复 ≥3 处或热路径」的 API；Db 惰性写语义不变；对应 `test/*.php` 加用例；ide-helper + `gene-ai-helper/skills/gene-framework/reference.md` 同步
+- 本目录文档**只写 Gene 扩展**，不写业务仓库迁移清单
 
 ---
 
 ## 文档索引
 
-| 文件 | 说明 |
-|------|------|
-| [apistore-usage-driven.md](apistore-usage-driven.md) | 基于 apistore 用法分析的需求规格（P0/P1/P2） |
+| 文件 | 说明 | 状态 |
+|------|------|------|
+| [orm-v2.md](orm-v2.md) | Db ↔ ORM 对称性（Query ops、timestamps、批量写、行锁、IN） | 6.1.0 已落地 |
+| [lifecycle-completeness.md](lifecycle-completeness.md) | 全生命周期原语（Http、SSE、Context、限流/锁、Json、Crypto） | 方案，待立项 |
 
 ---
 
-## 优先级总表
+## ORM 对称性（已落地）
 
-| 优先级 | 能力 | 编码效率 | 性能 | apistore 可立刻替换 |
-|--------|------|----------|------|---------------------|
-| P0 | Query + paginate(order) | 砍掉 28+ `lists()` | 少一次手写 count/select 分叉 | `BaseCrud.lists` |
-| P0 | 可配置 timestamps | 砍掉 Service 每处 `time()` | 无 | `BaseCrud.add/edit` |
-| P0 | createMany / insertIgnore / upsert | 砍掉裸 SQL | RAG 切块 1 次插入 | `Document` / `TaskLog` |
-| P0 | lockForUpdate | 砍掉裸 `FOR UPDATE` | 正确性 | `TaskScheduler` |
-| P0 | findMany / after | 砍掉全表 + N 次 `row()` | 聊天记忆、Skill 注入 | `MemoryManager` / `Skill` |
-| P1 | toggle / like escape / withCount / json / Db auto-reset | 中 | 中 | 按模块 |
+详细规格与复盘见 [orm-v2.md](orm-v2.md)。
 
-详细规格见 [apistore-usage-driven.md](apistore-usage-driven.md)。
+| 优先级 | 能力 | 编码效率 | 性能 |
+|--------|------|----------|------|
+| P0 | Query + paginate(order) | 砍掉手写 count/select 分叉 | 查询次数不变 |
+| P0 | 可配置 timestamps | 砍掉每处 `time()` | 无 |
+| P0 | createMany / insertIgnore / upsert | 砍掉裸 SQL | 批量插入少 round-trip |
+| P0 | lockForUpdate | 砍掉裸 `FOR UPDATE` | 正确性 |
+| P0 | findMany / in(数组) | 砍掉全表 + N 次 `row()` | 少行 / 少查询 |
+| P1 | toggle / like escape / selectSub | 中 | 中 |
 
 ---
 
-## 背景摘要
+## 全生命周期原语（待立项）
 
-Gene 6.0.0 已有 `Model::paginate()`、`$timestamps`、`Db::batchInsert()`，但 **API 形状对不上 apistore 存量表约定**（`addtime`/`updatetime` unix、`lists()` 需 order/投影、Query 未透出 join 等），导致业务继续手写 Db 链或裸 SQL。本目录目标不是再造一套完整 ORM，而是让现有 `lists/add/edit` 与热路径（RAG 切块、调度幂等、会话记忆）能少写 PHP、少打 SQL。
+详细规格见 [lifecycle-completeness.md](lifecycle-completeness.md)。ORM 不在该文范围。
+
+| 优先级 | 能力 | 编码效率 | 性能 |
+|--------|------|----------|------|
+| P0 | `Gene\Http`（curl / Swoole 协程双后端） | 砍掉每项目 curl 样板 | Swoole 下避免阻塞 worker |
+| P0 | `Response::write` + SSE | 砍掉手写 flush | 流式延迟可控 |
+| P0 | `Gene\Context` + Log 带 request_id | 请求隔离、排障 | 无 |
+| P0 | Redis/Memory `rateLimit` / `lock` | 砍掉错误的 SQL COUNT / flock | 少 DB；多机锁可用 |
+| P1 | `Request::json` + `Gene\Json` | 入站 JSON 一处语义 | 正确性 |
+| P1 | `Gene\Crypto`（hmac / randomId / GCM） | 砍掉令牌与 ID 复制 | 无 |
+| P1 | demo Cors / RequestId 钩子 | 约定，不改派发链 | 无 |
