@@ -633,7 +633,8 @@ PHP_METHOD(gene_request, rawContent) {
 
 /*
  * {{{ public gene_request::json(): ?array
- * Decode rawContent as JSON object/array. Empty body → null. Invalid JSON throws.
+ * Decode rawContent as JSON object/array. Empty body → null.
+ * Invalid JSON, JSON null, or non-object/array scalars throw.
  */
 PHP_METHOD(gene_request, json) {
 	zval raw;
@@ -652,9 +653,6 @@ PHP_METHOD(gene_request, json) {
 		RETURN_THROWS();
 	}
 	zval_ptr_dtor(&raw);
-	if (Z_TYPE_P(return_value) == IS_NULL) {
-		return;
-	}
 	if (Z_TYPE_P(return_value) != IS_ARRAY) {
 		zval_ptr_dtor(return_value);
 		ZVAL_UNDEF(return_value);

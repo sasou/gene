@@ -97,7 +97,7 @@
 | header($key, $default = null) | 获取 HTTP 请求头 |
 | clear() | 清除请求数据缓存 |
 | init($get, $post, $cookie, $server, $env, $files, $request = null, $header = null, $rawContent = null) | Swoole 注入请求；未传 $request 时合并 GET+POST；$rawContent 对应 Swoole `$request->rawContent()` |
-| json() | 解析 rawContent 为 JSON 对象/数组；空 body → `null`；非法 JSON 抛异常。禁止直接读 `php://input` |
+| json() | 解析 rawContent 为 JSON 对象/数组；空 body → `null`；非法 JSON / JSON `null` / 标量抛异常。禁止直接读 `php://input` |
 
 ---
 
@@ -788,7 +788,7 @@ Swoole 协程 **Redis 连接池**（FPM 无效）。API 与 `Gene\Pool` 对称�
 
 ## Gene\Http
 
-出站 HTTP。FPM/CLI 走 PHP `curl_*`（缺扩展则抛清晰异常）；`runtime_type >= 2` 且存在 `Swoole\Coroutine\Http\Client` 则走协程客户端，避免阻塞 worker。不跨请求连接池；FPM 仅请求内复用 curl 句柄。
+出站 HTTP。FPM/CLI 走 PHP `curl_*`（缺扩展则抛清晰异常）；`runtime_type >= 2` 且存在 `Swoole\Coroutine\Http\Client` 则走协程客户端，避免阻塞 worker。不跨请求连接池；FPM 请求内复用 curl 句柄；Swoole `keep_alive=>true` 按 `host:port:ssl` 在**当前请求/协程**内复用 Client（`cleanup()` 时释放）。Swoole `stream` 在收完 body 后按 8KB 切片回调（Client 无 write-function，RSS 仍持有完整 body）。
 
 ```php
 $r = \Gene\Http::request([
@@ -800,6 +800,7 @@ $r = \Gene\Http::request([
     'connect_timeout' => 3,
     'ssl_verify' => true,
     'retry'   => 0,               // 仅 GET/HEAD；5xx/超时；上限 3
+    'keep_alive' => false,        // Swoole：请求内复用 Client
     'stream'  => function (string $chunk) {},
 ]);
 // ['status'=>int, 'headers'=>array, 'body'=>string]

@@ -2,6 +2,7 @@
 /**
  * [GENE_FEATURE:2026-08-22] Request-bag / Json / Crypto / Memory lock leak probe.
  * 10k iterations; memory_get_usage(true) must not grow (delta <= 0 after warmup).
+ * CLI = FPM path (request arena). Does not prove Swoole coroutine isolation.
  */
 function probe($label, $iters, $fn) {
     $fn();
@@ -65,6 +66,24 @@ $ok &= probe('Request::json + SSE write', 5000, function () {
         \Gene\Application::cleanup();
     }
 });
+
+if (function_exists('curl_init')) {
+    $ok &= probe('Http curl handle + cleanup', 50, function () {
+        try {
+            \Gene\Http::request([
+                'url' => 'http://127.0.0.1:1/',
+                'timeout' => 1,
+                'connect_timeout' => 1,
+            ]);
+        } catch (\Throwable $e) {
+        }
+        if (method_exists(\Gene\Application::class, 'cleanup')) {
+            \Gene\Application::cleanup();
+        }
+    });
+} else {
+    echo str_pad('Http curl handle + cleanup', 46) . " SKIP (no curl)\n";
+}
 
 echo $ok ? "LEAK PROBE OK\n" : "LEAK PROBE FAILED\n";
 exit($ok ? 0 : 1);

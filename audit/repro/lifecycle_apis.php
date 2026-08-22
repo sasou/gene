@@ -26,6 +26,13 @@ try {
 
 \Gene\Request::init([], [], [], [], null, [], null, [], '{"x":2}');
 expect(\Gene\Request::json()['x'] === 2, 'Request::json');
+try {
+    \Gene\Request::init([], [], [], [], null, [], null, [], 'null');
+    \Gene\Request::json();
+    expect(false, 'Request::json null throws');
+} catch (\Throwable $e) {
+    expect(true, 'Request::json null throws');
+}
 
 ob_start();
 \Gene\Response::sseStart();

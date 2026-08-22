@@ -385,8 +385,9 @@ Swoole 无 PHP 超全局，必须用 `init` 注入：
 
 - Demo 路由：`/redis-demo`、`/redis-demo/performance`（`demo/application/Controllers/RedisDemo.php`）  
 - 日志：`\Gene\Log::exception($e)`、`\Gene\Log::error($msg)`（自动合并 `Context.request_id`）
-- 出站 HTTP：`\Gene\Http::request()` 在 `runtime_type >= 2` 时走 `Swoole\Coroutine\Http\Client`，**不要**裸 `curl_exec`
+- 出站 HTTP：`\Gene\Http::request()` 在 `runtime_type >= 2` 时走 `Swoole\Coroutine\Http\Client`，**不要**裸 `curl_exec`。`keep_alive=>true` 仅在当前协程请求内按 host 复用 Client；`stream` 为收完后 8KB 切片，不是边收边调。
 - SSE：`Response::sseStart()` / `sseEvent()` / `write()` / `sseEnd()` 对应 `$response->write` / `end`
-- 限流/锁：多 worker 用 `$this->redis->rateLimit/lock/unlock`；`Memory::rateLimit` 仅当前 worker 且 `workerReady()` 后冻结
+- 限流/锁：多 worker 用 `$this->redis->rateLimit/lock/unlock`（Lua **EVALSHA**，NOSCRIPT 回落 EVAL）；`Memory::rateLimit` 仅当前 worker 且 `workerReady()` 后冻结
+- 生产建议打开 `gene.swoole_auto_cleanup=1`，请求 `finally` 仍显式 `cleanup()`
 
 更多方法签名见 [reference.md](reference.md) 中 Application、Pool、RedisPool、Request、Http 章节。

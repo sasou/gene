@@ -6,7 +6,10 @@ namespace Gene;
  *
  * FPM/CLI: PHP curl_* (requires ext-curl). Handle reused only inside the
  * current request. Swoole (runtime_type >= 2): Swoole\Coroutine\Http\Client
- * so the worker is not blocked. Does not compile-link libcurl.
+ * so the worker is not blocked. keep_alive=true reuses Client by host:port:ssl
+ * inside the current request/coroutine (destroyed on cleanup). stream on
+ * Swoole is post-execute 8KB slices — Client has no write-function.
+ * Does not compile-link libcurl.
  *
  * @return array{status:int, headers:array, body:string}
  */

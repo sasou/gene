@@ -226,7 +226,7 @@ class Request
     /**
      * json
      * Decode rawContent as a JSON object/array.
-     * Empty body → null. Invalid JSON throws. Scalars throw.
+     * Empty body → null. Invalid JSON / JSON null / scalars throw.
      *
      * @return array|null
      */

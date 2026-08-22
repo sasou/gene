@@ -1415,9 +1415,11 @@ PHP_METHOD(gene_memory, rateLimit) {
 		gene_memory_set_expiry_nolock(router_e, router_e_len, (int)window);
 		allowed = 1;
 	} else if (Z_TYPE_P(copyval) == IS_LONG) {
-		Z_LVAL_P(copyval) += 1;
 		n = Z_LVAL_P(copyval);
-		allowed = (n <= max) ? 1 : 0;
+		if (n < max) {
+			Z_LVAL_P(copyval) = n + 1;
+			allowed = 1;
+		}
 	}
 	GENE_CACHE_WRUNLOCK();
 	if (router_e_heap) efree(router_e);

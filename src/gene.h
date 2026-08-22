@@ -192,8 +192,9 @@ static inline uint64_t gene_hrtime(void) {
 	 /* [GENE_FEATURE:2026-08-22] Userland request bag (Gene\Context). Lazy
 	  * array, UNDEF until first set(); must be freed in free_fields (M6/M7). */
 	 zval user_bag;
-	 /* [GENE_FEATURE:2026-08-22] FPM Gene\Http curl handle — reused only
-	  * inside the current request; destroyed on ctx reset. */
+	 /* [GENE_FEATURE:2026-08-22] Gene\Http request-scoped handle:
+	  * FPM/CLI → CurlHandle object; Swoole keep_alive → array of
+	  * Coroutine\Http\Client keyed by host:port:ssl. Destroyed on ctx reset. */
 	 zval http_curl;
 	 /* Stream callback + body/header accumulators valid only during
 	  * Gene\Http::request(). http_body_buf / http_header_buf point at

@@ -15,6 +15,7 @@
 #include "zend_exceptions.h"
 #include "zend_smart_str.h"
 #include <string.h>
+#include <stdio.h>
 
 #include "../gene.h"
 #include "../common/common.h"
@@ -80,10 +81,35 @@ static void gene_http_invoke_stream(zend_string *chunk) {
 	ZVAL_STR(&arg, chunk); /* borrow */
 	if (call_user_function(NULL, NULL, &ctx->http_stream_cb, &retval, 1, &arg) != SUCCESS) {
 		if (EG(exception)) {
-			/* swallow stream-callback exceptions so curl write continues? rethrow after */
+			/* leave pending; curl write still returns length */
 		}
 	}
 	zval_ptr_dtor(&retval);
+}
+
+/* Swoole Client has no write-function; after execute, feed stream in 8KB slices.
+ * Full body is still returned in the result array (API contract). */
+static void gene_http_invoke_stream_body(zend_string *body) {
+	size_t off = 0;
+	const size_t chunk = 8192;
+	if (!body || ZSTR_LEN(body) == 0) {
+		return;
+	}
+	if (ZSTR_LEN(body) <= chunk) {
+		gene_http_invoke_stream(body);
+		return;
+	}
+	while (off < ZSTR_LEN(body)) {
+		size_t n = ZSTR_LEN(body) - off;
+		zend_string *part;
+		if (n > chunk) {
+			n = chunk;
+		}
+		part = zend_string_init(ZSTR_VAL(body) + off, n, 0);
+		gene_http_invoke_stream(part);
+		zend_string_release(part);
+		off += n;
+	}
 }
 
 /* Internal CURLOPT_WRITEFUNCTION adapter: (CurlHandle, string) -> int */
@@ -337,6 +363,9 @@ static int gene_http_swoole_once(const char *method, zend_string *url, zval *hea
 	zend_long port_l = 80;
 	zend_string *path_qs;
 	zend_class_entry *ce;
+	gene_request_context *hctx;
+	char peer_key[320];
+	size_t peer_key_len;
 
 	*status = 0;
 	*body_out = NULL;
@@ -387,21 +416,45 @@ static int gene_http_swoole_once(const char *method, zend_string *url, zval *hea
 		}
 	}
 
-	array_init(&ctor_params);
-	Z_TRY_ADDREF_P(host);
-	add_next_index_zval(&ctor_params, host);
-	add_next_index_long(&ctor_params, port_l);
-	add_next_index_bool(&ctor_params, ssl);
-	ZVAL_UNDEF(&cli);
-	if (!gene_factory("Swoole\\Coroutine\\Http\\Client", sizeof("Swoole\\Coroutine\\Http\\Client") - 1, &ctor_params, &cli)
-		|| Z_TYPE(cli) != IS_OBJECT) {
-		zval_ptr_dtor(&ctor_params);
-		zval_ptr_dtor(&parsed);
-		zend_string_release(path_qs);
-		zend_throw_exception_ex(NULL, 0, "Gene\\Http: failed to create Swoole HTTP client");
-		return FAILURE;
+	peer_key_len = (size_t)snprintf(peer_key, sizeof(peer_key), "%s:%ld:%d",
+		Z_STRVAL_P(host), port_l, ssl ? 1 : 0);
+	if (peer_key_len >= sizeof(peer_key)) {
+		peer_key_len = sizeof(peer_key) - 1;
 	}
-	zval_ptr_dtor(&ctor_params);
+	hctx = gene_request_ctx();
+	ZVAL_UNDEF(&cli);
+	if (keep_alive && hctx && Z_TYPE(hctx->http_curl) == IS_ARRAY) {
+		zval *slot = zend_hash_str_find(Z_ARRVAL(hctx->http_curl), peer_key, peer_key_len);
+		if (slot && Z_TYPE_P(slot) == IS_OBJECT) {
+			ZVAL_COPY(&cli, slot);
+		}
+	}
+	if (Z_TYPE(cli) != IS_OBJECT) {
+		array_init(&ctor_params);
+		Z_TRY_ADDREF_P(host);
+		add_next_index_zval(&ctor_params, host);
+		add_next_index_long(&ctor_params, port_l);
+		add_next_index_bool(&ctor_params, ssl);
+		if (!gene_factory("Swoole\\Coroutine\\Http\\Client", sizeof("Swoole\\Coroutine\\Http\\Client") - 1, &ctor_params, &cli)
+			|| Z_TYPE(cli) != IS_OBJECT) {
+			zval_ptr_dtor(&ctor_params);
+			zval_ptr_dtor(&parsed);
+			zend_string_release(path_qs);
+			zend_throw_exception_ex(NULL, 0, "Gene\\Http: failed to create Swoole HTTP client");
+			return FAILURE;
+		}
+		zval_ptr_dtor(&ctor_params);
+		if (keep_alive && hctx) {
+			if (Z_TYPE(hctx->http_curl) != IS_ARRAY) {
+				if (Z_TYPE(hctx->http_curl) != IS_UNDEF) {
+					zval_ptr_dtor(&hctx->http_curl);
+				}
+				array_init(&hctx->http_curl);
+			}
+			Z_TRY_ADDREF(cli);
+			zend_hash_str_update(Z_ARRVAL(hctx->http_curl), peer_key, peer_key_len, &cli);
+		}
+	}
 
 	array_init(&set_opts);
 	add_assoc_double_ex(&set_opts, ZEND_STRL("timeout"), timeout);
@@ -427,19 +480,27 @@ static int gene_http_swoole_once(const char *method, zend_string *url, zval *hea
 		zval_ptr_dtor(&dummy);
 		zval_ptr_dtor(&mparams);
 	}
-	if (headers_in && Z_TYPE_P(headers_in) == IS_ARRAY) {
-		zval hparams, dummy;
+	{
+		zval hparams, dummy, hdrs;
 		array_init(&hparams);
-		Z_TRY_ADDREF_P(headers_in);
-		add_next_index_zval(&hparams, headers_in);
+		if (headers_in && Z_TYPE_P(headers_in) == IS_ARRAY) {
+			ZVAL_COPY(&hdrs, headers_in);
+		} else {
+			array_init(&hdrs);
+		}
+		add_next_index_zval(&hparams, &hdrs);
 		gene_factory_call(&cli, "setheaders", sizeof("setheaders") - 1, &hparams, &dummy);
 		zval_ptr_dtor(&dummy);
 		zval_ptr_dtor(&hparams);
 	}
-	if (body && ZSTR_LEN(body) > 0) {
+	{
 		zval dparams, dz, dummy;
 		array_init(&dparams);
-		ZVAL_STR_COPY(&dz, body);
+		if (body && ZSTR_LEN(body) > 0) {
+			ZVAL_STR_COPY(&dz, body);
+		} else {
+			ZVAL_EMPTY_STRING(&dz);
+		}
 		add_next_index_zval(&dparams, &dz);
 		gene_factory_call(&cli, "setdata", sizeof("setdata") - 1, &dparams, &dummy);
 		zval_ptr_dtor(&dummy);
@@ -496,10 +557,13 @@ static int gene_http_swoole_once(const char *method, zend_string *url, zval *hea
 		}
 	}
 
-	if (!keep_alive) {
+	if (!keep_alive || *status <= 0) {
 		zval dummy;
 		gene_factory_call(&cli, "close", sizeof("close") - 1, NULL, &dummy);
 		zval_ptr_dtor(&dummy);
+		if (keep_alive && hctx && Z_TYPE(hctx->http_curl) == IS_ARRAY) {
+			zend_hash_str_del(Z_ARRVAL(hctx->http_curl), peer_key, peer_key_len);
+		}
 	}
 	zval_ptr_dtor(&cli);
 	zval_ptr_dtor(&parsed);
@@ -629,7 +693,7 @@ PHP_METHOD(gene_http, request) {
 				ssl_verify, keep_alive, &status, &headers_out, &resp_body, &err);
 			zval_ptr_dtor(&hdrs_assoc);
 			if (rc == SUCCESS && resp_body && ctx && Z_TYPE(ctx->http_stream_cb) != IS_UNDEF && ZSTR_LEN(resp_body) > 0) {
-				gene_http_invoke_stream(resp_body);
+				gene_http_invoke_stream_body(resp_body);
 			}
 		} else {
 			zval ch, zurlv, zto, zcto, zsslpeer, zsslhost, zfollow, zmaxr, zmethodv, zbodyv;

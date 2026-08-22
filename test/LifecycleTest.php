@@ -92,6 +92,13 @@ class LifecycleTest
         } catch (\Throwable $e) {
             echo "✓ invalid body throws\n";
         }
+        try {
+            \Gene\Request::init([], [], [], [], null, [], null, [], 'null');
+            \Gene\Request::json();
+            echo "✗ JSON null did not throw\n";
+        } catch (\Throwable $e) {
+            echo "✓ JSON null (non-empty) throws\n";
+        }
         echo "\n";
     }
 
