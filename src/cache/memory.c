@@ -71,6 +71,22 @@ ZEND_BEGIN_ARG_INFO_EX(gene_memory_arg_mset, 0, 0, 1)
     ZEND_ARG_INFO(0, ttl)
 ZEND_END_ARG_INFO()
 
+ZEND_BEGIN_ARG_INFO_EX(gene_memory_arg_rate_limit, 0, 0, 3)
+	ZEND_ARG_INFO(0, key)
+	ZEND_ARG_INFO(0, max)
+	ZEND_ARG_INFO(0, windowSec)
+ZEND_END_ARG_INFO()
+
+ZEND_BEGIN_ARG_INFO_EX(gene_memory_arg_lock, 0, 0, 2)
+	ZEND_ARG_INFO(0, key)
+	ZEND_ARG_INFO(0, ttlSec)
+ZEND_END_ARG_INFO()
+
+ZEND_BEGIN_ARG_INFO_EX(gene_memory_arg_unlock, 0, 0, 2)
+	ZEND_ARG_INFO(0, key)
+	ZEND_ARG_INFO(0, token)
+ZEND_END_ARG_INFO()
+
 /* }}} */
 
 static zend_string* gene_str_persistent(const char *str, size_t len) /* {{{ */{
@@ -1331,6 +1347,172 @@ PHP_METHOD(gene_memory, decr) {
 }
 /* }}} */
 
+static zend_string *gene_memory_random_token(void) {
+	zval n, raw, hex;
+	zend_function *fn;
+	ZVAL_LONG(&n, 16);
+	ZVAL_UNDEF(&raw);
+	fn = zend_hash_str_find_ptr(CG(function_table), ZEND_STRL("random_bytes"));
+	if (UNEXPECTED(!fn)) {
+		return NULL;
+	}
+	zend_call_known_function(fn, NULL, NULL, &raw, 1, &n, NULL);
+	if (Z_TYPE(raw) != IS_STRING) {
+		zval_ptr_dtor(&raw);
+		return NULL;
+	}
+	fn = zend_hash_str_find_ptr(CG(function_table), ZEND_STRL("bin2hex"));
+	if (UNEXPECTED(!fn)) {
+		zval_ptr_dtor(&raw);
+		return NULL;
+	}
+	ZVAL_UNDEF(&hex);
+	zend_call_known_function(fn, NULL, NULL, &hex, 1, &raw, NULL);
+	zval_ptr_dtor(&raw);
+	if (Z_TYPE(hex) != IS_STRING) {
+		zval_ptr_dtor(&hex);
+		return NULL;
+	}
+	return Z_STR(hex);
+}
+
+/*
+ * {{{ public gene_memory::rateLimit(string $key, int $max, int $windowSec): bool
+ * Single-process / single-worker only. After Swoole workerReady() Memory is
+ * frozen — use Gene\Cache\Redis::rateLimit instead.
+ */
+PHP_METHOD(gene_memory, rateLimit) {
+	zend_string *keyString;
+	zend_long max, window;
+	char stack_buf[256];
+	char *router_e;
+	size_t router_e_len;
+	int router_e_heap = 0;
+	zval *safe, *copyval, one;
+	zend_string *pkey;
+	zend_long n;
+	int allowed = 0;
+	if (zend_parse_parameters(ZEND_NUM_ARGS(), "Sll", &keyString, &max, &window) == FAILURE) {
+		return;
+	}
+	if (max < 1 || window < 1) {
+		RETURN_FALSE;
+	}
+	if (UNEXPECTED(!gene_memory_write_allowed("Memory::rateLimit"))) {
+		RETURN_FALSE;
+	}
+	safe = zend_read_property(gene_memory_ce, gene_strip_obj(getThis()), GENE_MEMORY_SAFE, strlen(GENE_MEMORY_SAFE), 1, NULL);
+	router_e = gene_memory_build_key(safe, keyString, stack_buf, sizeof(stack_buf), &router_e_len, &router_e_heap);
+	GENE_CACHE_WRLOCK();
+	if (gene_memory_expired_nolock(router_e, router_e_len)) {
+		gene_memory_del_core(router_e, router_e_len);
+	}
+	copyval = zend_symtable_str_find(GENE_G(cache), router_e, router_e_len);
+	if (copyval == NULL) {
+		ZVAL_LONG(&one, 1);
+		pkey = gene_str_persistent(router_e, router_e_len);
+		gene_symtable_update(GENE_G(cache), pkey, &one);
+		gene_memory_set_expiry_nolock(router_e, router_e_len, (int)window);
+		allowed = 1;
+	} else if (Z_TYPE_P(copyval) == IS_LONG) {
+		Z_LVAL_P(copyval) += 1;
+		n = Z_LVAL_P(copyval);
+		allowed = (n <= max) ? 1 : 0;
+	}
+	GENE_CACHE_WRUNLOCK();
+	if (router_e_heap) efree(router_e);
+	RETURN_BOOL(allowed);
+}
+/* }}} */
+
+/*
+ * {{{ public gene_memory::lock(string $key, int $ttlSec): string|false
+ */
+PHP_METHOD(gene_memory, lock) {
+	zend_string *keyString, *token;
+	zend_long ttl;
+	char stack_buf[256];
+	char *router_e;
+	size_t router_e_len;
+	int router_e_heap = 0;
+	zval *safe, *copyval, tok;
+	zend_string *pkey;
+	int ok = 0;
+	if (zend_parse_parameters(ZEND_NUM_ARGS(), "Sl", &keyString, &ttl) == FAILURE) {
+		return;
+	}
+	if (ttl < 1) {
+		RETURN_FALSE;
+	}
+	if (UNEXPECTED(!gene_memory_write_allowed("Memory::lock"))) {
+		RETURN_FALSE;
+	}
+	token = gene_memory_random_token();
+	if (!token) {
+		RETURN_FALSE;
+	}
+	safe = zend_read_property(gene_memory_ce, gene_strip_obj(getThis()), GENE_MEMORY_SAFE, strlen(GENE_MEMORY_SAFE), 1, NULL);
+	router_e = gene_memory_build_key(safe, keyString, stack_buf, sizeof(stack_buf), &router_e_len, &router_e_heap);
+	GENE_CACHE_WRLOCK();
+	if (gene_memory_expired_nolock(router_e, router_e_len)) {
+		gene_memory_del_core(router_e, router_e_len);
+	}
+	copyval = zend_symtable_str_find(GENE_G(cache), router_e, router_e_len);
+	if (copyval == NULL) {
+		zval src;
+		ZVAL_STR(&src, token); /* borrow; gene_memory_zval_persistent copies */
+		gene_memory_zval_persistent(&tok, &src);
+		pkey = gene_str_persistent(router_e, router_e_len);
+		gene_symtable_update(GENE_G(cache), pkey, &tok);
+		gene_memory_set_expiry_nolock(router_e, router_e_len, (int)ttl);
+		ok = 1;
+	}
+	GENE_CACHE_WRUNLOCK();
+	if (router_e_heap) efree(router_e);
+	if (ok) {
+		RETURN_STR(token);
+	}
+	zend_string_release(token);
+	RETURN_FALSE;
+}
+/* }}} */
+
+/*
+ * {{{ public gene_memory::unlock(string $key, string $token): bool
+ */
+PHP_METHOD(gene_memory, unlock) {
+	zend_string *keyString, *token;
+	char stack_buf[256];
+	char *router_e;
+	size_t router_e_len;
+	int router_e_heap = 0;
+	zval *safe, *copyval;
+	int ok = 0;
+	if (zend_parse_parameters(ZEND_NUM_ARGS(), "SS", &keyString, &token) == FAILURE) {
+		return;
+	}
+	if (UNEXPECTED(!gene_memory_write_allowed("Memory::unlock"))) {
+		RETURN_FALSE;
+	}
+	safe = zend_read_property(gene_memory_ce, gene_strip_obj(getThis()), GENE_MEMORY_SAFE, strlen(GENE_MEMORY_SAFE), 1, NULL);
+	router_e = gene_memory_build_key(safe, keyString, stack_buf, sizeof(stack_buf), &router_e_len, &router_e_heap);
+	GENE_CACHE_WRLOCK();
+	if (gene_memory_expired_nolock(router_e, router_e_len)) {
+		gene_memory_del_core(router_e, router_e_len);
+	} else {
+		copyval = zend_symtable_str_find(GENE_G(cache), router_e, router_e_len);
+		if (copyval && Z_TYPE_P(copyval) == IS_STRING
+			&& Z_STRLEN_P(copyval) == ZSTR_LEN(token)
+			&& memcmp(Z_STRVAL_P(copyval), ZSTR_VAL(token), ZSTR_LEN(token)) == 0) {
+			ok = gene_memory_del_core(router_e, router_e_len);
+		}
+	}
+	GENE_CACHE_WRUNLOCK();
+	if (router_e_heap) efree(router_e);
+	RETURN_BOOL(ok);
+}
+/* }}} */
+
 /*
  * {{{ public gene_memory::mget(array $keys): array
  * [GENE_FEATURE:2026-08-07] Batch read. Returns an assoc array mapping each
@@ -1503,6 +1685,9 @@ const zend_function_entry gene_memory_methods[] = {
 	PHP_ME(gene_memory, del, gene_memory_arg_del, ZEND_ACC_PUBLIC)
 	PHP_ME(gene_memory, incr, gene_memory_arg_incr, ZEND_ACC_PUBLIC)
 	PHP_ME(gene_memory, decr, gene_memory_arg_incr, ZEND_ACC_PUBLIC)
+	PHP_ME(gene_memory, rateLimit, gene_memory_arg_rate_limit, ZEND_ACC_PUBLIC)
+	PHP_ME(gene_memory, lock, gene_memory_arg_lock, ZEND_ACC_PUBLIC)
+	PHP_ME(gene_memory, unlock, gene_memory_arg_unlock, ZEND_ACC_PUBLIC)
 	/* [GENE_FEATURE:2026-08-07] Batch read/write. */
 	PHP_ME(gene_memory, mget, gene_memory_arg_mget, ZEND_ACC_PUBLIC)
 	PHP_ME(gene_memory, mset, gene_memory_arg_mset, ZEND_ACC_PUBLIC)

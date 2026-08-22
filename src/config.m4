@@ -45,6 +45,9 @@ if test "$PHP_GENE" != "no"; then
 	  session/session.c \
 	  http/request.c \
 	  http/response.c \
+	  http/context.c \
+	  http/json.c \
+	  http/http.c \
 	  http/validate.c \
       http/webscan.c \
 	  mvc/view.c \
@@ -53,6 +56,7 @@ if test "$PHP_GENE" != "no"; then
     tool/language.c \
 	  tool/log.c \
 	  tool/monitor.c \
+	  tool/crypto.c \
 	  db/pdo.c \
 	  db/pool.c \
 	  db/mysql.c \

@@ -224,6 +224,17 @@ class Request
     }
 
     /**
+     * json
+     * Decode rawContent as a JSON object/array.
+     * Empty body → null. Invalid JSON throws. Scalars throw.
+     *
+     * @return array|null
+     */
+    public static function json() {
+
+    }
+
+    /**
      * getContent
      * rawContent 的别名
      *

@@ -22,6 +22,7 @@
 #include "php_ini.h"
 #include "main/SAPI.h"
 #include "main/php_streams.h"
+#include "main/php_output.h"
 #include "Zend/zend_API.h"
 #include "zend_exceptions.h"
 #include "Zend/zend_smart_str.h"
@@ -30,6 +31,7 @@
 
 #include "../gene.h"
 #include "../http/response.h"
+#include "../http/json.h"
 #include "../cache/memory.h"
 #include "../di/di.h"
 
@@ -93,6 +95,15 @@ ZEND_END_ARG_INFO()
 
 ZEND_BEGIN_ARG_INFO_EX(gene_response_arg_end, 0, 0, 0)
     ZEND_ARG_INFO(0, data)
+ZEND_END_ARG_INFO()
+
+ZEND_BEGIN_ARG_INFO_EX(gene_response_arg_write, 0, 0, 1)
+	ZEND_ARG_INFO(0, chunk)
+ZEND_END_ARG_INFO()
+
+ZEND_BEGIN_ARG_INFO_EX(gene_response_arg_sse_event, 0, 0, 2)
+	ZEND_ARG_INFO(0, event)
+	ZEND_ARG_INFO(0, data)
 ZEND_END_ARG_INFO()
 
 ZEND_BEGIN_ARG_INFO_EX(gene_response_arg_send_file, 0, 0, 1)
@@ -161,6 +172,8 @@ static zend_class_entry *gene_swoole_resp_cache_cookie_ce = NULL;
 static zend_function    *gene_swoole_resp_cache_cookie_fn = NULL;
 static zend_class_entry *gene_swoole_resp_cache_end_ce = NULL;
 static zend_function    *gene_swoole_resp_cache_end_fn = NULL;
+static zend_class_entry *gene_swoole_resp_cache_write_ce = NULL;
+static zend_function    *gene_swoole_resp_cache_write_fn = NULL;
 
 /** {{{ void gene_response_set_redirect(char *url, zend_long code)
  */
@@ -797,6 +810,154 @@ PHP_METHOD(gene_response, sendFile) {
 }
 /* }}} */
 
+/** {{{ gene_response_write_chunk — FPM php_write+flush; Swoole $response->write */
+static void gene_response_write_chunk(const char *data, size_t len) {
+	zval *swoole_resp = gene_response_context_obj();
+	if (swoole_resp) {
+		zend_function *fn = GENE_SWOOLE_RESP_METHOD(Z_OBJCE_P(swoole_resp), write);
+		if (UNEXPECTED(!fn)) {
+			return;
+		}
+		zval retval, zdata;
+		ZVAL_UNDEF(&retval);
+		ZVAL_STRINGL(&zdata, data, len);
+		zval params[] = { zdata };
+		zend_call_known_function(fn, Z_OBJ_P(swoole_resp), Z_OBJCE_P(swoole_resp), &retval, 1, params, NULL);
+		zval_ptr_dtor(&zdata);
+		zval_ptr_dtor(&retval);
+		return;
+	}
+	if (len > 0) {
+		php_write((char *)data, len);
+	}
+	sapi_flush();
+}
+/* }}} */
+
+/** {{{ proto public gene_response::write(string $chunk) */
+PHP_METHOD(gene_response, write) {
+	zend_string *chunk;
+	if (zend_parse_parameters(ZEND_NUM_ARGS(), "S", &chunk) == FAILURE) {
+		return;
+	}
+	gene_response_write_chunk(ZSTR_VAL(chunk), ZSTR_LEN(chunk));
+	RETURN_TRUE;
+}
+/* }}} */
+
+/** {{{ proto public gene_response::sseStart() */
+PHP_METHOD(gene_response, sseStart) {
+	/* FPM/php-cgi: drop implicit output_buffering/zlib so events flush.
+	 * CLI (unit tests) and Swoole (writes go to $response->write) keep
+	 * userland ob_start() capture intact — Swoole's SAPI name is also "cli". */
+	if (sapi_module.name && strcmp(sapi_module.name, "cli") != 0) {
+		while (php_output_get_level() > 0) {
+			php_output_discard();
+		}
+	}
+	{
+		zend_function *fn = zend_hash_str_find_ptr(CG(function_table), ZEND_STRL("ini_set"));
+		if (fn) {
+			zval k, v, ret;
+			ZVAL_UNDEF(&ret);
+			ZVAL_STRING(&k, "zlib.output_compression");
+			ZVAL_STRING(&v, "0");
+			zval params[] = { k, v };
+			zend_call_known_function(fn, NULL, NULL, &ret, 2, params, NULL);
+			zval_ptr_dtor(&k);
+			zval_ptr_dtor(&v);
+			zval_ptr_dtor(&ret);
+			ZVAL_UNDEF(&ret);
+			ZVAL_STRING(&k, "output_buffering");
+			ZVAL_STRING(&v, "0");
+			zval params2[] = { k, v };
+			zend_call_known_function(fn, NULL, NULL, &ret, 2, params2, NULL);
+			zval_ptr_dtor(&k);
+			zval_ptr_dtor(&v);
+			zval_ptr_dtor(&ret);
+		}
+	}
+	gene_response_set_header("Content-Type", "text/event-stream; charset=UTF-8");
+	gene_response_set_header("Cache-Control", "no-cache");
+	gene_response_set_header("Connection", "keep-alive");
+	gene_response_set_header("X-Accel-Buffering", "no");
+	sapi_flush();
+	RETURN_TRUE;
+}
+/* }}} */
+
+/** {{{ proto public gene_response::sseEvent(string $event, mixed $data) */
+PHP_METHOD(gene_response, sseEvent) {
+	zend_string *event;
+	zval *data;
+	zend_string *payload = NULL;
+	int own_payload = 0;
+	smart_str buf = {0};
+	if (zend_parse_parameters(ZEND_NUM_ARGS(), "Sz", &event, &data) == FAILURE) {
+		return;
+	}
+	if (Z_TYPE_P(data) == IS_STRING) {
+		payload = Z_STR_P(data);
+	} else if (Z_TYPE_P(data) == IS_ARRAY || Z_TYPE_P(data) == IS_OBJECT) {
+		zval encoded;
+		if (gene_json_encode_throw(data, &encoded) != SUCCESS) {
+			RETURN_THROWS();
+		}
+		payload = Z_STR(encoded);
+		own_payload = 1;
+	} else {
+		payload = zval_get_string(data);
+		own_payload = 1;
+	}
+	smart_str_appends(&buf, "event: ");
+	smart_str_append(&buf, event);
+	smart_str_appendc(&buf, '\n');
+	{
+		const char *p = ZSTR_VAL(payload);
+		const char *end = p + ZSTR_LEN(payload);
+		const char *nl;
+		while (p < end) {
+			nl = memchr(p, '\n', (size_t)(end - p));
+			smart_str_appends(&buf, "data: ");
+			if (nl) {
+				size_t n = (size_t)(nl - p);
+				if (n && p[n - 1] == '\r') {
+					n--;
+				}
+				smart_str_appendl(&buf, p, n);
+				smart_str_appendc(&buf, '\n');
+				p = nl + 1;
+			} else {
+				smart_str_appendl(&buf, p, (size_t)(end - p));
+				smart_str_appendc(&buf, '\n');
+				break;
+			}
+		}
+	}
+	smart_str_appendc(&buf, '\n');
+	smart_str_0(&buf);
+	if (buf.s) {
+		gene_response_write_chunk(ZSTR_VAL(buf.s), ZSTR_LEN(buf.s));
+	}
+	smart_str_free(&buf);
+	if (own_payload) {
+		zend_string_release(payload);
+	}
+	RETURN_TRUE;
+}
+/* }}} */
+
+/** {{{ proto public gene_response::sseEnd() */
+PHP_METHOD(gene_response, sseEnd) {
+	zend_function *fn = zend_hash_str_find_ptr(&gene_response_ce->function_table, ZEND_STRL("end"));
+	if (EXPECTED(fn)) {
+		zend_call_known_function(fn, NULL, gene_response_ce, return_value, 0, NULL, NULL);
+		return;
+	}
+	RETURN_TRUE;
+}
+/* }}} */
+
 /** {{{ proto public gene_response::setJsonHeader()
  */
 PHP_METHOD(gene_response, setJsonHeader) {
@@ -828,6 +989,10 @@ const zend_function_entry gene_response_methods[] = {
 	PHP_ME(gene_response, cookie, gene_response_arg_cookie, ZEND_ACC_PUBLIC|ZEND_ACC_STATIC)
 	PHP_ME(gene_response, url, gene_response_arg_url, ZEND_ACC_PUBLIC|ZEND_ACC_STATIC)
 	PHP_ME(gene_response, end, gene_response_arg_end, ZEND_ACC_PUBLIC|ZEND_ACC_STATIC)
+	PHP_ME(gene_response, write, gene_response_arg_write, ZEND_ACC_PUBLIC|ZEND_ACC_STATIC)
+	PHP_ME(gene_response, sseStart, gene_response_void_arginfo, ZEND_ACC_PUBLIC|ZEND_ACC_STATIC)
+	PHP_ME(gene_response, sseEvent, gene_response_arg_sse_event, ZEND_ACC_PUBLIC|ZEND_ACC_STATIC)
+	PHP_ME(gene_response, sseEnd, gene_response_void_arginfo, ZEND_ACC_PUBLIC|ZEND_ACC_STATIC)
 	/* [GENE_FEATURE:2026-08-07] Status introspection + file streaming. */
 	PHP_ME(gene_response, getStatusCode, gene_response_void_arginfo, ZEND_ACC_PUBLIC|ZEND_ACC_STATIC)
 	PHP_ME(gene_response, isSent, gene_response_void_arginfo, ZEND_ACC_PUBLIC|ZEND_ACC_STATIC)

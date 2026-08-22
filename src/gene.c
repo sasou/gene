@@ -39,6 +39,10 @@
 #include "http/webscan.h"
 #include "http/response.h"
 #include "http/validate.h"
+#include "http/context.h"
+#include "http/json.h"
+#include "http/http.h"
+#include "tool/crypto.h"
 #include "session/session.h"
 #include "mvc/view.h"
 #include "exception/exception.h"
@@ -448,6 +452,11 @@ void gene_request_context_init(gene_request_context *ctx) {
 	ZVAL_UNDEF(&ctx->db_sqlite_history);
 	ZVAL_UNDEF(&ctx->db_mssql_history);
 	ZVAL_UNDEF(&ctx->orm_meta);
+	ZVAL_UNDEF(&ctx->user_bag);
+	ZVAL_UNDEF(&ctx->http_curl);
+	ZVAL_UNDEF(&ctx->http_stream_cb);
+	ctx->http_body_buf = NULL;
+	ctx->http_header_buf = NULL;
 	ctx->view_scope_no = 0;
 	ctx->log_file = NULL;
 	ctx->log_level = 0;
@@ -669,6 +678,24 @@ static void gene_request_context_free_fields(gene_request_context *ctx, int pres
 		zval_ptr_dtor(&ctx->orm_meta);
 		ZVAL_UNDEF(&ctx->orm_meta);
 	}
+	/* [GENE_FEATURE:2026-08-22] Gene\Context request bag. Recycle small
+	 * tables on reset (M5); fully free on destroy. */
+	if (preserve_for_reuse) {
+		gene_ctx_reuse_lazy_array(&ctx->user_bag);
+	} else if (Z_TYPE(ctx->user_bag) != IS_UNDEF) {
+		zval_ptr_dtor(&ctx->user_bag);
+		ZVAL_UNDEF(&ctx->user_bag);
+	}
+	if (Z_TYPE(ctx->http_curl) != IS_UNDEF) {
+		zval_ptr_dtor(&ctx->http_curl);
+		ZVAL_UNDEF(&ctx->http_curl);
+	}
+	if (Z_TYPE(ctx->http_stream_cb) != IS_UNDEF) {
+		zval_ptr_dtor(&ctx->http_stream_cb);
+		ZVAL_UNDEF(&ctx->http_stream_cb);
+	}
+	ctx->http_body_buf = NULL;
+	ctx->http_header_buf = NULL;
 	ctx->log_level = 0;
 	ctx->log_level_set = 0;
 	ctx->view_scope_no = 0;
@@ -1412,6 +1439,10 @@ PHP_MINIT_FUNCTION(gene) {
 	GENE_STARTUP(request);
 	GENE_STARTUP(webscan);
 	GENE_STARTUP(response);
+	GENE_STARTUP(context);
+	GENE_STARTUP(json);
+	GENE_STARTUP(http);
+	GENE_STARTUP(crypto);
 	GENE_STARTUP(validate);
 	GENE_STARTUP(session);
 	GENE_STARTUP(view);
@@ -1641,6 +1672,13 @@ const zend_module_dep gene_deps[] = {
 	 * pool return both call PDO methods during RSHUTDOWN/destructors — pin
 	 * the module shutdown order so pdo is still loaded when gene tears down. */
 	ZEND_MOD_REQUIRED("pdo")
+	/* [GENE_FEATURE:2026-08-22] Gene\Http uses PHP curl_* in FPM/CLI;
+	 * Gene\Crypto uses openssl_*; json is used by Gene\Json. Optional so
+	 * the extension still loads when a given SAPIs omits them — APIs throw
+	 * a clear exception at call time instead. */
+	ZEND_MOD_OPTIONAL("curl")
+	ZEND_MOD_OPTIONAL("openssl")
+	ZEND_MOD_OPTIONAL("json")
 	{ NULL, NULL, NULL }
 };
 #endif

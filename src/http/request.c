@@ -28,6 +28,7 @@
 
 #include "../gene.h"
 #include "../http/request.h"
+#include "../http/json.h"
 #include "../common/common.h"
 #include "../cache/memory.h"
 
@@ -631,6 +632,39 @@ PHP_METHOD(gene_request, rawContent) {
 /* }}} */
 
 /*
+ * {{{ public gene_request::json(): ?array
+ * Decode rawContent as JSON object/array. Empty body → null. Invalid JSON throws.
+ */
+PHP_METHOD(gene_request, json) {
+	zval raw;
+	zend_function *fn;
+	ZVAL_UNDEF(&raw);
+	fn = zend_hash_str_find_ptr(&gene_request_ce->function_table, ZEND_STRL("rawcontent"));
+	if (EXPECTED(fn)) {
+		zend_call_known_function(fn, NULL, gene_request_ce, &raw, 0, NULL, NULL);
+	}
+	if (Z_TYPE(raw) != IS_STRING || Z_STRLEN(raw) == 0) {
+		zval_ptr_dtor(&raw);
+		RETURN_NULL();
+	}
+	if (gene_json_decode_throw(Z_STR(raw), return_value) != SUCCESS) {
+		zval_ptr_dtor(&raw);
+		RETURN_THROWS();
+	}
+	zval_ptr_dtor(&raw);
+	if (Z_TYPE_P(return_value) == IS_NULL) {
+		return;
+	}
+	if (Z_TYPE_P(return_value) != IS_ARRAY) {
+		zval_ptr_dtor(return_value);
+		ZVAL_UNDEF(return_value);
+		zend_throw_exception_ex(NULL, 0, "Gene\\Request::json() expects a JSON object or array");
+		RETURN_THROWS();
+	}
+}
+/* }}} */
+
+/*
  * {{{ public gene_request::clear()
  */
 PHP_METHOD(gene_request, clear) {
@@ -675,6 +709,7 @@ const zend_function_entry gene_request_methods[] = {
 	PHP_ME(gene_request, clear, geme_request_void_arginfo, ZEND_ACC_PUBLIC|ZEND_ACC_STATIC)
 	PHP_ME(gene_request, rawContent, geme_request_void_arginfo, ZEND_ACC_PUBLIC|ZEND_ACC_STATIC)
 	PHP_MALIAS(gene_request, getContent, rawContent, geme_request_void_arginfo, ZEND_ACC_PUBLIC|ZEND_ACC_STATIC)
+	PHP_ME(gene_request, json, geme_request_void_arginfo, ZEND_ACC_PUBLIC|ZEND_ACC_STATIC)
 	PHP_MALIAS(gene_request, __set, _set, gene_request_set_arginfo, ZEND_ACC_PUBLIC)
 	PHP_MALIAS(gene_request, __get, _get, gene_request_get_arginfo, ZEND_ACC_PUBLIC)
 	{ NULL, NULL, NULL }

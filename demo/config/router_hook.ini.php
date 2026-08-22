@@ -49,5 +49,7 @@ $router->clear()
 
     // 使用 Gene\Hook 子类注册钩子 (避免 eval，走C直接调用)
     ->hook("adminAuth", "Hooks\AdminAuth@handle")
+    ->hook("cors", "Hooks\Cors@handle")
+    ->hook("requestId", "Hooks\RequestId@handle")
     ->hook("before", "Hooks\BeforeHook@handle")
     ->hook("after", "Hooks\AfterHook@handle");

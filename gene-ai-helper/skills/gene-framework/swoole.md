@@ -384,7 +384,9 @@ Swoole 无 PHP 超全局，必须用 `init` 注入：
 ## 10. 调试与演示
 
 - Demo 路由：`/redis-demo`、`/redis-demo/performance`（`demo/application/Controllers/RedisDemo.php`）  
-- 日志：`\Gene\Log::exception($e)`、`\Gene\Log::error($msg)`  
-- 连接池状态：`Pool::getInstance('dbPool')->stats()`、`RedisPool::getInstance('redisPool')->stats()`
+- 日志：`\Gene\Log::exception($e)`、`\Gene\Log::error($msg)`（自动合并 `Context.request_id`）
+- 出站 HTTP：`\Gene\Http::request()` 在 `runtime_type >= 2` 时走 `Swoole\Coroutine\Http\Client`，**不要**裸 `curl_exec`
+- SSE：`Response::sseStart()` / `sseEvent()` / `write()` / `sseEnd()` 对应 `$response->write` / `end`
+- 限流/锁：多 worker 用 `$this->redis->rateLimit/lock/unlock`；`Memory::rateLimit` 仅当前 worker 且 `workerReady()` 后冻结
 
-更多方法签名见 [reference.md](reference.md) 中 Application、Pool、RedisPool、Request 章节。
+更多方法签名见 [reference.md](reference.md) 中 Application、Pool、RedisPool、Request、Http 章节。

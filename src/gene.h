@@ -189,6 +189,18 @@ static inline uint64_t gene_hrtime(void) {
 	  * Gene\Orm\Model subclass metadata (class name => array). Must not be
 	  * process-persistent — mirrors di_regs lifetime. */
 	 zval orm_meta;
+	 /* [GENE_FEATURE:2026-08-22] Userland request bag (Gene\Context). Lazy
+	  * array, UNDEF until first set(); must be freed in free_fields (M6/M7). */
+	 zval user_bag;
+	 /* [GENE_FEATURE:2026-08-22] FPM Gene\Http curl handle — reused only
+	  * inside the current request; destroyed on ctx reset. */
+	 zval http_curl;
+	 /* Stream callback + body/header accumulators valid only during
+	  * Gene\Http::request(). http_body_buf / http_header_buf point at
+	  * stack smart_str; must be NULL outside the call. */
+	 zval http_stream_cb;
+	 void *http_body_buf;
+	 void *http_header_buf;
 	 struct timeval bench_start;
 	 struct timeval bench_end;
 	 zend_long bench_memory_start;

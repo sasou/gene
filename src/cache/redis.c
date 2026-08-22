@@ -51,6 +51,22 @@ ZEND_BEGIN_ARG_INFO_EX(gene_redis_call_arginfo, 0, 0, 2)
 	ZEND_ARG_INFO(0, params)
 ZEND_END_ARG_INFO()
 
+ZEND_BEGIN_ARG_INFO_EX(gene_redis_rate_limit_arginfo, 0, 0, 3)
+	ZEND_ARG_INFO(0, key)
+	ZEND_ARG_INFO(0, max)
+	ZEND_ARG_INFO(0, windowSec)
+ZEND_END_ARG_INFO()
+
+ZEND_BEGIN_ARG_INFO_EX(gene_redis_lock_arginfo, 0, 0, 2)
+	ZEND_ARG_INFO(0, key)
+	ZEND_ARG_INFO(0, ttlSec)
+ZEND_END_ARG_INFO()
+
+ZEND_BEGIN_ARG_INFO_EX(gene_redis_unlock_arginfo, 0, 0, 2)
+	ZEND_ARG_INFO(0, key)
+	ZEND_ARG_INFO(0, token)
+ZEND_END_ARG_INFO()
+
 int gene_redis_connect(zval *object, zval *host, zval *port, zval *timeout) /*{{{*/
 {
     zval retval;
@@ -540,6 +556,176 @@ PHP_METHOD(gene_redis, __call) {
 	RETURN_NULL();
 }
 
+static const char GENE_REDIS_RATE_LIMIT_LUA[] =
+	"local n = redis.call('INCR', KEYS[1])\n"
+	"if n == 1 then redis.call('EXPIRE', KEYS[1], ARGV[1]) end\n"
+	"if n > tonumber(ARGV[2]) then return 0 end\n"
+	"return 1";
+
+static const char GENE_REDIS_UNLOCK_LUA[] =
+	"if redis.call('GET', KEYS[1]) == ARGV[1] then return redis.call('DEL', KEYS[1]) else return 0 end";
+
+static zend_string *gene_redis_random_token(void) {
+	zval n, raw, hex;
+	zend_function *fn;
+	ZVAL_LONG(&n, 16);
+	ZVAL_UNDEF(&raw);
+	fn = zend_hash_str_find_ptr(CG(function_table), ZEND_STRL("random_bytes"));
+	if (UNEXPECTED(!fn)) {
+		return NULL;
+	}
+	zend_call_known_function(fn, NULL, NULL, &raw, 1, &n, NULL);
+	if (Z_TYPE(raw) != IS_STRING) {
+		zval_ptr_dtor(&raw);
+		return NULL;
+	}
+	ZVAL_UNDEF(&hex);
+	fn = zend_hash_str_find_ptr(CG(function_table), ZEND_STRL("bin2hex"));
+	if (UNEXPECTED(!fn)) {
+		zval_ptr_dtor(&raw);
+		return NULL;
+	}
+	zend_call_known_function(fn, NULL, NULL, &hex, 1, &raw, NULL);
+	zval_ptr_dtor(&raw);
+	if (Z_TYPE(hex) != IS_STRING) {
+		zval_ptr_dtor(&hex);
+		return NULL;
+	}
+	return Z_STR(hex);
+}
+
+static void gene_redis_eval(zval *self, const char *script, zval *args, zend_long nkeys, zval *retval) {
+	zval *object;
+	zval params;
+	ZVAL_UNDEF(retval);
+	object = zend_read_property(gene_redis_ce, gene_strip_obj(self), ZEND_STRL(GENE_REDIS_OBJ), 1, NULL);
+	array_init(&params);
+	add_next_index_string(&params, script);
+	Z_TRY_ADDREF_P(args);
+	add_next_index_zval(&params, args);
+	add_next_index_long(&params, nkeys);
+	if (object && Z_TYPE_P(object) == IS_OBJECT) {
+		gene_factory_call(object, "eval", sizeof("eval") - 1, &params, retval);
+		if (EG(exception) && checkError(EG(exception))) {
+			zend_clear_exception();
+			if (!Z_ISUNDEF_P(retval)) {
+				zval_ptr_dtor(retval);
+				ZVAL_UNDEF(retval);
+			}
+			gene_redis_reconnect(self);
+			object = zend_read_property(gene_redis_ce, gene_strip_obj(self), ZEND_STRL(GENE_REDIS_OBJ), 1, NULL);
+			if (object && Z_TYPE_P(object) == IS_OBJECT) {
+				gene_factory_call(object, "eval", sizeof("eval") - 1, &params, retval);
+			}
+		}
+	} else {
+		ZVAL_FALSE(retval);
+	}
+	zval_ptr_dtor(&params);
+}
+
+PHP_METHOD(gene_redis, rateLimit) {
+	zend_string *key;
+	zend_long max, window;
+	zval args, ret;
+	if (zend_parse_parameters(ZEND_NUM_ARGS(), "Sll", &key, &max, &window) == FAILURE) {
+		return;
+	}
+	if (max < 1 || window < 1) {
+		RETURN_FALSE;
+	}
+	array_init(&args);
+	add_next_index_str(&args, zend_string_copy(key));
+	add_next_index_long(&args, window);
+	add_next_index_long(&args, max);
+	gene_redis_eval(getThis(), GENE_REDIS_RATE_LIMIT_LUA, &args, 1, &ret);
+	zval_ptr_dtor(&args);
+	if (Z_TYPE(ret) == IS_LONG) {
+		RETVAL_BOOL(Z_LVAL(ret) == 1);
+		zval_ptr_dtor(&ret);
+		return;
+	}
+	if (Z_TYPE(ret) == IS_TRUE) {
+		zval_ptr_dtor(&ret);
+		RETURN_TRUE;
+	}
+	zval_ptr_dtor(&ret);
+	RETURN_FALSE;
+}
+
+PHP_METHOD(gene_redis, lock) {
+	zend_string *key, *token;
+	zend_long ttl;
+	zval *self = getThis(), *object;
+	zval params, opts, ret;
+	if (zend_parse_parameters(ZEND_NUM_ARGS(), "Sl", &key, &ttl) == FAILURE) {
+		return;
+	}
+	if (ttl < 1) {
+		RETURN_FALSE;
+	}
+	token = gene_redis_random_token();
+	if (!token) {
+		RETURN_FALSE;
+	}
+	array_init(&opts);
+	add_next_index_string(&opts, "nx");
+	add_assoc_long_ex(&opts, ZEND_STRL("ex"), ttl);
+	array_init(&params);
+	add_next_index_str(&params, zend_string_copy(key));
+	add_next_index_str(&params, zend_string_copy(token));
+	add_next_index_zval(&params, &opts);
+	object = zend_read_property(gene_redis_ce, gene_strip_obj(self), ZEND_STRL(GENE_REDIS_OBJ), 1, NULL);
+	ZVAL_UNDEF(&ret);
+	if (object && Z_TYPE_P(object) == IS_OBJECT) {
+		gene_factory_call(object, "set", sizeof("set") - 1, &params, &ret);
+		if (EG(exception) && checkError(EG(exception))) {
+			zend_clear_exception();
+			if (!Z_ISUNDEF(ret)) {
+				zval_ptr_dtor(&ret);
+				ZVAL_UNDEF(&ret);
+			}
+			gene_redis_reconnect(self);
+			object = zend_read_property(gene_redis_ce, gene_strip_obj(self), ZEND_STRL(GENE_REDIS_OBJ), 1, NULL);
+			if (object && Z_TYPE_P(object) == IS_OBJECT) {
+				gene_factory_call(object, "set", sizeof("set") - 1, &params, &ret);
+			}
+		}
+	}
+	zval_ptr_dtor(&params);
+	if (Z_TYPE(ret) == IS_TRUE) {
+		zval_ptr_dtor(&ret);
+		RETURN_STR(token);
+	}
+	zval_ptr_dtor(&ret);
+	zend_string_release(token);
+	RETURN_FALSE;
+}
+
+PHP_METHOD(gene_redis, unlock) {
+	zend_string *key, *token;
+	zval args, ret;
+	if (zend_parse_parameters(ZEND_NUM_ARGS(), "SS", &key, &token) == FAILURE) {
+		return;
+	}
+	array_init(&args);
+	add_next_index_str(&args, zend_string_copy(key));
+	add_next_index_str(&args, zend_string_copy(token));
+	gene_redis_eval(getThis(), GENE_REDIS_UNLOCK_LUA, &args, 1, &ret);
+	zval_ptr_dtor(&args);
+	if (Z_TYPE(ret) == IS_LONG) {
+		RETVAL_BOOL(Z_LVAL(ret) > 0);
+		zval_ptr_dtor(&ret);
+		return;
+	}
+	if (Z_TYPE(ret) == IS_TRUE) {
+		zval_ptr_dtor(&ret);
+		RETURN_TRUE;
+	}
+	zval_ptr_dtor(&ret);
+	RETURN_FALSE;
+}
+
 /*
  * {{{ public gene_redis::release()
  *
@@ -602,6 +788,9 @@ PHP_METHOD(gene_redis, __destruct)
 const zend_function_entry gene_redis_methods[] = {
 		PHP_ME(gene_redis, set,         gene_redis_set_arginfo,  ZEND_ACC_PUBLIC)
 		PHP_ME(gene_redis, get,         gene_redis_get_arginfo,  ZEND_ACC_PUBLIC)
+		PHP_ME(gene_redis, rateLimit,   gene_redis_rate_limit_arginfo, ZEND_ACC_PUBLIC)
+		PHP_ME(gene_redis, lock,        gene_redis_lock_arginfo, ZEND_ACC_PUBLIC)
+		PHP_ME(gene_redis, unlock,      gene_redis_unlock_arginfo, ZEND_ACC_PUBLIC)
 		PHP_ME(gene_redis, __call,      gene_redis_call_arginfo, ZEND_ACC_PUBLIC)
 		PHP_ME(gene_redis, __construct, gene_redis_void_arginfo, ZEND_ACC_PUBLIC)
 		PHP_ME(gene_redis, release,     gene_redis_void_arginfo, ZEND_ACC_PUBLIC)

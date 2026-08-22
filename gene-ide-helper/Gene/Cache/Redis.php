@@ -133,6 +133,35 @@ class Redis
      */
     public function __call($method, $params) {}
 
+    /**
+     * Atomic fixed-window rate limit (INCR + EXPIRE via Lua).
+     * Over limit returns false; does not throw.
+     *
+     * @param string $key
+     * @param int $max
+     * @param int $windowSec
+     * @return bool
+     */
+    public function rateLimit($key, $max, $windowSec) {}
+
+    /**
+     * Distributed lock: SET key token NX EX $ttlSec.
+     *
+     * @param string $key
+     * @param int $ttlSec
+     * @return string|false token on success
+     */
+    public function lock($key, $ttlSec) {}
+
+    /**
+     * Compare-and-del unlock (Lua). Returns false if token mismatches.
+     *
+     * @param string $key
+     * @param string $token
+     * @return bool
+     */
+    public function unlock($key, $token) {}
+
     // -------------------------------------------------------------------------
 
     /**

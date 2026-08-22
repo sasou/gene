@@ -97,6 +97,7 @@
 | header($key, $default = null) | 获取 HTTP 请求头 |
 | clear() | 清除请求数据缓存 |
 | init($get, $post, $cookie, $server, $env, $files, $request = null, $header = null, $rawContent = null) | Swoole 注入请求；未传 $request 时合并 GET+POST；$rawContent 对应 Swoole `$request->rawContent()` |
+| json() | 解析 rawContent 为 JSON 对象/数组；空 body → `null`；非法 JSON 抛异常。禁止直接读 `php://input` |
 
 ---
 
@@ -116,6 +117,11 @@
 | header($key, $value) | 设置自定义响应头 |
 | cookie($name, $value = null, $expires = null, $path = null, $domain = null, $secure = null, $httponly = null, $samesite = null) | 设置 Cookie（samesite: "Lax"/"Strict"/"None"，设为 "None" 时通常需同时 secure=true） |
 | url($path) | 带当前语言前缀的 URL |
+| end($data = null) | 结束响应（Swoole `$response->end` / FPM `php_write`） |
+| write($chunk) | 分块写出且不结束响应。FPM: `php_write`+flush；Swoole: `$response->write` |
+| sseStart() | `text/event-stream`，关 gzip / output_buffering，`X-Accel-Buffering: no` |
+| sseEvent($event, $data) | 写一帧 SSE；数组/对象会 JSON 编码 |
+| sseEnd() | 等价 `end()` |
 | setJsonHeader() | 设置 `Content-Type: application/json` |
 | setHtmlHeader() | 设置 `Content-Type: text/html` |
 
@@ -685,6 +691,9 @@ $config->set('redis', [
 | __construct($config) | 构造，含 `host`/`port`/`servers`（集群）/`timeout`/`persistent`/`password`/`options`/`serializer`/`ttl` |
 | get($key) | 获取，`$key` 可为数组（批量 mGet），自动反序列化，断线自动重连 |
 | set($key, $value, $ttl = null) | 设置，有 TTL 时用 setEx，自动序列化，支持断线重连 |
+| rateLimit($key, $max, $windowSec) | 原子固定窗口限流（Lua INCR+EXPIRE）；超限返回 `false`，不抛 |
+| lock($key, $ttlSec) | `SET key token NX EX`；成功返回 token，失败 `false` |
+| unlock($key, $token) | Lua 比对后 DEL；token 不符返回 `false` |
 | __call($method, $params) | 透传调用底层 Redis 对象任意命令，支持断线重连 |
 
 ---
@@ -754,9 +763,69 @@ Swoole 协程 **Redis 连接池**（FPM 无效）。API 与 `Gene\Pool` 对称�
 
 | 方法 | 说明 |
 |------|------|
-| debug/info/notice/warning/error($message) | 写日志 |
+| debug/info/notice/warning/error($message, $context = []) | 写日志；`$context` 会 JSON 追加。袋中有 `request_id` 时自动合并（调用方已给的 `request_id` 优先） |
 | exception(\Throwable $e, $message = null) | 记录异常 |
 | setFile($file) / setLevel($level) | 日志文件与级别 |
+
+---
+
+## Gene\Context
+
+请求级 KV，挂在 `gene_request_context`，FPM RSHUTDOWN / Swoole `cleanup()` 释放。常驻进程勿用静态变量存请求态。
+
+| 方法 | 说明 |
+|------|------|
+| set($key, $value) | 写入 |
+| get($key, $default = null) | 读取 |
+| all() | 返回全部 |
+
+## Gene\Json
+
+| 方法 | 说明 |
+|------|------|
+| encode($data) | `JSON_UNESCAPED_UNICODE\|UNESCAPED_SLASHES`，失败抛 |
+| decode($str) | 失败抛，禁止静默 `[]` |
+
+## Gene\Http
+
+出站 HTTP。FPM/CLI 走 PHP `curl_*`（缺扩展则抛清晰异常）；`runtime_type >= 2` 且存在 `Swoole\Coroutine\Http\Client` 则走协程客户端，避免阻塞 worker。不跨请求连接池；FPM 仅请求内复用 curl 句柄。
+
+```php
+$r = \Gene\Http::request([
+    'method'  => 'POST',
+    'url'     => $url,
+    'headers' => ['Authorization' => 'Bearer ...'],
+    'json'    => $payload,        // 与 body 二选一
+    'timeout' => 60,
+    'connect_timeout' => 3,
+    'ssl_verify' => true,
+    'retry'   => 0,               // 仅 GET/HEAD；5xx/超时；上限 3
+    'stream'  => function (string $chunk) {},
+]);
+// ['status'=>int, 'headers'=>array, 'body'=>string]
+```
+
+## Gene\Crypto
+
+不是 JWT。密钥从 config/env 注入，禁止从数据库口令派生。旧 CBC 不兼容。
+
+| 方法 | 说明 |
+|------|------|
+| base64UrlEncode / base64UrlDecode | URL-safe Base64 |
+| hmacToken($payload, $secret, $ttl = 0) | 载荷 + HMAC-SHA256；`$ttl>0` 写入 `exp` |
+| hmacVerify($token, $secret) | 校验签名与 exp，失败抛，返回 array |
+| randomId($prefix = '', $bytes = 16) | `prefix + bin2hex(random_bytes)` |
+| encrypt / decrypt($data, $key) | AES-256-GCM；`$key` 必须 32 字节 |
+
+## Gene\Memory
+
+进程级共享内存。多 worker 不共享。Swoole `workerReady()` 后冻结写入，请求期限流/锁请用 Redis。
+
+| 方法 | 说明 |
+|------|------|
+| set/get/del/exists/incr/decr/mget/mset | 见 ide-helper |
+| rateLimit($key, $max, $windowSec) | 单进程固定窗口；超限 `false` |
+| lock($key, $ttlSec) / unlock($key, $token) | 进程内 NX+TTL 锁 |
 
 ---
 

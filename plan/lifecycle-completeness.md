@@ -207,3 +207,44 @@ E   demo 钩子 + ide-helper + reference.md + SKILL.md（随 A–D）
 | 正确性 | 分布式锁 Lua、非法 JSON 抛异常、SSL 默认校验 | 不错结果、不静默 |
 | 开发效率 | json/sse/hmac/randomId、Context | 砍掉每项目复制的样板 |
 | 勿夸大 | Crypto、Json、Hook 文档 | 与手写 PHP 同量级，收益在一致性 |
+
+---
+
+## 八、落地记录（2026-08-22）
+
+状态：**已落地并在本机验证**。C 扩展 + demo 钩子 + ide-helper + skill + 测试。FPM/CLI 与 Swoole 同一套 API；新请求级字段均进 `gene_request_context_free_fields()`。
+
+构建：PHP 8.1 NTS x64 / VS2019。新增 `.c` 后须在 SDK 环境执行 `buildconf.bat`（刷新 `configure.js` 内嵌的 `config.w32`）再 `config.nice.bat` + `nmake php_gene.dll`。改 `gene_request_context` 布局后必须重编全部 gene `.obj`，否则 RSHUTDOWN 会 ACCESS_VIOLATION。
+
+### 验证（CLI = FPM 同路径 `runtime_type < 2`）
+
+免部署：`php.exe -n -d extension_dir=...\php_ext -d extension=curl -d extension=openssl -d extension=<Release>\php_gene.dll`。
+
+| 项 | 结果 |
+|----|------|
+| `test/LifecycleTest.php` | Context / Log `request_id` / Json / Request::json / write+SSE / Crypto / Memory rateLimit+lock 全部 ✓ |
+| Redis `rateLimit`/`lock` | **SKIP**（本机未加载 ext-redis / 无 Redis 服务）。逻辑为 Lua INCR+EXPIRE、SET NX EX、比对 DEL |
+| `test/HttpClientTest.php` curl | GET / POST json / stream / 5xx+retry ✓（本地 `php -S` echo） |
+| `test/HttpClientTest.php` Swoole | **SKIP Swoole Http (no environment)**。禁止假通过。`runtime_type >= 2` 走 `Swoole\Coroutine\Http\Client`，不调用 `curl_exec` |
+| `audit/repro/lifecycle_apis.php` | LIFECYCLE APIS OK |
+| `audit/repro/lifecycle_leak_probe.php` | **LEAK PROBE OK**：Context+cleanup / Json / Crypto / Memory lock / Request::json+SSE 均为 `memory_get_usage(true)` **+0 B** |
+
+### 实现对照
+
+| 项 | 实现 | 请求级状态 |
+|----|------|------------|
+| A0 Context + Log `request_id` | `\Gene\Context::{set,get,all}`；Log 自动合并（调用方优先） | `user_bag`：reset 复用小表 / destroy 释放 |
+| A1 Request::json + Json | 空 body → `null`；非法 JSON / 非对象数组抛；encode 用 UNESCAPED_UNICODE\|SLASHES | 无新增（走 rawContent 缓存） |
+| A2 write / SSE | FPM `php_write`+`sapi_flush`；Swoole `$response->write`。`sseStart` 在非 CLI SAPI 丢弃隐式 output_buffering（CLI 保留以便单测 `ob_start`） | 无 |
+| B Gene\Http | `runtime_type < 2` → PHP `curl_*`（`ZEND_MOD_OPTIONAL("curl")`）；`>= 2` → 协程客户端。请求内复用 curl 句柄 | `http_curl` / `http_stream_cb`；`http_body_buf` 仅调用栈 |
+| C rateLimit / lock | Redis：Lua INCR+EXPIRE、SET NX EX、Lua 比对 DEL。Memory：写锁内 NX+TTL；**单 worker** | Memory 走进程表；无 ctx 字段 |
+| D Crypto | hmacToken/Verify、randomId、AES-256-GCM（key 必须 32 字节）；`ZEND_MOD_OPTIONAL("openssl")` | 无 |
+| E demo / docs | `Hooks\Cors` Origin 白名单 + OPTIONS 短路；`Hooks\RequestId`；BeforeHook 串联。ide-helper / reference.md / SKILL.md / swoole.md | — |
+
+### Swoole / 多 worker 已知限制
+
+- 请求结束必须 `cleanup()`，否则 `user_bag` / curl 句柄会随协程 ctx 泄漏到池复用前的 destroy。
+- `Memory::rateLimit/lock` 在 `workerReady()` 之后与 `Memory::set` 一样被冻结并 E_WARNING；多 worker **不共享** Memory，请用 Redis。
+- `Gene\Http` 在 `runtime_type>=2` **不会**调用阻塞 `curl_exec`。本机无 Swoole 扩展，协程路径未实跑，仅静态保证 + 测试 SKIP。
+- Crypto 不是 JWT；GCM key 禁止从 DB 口令派生。
+
