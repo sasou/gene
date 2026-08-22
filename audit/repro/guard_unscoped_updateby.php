@@ -11,7 +11,7 @@
  * Cause: gene_orm_apply_where() (src/orm/model.c:133-151) returns SUCCESS
  * without calling db->where() for NULL / empty-array conditions, and
  * updateBy()/updateOrCreate() never check that a condition was emitted.
- * plan/apistore-usage-driven.md §11.1 P0-2 explicitly assumed this path was
+ * plan/orm-v2.md §11.1 P0-2 explicitly assumed this path was
  * safe ("v1 的 Model::updateBy 要求显式 where 字符串，不存在该路径").
  *
  * Expected AFTER a fix: both calls throw and leave the rows untouched.
