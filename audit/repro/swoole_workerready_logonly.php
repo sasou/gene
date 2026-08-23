@@ -114,6 +114,39 @@ check('日志含矫正值（auto-corrected to 12500）', strpos($out4, 'auto-cor
 check('子进程正常退出', $c4 === 0);
 @unlink($childScript4);
 
+/* [AUDIT 2026-08-23 IDEMPOTENT] workerReady() 被误放在 onRequest 里每请求
+ * 调用时：第二次起必须早返回——警告只写一次 error_log，且 post-freeze
+ * 不再触发 zend_hash_extend 扩容（扩容会移动 arData → 读者裸指针悬垂）。 */
+echo "== SW-LOG-5: 重复调用 workerReady()：幂等，警告只记一次 ==\n";
+$childScript5 = sys_get_temp_dir() . '\\sw_workerready_idempotent.php';
+file_put_contents($childScript5, <<<'PHP'
+<?php
+\Gene\Application::setRuntimeType('swoole');
+\Gene\Application::workerReady();
+\Gene\Application::workerReady();
+\Gene\Application::workerReady();
+echo "done\n";
+PHP
+);
+putenv('GENE_SWOOLE_MODE=1');
+$cmd = sprintf('"%s" -n -d extension_dir=%s -d extension=%s'
+    . ' -d display_errors=stderr -d log_errors=1'
+    . ' -d gene.cache_reserve=4096 -d gene.cache_max_items=10000 %s 2>&1',
+    PHP_BINARY, 'D:\\wampServer-php8.1_x64_nts\\php_ext',
+    'F:\\php_src\\php-8.1.30-src\\x64\\Release\\php_gene.dll',
+    escapeshellarg($childScript5));
+exec($cmd, $o5, $c5);
+putenv('GENE_SWOOLE_MODE');
+$out5 = implode("\n", $o5);
+echo "  child exit={$c5}\n";
+check('三次调用正常完成（done）', strpos($out5, 'done') !== false);
+/* display_errors=stderr 与 log_errors=1 各向 stderr 写一份，故一次逻辑警告
+ * 在输出中出现 2 次；若非幂等，3 次调用会产生 6 次。 */
+check('矫正警告恰好出现一次（display+log 双通道 = 2 行）',
+    substr_count($out5, 'auto-corrected to 12500') === 2);
+check('子进程正常退出', $c5 === 0);
+@unlink($childScript5);
+
 @unlink($childScript);
 
 echo $fail === 0 ? "\nPASS\n" : "\nFAIL ({$fail})\n";

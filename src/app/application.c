@@ -1327,6 +1327,22 @@ PHP_METHOD(gene_application, webscan) {
  */
 PHP_METHOD(gene_application, workerReady) {
 	zval *self = getThis();
+	/* [GENE_FIX:2026-08-23 IDEMPOTENT] workerReady is a once-per-worker
+	 * bootstrap hook: the freeze flag, bucket-array reserve and ctx-pool
+	 * prewarm are one-shot by nature. Absorb per-request misuse (calling it
+	 * from onRequest) with an early return — otherwise every call re-takes
+	 * the write lock and re-runs zend_hash_extend(), which, once the table
+	 * has filled past nTableSize-reserve, does a full pemalloc+memcpy+rehash
+	 * per request AND moves arData post-freeze, invalidating every borrowed
+	 * route/DI/config pointer (reintroducing the UAF that UAF-1 eliminated).
+	 * The contradictory-config warning would also hit error_log on every
+	 * request instead of once per worker. */
+	if (GENE_G(worker_ready)) {
+		if (self) {
+			RETURN_ZVAL(self, 1, 0);
+		}
+		RETURN_TRUE;
+	}
 	/* [GENE_FIX:2026-08-23 P2-3] cache_reserve must exceed cache_max_items:
 	 * with reserve <= max_items the frozen table fills up before the LRU cap
 	 * is ever reached, so eviction never triggers and every new business key

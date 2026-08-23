@@ -40,6 +40,8 @@ D:\wampServer-php8.1_x64_nts\bin\php.exe -n -d extension_dir=D:\wampServer-php8.
   生效 reserve 为 `max_items + max(64, max_items/4)`（只多占内存，不改淘汰语义），并记一次
   warning 提示修正 php.ini；Swoole 模式下该诊断走 `gene_log_diag()` 只写 error_log，
   不触发用户错误处理器（避免 workerStart 内异常导致 worker 无限重启）。
+  `workerReady()` 是**幂等**的一次性引导钩子（`worker_ready` 标记早返回），重复调用
+  不会重写日志，也不会 post-freeze 扩容 bucket 数组（扩容会移动 arData → 读者裸指针悬垂）。
 - Db 驱动（Mysql/Sqlite/Pgsql/Mssql）的 `insert()` 等写方法是**惰性执行**：下一次读调用
   （`lastId()`/`affectedRows()`/`row()`/`all()` 等）才真正执行，重复调用会重复执行。
 - ORM：`fill()` 含非空主键即视为已持久化（`exists=1`），`find($id, true)` 返回模型实例

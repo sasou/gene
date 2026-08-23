@@ -722,7 +722,12 @@ zend_long gene_cache_effective_reserve(void) {
  * borrowed-pointer readers rely on. */
 void gene_memory_reserve(void) {
 	zend_long reserve = gene_cache_effective_reserve();
-	if (!GENE_G(cache) || reserve <= 0) {
+	/* [GENE_FIX:2026-08-23 IDEMPOTENT] Never extend once the freeze flag is
+	 * set: a post-freeze zend_hash_extend can pemalloc+move arData, breaking
+	 * the very invariant this function exists to protect. workerReady() now
+	 * early-returns on repeat calls; this guard protects against any future
+	 * caller reaching here after the freeze. */
+	if (!GENE_G(cache) || reserve <= 0 || GENE_G(worker_ready)) {
 		return;
 	}
 	GENE_CACHE_WRLOCK();
