@@ -828,9 +828,14 @@ static void gene_response_write_chunk(const char *data, size_t len) {
 		return;
 	}
 	if (len > 0) {
-		php_write((char *)data, len);
+		if (sapi_module.name && strcmp(sapi_module.name, "cli") == 0) {
+			php_output_write((char *)data, len);
+		} else {
+			php_write((char *)data, len);
+			sapi_flush();
+		}
+		return;
 	}
-	sapi_flush();
 }
 /* }}} */
 

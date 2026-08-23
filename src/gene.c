@@ -45,6 +45,7 @@
 #include "http/invoke.h"
 #include "http/rest.h"
 #include "tool/crypto.h"
+#include "tool/text.h"
 #include "session/session.h"
 #include "mvc/view.h"
 #include "exception/exception.h"
@@ -460,6 +461,11 @@ void gene_request_context_init(gene_request_context *ctx) {
 	ctx->http_body_buf = NULL;
 	ctx->http_header_buf = NULL;
 	ctx->http_busy = 0;
+	ZVAL_UNDEF(&ctx->http_sse_cb);
+	ctx->http_sse_forward = 0;
+	ctx->http_sse_done = 0;
+	ctx->http_discard_body = 0;
+	ctx->http_sse_leftover = NULL;
 	ZVAL_UNDEF(&ctx->request_stack);
 	ctx->invoke_depth = 0;
 	ctx->view_scope_no = 0;
@@ -703,6 +709,14 @@ static void gene_request_context_free_fields(gene_request_context *ctx, int pres
 		zval_ptr_dtor(&ctx->http_stream_cb);
 		ZVAL_UNDEF(&ctx->http_stream_cb);
 	}
+	if (Z_TYPE(ctx->http_sse_cb) != IS_UNDEF) {
+		zval_ptr_dtor(&ctx->http_sse_cb);
+		ZVAL_UNDEF(&ctx->http_sse_cb);
+	}
+	ctx->http_sse_forward = 0;
+	ctx->http_sse_done = 0;
+	ctx->http_discard_body = 0;
+	ctx->http_sse_leftover = NULL;
 	ctx->http_body_buf = NULL;
 	ctx->http_header_buf = NULL;
 	ctx->log_level = 0;
@@ -1454,6 +1468,7 @@ PHP_MINIT_FUNCTION(gene) {
 	GENE_STARTUP(invoke);
 	GENE_STARTUP(rest);
 	GENE_STARTUP(crypto);
+	GENE_STARTUP(text);
 	GENE_STARTUP(validate);
 	GENE_STARTUP(session);
 	GENE_STARTUP(view);

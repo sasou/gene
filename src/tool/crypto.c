@@ -35,6 +35,23 @@ ZEND_END_ARG_INFO()
 ZEND_BEGIN_ARG_INFO_EX(gene_crypto_hmac_verify_arginfo, 0, 0, 2)
 	ZEND_ARG_INFO(0, token)
 	ZEND_ARG_INFO(0, secret)
+	ZEND_ARG_INFO(0, leeway)
+ZEND_END_ARG_INFO()
+
+ZEND_BEGIN_ARG_INFO_EX(gene_crypto_hmac_sign_arginfo, 0, 0, 2)
+	ZEND_ARG_INFO(0, data)
+	ZEND_ARG_INFO(0, secret)
+ZEND_END_ARG_INFO()
+
+ZEND_BEGIN_ARG_INFO_EX(gene_crypto_hmac_check_arginfo, 0, 0, 3)
+	ZEND_ARG_INFO(0, data)
+	ZEND_ARG_INFO(0, sig)
+	ZEND_ARG_INFO(0, secret)
+ZEND_END_ARG_INFO()
+
+ZEND_BEGIN_ARG_INFO_EX(gene_crypto_ts_skew_arginfo, 0, 0, 1)
+	ZEND_ARG_INFO(0, unix)
+	ZEND_ARG_INFO(0, maxSkew)
 ZEND_END_ARG_INFO()
 
 ZEND_BEGIN_ARG_INFO_EX(gene_crypto_random_id_arginfo, 0, 0, 0)
@@ -259,13 +276,14 @@ PHP_METHOD(gene_crypto, hmacToken) {
 }
 /* }}} */
 
-/* {{{ proto static array Gene\Crypto::hmacVerify(string $token, string $secret) */
+/* {{{ proto static array Gene\Crypto::hmacVerify(string $token, string $secret [, int $leeway = 0]) */
 PHP_METHOD(gene_crypto, hmacVerify) {
 	zend_string *token, *secret, *body, *sig_part, *sig_raw, *expect, *json_s, *tmp, *raw_sig_b64;
+	zend_long leeway = 0;
 	const char *dot, *end;
 	size_t body_len, sig_len;
 	zval decoded;
-	if (zend_parse_parameters(ZEND_NUM_ARGS(), "SS", &token, &secret) == FAILURE) {
+	if (zend_parse_parameters(ZEND_NUM_ARGS(), "SS|l", &token, &secret, &leeway) == FAILURE) {
 		return;
 	}
 	if (ZSTR_LEN(secret) == 0 || ZSTR_LEN(token) == 0) {
@@ -362,9 +380,19 @@ PHP_METHOD(gene_crypto, hmacVerify) {
 	}
 	{
 		zval *exp = zend_hash_str_find(Z_ARRVAL(decoded), ZEND_STRL("exp"));
+		zval *nbf = zend_hash_str_find(Z_ARRVAL(decoded), ZEND_STRL("nbf"));
+		zend_long now = (zend_long)time(NULL);
+		if (nbf && (Z_TYPE_P(nbf) == IS_LONG || Z_TYPE_P(nbf) == IS_DOUBLE)) {
+			zend_long nbf_ts = (Z_TYPE_P(nbf) == IS_LONG) ? Z_LVAL_P(nbf) : (zend_long)Z_DVAL_P(nbf);
+			if (nbf_ts > 0 && now + leeway < nbf_ts) {
+				zval_ptr_dtor(&decoded);
+				zend_throw_exception_ex(NULL, 0, "token not yet valid");
+				RETURN_THROWS();
+			}
+		}
 		if (exp && (Z_TYPE_P(exp) == IS_LONG || Z_TYPE_P(exp) == IS_DOUBLE)) {
 			zend_long exp_ts = (Z_TYPE_P(exp) == IS_LONG) ? Z_LVAL_P(exp) : (zend_long)Z_DVAL_P(exp);
-			if (exp_ts > 0 && (zend_long)time(NULL) > exp_ts) {
+			if (exp_ts > 0 && now > exp_ts + leeway) {
 				zval_ptr_dtor(&decoded);
 				zend_throw_exception_ex(NULL, 0, "token expired");
 				RETURN_THROWS();
@@ -372,6 +400,88 @@ PHP_METHOD(gene_crypto, hmacVerify) {
 		}
 	}
 	RETURN_ZVAL(&decoded, 0, 1);
+}
+/* }}} */
+
+/* {{{ proto static string Gene\Crypto::hmacSign(string $data, string $secret) */
+PHP_METHOD(gene_crypto, hmacSign) {
+	zend_string *data, *secret, *sig_raw, *sig_b64;
+	if (zend_parse_parameters(ZEND_NUM_ARGS(), "SS", &data, &secret) == FAILURE) {
+		return;
+	}
+	if (ZSTR_LEN(secret) == 0) {
+		zend_throw_exception_ex(NULL, 0, "Gene\\Crypto::hmacSign secret must not be empty");
+		RETURN_THROWS();
+	}
+	sig_raw = gene_hmac_sha256_raw(data, secret);
+	if (!sig_raw) {
+		RETURN_THROWS();
+	}
+	sig_b64 = gene_base64_encode_raw(ZSTR_VAL(sig_raw), ZSTR_LEN(sig_raw));
+	zend_string_release(sig_raw);
+	if (!sig_b64) {
+		RETURN_THROWS();
+	}
+	gene_b64url_from_b64(sig_b64);
+	RETURN_STR(sig_b64);
+}
+/* }}} */
+
+/* {{{ proto static bool Gene\Crypto::hmacCheck(string $data, string $sig, string $secret) */
+PHP_METHOD(gene_crypto, hmacCheck) {
+	zend_string *data, *sig_in, *secret, *sig_raw, *expect, *tmp, *raw_sig_b64;
+	size_t i, n, pad;
+	char *p;
+	if (zend_parse_parameters(ZEND_NUM_ARGS(), "SSS", &data, &sig_in, &secret) == FAILURE) {
+		return;
+	}
+	if (ZSTR_LEN(secret) == 0) {
+		RETURN_FALSE;
+	}
+	expect = gene_hmac_sha256_raw(data, secret);
+	if (!expect) {
+		RETURN_FALSE;
+	}
+	n = ZSTR_LEN(sig_in);
+	pad = (4 - (n % 4)) % 4;
+	tmp = zend_string_alloc(n + pad, 0);
+	p = ZSTR_VAL(tmp);
+	memcpy(p, ZSTR_VAL(sig_in), n);
+	for (i = 0; i < n; i++) {
+		if (p[i] == '-') p[i] = '+';
+		else if (p[i] == '_') p[i] = '/';
+	}
+	for (i = 0; i < pad; i++) p[n + i] = '=';
+	p[n + pad] = '\0';
+	ZSTR_LEN(tmp) = n + pad;
+	raw_sig_b64 = tmp;
+	sig_raw = gene_base64_decode_raw(raw_sig_b64);
+	zend_string_release(raw_sig_b64);
+	if (!sig_raw) {
+		zend_string_release(expect);
+		RETURN_FALSE;
+	}
+	RETVAL_BOOL(gene_hash_equals(expect, sig_raw));
+	zend_string_release(expect);
+	zend_string_release(sig_raw);
+}
+/* }}} */
+
+/* {{{ proto static bool Gene\Crypto::tsSkew(int $unix [, int $maxSkew = 1800]) */
+PHP_METHOD(gene_crypto, tsSkew) {
+	zend_long unix_ts, max_skew = 1800;
+	zend_long diff;
+	if (zend_parse_parameters(ZEND_NUM_ARGS(), "l|l", &unix_ts, &max_skew) == FAILURE) {
+		return;
+	}
+	if (max_skew < 0) {
+		max_skew = 0;
+	}
+	diff = (zend_long)time(NULL) - unix_ts;
+	if (diff < 0) {
+		diff = -diff;
+	}
+	RETURN_BOOL(diff <= max_skew);
 }
 /* }}} */
 
@@ -564,6 +674,9 @@ const zend_function_entry gene_crypto_methods[] = {
 	PHP_ME(gene_crypto, base64UrlDecode, gene_crypto_b64_arginfo, ZEND_ACC_PUBLIC|ZEND_ACC_STATIC)
 	PHP_ME(gene_crypto, hmacToken, gene_crypto_hmac_token_arginfo, ZEND_ACC_PUBLIC|ZEND_ACC_STATIC)
 	PHP_ME(gene_crypto, hmacVerify, gene_crypto_hmac_verify_arginfo, ZEND_ACC_PUBLIC|ZEND_ACC_STATIC)
+	PHP_ME(gene_crypto, hmacSign, gene_crypto_hmac_sign_arginfo, ZEND_ACC_PUBLIC|ZEND_ACC_STATIC)
+	PHP_ME(gene_crypto, hmacCheck, gene_crypto_hmac_check_arginfo, ZEND_ACC_PUBLIC|ZEND_ACC_STATIC)
+	PHP_ME(gene_crypto, tsSkew, gene_crypto_ts_skew_arginfo, ZEND_ACC_PUBLIC|ZEND_ACC_STATIC)
 	PHP_ME(gene_crypto, randomId, gene_crypto_random_id_arginfo, ZEND_ACC_PUBLIC|ZEND_ACC_STATIC)
 	PHP_ME(gene_crypto, encrypt, gene_crypto_crypt_arginfo, ZEND_ACC_PUBLIC|ZEND_ACC_STATIC)
 	PHP_ME(gene_crypto, decrypt, gene_crypto_crypt_arginfo, ZEND_ACC_PUBLIC|ZEND_ACC_STATIC)

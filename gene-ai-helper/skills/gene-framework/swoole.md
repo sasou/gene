@@ -21,6 +21,10 @@ Gene 同一份业务代码可运行于 **FPM** 与 **Swoole**。本文仅描述 
 \Swoole\Runtime::enableCoroutine(SWOOLE_HOOK_ALL);
 ```
 
+`Http::multi` 并行依赖 **Native CURL hook**：Swoole 需 `--enable-swoole-curl`，且 `SWOOLE_HOOK_ALL`（含 `SWOOLE_HOOK_NATIVE_CURL`）。此时 `curl_multi_*` 在协程内让出，不堵 worker。未开启时 `multi` 回退为顺序 `Swoole\Coroutine\Http\Client` 并打 `E_NOTICE`。旧 `SWOOLE_HOOK_CURL`（`Swoole\Curl\Handler`）不能跑 `curl_multi`。
+
+`Http::request()` 在 `runtime_type >= 2` 仍走协程客户端（与是否 hook curl 无关）。
+
 ---
 
 ## 2. 请求生命周期（必记顺序）

@@ -203,6 +203,13 @@ static inline uint64_t gene_hrtime(void) {
 	 void *http_body_buf;
 	 void *http_header_buf;
 	 zend_bool http_busy;
+	 /* [GENE_FEATURE:2026-08-23] Gene\Http SSE + discard_body — valid only
+	  * during request()/multi(); http_sse_leftover points at stack smart_str. */
+	 zval http_sse_cb;
+	 zend_bool http_sse_forward;
+	 zend_bool http_sse_done;
+	 zend_bool http_discard_body;
+	 void *http_sse_leftover;
 	 /* Request bag snapshot stack (get/post/files/request/header/raw). */
 	 zval request_stack;
 	 zend_long invoke_depth;

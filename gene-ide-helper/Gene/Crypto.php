@@ -33,7 +33,22 @@ class Crypto
      * @return array
      * @throws \Exception invalid or expired
      */
-    public static function hmacVerify($token, $secret) {}
+    public static function hmacVerify($token, $secret, $leeway = 0) {}
+
+    /**
+     * HMAC-SHA256 then base64url.
+     */
+    public static function hmacSign($data, $secret) {}
+
+    /**
+     * Constant-time check. Returns false, never throws.
+     */
+    public static function hmacCheck($data, $sig, $secret) {}
+
+    /**
+     * |now - $unix| <= $maxSkew
+     */
+    public static function tsSkew($unix, $maxSkew = 1800) {}
 
     /**
      * @param string $prefix

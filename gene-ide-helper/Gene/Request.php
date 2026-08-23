@@ -235,6 +235,15 @@ class Request
     }
 
     /**
+     * Bearer token from Authorization header. Empty → null.
+     *
+     * @return string|null
+     */
+    public static function bearer() {
+
+    }
+
+    /**
      * getContent
      * rawContent 的别名
      *

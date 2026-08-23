@@ -59,6 +59,7 @@ if test "$PHP_GENE" != "no"; then
 	  tool/log.c \
 	  tool/monitor.c \
 	  tool/crypto.c \
+	  tool/text.c \
 	  db/pdo.c \
 	  db/pool.c \
 	  db/mysql.c \

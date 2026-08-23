@@ -866,6 +866,63 @@ PHP_METHOD(gene_request, scope) {
 }
 /* }}} */
 
+static zend_string *gene_request_find_auth_header(void) {
+	zval *hdrs, *auth;
+	const char *keys[] = {"Authorization", "authorization", "AUTHORIZATION", NULL};
+	int i;
+
+	hdrs = getVal(7, NULL, 0);
+	if (hdrs && Z_TYPE_P(hdrs) == IS_ARRAY) {
+		for (i = 0; keys[i]; i++) {
+			auth = zend_hash_str_find(Z_ARRVAL_P(hdrs), keys[i], strlen(keys[i]));
+			if (auth && Z_TYPE_P(auth) == IS_STRING && Z_STRLEN_P(auth) > 0) {
+				return Z_STR_P(auth);
+			}
+		}
+	}
+	auth = getVal(TRACK_VARS_SERVER, ZEND_STRL("HTTP_AUTHORIZATION"));
+	if (auth && Z_TYPE_P(auth) == IS_STRING && Z_STRLEN_P(auth) > 0) {
+		return Z_STR_P(auth);
+	}
+	auth = getVal(TRACK_VARS_SERVER, ZEND_STRL("REDIRECT_HTTP_AUTHORIZATION"));
+	if (auth && Z_TYPE_P(auth) == IS_STRING && Z_STRLEN_P(auth) > 0) {
+		return Z_STR_P(auth);
+	}
+	return NULL;
+}
+
+/*
+ * {{{ public gene_request::bearer(): ?string
+ */
+PHP_METHOD(gene_request, bearer) {
+	zend_string *auth;
+	size_t len;
+	const char *p;
+
+	auth = gene_request_find_auth_header();
+	if (!auth) {
+		RETURN_NULL();
+	}
+	len = ZSTR_LEN(auth);
+	p = ZSTR_VAL(auth);
+	if (len >= 7 && strncasecmp(p, "Bearer ", 7) == 0) {
+		p += 7;
+		len -= 7;
+	}
+	while (len > 0 && (*p == ' ' || *p == '\t')) {
+		p++;
+		len--;
+	}
+	while (len > 0 && (p[len - 1] == ' ' || p[len - 1] == '\t')) {
+		len--;
+	}
+	if (len == 0) {
+		RETURN_NULL();
+	}
+	RETURN_STRINGL(p, len);
+}
+/* }}} */
+
 /*
  * {{{ gene_request_methods
  */
@@ -899,6 +956,7 @@ const zend_function_entry gene_request_methods[] = {
 	PHP_ME(gene_request, rawContent, geme_request_void_arginfo, ZEND_ACC_PUBLIC|ZEND_ACC_STATIC)
 	PHP_MALIAS(gene_request, getContent, rawContent, geme_request_void_arginfo, ZEND_ACC_PUBLIC|ZEND_ACC_STATIC)
 	PHP_ME(gene_request, json, geme_request_void_arginfo, ZEND_ACC_PUBLIC|ZEND_ACC_STATIC)
+	PHP_ME(gene_request, bearer, geme_request_void_arginfo, ZEND_ACC_PUBLIC|ZEND_ACC_STATIC)
 	PHP_ME(gene_request, snapshot, geme_request_void_arginfo, ZEND_ACC_PUBLIC|ZEND_ACC_STATIC)
 	PHP_ME(gene_request, restore, geme_request_void_arginfo, ZEND_ACC_PUBLIC|ZEND_ACC_STATIC)
 	PHP_ME(gene_request, scope, gene_request_scope_arginfo, ZEND_ACC_PUBLIC|ZEND_ACC_STATIC)

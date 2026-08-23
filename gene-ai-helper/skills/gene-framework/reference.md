@@ -98,6 +98,7 @@
 | clear() | 清除请求数据缓存 |
 | init($get, $post, $cookie, $server, $env, $files, $request = null, $header = null, $rawContent = null) | Swoole 注入请求；未传 $request 时合并 GET+POST；$rawContent 对应 Swoole `$request->rawContent()` |
 | json() | 解析 rawContent 为 JSON 对象/数组；空 body → `null`；非法 JSON / JSON `null` / 标量抛异常。禁止直接读 `php://input` |
+| bearer() | 从 header/server 读 `Authorization`，剥 `Bearer `（大小写不敏感）；空则 `null`。Swoole 走 Request 袋，禁止 `$_SERVER`/`getallheaders()` |
 | snapshot() | 压入 get/post/files/request/header/raw 快照，返回新深度；上限 8 |
 | restore() | 弹出快照；栈空返回 false |
 | scope($get, $post, $files = null, $request = null) | 只改入参袋；`$request===null` 时合并 get+post。业务互调应走 `Invoke`/`Rest`，不要 `init` 整包覆盖 |
@@ -164,8 +165,8 @@ $rest->use('user')->call('Ping', 'pong', $params);
 | url($path) | 带当前语言前缀的 URL |
 | end($data = null) | 结束响应（Swoole `$response->end` / FPM `php_write`） |
 | write($chunk) | 分块写出且不结束响应。FPM: `php_write`+flush；Swoole: `$response->write` |
-| sseStart() | `text/event-stream`，关 gzip / output_buffering，`X-Accel-Buffering: no` |
-| sseEvent($event, $data) | 写一帧 SSE；数组/对象会 JSON 编码 |
+| sseStart() | `text/event-stream`，关 gzip / output_buffering，`X-Accel-Buffering: no`。CLI/Swoole SAPI 名是 `cli`，不丢用户 `ob_start` |
+| sseEvent($event, $data) | 写一帧 SSE；数组/对象会 JSON 编码；多行 `data:` |
 | sseEnd() | 等价 `end()` |
 | setJsonHeader() | 设置 `Content-Type: application/json` |
 | setHtmlHeader() | 设置 `Content-Type: text/html` |
@@ -836,7 +837,9 @@ Swoole 协程 **Redis 连接池**（FPM 无效）。API 与 `Gene\Pool` 对称�
 
 ## Gene\Http
 
-出站 HTTP。FPM/CLI 走 PHP `curl_*`（缺扩展则抛清晰异常）；`runtime_type >= 2` 且存在 `Swoole\Coroutine\Http\Client` 则走协程客户端，避免阻塞 worker。不跨请求连接池；FPM 请求内复用 curl 句柄；Swoole `keep_alive=>true` 按 `host:port:ssl` 在**当前请求/协程**内复用 Client（`cleanup()` 时释放）。Swoole `stream` 在收完 body 后按 8KB 切片回调（Client 无 write-function，RSS 仍持有完整 body）。
+出站 HTTP。FPM/CLI 走 PHP `curl_*`（缺扩展则抛清晰异常）；`runtime_type >= 2` 且存在 `Swoole\Coroutine\Http\Client` 则走协程客户端，避免阻塞 worker。`Http::multi` 在 FPM/CLI 以及 Swoole Native CURL hook 下走 `curl_multi`（`concurrency` 生效）；无 Native hook 时顺序 Client 并 `E_NOTICE`。不跨请求连接池；FPM 请求内复用 curl 句柄（`multi` 用独立 easy，不用 ctx 单例）；Swoole `keep_alive=>true` 按 `host:port:ssl` 在**当前请求/协程**内复用 Client（`cleanup()` 时释放）。
+
+**Swoole SSE / stream 非 TTFB**：Client 无 body write 回调，`stream`/`sse` 在 `execute` 完成后按 8KB 切片喂解析器；解析正确，但首字节延迟等于整包收完。FPM 的 `WRITEFUNCTION` 才是真增量。
 
 ```php
 $r = \Gene\Http::request([
@@ -851,22 +854,53 @@ $r = \Gene\Http::request([
     'retry'   => 0,               // 仅 GET/HEAD；5xx/超时；上限 3
     'keep_alive' => false,        // Swoole：请求内复用 Client
     'stream'  => function (string $chunk) {},
+    'sse'     => function (string $event, $data) {}, // 与 stream 互斥
+    'sse_forward' => false,       // true 时每帧 Response::sseEvent
+    'discard_body' => false,      // true 不累积 body（流式转发省 RSS）
 ]);
 // ['status'=>int, 'headers'=>array, 'body'=>string]
+
+$batch = \Gene\Http::multi([
+    ['method' => 'GET', 'url' => $u1],
+    ['method' => 'GET', 'url' => $u2],
+], ['concurrency' => 8]); // 默认 8，上限 16；请求数上限 64
+// 单项失败不抛：status=0 + error。禁止 stream/sse。
+// FPM/CLI 与 Swoole Native CURL hook：curl_multi 并行（RETURNTRANSFER，不走 request 的 WRITEFUNCTION）。
+// Swoole 无 Native hook：顺序 Coroutine\Http\Client，并 E_NOTICE。
 ```
+
+禁止嵌套 `request()`/`multi()`（`http_busy`）。应用层 WAF 用 `Application::webscan()`，不要 PHP `Ext\Webscan`。
+
+## Gene\Text
+
+无请求状态。知识库 ingest 原语，不含 RAG 打分。
+
+| 方法 | 说明 |
+|------|------|
+| utf8Len($s) | UTF-8 码点数；非法序列按 U+FFFD 计 1，不抛 |
+| sanitizeMb4($s) | 去 NUL；非法 UTF-8 替换 U+FFFD；保留 4 字节 emoji |
+| chunk($s, $maxChars = 1200, $overlap = 80) | 空行合并后硬切；`$maxChars`≤8192；chunk 数≤4096 |
 
 ## Gene\Crypto
 
-不是 JWT。密钥从 config/env 注入，禁止从数据库口令派生。旧 CBC 不兼容。
+不是 JWT。密钥从 config/env 注入，禁止从数据库口令派生。旧 CBC 不兼容。Cookie 值用 token，写入仍走 `Response::cookie`。
+
+```php
+\Gene\Response::cookie('vbd', \Gene\Crypto::hmacToken(['wid' => 1, 'c' => $code], $secret, 2592000), time() + 2592000, '/', '', true, true);
+$payload = \Gene\Crypto::hmacVerify($_COOKIE['vbd'] ?? '', $secret, 60); // leeway 秒
+\Gene\Crypto::tsSkew((int)$timestamp, 1800);
+$sig = \Gene\Crypto::hmacSign($canonical, $secret);
+```
 
 | 方法 | 说明 |
 |------|------|
 | base64UrlEncode / base64UrlDecode | URL-safe Base64 |
 | hmacToken($payload, $secret, $ttl = 0) | 载荷 + HMAC-SHA256；`$ttl>0` 写入 `exp` |
-| hmacVerify($token, $secret) | 校验签名与 exp，失败抛，返回 array |
+| hmacVerify($token, $secret, $leeway = 0) | 校验签名；`now > exp+leeway` 过期；`now+leeway < nbf` 未生效 |
+| hmacSign($data, $secret) | HMAC-SHA256 原始字节再 base64url |
+| hmacCheck($data, $sig, $secret) | 恒定时间比较，失败返回 false 不抛 |
+| tsSkew($unix, $maxSkew = 1800) | `|now-unix| <= maxSkew` |
 | randomId($prefix = '', $bytes = 16) | `prefix + bin2hex(random_bytes)` |
 | encrypt / decrypt($data, $key) | AES-256-GCM；`$key` 必须 32 字节 |
 
----
-
-*文档由 gene-ide-helper 提炼，框架版本 6.1.x。Swoole 细则见 [swoole.md](swoole.md)。*
+限流：单 worker 用 `Memory::rateLimit`；多 worker / Swoole 用 `Redis::rateLimit`（Lua）。
