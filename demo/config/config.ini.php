@@ -144,6 +144,25 @@ $config->set("httpsqs", [
     'instance' => true
 ]);
 
+$config->set('rest', [
+    'class' => '\Gene\Rest',
+    'params' => [[
+        'timeout' => 5,
+        'connect_timeout' => 2,
+        'ssl_verify' => false,
+        'keep_alive' => true,
+        'headers' => ['Accept' => 'application/json'],
+        'pass_request_id' => true,
+        'services' => [
+            'demo' => [
+                'base_url' => 'http://127.0.0.1:8081',
+                'local' => 'Api\\',
+            ],
+        ],
+    ]],
+    'instance' => true,
+]);
+
 //自定义redis队列类注入配置
 $config->set("redisQueue", [
     'class' => '\Ext\Queue\Redis',

@@ -48,6 +48,8 @@ if test "$PHP_GENE" != "no"; then
 	  http/context.c \
 	  http/json.c \
 	  http/http.c \
+	  http/invoke.c \
+	  http/rest.c \
 	  http/validate.c \
       http/webscan.c \
 	  mvc/view.c \

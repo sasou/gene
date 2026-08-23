@@ -354,8 +354,104 @@ static int gene_http_curl_exec_once(zval *ch, zend_long *status, zval *headers_o
 	return failed ? FAILURE : SUCCESS;
 }
 
+static int gene_http_file_parts(zval *entry, zend_string *key,
+	const char **path, size_t *path_len, const char **name, size_t *name_len,
+	const char **type, size_t *type_len)
+{
+	*path = NULL; *path_len = 0;
+	*name = key ? ZSTR_VAL(key) : "file";
+	*name_len = key ? ZSTR_LEN(key) : 4;
+	*type = "application/octet-stream";
+	*type_len = sizeof("application/octet-stream") - 1;
+	if (Z_TYPE_P(entry) == IS_STRING && Z_STRLEN_P(entry) > 0) {
+		*path = Z_STRVAL_P(entry);
+		*path_len = Z_STRLEN_P(entry);
+		return SUCCESS;
+	}
+	if (Z_TYPE_P(entry) == IS_ARRAY) {
+		zval *tmp = zend_hash_str_find(Z_ARRVAL_P(entry), ZEND_STRL("tmp_name"));
+		if (!tmp) {
+			tmp = zend_hash_str_find(Z_ARRVAL_P(entry), ZEND_STRL("path"));
+		}
+		if (tmp && Z_TYPE_P(tmp) == IS_STRING && Z_STRLEN_P(tmp) > 0) {
+			*path = Z_STRVAL_P(tmp);
+			*path_len = Z_STRLEN_P(tmp);
+		}
+		tmp = zend_hash_str_find(Z_ARRVAL_P(entry), ZEND_STRL("name"));
+		if (tmp && Z_TYPE_P(tmp) == IS_STRING && Z_STRLEN_P(tmp) > 0) {
+			*name = Z_STRVAL_P(tmp);
+			*name_len = Z_STRLEN_P(tmp);
+		}
+		tmp = zend_hash_str_find(Z_ARRVAL_P(entry), ZEND_STRL("type"));
+		if (tmp && Z_TYPE_P(tmp) == IS_STRING && Z_STRLEN_P(tmp) > 0) {
+			*type = Z_STRVAL_P(tmp);
+			*type_len = Z_STRLEN_P(tmp);
+		}
+		return *path ? SUCCESS : FAILURE;
+	}
+	return FAILURE;
+}
+
+static int gene_http_curl_file_create(const char *path, size_t path_len, const char *type, size_t type_len,
+	const char *name, size_t name_len, zval *out)
+{
+	zval params[3];
+	ZVAL_STRINGL(&params[0], path, path_len);
+	ZVAL_STRINGL(&params[1], type, type_len);
+	ZVAL_STRINGL(&params[2], name, name_len);
+	if (gene_http_php_call("curl_file_create", sizeof("curl_file_create") - 1, 3, params, out) != SUCCESS) {
+		zval_ptr_dtor(&params[0]);
+		zval_ptr_dtor(&params[1]);
+		zval_ptr_dtor(&params[2]);
+		return FAILURE;
+	}
+	zval_ptr_dtor(&params[0]);
+	zval_ptr_dtor(&params[1]);
+	zval_ptr_dtor(&params[2]);
+	return SUCCESS;
+}
+
+static int gene_http_build_multipart(zval *files, zval *form, zval *out) {
+	zend_string *k;
+	zval *v;
+	zend_ulong idx;
+	array_init(out);
+	if (form && Z_TYPE_P(form) == IS_ARRAY) {
+		zend_hash_copy(Z_ARRVAL_P(out), Z_ARRVAL_P(form), (copy_ctor_func_t) zval_add_ref);
+	}
+	if (!files || Z_TYPE_P(files) != IS_ARRAY) {
+		return SUCCESS;
+	}
+	ZEND_HASH_FOREACH_KEY_VAL(Z_ARRVAL_P(files), idx, k, v) {
+		const char *path, *name, *type;
+		size_t path_len, name_len, type_len;
+		zval cf;
+		char idx_key[32];
+		(void)idx;
+		if (gene_http_file_parts(v, k, &path, &path_len, &name, &name_len, &type, &type_len) != SUCCESS) {
+			zval_ptr_dtor(out);
+			ZVAL_UNDEF(out);
+			zend_throw_exception_ex(NULL, 0, "Gene\\Http::request files entry is invalid");
+			return FAILURE;
+		}
+		if (gene_http_curl_file_create(path, path_len, type, type_len, name, name_len, &cf) != SUCCESS) {
+			zval_ptr_dtor(out);
+			ZVAL_UNDEF(out);
+			zend_throw_exception_ex(NULL, 0, "Gene\\Http::request failed to create CURLFile");
+			return FAILURE;
+		}
+		if (k) {
+			zend_hash_update(Z_ARRVAL_P(out), k, &cf);
+		} else {
+			snprintf(idx_key, sizeof(idx_key), "file%lu", (unsigned long)idx);
+			add_assoc_zval(out, idx_key, &cf);
+		}
+	} ZEND_HASH_FOREACH_END();
+	return SUCCESS;
+}
+
 static int gene_http_swoole_once(const char *method, zend_string *url, zval *headers_in,
-		zend_string *body, double timeout, double connect_timeout, zend_bool ssl_verify,
+		zend_string *body, zval *files, zval *form, double timeout, double connect_timeout, zend_bool ssl_verify,
 		zend_bool keep_alive, zend_long *status, zval *headers_out, zend_string **body_out, char **err_out) {
 	zval parsed, cli, ctor_params, set_opts, set_params;
 	zval *scheme, *host, *port, *path, *query;
@@ -423,6 +519,9 @@ static int gene_http_swoole_once(const char *method, zend_string *url, zval *hea
 	}
 	hctx = gene_request_ctx();
 	ZVAL_UNDEF(&cli);
+	if (files && Z_TYPE_P(files) == IS_ARRAY && zend_hash_num_elements(Z_ARRVAL_P(files)) > 0) {
+		keep_alive = 0;
+	}
 	if (keep_alive && hctx && Z_TYPE(hctx->http_curl) == IS_ARRAY) {
 		zval *slot = zend_hash_str_find(Z_ARRVAL(hctx->http_curl), peer_key, peer_key_len);
 		if (slot && Z_TYPE_P(slot) == IS_OBJECT) {
@@ -493,7 +592,45 @@ static int gene_http_swoole_once(const char *method, zend_string *url, zval *hea
 		zval_ptr_dtor(&dummy);
 		zval_ptr_dtor(&hparams);
 	}
-	{
+	if (files && Z_TYPE_P(files) == IS_ARRAY && zend_hash_num_elements(Z_ARRVAL_P(files)) > 0) {
+		zend_string *k;
+		zval *v;
+		zend_ulong idx;
+		ZEND_HASH_FOREACH_KEY_VAL(Z_ARRVAL_P(files), idx, k, v) {
+			const char *path, *name, *type;
+			size_t path_len, name_len, type_len;
+			zval aparams, dummy;
+			(void)idx;
+			if (gene_http_file_parts(v, k, &path, &path_len, &name, &name_len, &type, &type_len) != SUCCESS) {
+				zend_string_release(path_qs);
+				zval_ptr_dtor(&cli);
+				zval_ptr_dtor(&parsed);
+				zend_throw_exception_ex(NULL, 0, "Gene\\Http::request files entry is invalid");
+				return FAILURE;
+			}
+			array_init(&aparams);
+			add_next_index_stringl(&aparams, path, path_len);
+			add_next_index_stringl(&aparams, k ? ZSTR_VAL(k) : name, k ? ZSTR_LEN(k) : name_len);
+			add_next_index_stringl(&aparams, type, type_len);
+			add_next_index_stringl(&aparams, name, name_len);
+			gene_factory_call(&cli, "addfile", sizeof("addfile") - 1, &aparams, &dummy);
+			zval_ptr_dtor(&dummy);
+			zval_ptr_dtor(&aparams);
+		} ZEND_HASH_FOREACH_END();
+		{
+			zval dparams, dz, dummy;
+			array_init(&dparams);
+			if (form && Z_TYPE_P(form) == IS_ARRAY) {
+				ZVAL_COPY(&dz, form);
+			} else {
+				array_init(&dz);
+			}
+			add_next_index_zval(&dparams, &dz);
+			gene_factory_call(&cli, "setdata", sizeof("setdata") - 1, &dparams, &dummy);
+			zval_ptr_dtor(&dummy);
+			zval_ptr_dtor(&dparams);
+		}
+	} else {
 		zval dparams, dz, dummy;
 		array_init(&dparams);
 		if (body && ZSTR_LEN(body) > 0) {
@@ -577,7 +714,7 @@ static int gene_http_swoole_once(const char *method, zend_string *url, zval *hea
 /* {{{ proto static array Gene\Http::request(array $options) */
 PHP_METHOD(gene_http, request) {
 	zval *opts;
-	zval *zurl, *zmethod, *zheaders, *zjson, *zbody, *ztimeout, *zct, *zssl, *zretry, *zstream, *zka;
+	zval *zurl, *zmethod, *zheaders, *zjson, *zbody, *ztimeout, *zct, *zssl, *zretry, *zstream, *zka, *zfiles;
 	zend_string *url, *body = NULL;
 	char method_buf[16];
 	const char *method = "GET";
@@ -618,8 +755,17 @@ PHP_METHOD(gene_http, request) {
 
 	zjson = gene_http_opt(Z_ARRVAL_P(opts), ZEND_STRL("json"));
 	zbody = gene_http_opt(Z_ARRVAL_P(opts), ZEND_STRL("body"));
+	zfiles = gene_http_opt(Z_ARRVAL_P(opts), ZEND_STRL("files"));
 	if (zjson && zbody) {
 		zend_throw_exception_ex(NULL, 0, "Gene\\Http::request: json and body are mutually exclusive");
+		RETURN_THROWS();
+	}
+	if (zjson && zfiles) {
+		zend_throw_exception_ex(NULL, 0, "Gene\\Http::request: json and files are mutually exclusive");
+		RETURN_THROWS();
+	}
+	if (zfiles && zbody && Z_TYPE_P(zbody) == IS_STRING) {
+		zend_throw_exception_ex(NULL, 0, "Gene\\Http::request: files cannot be combined with a string body");
 		RETURN_THROWS();
 	}
 	if (zjson) {
@@ -660,6 +806,13 @@ PHP_METHOD(gene_http, request) {
 	}
 
 	ctx = gene_request_ctx();
+	if (ctx && (ctx->http_busy || ctx->http_body_buf)) {
+		zend_throw_exception_ex(NULL, 0, "Nested Gene\\Http::request is not supported");
+		RETURN_THROWS();
+	}
+	if (ctx) {
+		ctx->http_busy = 1;
+	}
 	ZVAL_UNDEF(&saved_stream);
 	zstream = gene_http_opt(Z_ARRVAL_P(opts), ZEND_STRL("stream"));
 	if (zstream && Z_TYPE_P(zstream) != IS_NULL && Z_TYPE_P(zstream) != IS_UNDEF && ctx) {
@@ -689,7 +842,9 @@ PHP_METHOD(gene_http, request) {
 			if (have_json) {
 				add_assoc_string_ex(&hdrs_assoc, ZEND_STRL("Content-Type"), "application/json; charset=UTF-8");
 			}
-			rc = gene_http_swoole_once(method, url, &hdrs_assoc, body, timeout, connect_timeout,
+			rc = gene_http_swoole_once(method, url, &hdrs_assoc, body, zfiles,
+				(zfiles && zbody && Z_TYPE_P(zbody) == IS_ARRAY) ? zbody : NULL,
+				timeout, connect_timeout,
 				ssl_verify, keep_alive, &status, &headers_out, &resp_body, &err);
 			zval_ptr_dtor(&hdrs_assoc);
 			if (rc == SUCCESS && resp_body && ctx && Z_TYPE(ctx->http_stream_cb) != IS_UNDEF && ZSTR_LEN(resp_body) > 0) {
@@ -703,6 +858,7 @@ PHP_METHOD(gene_http, request) {
 					zval_ptr_dtor(&ctx->http_stream_cb);
 					ZVAL_COPY_VALUE(&ctx->http_stream_cb, &saved_stream);
 				}
+				if (ctx) ctx->http_busy = 0;
 				RETURN_THROWS();
 			}
 			ZVAL_STR(&zurlv, url);
@@ -727,7 +883,22 @@ PHP_METHOD(gene_http, request) {
 			gene_http_curl_setopt(&ch, ZEND_STRL("CURLOPT_HTTPHEADER"), &curl_headers);
 			zval_ptr_dtor(&curl_headers);
 
-			if (body && ZSTR_LEN(body) > 0) {
+			if (zfiles && Z_TYPE_P(zfiles) == IS_ARRAY) {
+				zval mp;
+				if (gene_http_build_multipart(zfiles,
+					(zbody && Z_TYPE_P(zbody) == IS_ARRAY) ? zbody : NULL, &mp) != SUCCESS) {
+					zval_ptr_dtor(&ch);
+					if (own_body && body) zend_string_release(body);
+					if (ctx && zstream) {
+						zval_ptr_dtor(&ctx->http_stream_cb);
+						ZVAL_COPY_VALUE(&ctx->http_stream_cb, &saved_stream);
+					}
+					if (ctx) ctx->http_busy = 0;
+					RETURN_THROWS();
+				}
+				gene_http_curl_setopt(&ch, ZEND_STRL("CURLOPT_POSTFIELDS"), &mp);
+				zval_ptr_dtor(&mp);
+			} else if (body && ZSTR_LEN(body) > 0) {
 				ZVAL_STR(&zbodyv, body);
 				gene_http_curl_setopt(&ch, ZEND_STRL("CURLOPT_POSTFIELDS"), &zbodyv);
 			}
@@ -771,6 +942,7 @@ PHP_METHOD(gene_http, request) {
 		efree(err);
 		if (resp_body) zend_string_release(resp_body);
 		if (Z_TYPE(headers_out) != IS_UNDEF) zval_ptr_dtor(&headers_out);
+		if (ctx) ctx->http_busy = 0;
 		RETURN_THROWS();
 	}
 	if (err) {
@@ -783,6 +955,7 @@ PHP_METHOD(gene_http, request) {
 	if (resp_body) {
 		zend_string_release(resp_body);
 	}
+	if (ctx) ctx->http_busy = 0;
 }
 /* }}} */
 

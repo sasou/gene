@@ -297,4 +297,35 @@ class Request
 
     }
 
+    /**
+     * Push get/post/files/request/header/raw. Returns new depth (max 8).
+     *
+     * @return int
+     */
+    public static function snapshot() {
+
+    }
+
+    /**
+     * Pop snapshot. Empty stack → false.
+     *
+     * @return bool
+     */
+    public static function restore() {
+
+    }
+
+    /**
+     * Replace input bags only. $request===null merges get+post.
+     *
+     * @param array $get
+     * @param array $post
+     * @param array|null $files
+     * @param array|null $request
+     * @return void
+     */
+    public static function scope($get, $post, $files = null, $request = null) {
+
+    }
+
 }

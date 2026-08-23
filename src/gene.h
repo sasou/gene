@@ -202,6 +202,10 @@ static inline uint64_t gene_hrtime(void) {
 	 zval http_stream_cb;
 	 void *http_body_buf;
 	 void *http_header_buf;
+	 zend_bool http_busy;
+	 /* Request bag snapshot stack (get/post/files/request/header/raw). */
+	 zval request_stack;
+	 zend_long invoke_depth;
 	 struct timeval bench_start;
 	 struct timeval bench_end;
 	 zend_long bench_memory_start;

@@ -118,6 +118,24 @@ class HttpClientTest
             } else {
                 echo "✗ 5xx retry: " . var_export($r4, true) . "\n";
             }
+
+            $tmp = tempnam(sys_get_temp_dir(), 'gf');
+            file_put_contents($tmp, 'hello-gene');
+            $r5 = \Gene\Http::request([
+                'method' => 'POST',
+                'url' => 'http://127.0.0.1:' . $this->port . '/echo',
+                'files' => ['up' => ['tmp_name' => $tmp, 'name' => 'a.txt', 'type' => 'text/plain']],
+                'body' => ['note' => 'x'],
+                'timeout' => 3,
+            ]);
+            $echo = json_decode($r5['body'] ?? '', true);
+            if (($r5['status'] ?? 0) === 200 && ($echo['files']['up']['name'] ?? '') === 'a.txt'
+                && ($echo['post']['note'] ?? '') === 'x') {
+                echo "✓ multipart files+form\n";
+            } else {
+                echo "✗ multipart: " . var_export($r5, true) . "\n";
+            }
+            @unlink($tmp);
         } catch (\Throwable $e) {
             echo "✗ curl path exception: " . $e->getMessage() . "\n";
         }

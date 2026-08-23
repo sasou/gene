@@ -42,6 +42,8 @@
 #include "http/context.h"
 #include "http/json.h"
 #include "http/http.h"
+#include "http/invoke.h"
+#include "http/rest.h"
 #include "tool/crypto.h"
 #include "session/session.h"
 #include "mvc/view.h"
@@ -457,6 +459,9 @@ void gene_request_context_init(gene_request_context *ctx) {
 	ZVAL_UNDEF(&ctx->http_stream_cb);
 	ctx->http_body_buf = NULL;
 	ctx->http_header_buf = NULL;
+	ctx->http_busy = 0;
+	ZVAL_UNDEF(&ctx->request_stack);
+	ctx->invoke_depth = 0;
 	ctx->view_scope_no = 0;
 	ctx->log_file = NULL;
 	ctx->log_level = 0;
@@ -602,6 +607,10 @@ static void gene_request_context_free_fields(gene_request_context *ctx, int pres
 	if (ctx->lang) { efree(ctx->lang); ctx->lang = NULL; }
 	ctx->lang_len = 0;
 	if (ctx->log_file) { efree(ctx->log_file); ctx->log_file = NULL; }
+	/* Unwind Request snapshots before request_attr is recycled/freed. */
+	gene_request_stack_drain(ctx);
+	ctx->invoke_depth = 0;
+	ctx->http_busy = 0;
 	if (!preserve_for_reuse) {
 		/* [GENE_MEM:2026-04-24] Inlined path_params: dtor the HashTable
 		 * only; the zval container itself lives with the struct. */
@@ -1442,6 +1451,8 @@ PHP_MINIT_FUNCTION(gene) {
 	GENE_STARTUP(context);
 	GENE_STARTUP(json);
 	GENE_STARTUP(http);
+	GENE_STARTUP(invoke);
+	GENE_STARTUP(rest);
 	GENE_STARTUP(crypto);
 	GENE_STARTUP(validate);
 	GENE_STARTUP(session);

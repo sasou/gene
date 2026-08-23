@@ -98,6 +98,51 @@
 | clear() | 清除请求数据缓存 |
 | init($get, $post, $cookie, $server, $env, $files, $request = null, $header = null, $rawContent = null) | Swoole 注入请求；未传 $request 时合并 GET+POST；$rawContent 对应 Swoole `$request->rawContent()` |
 | json() | 解析 rawContent 为 JSON 对象/数组；空 body → `null`；非法 JSON / JSON `null` / 标量抛异常。禁止直接读 `php://input` |
+| snapshot() | 压入 get/post/files/request/header/raw 快照，返回新深度；上限 8 |
+| restore() | 弹出快照；栈空返回 false |
+| scope($get, $post, $files = null, $request = null) | 只改入参袋；`$request===null` 时合并 get+post。业务互调应走 `Invoke`/`Rest`，不要 `init` 整包覆盖 |
+
+---
+
+## Invoke
+
+进程内隔离调用：切 Request 再 `new` Controller，异常也会 restore。与 `Controller::forward`（不切 Request）并存。
+
+| 方法 | 说明 |
+|------|------|
+| local($class, $action, $params = [], $files = []) | 深度上限 8；动作从 Request 取参；只返回 action 返回值 |
+
+---
+
+## Rest
+
+命名出站 REST。配置只读；`use('name')` 返回新 proxy，不写回 DI 单例。无 `__call`、无 `init(app_key)`。本地 `class_exists` 走 Invoke，否则必须给 `path`。
+
+```php
+$config->set('rest', [
+    'class' => '\\Gene\\Rest',
+    'params' => [[
+        'timeout' => 5,
+        'connect_timeout' => 2,
+        'ssl_verify' => true,
+        'keep_alive' => true,
+        'headers' => ['Accept' => 'application/json'],
+        'pass_request_id' => true,
+        'services' => [
+            'user' => ['base_url' => 'http://127.0.0.1:8081', 'local' => 'Api\\', 'timeout' => 8],
+        ],
+    ]],
+    'instance' => true,
+]);
+$rest->use('user')->call('Ping', 'pong', $params);
+```
+
+| 方法 | 说明 |
+|------|------|
+| use($name) | 新 proxy，共享只读配置 |
+| local($class, $action, $params = [], $files = []) | 同 `Invoke::local` |
+| http($method, $path, $options = []) | `base_url` + 以 `/` 开头的 path；`decode=>true` 时 JSON 解码 body，失败抛 |
+| call($class, $action, $params = [], $options = []) | 可 dispatch 则 local；否则要求 `options['path']` |
 
 ---
 
@@ -795,7 +840,8 @@ $r = \Gene\Http::request([
     'method'  => 'POST',
     'url'     => $url,
     'headers' => ['Authorization' => 'Bearer ...'],
-    'json'    => $payload,        // 与 body 二选一
+    'json'    => $payload,        // 与 body / files 互斥
+    'files'   => ['f' => $path],  // multipart；值可为路径或 ['tmp_name','name','type']
     'timeout' => 60,
     'connect_timeout' => 3,
     'ssl_verify' => true,

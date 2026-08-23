@@ -24,7 +24,7 @@
 |------|------|------|
 | [orm-v2.md](orm-v2.md) | Db ↔ ORM 对称性（Query ops、timestamps、批量写、行锁、IN） | 6.1.0 已落地 |
 | [lifecycle-completeness.md](lifecycle-completeness.md) | 全生命周期原语（Http、SSE、Context、限流/锁、Json、Crypto） | 方案，待立项 |
-| [rest-invoke.md](rest-invoke.md) | 框架级 REST 互调（Request 栈、Invoke 本地隔离、命名 Rest、Http multipart） | 方案，待立项 |
+| [rest-invoke.md](rest-invoke.md) | 框架级 REST 互调（Request 栈、Invoke 本地隔离、命名 Rest、Http multipart） | 6.1.x 已落地（见文内复盘） |
 
 ---
 
@@ -59,9 +59,9 @@
 
 ---
 
-## REST 互调（待立项）
+## REST 互调（已落地）
 
-详细规格见 [rest-invoke.md](rest-invoke.md)。只写扩展能力；应用网关/注册表/队列不在范围。`Gene\Http` 已落地，本文补隔离本地调用与命名客户端。
+详细规格与复盘见 [rest-invoke.md](rest-invoke.md)。只写扩展能力；应用网关/注册表/队列不在范围。运输层仍是已有 `Gene\Http`。
 
 | 优先级 | 能力 | 编码效率 | 性能 / 安全 |
 |--------|------|----------|-------------|

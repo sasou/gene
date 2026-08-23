@@ -140,7 +140,177 @@ ZEND_BEGIN_ARG_INFO_EX(gene_request_set_arginfo, 0, 0, 2)
 	ZEND_ARG_INFO(0, name)
 	ZEND_ARG_INFO(0, value)
 ZEND_END_ARG_INFO()
+
+ZEND_BEGIN_ARG_INFO_EX(gene_request_scope_arginfo, 0, 0, 2)
+	ZEND_ARG_ARRAY_INFO(0, get, 0)
+	ZEND_ARG_ARRAY_INFO(0, post, 0)
+	ZEND_ARG_ARRAY_INFO(0, files, 1)
+	ZEND_ARG_ARRAY_INFO(0, request, 1)
+ZEND_END_ARG_INFO()
 /* }}} */
+
+static const zend_ulong gene_request_stack_idxs[] = {
+	TRACK_VARS_POST, TRACK_VARS_GET, TRACK_VARS_FILES, TRACK_VARS_REQUEST, 7, GENE_REQUEST_ATTR_RAW
+};
+
+static void gene_request_dup_zval(zval *dst, zval *src) {
+	if (Z_TYPE_P(src) == IS_ARRAY) {
+		ZVAL_ARR(dst, zend_array_dup(Z_ARR_P(src)));
+	} else {
+		ZVAL_COPY(dst, src);
+	}
+}
+
+static void gene_request_snap_copy_index(HashTable *attr, HashTable *snap, zend_ulong idx) {
+	zval *src = zend_hash_index_find(attr, idx);
+	zval dst;
+	if (!src) {
+		ZVAL_NULL(&dst);
+		zend_hash_index_update(snap, idx, &dst);
+		return;
+	}
+	gene_request_dup_zval(&dst, src);
+	zend_hash_index_update(snap, idx, &dst);
+}
+
+static void gene_request_restore_index(HashTable *attr, HashTable *snap, zend_ulong idx) {
+	zval *src = zend_hash_index_find(snap, idx);
+	if (!src || Z_TYPE_P(src) == IS_NULL || Z_TYPE_P(src) == IS_UNDEF) {
+		zend_hash_index_del(attr, idx);
+		return;
+	}
+	{
+		zval copy;
+		gene_request_dup_zval(&copy, src);
+		zend_hash_index_update(attr, idx, &copy);
+	}
+}
+
+int gene_request_snapshot_ctx(gene_request_context *ctx, zend_long *depth_out) {
+	zval *attr;
+	zval snap;
+	zend_long n;
+	size_t i;
+
+	if (depth_out) {
+		*depth_out = 0;
+	}
+	if (Z_TYPE(ctx->request_stack) != IS_ARRAY) {
+		array_init(&ctx->request_stack);
+	}
+	n = zend_hash_num_elements(Z_ARRVAL(ctx->request_stack));
+	if (n >= GENE_REQUEST_STACK_MAX) {
+		zend_throw_exception_ex(NULL, 0, "Gene\\Request snapshot stack overflow (max %d)", GENE_REQUEST_STACK_MAX);
+		return FAILURE;
+	}
+	if (Z_TYPE(ctx->request_attr) != IS_ARRAY) {
+		array_init_size(&ctx->request_attr, 9);
+	}
+	attr = &ctx->request_attr;
+	array_init_size(&snap, 6);
+	for (i = 0; i < sizeof(gene_request_stack_idxs) / sizeof(gene_request_stack_idxs[0]); i++) {
+		gene_request_snap_copy_index(Z_ARRVAL_P(attr), Z_ARRVAL(snap), gene_request_stack_idxs[i]);
+	}
+	add_next_index_zval(&ctx->request_stack, &snap);
+	if (depth_out) {
+		*depth_out = n + 1;
+	}
+	return SUCCESS;
+}
+
+int gene_request_snapshot(zend_long *depth_out) {
+	return gene_request_snapshot_ctx(gene_request_ctx(), depth_out);
+}
+
+int gene_request_restore_ctx(gene_request_context *ctx) {
+	zval *last = NULL;
+	zend_ulong last_idx = 0;
+	zend_string *str_key = NULL;
+	int found = 0;
+	size_t i;
+
+	if (!ctx || Z_TYPE(ctx->request_stack) != IS_ARRAY) {
+		return 0;
+	}
+	if (zend_hash_num_elements(Z_ARRVAL(ctx->request_stack)) <= 0) {
+		return 0;
+	}
+	ZEND_HASH_REVERSE_FOREACH_KEY_VAL(Z_ARRVAL(ctx->request_stack), last_idx, str_key, last) {
+		(void)str_key;
+		found = 1;
+		break;
+	} ZEND_HASH_FOREACH_END();
+	if (!found || !last || Z_TYPE_P(last) != IS_ARRAY) {
+		if (found && !str_key) {
+			zend_hash_index_del(Z_ARRVAL(ctx->request_stack), last_idx);
+		}
+		return 0;
+	}
+	if (Z_TYPE(ctx->request_attr) != IS_ARRAY) {
+		array_init_size(&ctx->request_attr, 9);
+	}
+	for (i = 0; i < sizeof(gene_request_stack_idxs) / sizeof(gene_request_stack_idxs[0]); i++) {
+		gene_request_restore_index(Z_ARRVAL(ctx->request_attr), Z_ARRVAL_P(last), gene_request_stack_idxs[i]);
+	}
+	zend_hash_index_del(Z_ARRVAL(ctx->request_stack), last_idx);
+	if (zend_hash_num_elements(Z_ARRVAL(ctx->request_stack)) == 0) {
+		zend_hash_clean(Z_ARRVAL(ctx->request_stack));
+	}
+	return 1;
+}
+
+int gene_request_restore(void) {
+	return gene_request_restore_ctx(gene_request_ctx());
+}
+
+void gene_request_stack_drain(gene_request_context *ctx) {
+	if (!ctx) {
+		return;
+	}
+	if (Z_TYPE(ctx->request_stack) == IS_ARRAY) {
+		while (gene_request_restore_ctx(ctx)) {
+		}
+		zval_ptr_dtor(&ctx->request_stack);
+	} else if (Z_TYPE(ctx->request_stack) != IS_UNDEF) {
+		zval_ptr_dtor(&ctx->request_stack);
+	}
+	ZVAL_UNDEF(&ctx->request_stack);
+}
+
+static void gene_request_set_dup(zend_ulong type, zval *value) {
+	zval copy;
+	gene_request_dup_zval(&copy, value);
+	setVal(type, &copy);
+	zval_ptr_dtor(&copy);
+}
+
+void gene_request_scope(zval *get, zval *post, zval *files, zval *request) {
+	if (get && Z_TYPE_P(get) == IS_ARRAY) {
+		gene_request_set_dup(TRACK_VARS_GET, get);
+	}
+	if (post && Z_TYPE_P(post) == IS_ARRAY) {
+		gene_request_set_dup(TRACK_VARS_POST, post);
+	}
+	if (files && Z_TYPE_P(files) == IS_ARRAY) {
+		gene_request_set_dup(TRACK_VARS_FILES, files);
+	}
+	if (request && Z_TYPE_P(request) == IS_ARRAY) {
+		gene_request_set_dup(TRACK_VARS_REQUEST, request);
+	} else {
+		zval merged;
+		zend_long get_count = (get && Z_TYPE_P(get) == IS_ARRAY) ? zend_hash_num_elements(Z_ARRVAL_P(get)) : 0;
+		zend_long post_count = (post && Z_TYPE_P(post) == IS_ARRAY) ? zend_hash_num_elements(Z_ARRVAL_P(post)) : 0;
+		array_init_size(&merged, get_count + post_count);
+		if (get && Z_TYPE_P(get) == IS_ARRAY) {
+			zend_hash_copy(Z_ARRVAL(merged), Z_ARRVAL_P(get), (copy_ctor_func_t) zval_add_ref);
+		}
+		if (post && Z_TYPE_P(post) == IS_ARRAY) {
+			zend_hash_copy(Z_ARRVAL(merged), Z_ARRVAL_P(post), (copy_ctor_func_t) zval_add_ref);
+		}
+		setVal(TRACK_VARS_REQUEST, &merged);
+		zval_ptr_dtor(&merged);
+	}
+}
 
 zval * request_query(zend_ulong type, char * name, size_t len) {
 	zval *carrier = NULL, *ret;
@@ -675,6 +845,27 @@ PHP_METHOD(gene_request, clear) {
 }
 /* }}} */
 
+PHP_METHOD(gene_request, snapshot) {
+	zend_long depth = 0;
+	if (gene_request_snapshot(&depth) != SUCCESS) {
+		RETURN_THROWS();
+	}
+	RETURN_LONG(depth);
+}
+
+PHP_METHOD(gene_request, restore) {
+	RETURN_BOOL(gene_request_restore());
+}
+
+PHP_METHOD(gene_request, scope) {
+	zval *get = NULL, *post = NULL, *files = NULL, *request = NULL;
+	if (zend_parse_parameters(ZEND_NUM_ARGS(), "aa|a!a!", &get, &post, &files, &request) == FAILURE) {
+		return;
+	}
+	gene_request_scope(get, post, files, request);
+}
+/* }}} */
+
 /*
  * {{{ gene_request_methods
  */
@@ -708,6 +899,9 @@ const zend_function_entry gene_request_methods[] = {
 	PHP_ME(gene_request, rawContent, geme_request_void_arginfo, ZEND_ACC_PUBLIC|ZEND_ACC_STATIC)
 	PHP_MALIAS(gene_request, getContent, rawContent, geme_request_void_arginfo, ZEND_ACC_PUBLIC|ZEND_ACC_STATIC)
 	PHP_ME(gene_request, json, geme_request_void_arginfo, ZEND_ACC_PUBLIC|ZEND_ACC_STATIC)
+	PHP_ME(gene_request, snapshot, geme_request_void_arginfo, ZEND_ACC_PUBLIC|ZEND_ACC_STATIC)
+	PHP_ME(gene_request, restore, geme_request_void_arginfo, ZEND_ACC_PUBLIC|ZEND_ACC_STATIC)
+	PHP_ME(gene_request, scope, gene_request_scope_arginfo, ZEND_ACC_PUBLIC|ZEND_ACC_STATIC)
 	PHP_MALIAS(gene_request, __set, _set, gene_request_set_arginfo, ZEND_ACC_PUBLIC)
 	PHP_MALIAS(gene_request, __get, _get, gene_request_get_arginfo, ZEND_ACC_PUBLIC)
 	{ NULL, NULL, NULL }

@@ -1,6 +1,6 @@
 # Gene 框架级 REST 互调
 
-> 基线：Gene **6.1.x**。`Gene\Http` / `Context` / `cleanup()` 已按 [lifecycle-completeness.md](lifecycle-completeness.md) 落地。  
+> 基线：Gene **6.1.x（已落地，2026-08-23）**。`Gene\Http` / `Context` / `cleanup()` 已按 [lifecycle-completeness.md](lifecycle-completeness.md) 落地。  
 > 定位：补齐**进程内隔离调用**与**命名出站 REST**，同一套 API 覆盖 **FPM/CLI** 与 **Swoole 协程**，请求级生命周期、无业务语义。  
 > 本文只写扩展：`src/`、ide-helper、`test/`、`demo/`、`gene-ai-helper`。不写业务仓库迁移。
 
@@ -197,3 +197,80 @@ $rest->call(string $class, string $action, array $params = [], array $options = 
 ## 八、与生命周期文档的关系
 
 [lifecycle-completeness.md](lifecycle-completeness.md) §3.1 的 `Gene\Http` 是运输层。本文是其上的 **互调原语**（隔离本地 + 命名客户端）。不重复实现第二套 HTTP 后端。
+
+---
+
+## 九、落地复盘（2026-08-23）
+
+环境：PHP 8.1.30 NTS x64，`phpversion('gene')=6.1.0`，产物 `F:\php_src\php-8.1.30-src\x64\Release\php_gene.dll`。验证入口 `test/RestInvokeTest.php`、`test/HttpClientTest.php`（`-n` + curl + 本 dll）。本机 SDK 为 `F:\php-sdk-2.3.0`（非文档里的 2.6.0）。
+
+### 9.1 结论
+
+| 维度 | 判定 |
+|------|------|
+| 方案是否科学 | **是**：状态只进 `gene_request_context`；本地切 Request、远程复用 `Http`；Rest 不可变 proxy；无业务语义。 |
+| 与规格对齐 | **对齐**，下列偏差已核对且可接受（§9.3）。 |
+| 请求级泄漏 | **无已知泄漏**：栈深度封顶 8；`free_fields` 先 `drain` 再拆 `request_attr`；Invoke 成对 restore；Http `http_busy` / buf 指针收口。 |
+| FPM/CLI | **已实测**（隔离、异常还原、8 层嵌套超限、proxy、`decode` 失败抛、multipart）。 |
+| Swoole | **代码按同一 ctx 模型**；无 Swoole 环境，测试 **SKIP**，不能宣称协程路径已跑绿。 |
+| ASAN | **未跑**（跟现有 audit 节奏）。Windows 以 PHP 用例为准。 |
+
+**生产口径**：FPM/CLI 互调与出站 multipart 可用。Swoole 需在 `runtime_type>=2` 下补跑「Invoke 后 `cleanup()`，下一协程栈/Http 句柄为空」。
+
+### 9.2 实现对照
+
+| 规格 | 位置 | 要点 |
+|------|------|------|
+| Request 栈 | `src/http/request.c`，ctx 字段 `request_stack` | 只拷贝 post/get/files/request/header/raw；`zend_array_dup` 顶层袋；cookie/server 不动 |
+| 栈排空 | `gene_request_stack_drain` ← `free_fields` **先于** `request_attr` 回收 | 异常/提前结束也不会把内层袋留到下一请求 |
+| Invoke | `src/http/invoke.c` | `gene_factory` 每次 new（非 DI 单例）；深度 `invoke_depth` 与栈分开计 |
+| Rest proxy | `src/http/rest.c` | `use()` `object_init_ex` 新对象，只读共享 `config`，不写回 `$this` |
+| Http `files` | `src/http/http.c` | 与 `json` 互斥；FPM `curl_file_create`；Swoole `addFile` 且上传时关 keep-alive 复用 |
+| 禁嵌套 Http | `ctx->http_busy` / `http_body_buf` | 防 curl 写回调叠脏 `smart_str` |
+| 文档 / demo | ide-helper、`reference.md`、SKILL、`demo/application/Api/Ping.php`、`demo/public/rest_invoke.php` | 禁止互调裸 curl / `Request::init` 覆盖 |
+
+### 9.3 相对原文的有意偏差
+
+| 原文 | 落地 | 理由 |
+|------|------|------|
+| Invoke 用 `zend_try` 统一出口 | **不用** `zend_try`；用户异常走 `EG(exception)`，在 `call` 之后 **必定** `restore_ctx` + `depth--` | PHP 8 用户异常一般不 bailout。套 `zend_try` 反而有把 `EG(bailout)` 指到已返回栈帧的风险。`E_ERROR`/真正 bailout 靠 `free_fields` drain |
+| `Router::dispatch($c,$a,[])` | `gene_factory` + `gene_factory_call_1(..., NULL)`（**0 个方法参数**） | PHP 8 对无参 action 传入空数组会 `ArgumentCountError`；规格本意是「从 Request 取参」 |
+| 栈 pop 用「元素个数 - 1」当下标 | **按最后一枚真实 key 弹出**，空栈 `zend_hash_clean` | 删掉 packed 下标 0 后 `nNextFreeElement` 变成 1，再 `add_next_index` 插在 1，用 `n-1==0` 会取空槽 → **restore 静默失败、内层袋泄漏到外层**（落地时已踩中并修） |
+| `zend_try` 成对 | 用户路径成对 restore；请求结束 drain | 见上 |
+
+### 9.4 内存与生命周期（为何认为无泄漏）
+
+1. **有界**：`GENE_REQUEST_STACK_MAX` / `GENE_INVOKE_DEPTH_MAX` 均为 8，超限抛、不 push。
+2. **所有权**：snapshot/scope 对袋 `zend_array_dup` + `setVal` 替换槽位，调用方数组与栈上快照不共享顶层 HashTable（`dup` 是浅拷贝：袋内嵌套 array 仍可能共享内层，互调 payload 一般为扁平标量，可接受）。
+3. **成对释放**：Invoke 在 factory 失败、方法缺失、action 抛异常后都 restore；Controller 对象 `zval_ptr_dtor`。超长 action 名 `estrndup` 必 `efree`。
+4. **请求边界**：`free_fields` 先 drain（往仍活着的 `request_attr` 回写再丢栈），再回收 attr / `http_curl`；`invoke_depth`、`http_busy` 置 0。Swoole `cleanup()` 走同一条。
+5. **Rest**：无模块全局「当前服务」；proxy 只多一个对象 + 共享 config 引用，随 DI/`di_regs` 请求结束释放。
+6. **Http**：`files` 建的 `CURLFile`/multipart 数组在 `setopt` 后 `dtor`；Swoole 上传不把 Client 放回 peer map，避免 `addFile` 残留。
+
+**剩余风险（非已证实泄漏）**
+
+- 真正的 executor **bailout**（少见）会跳过 Invoke 函数尾部；依赖 drain。与原文 `zend_try` 目标相同，实现换成边界回收。
+- `zend_array_dup` 浅拷贝：若业务在 snapshot 之后原地改**嵌套**袋，快照可能看到改动。`scope` 会整袋替换，Invoke 热路径通常无此问题。
+- Linux ASAN、Swoole 实跑未做。
+- `HttpClientTest` multipart 路径有一条 PHP `Array to string conversion` 警告（回显仍正确），属 curl 选项边角，未当失败。
+
+### 9.5 验证记录
+
+| 项 | 结果 |
+|----|------|
+| `RestInvokeTest` | 外层 init → local 改参后外层不变；内层 Exception 还原；`nest` 递归超限抛且外层袋仍在；`use()` 新 proxy；`call` 本地枝；`http`+`decode`；非法 JSON 抛 |
+| `HttpClientTest` | GET / POST json / stream / 5xx retry / multipart files+form |
+| Swoole 分支 | `SKIP`（无扩展），禁止假绿 |
+| Windows 构建 | `config.w32` 已列 `invoke.c` `rest.c`；`configure.js` **未**把新源写进 Makefile，需补 `GENE_GLOBAL_OBJS` / http 编译规则 / `GENE_GLOBAL_OBJS.txt` 后再 `nmake`（干净重配后应核一次） |
+
+### 9.6 应用侧怎么接
+
+门面只保留「查节点 / 鉴权 / 信封」，互调用：
+
+```php
+$rest->use('user')->call('Api\\Foo', 'bar', $params);
+// 或强制远程
+$rest->use('user')->http('POST', '/foo/bar', ['json' => $params, 'decode' => true]);
+```
+
+不要 `Request::init` 覆盖入站，不要裸 `curl_exec`。异步/队列消费再调同一 `call`，扩展不提供 `sync`。

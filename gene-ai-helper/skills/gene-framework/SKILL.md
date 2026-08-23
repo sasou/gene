@@ -72,7 +72,7 @@ class User extends \Gene\Controller
 - 响应：`success()` / `error()` 返回数组；需直接输出时用 `json()` 或路由 `after` 钩子里的 `\Gene\Response::json()`。JSON API **禁止** `echo` + `exit`
 - 默认使用 `\Gene\Log`（自动带 `request_id`）、`Validate`、`Monitor`、`Memory`（单 worker）/ `Redis::rateLimit`（多 worker）
 
-出站 HTTP 用 `\Gene\Http::request()`（FPM=curl，Swoole=协程客户端），不要裸 `curl_exec`。请求级 KV 用 `\Gene\Context`，不要用静态变量。HMAC/随机 ID/AES-GCM 用 `\Gene\Crypto`。
+出站 HTTP 用 `\Gene\Http::request()`（FPM=curl，Swoole=协程客户端），不要裸 `curl_exec`。同进程互调用 `\Gene\Invoke::local` / `\Gene\Rest::call`，不要 `Request::init` 覆盖入站袋。请求级 KV 用 `\Gene\Context`，不要用静态变量。HMAC/随机 ID/AES-GCM 用 `\Gene\Crypto`。
 
 推荐钩子（零 C，见 demo）：
 

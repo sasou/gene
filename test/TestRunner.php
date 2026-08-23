@@ -24,7 +24,8 @@ $testFiles = [
     'DiTest.php',
     'HookTest.php',
     'LifecycleTest.php',
-    'HttpClientTest.php'
+    'HttpClientTest.php',
+    'RestInvokeTest.php'
 ];
 
 // Test runner class
@@ -65,7 +66,8 @@ class TestRunner
             'DiTest.php',
             'HookTest.php',
             'LifecycleTest.php',
-            'HttpClientTest.php'
+            'HttpClientTest.php',
+            'RestInvokeTest.php'
         ];
         
         $totalTests = 0;

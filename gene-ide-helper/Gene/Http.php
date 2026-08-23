@@ -21,7 +21,8 @@ class Http
      *   url: string,
      *   headers?: array<string,string>,
      *   json?: mixed,
-     *   body?: string,
+     *   files?: array<string, string|array>,
+     *   body?: string|array,
      *   timeout?: float|int,
      *   connect_timeout?: float|int,
      *   ssl_verify?: bool,
@@ -29,7 +30,8 @@ class Http
      *   stream?: callable,
      *   keep_alive?: bool
      * } $options
-     *   json and body are mutually exclusive. retry is GET/HEAD only, 5xx/timeout,
+     *   json, body (string) and files are mutually exclusive. files + array body
+     *   is multipart form fields. retry is GET/HEAD only, 5xx/timeout,
      *   exponential backoff, capped at 3. ssl_verify defaults true.
      * @return array{status:int, headers:array, body:string}
      * @throws \Exception
