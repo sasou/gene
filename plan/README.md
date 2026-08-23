@@ -24,6 +24,7 @@
 |------|------|------|
 | [orm-v2.md](orm-v2.md) | Db ↔ ORM 对称性（Query ops、timestamps、批量写、行锁、IN） | 6.1.0 已落地 |
 | [lifecycle-completeness.md](lifecycle-completeness.md) | 全生命周期原语（Http、SSE、Context、限流/锁、Json、Crypto） | 方案，待立项 |
+| [rest-invoke.md](rest-invoke.md) | 框架级 REST 互调（Request 栈、Invoke 本地隔离、命名 Rest、Http multipart） | 方案，待立项 |
 
 ---
 
@@ -55,3 +56,17 @@
 | P1 | `Request::json` + `Gene\Json` | 入站 JSON 一处语义 | 正确性 |
 | P1 | `Gene\Crypto`（hmac / randomId / GCM） | 砍掉令牌与 ID 复制 | 无 |
 | P1 | demo Cors / RequestId 钩子 | 约定，不改派发链 | 无 |
+
+---
+
+## REST 互调（待立项）
+
+详细规格见 [rest-invoke.md](rest-invoke.md)。只写扩展能力；应用网关/注册表/队列不在范围。`Gene\Http` 已落地，本文补隔离本地调用与命名客户端。
+
+| 优先级 | 能力 | 编码效率 | 性能 / 安全 |
+|--------|------|----------|-------------|
+| P0 | Request 快照栈 + cleanup 排空 | 不再 `init` 覆盖入站 | FPM/Swoole 不串请求 |
+| P0 | `Gene\Invoke::local` | 同进程互调一行 | 无网络；Controller 非单例 |
+| P0 | `Gene\Rest` 不可变 proxy | 命名服务、本地失败才 HTTP | 协程安全；走现有 Http |
+| P0 | `Http` multipart `files` | 上传不必自造 curl | 双后端一致 |
+| P1 | demo Ping + 双模式测试 | 可回归 | 无环境 SKIP，禁止假绿 |
