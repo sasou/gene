@@ -23,7 +23,7 @@
 | 文件 | 说明 | 状态 |
 |------|------|------|
 | [orm-v2.md](orm-v2.md) | Db ↔ ORM 对称性（Query ops、timestamps、批量写、行锁、IN） | 6.1.0 已落地 |
-| [lifecycle-completeness.md](lifecycle-completeness.md) | 全生命周期原语（Http、SSE、Context、限流/锁、Json、Crypto） | 方案，待立项 |
+| [lifecycle-completeness.md](lifecycle-completeness.md) | 全生命周期原语（Http、SSE、Context、限流/锁、Json、Crypto） | 6.1.x 已落地（见文内 §八） |
 | [rest-invoke.md](rest-invoke.md) | 框架级 REST 互调（Request 栈、Invoke 本地隔离、命名 Rest、Http multipart） | 6.1.x 已落地（见文内复盘） |
 
 ---
@@ -43,7 +43,7 @@
 
 ---
 
-## 全生命周期原语（待立项）
+## 全生命周期原语（已落地）
 
 详细规格见 [lifecycle-completeness.md](lifecycle-completeness.md)。ORM 不在该文范围。
 

@@ -8,7 +8,7 @@
 
 控制器基类。继承后可通过 `$this->属性名` 使用 config 中注册的组件。
 
-**@property**：`\Gene\Db\Mysql $db`、`\Gene\Cache\Memcached $memcache`、`\Gene\Cache\Redis $redis`、`\Gene\Cache\Cache $cache`、`\Gene\Validate $validate`、`\Ext\Services\Rest $rest`
+**@property**：`\Gene\Db\Mysql $db`、`\Gene\Cache\Memcached $memcache`、`\Gene\Cache\Redis $redis`、`\Gene\Cache\Cache $cache`、`\Gene\Validate $validate`、`\Gene\Rest $rest`
 
 | 方法 | 说明 |
 |------|------|
@@ -515,6 +515,9 @@ $this->memory->clean();                    // 清空全部
 | del($key) | 删除指定 key |
 | clean() | 销毁并重新初始化整个共享内存 HashTable |
 | stats() | 分区观测：缓存条目数、协程上下文/ctx pool/sweep 遥测、闭包源码缓存等 |
+| incr/decr($key, $step = 1) | 写锁内原子加减；缺失键以步进值创建 |
+| rateLimit($key, $max, $windowSec) | 单进程固定窗口；超限 `false`。多 worker 不共享，请用 Redis |
+| lock($key, $ttlSec) / unlock($key, $token) | 进程内 NX+TTL 锁。Swoole `workerReady()` 后冻结写入 |
 
 ---
 
@@ -864,16 +867,6 @@ $r = \Gene\Http::request([
 | randomId($prefix = '', $bytes = 16) | `prefix + bin2hex(random_bytes)` |
 | encrypt / decrypt($data, $key) | AES-256-GCM；`$key` 必须 32 字节 |
 
-## Gene\Memory
-
-进程级共享内存。多 worker 不共享。Swoole `workerReady()` 后冻结写入，请求期限流/锁请用 Redis。
-
-| 方法 | 说明 |
-|------|------|
-| set/get/del/exists/incr/decr/mget/mset | 见 ide-helper |
-| rateLimit($key, $max, $windowSec) | 单进程固定窗口；超限 `false` |
-| lock($key, $ttlSec) / unlock($key, $token) | 进程内 NX+TTL 锁 |
-
 ---
 
-*文档由 gene-ide-helper 提炼，框架版本 5.6.x。Swoole 细则见 [swoole.md](swoole.md)。*
+*文档由 gene-ide-helper 提炼，框架版本 6.1.x。Swoole 细则见 [swoole.md](swoole.md)。*
