@@ -31,6 +31,12 @@ if test "$PHP_GENE" != "no"; then
     AC_MSG_RESULT([$php_version, ok])
   fi
 
+  dnl [GENE_FIX:2026-08-23] zend_hrtime() does not exist in PHP 8.1; gene_hrtime
+  dnl falls back to clock_gettime(CLOCK_MONOTONIC) on POSIX. Probe it so the
+  dnl HAVE_CLOCK_GETTIME guard in gene.h is set correctly (otherwise gettimeofday
+  dnl is used at microsecond resolution).
+  AC_CHECK_FUNCS([clock_gettime])
+
   PHP_NEW_EXTENSION(gene,
 	  gene.c \
 	  app/application.c \

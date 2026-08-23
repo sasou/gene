@@ -45,6 +45,8 @@
  #define gene_rwlock_destroy(lock)
  #else
  #include <pthread.h>
+ #include <time.h>
+ #include <sys/time.h>
  typedef pthread_rwlock_t gene_rwlock_t;
  #define gene_rwlock_init(lock)    pthread_rwlock_init(lock, NULL)
  #define gene_rwlock_rdlock(lock)  pthread_rwlock_rdlock(lock)
@@ -87,9 +89,13 @@
  #define GENE_CG_FN_DECL(var) zend_function *var = NULL
  #endif
  
- /* Portable high-resolution timer (nanoseconds). zend_hrtime is not exported
- * in the PHP 8.1 Windows import library, so use QueryPerformanceCounter on
- * PHP_WIN32 and zend_hrtime elsewhere. */
+ /* Portable high-resolution monotonic timer (nanoseconds). There is no
+ * public zend_hrtime() in PHP 8.1 (the userland hrtime() is backed by
+ * php_hrtime_current() in ext/standard, which is not a stable extension
+ * API). Use QueryPerformanceCounter on PHP_WIN32 and clock_gettime(CLOCK
+ * _MONOTONIC) elsewhere — exactly what ext/standard/hrtime.c does on POSIX.
+ * Fall back to gettimeofday() (microsecond resolution) if the platform
+ * lacks clock_gettime (HAVE_CLOCK_GETTIME unset). */
 static inline uint64_t gene_hrtime(void) {
 #ifdef PHP_WIN32
 	static LARGE_INTEGER freq = {0};
@@ -99,8 +105,18 @@ static inline uint64_t gene_hrtime(void) {
 	}
 	QueryPerformanceCounter(&count);
 	return (uint64_t)((count.QuadPart * 1000000000ULL) / (uint64_t)freq.QuadPart);
+#elif defined(HAVE_CLOCK_GETTIME)
+	struct timespec ts;
+	if (EXPECTED(clock_gettime(CLOCK_MONOTONIC, &ts) == 0)) {
+		return (uint64_t)ts.tv_sec * 1000000000ULL + (uint64_t)ts.tv_nsec;
+	}
+	return 0;
 #else
-	return zend_hrtime();
+	struct timeval tv;
+	if (EXPECTED(gettimeofday(&tv, NULL) == 0)) {
+		return (uint64_t)tv.tv_sec * 1000000000ULL + (uint64_t)tv.tv_usec * 1000ULL;
+	}
+	return 0;
 #endif
 }
 
