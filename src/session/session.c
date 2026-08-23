@@ -22,6 +22,7 @@
 #include "main/SAPI.h"
 #include "ext/session/php_session.h"
 #include "ext/standard/md5.h"
+#include "zend_exceptions.h"
 #include <time.h>
 
 #ifdef PHP_WIN32
