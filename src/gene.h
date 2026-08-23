@@ -261,8 +261,21 @@ static inline uint64_t gene_hrtime(void) {
  /* [GENE_MEM:2026-06-19 M1] Hard cap on the number of tracked Gene\Cache
   * business entries. 0 = unlimited (default, fully backward-compatible);
   * when > 0, business writes evict the oldest tracked entries past the cap. */
- zend_long cache_max_items;
- gene_rwlock_t cache_lock;
+zend_long cache_max_items;
+/* [GENE_FIX:2026-08-23 UAF-1] Headroom (in slots) pre-extended into
+ * GENE_G(cache) at workerReady() so post-freeze business inserts never
+ * resize the bucket array. From php.ini gene.cache_reserve — do NOT zero in
+ * php_gene_init_globals. */
+zend_long cache_reserve;
+/* [GENE_FIX:2026-08-23 UAF-1] Count of business inserts refused after the
+ * freeze because the table was full (exported via Gene\Monitor::stats). */
+zend_ulong cache_insert_refused;
+/* [GENE_FIX:2026-08-23 UAF-5] Set on the first Gene\Cache business-layer
+ * write after the workerReady() freeze. Once set, the read path keeps taking
+ * the rwlock even when worker_ready is 1 — the lock-free fast path is only
+ * sound while the table is truly write-once. */
+zend_bool cache_business_dirty;
+gene_rwlock_t cache_lock;
  gene_request_context default_ctx;
  gene_request_context *resident_ctx;
  HashTable *co_contexts;

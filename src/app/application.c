@@ -1327,6 +1327,10 @@ PHP_METHOD(gene_application, webscan) {
  */
 PHP_METHOD(gene_application, workerReady) {
 	zval *self = getThis();
+	/* [GENE_FIX:2026-08-23 UAF-1] Reserve bucket-array headroom BEFORE
+	 * flipping the freeze flag so no reader can observe the table mid-extend.
+	 * After this point the arData address must stay constant. */
+	gene_memory_reserve();
 	GENE_G(worker_ready) = 1;
 	if (GENE_G(runtime_type) >= 2 && GENE_G(ctx_pool_size) == 0) {
 		gene_request_context_pool_prewarm(-1);

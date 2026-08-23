@@ -1490,7 +1490,11 @@ PHP_METHOD(gene_cache, processCached)
 	gene_cache_key(sign, 1, obj, args, ttl, &key, (int)hash_mode);
 	cached_val = gene_memory_get(Z_STRVAL(key), Z_STRLEN(key));
 	if (cached_val) {
-		gene_memory_zval_local(return_value, cached_val);
+		/* [GENE_FIX:2026-08-23 UAF-2] Business entries may be overwritten
+		 * (pefree'd) by another coroutine while this request still uses the
+		 * returned value — deep-copy into request memory instead of borrowing
+		 * the persistent zend_string pointers. */
+		gene_memory_zval_local_copy(return_value, cached_val);
 		zval_ptr_dtor(&key);
 		return;
 	}
@@ -1591,7 +1595,8 @@ PHP_METHOD(gene_cache, processCachedVersion)
 			zval_ptr_dtor(&key);
 			RETURN_ZVAL(&cur_data, 1, 1);
 		}
-		gene_memory_zval_local(return_value, cacheData);
+		/* [GENE_FIX:2026-08-23 UAF-2] Deep copy, see processCached. */
+		gene_memory_zval_local_copy(return_value, cacheData);
 		zval_ptr_dtor(&key);
 		zval_ptr_dtor(&cache_key);
 		zval_ptr_dtor(&cur_version);
@@ -1870,7 +1875,8 @@ PHP_METHOD(gene_cache, processCachedBatch)
 		zval *cached_val = gene_memory_get(Z_STRVAL(keys[i]), Z_STRLEN(keys[i]));
 		if (cached_val) {
 			zval local_val;
-			gene_memory_zval_local(&local_val, cached_val);
+			/* [GENE_FIX:2026-08-23 UAF-2] Deep copy, see processCached. */
+			gene_memory_zval_local_copy(&local_val, cached_val);
 			add_next_index_zval(return_value, &local_val);
 		} else {
 			zval data;
@@ -2207,7 +2213,8 @@ PHP_METHOD(gene_cache, processCachedVersionBatch)
 			zval *cacheVersion = zend_hash_str_find(Z_ARRVAL_P(cached_val), ZEND_STRL("version"));
 			if (cacheVersion && checkVersion(cacheVersion, &cur_version, mode)) {
 				zval local_val;
-				gene_memory_zval_local(&local_val, cacheData);
+				/* [GENE_FIX:2026-08-23 UAF-2] Deep copy, see processCached. */
+				gene_memory_zval_local_copy(&local_val, cacheData);
 				add_next_index_zval(return_value, &local_val);
 				zval_ptr_dtor(&data_keys[i]);
 				continue;

@@ -37,6 +37,7 @@ ZEND_END_ARG_INFO()
 
 static void gene_memory_hash_copy(HashTable *target, HashTable *source);
 static void gene_memory_zval_persistent(zval *dst, zval *source);
+static void gene_memory_hash_copy_deep(HashTable *target, HashTable *source);
 
 
 ZEND_BEGIN_ARG_INFO_EX(gene_memory_arg_construct, 0, 0, 0)
@@ -269,6 +270,11 @@ static void gene_memory_hash_copy(HashTable *target, HashTable *source) /* {{{ *
 } /* }}} */
 
 static void gene_memory_zval_persistent(zval *dst, zval *source) /* {{{ */{
+	/* [GENE_FIX:2026-08-23 UAF-4] IS_REFERENCE must be dereferenced before the
+	 * switch: dst is an uninitialized stack zval, so falling through with no
+	 * matching case would store stack garbage into the persistent table and
+	 * gene_memory_zval_dtor would later pefree a garbage pointer. */
+	ZVAL_DEREF(source);
 	switch (Z_TYPE_P(source)) {
 	case IS_STRING:
 		ZVAL_INTERNED_STR(dst, gene_str_persistent(Z_STRVAL_P(source), Z_STRLEN_P(source)));
@@ -289,29 +295,33 @@ static void gene_memory_zval_persistent(zval *dst, zval *source) /* {{{ */{
 	case IS_OBJECT:
 		zend_error(E_ERROR, "An unsupported data type");
 		break;
+	default:
+		ZVAL_NULL(dst);
+		break;
 	}
 } /* }}} */
 
 /** {{{ static void * gene_memory_zval_edit_persistent(zval *zvalue)
  */
 static void * gene_memory_zval_edit_persistent(zval *dst, zval *source) {
-	switch (Z_TYPE_P(dst)) {
-	case IS_PTR:
-	case IS_STRING:
-		pefree(Z_PTR_P(dst), 1);
-		break;
-	case IS_ARRAY:
-		gene_hash_destroy(Z_ARRVAL_P(dst));
-		break;
-	}
+	/* [GENE_FIX:2026-08-23 UAF-3] Swap-then-free: build the new persistent
+	 * value first, atomically exchange it into the bucket, then free the old
+	 * value. The previous order (free dst, then rebuild) left dst holding a
+	 * freed pointer for the whole rebuild window — any concurrent reader that
+	 * had borrowed dst's persistent zend_string/HashTable (see
+	 * gene_memory_zval_local) dereferenced freed memory. */
+	zval old;
+	zval newv;
+	ZVAL_COPY_VALUE(&old, dst);
+	ZVAL_DEREF(source);
 	switch (Z_TYPE_P(source)) {
 	case IS_STRING:
-		ZVAL_INTERNED_STR(dst,
+		ZVAL_INTERNED_STR(&newv,
 				gene_str_persistent(Z_STRVAL_P(source), Z_STRLEN_P(source)));
 		break;
 	case IS_ARRAY: {
-		gene_hash_init(dst, zend_hash_num_elements(Z_ARRVAL_P(source)));
-		gene_memory_hash_copy(Z_ARRVAL_P(dst), Z_ARRVAL_P(source));
+		gene_hash_init(&newv, zend_hash_num_elements(Z_ARRVAL_P(source)));
+		gene_memory_hash_copy(Z_ARRVAL_P(&newv), Z_ARRVAL_P(source));
 	}
 		break;
 	case IS_TRUE:
@@ -319,11 +329,24 @@ static void * gene_memory_zval_edit_persistent(zval *dst, zval *source) {
 	case IS_DOUBLE:
 	case IS_LONG:
 	case IS_NULL:
-		ZVAL_COPY_VALUE(dst, source);
+		ZVAL_COPY_VALUE(&newv, source);
 		break;
 	case IS_RESOURCE:
 	case IS_OBJECT:
 		zend_error(E_ERROR, "An unsupported data type");
+		break;
+	default:
+		ZVAL_NULL(&newv);
+		break;
+	}
+	ZVAL_COPY_VALUE(dst, &newv);
+	switch (Z_TYPE_P(&old)) {
+	case IS_PTR:
+	case IS_STRING:
+		pefree(Z_PTR_P(&old), 1);
+		break;
+	case IS_ARRAY:
+		gene_hash_destroy(Z_ARRVAL_P(&old));
 		break;
 	}
 	return NULL;
@@ -337,23 +360,17 @@ void gene_memory_hash_copy_local(HashTable *target, HashTable *source) /* {{{ */
 	ZEND_HASH_FOREACH_KEY_VAL(source, idx, key, element)
 	{
 		zval rv;
-		gene_memory_zval_local(&rv, element);
+		/* [GENE_FIX:2026-08-23 UAF-2] Deep-copy every value into request
+		 * memory. The previous zero-copy path borrowed persistent
+		 * zend_string* into the request array; a concurrent overwrite of the
+		 * same persistent key (Gene\Cache business write / LRU evict / TTL
+		 * delete) then freed memory the request still referenced. Bucket keys
+		 * below are likewise rebuilt instead of borrowed. */
+		gene_memory_zval_local_copy(&rv, element);
 		if (key) {
-			/* [GENE_PERF:2026-04-24 v5.5.8] Persistent cache keys are created
-			 * via gene_str_persistent() which sets IS_STR_INTERNED|IS_STR_PERMANENT.
-			 * PHP's hash_update/zend_string_release on such strings is a safe
-			 * no-op for refcount management, so we can hand the persistent
-			 * zend_string directly to the request-scope HashTable instead of
-			 * rebuilding a fresh request-scope copy via zend_string_init.
-			 * Saves one emalloc+memcpy per hash entry on every config read,
-			 * DI graph traversal, and Memory::get() on array values. */
-			if (GC_FLAGS(key) & IS_STR_INTERNED) {
-				zend_symtable_update(target, key, &rv);
-			} else {
-				zend_string *str_key = zend_string_init(ZSTR_VAL(key), ZSTR_LEN(key), 0);
-				zend_symtable_update(target, str_key, &rv);
-				zend_string_release(str_key);
-			}
+			zend_string *str_key = zend_string_init(ZSTR_VAL(key), ZSTR_LEN(key), 0);
+			zend_symtable_update(target, str_key, &rv);
+			zend_string_release(str_key);
 		} else {
 			zend_hash_index_update(target, idx, &rv);
 		}
@@ -362,26 +379,18 @@ void gene_memory_hash_copy_local(HashTable *target, HashTable *source) /* {{{ */
 
 zval *gene_memory_zval_local(zval *dst, zval *source) /* {{{ */
 {
+	/* [GENE_FIX:2026-08-23 UAF-4] Deref references before the switch so a
+	 * reference-typed persistent entry cannot fall through leaving dst
+	 * uninitialized (same stack-garbage hazard as gene_memory_zval_persistent). */
+	ZVAL_DEREF(source);
 	switch (Z_TYPE_P(source)) {
 	case IS_STRING:
-		/* [GENE_PERF:2026-04-24 v5.5.8] Persistent cache entries are stored
-		 * as interned (IS_STR_INTERNED|IS_STR_PERMANENT) zend_strings. Share
-		 * the interned pointer into the request scope via ZVAL_STR — no ref
-		 * bump, no emalloc. The request-scope zval_ptr_dtor that eventually
-		 * frees this container is a no-op for interned strings (the string
-		 * header bypasses refcount release). This removes one emalloc +
-		 * memcpy per string value returned from Gene\Memory::get,
-		 * Gene\Application::config, and every DI/service config read, which
-		 * in the DI-heavy path compounds across dozens of entries per req.
-		 * Non-interned strings (shouldn't happen for values built via
-		 * gene_memory_zval_persistent, but defensive here) fall through to
-		 * the old-style fresh-copy path. */
-		if (EXPECTED(GC_FLAGS(Z_STR_P(source)) & IS_STR_INTERNED)) {
-			ZVAL_STR(dst, Z_STR_P(source));
-		} else {
-			zend_string *str_key = zend_string_init(Z_STRVAL_P(source), Z_STRLEN_P(source), 0);
-			ZVAL_NEW_STR(dst, str_key);
-		}
+		/* [GENE_FIX:2026-08-23 UAF-2] Always deep-copy. The previous
+		 * zero-copy branch (ZVAL_STR of the persistent interned string) was
+		 * only safe while the table was strictly write-once; Gene\Cache
+		 * business writes after workerReady() break that invariant and freed
+		 * the borrowed pointer under in-flight requests. */
+		ZVAL_NEW_STR(dst, zend_string_init(Z_STRVAL_P(source), Z_STRLEN_P(source), 0));
 		break;
 	case IS_ARRAY:
 		array_init_size(dst, zend_hash_num_elements(Z_ARRVAL_P(source)));
@@ -397,6 +406,63 @@ zval *gene_memory_zval_local(zval *dst, zval *source) /* {{{ */
 	case IS_RESOURCE:
 	case IS_OBJECT:
 		zend_error(E_ERROR, "An unsupported data type");
+		break;
+	default:
+		ZVAL_NULL(dst);
+		break;
+	}
+	return dst;
+} /* }}} */
+
+/* [GENE_FIX:2026-08-23 UAF-2] Request-scope deep copy of a persistent-cache
+ * value: every string is rebuilt with zend_string_init(..., 0) and every
+ * bucket key is re-created in the request heap, so the returned zval owns no
+ * pointer into GENE_G(cache). Use this for Gene\Cache business reads, whose
+ * entries may be overwritten (pefree'd) or evicted while a request still
+ * holds the returned value. Framework metadata reads (routes/config/DI) keep
+ * using the zero-copy gene_memory_zval_local above. */
+static void gene_memory_hash_copy_deep(HashTable *target, HashTable *source) /* {{{ */{
+	zend_string *key;
+	zend_long idx;
+	zval *element;
+	ZEND_HASH_FOREACH_KEY_VAL(source, idx, key, element)
+	{
+		zval rv;
+		gene_memory_zval_local_copy(&rv, element);
+		if (key) {
+			zend_string *str_key = zend_string_init(ZSTR_VAL(key), ZSTR_LEN(key), 0);
+			zend_symtable_update(target, str_key, &rv);
+			zend_string_release(str_key);
+		} else {
+			zend_hash_index_update(target, idx, &rv);
+		}
+	}ZEND_HASH_FOREACH_END();
+} /* }}} */
+
+zval *gene_memory_zval_local_copy(zval *dst, zval *source) /* {{{ */
+{
+	ZVAL_DEREF(source);
+	switch (Z_TYPE_P(source)) {
+	case IS_STRING:
+		ZVAL_NEW_STR(dst, zend_string_init(Z_STRVAL_P(source), Z_STRLEN_P(source), 0));
+		break;
+	case IS_ARRAY:
+		array_init_size(dst, zend_hash_num_elements(Z_ARRVAL_P(source)));
+		gene_memory_hash_copy_deep(Z_ARRVAL_P(dst), Z_ARRVAL_P(source));
+		break;
+	case IS_TRUE:
+	case IS_FALSE:
+	case IS_DOUBLE:
+	case IS_LONG:
+	case IS_NULL:
+		ZVAL_COPY_VALUE(dst, source);
+		break;
+	case IS_RESOURCE:
+	case IS_OBJECT:
+		zend_error(E_ERROR, "An unsupported data type");
+		break;
+	default:
+		ZVAL_NULL(dst);
 		break;
 	}
 	return dst;
@@ -621,6 +687,25 @@ void gene_cache_lru_destroy(void) {
 }
 /* }}} */
 
+/** {{{ void gene_memory_reserve(void)
+ * [GENE_FIX:2026-08-23 UAF-1] Called from Application::workerReady() at the
+ * freeze boundary. Pre-extends GENE_G(cache) by gene.cache_reserve slots so
+ * post-freeze business inserts (Gene\Cache layer) fit without resizing the
+ * bucket array. Combined with the insert guard in gene_memory_set(), this
+ * keeps the arData address constant after the freeze, which is the invariant
+ * the lock-free read path and the borrowed-pointer readers rely on. */
+void gene_memory_reserve(void) {
+	zend_long reserve = GENE_G(cache_reserve);
+	if (!GENE_G(cache) || reserve <= 0) {
+		return;
+	}
+	GENE_CACHE_WRLOCK();
+	zend_hash_extend(GENE_G(cache),
+			GENE_G(cache)->nNumUsed + (uint32_t)reserve, 0);
+	GENE_CACHE_WRUNLOCK();
+}
+/* }}} */
+
 /** {{{ void gene_memory_set(char *keyString,int keyString_len,zval *zvalue, int validity)
  */
 void gene_memory_set(char *keyString, size_t keyString_len, zval *zvalue,
@@ -633,6 +718,17 @@ void gene_memory_set(char *keyString, size_t keyString_len, zval *zvalue,
 	int is_business = (GENE_G(cache_max_items) > 0
 		&& GENE_G(cache_layer_memory_write_depth) > 0);
 	if (zvalue) {
+		/* [GENE_FIX:2026-08-23 UAF-4] Reject unsupported types BEFORE taking
+		 * the write lock: zend_error(E_ERROR) inside gene_memory_zval_persistent
+		 * bails out and would skip GENE_CACHE_WRUNLOCK(), leaking the write
+		 * lock and deadlocking the worker. References are dereferenced by the
+		 * copy helpers themselves. */
+		zval *check = zvalue;
+		ZVAL_DEREF(check);
+		if (UNEXPECTED(Z_TYPE_P(check) == IS_OBJECT || Z_TYPE_P(check) == IS_RESOURCE)) {
+			zend_error(E_ERROR, "An unsupported data type");
+			return;
+		}
 		if (UNEXPECTED(!gene_memory_write_allowed("Memory::set"))) {
 			return;
 		}
@@ -645,11 +741,23 @@ void gene_memory_set(char *keyString, size_t keyString_len, zval *zvalue,
 		if (validity > 0 && ++GENE_G(memory_expiry_sweep_ctr) % GENE_MEMORY_EXPIRY_SWEEP_INTERVAL == 0) {
 			gene_memory_expiry_sweep_nolock();
 		}
-		copyval = zend_symtable_str_find(GENE_G(cache), keyString, keyString_len);
-		if (copyval == NULL) {
-			gene_memory_zval_persistent(&ret, zvalue);
-			key = gene_str_persistent(keyString, keyString_len);
-			gene_symtable_update(GENE_G(cache), key, &ret);
+	copyval = zend_symtable_str_find(GENE_G(cache), keyString, keyString_len);
+	if (copyval == NULL) {
+		/* [GENE_FIX:2026-08-23 UAF-1] After the workerReady() freeze the bucket
+		 * array address must stay constant: router/DI/config readers hold raw
+		 * zval* into it without a lock. A new-key insert that would trigger a
+		 * resize (perealloc) is therefore refused — the caller simply gets a
+		 * cache miss instead of a SIGSEGV. workerReady() pre-extends the table
+		 * by gene.cache_reserve so normal business churn still fits. */
+		if (UNEXPECTED(GENE_G(runtime_type) >= 2 && GENE_G(worker_ready)
+				&& GENE_G(cache)->nNumUsed >= GENE_G(cache)->nTableSize)) {
+			GENE_G(cache_insert_refused)++;
+			GENE_CACHE_WRUNLOCK();
+			return;
+		}
+		gene_memory_zval_persistent(&ret, zvalue);
+		key = gene_str_persistent(keyString, keyString_len);
+		gene_symtable_update(GENE_G(cache), key, &ret);
 			/* key is now owned by the hash table; do not free here.
 			 * zend_string_release is a no-op for interned strings. */
 			if (is_business) {

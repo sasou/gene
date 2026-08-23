@@ -159,6 +159,7 @@ STD_PHP_INI_ENTRY("gene.ctx_pool_max", "256", PHP_INI_SYSTEM, OnUpdateLong, ctx_
 STD_PHP_INI_ENTRY("gene.ctx_pool_prewarm", "0", PHP_INI_SYSTEM, OnUpdateLong, ctx_pool_prewarm, zend_gene_globals, gene_globals) // @suppress("Symbol is not resolved")
 STD_PHP_INI_BOOLEAN("gene.swoole_getcid_capi", "1", PHP_INI_SYSTEM, OnUpdateBool, swoole_getcid_capi, zend_gene_globals, gene_globals) // @suppress("Symbol is not resolved")
 STD_PHP_INI_ENTRY("gene.cache_max_items", "0", PHP_INI_SYSTEM, OnUpdateLong, cache_max_items, zend_gene_globals, gene_globals) // @suppress("Symbol is not resolved")
+STD_PHP_INI_ENTRY("gene.cache_reserve", "4096", PHP_INI_SYSTEM, OnUpdateLong, cache_reserve, zend_gene_globals, gene_globals) // @suppress("Symbol is not resolved")
 STD_PHP_INI_BOOLEAN("gene.route_precompile", "0", PHP_INI_SYSTEM, OnUpdateBool, route_precompile, zend_gene_globals, gene_globals) // @suppress("Symbol is not resolved")
 STD_PHP_INI_ENTRY("gene.closure_src_cache_max", "1024", PHP_INI_SYSTEM, OnUpdateLong, closure_src_cache_max, zend_gene_globals, gene_globals) // @suppress("Symbol is not resolved")
 STD_PHP_INI_BOOLEAN("gene.swoole_auto_cleanup", "0", PHP_INI_SYSTEM, OnUpdateBool, swoole_auto_cleanup, zend_gene_globals, gene_globals) // @suppress("Symbol is not resolved")
@@ -1296,6 +1297,10 @@ static void php_gene_init_globals() {
 	GENE_G(memory_cache_miss) = 0;
 	/* [GENE_FIX:2026-08-07-5 N3] */
 	GENE_G(memory_expiry_sweep_ctr) = 0;
+	/* [GENE_FIX:2026-08-23 UAF-1] cache_reserve comes from php.ini — do NOT
+	 * zero it here (same rule as ctx_pool_prewarm / cache_easy_ttl). */
+	GENE_G(cache_insert_refused) = 0;
+	GENE_G(cache_business_dirty) = 0;
 	/* [GENE_FEATURE:2026-07-30 F2] */
 	GENE_G(request_count) = 0;
 	GENE_G(request_error_count) = 0;
