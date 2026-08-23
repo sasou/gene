@@ -78,6 +78,42 @@ echo "  child exit={$code}\n";
 check('FPM 下仍抛出（threw: ... cache_reserve）',
     strpos($out, 'threw:') !== false && strpos($out, 'gene.cache_reserve') !== false);
 
+/* [AUDIT 2026-08-23 AUTO-RESERVE] 矛盾配置不再只是警告：reserve 自动向上
+ * 矫正为 max_items + margin（10000 + 2500 = 12500），冻结后写入超过
+ * 4096 个业务 key 不再被插入守卫拒绝。 */
+echo "== SW-LOG-4: 矛盾配置自动矫正：冻结后 5000 个业务写入全部接受 ==\n";
+$childScript4 = sys_get_temp_dir() . '\\sw_autoreserve_accept.php';
+file_put_contents($childScript4, <<<'PHP'
+<?php
+class H { public function produce($p) { return ['p' => $p]; } }
+\Gene\Application::setRuntimeType('swoole');
+\Gene\Application::workerReady();
+$cache = new \Gene\Cache\Cache(['sign' => 't:']);
+$h = new H();
+$ok = 0;
+for ($i = 0; $i < 5000; $i++) {
+    $r = $cache->processCached([$h, 'produce'], ["arg_$i"], 3600);
+    if (is_array($r) && ($r['p'] ?? null) === "arg_$i") { $ok++; }
+}
+echo "accepted=$ok\n";
+PHP
+);
+putenv('GENE_SWOOLE_MODE=1');
+$cmd = sprintf('"%s" -n -d extension_dir=%s -d extension=%s'
+    . ' -d display_errors=stderr -d log_errors=1'
+    . ' -d gene.cache_reserve=4096 -d gene.cache_max_items=10000 %s 2>&1',
+    PHP_BINARY, 'D:\\wampServer-php8.1_x64_nts\\php_ext',
+    'F:\\php_src\\php-8.1.30-src\\x64\\Release\\php_gene.dll',
+    escapeshellarg($childScript4));
+exec($cmd, $o4, $c4);
+putenv('GENE_SWOOLE_MODE');
+$out4 = implode("\n", $o4);
+echo "  child exit={$c4}\n";
+check('5000 个业务写入全部接受（accepted=5000）', strpos($out4, 'accepted=5000') !== false);
+check('日志含矫正值（auto-corrected to 12500）', strpos($out4, 'auto-corrected to 12500') !== false);
+check('子进程正常退出', $c4 === 0);
+@unlink($childScript4);
+
 @unlink($childScript);
 
 echo $fail === 0 ? "\nPASS\n" : "\nFAIL ({$fail})\n";

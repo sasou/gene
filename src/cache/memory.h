@@ -98,6 +98,10 @@ zval * gene_memory_zval_local_copy(zval *dst, zval *source);
  * a perealloc of the bucket array (which would invalidate every borrowed
  * route/DI/config pointer). */
 void gene_memory_reserve(void);
+/* [GENE_FIX:2026-08-23 AUTO-RESERVE] Effective reserve used by
+ * gene_memory_reserve(): auto-corrects the contradictory
+ * cache_reserve <= cache_max_items combination upward; see memory.c. */
+zend_long gene_cache_effective_reserve(void);
 
 GENE_MINIT_FUNCTION (memory);
 

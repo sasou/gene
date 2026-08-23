@@ -1331,8 +1331,11 @@ PHP_METHOD(gene_application, workerReady) {
 	 * with reserve <= max_items the frozen table fills up before the LRU cap
 	 * is ever reached, so eviction never triggers and every new business key
 	 * is silently refused by the insert guard (cache_insert_refused grows,
-	 * the whole Gene\Cache layer degrades to permanent misses). Warn loudly
-	 * instead of letting the contradictory configuration pass silently.
+	 * the whole Gene\Cache layer degrades to permanent misses).
+	 * [GENE_FIX:2026-08-23 AUTO-RESERVE] The contradiction can never be
+	 * intentional (reserve is internal bucket-array headroom, not a business
+	 * capacity), so gene_memory_reserve() auto-corrects it upward to
+	 * max_items + margin; warn here so operators still fix php.ini.
 	 * [GENE_FIX:2026-08-23 SW-LOG] In Swoole mode (runtime_type >= 2) this
 	 * runs inside the workerStart callback where an uncaught exception from
 	 * the Gene\Exception error handler kills the worker and the master
@@ -1342,12 +1345,14 @@ PHP_METHOD(gene_application, workerReady) {
 			&& GENE_G(cache_reserve) <= GENE_G(cache_max_items)) {
 		if (GENE_G(runtime_type) >= 2) {
 			gene_log_diag(E_WARNING,
-				"Gene: gene.cache_reserve (" ZEND_LONG_FMT ") must be greater than gene.cache_max_items (" ZEND_LONG_FMT "); otherwise the frozen cache table fills before LRU eviction can trigger and new business keys are refused",
-				GENE_G(cache_reserve), GENE_G(cache_max_items));
+				"Gene: gene.cache_reserve (" ZEND_LONG_FMT ") must be greater than gene.cache_max_items (" ZEND_LONG_FMT "); effective reserve auto-corrected to " ZEND_LONG_FMT " so LRU eviction can trigger before the frozen table fills; please raise gene.cache_reserve in php.ini",
+				GENE_G(cache_reserve), GENE_G(cache_max_items),
+				gene_cache_effective_reserve());
 		} else {
 			php_error_docref(NULL, E_WARNING,
-				"Gene: gene.cache_reserve (" ZEND_LONG_FMT ") must be greater than gene.cache_max_items (" ZEND_LONG_FMT "); otherwise the frozen cache table fills before LRU eviction can trigger and new business keys are refused",
-				GENE_G(cache_reserve), GENE_G(cache_max_items));
+				"Gene: gene.cache_reserve (" ZEND_LONG_FMT ") must be greater than gene.cache_max_items (" ZEND_LONG_FMT "); effective reserve auto-corrected to " ZEND_LONG_FMT " so LRU eviction can trigger before the frozen table fills; please raise gene.cache_reserve in php.ini",
+				GENE_G(cache_reserve), GENE_G(cache_max_items),
+				gene_cache_effective_reserve());
 		}
 	}
 	/* [GENE_FIX:2026-08-23 UAF-1] Reserve bucket-array headroom BEFORE

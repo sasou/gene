@@ -687,15 +687,41 @@ void gene_cache_lru_destroy(void) {
 }
 /* }}} */
 
+/** {{{ zend_long gene_cache_effective_reserve(void)
+ * [GENE_FIX:2026-08-23 AUTO-RESERVE] cache_reserve is internal headroom for
+ * the frozen bucket array, not a user-tuned capacity — a value <=
+ * cache_max_items is structurally contradictory (the table fills before the
+ * LRU cap is reached, eviction never triggers, new business keys are refused)
+ * and can never be intentional. Auto-correct UPWARD to max_items + margin
+ * (cost: extra memory only); never lower max_items, which would silently
+ * change eviction semantics. The user-visible warning lives in
+ * Application::workerReady(); this function only computes the value actually
+ * used for the pre-extend. */
+zend_long gene_cache_effective_reserve(void) {
+	zend_long reserve = GENE_G(cache_reserve);
+	zend_long max_items = GENE_G(cache_max_items);
+
+	if (max_items > 0 && reserve <= max_items) {
+		zend_long margin = max_items / 4;
+		if (margin < 64) {
+			margin = 64;
+		}
+		return max_items + margin;
+	}
+	return reserve;
+}
+/* }}} */
+
 /** {{{ void gene_memory_reserve(void)
  * [GENE_FIX:2026-08-23 UAF-1] Called from Application::workerReady() at the
- * freeze boundary. Pre-extends GENE_G(cache) by gene.cache_reserve slots so
- * post-freeze business inserts (Gene\Cache layer) fit without resizing the
- * bucket array. Combined with the insert guard in gene_memory_set(), this
- * keeps the arData address constant after the freeze, which is the invariant
- * the lock-free read path and the borrowed-pointer readers rely on. */
+ * freeze boundary. Pre-extends GENE_G(cache) by the effective reserve (see
+ * gene_cache_effective_reserve) so post-freeze business inserts (Gene\Cache
+ * layer) fit without resizing the bucket array. Combined with the insert
+ * guard in gene_memory_set(), this keeps the arData address constant after
+ * the freeze, which is the invariant the lock-free read path and the
+ * borrowed-pointer readers rely on. */
 void gene_memory_reserve(void) {
-	zend_long reserve = GENE_G(cache_reserve);
+	zend_long reserve = gene_cache_effective_reserve();
 	if (!GENE_G(cache) || reserve <= 0) {
 		return;
 	}
