@@ -1332,12 +1332,23 @@ PHP_METHOD(gene_application, workerReady) {
 	 * is ever reached, so eviction never triggers and every new business key
 	 * is silently refused by the insert guard (cache_insert_refused grows,
 	 * the whole Gene\Cache layer degrades to permanent misses). Warn loudly
-	 * instead of letting the contradictory configuration pass silently. */
+	 * instead of letting the contradictory configuration pass silently.
+	 * [GENE_FIX:2026-08-23 SW-LOG] In Swoole mode (runtime_type >= 2) this
+	 * runs inside the workerStart callback where an uncaught exception from
+	 * the Gene\Exception error handler kills the worker and the master
+	 * respawns it — an endless crash loop. Log-only via gene_log_diag() so
+	 * the service keeps running; FPM keeps the loud user-handler path. */
 	if (GENE_G(cache_max_items) > 0
 			&& GENE_G(cache_reserve) <= GENE_G(cache_max_items)) {
-		php_error_docref(NULL, E_WARNING,
-			"Gene: gene.cache_reserve (" ZEND_LONG_FMT ") must be greater than gene.cache_max_items (" ZEND_LONG_FMT "); otherwise the frozen cache table fills before LRU eviction can trigger and new business keys are refused",
-			GENE_G(cache_reserve), GENE_G(cache_max_items));
+		if (GENE_G(runtime_type) >= 2) {
+			gene_log_diag(E_WARNING,
+				"Gene: gene.cache_reserve (" ZEND_LONG_FMT ") must be greater than gene.cache_max_items (" ZEND_LONG_FMT "); otherwise the frozen cache table fills before LRU eviction can trigger and new business keys are refused",
+				GENE_G(cache_reserve), GENE_G(cache_max_items));
+		} else {
+			php_error_docref(NULL, E_WARNING,
+				"Gene: gene.cache_reserve (" ZEND_LONG_FMT ") must be greater than gene.cache_max_items (" ZEND_LONG_FMT "); otherwise the frozen cache table fills before LRU eviction can trigger and new business keys are refused",
+				GENE_G(cache_reserve), GENE_G(cache_max_items));
+		}
 	}
 	/* [GENE_FIX:2026-08-23 UAF-1] Reserve bucket-array headroom BEFORE
 	 * flipping the freeze flag so no reader can observe the table mid-extend.
@@ -1348,10 +1359,12 @@ PHP_METHOD(gene_application, workerReady) {
 		gene_request_context_pool_prewarm(-1);
 	}
 	/* Keep cache_max_items=0 backward compatible, but make the long-running
-	 * worker risk visible exactly once after the routing/config cache freezes. */
+	 * worker risk visible exactly once after the routing/config cache freezes.
+	 * Log-only (gene_log_diag): this path is Swoole-only by construction and
+	 * must never throw through the user error handler inside workerStart. */
 	if (GENE_G(runtime_type) >= 2 && GENE_G(cache_max_items) == 0
 			&& !GENE_G(cache_unlimited_noticed)) {
-		php_error_docref(NULL, E_NOTICE,
+		gene_log_diag(E_NOTICE,
 			"Gene: gene.cache_max_items=0 leaves Gene\\Cache entries unbounded in this Swoole worker; set an explicit capacity for high-cardinality workloads");
 		GENE_G(cache_unlimited_noticed) = 1;
 	}
