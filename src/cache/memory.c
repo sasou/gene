@@ -706,6 +706,41 @@ void gene_memory_reserve(void) {
 }
 /* }}} */
 
+/* [GENE_FIX:2026-08-23 P2-1] Recursive full scan for unsupported types.
+ * The UAF-4 pre-check only inspected the outermost zval, but Gene\Cache
+ * payloads are nested ({data: ..., version: ...}) — an object (DateTime /
+ * ORM Model / closure) at any depth previously reached
+ * gene_memory_zval_persistent()'s zend_error(E_ERROR) *after*
+ * GENE_CACHE_WRLOCK() was already held: the bailout skipped
+ * GENE_CACHE_WRUNLOCK() (permanent write-lock leak) and longjmp'd on the
+ * Swoole coroutine stack. Scan the whole payload here, BEFORE any lock is
+ * taken; on a hit the caller refuses the write instead of bailing out.
+ * Self-referencing (recursive) arrays are likewise refused — they cannot be
+ * persisted and would infinitely recurse in the copy path. */
+static int gene_memory_zval_is_supported(zval *zv) {
+	HashTable *ht;
+	zval *element;
+	int ok = 1;
+
+	ZVAL_DEREF(zv);
+	if (Z_TYPE_P(zv) != IS_ARRAY) {
+		return Z_TYPE_P(zv) != IS_OBJECT && Z_TYPE_P(zv) != IS_RESOURCE;
+	}
+	ht = Z_ARRVAL_P(zv);
+	if (GC_IS_RECURSIVE(ht)) {
+		return 0;
+	}
+	GC_TRY_PROTECT_RECURSION(ht);
+	ZEND_HASH_FOREACH_VAL(ht, element) {
+		if (!gene_memory_zval_is_supported(element)) {
+			ok = 0;
+			break;
+		}
+	} ZEND_HASH_FOREACH_END();
+	GC_TRY_UNPROTECT_RECURSION(ht);
+	return ok;
+}
+
 /** {{{ void gene_memory_set(char *keyString,int keyString_len,zval *zvalue, int validity)
  */
 void gene_memory_set(char *keyString, size_t keyString_len, zval *zvalue,
@@ -718,15 +753,17 @@ void gene_memory_set(char *keyString, size_t keyString_len, zval *zvalue,
 	int is_business = (GENE_G(cache_max_items) > 0
 		&& GENE_G(cache_layer_memory_write_depth) > 0);
 	if (zvalue) {
-		/* [GENE_FIX:2026-08-23 UAF-4] Reject unsupported types BEFORE taking
-		 * the write lock: zend_error(E_ERROR) inside gene_memory_zval_persistent
-		 * bails out and would skip GENE_CACHE_WRUNLOCK(), leaking the write
-		 * lock and deadlocking the worker. References are dereferenced by the
-		 * copy helpers themselves. */
-		zval *check = zvalue;
-		ZVAL_DEREF(check);
-		if (UNEXPECTED(Z_TYPE_P(check) == IS_OBJECT || Z_TYPE_P(check) == IS_RESOURCE)) {
-			zend_error(E_ERROR, "An unsupported data type");
+		/* [GENE_FIX:2026-08-23 P2-1] Reject unsupported types at ANY depth,
+		 * BEFORE taking the write lock: the UAF-4 top-level-only check let
+		 * nested objects slip through to gene_memory_zval_persistent()'s
+		 * E_ERROR, which bails out with GENE_CACHE_WRLOCK() held — a
+		 * permanent write-lock leak plus a longjmp on the Swoole coroutine
+		 * stack. A refused write degrades to a cache miss; the E_ERROR
+		 * branches inside the copy helpers are now unreachable from this
+		 * path and remain only as defense for the router/startup writers. */
+		if (UNEXPECTED(!gene_memory_zval_is_supported(zvalue))) {
+			php_error_docref(NULL, E_WARNING,
+				"Gene memory cache does not support object/resource values at any nesting depth; set refused");
 			return;
 		}
 		if (UNEXPECTED(!gene_memory_write_allowed("Memory::set"))) {

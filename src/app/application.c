@@ -1327,6 +1327,18 @@ PHP_METHOD(gene_application, webscan) {
  */
 PHP_METHOD(gene_application, workerReady) {
 	zval *self = getThis();
+	/* [GENE_FIX:2026-08-23 P2-3] cache_reserve must exceed cache_max_items:
+	 * with reserve <= max_items the frozen table fills up before the LRU cap
+	 * is ever reached, so eviction never triggers and every new business key
+	 * is silently refused by the insert guard (cache_insert_refused grows,
+	 * the whole Gene\Cache layer degrades to permanent misses). Warn loudly
+	 * instead of letting the contradictory configuration pass silently. */
+	if (GENE_G(cache_max_items) > 0
+			&& GENE_G(cache_reserve) <= GENE_G(cache_max_items)) {
+		php_error_docref(NULL, E_WARNING,
+			"Gene: gene.cache_reserve (" ZEND_LONG_FMT ") must be greater than gene.cache_max_items (" ZEND_LONG_FMT "); otherwise the frozen cache table fills before LRU eviction can trigger and new business keys are refused",
+			GENE_G(cache_reserve), GENE_G(cache_max_items));
+	}
 	/* [GENE_FIX:2026-08-23 UAF-1] Reserve bucket-array headroom BEFORE
 	 * flipping the freeze flag so no reader can observe the table mid-extend.
 	 * After this point the arData address must stay constant. */

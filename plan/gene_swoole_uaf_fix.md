@@ -28,7 +28,7 @@ todos:
     status: pending
   - id: p2-defects
     content: "P2 三处真实缺陷：嵌套类型全量预检、cacheData 判空、cache_reserve/cache_max_items 配置矛盾"
-    status: pending
+    status: completed
   - id: p3-observe
     content: "P3 观测点：cache_insert_refused / cache_business_items / closure_src_cache_flushes"
     status: pending
@@ -272,6 +272,41 @@ UAF-4 的前置检查只看最外层：
 
 **改法**：`workerReady()` 时校验 `cache_reserve > cache_max_items`，不满足则 `E_WARNING`；
 线上先把 `gene.cache_reserve` 提到 `65536`。
+
+### 9.4 落地记录（2026-08-23，已实现并回归通过）
+
+三处均已按"改法"落地，Windows 构建（phpsdk-vs16-x64，产物
+`F:\php_src\php-8.1.30-src\x64\Release\php_gene.dll`）+ 全量回归通过：
+
+- **9.1 → `gene_memory_zval_is_supported()`（memory.c）**：新增递归全量预检，
+  `ZVAL_DEREF` 后非数组只看 object/resource；数组用 `GC_TRY_PROTECT_RECURSION` 做
+  深度遍历，命中 object/resource **或自引用数组**（`GC_IS_RECURSIVE`）即拒绝——顺带堵住了
+  自引用数组在 `gene_memory_hash_copy` 里无限递归的潜在缺陷。`gene_memory_set` 的顶层
+  预检替换为该函数；拒写语义由 `E_ERROR` 改为 **`E_WARNING` + 拒绝写入（退化为缓存
+  miss）**，彻底消除协程栈 longjmp 与写锁泄漏。三个 copy 函数内的 `E_ERROR` 保留为
+  router/startup 写入路径的防御分支（该路径不经过预检）。
+- **9.2 → 6 处全部加固（计划只点名 2 处，实际同形态共 6 处）**：`cachedVersion`
+  （cache.c:1263）、`localCachedVersion`（1357）、`processCachedVersion`（1587）、
+  `cachedVersionBatch`（2004）、`localCachedVersionBatch`（2115 附近）、
+  `processCachedVersionBatch`（2224 附近）。命中分支条件统一改为
+  `cacheData == NULL || cacheVersion == NULL || checkVersion(...) == 0`（单条）/
+  `cacheData && cacheVersion && checkVersion(...)`（batch），半截条目一律按 miss 重算。
+  apcu/外部 hook 存储同样可能写出半截条目，故 4 处 hook/apcu 路径一并修复。
+- **9.3 → `PHP_METHOD(gene_application, workerReady)`（application.c）**：`cache_max_items > 0
+  && cache_reserve <= cache_max_items` 时 `E_WARNING`（格式用 `ZEND_LONG_FMT`，
+  **PHP 的 printf 族不支持 `%pd`**，误用会触发 `E_CORE_ERROR`）。检查无条件生效
+  （不依赖 runtime_type），便于 CLI 下验证。
+
+验证（全部 PASS）：
+
+| 项 | 结果 |
+|---|---|
+| `audit\repro\p2_defects.php`（新增） | 8/8：嵌套对象/自引用数组拒写且进程健康；cachedVersion/cachedVersionBatch 半截条目重算不崩；workerReady 矛盾配置 E_WARNING、合理配置静默 |
+| `audit\repro\swoole_cache_uaf.php` | PASS（STEP E 已同步为新拒写语义，子脚本 `swoole_cache_uaf_obj.php` 同步改写） |
+| OrmTest / DatabaseTest / RouterTest / CacheTest | 全绿（CacheTest 的 `cachedVersion() returned null` 为**本 CLI 环境既有行为**：hook store 冷启动返回 false 时按设计 RETURN_NULL，旧 dll 同样复现，与本次改动无关） |
+
+行为变化提示：用户态 `Gene\Memory::set($k, $obj)` 由 fatal `E_ERROR` 变为 `E_WARNING` +
+拒写（返回无、键不存在）。这是 9.1"在取锁前返回失败"的直接要求，已有 repro 覆盖。
 
 ## 10. P3 — 上线后的观测点
 

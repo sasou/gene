@@ -1260,7 +1260,10 @@ PHP_METHOD(gene_cache, cachedVersion)
 			cacheVersion = zend_hash_str_find(Z_ARRVAL_P(data), ZEND_STRL("version"));
 			zval cur_version;
 			curVersion(&cache_key, &cache, &cur_version);
-			if (cacheVersion == NULL || checkVersion(cacheVersion, &cur_version, mode) == 0) {
+			/* [GENE_FIX:2026-08-23 P2-2] A half-written entry (version present,
+			 * data missing) must be treated as a miss — dereferencing a NULL
+			 * cacheData below would crash. */
+			if (cacheData == NULL || cacheVersion == NULL || checkVersion(cacheVersion, &cur_version, mode) == 0) {
 				zval data_new,cur_data;
 				gene_cache_call(obj, args, &cur_data);
 				gene_cache_build_version_payload(&data_new, &cur_data, &cur_version);
@@ -1353,7 +1356,8 @@ PHP_METHOD(gene_cache, localCachedVersion)
 		zval *cacheData = NULL,*cacheVersion = NULL;
 		cacheData = zend_hash_str_find(Z_ARRVAL(cache), ZEND_STRL("data"));
 		cacheVersion = zend_hash_str_find(Z_ARRVAL(cache), ZEND_STRL("version"));
-		if (cacheVersion == NULL || checkVersion(cacheVersion, &cur_version, mode) == 0) {
+		/* [GENE_FIX:2026-08-23 P2-2] Half-written entry (no data) => miss. */
+		if (cacheData == NULL || cacheVersion == NULL || checkVersion(cacheVersion, &cur_version, mode) == 0) {
 			zval data_new,cur_data;
 			gene_cache_call(obj, args, &cur_data);
 			gene_cache_build_version_payload(&data_new, &cur_data, &cur_version);
@@ -1582,7 +1586,11 @@ PHP_METHOD(gene_cache, processCachedVersion)
 	if (cached_val && Z_TYPE_P(cached_val) == IS_ARRAY) {
 		zval *cacheData = zend_hash_str_find(Z_ARRVAL_P(cached_val), ZEND_STRL("data"));
 		zval *cacheVersion = zend_hash_str_find(Z_ARRVAL_P(cached_val), ZEND_STRL("version"));
-		if (cacheVersion == NULL || checkVersion(cacheVersion, &cur_version, mode) == 0) {
+		/* [GENE_FIX:2026-08-23 P2-2] A half-written entry (version present,
+		 * data missing — e.g. produced by a write that bailed out mid-copy)
+		 * must fall through to the recompute branch; gene_memory_zval_local_copy
+		 * on a NULL cacheData would dereference NULL. */
+		if (cacheData == NULL || cacheVersion == NULL || checkVersion(cacheVersion, &cur_version, mode) == 0) {
 			zval data_new, cur_data;
 			gene_cache_call(obj, args, &cur_data);
 			gene_cache_build_version_payload(&data_new, &cur_data, &cur_version);
@@ -1995,7 +2003,9 @@ PHP_METHOD(gene_cache, cachedVersionBatch)
 		if (data_entry && Z_TYPE_P(data_entry) == IS_ARRAY) {
 			zval *cacheData = zend_hash_str_find(Z_ARRVAL_P(data_entry), ZEND_STRL("data"));
 			zval *cacheVersion = zend_hash_str_find(Z_ARRVAL_P(data_entry), ZEND_STRL("version"));
-			if (cacheVersion && checkVersion(cacheVersion, &cur_version, mode)) {
+			/* [GENE_FIX:2026-08-23 P2-2] Half-written entry (no data) => miss;
+			 * Z_TRY_ADDREF_P(NULL) would dereference NULL. */
+			if (cacheData && cacheVersion && checkVersion(cacheVersion, &cur_version, mode)) {
 				Z_TRY_ADDREF_P(cacheData);
 				add_next_index_zval(return_value, cacheData);
 				zval_ptr_dtor(&data_keys[i]);
@@ -2111,7 +2121,9 @@ PHP_METHOD(gene_cache, localCachedVersionBatch)
 		if (data_entry && Z_TYPE_P(data_entry) == IS_ARRAY) {
 			zval *cacheData = zend_hash_str_find(Z_ARRVAL_P(data_entry), ZEND_STRL("data"));
 			zval *cacheVersion = zend_hash_str_find(Z_ARRVAL_P(data_entry), ZEND_STRL("version"));
-			if (cacheVersion && checkVersion(cacheVersion, &cur_version, mode)) {
+			/* [GENE_FIX:2026-08-23 P2-2] Half-written entry (no data) => miss;
+			 * Z_TRY_ADDREF_P(NULL) would dereference NULL. */
+			if (cacheData && cacheVersion && checkVersion(cacheVersion, &cur_version, mode)) {
 				Z_TRY_ADDREF_P(cacheData);
 				add_next_index_zval(return_value, cacheData);
 				zval_ptr_dtor(&data_keys[i]);
@@ -2211,7 +2223,9 @@ PHP_METHOD(gene_cache, processCachedVersionBatch)
 		if (cached_val && Z_TYPE_P(cached_val) == IS_ARRAY) {
 			zval *cacheData = zend_hash_str_find(Z_ARRVAL_P(cached_val), ZEND_STRL("data"));
 			zval *cacheVersion = zend_hash_str_find(Z_ARRVAL_P(cached_val), ZEND_STRL("version"));
-			if (cacheVersion && checkVersion(cacheVersion, &cur_version, mode)) {
+			/* [GENE_FIX:2026-08-23 P2-2] Half-written entry (no data) => miss;
+			 * gene_memory_zval_local_copy on NULL would dereference NULL. */
+			if (cacheData && cacheVersion && checkVersion(cacheVersion, &cur_version, mode)) {
 				zval local_val;
 				/* [GENE_FIX:2026-08-23 UAF-2] Deep copy, see processCached. */
 				gene_memory_zval_local_copy(&local_val, cacheData);

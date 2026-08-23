@@ -70,14 +70,15 @@ $m->set('biz:ref', $refArr);
 $got = $m->get('biz:ref');
 echo "  ref roundtrip: ", (($got['a'] ?? null) === 'via-reference' ? 'ok' : 'BAD'), "\n";
 
-/* E_ERROR 不可捕获；用独立子进程验证"不支持类型被拒绝且不泄漏写锁"。 */
+/* [P2-1] 拒写语义已从 E_ERROR 改为取锁前 E_WARNING + 拒写；子进程验证
+ * "不支持类型（含嵌套/自引用）被拒绝、进程不致命、写锁不泄漏"。 */
 $child = sprintf('"%s" -n -d extension_dir=%s -d extension=pdo_sqlite -d extension=%s %s',
     PHP_BINARY, 'D:\\wampServer-php8.1_x64_nts\\php_ext',
     'F:\\php_src\\php-8.1.30-src\\x64\\Release\\php_gene.dll',
     escapeshellarg(__DIR__ . '\\swoole_cache_uaf_obj.php'));
 exec($child, $out, $code);
 echo "  object set child exit={$code} output=", implode(' ', $out), "\n";
-echo "  object set rejected: ", ($code !== 0 ? 'ok' : 'BAD'), "\n";
+echo "  object set refused safely: ", ($code === 0 && strpos(implode(' ', $out), 'refused=yes alive=yes') !== false ? 'ok' : 'BAD'), "\n";
 
 echo "STEP F: done\n";
 echo "PASS\n";
