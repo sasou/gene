@@ -996,8 +996,10 @@ PHP_METHOD(gene_http, request) {
 		own_body = 1;
 		have_json = 1;
 	} else if (zbody) {
-		body = zval_get_string(zbody);
-		own_body = 1;
+		if (!(zfiles && Z_TYPE_P(zfiles) == IS_ARRAY && Z_TYPE_P(zbody) == IS_ARRAY)) {
+			body = zval_get_string(zbody);
+			own_body = 1;
+		}
 	}
 
 	zheaders = gene_http_opt(Z_ARRVAL_P(opts), ZEND_STRL("headers"));
@@ -1744,8 +1746,10 @@ static int gene_http_multi_one_swoole(zval *item, zval *one) {
 		own_body = 1;
 		have_json = 1;
 	} else if (zbody) {
-		body = zval_get_string(zbody);
-		own_body = 1;
+		if (!(zfiles && Z_TYPE_P(zfiles) == IS_ARRAY && Z_TYPE_P(zbody) == IS_ARRAY)) {
+			body = zval_get_string(zbody);
+			own_body = 1;
+		}
 	}
 	zheaders = gene_http_opt(Z_ARRVAL_P(item), ZEND_STRL("headers"));
 	ztimeout = gene_http_opt(Z_ARRVAL_P(item), ZEND_STRL("timeout"));
