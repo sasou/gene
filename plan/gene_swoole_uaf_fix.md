@@ -20,6 +20,18 @@ todos:
   - id: verify
     content: 构建 + 三套测试回归；核对线上 gene.* ini 取值
     status: completed
+  - id: p0-jit
+    content: "P0 定性实验：关闭 opcache JIT 后重跑同一复现序列，排除/确认 JIT 嫌疑"
+    status: pending
+  - id: p1-symbols
+    content: "P1 可观测性：带符号构建 + thread apply all bt full；测试机 ASAN 复跑 ab"
+    status: pending
+  - id: p2-defects
+    content: "P2 三处真实缺陷：嵌套类型全量预检、cacheData 判空、cache_reserve/cache_max_items 配置矛盾"
+    status: pending
+  - id: p3-observe
+    content: "P3 观测点：cache_insert_refused / cache_business_items / closure_src_cache_flushes"
+    status: pending
 isProject: false
 ---
 
@@ -105,3 +117,173 @@ sequenceDiagram
 - `php test\OrmTest.php`、`DatabaseTest.php`、`RouterTest.php` 全绿。
 - 新增 `audit\repro\swoole_cache_uaf.php`：单进程内模拟"读取业务缓存数组 → 覆盖同 key → 再访问先前返回的数组"，修复前必崩、修复后必过。
 - Windows 构建按 [AGENTS.md](f:/github_code/gene/AGENTS.md) 的 phpsdk-vs16-x64 流程验证；上线前建议在 Linux 测试机用 `phpize` + ASAN 跑一遍 ab。
+
+---
+
+# 第二轮：上述方案上线后仍崩溃（2026-08-23）
+
+> 结论先行：第一轮的 M1/M2/M3 已落地并核对无误，但**线上现象未消失**。新拿到的 core 显示崩溃 PC 在
+> `opcache.so` 的无符号代码区，整个栈里**没有任何 gene 帧**。当前证据不再支持把这次崩溃归因到
+> `GENE_G(cache)`；首要嫌疑转为 **opcache JIT × Swoole 协程**。
+
+## 6. 复现序列与 core 解读
+
+线上复现顺序（重启后手工访问 `/doc/autoload.html` 正常）：
+
+```bash
+docker restart geneweb
+ab -n 100000 -c 10  http://127.0.0.1:81/admin/login.html
+ab -n 10000  -c 100 http://127.0.0.1:81/admin/login.html
+ab -n 10000  -c 100 http://127.0.0.1:81/login.html
+ab -n 10000  -c 100 http://127.0.0.1:81/
+ab -n 10000  -c 100 http://127.0.0.1:81/admin/login.html
+# 随后访问 /doc/autoload.html → worker signal 11
+```
+
+`gdb /data/app/php/bin/php core.php.75 -ex 'bt full'` 的三条可信信息：
+
+### 6.1 崩溃 PC 在 opcache 映射区且无符号
+
+```
+#0  0x00007fc4216c3fe6 in ?? () from .../no-debug-non-zts-20210902/opcache.so
+```
+
+崩的指令既不在 PHP core 也不在 `gene.so`。opcache 映射区里"没有符号的可执行代码"最典型的来源就是
+**JIT 生成的机器码**（jit buffer 落在 opcache 的共享段内，gdb 归属到 `opcache.so`）。
+
+### 6.2 #1–#6 与 #9–#14 是假帧，`bt` 不可用
+
+`#3 0x68`、`#4 0x03`、`#6 0x01` 不可能是返回地址。#9 之后的"地址"解码为 ASCII 正是文档页 HTML：
+
+| 栈上 8 字节 | ASCII |
+|---|---|
+| `0x227261622d656c67` | `gle-bar"` |
+| `0x6f6d2d76616e2d79` | `y-nav-mo` |
+| `0x63206e6170733c20` | ` <span c` |
+| `0x6170732f3c3e2265` | `e"></spa` |
+| `0x7274223d6e656464` | `dden="tr` |
+
+这**不是** HTML 溢出到栈上，而是 JIT 代码不产生可回溯栈帧，gdb 把栈上残留的活数据误读为返回地址。
+即：此 core 的 `bt full` 信息量已耗尽。
+
+### 6.3 唯一有语义的帧：一次读到垃圾 zend_string 的字符串比较
+
+```
+#7 zend_binary_strcmp (len2=23234304, s2=0x7fc419a77690 "\001",
+                       len1=140480356119488, s1=0x7fc421b8aa48 "\002")
+#8 zendi_smart_strcmp (s1=0x7fc421b8aa30, ...)
+        oflow2 = 32708
+```
+
+`len1 ≈ 0x7FC4_21B8_AA40`（一个指针值）、`oflow2 = 32708 = 0x7FC4`——字段整体**错位 8 字节**。
+说明拿到的 `zend_string*` 并未指向真正的 zend_string 头部：已释放并被复用，或指针被错位解释。
+
+### 6.4 关键否定结论
+
+栈中**无 gene 帧**，且第一轮已消除持久串借用（`gene_memory_zval_local` 现已一律
+`zend_string_init(..., 0)` 深拷贝）。因此"文档页崩溃 = 持久缓存 UAF"这一因果链**当前无证据支持**，
+不应据此继续在 `memory.c` 里加改动。
+
+## 7. P0 — 先排除 JIT（不改代码，一次实验即可定性）
+
+```bash
+php -i | grep -E 'jit|opcache.enable'
+```
+
+若 `opcache.jit` 非 `disable`：
+
+```ini
+opcache.jit=disable
+opcache.jit_buffer_size=0
+```
+
+重跑 6 节**完全相同**的序列。
+
+判据与理由：JIT（尤其 tracing JIT 的类型特化）在 Swoole 协程下换栈执行是已知崩溃来源，而
+"压测把热点函数打到触发 JIT 编译/trace，随后第一个走**不同**代码路径的页面才崩"与本次复现顺序
+完全吻合——热点由压测产生，受害者是之后第一个 `/doc` 请求。若关闭后不再崩，则 gene 侧无需继续深挖；
+若仍崩，进入 P1 取证。
+
+## 8. P1 — 把下一个 core 变成可用证据
+
+当前 core 无法回溯，不解决可观测性则后续每步都是猜测。
+
+- `gene.so` 与 php 二进制带符号且不 strip：至少 `-g -O2 -fno-omit-frame-pointer`，定位期可用 `-g -O0`。
+- 取栈命令换成：
+
+```bash
+gdb /data/app/php/bin/php core.php.<pid> \
+  -ex 'thread apply all bt full' \
+  -ex 'info registers' \
+  -ex 'info sharedlibrary' \
+  -ex quit
+```
+
+- 若 P0 已排除 JIT：测试机用 ASAN 构建复跑同一 ab 序列（`CFLAGS="-fsanitize=address -g"`，
+ Swoole 需一并重编）。UAF 会直接给出 alloc / free / use 三处栈，一步定位。
+
+## 9. P2 — 与本次 core 是否同源无关、但必须修的三处缺陷
+
+这三处在第一轮改动后仍然存在，会持续制造"半截条目"与写锁泄漏，并且**会掩盖真实故障**。
+
+### 9.1 类型预检只覆盖顶层（写锁泄漏 + 协程内 bailout）
+
+UAF-4 的前置检查只看最外层：
+
+```726:731:src/cache/memory.c
+		zval *check = zvalue;
+		ZVAL_DEREF(check);
+		if (UNEXPECTED(Z_TYPE_P(check) == IS_OBJECT || Z_TYPE_P(check) == IS_RESOURCE)) {
+			zend_error(E_ERROR, "An unsupported data type");
+			return;
+		}
+```
+
+而 `processCached*` 存入的 payload 是 `{data: ..., version: ...}` 嵌套数组。`data` 内任意层级含对象
+（DateTime / ORM Model / 闭包）时，`gene_memory_hash_copy` → `gene_memory_zval_persistent` 里的
+`zend_error(E_ERROR)` 会在**已持有 `GENE_CACHE_WRLOCK()`** 的情况下 bailout：写锁永久泄漏，
+且在 Swoole 协程栈上 longjmp 本身即可能致崩。
+
+**改法**：把预检改为递归全量扫描（数组深度遍历，命中 object/resource 即在**取锁前**返回失败），
+`gene_memory_zval_persistent` / `_edit_persistent` 内部的 `E_ERROR` 退化为不可达的防御分支。
+
+### 9.2 `cacheData` 未判空即解引用
+
+```1583:1599:src/cache/cache.c
+		zval *cacheData = zend_hash_str_find(Z_ARRVAL_P(cached_val), ZEND_STRL("data"));
+		zval *cacheVersion = zend_hash_str_find(Z_ARRVAL_P(cached_val), ZEND_STRL("version"));
+		if (cacheVersion == NULL || checkVersion(cacheVersion, &cur_version, mode) == 0) {
+			/* ... 重算并写回 ... */
+		}
+		/* [GENE_FIX:2026-08-23 UAF-2] Deep copy, see processCached. */
+		gene_memory_zval_local_copy(return_value, cacheData);
+```
+
+条目若为"有 version、无 data"（9.1 的 bailout 恰好能造出这种半截条目），这里就是 `ZVAL_DEREF(NULL)`。
+`processCachedVersionBatch`（`cache.c:2217`）同一形态。
+
+**改法**：`cacheData == NULL` 时按 miss 走重算分支，而非解引用。
+
+### 9.3 `cache_reserve` 与 `cache_max_items` 配置互相矛盾
+
+线上取值 `gene.cache_reserve=4096`、`gene.cache_max_items=10000`：预留槽位**小于**业务上限，
+于是 LRU 淘汰永不触发，表填满后所有新业务键被护栏静默拒写（仅累加 `cache_insert_refused`），
+业务缓存整体失效。
+
+**改法**：`workerReady()` 时校验 `cache_reserve > cache_max_items`，不满足则 `E_WARNING`；
+线上先把 `gene.cache_reserve` 提到 `65536`。
+
+## 10. P3 — 上线后的观测点
+
+`Gene\Monitor::stats` / `Gene\Memory::stats` 中盯三个计数器，非零即说明进程内缓存容量配置需重算：
+
+| 计数器 | 含义 | 期望 |
+|---|---|---|
+| `cache_insert_refused` | 冻结后新键插入被护栏拒绝的次数 | 恒为 0 |
+| `cache_business_items` | 业务分区（LRU 跟踪集）条目数 | 远小于 `cache_max_items` |
+| `closure_src_cache_flushes` | 闭包源码缓存整表清空次数 | 恒为 0（Swoole 下该缓存本就禁用） |
+
+## 11. 执行顺序
+
+P0（线上，一次实验）→ 若仍崩则 P1（取证）→ P2（无论如何都改，可与 P0 并行准备）→ P3（上线后观测）。
+**P2 在 P0 结论出来之前不作为"修复本次崩溃"提交**，避免把无关改动记账成根因修复。
