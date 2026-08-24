@@ -81,6 +81,10 @@ ZEND_END_ARG_INFO()
 ZEND_BEGIN_ARG_INFO_EX(gene_hook_void_arginfo, 0, 0, 0)
 ZEND_END_ARG_INFO()
 
+ZEND_BEGIN_ARG_INFO_EX(gene_hook_construct_arginfo, 0, 0, 0)
+	ZEND_ARG_INFO(0, debug)
+ZEND_END_ARG_INFO()
+
 ZEND_BEGIN_ARG_INFO_EX(gene_hook_url_param, 0, 0, 0)
     ZEND_ARG_INFO(0, key)
 ZEND_END_ARG_INFO()
@@ -620,7 +624,7 @@ PHP_METHOD(gene_hook, __get)
  * {{{ gene_hook_methods
  */
 const zend_function_entry gene_hook_methods[] = {
-	PHP_ME(gene_hook, __construct, gene_hook_void_arginfo, ZEND_ACC_PUBLIC)
+	PHP_ME(gene_hook, __construct, gene_hook_construct_arginfo, ZEND_ACC_PUBLIC)
 	PHP_ME(gene_hook, get, gene_hook_param_get, ZEND_ACC_PUBLIC|ZEND_ACC_STATIC)
 	PHP_ME(gene_hook, request, gene_hook_param_get, ZEND_ACC_PUBLIC|ZEND_ACC_STATIC)
 	PHP_ME(gene_hook, post, gene_hook_param_get, ZEND_ACC_PUBLIC|ZEND_ACC_STATIC)

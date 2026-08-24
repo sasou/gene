@@ -1,5 +1,5 @@
 <?php
-/** Scan Gene extension C sources for arginfo vs zend_parse_parameters required-count mismatches. */
+/** Scan Gene extension C sources for arginfo total/required vs zend_parse_parameters mismatches. */
 
 $src = realpath(__DIR__ . '/../../src');
 
@@ -22,6 +22,10 @@ function zpp_count(string $fmt): int {
 function zpp_required(string $fmt): int {
     $p = strpos($fmt, '|');
     return $p === false ? zpp_count($fmt) : zpp_count(substr($fmt, 0, $p));
+}
+
+function zpp_total(string $fmt): int {
+    return zpp_count($fmt);
 }
 
 function arginfo_total(string $body): int {
@@ -75,16 +79,23 @@ foreach ($iter as $file) {
         if (preg_match('/zend_parse_parameters\(ZEND_NUM_ARGS\(\),\s*"([^"]+)"/', $part, $zm)) {
             $zpp = $zm[1];
             $req = zpp_required($zpp);
+            $total = zpp_total($zpp);
         } elseif (strpos($part, 'zend_parse_parameters_none()') !== false) {
             $zpp = '(none)';
             $req = 0;
+            $total = 0;
+        } elseif (preg_match('/ZEND_PARSE_PARAMETERS_START\((\d+),\s*(\d+)\)/', $part, $zm)) {
+            $req = (int)$zm[1];
+            $total = (int)$zm[2];
+            $zpp = "START($req,$total)";
         } else {
             continue;
         }
 
-        if ($req !== $ai['required']) {
-            $allIssues[] = compact('path', 'key', 'arginfoName', 'zpp', 'req') + [
+        if ($req !== $ai['required'] || $total !== $ai['total']) {
+            $allIssues[] = compact('path', 'key', 'arginfoName', 'zpp', 'req', 'total') + [
                 'arginfoRequired' => $ai['required'],
+                'arginfoTotal' => $ai['total'],
             ];
         }
     }
@@ -99,14 +110,17 @@ foreach ($iter as $file) {
             $ai = $arginfos[$arginfoName];
             $zpp = '|sz';
             $req = zpp_required($zpp);
-            if ($req !== $ai['required']) {
+            $total = zpp_total($zpp);
+            if ($req !== $ai['required'] || $total !== $ai['total']) {
                 $allIssues[] = [
                     'path' => $path,
                     'key' => $key,
                     'arginfoName' => $arginfoName,
                     'zpp' => $zpp,
                     'req' => $req,
+                    'total' => $total,
                     'arginfoRequired' => $ai['required'],
+                    'arginfoTotal' => $ai['total'],
                     'via' => 'GENE_REQUEST_METHOD',
                 ];
             }
@@ -115,7 +129,7 @@ foreach ($iter as $file) {
 }
 
 if (!$allIssues) {
-    echo "No arginfo/zpp required-count mismatches found.\n";
+    echo "No arginfo/zpp total/required mismatches found.\n";
     exit(0);
 }
 
@@ -123,7 +137,7 @@ echo 'Found ' . count($allIssues) . " mismatch(es):\n\n";
 foreach ($allIssues as $i) {
     $via = isset($i['via']) ? " [{$i['via']}]" : '';
     echo "{$i['path']}: {$i['key']}(){$via}\n";
-    echo "  arginfo {$i['arginfoName']}: required={$i['arginfoRequired']}\n";
-    echo "  zpp \"{$i['zpp']}\": required={$i['req']}\n\n";
+    echo "  arginfo {$i['arginfoName']}: required={$i['arginfoRequired']} total={$i['arginfoTotal']}\n";
+    echo "  zpp \"{$i['zpp']}\": required={$i['req']} total={$i['total']}\n\n";
 }
 exit(1);

@@ -40,6 +40,10 @@ zend_class_entry * gene_response_ce;
 ZEND_BEGIN_ARG_INFO_EX(gene_response_void_arginfo, 0, 0, 0)
 ZEND_END_ARG_INFO()
 
+ZEND_BEGIN_ARG_INFO_EX(gene_response_construct_arginfo, 0, 0, 0)
+	ZEND_ARG_INFO(0, debug)
+ZEND_END_ARG_INFO()
+
 ZEND_BEGIN_ARG_INFO_EX(gene_response_arg_se, 0, 0, 1)
     ZEND_ARG_INFO(0, msg)
 	ZEND_ARG_INFO(0, code)
@@ -1004,7 +1008,7 @@ const zend_function_entry gene_response_methods[] = {
 	PHP_ME(gene_response, sendFile, gene_response_arg_send_file, ZEND_ACC_PUBLIC|ZEND_ACC_STATIC)
 	PHP_ME(gene_response, setJsonHeader, gene_response_void_arginfo, ZEND_ACC_PUBLIC|ZEND_ACC_STATIC)
 	PHP_ME(gene_response, setHtmlHeader, gene_response_void_arginfo, ZEND_ACC_PUBLIC|ZEND_ACC_STATIC)
-	PHP_ME(gene_response, __construct, gene_response_void_arginfo, ZEND_ACC_PUBLIC)
+	PHP_ME(gene_response, __construct, gene_response_construct_arginfo, ZEND_ACC_PUBLIC)
 	{ NULL, NULL, NULL }
 };
 /* }}} */

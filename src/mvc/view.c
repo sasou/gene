@@ -125,6 +125,10 @@ zend_array *gene_view_build_symbol_table(zval *vars) {
 ZEND_BEGIN_ARG_INFO_EX(gene_view_void_arginfo, 0, 0, 0)
 ZEND_END_ARG_INFO()
 
+ZEND_BEGIN_ARG_INFO_EX(gene_view_construct_arginfo, 0, 0, 0)
+	ZEND_ARG_INFO(0, debug)
+ZEND_END_ARG_INFO()
+
 ZEND_BEGIN_ARG_INFO_EX(gene_view_arg_get, 0, 0, 0)
     ZEND_ARG_INFO(0, name)
 ZEND_END_ARG_INFO()
@@ -989,7 +993,7 @@ PHP_METHOD(gene_view, __get)
  * {{{ gene_view_methods
  */
 const zend_function_entry gene_view_methods[] = {
-	PHP_ME(gene_view, __construct, gene_view_void_arginfo, ZEND_ACC_PUBLIC)
+	PHP_ME(gene_view, __construct, gene_view_construct_arginfo, ZEND_ACC_PUBLIC)
 	PHP_ME(gene_view, display, gene_view_arg_display, ZEND_ACC_PUBLIC)
 	PHP_ME(gene_view, displayExt, gene_view_arg_display_ext, ZEND_ACC_PUBLIC)
 	/* [GENE_FEATURE:2026-08-07] render-to-string + scope var reset. */

@@ -32,7 +32,8 @@
 
 zend_class_entry * gene_memcached_ce;
 
-ZEND_BEGIN_ARG_INFO_EX(gene_memcached_void_arginfo, 0, 0, 1)
+ZEND_BEGIN_ARG_INFO_EX(gene_memcached_construct_arginfo, 0, 0, 1)
+	ZEND_ARG_INFO(0, config)
 ZEND_END_ARG_INFO()
 
 ZEND_BEGIN_ARG_INFO_EX(gene_memcached_incr_arginfo, 0, 0, 1)
@@ -527,7 +528,7 @@ const zend_function_entry gene_memcached_methods[] = {
 		PHP_ME(gene_memcached, get, gene_memcached_get_arginfo, ZEND_ACC_PUBLIC)
 		PHP_ME(gene_memcached, set, gene_memcached_set_arginfo, ZEND_ACC_PUBLIC)
 		PHP_ME(gene_memcached, __call, gene_memcached_call_arginfo, ZEND_ACC_PUBLIC)
-		PHP_ME(gene_memcached, __construct, gene_memcached_void_arginfo, ZEND_ACC_PUBLIC)
+		PHP_ME(gene_memcached, __construct, gene_memcached_construct_arginfo, ZEND_ACC_PUBLIC)
 		{NULL, NULL, NULL}
 };
 /* }}} */

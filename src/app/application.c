@@ -62,6 +62,8 @@ ZEND_END_ARG_INFO()
 ZEND_BEGIN_ARG_INFO_EX(gene_application_set_mode, 0, 0, 0)
 	ZEND_ARG_INFO(0, error_type)
 	ZEND_ARG_INFO(0, exception_type)
+	ZEND_ARG_INFO(0, ex_callback)
+	ZEND_ARG_INFO(0, error_callback)
 ZEND_END_ARG_INFO()
 
 ZEND_BEGIN_ARG_INFO_EX(gene_application_set_view, 0, 0, 0)
