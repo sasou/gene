@@ -39,7 +39,7 @@
 
 zend_class_entry * gene_controller_ce;
 
-ZEND_BEGIN_ARG_INFO_EX(gene_controller_get, 0, 0, 1)
+ZEND_BEGIN_ARG_INFO_EX(gene_controller_get, 0, 0, 0)
     ZEND_ARG_INFO(0, name)
 ZEND_END_ARG_INFO()
 
@@ -48,12 +48,12 @@ ZEND_BEGIN_ARG_INFO_EX(gene_controller_set, 0, 0, 2)
     ZEND_ARG_INFO(0, value)
 ZEND_END_ARG_INFO()
 
-ZEND_BEGIN_ARG_INFO_EX(gene_controller_param_get, 0, 0, 2)
+ZEND_BEGIN_ARG_INFO_EX(gene_controller_param_get, 0, 0, 0)
     ZEND_ARG_INFO(0, key)
     ZEND_ARG_INFO(0, value)
 ZEND_END_ARG_INFO()
 
-ZEND_BEGIN_ARG_INFO_EX(gene_controller_redirect, 0, 0, 2)
+ZEND_BEGIN_ARG_INFO_EX(gene_controller_redirect, 0, 0, 1)
     ZEND_ARG_INFO(0, url)
     ZEND_ARG_INFO(0, code)
 ZEND_END_ARG_INFO()
@@ -62,17 +62,17 @@ ZEND_BEGIN_ARG_INFO_EX(gene_controller_redirect_js, 0, 0, 1)
     ZEND_ARG_INFO(0, url)
 ZEND_END_ARG_INFO()
 
-ZEND_BEGIN_ARG_INFO_EX(gene_controller_alert, 0, 0, 2)
+ZEND_BEGIN_ARG_INFO_EX(gene_controller_alert, 0, 0, 1)
     ZEND_ARG_INFO(0, text)
     ZEND_ARG_INFO(0, url)
 ZEND_END_ARG_INFO()
 
-ZEND_BEGIN_ARG_INFO_EX(gene_controller_display, 0, 0, 2)
+ZEND_BEGIN_ARG_INFO_EX(gene_controller_display, 0, 0, 1)
     ZEND_ARG_INFO(0, file)
     ZEND_ARG_INFO(0, parent_file)
 ZEND_END_ARG_INFO()
 
-ZEND_BEGIN_ARG_INFO_EX(gene_controller_display_ext, 0, 0, 3)
+ZEND_BEGIN_ARG_INFO_EX(gene_controller_display_ext, 0, 0, 1)
     ZEND_ARG_INFO(0, file)
     ZEND_ARG_INFO(0, parent_file)
 	ZEND_ARG_INFO(0, isCompile)
@@ -81,7 +81,7 @@ ZEND_END_ARG_INFO()
 ZEND_BEGIN_ARG_INFO_EX(gene_controller_void_arginfo, 0, 0, 0)
 ZEND_END_ARG_INFO()
 
-ZEND_BEGIN_ARG_INFO_EX(gene_controller_url_param, 0, 0, 1)
+ZEND_BEGIN_ARG_INFO_EX(gene_controller_url_param, 0, 0, 0)
     ZEND_ARG_INFO(0, key)
 ZEND_END_ARG_INFO()
 
@@ -94,19 +94,19 @@ ZEND_BEGIN_ARG_INFO_EX(gene_controller_get_path, 0, 0, 0)
     ZEND_ARG_INFO(0, withoutLang)
 ZEND_END_ARG_INFO()
 
-ZEND_BEGIN_ARG_INFO_EX(gene_controller_se, 0, 0, 2)
+ZEND_BEGIN_ARG_INFO_EX(gene_controller_se, 0, 0, 1)
     ZEND_ARG_INFO(0, msg)
 	ZEND_ARG_INFO(0, code)
 ZEND_END_ARG_INFO()
 
-ZEND_BEGIN_ARG_INFO_EX(gene_controller_se_data, 0, 0, 4)
+ZEND_BEGIN_ARG_INFO_EX(gene_controller_se_data, 0, 0, 1)
 	ZEND_ARG_INFO(0, data)
 	ZEND_ARG_INFO(0, count)
 	ZEND_ARG_INFO(0, msg)
 	ZEND_ARG_INFO(0, code)
 ZEND_END_ARG_INFO()
 
-ZEND_BEGIN_ARG_INFO_EX(gene_controller_se_json, 0, 0, 3)
+ZEND_BEGIN_ARG_INFO_EX(gene_controller_se_json, 0, 0, 1)
 	ZEND_ARG_INFO(0, data)
 	ZEND_ARG_INFO(0, callback)
 	ZEND_ARG_INFO(0, code)

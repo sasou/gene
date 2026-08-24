@@ -71,11 +71,11 @@ ZEND_BEGIN_ARG_INFO_EX(gene_orm_model_fill_arginfo, 0, 0, 1)
 	ZEND_ARG_INFO(0, hydrate)
 ZEND_END_ARG_INFO()
 
-ZEND_BEGIN_ARG_INFO_EX(gene_orm_model_setexists_arginfo, 0, 0, 1)
+ZEND_BEGIN_ARG_INFO_EX(gene_orm_model_setexists_arginfo, 0, 0, 0)
 	ZEND_ARG_INFO(0, exists)
 ZEND_END_ARG_INFO()
 
-ZEND_BEGIN_ARG_INFO_EX(gene_orm_model_get_arginfo, 0, 0, 1)
+ZEND_BEGIN_ARG_INFO_EX(gene_orm_model_get_arginfo, 0, 0, 0)
 	ZEND_ARG_INFO(0, name)
 ZEND_END_ARG_INFO()
 

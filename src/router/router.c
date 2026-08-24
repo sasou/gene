@@ -92,7 +92,7 @@
 	 ZEND_ARG_INFO(0, value)
  ZEND_END_ARG_INFO()
  
- ZEND_BEGIN_ARG_INFO_EX(gene_router_params, 0, 0, 1)
+ ZEND_BEGIN_ARG_INFO_EX(gene_router_params, 0, 0, 0)
 	 ZEND_ARG_INFO(0, name)
  ZEND_END_ARG_INFO()
  

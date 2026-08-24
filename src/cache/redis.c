@@ -35,7 +35,7 @@
 
 zend_class_entry * gene_redis_ce;
 
-ZEND_BEGIN_ARG_INFO_EX(gene_redis_void_arginfo, 0, 0, 0)
+ZEND_BEGIN_ARG_INFO_EX(gene_redis_void_arginfo, 0, 0, 1)
 ZEND_END_ARG_INFO()
 
 ZEND_BEGIN_ARG_INFO_EX(gene_redis_set_arginfo, 0, 0, 2)

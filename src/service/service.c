@@ -52,7 +52,7 @@ ZEND_BEGIN_ARG_INFO_EX(gene_service_arg_se_data, 0, 0, 1)
 	ZEND_ARG_INFO(0, code)
 ZEND_END_ARG_INFO()
 
-ZEND_BEGIN_ARG_INFO_EX(gene_service_get, 0, 0, 1)
+ZEND_BEGIN_ARG_INFO_EX(gene_service_get, 0, 0, 0)
     ZEND_ARG_INFO(0, name)
 ZEND_END_ARG_INFO()
 
@@ -61,7 +61,7 @@ ZEND_BEGIN_ARG_INFO_EX(gene_service_set, 0, 0, 2)
     ZEND_ARG_INFO(0, value)
 ZEND_END_ARG_INFO()
 
-ZEND_BEGIN_ARG_INFO_EX(gene_model_arg_instance, 0, 0, 1)
+ZEND_BEGIN_ARG_INFO_EX(gene_model_arg_instance, 0, 0, 0)
 	ZEND_ARG_INFO(0, params)
 ZEND_END_ARG_INFO()
 

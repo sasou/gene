@@ -125,7 +125,7 @@ zend_array *gene_view_build_symbol_table(zval *vars) {
 ZEND_BEGIN_ARG_INFO_EX(gene_view_void_arginfo, 0, 0, 0)
 ZEND_END_ARG_INFO()
 
-ZEND_BEGIN_ARG_INFO_EX(gene_view_arg_get, 0, 0, 1)
+ZEND_BEGIN_ARG_INFO_EX(gene_view_arg_get, 0, 0, 0)
     ZEND_ARG_INFO(0, name)
 ZEND_END_ARG_INFO()
 
@@ -145,13 +145,13 @@ ZEND_BEGIN_ARG_INFO_EX(gene_view_arg_display_ext, 0, 0, 1)
 	ZEND_ARG_INFO(0, isCompile)
 ZEND_END_ARG_INFO()
 
-ZEND_BEGIN_ARG_INFO_EX(gene_view_arg_assign, 0, 0, 1)
+ZEND_BEGIN_ARG_INFO_EX(gene_view_arg_assign, 0, 0, 2)
 	ZEND_ARG_INFO(0, name)
 	ZEND_ARG_INFO(0, value)
 ZEND_END_ARG_INFO()
 
 
-ZEND_BEGIN_ARG_INFO_EX(gene_view_arg_scope, 0, 0, 1)
+ZEND_BEGIN_ARG_INFO_EX(gene_view_arg_scope, 0, 0, 0)
     ZEND_ARG_INFO(0, num)
 ZEND_END_ARG_INFO()
 
