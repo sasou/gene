@@ -1016,7 +1016,7 @@ void file_cache_set_val(char *val, size_t keyString_len, zend_long times,
 static zval * gene_memory_set_val(zval *val, char *keyString, size_t keyString_len, zval *zvalue) {
 	zval tmp, *copyval;
 	zend_string *keyS = NULL;
-	if (val == NULL) {
+	if (val == NULL || Z_TYPE_P(val) != IS_ARRAY) {
 		return NULL;
 	}
 	copyval = zend_symtable_str_find(Z_ARRVAL_P(val), keyString, keyString_len);
@@ -1028,20 +1028,18 @@ static zval * gene_memory_set_val(zval *val, char *keyString, size_t keyString_l
 		}
 		keyS = gene_str_persistent(keyString, keyString_len);
 		copyval = gene_symtable_update(Z_ARRVAL_P(val), keyS, &tmp);
-	} else {
-		if (zvalue) {
-			gene_memory_zval_edit_persistent(copyval, zvalue);
-		}
-		//gene_memory_zval_persistent(&tmp, zvalue);
-		//keyS = zend_string_init(keyString, keyString_len, 1);
-		//return gene_symtable_update(Z_ARRVAL_P(val), keyS, &tmp);
-		/*
-		 else {
-		 if (Z_TYPE_P(copyval) != IS_ARRAY) {
-		 gene_hash_init(copyval, 8);
-		 }
-		 }
-		 */
+	} else if (zvalue) {
+		gene_memory_zval_edit_persistent(copyval, zvalue);
+	} else if (Z_TYPE_P(copyval) != IS_ARRAY) {
+		/* Intermediate path hit a leaf (string/long). Promote to a directory
+		 * so nested segments do not Z_ARRVAL_P a non-array (debug Zend then
+		 * reports HashTable "is being destroyed"). */
+		gene_hash_init(&tmp, 1);
+		keyS = gene_str_persistent(keyString, keyString_len);
+		copyval = gene_symtable_update(Z_ARRVAL_P(val), keyS, &tmp);
+	}
+	if (!zvalue && copyval && Z_TYPE_P(copyval) != IS_ARRAY) {
+		return NULL;
 	}
 	return copyval;
 }
@@ -1074,31 +1072,32 @@ void gene_memory_set_by_router(char *keyString, size_t keyString_len, char *path
 	}
 	GENE_CACHE_WRLOCK();
 	copyval = zend_symtable_str_find(GENE_G(cache), keyString, keyString_len);
-	if (copyval == NULL) {
+	if (copyval == NULL || Z_TYPE_P(copyval) != IS_ARRAY) {
 		gene_hash_init(&ret, 0);
 		keyS = gene_str_persistent(keyString, keyString_len);
-		gene_symtable_update(GENE_G(cache), keyS, &ret);
-		tmp = &ret;
-		seg = php_strtok_r(path_copy, "/", &ptr);
-		while (seg) {
-			if (ptr && strlen(ptr) > 0) {
-				tmp = gene_memory_set_val(tmp, seg, strlen(seg), NULL);
-			} else {
-				tmp = gene_memory_set_val(tmp, seg, strlen(seg), zvalue);
-			}
+		copyval = gene_symtable_update(GENE_G(cache), keyS, &ret);
+	}
+	tmp = copyval;
+	if (tmp == NULL || Z_TYPE_P(tmp) != IS_ARRAY) {
+		GENE_CACHE_WRUNLOCK();
+		if (path_heap) efree(path_copy);
+		return;
+	}
+	seg = php_strtok_r(path_copy, "/", &ptr);
+	while (seg) {
+		if (*seg == '\0') {
 			seg = php_strtok_r(NULL, "/", &ptr);
+			continue;
 		}
-	} else {
-		tmp = copyval;
-		seg = php_strtok_r(path_copy, "/", &ptr);
-		while (seg) {
-			if (ptr && strlen(ptr) > 0) {
-				tmp = gene_memory_set_val(tmp, seg, strlen(seg), NULL);
-			} else {
-				tmp = gene_memory_set_val(tmp, seg, strlen(seg), zvalue);
-			}
-			seg = php_strtok_r(NULL, "/", &ptr);
+		if (ptr && *ptr != '\0') {
+			tmp = gene_memory_set_val(tmp, seg, strlen(seg), NULL);
+		} else {
+			tmp = gene_memory_set_val(tmp, seg, strlen(seg), zvalue);
 		}
+		if (tmp == NULL) {
+			break;
+		}
+		seg = php_strtok_r(NULL, "/", &ptr);
 	}
 	GENE_CACHE_WRUNLOCK();
 	if (path_heap) efree(path_copy);

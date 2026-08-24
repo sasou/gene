@@ -481,6 +481,29 @@ class RouterTest
         
         echo "\n";
     }
+
+    /**
+     * head("/") / options("/") used to write "method//leaf/run" into the
+     * persistent router tree and abort debug PHP (HashTable being destroyed).
+     */
+    public function testHeadOptionsRoot()
+    {
+        echo "Testing head('/') and options('/') root routes:\n";
+
+        try {
+            $router = new Router();
+            $router->clear()
+                ->get("/", "Controllers\\Index@index")
+                ->get("/admin/:c/:a", "Controllers\\Admin\\:c@:a")
+                ->head("/", function () {})
+                ->options("/", function () {});
+            echo "✓ head('/') and options('/') registered without crash\n";
+        } catch (Exception $e) {
+            echo "✗ Error: " . $e->getMessage() . "\n";
+        }
+
+        echo "\n";
+    }
     
     /**
      * Run all tests
@@ -501,6 +524,7 @@ class RouterTest
         $this->testRoutePatterns();
         $this->testMiddlewareAndHooks();
         $this->testPerformance();
+        $this->testHeadOptionsRoot();
         
         echo "=== Router Test Suite Complete ===\n";
     }

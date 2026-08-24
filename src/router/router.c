@@ -2527,6 +2527,7 @@ PHP_METHOD(gene_router, __call) {
 					 }
 					 snprintf(router_e, router_e_len + 1, "%s", GENE_ROUTER_ROUTER_TREE);
 				 }
+				 trim(path, '/');
 				 if (strlen(path) == 0) {
 					 ZVAL_STRING(&pathvals, "");
 					 key_len = strlen(method) + 9;
@@ -2586,7 +2587,6 @@ PHP_METHOD(gene_router, __call) {
 						 if (key_heap) efree(key);
 					 }
 				 } else {
-					 trim(path, '/');
 					 ZVAL_STRING(&pathvals, path);
 					 replaceAll(path, '.', '/');
 					 tmp = replace_string(path, ':', GENE_ROUTER_CHIRD);
