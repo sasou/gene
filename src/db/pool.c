@@ -465,10 +465,16 @@ static void pool_start_idle_recycler(zval *self)
  static void pool_atomic_call_fn(zval *atomic, zend_function *fn, zend_long arg, zval *retval) {
      zval params[1], ret_local;
      if (!retval) retval = &ret_local;
-     ZVAL_LONG(&params[0], arg);
      ZVAL_UNDEF(retval);
      if (EXPECTED(fn)) {
-         zend_call_known_function(fn, Z_OBJ_P(atomic), Z_OBJCE_P(atomic), retval, 1, params, NULL);
+         /* Swoole\Atomic::get() is 0-arg (Swoole 6 uses ZEND_PARSE_PARAMETERS_NONE).
+          * Passing a dummy long is an arginfo/zpp mismatch → Fatal in rshutdown. */
+         if (fn->common.num_args == 0) {
+             zend_call_known_function(fn, Z_OBJ_P(atomic), Z_OBJCE_P(atomic), retval, 0, NULL, NULL);
+         } else {
+             ZVAL_LONG(&params[0], arg);
+             zend_call_known_function(fn, Z_OBJ_P(atomic), Z_OBJCE_P(atomic), retval, 1, params, NULL);
+         }
      }
      if (retval == &ret_local) {
          if (!Z_ISUNDEF(ret_local)) zval_ptr_dtor(&ret_local);

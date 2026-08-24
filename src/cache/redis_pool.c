@@ -398,12 +398,17 @@ static void rpool_atomic_call_fn(zval *atomic, zend_function *fn, zend_long arg,
 {
     zval param, ret_local;
     if (!retval) retval = &ret_local;
-    ZVAL_LONG(&param, arg);
     ZVAL_UNDEF(retval);
     if (EXPECTED(fn)) {
-        zend_call_known_function(fn, Z_OBJ_P(atomic), Z_OBJCE_P(atomic), retval, 1, &param, NULL);
+        /* Swoole\Atomic::get() is 0-arg (Swoole 6 uses ZEND_PARSE_PARAMETERS_NONE).
+         * Passing a dummy long is an arginfo/zpp mismatch → Fatal in rshutdown. */
+        if (fn->common.num_args == 0) {
+            zend_call_known_function(fn, Z_OBJ_P(atomic), Z_OBJCE_P(atomic), retval, 0, NULL, NULL);
+        } else {
+            ZVAL_LONG(&param, arg);
+            zend_call_known_function(fn, Z_OBJ_P(atomic), Z_OBJCE_P(atomic), retval, 1, &param, NULL);
+        }
     }
-    /* param is IS_LONG — no dtor needed */
     if (retval == &ret_local) {
         if (!Z_ISUNDEF(ret_local)) zval_ptr_dtor(&ret_local);
     }

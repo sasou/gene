@@ -1339,15 +1339,16 @@ static void php_gene_init_globals() {
 /* {{{ php_gene_close_request_globals
  */
 static void php_gene_close_request_globals() {
-	if (GENE_G(fn_cache) && GENE_G(runtime_type) < 2) {
+	/* fn_cache / validate_ext are ALLOC_HASHTABLE (request allocator).
+	 * Swoole worker exit still runs PHP RSHUTDOWN *before* the emalloc arena
+	 * is torn down — destroy here even in runtime_type>=2. Leaving them for
+	 * MSHUTDOWN UAF's zend_hash_destroy after request memory is gone. */
+	if (GENE_G(fn_cache)) {
 		zend_hash_destroy(GENE_G(fn_cache));
 		FREE_HASHTABLE(GENE_G(fn_cache));
 		GENE_G(fn_cache) = NULL;
 	}
-	/* [GENE_FEATURE:2026-07-30 F5] Validate::extend registry follows the
-	 * fn_cache lifetime policy: per-request in FPM, worker-scope in Swoole
-	 * (destroyed at MSHUTDOWN). */
-	if (GENE_G(validate_ext) && GENE_G(runtime_type) < 2) {
+	if (GENE_G(validate_ext)) {
 		zend_hash_destroy(GENE_G(validate_ext));
 		FREE_HASHTABLE(GENE_G(validate_ext));
 		GENE_G(validate_ext) = NULL;
@@ -1547,13 +1548,13 @@ PHP_MSHUTDOWN_FUNCTION(gene) {
 		gene_hash_destroy(GENE_G(cache_easy));
 		GENE_G(cache_easy) = NULL;
 	}
+	/* RSHUTDOWN already destroyed request-allocated tables; these are
+	 * leftover-only if RSHUTDOWN never ran (e.g. MINIT-only CLI -m). */
 	if (GENE_G(fn_cache)) {
 		zend_hash_destroy(GENE_G(fn_cache));
 		FREE_HASHTABLE(GENE_G(fn_cache));
 		GENE_G(fn_cache) = NULL;
 	}
-	/* [GENE_FEATURE:2026-07-30 F5] Swoole-mode validate_ext survives
-	 * RSHUTDOWN (worker-scope); tear it down here for valgrind cleanliness. */
 	if (GENE_G(validate_ext)) {
 		zend_hash_destroy(GENE_G(validate_ext));
 		FREE_HASHTABLE(GENE_G(validate_ext));
