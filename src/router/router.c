@@ -63,7 +63,7 @@
 	 ZEND_ARG_INFO(0, params)
  ZEND_END_ARG_INFO()
  
- ZEND_BEGIN_ARG_INFO_EX(gene_router_run, 0, 0, 2)
+ ZEND_BEGIN_ARG_INFO_EX(gene_router_run, 0, 0, 0)
 	 ZEND_ARG_INFO(0, method)
 	 ZEND_ARG_INFO(0, uri)
  ZEND_END_ARG_INFO()
@@ -104,8 +104,7 @@
 	 ZEND_ARG_INFO(0, name)
  ZEND_END_ARG_INFO()
  
- ZEND_BEGIN_ARG_INFO_EX(gene_router_lang_arginfo, 0, 0, 2)
-	 ZEND_ARG_INFO(0, lang)
+ ZEND_BEGIN_ARG_INFO_EX(gene_router_lang_arginfo, 0, 0, 0)
 	 ZEND_ARG_INFO(0, lang_list)
  ZEND_END_ARG_INFO()
  /* }}} */
