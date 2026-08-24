@@ -10,6 +10,7 @@
 $testFiles = [
     'ApplicationTest.php',
     'CacheTest.php',
+    'ConfigTest.php',
     'RouterTest.php',
     'SessionTest.php',
     'LogTest.php',
@@ -52,6 +53,7 @@ class TestRunner
         $testFiles = [
             'ApplicationTest.php',
             'CacheTest.php',
+            'ConfigTest.php',
             'RouterTest.php',
             'SessionTest.php',
             'LogTest.php',
