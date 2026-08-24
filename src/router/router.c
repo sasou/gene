@@ -307,7 +307,7 @@
 			 seg_len = next_slash - paths;
 			 seg = paths;
 			 ret = zend_symtable_str_find(Z_ARRVAL_P(val), seg, seg_len);
-			 if (ret) {
+			 if (ret && Z_TYPE_P(ret) == IS_ARRAY) {
 				 leaf = get_path_router_inner(ret, next_slash + 1);
 			 }
 			 if (!leaf) {
@@ -339,7 +339,7 @@
 			 seg_len = strlen(paths);
 			 seg = paths;
 			 ret = zend_symtable_str_find(Z_ARRVAL_P(val), seg, seg_len);
-			 if (ret) {
+			 if (ret && Z_TYPE_P(ret) == IS_ARRAY) {
 				 leaf = zend_symtable_str_find(Z_ARRVAL_P(ret), "leaf", 4);
 			 } else {
 				 ret = zend_symtable_str_find(Z_ARRVAL_P(val), "chird", 5);
@@ -1959,6 +1959,10 @@ void get_router_content_run(char *methodin, char *pathin, const char *safe_str, 
 			  * internal strlen() since ctx->path_len is already cached by the
 			  * gene_ini_router()/request_set_server_val() path populators. */
 			 size_t plen = ctx->path_len;
+			 size_t actual = strlen(ctx->path);
+			 if (plen == 0 || plen > actual || ctx->path[plen] != '\0') {
+				 plen = actual;
+			 }
 			 path = (char *)emalloc(plen + 1);
 			 memcpy(path, ctx->path, plen + 1);
 		 }
@@ -2067,7 +2071,7 @@ void get_router_content_run(char *methodin, char *pathin, const char *safe_str, 
 
 		 if (cache) {
 			 temp = zend_symtable_str_find(Z_ARRVAL_P(cache), (char *)method, method_len);
-			 if (temp == NULL) {
+			 if (temp == NULL || Z_TYPE_P(temp) != IS_ARRAY) {
 				 php_error_docref(NULL, E_WARNING, "Gene Unknown Method Cache:%s", method);
 				 if (method_heap) efree((char *)method);
 				 efree(path);
@@ -2078,16 +2082,25 @@ void get_router_content_run(char *methodin, char *pathin, const char *safe_str, 
 				 return;
 			 }
 			 trim(path, '/');
-			 replaceAll(path, '.', '/');
-			 if (conf && Z_TYPE_P(conf) == IS_ARRAY) {
-				 path_new = get_path_router_init(conf, path);
-				 if (path_new != path) {
-					 efree(path);
+			 {
+				 char *dotted = estrdup(path);
+				 replaceAll(path, '.', '/');
+				 if (conf && Z_TYPE_P(conf) == IS_ARRAY) {
+					 path_new = get_path_router_init(conf, path);
+					 if (path_new != path) {
+						 efree(path);
+					 }
+					 path = path_new;
 				 }
-				 path = path_new;
-			 }
 
-			 lead = get_path_router(temp, path);
+				 lead = get_path_router(temp, path);
+				 /* Registration also maps '.' → '/'; if a tree was written
+				  * with the raw dotted segment, try that before 404. */
+				 if (!lead && dotted[0] != '\0' && strcmp(dotted, path) != 0) {
+					 lead = get_path_router(temp, dotted);
+				 }
+				 efree(dotted);
+			 }
 
 			 if (lead) {
 				 get_router_info(&lead, &cacheHook);

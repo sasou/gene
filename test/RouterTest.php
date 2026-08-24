@@ -494,10 +494,18 @@ class RouterTest
             $router = new Router();
             $router->clear()
                 ->get("/", "Controllers\\Index@index")
+                ->get("/test.html", "Controllers\\Index@test")
+                ->get("/doc.html", "Controllers\\Index@doc")
                 ->get("/admin/:c/:a", "Controllers\\Admin\\:c@:a")
                 ->head("/", function () {})
                 ->options("/", function () {});
             echo "✓ head('/') and options('/') registered without crash\n";
+            $hit = $router->match('GET', '/test.html');
+            if ($hit !== false) {
+                echo "✓ match GET /test.html after head/options root routes\n";
+            } else {
+                echo "✗ match GET /test.html missed (html routes broken)\n";
+            }
         } catch (Exception $e) {
             echo "✗ Error: " . $e->getMessage() . "\n";
         }

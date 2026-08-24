@@ -68,35 +68,38 @@ static void gene_request_set_server_val(zval *server) {
 	 * method, and capture leftByChar's return for path_len (avoids later strlen). */
 	if (GENE_G(runtime_type) >= 2) {
 		gene_request_context *ctx = gene_request_ctx();
-		if (!ctx->method) {
-			zval *rm = zend_hash_str_find(Z_ARRVAL_P(server), ZEND_STRL("REQUEST_METHOD"));
-			if (!rm) {
-				rm = zend_hash_str_find(Z_ARRVAL_P(server), ZEND_STRL("request_method"));
-			}
-			if (rm && Z_TYPE_P(rm) == IS_STRING) {
-				size_t mlen = Z_STRLEN_P(rm);
-				const char *msrc = Z_STRVAL_P(rm);
-				char *mdst = emalloc(mlen + 1);
-				size_t mi;
-				unsigned char mc;
-				for (mi = 0; mi < mlen; mi++) {
-					mc = (unsigned char)msrc[mi];
-					mdst[mi] = (mc >= 'A' && mc <= 'Z') ? (char)(mc | 0x20) : (char)mc;
-				}
-				mdst[mlen] = '\0';
-				ctx->method = mdst;
-				ctx->method_len = mlen;
-			}
+		zval *rm = zend_hash_str_find(Z_ARRVAL_P(server), ZEND_STRL("REQUEST_METHOD"));
+		if (!rm) {
+			rm = zend_hash_str_find(Z_ARRVAL_P(server), ZEND_STRL("request_method"));
 		}
-		if (!ctx->path) {
-			zval *ru = zend_hash_str_find(Z_ARRVAL_P(server), ZEND_STRL("REQUEST_URI"));
-			if (!ru) {
-				ru = zend_hash_str_find(Z_ARRVAL_P(server), ZEND_STRL("request_uri"));
+		if (rm && Z_TYPE_P(rm) == IS_STRING) {
+			size_t mlen = Z_STRLEN_P(rm);
+			const char *msrc = Z_STRVAL_P(rm);
+			char *mdst = emalloc(mlen + 1);
+			size_t mi;
+			unsigned char mc;
+			for (mi = 0; mi < mlen; mi++) {
+				mc = (unsigned char)msrc[mi];
+				mdst[mi] = (mc >= 'A' && mc <= 'Z') ? (char)(mc | 0x20) : (char)mc;
 			}
-			if (ru && Z_TYPE_P(ru) == IS_STRING) {
-				ctx->path = emalloc(Z_STRLEN_P(ru) + 1);
-				ctx->path_len = leftByChar(ctx->path, Z_STRVAL_P(ru), '?');
+			mdst[mlen] = '\0';
+			if (ctx->method) {
+				efree(ctx->method);
 			}
+			ctx->method = mdst;
+			ctx->method_len = mlen;
+		}
+		zval *ru = zend_hash_str_find(Z_ARRVAL_P(server), ZEND_STRL("REQUEST_URI"));
+		if (!ru) {
+			ru = zend_hash_str_find(Z_ARRVAL_P(server), ZEND_STRL("request_uri"));
+		}
+		if (ru && Z_TYPE_P(ru) == IS_STRING) {
+			char *pdst = emalloc(Z_STRLEN_P(ru) + 1);
+			if (ctx->path) {
+				efree(ctx->path);
+			}
+			ctx->path = pdst;
+			ctx->path_len = leftByChar(ctx->path, Z_STRVAL_P(ru), '?');
 		}
 	}
 }

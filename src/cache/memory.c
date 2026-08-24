@@ -1029,6 +1029,11 @@ static zval * gene_memory_set_val(zval *val, char *keyString, size_t keyString_l
 		keyS = gene_str_persistent(keyString, keyString_len);
 		copyval = gene_symtable_update(Z_ARRVAL_P(val), keyS, &tmp);
 	} else if (zvalue) {
+		/* A nested route directory must not be replaced by a scalar leaf —
+		 * that drops siblings (e.g. get/test/html after a later get/test). */
+		if (Z_TYPE_P(copyval) == IS_ARRAY && Z_TYPE_P(zvalue) != IS_ARRAY) {
+			return copyval;
+		}
 		gene_memory_zval_edit_persistent(copyval, zvalue);
 	} else if (Z_TYPE_P(copyval) != IS_ARRAY) {
 		/* Intermediate path hit a leaf (string/long). Promote to a directory
