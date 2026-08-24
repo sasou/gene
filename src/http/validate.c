@@ -560,6 +560,17 @@ PHP_METHOD(gene_validate, filter)
 		zval *val = NULL, *key_one = NULL;
 		data = zend_read_property(gene_validate_ce, gene_strip_obj(self), ZEND_STRL(GENE_VALIDATE_DATA), 1, NULL);
 		if (data && Z_TYPE_P(data) == IS_ARRAY) {
+			/* [GENE_FIX:2026-08-24] Separate the data array before in-place
+			 * mutation. init()/__construct() store the caller's array via
+			 * zend_update_property (addref only), so the property and the
+			 * caller's variable share the same HashTable (refcount >= 2).
+			 * Modifying it without SEPARATE_ARRAY trips HT_ASSERT_RC1(ht)
+			 * (GC_REFCOUNT(ht) == 1) inside zend_hash_str_update, which
+			 * aborts the worker under PHP debug builds / Swoole. Every
+			 * other mutating method (skipOnEmpty, sometimes, addValidator,
+			 * ...) already calls setRefCount() first; filter() was the
+			 * odd one out. */
+			setRefCount(data);
 			ZEND_HASH_FOREACH_VAL(Z_ARRVAL(fieldArr), key_one) {
 				if ((val = zend_hash_str_find(Z_ARRVAL_P(data), Z_STRVAL_P(key_one), Z_STRLEN_P(key_one))) != NULL) {
 					zval ret;
@@ -930,6 +941,7 @@ int validCheck(zval *self, zval *date_field, zval *rules, int is_group) {
 								zval_ptr_dtor(&tmp_msg);
 							} else {
 								Z_TRY_ADDREF_P(msg);
+								setRefCount(errors);
 								zend_hash_str_update(Z_ARRVAL_P(errors), Z_STRVAL_P(date_field), Z_STRLEN_P(date_field), msg);
 							}
 							isValid = 0;
