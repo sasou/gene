@@ -333,9 +333,17 @@ zend_long ctx_pool_max;
 zend_long ctx_pool_prewarm;
 zend_bool autoload_registered;
 zend_bool worker_ready;
-/* [GENE_CACHE:2026-04-25] Incremented only around Gene\\Cache (cache.c) internal
- * gene_memory_set/del calls. Lets process-level cache fill after workerReady()
- * without opening userland Memory::set — enter/exit must not wrap user callbacks. */
+/* [GENE_CACHE:2026-04-25] Incremented around Gene\\Cache (cache.c) internal
+ * gene_memory_set/del calls, AND — since [GENE_FIX:2026-08-24 MEM-RW] —
+ * around Gene\\Memory's own PHP-facing set/del/rateLimit/lock/unlock/incr/
+ * decr/mset calls (memory.c). Lets process-level cache writes proceed after
+ * workerReady() for these specific, tightly-scoped call sites; enter/exit
+ * must still never wrap arbitrary user callbacks (e.g. gene_cache_call()),
+ * only the direct gene_memory_set()/del()/gene_memory_adjust() calls
+ * themselves — the callers that must stay refused post-freeze
+ * (Router::unbind/Config::delete style internal writers that mutate entries
+ * other coroutines hold unlocked borrowed pointers into) call
+ * gene_memory_del() directly without this bracket. */
 zend_ulong cache_layer_memory_write_depth;
 HashTable *fn_cache;
 /* [GENE_MEM:2026-04-23] fn_cache_id removed. Keys are now derived from the
@@ -365,7 +373,6 @@ zend_ulong co_contexts_watermark;
 zend_ulong co_contexts_sweep_count;
 zend_ulong co_contexts_sweep_scanned;
 zend_ulong co_contexts_sweep_us;
-zend_bool cache_unlimited_noticed;
 zend_bool co_contexts_cap_warned;
 /* [GENE_PERF:2026-07-30 M1] Sweep cooldown state. Previously a new ctx
  * allocation beyond gene.co_contexts_max triggered an O(N) sweep every
