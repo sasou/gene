@@ -233,7 +233,7 @@
  
 	 result = NULL;
 	 prefix = zend_symtable_str_find(Z_ARRVAL_P(conf), "prefix", 6);
-	 if (prefix) {
+	 if (prefix && Z_TYPE_P(prefix) == IS_STRING) {
 		 size_t prefix_len = Z_STRLEN_P(prefix);
 		 if (prefix_len <= (size_t)path_len
 				 && memcmp(path, Z_STRVAL_P(prefix), prefix_len) == 0) {
@@ -245,7 +245,7 @@
 		 }
 	 }
 	 langs = zend_symtable_str_find(Z_ARRVAL_P(conf), "langs", 5);
-	 if (langs) {
+	 if (langs && Z_TYPE_P(langs) == IS_STRING) {
 		 work = str_init(result ? result : path);
 		 seg = php_strtok_r(work, "/", &ptr);
 		 if (seg && (seg_len = strlen(seg)) > 0) {
@@ -2457,6 +2457,11 @@ PHP_METHOD(gene_router, __call) {
 	size_t router_e_len;
 	char *method, *path = NULL, *result = NULL, *tmp = NULL, *router_e, *key = NULL;
 	int path_heap = 0; /* 1: path from emalloc/estrdup; 0: stack path_buf in __call */
+	/* Must live for the whole frame: `path` is read by the tree-registration and
+	 * event-registration blocks far below. Declaring it in the inner block left
+	 * `path` dangling into a dead scope, and the compiler is free to overlay the
+	 * router_e_buf/key_buf of those blocks onto the same slots. */
+	char path_buf[512];
  
 	 if (zend_parse_parameters(ZEND_NUM_ARGS(), "sz", &method, &methodlen, &val) == FAILURE) {
 		 RETURN_NULL();
@@ -2468,7 +2473,6 @@ PHP_METHOD(gene_router, __call) {
 		 if (pathVal != NULL && Z_TYPE_P(pathVal) == IS_STRING) {
 			 group = zend_read_property(gene_router_ce, gene_strip_obj(self),GENE_ROUTER_GROUP, strlen(GENE_ROUTER_GROUP), 1,NULL);
 			 size_t path_len = Z_STRLEN_P(group) + Z_STRLEN_P(pathVal);
-			 char path_buf[512];
 			 if (path_len >= sizeof(path_buf)) {
 				 path = emalloc(path_len + 1);
 				 path_heap = 1;
