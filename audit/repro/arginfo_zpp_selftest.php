@@ -27,6 +27,14 @@ check('Request::header(key)', fn () => \Gene\Request::header('Origin'));
 check('Request::get() no args', fn () => \Gene\Request::get());
 check('Service::getInstance() no args', fn () => \Gene\Service::getInstance());
 check('Model::getInstance() no args', fn () => \Gene\Model::getInstance());
+check('Session::__construct() no args', fn () => new \Gene\Session());
+check('Session::__construct(config)', fn () => new \Gene\Session(['driver' => 'file']));
+check('Memcached::__construct reflection', function () {
+    $m = new ReflectionMethod(\Gene\Cache\Memcached::class, '__construct');
+    if ($m->getNumberOfRequiredParameters() !== 1 || $m->getNumberOfParameters() !== 1) {
+        throw new RuntimeException('unexpected Memcached __construct signature');
+    }
+});
 check('Controller::__get reflection', function () {
     $m = new ReflectionMethod(\Gene\Controller::class, '__get');
     if ($m->getNumberOfRequiredParameters() !== 0) {

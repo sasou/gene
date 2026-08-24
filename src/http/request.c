@@ -114,6 +114,10 @@ static void gene_request_set_header_val(zval *header) {
 ZEND_BEGIN_ARG_INFO_EX(geme_request_void_arginfo, 0, 0, 0)
 ZEND_END_ARG_INFO()
 
+ZEND_BEGIN_ARG_INFO_EX(geme_request_construct_arginfo, 0, 0, 0)
+	ZEND_ARG_INFO(0, debug)
+ZEND_END_ARG_INFO()
+
 ZEND_BEGIN_ARG_INFO_EX(geme_request_get_param_arginfo, 0, 0, 0)
 	ZEND_ARG_INFO(0, key)
 	ZEND_ARG_INFO(0, value)
@@ -930,7 +934,7 @@ PHP_METHOD(gene_request, bearer) {
  * {{{ gene_request_methods
  */
 const zend_function_entry gene_request_methods[] = {
-	PHP_ME(gene_request, __construct, geme_request_void_arginfo, ZEND_ACC_PUBLIC)
+	PHP_ME(gene_request, __construct, geme_request_construct_arginfo, ZEND_ACC_PUBLIC)
 	PHP_ME(gene_request, get, geme_request_get_param_arginfo, ZEND_ACC_PUBLIC|ZEND_ACC_STATIC)
 	PHP_ME(gene_request, request, geme_request_get_param_arginfo, ZEND_ACC_PUBLIC|ZEND_ACC_STATIC)
 	PHP_ME(gene_request, post, geme_request_get_param_arginfo, ZEND_ACC_PUBLIC|ZEND_ACC_STATIC)

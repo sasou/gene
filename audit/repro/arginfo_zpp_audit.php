@@ -3,13 +3,29 @@
 
 $src = realpath(__DIR__ . '/../../src');
 
+function zpp_count(string $fmt): int {
+    $count = 0;
+    $len = strlen($fmt);
+    for ($i = 0; $i < $len; $i++) {
+        $c = $fmt[$i];
+        if ($c === '|') {
+            continue;
+        }
+        $count++;
+        while ($i + 1 < $len && str_contains('!/+*&', $fmt[$i + 1])) {
+            $i++;
+        }
+    }
+    return $count;
+}
+
 function zpp_required(string $fmt): int {
     $p = strpos($fmt, '|');
-    return $p === false ? strlen($fmt) : $p;
+    return $p === false ? zpp_count($fmt) : zpp_count(substr($fmt, 0, $p));
 }
 
 function arginfo_total(string $body): int {
-    return preg_match_all('/ZEND_ARG_(TYPE_)?INFO/', $body);
+    return preg_match_all('/ZEND_ARG_(TYPE_|ARRAY_|OBJ_|VARIADIC_TYPE_|CALLABLE_)?INFO/', $body);
 }
 
 $allIssues = [];

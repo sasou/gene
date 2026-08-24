@@ -46,6 +46,10 @@
  
  ZEND_BEGIN_ARG_INFO_EX(gene_router_void_arginfo, 0, 0, 0)
  ZEND_END_ARG_INFO()
+
+ ZEND_BEGIN_ARG_INFO_EX(gene_router_construct_arginfo, 0, 0, 0)
+	 ZEND_ARG_INFO(0, safe)
+ ZEND_END_ARG_INFO()
  
  ZEND_BEGIN_ARG_INFO_EX(gene_router_display, 0, 0, 1)
 	 ZEND_ARG_INFO(0, file)
@@ -3529,7 +3533,7 @@ PHP_METHOD(gene_router, __call) {
   * {{{ gene_router_methods
   */
  const zend_function_entry gene_router_methods[] = {
-	 PHP_ME(gene_router, __construct, gene_router_void_arginfo, ZEND_ACC_PUBLIC)
+	 PHP_ME(gene_router, __construct, gene_router_construct_arginfo, ZEND_ACC_PUBLIC)
 	 PHP_ME(gene_router, getEvent, gene_router_void_arginfo, ZEND_ACC_PUBLIC)
 	 PHP_ME(gene_router, getTree, gene_router_void_arginfo, ZEND_ACC_PUBLIC)
 	 PHP_ME(gene_router, getConf, gene_router_void_arginfo, ZEND_ACC_PUBLIC)

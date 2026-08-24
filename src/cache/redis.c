@@ -35,7 +35,11 @@
 
 zend_class_entry * gene_redis_ce;
 
-ZEND_BEGIN_ARG_INFO_EX(gene_redis_void_arginfo, 0, 0, 1)
+ZEND_BEGIN_ARG_INFO_EX(gene_redis_void_arginfo, 0, 0, 0)
+ZEND_END_ARG_INFO()
+
+ZEND_BEGIN_ARG_INFO_EX(gene_redis_construct_arginfo, 0, 0, 1)
+	ZEND_ARG_INFO(0, config)
 ZEND_END_ARG_INFO()
 
 ZEND_BEGIN_ARG_INFO_EX(gene_redis_set_arginfo, 0, 0, 2)
@@ -882,7 +886,7 @@ const zend_function_entry gene_redis_methods[] = {
 		PHP_ME(gene_redis, lock,        gene_redis_lock_arginfo, ZEND_ACC_PUBLIC)
 		PHP_ME(gene_redis, unlock,      gene_redis_unlock_arginfo, ZEND_ACC_PUBLIC)
 		PHP_ME(gene_redis, __call,      gene_redis_call_arginfo, ZEND_ACC_PUBLIC)
-		PHP_ME(gene_redis, __construct, gene_redis_void_arginfo, ZEND_ACC_PUBLIC)
+		PHP_ME(gene_redis, __construct, gene_redis_construct_arginfo, ZEND_ACC_PUBLIC)
 		PHP_ME(gene_redis, release,     gene_redis_void_arginfo, ZEND_ACC_PUBLIC)
 		PHP_ME(gene_redis, free,        gene_redis_void_arginfo, ZEND_ACC_PUBLIC)
 		PHP_ME(gene_redis, __destruct,  gene_redis_void_arginfo, ZEND_ACC_PUBLIC)
