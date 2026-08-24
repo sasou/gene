@@ -206,6 +206,11 @@ static void pool_start_idle_recycler(zval *self)
  /* {{{ ARG_INFO */
  ZEND_BEGIN_ARG_INFO_EX(gene_pool_void_arginfo, 0, 0, 0)
  ZEND_END_ARG_INFO()
+
+ /* Swoole\Timer::tick invokes the callback as recycleIdle($timerId). */
+ ZEND_BEGIN_ARG_INFO_EX(gene_pool_recycle_idle_arginfo, 0, 0, 0)
+     ZEND_ARG_INFO(0, timerId)
+ ZEND_END_ARG_INFO()
   
  ZEND_BEGIN_ARG_INFO_EX(gene_pool_construct_arginfo, 0, 0, 1)
      ZEND_ARG_INFO(0, config)
@@ -1049,6 +1054,12 @@ PHP_METHOD(gene_pool, get)
   */
  PHP_METHOD(gene_pool, recycleIdle)
  {
+     zend_long timer_id = 0;
+     ZEND_PARSE_PARAMETERS_START(0, 1)
+         Z_PARAM_OPTIONAL
+         Z_PARAM_LONG(timer_id)
+     ZEND_PARSE_PARAMETERS_END();
+     (void)timer_id;
      pool_recycle_idle(getThis());
  }
  /* }}} */
@@ -1609,7 +1620,7 @@ PHP_METHOD(gene_pool, get)
      PHP_ME(gene_pool, close, gene_pool_void_arginfo, ZEND_ACC_PUBLIC)
      PHP_ME(gene_pool, closeAll, gene_pool_void_arginfo, ZEND_ACC_PUBLIC|ZEND_ACC_STATIC)
      PHP_ME(gene_pool, stopTimers, gene_pool_void_arginfo, ZEND_ACC_PUBLIC|ZEND_ACC_STATIC)
-     PHP_ME(gene_pool, recycleIdle, gene_pool_void_arginfo, ZEND_ACC_PUBLIC)
+     PHP_ME(gene_pool, recycleIdle, gene_pool_recycle_idle_arginfo, ZEND_ACC_PUBLIC)
      PHP_ME(gene_pool, healthCheck, gene_pool_void_arginfo, ZEND_ACC_PUBLIC)
      PHP_ME(gene_pool, stats, gene_pool_void_arginfo, ZEND_ACC_PUBLIC)
      {NULL, NULL, NULL}

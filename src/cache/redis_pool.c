@@ -104,6 +104,10 @@ static void rpool_stop_timer(zval *self);
 ZEND_BEGIN_ARG_INFO_EX(gene_redis_pool_void_arginfo, 0, 0, 0)
 ZEND_END_ARG_INFO()
 
+ZEND_BEGIN_ARG_INFO_EX(gene_redis_pool_recycle_idle_arginfo, 0, 0, 0)
+    ZEND_ARG_INFO(0, timerId)
+ZEND_END_ARG_INFO()
+
 ZEND_BEGIN_ARG_INFO_EX(gene_redis_pool_construct_arginfo, 0, 0, 1)
     ZEND_ARG_INFO(0, config)
 ZEND_END_ARG_INFO()
@@ -1560,6 +1564,12 @@ PHP_METHOD(gene_redis_pool, stopTimers)
  */
 PHP_METHOD(gene_redis_pool, recycleIdle)
 {
+    zend_long timer_id = 0;
+    ZEND_PARSE_PARAMETERS_START(0, 1)
+        Z_PARAM_OPTIONAL
+        Z_PARAM_LONG(timer_id)
+    ZEND_PARSE_PARAMETERS_END();
+    (void)timer_id;
     rpool_recycle_idle(getThis());
 }
 /* }}} */
@@ -1749,7 +1759,7 @@ const zend_function_entry gene_redis_pool_methods[] = {
     PHP_ME(gene_redis_pool, close,        gene_redis_pool_void_arginfo,          ZEND_ACC_PUBLIC)
     PHP_ME(gene_redis_pool, closeAll,     gene_redis_pool_void_arginfo,          ZEND_ACC_PUBLIC|ZEND_ACC_STATIC)
     PHP_ME(gene_redis_pool, stopTimers,   gene_redis_pool_void_arginfo,          ZEND_ACC_PUBLIC|ZEND_ACC_STATIC)
-    PHP_ME(gene_redis_pool, recycleIdle,  gene_redis_pool_void_arginfo,          ZEND_ACC_PUBLIC)
+    PHP_ME(gene_redis_pool, recycleIdle,  gene_redis_pool_recycle_idle_arginfo,  ZEND_ACC_PUBLIC)
     PHP_ME(gene_redis_pool, stats,        gene_redis_pool_void_arginfo,          ZEND_ACC_PUBLIC)
     {NULL, NULL, NULL}
 };

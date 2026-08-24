@@ -116,9 +116,10 @@ class Pool
     /**
      * 回收空闲超时的连接
      *
+     * @param int $timerId Swoole\Timer::tick 传入的定时器 ID（可忽略）
      * @return void
      */
-    public function recycleIdle(): void {
+    public function recycleIdle(int $timerId = 0): void {
     }
 
     /**
