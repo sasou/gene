@@ -114,12 +114,12 @@ static void gene_request_set_header_val(zval *header) {
 ZEND_BEGIN_ARG_INFO_EX(geme_request_void_arginfo, 0, 0, 0)
 ZEND_END_ARG_INFO()
 
-ZEND_BEGIN_ARG_INFO_EX(geme_request_get_param_arginfo, 0, 0, 2)
+ZEND_BEGIN_ARG_INFO_EX(geme_request_get_param_arginfo, 0, 0, 0)
 	ZEND_ARG_INFO(0, key)
 	ZEND_ARG_INFO(0, value)
 ZEND_END_ARG_INFO()
 
-ZEND_BEGIN_ARG_INFO_EX(geme_request_url_param, 0, 0, 1)
+ZEND_BEGIN_ARG_INFO_EX(geme_request_url_param, 0, 0, 0)
     ZEND_ARG_INFO(0, key)
 ZEND_END_ARG_INFO()
 

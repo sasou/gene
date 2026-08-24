@@ -34,7 +34,7 @@ zend_class_entry * gene_validate_ce;
 ZEND_BEGIN_ARG_INFO_EX(gene_validate_void_arginfo, 0, 0, 0)
 ZEND_END_ARG_INFO()
 
-ZEND_BEGIN_ARG_INFO_EX(gene_validate_construct, 0, 0, 1)
+ZEND_BEGIN_ARG_INFO_EX(gene_validate_construct, 0, 0, 0)
 	ZEND_ARG_INFO(0, data)
 ZEND_END_ARG_INFO()
 
@@ -46,7 +46,7 @@ ZEND_BEGIN_ARG_INFO_EX(gene_validate_name, 0, 0, 1)
 	ZEND_ARG_INFO(0, field)
 ZEND_END_ARG_INFO()
 
-ZEND_BEGIN_ARG_INFO_EX(gene_validate_filter, 0, 0, 2)
+ZEND_BEGIN_ARG_INFO_EX(gene_validate_filter, 0, 0, 1)
 	ZEND_ARG_INFO(0, method)
 	ZEND_ARG_INFO(0, args)
 ZEND_END_ARG_INFO()
@@ -66,11 +66,11 @@ ZEND_BEGIN_ARG_INFO_EX(gene_validate_msg, 0, 0, 1)
 	ZEND_ARG_INFO(0, msg)
 ZEND_END_ARG_INFO()
 
-ZEND_BEGIN_ARG_INFO_EX(gene_validate_get_value, 0, 0, 1)
+ZEND_BEGIN_ARG_INFO_EX(gene_validate_get_value, 0, 0, 0)
 ZEND_ARG_INFO(0, field)
 ZEND_END_ARG_INFO()
 
-ZEND_BEGIN_ARG_INFO_EX(gene_validate_get_error, 0, 0, 1)
+ZEND_BEGIN_ARG_INFO_EX(gene_validate_get_error, 0, 0, 0)
 ZEND_ARG_INFO(0, field)
 ZEND_END_ARG_INFO()
 
@@ -105,11 +105,11 @@ ZEND_BEGIN_ARG_INFO_EX(gene_validate_rule_in, 0, 0, 1)
 ZEND_ARG_INFO(0, list)
 ZEND_END_ARG_INFO()
 
-ZEND_BEGIN_ARG_INFO_EX(gene_validate_rule_url, 0, 0, 1)
+ZEND_BEGIN_ARG_INFO_EX(gene_validate_rule_url, 0, 0, 0)
 ZEND_ARG_INFO(0, flags)
 ZEND_END_ARG_INFO()
 
-ZEND_BEGIN_ARG_INFO_EX(gene_validate_rule_datetime, 0, 0, 1)
+ZEND_BEGIN_ARG_INFO_EX(gene_validate_rule_datetime, 0, 0, 0)
 ZEND_ARG_INFO(0, format)
 ZEND_END_ARG_INFO()
 

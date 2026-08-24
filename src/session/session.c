@@ -243,7 +243,7 @@ static zend_string *gene_session_method_delete(void);
 ZEND_BEGIN_ARG_INFO_EX(gene_session_void_arginfo, 0, 0, 0)
 ZEND_END_ARG_INFO()
 
-ZEND_BEGIN_ARG_INFO_EX(gene_session_get_arginfo, 0, 0, 1)
+ZEND_BEGIN_ARG_INFO_EX(gene_session_get_arginfo, 0, 0, 0)
 	ZEND_ARG_INFO(0, name)
 ZEND_END_ARG_INFO()
 

@@ -32,15 +32,15 @@
 
 zend_class_entry * gene_memcached_ce;
 
-ZEND_BEGIN_ARG_INFO_EX(gene_memcached_void_arginfo, 0, 0, 0)
+ZEND_BEGIN_ARG_INFO_EX(gene_memcached_void_arginfo, 0, 0, 1)
 ZEND_END_ARG_INFO()
 
-ZEND_BEGIN_ARG_INFO_EX(gene_memcached_incr_arginfo, 0, 0, 2)
+ZEND_BEGIN_ARG_INFO_EX(gene_memcached_incr_arginfo, 0, 0, 1)
 	ZEND_ARG_INFO(0, key)
 	ZEND_ARG_INFO(0, value)
 ZEND_END_ARG_INFO()
 
-ZEND_BEGIN_ARG_INFO_EX(gene_memcached_decr_arginfo, 0, 0, 2)
+ZEND_BEGIN_ARG_INFO_EX(gene_memcached_decr_arginfo, 0, 0, 1)
 	ZEND_ARG_INFO(0, key)
 	ZEND_ARG_INFO(0, value)
 ZEND_END_ARG_INFO()
