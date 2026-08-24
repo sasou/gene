@@ -474,8 +474,19 @@ int gene_orm_db_select(zval *db, zend_string *table, zval *fields)
 			uint32_t n = zend_hash_num_elements(Z_ARRVAL_P(fields));
 			if (n == 1) {
 				zval *only;
-				zend_hash_internal_pointer_reset(Z_ARRVAL_P(fields));
-				only = zend_hash_get_current_data(Z_ARRVAL_P(fields));
+				HashPosition pos;
+				/* [GENE_FIX:2026-08-24] fields may be a live reference into a
+				 * shared/COW array (e.g. Query::$fields read via
+				 * zend_read_property() without a copy) with refcount != 1.
+				 * zend_hash_internal_pointer_reset()/_get_current_data()
+				 * write through ht->nInternalPointer, mutating the shared
+				 * array in place — undefined under concurrent readers
+				 * (Swoole coroutines) and fatal in debug builds
+				 * (zend_hash_internal_pointer_reset_ex() assertion). Use a
+				 * local HashPosition instead so we never touch the array's
+				 * own internal pointer. */
+				zend_hash_internal_pointer_reset_ex(Z_ARRVAL_P(fields), &pos);
+				only = zend_hash_get_current_data_ex(Z_ARRVAL_P(fields), &pos);
 				if (!(only && Z_TYPE_P(only) == IS_STRING &&
 					Z_STRLEN_P(only) == 1 && Z_STRVAL_P(only)[0] == '*')) {
 					ZVAL_COPY(&args[1], fields);
