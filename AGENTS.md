@@ -2,7 +2,7 @@
 
 ## Windows 构建（本机已验证 2026-08-20）
 
-- PHP SDK：`F:\php-sdk-2.3.0`（本机实际安装版本）；构建树：`F:\php_src\php-8.1.30-src`（PHP 8.1 NTS x64，VS2019/vs16）。
+- PHP SDK：`F:\php-sdk-2.6.0`（本机实际安装版本）；构建树：`F:\php_src\php-8.1.30-src`（PHP 8.1 NTS x64，VS2019/vs16）。
 - `F:\php_src\php-8.1.30-src\ext\gene` 是指向本仓库 `src/` 的 **Junction**，改源码即改构建树。
 - 构建步骤（config.nice.bat 已配好 `--enable-gene=shared`）：
 
@@ -11,7 +11,7 @@ rem task.bat 内容:
 cd /d F:\php_src\php-8.1.30-src
 call config.nice.bat
 nmake php_gene.dll
-F:\php-sdk-2.3.0\phpsdk-vs16-x64.bat -t <task.bat>
+F:\php-sdk-2.6.0\phpsdk-vs16-x64.bat -t <task.bat>
 ```
 
 - **注意**：Makefile 必须在 x64 环境下生成（`BUILD_DIR=x64\Release`，不含 `_USE_32BIT_TIME_T`）。
