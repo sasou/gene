@@ -718,6 +718,15 @@ static void gene_redis_eval(zval *self, const char *script, zend_string **sha_sl
 	}
 }
 
+/*
+ * {{{ public gene_redis::rateLimit(string $key, int $max, int $windowSec): ?bool
+ * Fixed-window counter via an atomic INCR+EXPIRE Lua script. Tri-state
+ * return: true = allowed, false = genuinely over $max within the window,
+ * null = the script call itself did not complete (redis unreachable, retry
+ * exhausted, etc.) — indeterminate, NOT a confirmed block. Collapsing the
+ * error case into false forced callers to re-derive "was it really over
+ * the limit?" with a manual GET afterwards; null lets callers fail-open
+ * on error without that workaround. */
 PHP_METHOD(gene_redis, rateLimit) {
 	zend_string *key;
 	zend_long max, window;
@@ -743,8 +752,10 @@ PHP_METHOD(gene_redis, rateLimit) {
 		zval_ptr_dtor(&ret);
 		RETURN_TRUE;
 	}
+	/* Not a script result: the eval call failed rather than the counter
+	 * exceeding max. Report indeterminate instead of a false "blocked". */
 	zval_ptr_dtor(&ret);
-	RETURN_FALSE;
+	RETURN_NULL();
 }
 
 PHP_METHOD(gene_redis, lock) {

@@ -98,8 +98,9 @@ class Memory
     public function decr($key, $step = 1) {}
 
     /**
-     * Single-process / single-worker rate limit (not shared across FPM/Swoole workers).
-     * After Swoole workerReady() Memory is frozen — use Redis::rateLimit.
+     * Single-process / single-worker rate limit (not shared across FPM/Swoole workers
+     * — use Redis::rateLimit for a cross-worker/cross-host limit). Usable both before
+     * and after Swoole workerReady().
      *
      * @param string $key
      * @param int $max

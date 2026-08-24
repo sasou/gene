@@ -135,12 +135,17 @@ class Redis
 
     /**
      * Atomic fixed-window rate limit (INCR + EXPIRE via Lua).
-     * Over limit returns false; does not throw.
+     *
+     * Tri-state return: true = allowed, false = genuinely over $max within
+     * the window, null = the redis call itself did not complete (connection
+     * error, retries exhausted) — indeterminate, NOT a confirmed block.
+     * Callers should treat null as "unknown" and decide fail-open/closed
+     * explicitly, rather than assuming null-as-false means "blocked".
      *
      * @param string $key
      * @param int $max
      * @param int $windowSec
-     * @return bool
+     * @return bool|null
      */
     public function rateLimit($key, $max, $windowSec) {}
 

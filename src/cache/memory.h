@@ -29,8 +29,12 @@
 #define GENE_CACHE_WRLOCK()    gene_rwlock_wrlock(&GENE_G(cache_lock))
 #define GENE_CACHE_WRUNLOCK()  gene_rwlock_wrunlock(&GENE_G(cache_lock))
 
-/* Internal: cache.c only — bracket each gene_memory_set/del from Cache methods.
- * Do not span gene_cache_call() or other userland; see gene_memory_write_allowed. */
+/* Bracket each direct gene_memory_set()/gene_memory_del()/gene_memory_adjust()
+ * call from Gene\Cache's own methods (cache.c) AND from Gene\Memory's own
+ * PHP-facing set/del/rateLimit/lock/unlock/incr/decr/mset (memory.c) —
+ * [GENE_FIX:2026-08-24 MEM-RW]. Do not span gene_cache_call() or other
+ * userland callbacks; keep the bracket tight around the leaf write call
+ * itself. See gene_memory_write_allowed(). */
 #define GENE_CACHE_LAYER_MEMORY_WRITE_ENTER() do { \
 	GENE_G(cache_layer_memory_write_depth)++; \
 	GENE_G(cache_business_dirty) = 1; \

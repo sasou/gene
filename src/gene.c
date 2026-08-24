@@ -1268,7 +1268,6 @@ static void php_gene_init_globals() {
 	GENE_G(co_contexts_sweep_count) = 0;
 	GENE_G(co_contexts_sweep_scanned) = 0;
 	GENE_G(co_contexts_sweep_us) = 0;
-	GENE_G(cache_unlimited_noticed) = 0;
 	GENE_G(co_contexts_cap_warned) = 0;
 	/* [GENE_PERF:2026-07-30 M1] Sweep cooldown state. */
 	GENE_G(co_ctx_allocs_since_sweep) = 0;

@@ -1385,16 +1385,13 @@ PHP_METHOD(gene_application, workerReady) {
 	if (GENE_G(runtime_type) >= 2 && GENE_G(ctx_pool_size) == 0) {
 		gene_request_context_pool_prewarm(-1);
 	}
-	/* Keep cache_max_items=0 backward compatible, but make the long-running
-	 * worker risk visible exactly once after the routing/config cache freezes.
-	 * Log-only (gene_log_diag): this path is Swoole-only by construction and
-	 * must never throw through the user error handler inside workerStart. */
-	if (GENE_G(runtime_type) >= 2 && GENE_G(cache_max_items) == 0
-			&& !GENE_G(cache_unlimited_noticed)) {
-		gene_log_diag(E_NOTICE,
-			"Gene: gene.cache_max_items=0 leaves Gene\\Cache entries unbounded in this Swoole worker; set an explicit capacity for high-cardinality workloads");
-		GENE_G(cache_unlimited_noticed) = 1;
-	}
+	/* [GENE_FIX:2026-08-24 NOTICE-1] Removed the one-time "cache_max_items=0
+	 * leaves entries unbounded" advisory: 0 (unbounded) is the documented
+	 * default and a perfectly ordinary, often intentional choice, not a
+	 * misconfiguration — unlike the reserve<=max_items case above, there is
+	 * no contradictory state to warn about here, so logging on every worker
+	 * boot was pure noise for the common case. cache_unlimited_noticed stays
+	 * a no-op field for now rather than removing the ini/global wholesale. */
 	if (self) {
 		RETURN_ZVAL(self, 1, 0);
 	}
