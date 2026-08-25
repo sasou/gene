@@ -40,15 +40,20 @@ if ($poolType === 'db') {
         ]],
     ]);
 } else {
+    $redisParams = [
+        'host' => getenv('GENE_REDIS_HOST') ?: '127.0.0.1',
+        'port' => (int) (getenv('GENE_REDIS_PORT') ?: 6379),
+        'timeout' => (float) (getenv('GENE_REDIS_TIMEOUT') ?: 3),
+    ];
+    // RedisPool issues AUTH whenever the key is present, so an empty password
+    // would kill every connection on a password-less Redis.
+    $redisPass = getenv('GENE_REDIS_PASS');
+    if (is_string($redisPass) && $redisPass !== '') {
+        $redisParams['password'] = $redisPass;
+    }
     $config->set('acceptance_redis', [
         'class' => Gene\Cache\Redis::class,
-        'params' => [[
-            'host' => getenv('GENE_REDIS_HOST') ?: '127.0.0.1',
-            'port' => (int) (getenv('GENE_REDIS_PORT') ?: 6379),
-            'timeout' => (float) (getenv('GENE_REDIS_TIMEOUT') ?: 3),
-            'password' => getenv('GENE_REDIS_PASS') ?: '',
-            'database' => (int) (getenv('GENE_REDIS_DB') ?: 0),
-        ]],
+        'params' => [$redisParams],
     ]);
 }
 
