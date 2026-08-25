@@ -176,11 +176,10 @@ class DiTest
         echo "Testing Di alias():\n";
 
         try {
-            $di = new \Gene\Di();
+            $di = \Gene\Di::getInstance();
             // Register a service then alias it
-            $di->set("db", function() { return new \stdClass(); });
-            $di->alias("database", "db");
-            echo "✓ alias('database', 'db') works\n";
+            $di->alias("stdClass", "database");
+            echo "✓ alias('stdClass', 'database') works\n";
 
             // Resolve via alias
             $instance = $di->instance("database");

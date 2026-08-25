@@ -379,31 +379,33 @@ class DatabaseTest
             // The connection lifecycle needs Swoole (Coroutine\Channel/Atomic).
             // Without it the pool degrades gracefully: get()=null, healthCheck()=false.
             if (class_exists('Swoole\Coroutine\Channel') && class_exists('Swoole\Atomic')) {
-                $conn = $this->pool->get();
-                if ($conn instanceof PDO) {
-                    echo "✓ Pool get() returns a PDO connection\n";
-                    $this->pool->put($conn);
-                    echo "✓ Pool put() returns the connection to the pool\n";
+                Swoole\Coroutine\run(function () {
+                    $conn = $this->pool->get();
+                    if ($conn instanceof PDO) {
+                        echo "✓ Pool get() returns a PDO connection\n";
+                        $this->pool->put($conn);
+                        echo "✓ Pool put() returns the connection to the pool\n";
 
-                    $again = $this->pool->get();
-                    if ($again instanceof PDO) {
-                        echo "✓ Pool get() after put() reuses the connection\n";
-                        $this->pool->put($again);
-                    } else {
-                        $this->fail('Pool get() after put() returned ' . var_export($again, true));
-                    }
+                        $again = $this->pool->get();
+                        if ($again instanceof PDO) {
+                            echo "✓ Pool get() after put() reuses the connection\n";
+                            $this->pool->put($again);
+                        } else {
+                            $this->fail('Pool get() after put() returned ' . var_export($again, true));
+                        }
 
-                    $hc = $this->pool->healthCheck();
-                    if (is_array($hc) && array_key_exists('alive', $hc) && array_key_exists('dead', $hc)) {
-                        echo "✓ Pool healthCheck() works (alive={$hc['alive']}, dead={$hc['dead']})\n";
+                        $hc = $this->pool->healthCheck();
+                        if (is_array($hc) && array_key_exists('alive', $hc) && array_key_exists('dead', $hc)) {
+                            echo "✓ Pool healthCheck() works (alive={$hc['alive']}, dead={$hc['dead']})\n";
+                        } else {
+                            $this->fail('Pool healthCheck() unexpected: ' . var_export($hc, true));
+                        }
                     } else {
-                        $this->fail('Pool healthCheck() unexpected: ' . var_export($hc, true));
+                        $this->fail('Pool get() did not return PDO: ' . var_export($conn, true));
                     }
-                } else {
-                    $this->fail('Pool get() did not return PDO: ' . var_export($conn, true));
-                }
-                $this->pool->recycleIdle();
-                echo "✓ Pool recycleIdle() runs without error\n";
+                    $this->pool->recycleIdle();
+                    echo "✓ Pool recycleIdle() runs without error\n";
+                });
             } else {
                 if ($this->pool->get() === null && $this->pool->healthCheck() === false) {
                     $this->skip('Swoole not loaded — get()/healthCheck() degrade to null/false (verified)');

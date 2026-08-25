@@ -65,7 +65,7 @@ ZEND_BEGIN_ARG_INFO_EX(gene_db_sqlite_count, 0, 0, 1)
     ZEND_ARG_INFO(0, fields)
 ZEND_END_ARG_INFO()
 
-ZEND_BEGIN_ARG_INFO_EX(gene_db_sqlite_insert, 0, 0, 2)
+ZEND_BEGIN_ARG_INFO_EX(gene_db_sqlite_insert, 0, 0, 1)
 	ZEND_ARG_INFO(0, table)
     ZEND_ARG_INFO(0, fields)
 ZEND_END_ARG_INFO()
@@ -76,12 +76,12 @@ ZEND_BEGIN_ARG_INFO_EX(gene_db_sqlite_upsert, 0, 0, 3)
     ZEND_ARG_ARRAY_INFO(0, updateCols, 0)
 ZEND_END_ARG_INFO()
 
-ZEND_BEGIN_ARG_INFO_EX(gene_db_sqlite_batch_insert, 0, 0, 2)
+ZEND_BEGIN_ARG_INFO_EX(gene_db_sqlite_batch_insert, 0, 0, 1)
 	ZEND_ARG_INFO(0, table)
     ZEND_ARG_INFO(0, fields)
 ZEND_END_ARG_INFO()
 
-ZEND_BEGIN_ARG_INFO_EX(gene_db_sqlite_update, 0, 0, 2)
+ZEND_BEGIN_ARG_INFO_EX(gene_db_sqlite_update, 0, 0, 1)
 	ZEND_ARG_INFO(0, table)
     ZEND_ARG_INFO(0, fields)
 ZEND_END_ARG_INFO()
@@ -119,12 +119,18 @@ ZEND_END_ARG_INFO()
 
 ZEND_BEGIN_ARG_INFO_EX(gene_db_sqlite_limit, 0, 0, 1)
 	ZEND_ARG_INFO(0, limit)
+	ZEND_ARG_INFO(0, offset)
 ZEND_END_ARG_INFO()
 
 ZEND_BEGIN_ARG_INFO_EX(gene_db_sqlite_join, 0, 0, 2)
 	ZEND_ARG_INFO(0, table)
 	ZEND_ARG_INFO(0, on)
 	ZEND_ARG_INFO(0, type)
+ZEND_END_ARG_INFO()
+
+ZEND_BEGIN_ARG_INFO_EX(gene_db_sqlite_side_join, 0, 0, 2)
+	ZEND_ARG_INFO(0, table)
+	ZEND_ARG_INFO(0, on)
 ZEND_END_ARG_INFO()
 
 ZEND_BEGIN_ARG_INFO_EX(gene_db_sqlite_union, 0, 0, 1)
@@ -277,9 +283,8 @@ bool sqliteInitPdo (zval * self, zval *config) {
 	zval_ptr_dtor(&option);
 
 	if (EG(exception)) {
-		if (checkPdoError(EG(exception))) {
-			zend_clear_exception();
-		}
+		zval_ptr_dtor(&pdo_object);
+		return -1;
 	}
     zend_update_property(gene_db_sqlite_ce, gene_strip_obj(self), ZEND_STRL(GENE_DB_SQLITE_PDO), &pdo_object);
     zval_ptr_dtor(&pdo_object);
@@ -1686,8 +1691,8 @@ const zend_function_entry gene_db_sqlite_methods[] = {
 		PHP_ME(gene_db_sqlite, where, gene_db_sqlite_where, ZEND_ACC_PUBLIC)
 		PHP_ME(gene_db_sqlite, in, gene_db_sqlite_in, ZEND_ACC_PUBLIC)
 		PHP_ME(gene_db_sqlite, join, gene_db_sqlite_join, ZEND_ACC_PUBLIC)
-		PHP_ME(gene_db_sqlite, leftJoin, gene_db_sqlite_join, ZEND_ACC_PUBLIC)
-		PHP_ME(gene_db_sqlite, rightJoin, gene_db_sqlite_join, ZEND_ACC_PUBLIC)
+		PHP_ME(gene_db_sqlite, leftJoin, gene_db_sqlite_side_join, ZEND_ACC_PUBLIC)
+		PHP_ME(gene_db_sqlite, rightJoin, gene_db_sqlite_side_join, ZEND_ACC_PUBLIC)
 		PHP_ME(gene_db_sqlite, union, gene_db_sqlite_union, ZEND_ACC_PUBLIC)
 		PHP_ME(gene_db_sqlite, reset, gene_db_sqlite_void_arginfo, ZEND_ACC_PUBLIC)
 		PHP_ME(gene_db_sqlite, sql, gene_db_sqlite_sql, ZEND_ACC_PUBLIC)

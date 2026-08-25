@@ -8,10 +8,10 @@ namespace Gene;
  * @property \Gene\Cache\Memcache $memcache
  * @property \Gene\Cache\Redis $redis
  * @property \Gene\Cache\Cache $cache
- * @property \Ext\Services\Rest $rest
+ * @property \Gene\Rest $rest
  * 
  * @author  sasou<admin@php-gene.com>
- * @version  5.6.9
+ * @version  6.1.0
  */
  
 class Application

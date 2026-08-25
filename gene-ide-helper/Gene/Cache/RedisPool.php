@@ -241,9 +241,10 @@ final class RedisPool
      *  - 否则：PING 验活，存活则推回队列，断线则丢弃。
      * 最后若数量 < min，补充新连接。
      *
+     * @param int $timerId Swoole\Timer::tick 传入的定时器 ID（可忽略）
      * @return void
      */
-    public function recycleIdle(): void {}
+    public function recycleIdle(int $timerId = 0): void {}
 
     // -------------------------------------------------------------------------
 

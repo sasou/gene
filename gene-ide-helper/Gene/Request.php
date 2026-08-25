@@ -224,6 +224,26 @@ class Request
     }
 
     /**
+     * json
+     * Decode rawContent as a JSON object/array.
+     * Empty body → null. Invalid JSON / JSON null / scalars throw.
+     *
+     * @return array|null
+     */
+    public static function json() {
+
+    }
+
+    /**
+     * Bearer token from Authorization header. Empty → null.
+     *
+     * @return string|null
+     */
+    public static function bearer() {
+
+    }
+
+    /**
      * getContent
      * rawContent 的别名
      *
@@ -283,6 +303,37 @@ class Request
      * @return bool
      */
     public static function isSecure() {
+
+    }
+
+    /**
+     * Push get/post/files/request/header/raw. Returns new depth (max 8).
+     *
+     * @return int
+     */
+    public static function snapshot() {
+
+    }
+
+    /**
+     * Pop snapshot. Empty stack → false.
+     *
+     * @return bool
+     */
+    public static function restore() {
+
+    }
+
+    /**
+     * Replace input bags only. $request===null merges get+post.
+     *
+     * @param array $get
+     * @param array $post
+     * @param array|null $files
+     * @param array|null $request
+     * @return void
+     */
+    public static function scope($get, $post, $files = null, $request = null) {
 
     }
 

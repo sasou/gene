@@ -382,25 +382,25 @@ ZEND_BEGIN_ARG_INFO_EX(gene_cache_construct_arginfo, 0, 0, 1)
 	ZEND_ARG_INFO(0, configs)
 ZEND_END_ARG_INFO()
 
-ZEND_BEGIN_ARG_INFO_EX(gene_cache_cached_arginfo, 0, 0, 3)
+ZEND_BEGIN_ARG_INFO_EX(gene_cache_cached_arginfo, 0, 0, 2)
 	ZEND_ARG_INFO(0, obj)
 	ZEND_ARG_INFO(0, args)
 	ZEND_ARG_INFO(0, ttl)
 ZEND_END_ARG_INFO()
 
-ZEND_BEGIN_ARG_INFO_EX(gene_cache_locaclCached_arginfo, 0, 0, 3)
+ZEND_BEGIN_ARG_INFO_EX(gene_cache_locaclCached_arginfo, 0, 0, 2)
 	ZEND_ARG_INFO(0, obj)
 	ZEND_ARG_INFO(0, args)
 	ZEND_ARG_INFO(0, ttl)
 ZEND_END_ARG_INFO()
 
-ZEND_BEGIN_ARG_INFO_EX(gene_cache_unsetcached_arginfo, 0, 0, 3)
+ZEND_BEGIN_ARG_INFO_EX(gene_cache_unsetcached_arginfo, 0, 0, 2)
 	ZEND_ARG_INFO(0, obj)
 	ZEND_ARG_INFO(0, args)
 	ZEND_ARG_INFO(0, ttl)
 ZEND_END_ARG_INFO()
 
-ZEND_BEGIN_ARG_INFO_EX(gene_cache_unsetlocalcached_arginfo, 0, 0, 3)
+ZEND_BEGIN_ARG_INFO_EX(gene_cache_unsetlocalcached_arginfo, 0, 0, 2)
 	ZEND_ARG_INFO(0, obj)
 	ZEND_ARG_INFO(0, args)
 	ZEND_ARG_INFO(0, ttl)
@@ -1260,7 +1260,10 @@ PHP_METHOD(gene_cache, cachedVersion)
 			cacheVersion = zend_hash_str_find(Z_ARRVAL_P(data), ZEND_STRL("version"));
 			zval cur_version;
 			curVersion(&cache_key, &cache, &cur_version);
-			if (cacheVersion == NULL || checkVersion(cacheVersion, &cur_version, mode) == 0) {
+			/* [GENE_FIX:2026-08-23 P2-2] A half-written entry (version present,
+			 * data missing) must be treated as a miss — dereferencing a NULL
+			 * cacheData below would crash. */
+			if (cacheData == NULL || cacheVersion == NULL || checkVersion(cacheVersion, &cur_version, mode) == 0) {
 				zval data_new,cur_data;
 				gene_cache_call(obj, args, &cur_data);
 				gene_cache_build_version_payload(&data_new, &cur_data, &cur_version);
@@ -1299,10 +1302,22 @@ PHP_METHOD(gene_cache, cachedVersion)
 			RETURN_ZVAL(&cur_data, 1, 1);
 		}
 	}
-	zval_ptr_dtor(&cache_key);
-	zval_ptr_dtor(&cache);
-	zval_ptr_dtor(&key);
-	RETURN_NULL();
+	{
+		zval data_new, cur_data, cur_version;
+		array_init(&cur_version);
+		gene_cache_call(obj, args, &cur_data);
+		gene_cache_build_version_payload(&data_new, &cur_data, &cur_version);
+		hook = gene_di_get(Z_STR_P(hookName));
+		if (hook) {
+			hook_cache_set(hook, &key, &data_new, ttl);
+		}
+		zval_ptr_dtor(&data_new);
+		zval_ptr_dtor(&cur_version);
+		zval_ptr_dtor(&cache_key);
+		zval_ptr_dtor(&cache);
+		zval_ptr_dtor(&key);
+		RETURN_ZVAL(&cur_data, 1, 1);
+	}
 }
 /* }}} */
 
@@ -1353,7 +1368,8 @@ PHP_METHOD(gene_cache, localCachedVersion)
 		zval *cacheData = NULL,*cacheVersion = NULL;
 		cacheData = zend_hash_str_find(Z_ARRVAL(cache), ZEND_STRL("data"));
 		cacheVersion = zend_hash_str_find(Z_ARRVAL(cache), ZEND_STRL("version"));
-		if (cacheVersion == NULL || checkVersion(cacheVersion, &cur_version, mode) == 0) {
+		/* [GENE_FIX:2026-08-23 P2-2] Half-written entry (no data) => miss. */
+		if (cacheData == NULL || cacheVersion == NULL || checkVersion(cacheVersion, &cur_version, mode) == 0) {
 			zval data_new,cur_data;
 			gene_cache_call(obj, args, &cur_data);
 			gene_cache_build_version_payload(&data_new, &cur_data, &cur_version);
@@ -1490,7 +1506,11 @@ PHP_METHOD(gene_cache, processCached)
 	gene_cache_key(sign, 1, obj, args, ttl, &key, (int)hash_mode);
 	cached_val = gene_memory_get(Z_STRVAL(key), Z_STRLEN(key));
 	if (cached_val) {
-		gene_memory_zval_local(return_value, cached_val);
+		/* [GENE_FIX:2026-08-23 UAF-2] Business entries may be overwritten
+		 * (pefree'd) by another coroutine while this request still uses the
+		 * returned value — deep-copy into request memory instead of borrowing
+		 * the persistent zend_string pointers. */
+		gene_memory_zval_local_copy(return_value, cached_val);
 		zval_ptr_dtor(&key);
 		return;
 	}
@@ -1584,14 +1604,11 @@ PHP_METHOD(gene_cache, processCachedVersion)
 	if (cached_val && Z_TYPE_P(cached_val) == IS_ARRAY) {
 		zval *cacheData = zend_hash_str_find(Z_ARRVAL_P(cached_val), ZEND_STRL("data"));
 		zval *cacheVersion = zend_hash_str_find(Z_ARRVAL_P(cached_val), ZEND_STRL("version"));
-		if (cacheData != NULL && cacheVersion != NULL && checkVersion(cacheVersion, &cur_version, mode)) {
-			gene_memory_zval_local(return_value, cacheData);
-			zval_ptr_dtor(&key);
-			zval_ptr_dtor(&cache_key);
-			zval_ptr_dtor(&cur_version);
-			return;
-		}
-		{
+		/* [GENE_FIX:2026-08-23 P2-2] A half-written entry (version present,
+		 * data missing — e.g. produced by a write that bailed out mid-copy)
+		 * must fall through to the recompute branch; gene_memory_zval_local_copy
+		 * on a NULL cacheData would dereference NULL. */
+		if (cacheData == NULL || cacheVersion == NULL || checkVersion(cacheVersion, &cur_version, mode) == 0) {
 			zval data_new, cur_data;
 			gene_cache_call(obj, args, &cur_data);
 			if (EG(exception)) {
@@ -1611,6 +1628,12 @@ PHP_METHOD(gene_cache, processCachedVersion)
 			zval_ptr_dtor(&key);
 			RETURN_ZVAL(&cur_data, 1, 1);
 		}
+		/* [GENE_FIX:2026-08-23 UAF-2] Deep copy, see processCached. */
+		gene_memory_zval_local_copy(return_value, cacheData);
+		zval_ptr_dtor(&key);
+		zval_ptr_dtor(&cache_key);
+		zval_ptr_dtor(&cur_version);
+		return;
 	}
 
 	zval data_new, cur_data;
@@ -1892,7 +1915,8 @@ PHP_METHOD(gene_cache, processCachedBatch)
 		zval *cached_val = gene_memory_get(Z_STRVAL(keys[i]), Z_STRLEN(keys[i]));
 		if (cached_val) {
 			zval local_val;
-			gene_memory_zval_local(&local_val, cached_val);
+			/* [GENE_FIX:2026-08-23 UAF-2] Deep copy, see processCached. */
+			gene_memory_zval_local_copy(&local_val, cached_val);
 			add_next_index_zval(return_value, &local_val);
 		} else {
 			zval data;
@@ -2011,7 +2035,9 @@ PHP_METHOD(gene_cache, cachedVersionBatch)
 		if (data_entry && Z_TYPE_P(data_entry) == IS_ARRAY) {
 			zval *cacheData = zend_hash_str_find(Z_ARRVAL_P(data_entry), ZEND_STRL("data"));
 			zval *cacheVersion = zend_hash_str_find(Z_ARRVAL_P(data_entry), ZEND_STRL("version"));
-			if (cacheVersion && checkVersion(cacheVersion, &cur_version, mode)) {
+			/* [GENE_FIX:2026-08-23 P2-2] Half-written entry (no data) => miss;
+			 * Z_TRY_ADDREF_P(NULL) would dereference NULL. */
+			if (cacheData && cacheVersion && checkVersion(cacheVersion, &cur_version, mode)) {
 				Z_TRY_ADDREF_P(cacheData);
 				add_next_index_zval(return_value, cacheData);
 				zval_ptr_dtor(&data_keys[i]);
@@ -2127,7 +2153,9 @@ PHP_METHOD(gene_cache, localCachedVersionBatch)
 		if (data_entry && Z_TYPE_P(data_entry) == IS_ARRAY) {
 			zval *cacheData = zend_hash_str_find(Z_ARRVAL_P(data_entry), ZEND_STRL("data"));
 			zval *cacheVersion = zend_hash_str_find(Z_ARRVAL_P(data_entry), ZEND_STRL("version"));
-			if (cacheVersion && checkVersion(cacheVersion, &cur_version, mode)) {
+			/* [GENE_FIX:2026-08-23 P2-2] Half-written entry (no data) => miss;
+			 * Z_TRY_ADDREF_P(NULL) would dereference NULL. */
+			if (cacheData && cacheVersion && checkVersion(cacheVersion, &cur_version, mode)) {
 				Z_TRY_ADDREF_P(cacheData);
 				add_next_index_zval(return_value, cacheData);
 				zval_ptr_dtor(&data_keys[i]);
@@ -2227,9 +2255,12 @@ PHP_METHOD(gene_cache, processCachedVersionBatch)
 		if (cached_val && Z_TYPE_P(cached_val) == IS_ARRAY) {
 			zval *cacheData = zend_hash_str_find(Z_ARRVAL_P(cached_val), ZEND_STRL("data"));
 			zval *cacheVersion = zend_hash_str_find(Z_ARRVAL_P(cached_val), ZEND_STRL("version"));
+			/* [GENE_FIX:2026-08-23 P2-2] Half-written entry (no data) => miss;
+			 * gene_memory_zval_local_copy on NULL would dereference NULL. */
 			if (cacheData && cacheVersion && checkVersion(cacheVersion, &cur_version, mode)) {
 				zval local_val;
-				gene_memory_zval_local(&local_val, cacheData);
+				/* [GENE_FIX:2026-08-23 UAF-2] Deep copy, see processCached. */
+				gene_memory_zval_local_copy(&local_val, cacheData);
 				add_next_index_zval(return_value, &local_val);
 				zval_ptr_dtor(&data_keys[i]);
 				continue;

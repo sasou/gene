@@ -8,20 +8,62 @@ if (!extension_loaded('swoole') || !extension_loaded('gene')) {
     exit(2);
 }
 
-$options = getopt('', ['coroutines::', 'omit-cleanup-rate::']);
+$options = getopt('', ['coroutines::', 'concurrency::', 'omit-cleanup-rate::']);
 $count = max(1, (int) ($options['coroutines'] ?? 10000));
+$concurrency = max(1, min($count, (int) ($options['concurrency'] ?? 200)));
 $omitRate = min(1.0, max(0.0, (float) ($options['omit-cleanup-rate'] ?? 0)));
 $before = (new Gene\Memory())->stats();
-Swoole\Coroutine\run(static function () use ($count, $omitRate): void {
-    for ($i = 0; $i < $count; $i++) {
-        go(static function () use ($i, $omitRate): void {
-            Gene\Application::getInstance();
-            if (($i % 10000) >= (int) ($omitRate * 10000)) {
-                Gene\Application::cleanup(true);
-            }
-        });
+$monitorBefore = Gene\Monitor::stats();
+$isolationFailures = 0;
+Swoole\Coroutine\run(static function () use ($count, $concurrency, $omitRate, &$isolationFailures): void {
+    for ($offset = 0; $offset < $count; $offset += $concurrency) {
+        $batch = min($concurrency, $count - $offset);
+        $wg = new Swoole\Coroutine\WaitGroup();
+        for ($i = 0; $i < $batch; $i++) {
+            $id = $offset + $i;
+            $wg->add();
+            go(static function () use ($id, $omitRate, &$isolationFailures, $wg): void {
+                try {
+                    Gene\Context::set('soak_id', $id);
+                    Swoole\Coroutine::sleep(0.001);
+                    if (Gene\Context::get('soak_id') !== $id) {
+                        $isolationFailures++;
+                    }
+                    if (($id % 10000) >= (int) ($omitRate * 10000)) {
+                        Gene\Application::cleanup();
+                    }
+                } finally {
+                    $wg->done();
+                }
+            });
+        }
+        $wg->wait();
     }
 });
 $after = (new Gene\Memory())->stats();
-$result = compact('count', 'omitRate', 'before', 'after');
+$monitorAfter = Gene\Monitor::stats();
+$deferredDelta = ($monitorAfter['swoole_auto_cleanup_defers'] ?? 0)
+    - ($monitorBefore['swoole_auto_cleanup_defers'] ?? 0);
+$reclaimedDelta = ($monitorAfter['swoole_auto_cleanup_reclaimed'] ?? 0)
+    - ($monitorBefore['swoole_auto_cleanup_reclaimed'] ?? 0);
+$omitThreshold = (int) ($omitRate * 10000);
+$expectedOmitted = 0;
+for ($i = 0; $i < $count; $i++) {
+    if (($i % 10000) < $omitThreshold) {
+        $expectedOmitted++;
+    }
+}
+$autoCleanup = (bool) ini_get('gene.swoole_auto_cleanup');
+$cleanupCountersPassed = !$autoCleanup
+    || ($deferredDelta === $count && $reclaimedDelta === $expectedOmitted);
+$passed = $isolationFailures === 0
+    && ($after['co_contexts_items'] ?? -1) === 0
+    && ($after['ctx_pool_size'] ?? -1) <= ($after['ctx_pool_max'] ?? -1)
+    && $cleanupCountersPassed;
+$result = compact(
+    'count', 'concurrency', 'omitRate', 'autoCleanup', 'isolationFailures',
+    'expectedOmitted', 'deferredDelta', 'reclaimedDelta', 'cleanupCountersPassed',
+    'before', 'after', 'passed'
+);
 echo json_encode($result, JSON_PRETTY_PRINT | JSON_UNESCAPED_UNICODE) . PHP_EOL;
+exit($passed ? 0 : 1);

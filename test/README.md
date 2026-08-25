@@ -105,6 +105,11 @@ This directory contains comprehensive test files for all major classes in the Ge
     - Security features
     - Performance testing
 
+17. **LifecycleTest.php** - Context / Json / Request::json / SSE write / Crypto / Memory rateLimit+lock  
+    Redis 无环境时显式 SKIP。泄漏探针见 `audit/repro/lifecycle_leak_probe.php`（`memory_get_usage(true)` delta 须为 0）。
+
+18. **HttpClientTest.php** - `Gene\Http::request()`：FPM/CLI 走 curl（本地 `php -S` echo）；`runtime_type>=2` 走 Swoole 协程客户端，无环境则 SKIP，禁止假通过。
+
 ### MVC Layer
 
 11. **MvcTest.php** - Tests for MVC classes

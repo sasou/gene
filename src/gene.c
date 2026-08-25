@@ -39,6 +39,13 @@
 #include "http/webscan.h"
 #include "http/response.h"
 #include "http/validate.h"
+#include "http/context.h"
+#include "http/json.h"
+#include "http/http.h"
+#include "http/invoke.h"
+#include "http/rest.h"
+#include "tool/crypto.h"
+#include "tool/text.h"
 #include "session/session.h"
 #include "mvc/view.h"
 #include "exception/exception.h"
@@ -152,6 +159,7 @@ STD_PHP_INI_ENTRY("gene.ctx_pool_max", "256", PHP_INI_SYSTEM, OnUpdateLong, ctx_
 STD_PHP_INI_ENTRY("gene.ctx_pool_prewarm", "0", PHP_INI_SYSTEM, OnUpdateLong, ctx_pool_prewarm, zend_gene_globals, gene_globals) // @suppress("Symbol is not resolved")
 STD_PHP_INI_BOOLEAN("gene.swoole_getcid_capi", "1", PHP_INI_SYSTEM, OnUpdateBool, swoole_getcid_capi, zend_gene_globals, gene_globals) // @suppress("Symbol is not resolved")
 STD_PHP_INI_ENTRY("gene.cache_max_items", "0", PHP_INI_SYSTEM, OnUpdateLong, cache_max_items, zend_gene_globals, gene_globals) // @suppress("Symbol is not resolved")
+STD_PHP_INI_ENTRY("gene.cache_reserve", "4096", PHP_INI_SYSTEM, OnUpdateLong, cache_reserve, zend_gene_globals, gene_globals) // @suppress("Symbol is not resolved")
 STD_PHP_INI_BOOLEAN("gene.route_precompile", "0", PHP_INI_SYSTEM, OnUpdateBool, route_precompile, zend_gene_globals, gene_globals) // @suppress("Symbol is not resolved")
 STD_PHP_INI_ENTRY("gene.closure_src_cache_max", "1024", PHP_INI_SYSTEM, OnUpdateLong, closure_src_cache_max, zend_gene_globals, gene_globals) // @suppress("Symbol is not resolved")
 STD_PHP_INI_BOOLEAN("gene.swoole_auto_cleanup", "0", PHP_INI_SYSTEM, OnUpdateBool, swoole_auto_cleanup, zend_gene_globals, gene_globals) // @suppress("Symbol is not resolved")
@@ -192,7 +200,8 @@ zend_long gene_get_coroutine_id(void) {
 	}
 
 	ZVAL_UNDEF(&retval);
-	zend_call_known_function(GENE_G(swoole_getcid_func), NULL, NULL, &retval, 0, NULL, NULL);
+	zend_call_known_function(GENE_G(swoole_getcid_func), NULL,
+		GENE_G(swoole_getcid_func)->common.scope, &retval, 0, NULL, NULL);
 
 	if (Z_TYPE(retval) == IS_LONG) {
 		return Z_LVAL(retval);
@@ -448,6 +457,19 @@ void gene_request_context_init(gene_request_context *ctx) {
 	ZVAL_UNDEF(&ctx->db_sqlite_history);
 	ZVAL_UNDEF(&ctx->db_mssql_history);
 	ZVAL_UNDEF(&ctx->orm_meta);
+	ZVAL_UNDEF(&ctx->user_bag);
+	ZVAL_UNDEF(&ctx->http_curl);
+	ZVAL_UNDEF(&ctx->http_stream_cb);
+	ctx->http_body_buf = NULL;
+	ctx->http_header_buf = NULL;
+	ctx->http_busy = 0;
+	ZVAL_UNDEF(&ctx->http_sse_cb);
+	ctx->http_sse_forward = 0;
+	ctx->http_sse_done = 0;
+	ctx->http_discard_body = 0;
+	ctx->http_sse_leftover = NULL;
+	ZVAL_UNDEF(&ctx->request_stack);
+	ctx->invoke_depth = 0;
 	ctx->view_scope_no = 0;
 	ctx->log_file = NULL;
 	ctx->log_level = 0;
@@ -593,6 +615,10 @@ static void gene_request_context_free_fields(gene_request_context *ctx, int pres
 	if (ctx->lang) { efree(ctx->lang); ctx->lang = NULL; }
 	ctx->lang_len = 0;
 	if (ctx->log_file) { efree(ctx->log_file); ctx->log_file = NULL; }
+	/* Unwind Request snapshots before request_attr is recycled/freed. */
+	gene_request_stack_drain(ctx);
+	ctx->invoke_depth = 0;
+	ctx->http_busy = 0;
 	if (!preserve_for_reuse) {
 		/* [GENE_MEM:2026-04-24] Inlined path_params: dtor the HashTable
 		 * only; the zval container itself lives with the struct. */
@@ -669,6 +695,32 @@ static void gene_request_context_free_fields(gene_request_context *ctx, int pres
 		zval_ptr_dtor(&ctx->orm_meta);
 		ZVAL_UNDEF(&ctx->orm_meta);
 	}
+	/* [GENE_FEATURE:2026-08-22] Gene\Context request bag. Recycle small
+	 * tables on reset (M5); fully free on destroy. */
+	if (preserve_for_reuse) {
+		gene_ctx_reuse_lazy_array(&ctx->user_bag);
+	} else if (Z_TYPE(ctx->user_bag) != IS_UNDEF) {
+		zval_ptr_dtor(&ctx->user_bag);
+		ZVAL_UNDEF(&ctx->user_bag);
+	}
+	if (Z_TYPE(ctx->http_curl) != IS_UNDEF) {
+		zval_ptr_dtor(&ctx->http_curl);
+		ZVAL_UNDEF(&ctx->http_curl);
+	}
+	if (Z_TYPE(ctx->http_stream_cb) != IS_UNDEF) {
+		zval_ptr_dtor(&ctx->http_stream_cb);
+		ZVAL_UNDEF(&ctx->http_stream_cb);
+	}
+	if (Z_TYPE(ctx->http_sse_cb) != IS_UNDEF) {
+		zval_ptr_dtor(&ctx->http_sse_cb);
+		ZVAL_UNDEF(&ctx->http_sse_cb);
+	}
+	ctx->http_sse_forward = 0;
+	ctx->http_sse_done = 0;
+	ctx->http_discard_body = 0;
+	ctx->http_sse_leftover = NULL;
+	ctx->http_body_buf = NULL;
+	ctx->http_header_buf = NULL;
 	ctx->log_level = 0;
 	ctx->log_level_set = 0;
 	ctx->view_scope_no = 0;
@@ -918,8 +970,8 @@ static int gene_swoole_co_exists(zend_long cid) {
 	}
 	ZVAL_LONG(&cid_zv, cid);
 	ZVAL_UNDEF(&retval);
-	zend_call_known_function(GENE_G(swoole_co_exists_func), NULL, NULL,
-		&retval, 1, &cid_zv, NULL);
+	zend_call_known_function(GENE_G(swoole_co_exists_func), NULL,
+		GENE_G(swoole_co_exists_func)->common.scope, &retval, 1, &cid_zv, NULL);
 	if (Z_TYPE(retval) == IS_TRUE) {
 		res = 1;
 	} else if (Z_TYPE(retval) == IS_FALSE) {
@@ -1046,7 +1098,8 @@ static void gene_swoole_auto_cleanup_register(void) {
 	}
 	ZVAL_STRING(&callable_zv, "gene_auto_cleanup_defer");
 	ZVAL_UNDEF(&ret);
-	zend_call_known_function(GENE_G(swoole_defer_func), NULL, NULL, &ret, 1, &callable_zv, NULL);
+	zend_call_known_function(GENE_G(swoole_defer_func), NULL,
+		GENE_G(swoole_defer_func)->common.scope, &ret, 1, &callable_zv, NULL);
 	zval_ptr_dtor(&callable_zv);
 	if (!Z_ISUNDEF(ret)) {
 		zval_ptr_dtor(&ret);
@@ -1217,7 +1270,6 @@ static void php_gene_init_globals() {
 	GENE_G(co_contexts_sweep_count) = 0;
 	GENE_G(co_contexts_sweep_scanned) = 0;
 	GENE_G(co_contexts_sweep_us) = 0;
-	GENE_G(cache_unlimited_noticed) = 0;
 	GENE_G(co_contexts_cap_warned) = 0;
 	/* [GENE_PERF:2026-07-30 M1] Sweep cooldown state. */
 	GENE_G(co_ctx_allocs_since_sweep) = 0;
@@ -1246,6 +1298,10 @@ static void php_gene_init_globals() {
 	GENE_G(memory_cache_miss) = 0;
 	/* [GENE_FIX:2026-08-07-5 N3] */
 	GENE_G(memory_expiry_sweep_ctr) = 0;
+	/* [GENE_FIX:2026-08-23 UAF-1] cache_reserve comes from php.ini — do NOT
+	 * zero it here (same rule as ctx_pool_prewarm / cache_easy_ttl). */
+	GENE_G(cache_insert_refused) = 0;
+	GENE_G(cache_business_dirty) = 0;
 	/* [GENE_FEATURE:2026-07-30 F2] */
 	GENE_G(request_count) = 0;
 	GENE_G(request_error_count) = 0;
@@ -1284,15 +1340,16 @@ static void php_gene_init_globals() {
 /* {{{ php_gene_close_request_globals
  */
 static void php_gene_close_request_globals() {
-	if (GENE_G(fn_cache) && GENE_G(runtime_type) < 2) {
+	/* fn_cache / validate_ext are ALLOC_HASHTABLE (request allocator).
+	 * Swoole worker exit still runs PHP RSHUTDOWN *before* the emalloc arena
+	 * is torn down — destroy here even in runtime_type>=2. Leaving them for
+	 * MSHUTDOWN UAF's zend_hash_destroy after request memory is gone. */
+	if (GENE_G(fn_cache)) {
 		zend_hash_destroy(GENE_G(fn_cache));
 		FREE_HASHTABLE(GENE_G(fn_cache));
 		GENE_G(fn_cache) = NULL;
 	}
-	/* [GENE_FEATURE:2026-07-30 F5] Validate::extend registry follows the
-	 * fn_cache lifetime policy: per-request in FPM, worker-scope in Swoole
-	 * (destroyed at MSHUTDOWN). */
-	if (GENE_G(validate_ext) && GENE_G(runtime_type) < 2) {
+	if (GENE_G(validate_ext)) {
 		zend_hash_destroy(GENE_G(validate_ext));
 		FREE_HASHTABLE(GENE_G(validate_ext));
 		GENE_G(validate_ext) = NULL;
@@ -1412,6 +1469,13 @@ PHP_MINIT_FUNCTION(gene) {
 	GENE_STARTUP(request);
 	GENE_STARTUP(webscan);
 	GENE_STARTUP(response);
+	GENE_STARTUP(context);
+	GENE_STARTUP(json);
+	GENE_STARTUP(http);
+	GENE_STARTUP(invoke);
+	GENE_STARTUP(rest);
+	GENE_STARTUP(crypto);
+	GENE_STARTUP(text);
 	GENE_STARTUP(validate);
 	GENE_STARTUP(session);
 	GENE_STARTUP(view);
@@ -1442,6 +1506,10 @@ PHP_MINIT_FUNCTION(gene) {
 /** {{{ ARG_INFO
  *  */
 ZEND_BEGIN_ARG_INFO_EX(gene_void_arginfo, 0, 0, 0)
+ZEND_END_ARG_INFO()
+
+ZEND_BEGIN_ARG_INFO_EX(gene_auto_cleanup_defer_arginfo, 0, 0, 0)
+	ZEND_ARG_INFO(0, data)
 ZEND_END_ARG_INFO()
 /* }}} */
 
@@ -1485,13 +1553,13 @@ PHP_MSHUTDOWN_FUNCTION(gene) {
 		gene_hash_destroy(GENE_G(cache_easy));
 		GENE_G(cache_easy) = NULL;
 	}
+	/* RSHUTDOWN already destroyed request-allocated tables; these are
+	 * leftover-only if RSHUTDOWN never ran (e.g. MINIT-only CLI -m). */
 	if (GENE_G(fn_cache)) {
 		zend_hash_destroy(GENE_G(fn_cache));
 		FREE_HASHTABLE(GENE_G(fn_cache));
 		GENE_G(fn_cache) = NULL;
 	}
-	/* [GENE_FEATURE:2026-07-30 F5] Swoole-mode validate_ext survives
-	 * RSHUTDOWN (worker-scope); tear it down here for valgrind cleanliness. */
 	if (GENE_G(validate_ext)) {
 		zend_hash_destroy(GENE_G(validate_ext));
 		FREE_HASHTABLE(GENE_G(validate_ext));
@@ -1573,6 +1641,7 @@ PHP_MINFO_FUNCTION(gene) {
  * {{{ gene_version()
  */
 PHP_FUNCTION(gene_version) {
+	ZEND_PARSE_PARAMETERS_NONE();
 	RETURN_STRING(PHP_GENE_VERSION);
 }
 /* }}} */
@@ -1595,6 +1664,12 @@ PHP_FUNCTION(gene_version) {
  * accident.
  */
 PHP_FUNCTION(gene_auto_cleanup_defer) {
+	zval *data = NULL;
+	ZEND_PARSE_PARAMETERS_START(0, 1)
+		Z_PARAM_OPTIONAL
+		Z_PARAM_ZVAL(data)
+	ZEND_PARSE_PARAMETERS_END();
+	(void)data;
 	if (GENE_G(swoole_auto_cleanup) && GENE_G(runtime_type) >= 2 && GENE_G(co_contexts)) {
 		zend_long cid = gene_get_coroutine_id();
 		if (cid >= 0) {
@@ -1618,7 +1693,7 @@ PHP_FUNCTION(gene_auto_cleanup_defer) {
  */
 const zend_function_entry gene_functions[] = {
 	PHP_FE(gene_version, gene_void_arginfo)
-	PHP_FE(gene_auto_cleanup_defer, gene_void_arginfo)
+	PHP_FE(gene_auto_cleanup_defer, gene_auto_cleanup_defer_arginfo)
 	PHP_FE_END
 };
 /* }}} */
@@ -1641,6 +1716,13 @@ const zend_module_dep gene_deps[] = {
 	 * pool return both call PDO methods during RSHUTDOWN/destructors — pin
 	 * the module shutdown order so pdo is still loaded when gene tears down. */
 	ZEND_MOD_REQUIRED("pdo")
+	/* [GENE_FEATURE:2026-08-22] Gene\Http uses PHP curl_* in FPM/CLI;
+	 * Gene\Crypto uses openssl_*; json is used by Gene\Json. Optional so
+	 * the extension still loads when a given SAPIs omits them — APIs throw
+	 * a clear exception at call time instead. */
+	ZEND_MOD_OPTIONAL("curl")
+	ZEND_MOD_OPTIONAL("openssl")
+	ZEND_MOD_OPTIONAL("json")
 	{ NULL, NULL, NULL }
 };
 #endif

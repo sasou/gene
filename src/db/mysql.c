@@ -67,23 +67,23 @@ ZEND_BEGIN_ARG_INFO_EX(gene_db_mysql_count, 0, 0, 1)
     ZEND_ARG_INFO(0, fields)
 ZEND_END_ARG_INFO()
 
-ZEND_BEGIN_ARG_INFO_EX(gene_db_mysql_insert, 0, 0, 2)
+ZEND_BEGIN_ARG_INFO_EX(gene_db_mysql_insert, 0, 0, 1)
 	ZEND_ARG_INFO(0, table)
     ZEND_ARG_INFO(0, fields)
 ZEND_END_ARG_INFO()
 
-ZEND_BEGIN_ARG_INFO_EX(gene_db_mysql_upsert, 0, 0, 3)
+ZEND_BEGIN_ARG_INFO_EX(gene_db_mysql_upsert, 0, 0, 1)
 	ZEND_ARG_INFO(0, table)
     ZEND_ARG_INFO(0, fields)
     ZEND_ARG_ARRAY_INFO(0, updateCols, 0)
 ZEND_END_ARG_INFO()
 
-ZEND_BEGIN_ARG_INFO_EX(gene_db_mysql_batch_insert, 0, 0, 2)
+ZEND_BEGIN_ARG_INFO_EX(gene_db_mysql_batch_insert, 0, 0, 1)
 	ZEND_ARG_INFO(0, table)
     ZEND_ARG_INFO(0, fields)
 ZEND_END_ARG_INFO()
 
-ZEND_BEGIN_ARG_INFO_EX(gene_db_mysql_update, 0, 0, 2)
+ZEND_BEGIN_ARG_INFO_EX(gene_db_mysql_update, 0, 0, 1)
 	ZEND_ARG_INFO(0, table)
     ZEND_ARG_INFO(0, fields)
 ZEND_END_ARG_INFO()
@@ -121,12 +121,18 @@ ZEND_END_ARG_INFO()
 
 ZEND_BEGIN_ARG_INFO_EX(gene_db_mysql_limit, 0, 0, 1)
 	ZEND_ARG_INFO(0, limit)
+	ZEND_ARG_INFO(0, offset)
 ZEND_END_ARG_INFO()
 
 ZEND_BEGIN_ARG_INFO_EX(gene_db_mysql_join, 0, 0, 2)
 	ZEND_ARG_INFO(0, table)
 	ZEND_ARG_INFO(0, on)
 	ZEND_ARG_INFO(0, type)
+ZEND_END_ARG_INFO()
+
+ZEND_BEGIN_ARG_INFO_EX(gene_db_mysql_side_join, 0, 0, 2)
+	ZEND_ARG_INFO(0, table)
+	ZEND_ARG_INFO(0, on)
 ZEND_END_ARG_INFO()
 
 ZEND_BEGIN_ARG_INFO_EX(gene_db_mysql_union, 0, 0, 1)
@@ -269,9 +275,8 @@ bool mysqlInitPdo (zval * self, zval *config) {
 	zval_ptr_dtor(&option);
 
 	if (EG(exception)) {
-		if (checkPdoError(EG(exception))) {
-			zend_clear_exception();
-		}
+		zval_ptr_dtor(&pdo_object);
+		return -1;
 	}
     zend_update_property(gene_db_mysql_ce, gene_strip_obj(self), ZEND_STRL(GENE_DB_MYSQL_PDO), &pdo_object);
     zval_ptr_dtor(&pdo_object);
@@ -1659,8 +1664,8 @@ const zend_function_entry gene_db_mysql_methods[] = {
 		PHP_ME(gene_db_mysql, where, gene_db_mysql_where, ZEND_ACC_PUBLIC)
 		PHP_ME(gene_db_mysql, in, gene_db_mysql_in, ZEND_ACC_PUBLIC)
 		PHP_ME(gene_db_mysql, join, gene_db_mysql_join, ZEND_ACC_PUBLIC)
-		PHP_ME(gene_db_mysql, leftJoin, gene_db_mysql_join, ZEND_ACC_PUBLIC)
-		PHP_ME(gene_db_mysql, rightJoin, gene_db_mysql_join, ZEND_ACC_PUBLIC)
+		PHP_ME(gene_db_mysql, leftJoin, gene_db_mysql_side_join, ZEND_ACC_PUBLIC)
+		PHP_ME(gene_db_mysql, rightJoin, gene_db_mysql_side_join, ZEND_ACC_PUBLIC)
 		PHP_ME(gene_db_mysql, union, gene_db_mysql_union, ZEND_ACC_PUBLIC)
 		PHP_ME(gene_db_mysql, reset, gene_db_mysql_void_arginfo, ZEND_ACC_PUBLIC)
 		PHP_ME(gene_db_mysql, sql, gene_db_mysql_sql, ZEND_ACC_PUBLIC)

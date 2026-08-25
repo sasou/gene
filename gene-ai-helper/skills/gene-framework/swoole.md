@@ -21,6 +21,10 @@ Gene 同一份业务代码可运行于 **FPM** 与 **Swoole**。本文仅描述 
 \Swoole\Runtime::enableCoroutine(SWOOLE_HOOK_ALL);
 ```
 
+`Http::multi` 并行依赖 **Native CURL hook**：Swoole 需 `--enable-swoole-curl`，且 `SWOOLE_HOOK_ALL`（含 `SWOOLE_HOOK_NATIVE_CURL`）。此时 `curl_multi_*` 在协程内让出，不堵 worker。未开启时 `multi` 回退为顺序 `Swoole\Coroutine\Http\Client` 并打 `E_NOTICE`。旧 `SWOOLE_HOOK_CURL`（`Swoole\Curl\Handler`）不能跑 `curl_multi`。
+
+`Http::request()` 在 `runtime_type >= 2` 仍走协程客户端（与是否 hook curl 无关）。
+
 ---
 
 ## 2. 请求生命周期（必记顺序）
@@ -384,7 +388,10 @@ Swoole 无 PHP 超全局，必须用 `init` 注入：
 ## 10. 调试与演示
 
 - Demo 路由：`/redis-demo`、`/redis-demo/performance`（`demo/application/Controllers/RedisDemo.php`）  
-- 日志：`\Gene\Log::exception($e)`、`\Gene\Log::error($msg)`  
-- 连接池状态：`Pool::getInstance('dbPool')->stats()`、`RedisPool::getInstance('redisPool')->stats()`
+- 日志：`\Gene\Log::exception($e)`、`\Gene\Log::error($msg)`（自动合并 `Context.request_id`）
+- 出站 HTTP：`\Gene\Http::request()` 在 `runtime_type >= 2` 时走 `Swoole\Coroutine\Http\Client`，**不要**裸 `curl_exec`。`keep_alive=>true` 仅在当前协程请求内按 host 复用 Client；`stream` 为收完后 8KB 切片，不是边收边调。
+- SSE：`Response::sseStart()` / `sseEvent()` / `write()` / `sseEnd()` 对应 `$response->write` / `end`
+- 限流/锁：多 worker 用 `$this->redis->rateLimit/lock/unlock`（Lua **EVALSHA**，NOSCRIPT 回落 EVAL）；`Memory::rateLimit` 仅当前 worker 且 `workerReady()` 后冻结
+- 生产建议打开 `gene.swoole_auto_cleanup=1`，请求 `finally` 仍显式 `cleanup()`
 
-更多方法签名见 [reference.md](reference.md) 中 Application、Pool、RedisPool、Request 章节。
+更多方法签名见 [reference.md](reference.md) 中 Application、Pool、RedisPool、Request、Http 章节。

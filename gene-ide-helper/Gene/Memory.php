@@ -98,6 +98,36 @@ class Memory
     public function decr($key, $step = 1) {}
 
     /**
+     * Single-process / single-worker rate limit (not shared across FPM/Swoole workers
+     * — use Redis::rateLimit for a cross-worker/cross-host limit). Usable both before
+     * and after Swoole workerReady().
+     *
+     * @param string $key
+     * @param int $max
+     * @param int $windowSec
+     * @return bool
+     */
+    public function rateLimit($key, $max, $windowSec) {}
+
+    /**
+     * Process-local lock: SET NX EX. Returns token or false.
+     *
+     * @param string $key
+     * @param int $ttlSec
+     * @return string|false
+     */
+    public function lock($key, $ttlSec) {}
+
+    /**
+     * Compare-and-del unlock.
+     *
+     * @param string $key
+     * @param string $token
+     * @return bool
+     */
+    public function unlock($key, $token) {}
+
+    /**
      * clean
      * 销毁并重新初始化整个共享内存 HashTable
      *

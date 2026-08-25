@@ -37,13 +37,14 @@ ZEND_END_ARG_INFO()
 
 static void gene_memory_hash_copy(HashTable *target, HashTable *source);
 static void gene_memory_zval_persistent(zval *dst, zval *source);
+static void gene_memory_hash_copy_deep(HashTable *target, HashTable *source);
 
 
 ZEND_BEGIN_ARG_INFO_EX(gene_memory_arg_construct, 0, 0, 0)
 	ZEND_ARG_INFO(0, safe)
 ZEND_END_ARG_INFO()
 
-ZEND_BEGIN_ARG_INFO_EX(gene_memory_arg_set, 0, 0, 3)
+ZEND_BEGIN_ARG_INFO_EX(gene_memory_arg_set, 0, 0, 2)
 	ZEND_ARG_INFO(0, key)
     ZEND_ARG_INFO(0, value)
     ZEND_ARG_INFO(0, ttl)
@@ -69,6 +70,22 @@ ZEND_END_ARG_INFO()
 ZEND_BEGIN_ARG_INFO_EX(gene_memory_arg_mset, 0, 0, 1)
 	ZEND_ARG_INFO(0, values)
     ZEND_ARG_INFO(0, ttl)
+ZEND_END_ARG_INFO()
+
+ZEND_BEGIN_ARG_INFO_EX(gene_memory_arg_rate_limit, 0, 0, 3)
+	ZEND_ARG_INFO(0, key)
+	ZEND_ARG_INFO(0, max)
+	ZEND_ARG_INFO(0, windowSec)
+ZEND_END_ARG_INFO()
+
+ZEND_BEGIN_ARG_INFO_EX(gene_memory_arg_lock, 0, 0, 2)
+	ZEND_ARG_INFO(0, key)
+	ZEND_ARG_INFO(0, ttlSec)
+ZEND_END_ARG_INFO()
+
+ZEND_BEGIN_ARG_INFO_EX(gene_memory_arg_unlock, 0, 0, 2)
+	ZEND_ARG_INFO(0, key)
+	ZEND_ARG_INFO(0, token)
 ZEND_END_ARG_INFO()
 
 /* }}} */
@@ -217,9 +234,25 @@ static void gene_memory_set_expiry_nolock(const char *keyString, size_t keyStrin
 
 /* {{{ gene_memory_write_allowed
  * In Swoole mode workerReady() is the freeze boundary for the process-level
- * cache: read paths may skip RDLOCK after that point, so writes must stop.
- * Configuration/router loading still happens before workerReady(), while FPM
- * keeps the existing per-request mutable behavior. */
+ * cache: read paths may skip RDLOCK after that point, so writes must stop
+ * UNLESS the caller is bracketed with GENE_CACHE_LAYER_MEMORY_WRITE_ENTER/
+ * LEAVE (cache_layer_memory_write_depth>0), which also arms
+ * cache_business_dirty so reads reacquire the rwlock — see memory.h.
+ * [GENE_FIX:2026-08-24 MEM-RW] gene_memory_set()/gene_memory_del() are
+ * shared by two very different kinds of callers: (a) Gene\Memory's own
+ * userland set/del/rateLimit/lock/unlock/incr/decr, which only ever touch
+ * caller-chosen business keys, and (b) Router::unbind/Config::delete style
+ * internal callers (router.c, configs.c) that mutate route/config entries
+ * OTHER code paths hold as long-lived borrowed pointers without re-locking.
+ * (b) must stay refused after the freeze; (a) does not need to be, and
+ * blocking it wholesale made Memory useless as a same-process counter/
+ * lock/rate-limiter in Swoole for no extra safety over just bracketing it
+ * like Gene\Cache already does. So this function itself keeps refusing by
+ * default — only callers that explicitly bracket themselves with
+ * GENE_CACHE_LAYER_MEMORY_WRITE_ENTER/LEAVE (the PHP-facing Memory methods)
+ * bypass the refusal, exactly like Gene\Cache's own post-freeze writes do.
+ * Configuration/router loading still happens before workerReady(), while
+ * FPM keeps the existing per-request mutable behavior. */
 int gene_memory_write_allowed(const char *op) {
 	if (UNEXPECTED(GENE_G(cache_layer_memory_write_depth) > 0)) {
 		return 1;
@@ -254,6 +287,11 @@ static void gene_memory_hash_copy(HashTable *target, HashTable *source) /* {{{ *
 } /* }}} */
 
 static void gene_memory_zval_persistent(zval *dst, zval *source) /* {{{ */{
+	/* [GENE_FIX:2026-08-23 UAF-4] IS_REFERENCE must be dereferenced before the
+	 * switch: dst is an uninitialized stack zval, so falling through with no
+	 * matching case would store stack garbage into the persistent table and
+	 * gene_memory_zval_dtor would later pefree a garbage pointer. */
+	ZVAL_DEREF(source);
 	switch (Z_TYPE_P(source)) {
 	case IS_STRING:
 		ZVAL_INTERNED_STR(dst, gene_str_persistent(Z_STRVAL_P(source), Z_STRLEN_P(source)));
@@ -283,24 +321,98 @@ static void gene_memory_zval_persistent(zval *dst, zval *source) /* {{{ */{
 /** {{{ static void * gene_memory_zval_edit_persistent(zval *zvalue)
  */
 static void * gene_memory_zval_edit_persistent(zval *dst, zval *source) {
-	switch (Z_TYPE_P(dst)) {
-	case IS_PTR:
-	case IS_STRING:
-		pefree(Z_PTR_P(dst), 1);
-		break;
-	case IS_ARRAY:
-		gene_hash_destroy(Z_ARRVAL_P(dst));
-		break;
-	}
+	/* [GENE_FIX:2026-08-23 UAF-3] Swap-then-free: build the new persistent
+	 * value first, atomically exchange it into the bucket, then free the old
+	 * value. The previous order (free dst, then rebuild) left dst holding a
+	 * freed pointer for the whole rebuild window — any concurrent reader that
+	 * had borrowed dst's persistent zend_string/HashTable (see
+	 * gene_memory_zval_local) dereferenced freed memory. */
+	zval old;
+	zval newv;
+	ZVAL_COPY_VALUE(&old, dst);
+	ZVAL_DEREF(source);
 	switch (Z_TYPE_P(source)) {
 	case IS_STRING:
-		ZVAL_INTERNED_STR(dst,
+		ZVAL_INTERNED_STR(&newv,
 				gene_str_persistent(Z_STRVAL_P(source), Z_STRLEN_P(source)));
 		break;
 	case IS_ARRAY: {
-		gene_hash_init(dst, zend_hash_num_elements(Z_ARRVAL_P(source)));
-		gene_memory_hash_copy(Z_ARRVAL_P(dst), Z_ARRVAL_P(source));
+		gene_hash_init(&newv, zend_hash_num_elements(Z_ARRVAL_P(source)));
+		gene_memory_hash_copy(Z_ARRVAL_P(&newv), Z_ARRVAL_P(source));
 	}
+		break;
+	case IS_TRUE:
+	case IS_FALSE:
+	case IS_DOUBLE:
+	case IS_LONG:
+	case IS_NULL:
+		ZVAL_COPY_VALUE(&newv, source);
+		break;
+	case IS_RESOURCE:
+	case IS_OBJECT:
+		zend_error(E_ERROR, "An unsupported data type");
+		break;
+	default:
+		ZVAL_NULL(&newv);
+		break;
+	}
+	ZVAL_COPY_VALUE(dst, &newv);
+	switch (Z_TYPE_P(&old)) {
+	case IS_PTR:
+	case IS_STRING:
+		pefree(Z_PTR_P(&old), 1);
+		break;
+	case IS_ARRAY:
+		gene_hash_destroy(Z_ARRVAL_P(&old));
+		break;
+	}
+	return NULL;
+}
+/* }}} */
+
+void gene_memory_hash_copy_local(HashTable *target, HashTable *source) /* {{{ */{
+	zend_string *key;
+	zend_long idx;
+	zval *element;
+	ZEND_HASH_FOREACH_KEY_VAL(source, idx, key, element)
+	{
+		zval rv;
+		/* [GENE_FIX:2026-08-23 UAF-2] Deep-copy every value into request
+		 * memory. The previous zero-copy path borrowed persistent
+		 * zend_string* into the request array; a concurrent overwrite of the
+		 * same persistent key (Gene\Cache business write / LRU evict / TTL
+		 * delete) then freed memory the request still referenced. Bucket keys
+		 * below are likewise rebuilt instead of borrowed. */
+		gene_memory_zval_local_copy(&rv, element);
+		if (key) {
+			zend_string *str_key = zend_string_init(ZSTR_VAL(key), ZSTR_LEN(key), 0);
+			zend_symtable_update(target, str_key, &rv);
+			zend_string_release(str_key);
+		} else {
+			zend_hash_index_update(target, idx, &rv);
+		}
+	}ZEND_HASH_FOREACH_END();
+} /* }}} */
+
+zval *gene_memory_zval_local(zval *dst, zval *source) /* {{{ */
+{
+	/* [GENE_FIX:2026-08-23 UAF-4] Deref references before the switch so a
+	 * reference-typed persistent entry cannot fall through leaving dst
+	 * uninitialized (same stack-garbage hazard as gene_memory_zval_persistent). */
+	ZVAL_DEREF(source);
+	switch (Z_TYPE_P(source)) {
+	case IS_STRING:
+		/* [GENE_FIX:2026-08-23 UAF-2] Always deep-copy. The previous
+		 * zero-copy branch (ZVAL_STR of the persistent interned string) was
+		 * only safe while the table was strictly write-once; Gene\Cache
+		 * business writes after workerReady() break that invariant and freed
+		 * the borrowed pointer under in-flight requests. */
+		ZVAL_NEW_STR(dst, zend_string_init(Z_STRVAL_P(source), Z_STRLEN_P(source), 0));
+		break;
+	}
+	case IS_ARRAY:
+		array_init_size(dst, zend_hash_num_elements(Z_ARRVAL_P(source)));
+		gene_memory_hash_copy_local(Z_ARRVAL_P(dst), Z_ARRVAL_P(source));
 		break;
 	case IS_TRUE:
 	case IS_FALSE:
@@ -317,26 +429,25 @@ static void * gene_memory_zval_edit_persistent(zval *dst, zval *source) {
 		ZVAL_NULL(dst);
 		break;
 	}
-	return NULL;
-}
-/* }}} */
+	return dst;
+} /* }}} */
 
-void gene_memory_hash_copy_local(HashTable *target, HashTable *source) /* {{{ */{
+/* [GENE_FIX:2026-08-23 UAF-2] Request-scope deep copy of a persistent-cache
+ * value: every string is rebuilt with zend_string_init(..., 0) and every
+ * bucket key is re-created in the request heap, so the returned zval owns no
+ * pointer into GENE_G(cache). Use this for Gene\Cache business reads, whose
+ * entries may be overwritten (pefree'd) or evicted while a request still
+ * holds the returned value. Framework metadata reads (routes/config/DI) keep
+ * using the zero-copy gene_memory_zval_local above. */
+static void gene_memory_hash_copy_deep(HashTable *target, HashTable *source) /* {{{ */{
 	zend_string *key;
 	zend_long idx;
 	zval *element;
 	ZEND_HASH_FOREACH_KEY_VAL(source, idx, key, element)
 	{
 		zval rv;
-		ZVAL_DEREF(element);
-		gene_memory_zval_local(&rv, element);
+		gene_memory_zval_local_copy(&rv, element);
 		if (key) {
-			/* Always copy keys into request-scope strings.
-			 * gene_str_persistent() stamps IS_STR_INTERNED|IS_STR_PERMANENT on
-			 * pemalloc strings that are NOT in CG(interned_strings). Sharing
-			 * those pointers with a request HashTable lets FPM RSHUTDOWN interned
-			 * restore / GC free them while GENE_G(cache) still holds them —
-			 * UAF / worker exit on the next processCachedVersion hit. */
 			zend_string *str_key = zend_string_init(ZSTR_VAL(key), ZSTR_LEN(key), 0);
 			zend_symtable_update(target, str_key, &rv);
 			zend_string_release(str_key);
@@ -346,24 +457,16 @@ void gene_memory_hash_copy_local(HashTable *target, HashTable *source) /* {{{ */
 	}ZEND_HASH_FOREACH_END();
 } /* }}} */
 
-zval *gene_memory_zval_local(zval *dst, zval *source) /* {{{ */
+zval *gene_memory_zval_local_copy(zval *dst, zval *source) /* {{{ */
 {
-	if (UNEXPECTED(!source || !dst)) {
-		if (dst) {
-			ZVAL_NULL(dst);
-		}
-		return dst;
-	}
 	ZVAL_DEREF(source);
 	switch (Z_TYPE_P(source)) {
-	case IS_STRING: {
-		zend_string *str_key = zend_string_init(Z_STRVAL_P(source), Z_STRLEN_P(source), 0);
-		ZVAL_NEW_STR(dst, str_key);
+	case IS_STRING:
+		ZVAL_NEW_STR(dst, zend_string_init(Z_STRVAL_P(source), Z_STRLEN_P(source), 0));
 		break;
-	}
 	case IS_ARRAY:
 		array_init_size(dst, zend_hash_num_elements(Z_ARRVAL_P(source)));
-		gene_memory_hash_copy_local(Z_ARRVAL_P(dst), Z_ARRVAL_P(source));
+		gene_memory_hash_copy_deep(Z_ARRVAL_P(dst), Z_ARRVAL_P(source));
 		break;
 	case IS_TRUE:
 	case IS_FALSE:
@@ -602,6 +705,96 @@ void gene_cache_lru_destroy(void) {
 }
 /* }}} */
 
+/** {{{ zend_long gene_cache_effective_reserve(void)
+ * [GENE_FIX:2026-08-23 AUTO-RESERVE] cache_reserve is internal headroom for
+ * the frozen bucket array, not a user-tuned capacity — a value <=
+ * cache_max_items is structurally contradictory (the table fills before the
+ * LRU cap is reached, eviction never triggers, new business keys are refused)
+ * and can never be intentional. Auto-correct UPWARD to max_items + margin
+ * (cost: extra memory only); never lower max_items, which would silently
+ * change eviction semantics. The user-visible warning lives in
+ * Application::workerReady(); this function only computes the value actually
+ * used for the pre-extend. */
+zend_long gene_cache_effective_reserve(void) {
+	zend_long reserve = GENE_G(cache_reserve);
+	zend_long max_items = GENE_G(cache_max_items);
+
+	if (max_items > 0 && reserve <= max_items) {
+		zend_long margin = max_items / 4;
+		if (margin < 64) {
+			margin = 64;
+		}
+		return max_items + margin;
+	}
+	return reserve;
+}
+/* }}} */
+
+/** {{{ void gene_memory_reserve(void)
+ * [GENE_FIX:2026-08-23 UAF-1] Called from Application::workerReady() at the
+ * freeze boundary. Pre-extends GENE_G(cache) by the effective reserve (see
+ * gene_cache_effective_reserve) so post-freeze business inserts fit without
+ * resizing the bucket array. [GENE_FIX:2026-08-24 MEM-RW] Since Gene\Memory's
+ * own set/del/rateLimit/lock/unlock/incr/decr/mset also write into this same
+ * table after the freeze now (not just Gene\Cache), this headroom is shared
+ * by both; raise gene.cache_reserve if a worker does a lot of new-key churn
+ * via either API. Combined with the insert guard in gene_memory_set() (and
+ * the equivalent guards in rateLimit()/lock()/gene_memory_adjust()), this
+ * keeps the arData address constant after the freeze, which is the
+ * invariant the lock-free read path and the borrowed-pointer readers rely
+ * on. */
+void gene_memory_reserve(void) {
+	zend_long reserve = gene_cache_effective_reserve();
+	/* [GENE_FIX:2026-08-23 IDEMPOTENT] Never extend once the freeze flag is
+	 * set: a post-freeze zend_hash_extend can pemalloc+move arData, breaking
+	 * the very invariant this function exists to protect. workerReady() now
+	 * early-returns on repeat calls; this guard protects against any future
+	 * caller reaching here after the freeze. */
+	if (!GENE_G(cache) || reserve <= 0 || GENE_G(worker_ready)) {
+		return;
+	}
+	GENE_CACHE_WRLOCK();
+	zend_hash_extend(GENE_G(cache),
+			GENE_G(cache)->nNumUsed + (uint32_t)reserve, 0);
+	GENE_CACHE_WRUNLOCK();
+}
+/* }}} */
+
+/* [GENE_FIX:2026-08-23 P2-1] Recursive full scan for unsupported types.
+ * The UAF-4 pre-check only inspected the outermost zval, but Gene\Cache
+ * payloads are nested ({data: ..., version: ...}) — an object (DateTime /
+ * ORM Model / closure) at any depth previously reached
+ * gene_memory_zval_persistent()'s zend_error(E_ERROR) *after*
+ * GENE_CACHE_WRLOCK() was already held: the bailout skipped
+ * GENE_CACHE_WRUNLOCK() (permanent write-lock leak) and longjmp'd on the
+ * Swoole coroutine stack. Scan the whole payload here, BEFORE any lock is
+ * taken; on a hit the caller refuses the write instead of bailing out.
+ * Self-referencing (recursive) arrays are likewise refused — they cannot be
+ * persisted and would infinitely recurse in the copy path. */
+static int gene_memory_zval_is_supported(zval *zv) {
+	HashTable *ht;
+	zval *element;
+	int ok = 1;
+
+	ZVAL_DEREF(zv);
+	if (Z_TYPE_P(zv) != IS_ARRAY) {
+		return Z_TYPE_P(zv) != IS_OBJECT && Z_TYPE_P(zv) != IS_RESOURCE;
+	}
+	ht = Z_ARRVAL_P(zv);
+	if (GC_IS_RECURSIVE(ht)) {
+		return 0;
+	}
+	GC_TRY_PROTECT_RECURSION(ht);
+	ZEND_HASH_FOREACH_VAL(ht, element) {
+		if (!gene_memory_zval_is_supported(element)) {
+			ok = 0;
+			break;
+		}
+	} ZEND_HASH_FOREACH_END();
+	GC_TRY_UNPROTECT_RECURSION(ht);
+	return ok;
+}
+
 /** {{{ void gene_memory_set(char *keyString,int keyString_len,zval *zvalue, int validity)
  */
 void gene_memory_set(char *keyString, size_t keyString_len, zval *zvalue,
@@ -614,6 +807,19 @@ void gene_memory_set(char *keyString, size_t keyString_len, zval *zvalue,
 	int is_business = (GENE_G(cache_max_items) > 0
 		&& GENE_G(cache_layer_memory_write_depth) > 0);
 	if (zvalue) {
+		/* [GENE_FIX:2026-08-23 P2-1] Reject unsupported types at ANY depth,
+		 * BEFORE taking the write lock: the UAF-4 top-level-only check let
+		 * nested objects slip through to gene_memory_zval_persistent()'s
+		 * E_ERROR, which bails out with GENE_CACHE_WRLOCK() held — a
+		 * permanent write-lock leak plus a longjmp on the Swoole coroutine
+		 * stack. A refused write degrades to a cache miss; the E_ERROR
+		 * branches inside the copy helpers are now unreachable from this
+		 * path and remain only as defense for the router/startup writers. */
+		if (UNEXPECTED(!gene_memory_zval_is_supported(zvalue))) {
+			php_error_docref(NULL, E_WARNING,
+				"Gene memory cache does not support object/resource values at any nesting depth; set refused");
+			return;
+		}
 		if (UNEXPECTED(!gene_memory_write_allowed("Memory::set"))) {
 			return;
 		}
@@ -626,11 +832,23 @@ void gene_memory_set(char *keyString, size_t keyString_len, zval *zvalue,
 		if (validity > 0 && ++GENE_G(memory_expiry_sweep_ctr) % GENE_MEMORY_EXPIRY_SWEEP_INTERVAL == 0) {
 			gene_memory_expiry_sweep_nolock();
 		}
-		copyval = zend_symtable_str_find(GENE_G(cache), keyString, keyString_len);
-		if (copyval == NULL) {
-			gene_memory_zval_persistent(&ret, zvalue);
-			key = gene_str_persistent(keyString, keyString_len);
-			gene_symtable_update(GENE_G(cache), key, &ret);
+	copyval = zend_symtable_str_find(GENE_G(cache), keyString, keyString_len);
+	if (copyval == NULL) {
+		/* [GENE_FIX:2026-08-23 UAF-1] After the workerReady() freeze the bucket
+		 * array address must stay constant: router/DI/config readers hold raw
+		 * zval* into it without a lock. A new-key insert that would trigger a
+		 * resize (perealloc) is therefore refused — the caller simply gets a
+		 * cache miss instead of a SIGSEGV. workerReady() pre-extends the table
+		 * by gene.cache_reserve so normal business churn still fits. */
+		if (UNEXPECTED(GENE_G(runtime_type) >= 2 && GENE_G(worker_ready)
+				&& GENE_G(cache)->nNumUsed >= GENE_G(cache)->nTableSize)) {
+			GENE_G(cache_insert_refused)++;
+			GENE_CACHE_WRUNLOCK();
+			return;
+		}
+		gene_memory_zval_persistent(&ret, zvalue);
+		key = gene_str_persistent(keyString, keyString_len);
+		gene_symtable_update(GENE_G(cache), key, &ret);
 			/* key is now owned by the hash table; do not free here.
 			 * zend_string_release is a no-op for interned strings. */
 			if (is_business) {
@@ -821,7 +1039,7 @@ void file_cache_set_val(char *val, size_t keyString_len, zend_long times,
 static zval * gene_memory_set_val(zval *val, char *keyString, size_t keyString_len, zval *zvalue) {
 	zval tmp, *copyval;
 	zend_string *keyS = NULL;
-	if (val == NULL) {
+	if (val == NULL || Z_TYPE_P(val) != IS_ARRAY) {
 		return NULL;
 	}
 	copyval = zend_symtable_str_find(Z_ARRVAL_P(val), keyString, keyString_len);
@@ -833,20 +1051,18 @@ static zval * gene_memory_set_val(zval *val, char *keyString, size_t keyString_l
 		}
 		keyS = gene_str_persistent(keyString, keyString_len);
 		copyval = gene_symtable_update(Z_ARRVAL_P(val), keyS, &tmp);
-	} else {
-		if (zvalue) {
-			gene_memory_zval_edit_persistent(copyval, zvalue);
-		}
-		//gene_memory_zval_persistent(&tmp, zvalue);
-		//keyS = zend_string_init(keyString, keyString_len, 1);
-		//return gene_symtable_update(Z_ARRVAL_P(val), keyS, &tmp);
-		/*
-		 else {
-		 if (Z_TYPE_P(copyval) != IS_ARRAY) {
-		 gene_hash_init(copyval, 8);
-		 }
-		 }
-		 */
+	} else if (zvalue) {
+		gene_memory_zval_edit_persistent(copyval, zvalue);
+	} else if (Z_TYPE_P(copyval) != IS_ARRAY) {
+		/* Intermediate path hit a leaf (string/long). Promote to a directory
+		 * so nested segments do not Z_ARRVAL_P a non-array (debug Zend then
+		 * reports HashTable "is being destroyed"). */
+		gene_hash_init(&tmp, 1);
+		keyS = gene_str_persistent(keyString, keyString_len);
+		copyval = gene_symtable_update(Z_ARRVAL_P(val), keyS, &tmp);
+	}
+	if (!zvalue && copyval && Z_TYPE_P(copyval) != IS_ARRAY) {
+		return NULL;
 	}
 	return copyval;
 }
@@ -879,31 +1095,32 @@ void gene_memory_set_by_router(char *keyString, size_t keyString_len, char *path
 	}
 	GENE_CACHE_WRLOCK();
 	copyval = zend_symtable_str_find(GENE_G(cache), keyString, keyString_len);
-	if (copyval == NULL) {
+	if (copyval == NULL || Z_TYPE_P(copyval) != IS_ARRAY) {
 		gene_hash_init(&ret, 0);
 		keyS = gene_str_persistent(keyString, keyString_len);
-		gene_symtable_update(GENE_G(cache), keyS, &ret);
-		tmp = &ret;
-		seg = php_strtok_r(path_copy, "/", &ptr);
-		while (seg) {
-			if (ptr && strlen(ptr) > 0) {
-				tmp = gene_memory_set_val(tmp, seg, strlen(seg), NULL);
-			} else {
-				tmp = gene_memory_set_val(tmp, seg, strlen(seg), zvalue);
-			}
+		copyval = gene_symtable_update(GENE_G(cache), keyS, &ret);
+	}
+	tmp = copyval;
+	if (tmp == NULL || Z_TYPE_P(tmp) != IS_ARRAY) {
+		GENE_CACHE_WRUNLOCK();
+		if (path_heap) efree(path_copy);
+		return;
+	}
+	seg = php_strtok_r(path_copy, "/", &ptr);
+	while (seg) {
+		if (*seg == '\0') {
 			seg = php_strtok_r(NULL, "/", &ptr);
+			continue;
 		}
-	} else {
-		tmp = copyval;
-		seg = php_strtok_r(path_copy, "/", &ptr);
-		while (seg) {
-			if (ptr && strlen(ptr) > 0) {
-				tmp = gene_memory_set_val(tmp, seg, strlen(seg), NULL);
-			} else {
-				tmp = gene_memory_set_val(tmp, seg, strlen(seg), zvalue);
-			}
-			seg = php_strtok_r(NULL, "/", &ptr);
+		if (ptr && *ptr != '\0') {
+			tmp = gene_memory_set_val(tmp, seg, strlen(seg), NULL);
+		} else {
+			tmp = gene_memory_set_val(tmp, seg, strlen(seg), zvalue);
 		}
+		if (tmp == NULL) {
+			break;
+		}
+		seg = php_strtok_r(NULL, "/", &ptr);
 	}
 	GENE_CACHE_WRUNLOCK();
 	if (path_heap) efree(path_copy);
@@ -993,6 +1210,9 @@ PHP_METHOD(gene_memory, __construct) {
 
 /*
  * {{{ public gene_memory::set($key, $data)
+ * [GENE_FIX:2026-08-24 MEM-RW] Bracketed with GENE_CACHE_LAYER_MEMORY_WRITE_
+ * ENTER/LEAVE so this keeps working after workerReady() in Swoole, the same
+ * way Gene\Cache's own writes do — see gene_memory_write_allowed().
  */
 PHP_METHOD(gene_memory, set) {
 	zend_string *keyString = NULL;
@@ -1027,7 +1247,9 @@ PHP_METHOD(gene_memory, set) {
 		router_e[router_e_len] = '\0';
 	}
 	if (zvalue) {
+		GENE_CACHE_LAYER_MEMORY_WRITE_ENTER();
 		gene_memory_set(router_e, router_e_len, zvalue, validity);
+		GENE_CACHE_LAYER_MEMORY_WRITE_LEAVE();
 	}
 	if (router_e_heap) efree(router_e);
 	RETURN_BOOL(1);
@@ -1168,6 +1390,8 @@ PHP_METHOD(gene_memory, exists) {
 
 /*
  * {{{ public gene_memory::del($key)
+ * [GENE_FIX:2026-08-24 MEM-RW] Bracketed so this stays usable after
+ * workerReady() — see gene_memory_write_allowed()/PHP_METHOD(gene_memory, set).
  */
 PHP_METHOD(gene_memory, del) {
 	zend_string *keyString;
@@ -1201,7 +1425,9 @@ PHP_METHOD(gene_memory, del) {
 		memcpy(router_e + 1, ZSTR_VAL(keyString), ZSTR_LEN(keyString));
 		router_e[router_e_len] = '\0';
 	}
+	GENE_CACHE_LAYER_MEMORY_WRITE_ENTER();
 	ret = gene_memory_del(router_e, router_e_len);
+	GENE_CACHE_LAYER_MEMORY_WRITE_LEAVE();
 	if (router_e_heap) efree(router_e);
 	RETURN_BOOL(ret);
 }
@@ -1242,9 +1468,12 @@ static char *gene_memory_build_key(zval *safe, zend_string *keyString, char *sta
  * PHP-level get+set pair, which would race between coroutines. A missing key
  * is created with the stepped value (Redis INCR semantics); an existing
  * non-long value fails with *ok=0 to avoid silently corrupting payloads.
- * Subject to the same workerReady() freeze as Memory::set — under Swoole the
- * process-level cache is read-mostly after boot, so counters meant for the
- * request runtime belong in Gene\Cache (redis/memcached) instead. */
+ * [GENE_FIX:2026-08-24 MEM-RW] Callers must bracket with
+ * GENE_CACHE_LAYER_MEMORY_WRITE_ENTER/LEAVE (see PHP_METHOD(gene_memory,
+ * incr)/decr) so this keeps working after workerReady() in Swoole, same as
+ * Memory::set/rateLimit. A brand-new key whose insert would grow the frozen
+ * bucket array is refused rather than risking a resize under lock-free
+ * readers (same UAF-1 guard as gene_memory_set()/rateLimit()/lock()). */
 static zend_long gene_memory_adjust(const char *keyString, size_t keyString_len, zend_long step, zend_bool *ok) {
 	zval *copyval, ret;
 	zend_string *key;
@@ -1257,6 +1486,12 @@ static zend_long gene_memory_adjust(const char *keyString, size_t keyString_len,
 	GENE_CACHE_WRLOCK();
 	copyval = zend_symtable_str_find(GENE_G(cache), keyString, keyString_len);
 	if (copyval == NULL) {
+		if (UNEXPECTED(GENE_G(runtime_type) >= 2 && GENE_G(worker_ready)
+				&& GENE_G(cache)->nNumUsed >= GENE_G(cache)->nTableSize)) {
+			GENE_G(cache_insert_refused)++;
+			GENE_CACHE_WRUNLOCK();
+			return 0;
+		}
 		ZVAL_LONG(&ret, step);
 		key = gene_str_persistent(keyString, keyString_len);
 		gene_symtable_update(GENE_G(cache), key, &ret);
@@ -1292,7 +1527,9 @@ PHP_METHOD(gene_memory, incr) {
 	}
 	safe = zend_read_property(gene_memory_ce, gene_strip_obj(getThis()), GENE_MEMORY_SAFE, strlen(GENE_MEMORY_SAFE), 1, NULL);
 	router_e = gene_memory_build_key(safe, keyString, stack_buf, sizeof(stack_buf), &router_e_len, &router_e_heap);
+	GENE_CACHE_LAYER_MEMORY_WRITE_ENTER();
 	result = gene_memory_adjust(router_e, router_e_len, step, &ok);
+	GENE_CACHE_LAYER_MEMORY_WRITE_LEAVE();
 	if (router_e_heap) efree(router_e);
 	if (!ok) {
 		RETURN_FALSE;
@@ -1319,12 +1556,228 @@ PHP_METHOD(gene_memory, decr) {
 	}
 	safe = zend_read_property(gene_memory_ce, gene_strip_obj(getThis()), GENE_MEMORY_SAFE, strlen(GENE_MEMORY_SAFE), 1, NULL);
 	router_e = gene_memory_build_key(safe, keyString, stack_buf, sizeof(stack_buf), &router_e_len, &router_e_heap);
+	GENE_CACHE_LAYER_MEMORY_WRITE_ENTER();
 	result = gene_memory_adjust(router_e, router_e_len, -step, &ok);
+	GENE_CACHE_LAYER_MEMORY_WRITE_LEAVE();
 	if (router_e_heap) efree(router_e);
 	if (!ok) {
 		RETURN_FALSE;
 	}
 	RETURN_LONG(result);
+}
+/* }}} */
+
+static zend_string *gene_memory_random_token(void) {
+	zval n, raw, hex;
+	zend_function *fn;
+	ZVAL_LONG(&n, 16);
+	ZVAL_UNDEF(&raw);
+	fn = zend_hash_str_find_ptr(CG(function_table), ZEND_STRL("random_bytes"));
+	if (UNEXPECTED(!fn)) {
+		return NULL;
+	}
+	zend_call_known_function(fn, NULL, NULL, &raw, 1, &n, NULL);
+	if (Z_TYPE(raw) != IS_STRING) {
+		zval_ptr_dtor(&raw);
+		return NULL;
+	}
+	fn = zend_hash_str_find_ptr(CG(function_table), ZEND_STRL("bin2hex"));
+	if (UNEXPECTED(!fn)) {
+		zval_ptr_dtor(&raw);
+		return NULL;
+	}
+	ZVAL_UNDEF(&hex);
+	zend_call_known_function(fn, NULL, NULL, &hex, 1, &raw, NULL);
+	zval_ptr_dtor(&raw);
+	if (Z_TYPE(hex) != IS_STRING) {
+		zval_ptr_dtor(&hex);
+		return NULL;
+	}
+	return Z_STR(hex);
+}
+
+/*
+ * {{{ public gene_memory::rateLimit(string $key, int $max, int $windowSec): bool
+ * Process-local fixed-window counter — each Swoole worker keeps its own
+ * count, so this is not a cross-worker/cross-host limiter (use
+ * Gene\Cache\Redis::rateLimit for that). Usable both before and after
+ * workerReady(): bracketed with GENE_CACHE_LAYER_MEMORY_WRITE_ENTER/LEAVE,
+ * the same mechanism Gene\Cache's own post-freeze writes use, which arms
+ * cache_business_dirty so reads reacquire the rwlock. A brand-new key whose
+ * insert would grow the frozen bucket array is refused (see the resize
+ * guard below) rather than allowed to resize/move arData out from under
+ * lock-free readers. Note: if gene.cache_max_items > 0, keys written here
+ * now also count against that same LRU-bounded business partition Cache
+ * uses (only relevant when that ini is explicitly set).
+ */
+PHP_METHOD(gene_memory, rateLimit) {
+	zend_string *keyString;
+	zend_long max, window;
+	char stack_buf[256];
+	char *router_e;
+	size_t router_e_len;
+	int router_e_heap = 0;
+	zval *safe, *copyval, one;
+	zend_string *pkey;
+	zend_long n;
+	int allowed = 0;
+	if (zend_parse_parameters(ZEND_NUM_ARGS(), "Sll", &keyString, &max, &window) == FAILURE) {
+		return;
+	}
+	if (max < 1 || window < 1) {
+		RETURN_FALSE;
+	}
+	GENE_CACHE_LAYER_MEMORY_WRITE_ENTER();
+	if (UNEXPECTED(!gene_memory_write_allowed("Memory::rateLimit"))) {
+		GENE_CACHE_LAYER_MEMORY_WRITE_LEAVE();
+		RETURN_FALSE;
+	}
+	safe = zend_read_property(gene_memory_ce, gene_strip_obj(getThis()), GENE_MEMORY_SAFE, strlen(GENE_MEMORY_SAFE), 1, NULL);
+	router_e = gene_memory_build_key(safe, keyString, stack_buf, sizeof(stack_buf), &router_e_len, &router_e_heap);
+	GENE_CACHE_WRLOCK();
+	if (gene_memory_expired_nolock(router_e, router_e_len)) {
+		gene_memory_del_core(router_e, router_e_len);
+	}
+	copyval = zend_symtable_str_find(GENE_G(cache), router_e, router_e_len);
+	if (copyval == NULL) {
+		/* [GENE_FIX:2026-08-24 MEM-RW] Same UAF-1 resize guard as
+		 * gene_memory_set(): refuse only this insert, not the whole write,
+		 * if it would grow the frozen bucket array. */
+		if (UNEXPECTED(GENE_G(runtime_type) >= 2 && GENE_G(worker_ready)
+				&& GENE_G(cache)->nNumUsed >= GENE_G(cache)->nTableSize)) {
+			GENE_G(cache_insert_refused)++;
+			GENE_CACHE_WRUNLOCK();
+			if (router_e_heap) efree(router_e);
+			GENE_CACHE_LAYER_MEMORY_WRITE_LEAVE();
+			RETURN_FALSE;
+		}
+		ZVAL_LONG(&one, 1);
+		pkey = gene_str_persistent(router_e, router_e_len);
+		gene_symtable_update(GENE_G(cache), pkey, &one);
+		gene_memory_set_expiry_nolock(router_e, router_e_len, (int)window);
+		allowed = 1;
+	} else if (Z_TYPE_P(copyval) == IS_LONG) {
+		n = Z_LVAL_P(copyval);
+		if (n < max) {
+			Z_LVAL_P(copyval) = n + 1;
+			allowed = 1;
+		}
+	}
+	GENE_CACHE_WRUNLOCK();
+	if (router_e_heap) efree(router_e);
+	GENE_CACHE_LAYER_MEMORY_WRITE_LEAVE();
+	RETURN_BOOL(allowed);
+}
+/* }}} */
+
+/*
+ * {{{ public gene_memory::lock(string $key, int $ttlSec): string|false
+ * [GENE_FIX:2026-08-24 MEM-RW] Same post-freeze write bracketing as
+ * rateLimit() above — see that comment for the rationale.
+ */
+PHP_METHOD(gene_memory, lock) {
+	zend_string *keyString, *token;
+	zend_long ttl;
+	char stack_buf[256];
+	char *router_e;
+	size_t router_e_len;
+	int router_e_heap = 0;
+	zval *safe, *copyval, tok;
+	zend_string *pkey;
+	int ok = 0;
+	if (zend_parse_parameters(ZEND_NUM_ARGS(), "Sl", &keyString, &ttl) == FAILURE) {
+		return;
+	}
+	if (ttl < 1) {
+		RETURN_FALSE;
+	}
+	GENE_CACHE_LAYER_MEMORY_WRITE_ENTER();
+	if (UNEXPECTED(!gene_memory_write_allowed("Memory::lock"))) {
+		GENE_CACHE_LAYER_MEMORY_WRITE_LEAVE();
+		RETURN_FALSE;
+	}
+	token = gene_memory_random_token();
+	if (!token) {
+		GENE_CACHE_LAYER_MEMORY_WRITE_LEAVE();
+		RETURN_FALSE;
+	}
+	safe = zend_read_property(gene_memory_ce, gene_strip_obj(getThis()), GENE_MEMORY_SAFE, strlen(GENE_MEMORY_SAFE), 1, NULL);
+	router_e = gene_memory_build_key(safe, keyString, stack_buf, sizeof(stack_buf), &router_e_len, &router_e_heap);
+	GENE_CACHE_WRLOCK();
+	if (gene_memory_expired_nolock(router_e, router_e_len)) {
+		gene_memory_del_core(router_e, router_e_len);
+	}
+	copyval = zend_symtable_str_find(GENE_G(cache), router_e, router_e_len);
+	if (copyval == NULL) {
+		/* [GENE_FIX:2026-08-24 MEM-RW] Same UAF-1 resize guard as
+		 * gene_memory_set()/rateLimit(): refuse only this insert if it
+		 * would grow the frozen bucket array. */
+		if (UNEXPECTED(GENE_G(runtime_type) >= 2 && GENE_G(worker_ready)
+				&& GENE_G(cache)->nNumUsed >= GENE_G(cache)->nTableSize)) {
+			GENE_G(cache_insert_refused)++;
+			GENE_CACHE_WRUNLOCK();
+			if (router_e_heap) efree(router_e);
+			zend_string_release(token);
+			GENE_CACHE_LAYER_MEMORY_WRITE_LEAVE();
+			RETURN_FALSE;
+		}
+		zval src;
+		ZVAL_STR(&src, token); /* borrow; gene_memory_zval_persistent copies */
+		gene_memory_zval_persistent(&tok, &src);
+		pkey = gene_str_persistent(router_e, router_e_len);
+		gene_symtable_update(GENE_G(cache), pkey, &tok);
+		gene_memory_set_expiry_nolock(router_e, router_e_len, (int)ttl);
+		ok = 1;
+	}
+	GENE_CACHE_WRUNLOCK();
+	if (router_e_heap) efree(router_e);
+	GENE_CACHE_LAYER_MEMORY_WRITE_LEAVE();
+	if (ok) {
+		RETURN_STR(token);
+	}
+	zend_string_release(token);
+	RETURN_FALSE;
+}
+/* }}} */
+
+/*
+ * {{{ public gene_memory::unlock(string $key, string $token): bool
+ * [GENE_FIX:2026-08-24 MEM-RW] Same post-freeze write bracketing as
+ * rateLimit()/lock() above.
+ */
+PHP_METHOD(gene_memory, unlock) {
+	zend_string *keyString, *token;
+	char stack_buf[256];
+	char *router_e;
+	size_t router_e_len;
+	int router_e_heap = 0;
+	zval *safe, *copyval;
+	int ok = 0;
+	if (zend_parse_parameters(ZEND_NUM_ARGS(), "SS", &keyString, &token) == FAILURE) {
+		return;
+	}
+	GENE_CACHE_LAYER_MEMORY_WRITE_ENTER();
+	if (UNEXPECTED(!gene_memory_write_allowed("Memory::unlock"))) {
+		GENE_CACHE_LAYER_MEMORY_WRITE_LEAVE();
+		RETURN_FALSE;
+	}
+	safe = zend_read_property(gene_memory_ce, gene_strip_obj(getThis()), GENE_MEMORY_SAFE, strlen(GENE_MEMORY_SAFE), 1, NULL);
+	router_e = gene_memory_build_key(safe, keyString, stack_buf, sizeof(stack_buf), &router_e_len, &router_e_heap);
+	GENE_CACHE_WRLOCK();
+	if (gene_memory_expired_nolock(router_e, router_e_len)) {
+		gene_memory_del_core(router_e, router_e_len);
+	} else {
+		copyval = zend_symtable_str_find(GENE_G(cache), router_e, router_e_len);
+		if (copyval && Z_TYPE_P(copyval) == IS_STRING
+			&& Z_STRLEN_P(copyval) == ZSTR_LEN(token)
+			&& memcmp(Z_STRVAL_P(copyval), ZSTR_VAL(token), ZSTR_LEN(token)) == 0) {
+			ok = gene_memory_del_core(router_e, router_e_len);
+		}
+	}
+	GENE_CACHE_WRUNLOCK();
+	if (router_e_heap) efree(router_e);
+	GENE_CACHE_LAYER_MEMORY_WRITE_LEAVE();
+	RETURN_BOOL(ok);
 }
 /* }}} */
 
@@ -1397,7 +1850,9 @@ PHP_METHOD(gene_memory, mset) {
 			continue;
 		}
 		router_e = gene_memory_build_key(safe, orig_key, stack_buf, sizeof(stack_buf), &router_e_len, &router_e_heap);
+		GENE_CACHE_LAYER_MEMORY_WRITE_ENTER();
 		gene_memory_set(router_e, router_e_len, entry, (int)validity);
+		GENE_CACHE_LAYER_MEMORY_WRITE_LEAVE();
 		if (router_e_heap) efree(router_e);
 	} ZEND_HASH_FOREACH_END();
 	RETURN_TRUE;
@@ -1406,6 +1861,12 @@ PHP_METHOD(gene_memory, mset) {
 
 /*
  * {{{ public gene_memory::clean()
+ * [GENE_FIX:2026-08-24 MEM-RW] Deliberately NOT bracketed/unblocked like the
+ * other Memory writes above: this wipes the ENTIRE process-level cache,
+ * including router/config/DI entries other code paths may be holding
+ * unlocked borrowed pointers into. Unlike a single-key set/del/rateLimit,
+ * there is no way to scope this to "just my business keys", so it stays
+ * refused after workerReady() in Swoole.
  */
 PHP_METHOD(gene_memory, clean) {
 	if (UNEXPECTED(!gene_memory_write_allowed("Memory::clean"))) {
@@ -1500,6 +1961,9 @@ const zend_function_entry gene_memory_methods[] = {
 	PHP_ME(gene_memory, del, gene_memory_arg_del, ZEND_ACC_PUBLIC)
 	PHP_ME(gene_memory, incr, gene_memory_arg_incr, ZEND_ACC_PUBLIC)
 	PHP_ME(gene_memory, decr, gene_memory_arg_incr, ZEND_ACC_PUBLIC)
+	PHP_ME(gene_memory, rateLimit, gene_memory_arg_rate_limit, ZEND_ACC_PUBLIC)
+	PHP_ME(gene_memory, lock, gene_memory_arg_lock, ZEND_ACC_PUBLIC)
+	PHP_ME(gene_memory, unlock, gene_memory_arg_unlock, ZEND_ACC_PUBLIC)
 	/* [GENE_FEATURE:2026-08-07] Batch read/write. */
 	PHP_ME(gene_memory, mget, gene_memory_arg_mget, ZEND_ACC_PUBLIC)
 	PHP_ME(gene_memory, mset, gene_memory_arg_mset, ZEND_ACC_PUBLIC)

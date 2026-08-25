@@ -133,6 +133,40 @@ class Redis
      */
     public function __call($method, $params) {}
 
+    /**
+     * Atomic fixed-window rate limit (INCR + EXPIRE via Lua).
+     *
+     * Tri-state return: true = allowed, false = genuinely over $max within
+     * the window, null = the redis call itself did not complete (connection
+     * error, retries exhausted) — indeterminate, NOT a confirmed block.
+     * Callers should treat null as "unknown" and decide fail-open/closed
+     * explicitly, rather than assuming null-as-false means "blocked".
+     *
+     * @param string $key
+     * @param int $max
+     * @param int $windowSec
+     * @return bool|null
+     */
+    public function rateLimit($key, $max, $windowSec) {}
+
+    /**
+     * Distributed lock: SET key token NX EX $ttlSec.
+     *
+     * @param string $key
+     * @param int $ttlSec
+     * @return string|false token on success
+     */
+    public function lock($key, $ttlSec) {}
+
+    /**
+     * Compare-and-del unlock (Lua). Returns false if token mismatches.
+     *
+     * @param string $key
+     * @param string $token
+     * @return bool
+     */
+    public function unlock($key, $token) {}
+
     // -------------------------------------------------------------------------
 
     /**

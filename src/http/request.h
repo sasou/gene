@@ -17,10 +17,20 @@
 #ifndef GENE_REQUEST_H
 #define GENE_REQUEST_H
 extern zend_class_entry *gene_request_ce;
+#define GENE_REQUEST_STACK_MAX 8
+#define GENE_INVOKE_DEPTH_MAX 8
+#define GENE_REQUEST_ATTR_RAW 8
+
 zval * request_query(zend_ulong type, char * name, size_t len);
 void gene_merge_query_into_get(const char *qs, size_t qs_len);
 void setVal(zend_ulong type, zval *value);
 zval *getVal(zend_ulong type, char *name, size_t len);
+int gene_request_snapshot(zend_long *depth_out);
+int gene_request_snapshot_ctx(gene_request_context *ctx, zend_long *depth_out);
+int gene_request_restore(void);
+int gene_request_restore_ctx(gene_request_context *ctx);
+void gene_request_stack_drain(gene_request_context *ctx);
+void gene_request_scope(zval *get, zval *post, zval *files, zval *request);
 
 /* [GENE_PERF:2026-04-19 #2] Cache ctx once per is-method call — previously issued
  * 2 ctx lookups (one for NULL check, one for strcasecmp). Expanded across

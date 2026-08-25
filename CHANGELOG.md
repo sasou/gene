@@ -2,7 +2,22 @@
 
 ## [6.1.0]
 
-> 本版以 apistore 生产用法为驱动，补齐 Db ↔ ORM 对称性（Query 有序条件列表、lockForUpdate、timestamps 配置化、IN 批量读、批量写），以及审计遗留项落地。
+> 本版以典型应用用法为驱动：补齐 Db ↔ ORM 对称性，以及全生命周期原语（出站 Http、请求袋、JSON/SSE、限流锁、Crypto）与框架级 REST 互调。规格与复盘见 `plan/orm-v2.md`、`plan/lifecycle-completeness.md`、`plan/rest-invoke.md`。
+
+### ✨ 新增
+
+- **ORM v2（Query 有序 ops）**：`Gene\Orm\Query` 条件改为有序列表（多 `where`/`join` 累加而非覆盖）；透出 `join`/`group`/`having`/`first`/`update`/`delete`/`lockForUpdate`/`sharedLock`/`in`/`whereLike`/`selectSub`；`paginate` 支持 order。可配置 `$timestamps` / `$createdAt` / `$updatedAt` / `$timestampFormat`。批量写 `createMany` / `insertIgnore` / `upsert` / `updateOrCreate` / `toggle`；`findMany`；`Model::transaction`。
+- **`Gene\Http`**：FPM/CLI 走 PHP `curl_*`，`runtime_type>=2` 走 `Swoole\Coroutine\Http\Client`（禁止阻塞 `curl_exec`）。支持 `json`/`files` multipart、请求内 keep-alive、GET/HEAD retry。
+- **`Gene\Context`**：请求级 KV；`Log` 自动合并袋中 `request_id`。
+- **`Request::json()` + `Gene\Json`**：空 body → `null`；非法 JSON / JSON `null` / 非对象数组抛异常。
+- **`Response::write` + SSE**：`sseStart` / `sseEvent` / `sseEnd`。
+- **限流 / 锁**：`Memory` 与 `Cache\Redis` 的 `rateLimit` / `lock` / `unlock`（Redis 为 Lua EVALSHA；Memory 仅单 worker）。
+- **`Gene\Crypto`**：hmacToken/Verify、randomId、AES-256-GCM（非 JWT）。
+- **REST 互调**：`Request::snapshot`/`restore`/`scope`（栈深上限 8）；`Gene\Invoke::local`（切 Request、每次 new Controller）；`Gene\Rest` 不可变 named proxy（本地 `class_exists` 走 Invoke，否则 `Http`）。
+
+### 📝 文档
+
+- ide-helper 与 `gene-ai-helper/skills/gene-framework/reference.md` / SKILL 已同步 6.1 API。Swoole Http / Redis 限流无环境时测试 SKIP，禁止假绿。Linux ASAN / 协程 soak 仍见 `audit/plan/PLAN.md` O6。
 
 ## [6.0.0]
 

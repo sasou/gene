@@ -65,7 +65,7 @@ ZEND_BEGIN_ARG_INFO_EX(gene_db_mssql_count, 0, 0, 1)
     ZEND_ARG_INFO(0, fields)
 ZEND_END_ARG_INFO()
 
-ZEND_BEGIN_ARG_INFO_EX(gene_db_mssql_insert, 0, 0, 2)
+ZEND_BEGIN_ARG_INFO_EX(gene_db_mssql_insert, 0, 0, 1)
 	ZEND_ARG_INFO(0, table)
     ZEND_ARG_INFO(0, fields)
 ZEND_END_ARG_INFO()
@@ -76,12 +76,12 @@ ZEND_BEGIN_ARG_INFO_EX(gene_db_mssql_upsert, 0, 0, 3)
     ZEND_ARG_ARRAY_INFO(0, updateCols, 0)
 ZEND_END_ARG_INFO()
 
-ZEND_BEGIN_ARG_INFO_EX(gene_db_mssql_batch_insert, 0, 0, 2)
+ZEND_BEGIN_ARG_INFO_EX(gene_db_mssql_batch_insert, 0, 0, 1)
 	ZEND_ARG_INFO(0, table)
     ZEND_ARG_INFO(0, fields)
 ZEND_END_ARG_INFO()
 
-ZEND_BEGIN_ARG_INFO_EX(gene_db_mssql_update, 0, 0, 2)
+ZEND_BEGIN_ARG_INFO_EX(gene_db_mssql_update, 0, 0, 1)
 	ZEND_ARG_INFO(0, table)
     ZEND_ARG_INFO(0, fields)
 ZEND_END_ARG_INFO()
@@ -119,12 +119,18 @@ ZEND_END_ARG_INFO()
 
 ZEND_BEGIN_ARG_INFO_EX(gene_db_mssql_limit, 0, 0, 1)
 	ZEND_ARG_INFO(0, limit)
+	ZEND_ARG_INFO(0, offset)
 ZEND_END_ARG_INFO()
 
 ZEND_BEGIN_ARG_INFO_EX(gene_db_mssql_join, 0, 0, 2)
 	ZEND_ARG_INFO(0, table)
 	ZEND_ARG_INFO(0, on)
 	ZEND_ARG_INFO(0, type)
+ZEND_END_ARG_INFO()
+
+ZEND_BEGIN_ARG_INFO_EX(gene_db_mssql_side_join, 0, 0, 2)
+	ZEND_ARG_INFO(0, table)
+	ZEND_ARG_INFO(0, on)
 ZEND_END_ARG_INFO()
 
 ZEND_BEGIN_ARG_INFO_EX(gene_db_mssql_union, 0, 0, 1)
@@ -261,9 +267,8 @@ bool mssqlInitPdo (zval * self, zval *config) {
 	zval_ptr_dtor(&option);
 
 	if (EG(exception)) {
-		if (checkPdoError(EG(exception))) {
-			zend_clear_exception();
-		}
+		zval_ptr_dtor(&pdo_object);
+		return -1;
 	}
     zend_update_property(gene_db_mssql_ce, gene_strip_obj(self), ZEND_STRL(GENE_DB_MSSQL_PDO), &pdo_object);
     zval_ptr_dtor(&pdo_object);
@@ -1543,8 +1548,8 @@ const zend_function_entry gene_db_mssql_methods[] = {
 		PHP_ME(gene_db_mssql, where, gene_db_mssql_where, ZEND_ACC_PUBLIC)
 		PHP_ME(gene_db_mssql, in, gene_db_mssql_in, ZEND_ACC_PUBLIC)
 		PHP_ME(gene_db_mssql, join, gene_db_mssql_join, ZEND_ACC_PUBLIC)
-		PHP_ME(gene_db_mssql, leftJoin, gene_db_mssql_join, ZEND_ACC_PUBLIC)
-		PHP_ME(gene_db_mssql, rightJoin, gene_db_mssql_join, ZEND_ACC_PUBLIC)
+		PHP_ME(gene_db_mssql, leftJoin, gene_db_mssql_side_join, ZEND_ACC_PUBLIC)
+		PHP_ME(gene_db_mssql, rightJoin, gene_db_mssql_side_join, ZEND_ACC_PUBLIC)
 		PHP_ME(gene_db_mssql, union, gene_db_mssql_union, ZEND_ACC_PUBLIC)
 		PHP_ME(gene_db_mssql, reset, gene_db_mssql_void_arginfo, ZEND_ACC_PUBLIC)
 		PHP_ME(gene_db_mssql, sql, gene_db_mssql_sql, ZEND_ACC_PUBLIC)

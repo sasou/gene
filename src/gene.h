@@ -45,6 +45,8 @@
  #define gene_rwlock_destroy(lock)
  #else
  #include <pthread.h>
+ #include <time.h>
+ #include <sys/time.h>
  typedef pthread_rwlock_t gene_rwlock_t;
  #define gene_rwlock_init(lock)    pthread_rwlock_init(lock, NULL)
  #define gene_rwlock_rdlock(lock)  pthread_rwlock_rdlock(lock)
@@ -87,9 +89,13 @@
  #define GENE_CG_FN_DECL(var) zend_function *var = NULL
  #endif
  
- /* Portable high-resolution timer (nanoseconds). zend_hrtime is not exported
- * in the PHP 8.1 Windows import library, so use QueryPerformanceCounter on
- * PHP_WIN32 and zend_hrtime elsewhere. */
+ /* Portable high-resolution monotonic timer (nanoseconds). There is no
+ * public zend_hrtime() in PHP 8.1 (the userland hrtime() is backed by
+ * php_hrtime_current() in ext/standard, which is not a stable extension
+ * API). Use QueryPerformanceCounter on PHP_WIN32 and clock_gettime(CLOCK
+ * _MONOTONIC) elsewhere — exactly what ext/standard/hrtime.c does on POSIX.
+ * Fall back to gettimeofday() (microsecond resolution) if the platform
+ * lacks clock_gettime (HAVE_CLOCK_GETTIME unset). */
 static inline uint64_t gene_hrtime(void) {
 #ifdef PHP_WIN32
 	static LARGE_INTEGER freq = {0};
@@ -99,8 +105,18 @@ static inline uint64_t gene_hrtime(void) {
 	}
 	QueryPerformanceCounter(&count);
 	return (uint64_t)((count.QuadPart * 1000000000ULL) / (uint64_t)freq.QuadPart);
+#elif defined(HAVE_CLOCK_GETTIME)
+	struct timespec ts;
+	if (EXPECTED(clock_gettime(CLOCK_MONOTONIC, &ts) == 0)) {
+		return (uint64_t)ts.tv_sec * 1000000000ULL + (uint64_t)ts.tv_nsec;
+	}
+	return 0;
 #else
-	return zend_hrtime();
+	struct timeval tv;
+	if (EXPECTED(gettimeofday(&tv, NULL) == 0)) {
+		return (uint64_t)tv.tv_sec * 1000000000ULL + (uint64_t)tv.tv_usec * 1000ULL;
+	}
+	return 0;
 #endif
 }
 
@@ -189,6 +205,30 @@ static inline uint64_t gene_hrtime(void) {
 	  * Gene\Orm\Model subclass metadata (class name => array). Must not be
 	  * process-persistent — mirrors di_regs lifetime. */
 	 zval orm_meta;
+	 /* [GENE_FEATURE:2026-08-22] Userland request bag (Gene\Context). Lazy
+	  * array, UNDEF until first set(); must be freed in free_fields (M6/M7). */
+	 zval user_bag;
+	 /* [GENE_FEATURE:2026-08-22] Gene\Http request-scoped handle:
+	  * FPM/CLI → CurlHandle object; Swoole keep_alive → array of
+	  * Coroutine\Http\Client keyed by host:port:ssl. Destroyed on ctx reset. */
+	 zval http_curl;
+	 /* Stream callback + body/header accumulators valid only during
+	  * Gene\Http::request(). http_body_buf / http_header_buf point at
+	  * stack smart_str; must be NULL outside the call. */
+	 zval http_stream_cb;
+	 void *http_body_buf;
+	 void *http_header_buf;
+	 zend_bool http_busy;
+	 /* [GENE_FEATURE:2026-08-23] Gene\Http SSE + discard_body — valid only
+	  * during request()/multi(); http_sse_leftover points at stack smart_str. */
+	 zval http_sse_cb;
+	 zend_bool http_sse_forward;
+	 zend_bool http_sse_done;
+	 zend_bool http_discard_body;
+	 void *http_sse_leftover;
+	 /* Request bag snapshot stack (get/post/files/request/header/raw). */
+	 zval request_stack;
+	 zend_long invoke_depth;
 	 struct timeval bench_start;
 	 struct timeval bench_end;
 	 zend_long bench_memory_start;
@@ -237,8 +277,21 @@ static inline uint64_t gene_hrtime(void) {
  /* [GENE_MEM:2026-06-19 M1] Hard cap on the number of tracked Gene\Cache
   * business entries. 0 = unlimited (default, fully backward-compatible);
   * when > 0, business writes evict the oldest tracked entries past the cap. */
- zend_long cache_max_items;
- gene_rwlock_t cache_lock;
+zend_long cache_max_items;
+/* [GENE_FIX:2026-08-23 UAF-1] Headroom (in slots) pre-extended into
+ * GENE_G(cache) at workerReady() so post-freeze business inserts never
+ * resize the bucket array. From php.ini gene.cache_reserve — do NOT zero in
+ * php_gene_init_globals. */
+zend_long cache_reserve;
+/* [GENE_FIX:2026-08-23 UAF-1] Count of business inserts refused after the
+ * freeze because the table was full (exported via Gene\Monitor::stats). */
+zend_ulong cache_insert_refused;
+/* [GENE_FIX:2026-08-23 UAF-5] Set on the first Gene\Cache business-layer
+ * write after the workerReady() freeze. Once set, the read path keeps taking
+ * the rwlock even when worker_ready is 1 — the lock-free fast path is only
+ * sound while the table is truly write-once. */
+zend_bool cache_business_dirty;
+gene_rwlock_t cache_lock;
  gene_request_context default_ctx;
  gene_request_context *resident_ctx;
  HashTable *co_contexts;
@@ -280,9 +333,17 @@ zend_long ctx_pool_max;
 zend_long ctx_pool_prewarm;
 zend_bool autoload_registered;
 zend_bool worker_ready;
-/* [GENE_CACHE:2026-04-25] Incremented only around Gene\\Cache (cache.c) internal
- * gene_memory_set/del calls. Lets process-level cache fill after workerReady()
- * without opening userland Memory::set — enter/exit must not wrap user callbacks. */
+/* [GENE_CACHE:2026-04-25] Incremented around Gene\\Cache (cache.c) internal
+ * gene_memory_set/del calls, AND — since [GENE_FIX:2026-08-24 MEM-RW] —
+ * around Gene\\Memory's own PHP-facing set/del/rateLimit/lock/unlock/incr/
+ * decr/mset calls (memory.c). Lets process-level cache writes proceed after
+ * workerReady() for these specific, tightly-scoped call sites; enter/exit
+ * must still never wrap arbitrary user callbacks (e.g. gene_cache_call()),
+ * only the direct gene_memory_set()/del()/gene_memory_adjust() calls
+ * themselves — the callers that must stay refused post-freeze
+ * (Router::unbind/Config::delete style internal writers that mutate entries
+ * other coroutines hold unlocked borrowed pointers into) call
+ * gene_memory_del() directly without this bracket. */
 zend_ulong cache_layer_memory_write_depth;
 HashTable *fn_cache;
 /* [GENE_MEM:2026-04-23] fn_cache_id removed. Keys are now derived from the
@@ -312,7 +373,6 @@ zend_ulong co_contexts_watermark;
 zend_ulong co_contexts_sweep_count;
 zend_ulong co_contexts_sweep_scanned;
 zend_ulong co_contexts_sweep_us;
-zend_bool cache_unlimited_noticed;
 zend_bool co_contexts_cap_warned;
 /* [GENE_PERF:2026-07-30 M1] Sweep cooldown state. Previously a new ctx
  * allocation beyond gene.co_contexts_max triggered an O(N) sweep every

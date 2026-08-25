@@ -27,6 +27,7 @@ int gene_exception_register(zval *callback);
 void gene_throw_exception(zend_long code, char *message);
 int gene_exception_error_register(zval *callback,zval *error_type);
 void gene_trigger_error(int type, char *format, ...);
+void gene_log_diag(int type, char *format, ...);
 
 GENE_MINIT_FUNCTION (exception);
 
