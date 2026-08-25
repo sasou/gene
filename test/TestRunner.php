@@ -40,6 +40,29 @@ class TestRunner
     {
         $this->startTime = microtime(true);
     }
+
+    private function runIsolated($testPath)
+    {
+        $command = [escapeshellarg(PHP_BINARY)];
+        $phpArgs = getenv('GENE_TEST_PHP_ARGS');
+        if (is_string($phpArgs) && $phpArgs !== '') {
+            $command[] = $phpArgs;
+        }
+        $command[] = escapeshellarg($testPath);
+        $pipes = [];
+        $process = proc_open(implode(' ', $command), [
+            0 => ['pipe', 'r'],
+            1 => ['pipe', 'w'],
+            2 => ['redirect', 1],
+        ], $pipes, __DIR__);
+        if (!is_resource($process)) {
+            return ["✗ Unable to start isolated test process\n", 1];
+        }
+        fclose($pipes[0]);
+        $output = stream_get_contents($pipes[1]);
+        fclose($pipes[1]);
+        return [$output, proc_close($process)];
+    }
     
     /**
      * Run all test suites
@@ -82,31 +105,18 @@ class TestRunner
                 echo "Running $testFile...\n";
                 echo str_repeat("-", 50) . "\n";
                 
-                // Capture output
-                ob_start();
-                include $testPath;
-                
-                // Test files define a class named after the file (e.g. ApplicationTest)
-                // but only auto-run when executed directly. When included here, we
-                // instantiate the class and invoke runAllTests() explicitly.
-                $className = basename($testFile, '.php');
-                $output = '';
-                if (class_exists($className) && method_exists($className, 'runAllTests')) {
-                    try {
-                        $instance = new $className();
-                        $instance->runAllTests();
-                    } catch (\Throwable $e) {
-                        echo "✗ Error running $className: " . $e->getMessage() . "\n";
-                    }
-                }
-                $output = ob_get_clean();
+                // Capture output from an isolated PHP process
+                [$output, $exitCode] = $this->runIsolated($testPath);
                 
                 echo $output;
                 echo "\n";
                 
-                // Count test results (simplified counting)
+                // Count test results and process failures
                 $passed = substr_count($output, '✓');
                 $failed = substr_count($output, '✗');
+                if ($exitCode !== 0 && $failed === 0) {
+                    $failed = 1;
+                }
                 
                 $totalTests += $passed + $failed;
                 $passedTests += $passed;
@@ -150,20 +160,7 @@ class TestRunner
         
         $startTime = microtime(true);
         
-        ob_start();
-        include $testFile;
-        
-        // Instantiate the test class (named after the file) and run its tests
-        $className = basename($testFile, '.php');
-        if (class_exists($className) && method_exists($className, 'runAllTests')) {
-            try {
-                $instance = new $className();
-                $instance->runAllTests();
-            } catch (\Throwable $e) {
-                echo "✗ Error running $className: " . $e->getMessage() . "\n";
-            }
-        }
-        $output = ob_get_clean();
+        [$output, $exitCode] = $this->runIsolated($testFile);
         
         $endTime = microtime(true);
         
@@ -171,6 +168,9 @@ class TestRunner
         
         $passed = substr_count($output, '✓');
         $failed = substr_count($output, '✗');
+        if ($exitCode !== 0 && $failed === 0) {
+            $failed = 1;
+        }
         $duration = ($endTime - $startTime) * 1000;
         
         echo str_repeat("-", 50) . "\n";

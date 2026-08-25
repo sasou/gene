@@ -1,7 +1,7 @@
 {
   "expect": {
     "php_version_id_min": 80000,
-    "gene_version": "5.6.8",
+    "gene_version": "6.1.0",
     "sapi": "cli",
     "extensions": ["gene"],
     "ini": {
