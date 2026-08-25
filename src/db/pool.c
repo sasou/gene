@@ -28,6 +28,7 @@
  #include "../factory/factory.h"
  #include "../config/configs.h"
  #include "../cache/memory.h"
+ #include "../exception/exception.h"
  #include "../db/pool.h"
  #include "../db/pdo.h"
   
@@ -335,7 +336,28 @@ static void pool_start_idle_recycler(zval *self)
      }
 
      if (EG(exception)) {
+         /* [GENE_FIX:2026-08-25] Swallowing the PDOException silently turns
+          * every misconfiguration (bad dsn, wrong credentials, a bogus PDO
+          * option) into an indistinguishable get() === null. Log the reason
+          * before clearing, rate-limited to one line per second so a backend
+          * outage under load cannot flood error_log. gene_log_diag keeps the
+          * userland error handler detached — see the SW-LOG note there. */
+         static time_t last_diag = 0;
+         time_t now = time(NULL);
+         zend_string *reason = NULL;
+         if (now != last_diag) {
+             zend_object *ex = EG(exception);
+             zval rv, *msg = zend_read_property(ex->ce, ex, ZEND_STRL("message"), 1, &rv);
+             if (msg && Z_TYPE_P(msg) == IS_STRING) {
+                 reason = zend_string_copy(Z_STR_P(msg));
+             }
+             last_diag = now;
+         }
          zend_clear_exception();
+         if (reason) {
+             gene_log_diag(E_WARNING, "Gene\\Pool: connection creation failed: %s", ZSTR_VAL(reason));
+             zend_string_release(reason);
+         }
          zval_ptr_dtor(&pdo_object);
          return;
      }
