@@ -72,12 +72,12 @@ $poolConfig = [$dsn];
 if ($useMysql) {
     $poolConfig[] = $user;
     $poolConfig[] = $pass;
+    $poolConfig[] = [1002 => 5]; // PDO::MYSQL_ATTR_CONNECT_TIMEOUT
 }
 $config = new \Gene\Config();
 $config->set('pooled_db', [
     'params' => [$poolConfig],
 ]);
-\Gene\Pool::create('txpool', 'pooled_db', ['min' => 1, 'max' => 2]);
 
 $cfg = ['dsn' => $dsn, 'pool' => 'txpool'];
 if ($useMysql) {
@@ -85,42 +85,53 @@ if ($useMysql) {
     $cfg['password'] = $pass;
 }
 
-// --- borrower #1: open a tx, write, release WITHOUT commit ---
-$db = new $driverClass($cfg);
-if ($useMysql) {
-    $db->sql("DROP TABLE IF EXISTS `$table`")->execute();
-}
-$db->sql($ddl)->execute();
-$db->beginTransaction();
-$db->insert($table, ['v' => 'dirty'])->affectedRows();
-echo "borrower 1: inTransaction=", var_export($db->inTransaction(), true), "\n";
+$ok = false;
+Swoole\Coroutine\run(static function () use (
+    $driverClass, $cfg, $table, $ddl, $useMysql, $dsn, &$ok
+): void {
+    \Gene\Pool::create('txpool', 'pooled_db', ['min' => 1, 'max' => 2, 'idleTimeout' => 0]);
 
-// release() returns the PDO to the pool; hygiene must roll back + warn
-// (warning bypasses user error handlers by design — see P1-4).
-$db->release();
+    // --- borrower #1: open a tx, write, release WITHOUT commit ---
+    $db = new $driverClass($cfg);
+    if ($useMysql) {
+        $db->sql("DROP TABLE IF EXISTS `$table`")->execute();
+    }
+    $db->sql($ddl)->execute();
+    $db->beginTransaction();
+    $db->insert($table, ['v' => 'dirty'])->affectedRows();
+    echo "borrower 1: inTransaction=", var_export($db->inTransaction(), true), "\n";
 
-// --- borrower #2: same connection back from the pool ---
-$db2 = new $driverClass($cfg);
-$inTx = $db2->inTransaction();
-$n = (int) $db2->select($table)->cell();
-echo "borrower 2: inTransaction=", var_export($inTx, true),
-    ", rows=$n (expect inTransaction=false, rows=0)\n";
+    // release() returns the PDO to the pool; hygiene must roll back + warn
+    // (warning bypasses user error handlers by design — see P1-4).
+    $db->release();
 
-// healthy committed write still works on the reused connection
-$db2->insert($table, ['v' => 'clean'])->affectedRows();
-$committed = (int) $db2->select($table)->cell();
-$db2->release();
+    // --- borrower #2: same connection back from the pool ---
+    $db2 = new $driverClass($cfg);
+    $inTx = $db2->inTransaction();
+    $n = (int) $db2->select($table)->cell();
+    echo "borrower 2: inTransaction=", var_export($inTx, true),
+        ", rows=$n (expect inTransaction=false, rows=0)\n";
 
-$ok = ($inTx === false) && ($n === 0) && ($committed === 1);
-echo $ok ? "POOL TX HYGIENE OK\n" : "POOL TX HYGIENE FAILED\n";
+    // healthy committed write still works on the reused connection
+    $db2->insert($table, ['v' => 'clean'])->affectedRows();
+    $committed = (int) $db2->select($table)->cell();
+    $db2->release();
 
-// cleanup
-if ($useMysql) {
-    $db3 = new $driverClass($cfg);
-    $db3->sql("DROP TABLE IF EXISTS `$table`")->execute();
-    $db3->release();
-} else {
-    @unlink($dsn);
-}
+    $ok = ($inTx === false) && ($n === 0) && ($committed === 1);
+    echo $ok ? "POOL TX HYGIENE OK\n" : "POOL TX HYGIENE FAILED\n";
+
+    // cleanup
+    if ($useMysql) {
+        $db3 = new $driverClass($cfg);
+        $db3->sql("DROP TABLE IF EXISTS `$table`")->execute();
+        $db3->release();
+    } else {
+        @unlink($dsn);
+    }
+
+    \Gene\Pool::stopTimers();
+});
+
 \Gene\Pool::closeAll();
+\Gene\Pool::stopTimers();
 exit($ok ? 0 : 1);
