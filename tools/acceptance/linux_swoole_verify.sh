@@ -28,7 +28,10 @@ GENE_SWOOLE_HOST="${GENE_SWOOLE_HOST:-127.0.0.1}"
 GENE_SWOOLE_PORT="${GENE_SWOOLE_PORT:-9501}"
 GENE_SWOOLE_WORKERS="${GENE_SWOOLE_WORKERS:-4}"
 GENE_SWOOLE_PID_FILE="${GENE_SWOOLE_PID_FILE:-/tmp/gene-web-swoole.pid}"
-GENE_RUN_ENVIRONMENT="${GENE_RUN_ENVIRONMENT:-2}"
+GENE_RUN_ENVIRONMENT="${GENE_RUN_ENVIRONMENT:-1}"
+WEB_START_TIMEOUT="${WEB_START_TIMEOUT:-120}"
+CURL_CONNECT_TIMEOUT="${CURL_CONNECT_TIMEOUT:-5}"
+CURL_MAX_TIME="${CURL_MAX_TIME:-30}"
 OUT="${OUT:-/tmp/gene-swoole-verify-$(date +%Y%m%d-%H%M%S)}"
 GENE_SO="${GENE_SO:-}"
 SERVER_PID=""
@@ -66,6 +69,8 @@ Useful tuning:
   POOL_MAX=32 POOL_COROUTINES=200 POOL_ITERATIONS=1000 POOL_TIMEOUT=600
   WRK_DURATION=10m WRK_CONNECTIONS=500 GENE_SWOOLE_WORKERS=4
   MATRIX_TIMEOUT=180
+  GENE_RUN_ENVIRONMENT=1 WEB_START_TIMEOUT=120
+  CURL_CONNECT_TIMEOUT=5 CURL_MAX_TIME=30
 EOF
 }
 
@@ -158,10 +163,34 @@ stop_server() {
     SERVER_PID=""
 }
 
+curl_probe() {
+    curl -fsS \
+        --connect-timeout "$CURL_CONNECT_TIMEOUT" \
+        --max-time "$CURL_MAX_TIME" \
+        "$@"
+}
+
+wait_for_gene_web() {
+    local url="$1" deadline=$((SECONDS + WEB_START_TIMEOUT))
+    while ((SECONDS < deadline)); do
+        if curl_probe "$url" >/dev/null 2>&1; then
+            return 0
+        fi
+        if [[ -n "$SERVER_PID" ]] && ! kill -0 "$SERVER_PID" 2>/dev/null; then
+            log "gene-web server exited before ready (see $OUT/gene-web-swoole.log)"
+            return 1
+        fi
+        sleep 1
+    done
+    log "gene-web not ready after ${WEB_START_TIMEOUT}s (see $OUT/gene-web-swoole.log)"
+    return 1
+}
+
 finish() {
     local code=$?
     stop_server
     if [[ -d "$OUT" ]]; then
+        log "Archiving results to $OUT.tar.gz"
         tar -C "$(dirname "$OUT")" -czf "$OUT.tar.gz" "$(basename "$OUT")" 2>/dev/null || true
     fi
     if ((code != 0)); then
@@ -343,15 +372,19 @@ else
 fi
 
 if ((RUN_WEB)); then
+    log "START gene-web"
     if [[ ! -d "$GENE_WEB/public" || ! -f "$GENE_WEB/public/swoole.php" ]]; then
         record gene-web FAIL 2
+        log "FAIL  gene-web (invalid GENE_WEB path)"
     elif ! command -v curl >/dev/null 2>&1 || ! command -v wrk >/dev/null 2>&1; then
         echo "gene_web verification requires curl and wrk" >&2
         record gene-web FAIL 2
+        log "FAIL  gene-web (missing curl or wrk)"
     else
         GENE_WEB="$(cd "$GENE_WEB" && pwd)"
         export GENE_SWOOLE_HOST GENE_SWOOLE_PORT GENE_SWOOLE_WORKERS GENE_SWOOLE_PID_FILE
         export GENE_MONITOR_TOKEN="${GENE_MONITOR_TOKEN:-$(openssl rand -hex 24 2>/dev/null || date +%s%N)}"
+        log "gene-web launching on 127.0.0.1:$GENE_SWOOLE_PORT (run_environment=$GENE_RUN_ENVIRONMENT workers=$GENE_SWOOLE_WORKERS)"
         (
             cd "$GENE_WEB"
             exec "${PHP_CMD[@]}" \
@@ -367,15 +400,23 @@ if ((RUN_WEB)); then
         ) >"$OUT/gene-web-swoole.log" 2>&1 &
         SERVER_PID=$!
         echo "$SERVER_PID" >"$OUT/gene-web-server.pid"
-        sleep 3
 
         WEB_FAILED=0
-        curl -fsS "http://127.0.0.1:$GENE_SWOOLE_PORT/healthz" >"$OUT/health-before.json" || WEB_FAILED=1
-        curl -fsS "http://127.0.0.1:$GENE_SWOOLE_PORT/metrics" >"$OUT/metrics-before.txt" || WEB_FAILED=1
+        HEALTH_URL="http://127.0.0.1:$GENE_SWOOLE_PORT/healthz"
+        METRICS_URL="http://127.0.0.1:$GENE_SWOOLE_PORT/metrics"
+        if ! wait_for_gene_web "$HEALTH_URL"; then
+            WEB_FAILED=1
+        fi
 
         if ((WEB_FAILED == 0)); then
+            curl_probe "$HEALTH_URL" >"$OUT/health-before.json" || WEB_FAILED=1
+            curl_probe "$METRICS_URL" >"$OUT/metrics-before.txt" || WEB_FAILED=1
+        fi
+
+        if ((WEB_FAILED == 0)); then
+            log "gene-web wrk warmup ($WRK_WARMUP_DURATION)"
             wrk -t"$WRK_THREADS" -c"$WRK_CONNECTIONS" -d"$WRK_WARMUP_DURATION" --latency \
-                "http://127.0.0.1:$GENE_SWOOLE_PORT/healthz" >"$OUT/wrk-warmup.txt" 2>&1 || WEB_FAILED=1
+                "$HEALTH_URL" >"$OUT/wrk-warmup.txt" 2>&1 || WEB_FAILED=1
         fi
 
         if ((WEB_FAILED == 0)); then
@@ -387,24 +428,28 @@ if ((RUN_WEB)); then
                 done
             ) >"$OUT/process-rss.txt" 2>&1 &
             RSS_PID=$!
+            log "gene-web wrk load test ($WRK_DURATION)"
             wrk -t"$WRK_THREADS" -c"$WRK_CONNECTIONS" -d"$WRK_DURATION" --latency \
-                "http://127.0.0.1:$GENE_SWOOLE_PORT/healthz" >"$OUT/wrk-health.txt" 2>&1 || WEB_FAILED=1
+                "$HEALTH_URL" >"$OUT/wrk-health.txt" 2>&1 || WEB_FAILED=1
             kill "$RSS_PID" 2>/dev/null || true
             wait "$RSS_PID" 2>/dev/null || true
             RSS_PID=""
-            curl -fsS "http://127.0.0.1:$GENE_SWOOLE_PORT/healthz" >"$OUT/health-after.json" || WEB_FAILED=1
-            curl -fsS "http://127.0.0.1:$GENE_SWOOLE_PORT/metrics" >"$OUT/metrics-after.txt" || WEB_FAILED=1
+            curl_probe "$HEALTH_URL" >"$OUT/health-after.json" || WEB_FAILED=1
+            curl_probe "$METRICS_URL" >"$OUT/metrics-after.txt" || WEB_FAILED=1
         fi
 
         stop_server
         if ((WEB_FAILED == 0)); then
             record gene-web PASS 0
+            log "PASS  gene-web"
         else
             record gene-web FAIL 1
+            log "FAIL  gene-web (see $OUT/gene-web-swoole.log and health/metrics artifacts)"
         fi
     fi
 else
     record gene-web SKIP 0
+    log "SKIP  gene-web"
 fi
 
 {
