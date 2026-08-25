@@ -24,6 +24,7 @@
 #include "Zend/zend_API.h"
 #include "zend_exceptions.h"
 #include "zend_smart_str.h"
+#include "ext/pdo/php_pdo_driver.h"
 
 #include "../gene.h"
 #include "../common/common.h"
@@ -795,8 +796,14 @@ void gene_db_tx_hygiene(zval *pdo_object, const char *who) /*{{{*/
 {
     zval r, rr;
     zend_object *saved_exception;
+    zend_class_entry *pdo_ce;
 
     if (!pdo_object || Z_TYPE_P(pdo_object) != IS_OBJECT) {
+        return;
+    }
+    pdo_ce = gene_lookup_class_str(ZEND_STRL("PDO"));
+    if (!pdo_ce || !instanceof_function(Z_OBJCE_P(pdo_object), pdo_ce) ||
+        !Z_PDO_DBH_P(pdo_object)->driver) {
         return;
     }
     /* [GENE_FIX:2026-08-19 N8a] Save the in-flight exception LOCALLY instead
