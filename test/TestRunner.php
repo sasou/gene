@@ -128,6 +128,7 @@ class TestRunner
         
         $this->endTime = microtime(true);
         $this->printSummary($totalTests, $passedTests, $failedTests);
+        return $failedTests;
     }
     
     /**
@@ -141,7 +142,7 @@ class TestRunner
         }
         if (!file_exists($testFile)) {
             echo "Test file $testFile not found!\n";
-            return;
+            return 1;
         }
         
         echo "Running $testFile...\n";
@@ -177,6 +178,7 @@ class TestRunner
         echo "  Passed: $passed\n";
         echo "  Failed: $failed\n";
         echo "  Duration: " . number_format($duration, 2) . "ms\n\n";
+        return $failed;
     }
     
     /**
@@ -270,12 +272,11 @@ if (php_sapi_name() === 'cli') {
     
     if (isset($options['t']) || isset($options['test'])) {
         $testFile = $options['t'] ?? $options['test'];
-        $runner->runTest($testFile);
-        exit(0);
+        exit($runner->runTest($testFile));
     }
     
     // Default: run all tests
-    $runner->runAll();
+    exit($runner->runAll());
 } else {
     // Web interface
     $runner = new TestRunner();

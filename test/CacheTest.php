@@ -168,7 +168,7 @@ class CacheTest
             GeneCacheTestHelper::$calls = 0;
 
             $args = ['version_test'];
-            $versionField = ['user', 1];
+            $versionField = ['user' => 1];
             $ttl = 3600;
 
             $result = $this->cache->cachedVersion($this->callable, $args, $versionField, $ttl);
@@ -176,6 +176,11 @@ class CacheTest
                 throw new RuntimeException('cachedVersion() returned null (check hook/versionSign)');
             }
             echo "✓ cachedVersion() method works\n";
+            $this->cache->cachedVersion($this->callable, $args, $versionField, $ttl);
+            if (GeneCacheTestHelper::$calls !== 1) {
+                throw new RuntimeException('cachedVersion() did not hit store after cold-cache bootstrap');
+            }
+            echo "✓ cachedVersion() cold-cache bootstrap is reusable\n";
 
             $result2 = $this->cache->processCachedVersion($this->callable, $args, $versionField, $ttl);
             if (!is_array($result2)) {
@@ -202,7 +207,7 @@ class CacheTest
             $this->cache->cached($this->callable, $args, 3600);
             $callsAfterSet = GeneCacheTestHelper::$calls;
 
-            $this->cache->unsetCached($this->callable, $args);
+            $this->cache->unsetCached($this->callable, $args, 3600);
             echo "✓ unsetCached() method works\n";
 
             $this->cache->cached($this->callable, $args, 3600);

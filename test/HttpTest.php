@@ -127,7 +127,7 @@ class HttpTest
             echo "✓ error() works\n";
             
             ob_start();
-            Response::data(['result' => 'ok'], 'Success', 200);
+            Response::data(['result' => 'ok'], 1, 'Success', 200);
             ob_end_clean();
             echo "✓ data() works\n";
             
@@ -261,8 +261,10 @@ class HttpTest
             // 2. Validate request data using Validate API
             $validator = new Validate();
             $validator->init(['name' => 'test', 'email' => 'test@example.com']);
-            $validator->name('name')->rule_required()->rule_string();
-            $validator->name('email')->rule_required()->rule_email();
+            $validator->name('name')->rule_required();
+            $validator->name('name')->rule_string();
+            $validator->name('email')->rule_required();
+            $validator->name('email')->rule_email();
             $validator->valid();
             echo "✓ Request validation in workflow\n";
             
