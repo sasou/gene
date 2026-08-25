@@ -1,6 +1,6 @@
 # Gene 验收工具
 
-这些脚本只消费人工准备好的 PHP、Gene、FPM/Swoole、数据库与 Redis 环境；不会编译扩展、安装依赖或修改服务配置。
+常规 acceptance 脚本只消费人工准备好的 PHP、Gene、FPM/Swoole、数据库与 Redis 环境；`linux_swoole_verify.sh` 默认会编译 Gene，但不会安装依赖或修改服务配置。
 
 ```bash
 php tools/acceptance/run_acceptance.php \
@@ -28,4 +28,33 @@ Swoole profile 会执行 `gene.swoole_getcid_capi` 与
 在 Linux 编译安装含 `src/orm/` 的扩展后，验收应看到 ORM class surface + SQLite CRUD 用例通过。
 
 Swoole 长跑 / 池压测仍用既有 `swoole_context_soak.php`、`pool_concurrency.php`：
-ORM 不额外持有连接，仅要求 `db.instance=true` + Pool，并在请求 `cleanup(true)`。
+ORM 不额外持有连接，仅要求 `db.instance=true` + Pool，并在请求 `cleanup()`。
+
+## Linux Swoole 一键验证
+
+基础验证会自动构建 Gene，并执行隔离全测、四组 Swoole 开关矩阵、手动/自动 Context cleanup soak：
+
+```bash
+bash tools/acceptance/linux_swoole_verify.sh
+```
+
+带 Redis、MySQL 和 gene_web HTTP 压测：
+
+```bash
+export GENE_REDIS_HOST=127.0.0.1 GENE_REDIS_PORT=6379
+export GENE_MYSQL_DSN='mysql:dbname=gene_test;host=127.0.0.1;port=3306;charset=utf8mb4'
+export GENE_MYSQL_USER=gene_test
+read -rsp 'MySQL password: ' GENE_MYSQL_PASS; echo; export GENE_MYSQL_PASS
+
+WRK_DURATION=10m bash tools/acceptance/linux_swoole_verify.sh \
+  --all /path/to/gene_web \
+  --output /tmp/gene-swoole-result
+```
+
+使用已有模块时传入 `GENE_SO`：
+
+```bash
+GENE_SO=/path/to/gene.so bash tools/acceptance/linux_swoole_verify.sh --no-build
+```
+
+脚本返回非零即表示至少一个启用阶段失败；输出目录同时生成 `status.tsv`、`summary.txt` 与同名 `.tar.gz` 归档。

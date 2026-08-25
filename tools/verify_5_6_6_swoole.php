@@ -39,8 +39,8 @@ namespace App {
 
 namespace {
 
-    const VHOST = '127.0.0.1';
-    const VPORT = 9528;
+    define('VHOST', getenv('GENE_VERIFY_HOST') ?: '127.0.0.1');
+    define('VPORT', max(1, (int) (getenv('GENE_VERIFY_PORT') ?: 9528)));
 
     if (!extension_loaded('swoole')) {
         fwrite(STDERR, "[FATAL] swoole 扩展未加载，本脚本必须在 Linux + Swoole 环境运行。\n");
@@ -156,7 +156,7 @@ namespace {
 
     $capi = ini_get('gene.swoole_getcid_capi');
     $pc   = ini_get('gene.route_precompile');
-    echo "=== gene 5.6.6 Swoole 验证（P1 getcid C-API / P3 预编译派发）===\n";
+    echo "=== gene 6.1.0 Swoole 验证（P1 getcid C-API / P3 预编译派发）===\n";
     echo "扩展版本: " . phpversion('gene') . "  swoole: " . phpversion('swoole') . "\n";
     echo "gene.swoole_getcid_capi = {$capi}   gene.route_precompile = {$pc}\n\n";
 
@@ -206,7 +206,7 @@ namespace {
             $emsg = str_replace(["\r", "\n"], ' ', $e->getMessage());
         } finally {
             $out = ob_get_clean();
-            \Gene\Application::cleanup(true);
+            \Gene\Application::cleanup();
         }
         if (!$response->isWritable()) return;
         $response->header('Content-Type', 'text/plain; charset=utf-8');
