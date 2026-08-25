@@ -200,7 +200,8 @@ zend_long gene_get_coroutine_id(void) {
 	}
 
 	ZVAL_UNDEF(&retval);
-	zend_call_known_function(GENE_G(swoole_getcid_func), NULL, NULL, &retval, 0, NULL, NULL);
+	zend_call_known_function(GENE_G(swoole_getcid_func), NULL,
+		GENE_G(swoole_getcid_func)->common.scope, &retval, 0, NULL, NULL);
 
 	if (Z_TYPE(retval) == IS_LONG) {
 		return Z_LVAL(retval);
@@ -969,8 +970,8 @@ static int gene_swoole_co_exists(zend_long cid) {
 	}
 	ZVAL_LONG(&cid_zv, cid);
 	ZVAL_UNDEF(&retval);
-	zend_call_known_function(GENE_G(swoole_co_exists_func), NULL, NULL,
-		&retval, 1, &cid_zv, NULL);
+	zend_call_known_function(GENE_G(swoole_co_exists_func), NULL,
+		GENE_G(swoole_co_exists_func)->common.scope, &retval, 1, &cid_zv, NULL);
 	if (Z_TYPE(retval) == IS_TRUE) {
 		res = 1;
 	} else if (Z_TYPE(retval) == IS_FALSE) {
@@ -1097,7 +1098,8 @@ static void gene_swoole_auto_cleanup_register(void) {
 	}
 	ZVAL_STRING(&callable_zv, "gene_auto_cleanup_defer");
 	ZVAL_UNDEF(&ret);
-	zend_call_known_function(GENE_G(swoole_defer_func), NULL, NULL, &ret, 1, &callable_zv, NULL);
+	zend_call_known_function(GENE_G(swoole_defer_func), NULL,
+		GENE_G(swoole_defer_func)->common.scope, &ret, 1, &callable_zv, NULL);
 	zval_ptr_dtor(&callable_zv);
 	if (!Z_ISUNDEF(ret)) {
 		zval_ptr_dtor(&ret);

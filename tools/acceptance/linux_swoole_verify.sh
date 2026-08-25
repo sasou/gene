@@ -21,6 +21,7 @@ WRK_THREADS="${WRK_THREADS:-8}"
 WRK_CONNECTIONS="${WRK_CONNECTIONS:-500}"
 WRK_WARMUP_DURATION="${WRK_WARMUP_DURATION:-30s}"
 WRK_DURATION="${WRK_DURATION:-2m}"
+MATRIX_TIMEOUT="${MATRIX_TIMEOUT:-180}"
 RSS_INTERVAL="${RSS_INTERVAL:-10}"
 GENE_SWOOLE_HOST="${GENE_SWOOLE_HOST:-127.0.0.1}"
 GENE_SWOOLE_PORT="${GENE_SWOOLE_PORT:-9501}"
@@ -63,6 +64,7 @@ Useful tuning:
   CONTEXT_COROUTINES=100000 CONTEXT_CONCURRENCY=500
   POOL_MAX=32 POOL_COROUTINES=200 POOL_ITERATIONS=1000
   WRK_DURATION=10m WRK_CONNECTIONS=500 GENE_SWOOLE_WORKERS=4
+  MATRIX_TIMEOUT=180
 EOF
 }
 
@@ -168,7 +170,7 @@ finish() {
 trap finish EXIT
 trap 'stop_server; exit 130' INT TERM
 
-REQUIRED_COMMANDS=("$PHP_BIN" "$PHP_CONFIG_BIN")
+REQUIRED_COMMANDS=("$PHP_BIN" "$PHP_CONFIG_BIN" timeout)
 if ((BUILD_GENE)); then
     REQUIRED_COMMANDS+=("$PHPIZE_BIN" "$MAKE_BIN")
 fi
@@ -204,7 +206,7 @@ GENE_SO="$(cd "$(dirname "$GENE_SO")" && pwd)/$(basename "$GENE_SO")"
 
 EXT_DIR="$("$PHP_CONFIG_BIN" --extension-dir)"
 PHP_ARGS=(-n)
-for ext in pdo pdo_sqlite pdo_mysql pdo_pgsql curl openssl redis swoole; do
+for ext in pdo pdo_sqlite pdo_mysql pdo_pgsql curl openssl igbinary redis swoole; do
     if [[ -f "$EXT_DIR/$ext.so" ]]; then
         PHP_ARGS+=(-d "extension=$EXT_DIR/$ext.so")
     fi
@@ -243,6 +245,23 @@ if ((PREFLIGHT_CODE != 0)); then
 fi
 record preflight PASS 0
 
+if ((RUN_REDIS_POOL || RUN_WEB)); then
+    if ! "${PHP_CMD[@]}" -r 'exit(extension_loaded("redis") ? 0 : 2);'; then
+        echo "Redis verification requires ext-redis and its dependencies (for example igbinary)." >&2
+        record redis-extension FAIL 2
+        exit 2
+    fi
+    record redis-extension PASS 0
+fi
+if ((RUN_MYSQL_POOL || RUN_WEB)); then
+    if ! "${PHP_CMD[@]}" -r 'exit(extension_loaded("pdo_mysql") ? 0 : 2);'; then
+        echo "MySQL verification requires pdo_mysql." >&2
+        record pdo-mysql-extension FAIL 2
+        exit 2
+    fi
+    record pdo-mysql-extension PASS 0
+fi
+
 run_logged full-tests "$OUT/test-runner.log" \
     "${PHP_CMD[@]}" -d gene.runtime_type=1 "$GENE_REPO/test/TestRunner.php"
 
@@ -251,7 +270,7 @@ for capi in 0 1; do
     for precompile in 0 1; do
         name="capi-${capi}-precompile-${precompile}"
         set +e
-        "${PHP_CMD[@]}" \
+        timeout "$MATRIX_TIMEOUT" "${PHP_CMD[@]}" \
             -d gene.runtime_type=2 \
             -d gene.swoole_getcid_capi="$capi" \
             -d gene.route_precompile="$precompile" \
