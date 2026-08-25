@@ -32,7 +32,7 @@ class Pool
      * 创建命名连接池并注册到全局注册表
      *
      * 自动从持久化配置缓存中读取数据库连接信息（dsn, username, password, options），
-     * 避免在多处重复维护连接配置。配置通过 Gene\Config::set() 注入，例如：
+     * 避免在多处重复维护连接配置。配置通过 (new Gene\Config())->set() 注入，例如：
      *   $config->set("db", ['class'=>..., 'params'=>[[dsn, username, password, ...]], ...])
      *
      * @param string $name      池名称（与db config中的pool参数对应）

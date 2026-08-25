@@ -20,6 +20,7 @@ $iterations = max(1, (int) ($options['iterations'] ?? 100));
 $poolMax = max(2, (int) ($options['pool-max'] ?? min(32, $coroutines)));
 
 if (!$poolClass::getInstance('acceptance')) {
+    $config = new Gene\Config();
     if ($poolType === 'db') {
         $dsn = getenv('GENE_MYSQL_DSN');
         $user = getenv('GENE_MYSQL_USER');
@@ -27,14 +28,14 @@ if (!$poolClass::getInstance('acceptance')) {
             fwrite(STDERR, "BLOCKED: set GENE_MYSQL_DSN and GENE_MYSQL_USER.\n");
             exit(2);
         }
-        Gene\Config::set('acceptance_db', [[
+        $config->set('acceptance_db', [[
             'dsn' => $dsn,
             'username' => $user,
             'password' => getenv('GENE_MYSQL_PASS') ?: '',
         ]]);
         Gene\Pool::create('acceptance', 'acceptance_db', ['min' => 2, 'max' => $poolMax]);
     } else {
-        Gene\Config::set('acceptance_redis', [[
+        $config->set('acceptance_redis', [[
             'host' => getenv('GENE_REDIS_HOST') ?: '127.0.0.1',
             'port' => (int) (getenv('GENE_REDIS_PORT') ?: 6379),
             'timeout' => (float) (getenv('GENE_REDIS_TIMEOUT') ?: 3),
