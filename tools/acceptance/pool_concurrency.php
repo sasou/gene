@@ -18,47 +18,65 @@ $poolClass = $poolType === 'redis' ? Gene\Cache\RedisPool::class : Gene\Pool::cl
 $coroutines = max(1, (int) ($options['coroutines'] ?? 100));
 $iterations = max(1, (int) ($options['iterations'] ?? 100));
 $poolMax = max(2, (int) ($options['pool-max'] ?? min(32, $coroutines)));
+// One-shot Coroutine\run() must not leave idle-recycler timers running; otherwise
+// Swoole keeps the event loop alive after work finishes (stopTimers() below run never runs).
+$poolOptions = ['min' => 2, 'max' => $poolMax, 'idleTimeout' => 0];
 
-if (!$poolClass::getInstance('acceptance')) {
-    $config = new Gene\Config();
-    if ($poolType === 'db') {
-        $dsn = getenv('GENE_MYSQL_DSN');
-        $user = getenv('GENE_MYSQL_USER');
-        if (!is_string($dsn) || $dsn === '' || !is_string($user) || $user === '') {
-            fwrite(STDERR, "BLOCKED: set GENE_MYSQL_DSN and GENE_MYSQL_USER.\n");
-            exit(2);
-        }
-        $config->set('acceptance_db', [
-            'class' => Gene\Db\Mysql::class,
-            'params' => [[
-                $dsn,
-                $user,
-                getenv('GENE_MYSQL_PASS') ?: '',
-            ]],
-        ]);
-        Gene\Pool::create('acceptance', 'acceptance_db', ['min' => 2, 'max' => $poolMax]);
-    } else {
-        $config->set('acceptance_redis', [
-            'class' => Gene\Cache\Redis::class,
-            'params' => [[
-                'host' => getenv('GENE_REDIS_HOST') ?: '127.0.0.1',
-                'port' => (int) (getenv('GENE_REDIS_PORT') ?: 6379),
-                'timeout' => (float) (getenv('GENE_REDIS_TIMEOUT') ?: 3),
-                'password' => getenv('GENE_REDIS_PASS') ?: '',
-                'database' => (int) (getenv('GENE_REDIS_DB') ?: 0),
-            ]],
-        ]);
-        Gene\Cache\RedisPool::create('acceptance', 'acceptance_redis', ['min' => 2, 'max' => $poolMax]);
+$config = new Gene\Config();
+if ($poolType === 'db') {
+    $dsn = getenv('GENE_MYSQL_DSN');
+    $user = getenv('GENE_MYSQL_USER');
+    if (!is_string($dsn) || $dsn === '' || !is_string($user) || $user === '') {
+        fwrite(STDERR, "BLOCKED: set GENE_MYSQL_DSN and GENE_MYSQL_USER.\n");
+        exit(2);
     }
+    $config->set('acceptance_db', [
+        'class' => Gene\Db\Mysql::class,
+        'params' => [[
+            $dsn,
+            $user,
+            getenv('GENE_MYSQL_PASS') ?: '',
+            [1002 => 5], // PDO::MYSQL_ATTR_CONNECT_TIMEOUT
+        ]],
+    ]);
+} else {
+    $config->set('acceptance_redis', [
+        'class' => Gene\Cache\Redis::class,
+        'params' => [[
+            'host' => getenv('GENE_REDIS_HOST') ?: '127.0.0.1',
+            'port' => (int) (getenv('GENE_REDIS_PORT') ?: 6379),
+            'timeout' => (float) (getenv('GENE_REDIS_TIMEOUT') ?: 3),
+            'password' => getenv('GENE_REDIS_PASS') ?: '',
+            'database' => (int) (getenv('GENE_REDIS_DB') ?: 0),
+        ]],
+    ]);
 }
 
-$pool = $poolClass::getInstance('acceptance');
-if (!$pool) {
-    fwrite(STDERR, "BLOCKED: failed to create named pool 'acceptance'.\n");
-    exit(2);
-}
 $failures = 0;
-Swoole\Coroutine\run(static function () use ($pool, $coroutines, $iterations, &$failures): void {
+$stats = [];
+$passed = false;
+$blocked = null;
+Swoole\Coroutine\run(static function () use (
+    $poolType, $poolClass, $poolOptions, $coroutines, $iterations, &$failures, &$stats, &$passed, &$blocked
+): void {
+    if (!$poolClass::getInstance('acceptance')) {
+        $configKey = $poolType === 'db' ? 'acceptance_db' : 'acceptance_redis';
+        $poolClass::create('acceptance', $configKey, $poolOptions);
+    }
+
+    $pool = $poolClass::getInstance('acceptance');
+    if (!$pool) {
+        $blocked = "failed to create named pool 'acceptance'";
+        return;
+    }
+
+    $probe = $pool->get();
+    if ($probe === false || $probe === null) {
+        $blocked = 'failed to borrow a connection from pool (check service reachability and credentials)';
+        return;
+    }
+    $pool->put($probe);
+
     $wg = new Swoole\Coroutine\WaitGroup();
     for ($i = 0; $i < $coroutines; $i++) {
         $wg->add();
@@ -78,9 +96,19 @@ Swoole\Coroutine\run(static function () use ($pool, $coroutines, $iterations, &$
         });
     }
     $wg->wait();
+    $poolClass::stopTimers();
+    $stats = $pool->stats();
+    $passed = $failures === 0
+        && ($stats['using'] ?? -1) === 0
+        && ($stats['idle'] ?? -1) === ($stats['total'] ?? -2);
 });
-$stats = $pool->stats();
-$passed = $failures === 0 && ($stats['using'] ?? -1) === 0 && ($stats['idle'] ?? -1) === ($stats['total'] ?? -2);
+
+if (is_string($blocked)) {
+    fwrite(STDERR, "BLOCKED: {$blocked}.\n");
+    $poolClass::closeAll();
+    $poolClass::stopTimers();
+    exit(2);
+}
 echo json_encode([
     'class' => $poolClass,
     'coroutines' => $coroutines,

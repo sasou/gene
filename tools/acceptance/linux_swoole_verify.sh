@@ -17,6 +17,7 @@ CONTEXT_CONCURRENCY="${CONTEXT_CONCURRENCY:-500}"
 POOL_MAX="${POOL_MAX:-32}"
 POOL_COROUTINES="${POOL_COROUTINES:-200}"
 POOL_ITERATIONS="${POOL_ITERATIONS:-1000}"
+POOL_TIMEOUT="${POOL_TIMEOUT:-600}"
 WRK_THREADS="${WRK_THREADS:-8}"
 WRK_CONNECTIONS="${WRK_CONNECTIONS:-500}"
 WRK_WARMUP_DURATION="${WRK_WARMUP_DURATION:-30s}"
@@ -62,7 +63,7 @@ MySQL environment:
 
 Useful tuning:
   CONTEXT_COROUTINES=100000 CONTEXT_CONCURRENCY=500
-  POOL_MAX=32 POOL_COROUTINES=200 POOL_ITERATIONS=1000
+  POOL_MAX=32 POOL_COROUTINES=200 POOL_ITERATIONS=1000 POOL_TIMEOUT=600
   WRK_DURATION=10m WRK_CONNECTIONS=500 GENE_SWOOLE_WORKERS=4
   MATRIX_TIMEOUT=180
 EOF
@@ -319,7 +320,7 @@ run_logged context-auto "$OUT/context-auto.json" \
 
 if ((RUN_REDIS_POOL)); then
     run_logged redis-pool "$OUT/redis-pool.json" \
-        "${PHP_CMD[@]}" -d gene.runtime_type=2 \
+        timeout "$POOL_TIMEOUT" "${PHP_CMD[@]}" -d gene.runtime_type=2 \
         "$GENE_REPO/tools/acceptance/pool_concurrency.php" \
         --pool=redis --pool-max="$POOL_MAX" \
         --coroutines="$POOL_COROUTINES" --iterations="$POOL_ITERATIONS"
@@ -329,12 +330,12 @@ fi
 
 if ((RUN_MYSQL_POOL)); then
     run_logged mysql-pool "$OUT/mysql-pool.json" \
-        "${PHP_CMD[@]}" -d gene.runtime_type=2 \
+        timeout "$POOL_TIMEOUT" "${PHP_CMD[@]}" -d gene.runtime_type=2 \
         "$GENE_REPO/tools/acceptance/pool_concurrency.php" \
         --pool=db --pool-max="$POOL_MAX" \
         --coroutines="$POOL_COROUTINES" --iterations="$POOL_ITERATIONS"
     run_logged tx-hygiene "$OUT/tx-leak-pool.log" \
-        "${PHP_CMD[@]}" -d gene.runtime_type=2 \
+        timeout "$POOL_TIMEOUT" "${PHP_CMD[@]}" -d gene.runtime_type=2 \
         "$GENE_REPO/audit/repro/tx_leak_pool.php"
 else
     record mysql-pool SKIP 0
