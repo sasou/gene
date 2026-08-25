@@ -36,7 +36,7 @@ if ($poolType === 'db') {
             $dsn,
             $user,
             getenv('GENE_MYSQL_PASS') ?: '',
-            [1002 => 5], // PDO::MYSQL_ATTR_CONNECT_TIMEOUT
+            [2 => 5], // PDO::ATTR_TIMEOUT (1002 is MYSQL_ATTR_INIT_COMMAND)
         ]],
     ]);
 } else {
@@ -55,6 +55,53 @@ if ($poolType === 'db') {
         'class' => Gene\Cache\Redis::class,
         'params' => [$redisParams],
     ]);
+}
+
+/**
+ * Explain why a pool handed out no connection: either the persistent config
+ * never reached the pool (missing dsn/host) or the backend refused the
+ * connection. Both look identical from get() === null.
+ */
+function pool_diagnose(object $pool): string
+{
+    $resolved = [];
+    try {
+        $property = new ReflectionProperty($pool, 'config');
+        $property->setAccessible(true);
+        $value = $property->getValue($pool);
+        if (is_array($value)) {
+            foreach (['dsn', 'username', 'host', 'port'] as $key) {
+                if (isset($value[$key])) {
+                    $resolved[$key] = $key === 'username' ? '<set>' : $value[$key];
+                }
+            }
+            if (isset($value['password'])) {
+                $resolved['password'] = $value['password'] === '' ? '<empty>' : '<set>';
+            }
+        }
+    } catch (Throwable $e) {
+        return 'unable to read pool config: ' . $e->getMessage();
+    }
+
+    if ($resolved === []) {
+        return 'pool config carries no connection parameters — the config key was not resolved';
+    }
+    $summary = 'pool config = ' . json_encode($resolved, JSON_UNESCAPED_SLASHES);
+
+    if (isset($resolved['dsn'])) {
+        try {
+            new PDO(
+                (string) $resolved['dsn'],
+                (string) (getenv('GENE_MYSQL_USER') ?: ''),
+                (string) (getenv('GENE_MYSQL_PASS') ?: ''),
+                [PDO::ATTR_ERRMODE => PDO::ERRMODE_EXCEPTION, PDO::ATTR_PERSISTENT => false]
+            );
+            $summary .= '; a direct PDO connect with the same dsn SUCCEEDED, so the pool path is at fault';
+        } catch (Throwable $e) {
+            $summary .= '; direct PDO connect failed too: ' . $e->getMessage();
+        }
+    }
+    return $summary;
 }
 
 $failures = 0;
@@ -77,7 +124,7 @@ Swoole\Coroutine\run(static function () use (
 
     $probe = $pool->get();
     if ($probe === false || $probe === null) {
-        $blocked = 'failed to borrow a connection from pool (check service reachability and credentials)';
+        $blocked = 'failed to borrow a connection from pool: ' . pool_diagnose($pool);
         return;
     }
     $pool->put($probe);

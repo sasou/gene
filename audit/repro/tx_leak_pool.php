@@ -72,7 +72,7 @@ $poolConfig = [$dsn];
 if ($useMysql) {
     $poolConfig[] = $user;
     $poolConfig[] = $pass;
-    $poolConfig[] = [1002 => 5]; // PDO::MYSQL_ATTR_CONNECT_TIMEOUT
+    $poolConfig[] = [2 => 5]; // PDO::ATTR_TIMEOUT (1002 is MYSQL_ATTR_INIT_COMMAND)
 }
 $config = new \Gene\Config();
 $config->set('pooled_db', [
@@ -108,13 +108,15 @@ Swoole\Coroutine\run(static function () use (
     // --- borrower #2: same connection back from the pool ---
     $db2 = new $driverClass($cfg);
     $inTx = $db2->inTransaction();
-    $n = (int) $db2->select($table)->cell();
+    // count(*) explicitly: select($table) alone is SELECT *, so cell() would
+    // return the first column (the id) instead of a row count.
+    $n = (int) $db2->select($table, 'count(*)')->cell();
     echo "borrower 2: inTransaction=", var_export($inTx, true),
         ", rows=$n (expect inTransaction=false, rows=0)\n";
 
     // healthy committed write still works on the reused connection
     $db2->insert($table, ['v' => 'clean'])->affectedRows();
-    $committed = (int) $db2->select($table)->cell();
+    $committed = (int) $db2->select($table, 'count(*)')->cell();
     $db2->release();
 
     $ok = ($inTx === false) && ($n === 0) && ($committed === 1);
