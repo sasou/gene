@@ -38,10 +38,49 @@ SERVER_PID=""
 RSS_PID=""
 FAILURES=0
 STATUS_FILE=""
+UNAME_SYS="$(uname -s)"
+
+# Portable timeout: GNU coreutils `timeout`, Homebrew `gtimeout`, or perl alarm.
+run_timeout() {
+    local duration="$1"
+    shift
+    if command -v timeout >/dev/null 2>&1; then
+        timeout "$duration" "$@"
+    elif command -v gtimeout >/dev/null 2>&1; then
+        gtimeout "$duration" "$@"
+    elif command -v perl >/dev/null 2>&1; then
+        perl -e 'alarm shift; exec @ARGV' "$duration" "$@"
+    else
+        echo "Missing timeout/gtimeout/perl for bounded runs" >&2
+        return 127
+    fi
+}
+
+dump_shared_libs() {
+    local module="$1"
+    if command -v ldd >/dev/null 2>&1; then
+        ldd "$module" || true
+    elif command -v otool >/dev/null 2>&1; then
+        otool -L "$module" || true
+    fi
+}
+
+cpu_count() {
+    if command -v getconf >/dev/null 2>&1; then
+        getconf _NPROCESSORS_ONLN 2>/dev/null || echo 2
+    elif [[ "$UNAME_SYS" == "Darwin" ]]; then
+        sysctl -n hw.ncpu 2>/dev/null || echo 2
+    else
+        echo 2
+    fi
+}
 
 usage() {
     cat <<'EOF'
 Usage: tools/acceptance/linux_swoole_verify.sh [options]
+
+Runs on Linux and macOS (Darwin). On macOS install coreutils for gtimeout,
+or ensure perl is available for bounded runs.
 
 Options:
   --no-build          Use GENE_SO instead of rebuilding Gene
@@ -200,7 +239,7 @@ finish() {
 trap finish EXIT
 trap 'stop_server; exit 130' INT TERM
 
-REQUIRED_COMMANDS=("$PHP_BIN" "$PHP_CONFIG_BIN" timeout)
+REQUIRED_COMMANDS=("$PHP_BIN" "$PHP_CONFIG_BIN")
 if ((BUILD_GENE)); then
     REQUIRED_COMMANDS+=("$PHPIZE_BIN" "$MAKE_BIN")
 fi
@@ -210,6 +249,12 @@ for required_command in "${REQUIRED_COMMANDS[@]}"; do
         exit 2
     fi
 done
+if ! command -v timeout >/dev/null 2>&1 \
+    && ! command -v gtimeout >/dev/null 2>&1 \
+    && ! command -v perl >/dev/null 2>&1; then
+    echo "Missing bounded-run helper: install coreutils (gtimeout) or ensure perl is on PATH" >&2
+    exit 2
+fi
 
 if [[ ! -d "$GENE_REPO/src" || ! -f "$GENE_REPO/src/config.m4" ]]; then
     echo "Invalid GENE_REPO: $GENE_REPO" >&2
@@ -223,7 +268,7 @@ if ((BUILD_GENE)); then
         "$PHPIZE_BIN" --clean >/dev/null 2>&1 || true
         "$PHPIZE_BIN"
         CFLAGS="${CFLAGS:--O2 -g -fno-omit-frame-pointer}" ./configure --enable-gene=shared
-        "$MAKE_BIN" -j"$(getconf _NPROCESSORS_ONLN 2>/dev/null || echo 2)"
+        "$MAKE_BIN" -j"$(cpu_count)"
     ) 2>&1 | tee "$OUT/build.log"
     GENE_SO="$GENE_REPO/src/modules/gene.so"
 fi
@@ -253,7 +298,7 @@ export GENE_TEST_PHP_ARGS
     "${PHP_CMD[@]}" -m
     "${PHP_CMD[@]}" --ri gene
     "${PHP_CMD[@]}" --ri swoole
-    ldd "$GENE_SO" || true
+    dump_shared_libs "$GENE_SO"
 } >"$OUT/environment.txt" 2>&1
 
 set +e
@@ -300,7 +345,7 @@ for capi in 0 1; do
     for precompile in 0 1; do
         name="capi-${capi}-precompile-${precompile}"
         set +e
-        timeout "$MATRIX_TIMEOUT" "${PHP_CMD[@]}" \
+        run_timeout "$MATRIX_TIMEOUT" "${PHP_CMD[@]}" \
             -d gene.runtime_type=2 \
             -d gene.swoole_getcid_capi="$capi" \
             -d gene.route_precompile="$precompile" \
@@ -349,7 +394,7 @@ run_logged context-auto "$OUT/context-auto.json" \
 
 if ((RUN_REDIS_POOL)); then
     run_logged redis-pool "$OUT/redis-pool.json" \
-        timeout "$POOL_TIMEOUT" "${PHP_CMD[@]}" -d gene.runtime_type=2 \
+        run_timeout "$POOL_TIMEOUT" "${PHP_CMD[@]}" -d gene.runtime_type=2 \
         "$GENE_REPO/tools/acceptance/pool_concurrency.php" \
         --pool=redis --pool-max="$POOL_MAX" \
         --coroutines="$POOL_COROUTINES" --iterations="$POOL_ITERATIONS"
@@ -359,12 +404,12 @@ fi
 
 if ((RUN_MYSQL_POOL)); then
     run_logged mysql-pool "$OUT/mysql-pool.json" \
-        timeout "$POOL_TIMEOUT" "${PHP_CMD[@]}" -d gene.runtime_type=2 \
+        run_timeout "$POOL_TIMEOUT" "${PHP_CMD[@]}" -d gene.runtime_type=2 \
         "$GENE_REPO/tools/acceptance/pool_concurrency.php" \
         --pool=db --pool-max="$POOL_MAX" \
         --coroutines="$POOL_COROUTINES" --iterations="$POOL_ITERATIONS"
     run_logged tx-hygiene "$OUT/tx-leak-pool.log" \
-        timeout "$POOL_TIMEOUT" "${PHP_CMD[@]}" -d gene.runtime_type=2 \
+        run_timeout "$POOL_TIMEOUT" "${PHP_CMD[@]}" -d gene.runtime_type=2 \
         "$GENE_REPO/audit/repro/tx_leak_pool.php"
 else
     record mysql-pool SKIP 0
@@ -423,7 +468,12 @@ if ((RUN_WEB)); then
             (
                 while kill -0 "$SERVER_PID" 2>/dev/null; do
                     date '+%F %T'
-                    ps -C "$(basename "$PHP_BIN")" -o pid,ppid,rss,vsz,%cpu,%mem,etime,cmd --sort=pid || true
+                    if [[ "$UNAME_SYS" == "Darwin" ]]; then
+                        ps -ax -o pid,ppid,rss,vsz,%cpu,%mem,etime,command \
+                            | grep -E "[[:space:]]$(basename "$PHP_BIN")([[:space:]]|$)" || true
+                    else
+                        ps -C "$(basename "$PHP_BIN")" -o pid,ppid,rss,vsz,%cpu,%mem,etime,cmd --sort=pid || true
+                    fi
                     sleep "$RSS_INTERVAL"
                 done
             ) >"$OUT/process-rss.txt" 2>&1 &

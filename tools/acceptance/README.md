@@ -32,7 +32,9 @@ ORM 不额外持有连接，仅要求 `db.instance=true` + Pool，并在请求 `
 
 ## Linux Swoole 一键验证
 
-基础验证会自动构建 Gene，并执行隔离全测、四组 Swoole 开关矩阵、手动/自动 Context cleanup soak：
+在 **Linux** 上构建并跑隔离全测、四组 Swoole 开关矩阵、手动/自动 Context cleanup soak。发布验收以 Linux 为准。
+
+macOS 只需编出扩展：`tools/mac_build.sh`（见仓库根 `AGENTS.md`）。
 
 ```bash
 bash tools/acceptance/linux_swoole_verify.sh
