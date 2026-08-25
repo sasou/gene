@@ -1637,6 +1637,7 @@ PHP_MINFO_FUNCTION(gene) {
  * {{{ gene_version()
  */
 PHP_FUNCTION(gene_version) {
+	ZEND_PARSE_PARAMETERS_NONE();
 	RETURN_STRING(PHP_GENE_VERSION);
 }
 /* }}} */
@@ -1659,6 +1660,7 @@ PHP_FUNCTION(gene_version) {
  * accident.
  */
 PHP_FUNCTION(gene_auto_cleanup_defer) {
+	ZEND_PARSE_PARAMETERS_NONE();
 	if (GENE_G(swoole_auto_cleanup) && GENE_G(runtime_type) >= 2 && GENE_G(co_contexts)) {
 		zend_long cid = gene_get_coroutine_id();
 		if (cid >= 0) {

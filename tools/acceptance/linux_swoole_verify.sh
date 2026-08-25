@@ -206,7 +206,7 @@ GENE_SO="$(cd "$(dirname "$GENE_SO")" && pwd)/$(basename "$GENE_SO")"
 
 EXT_DIR="$("$PHP_CONFIG_BIN" --extension-dir)"
 PHP_ARGS=(-n)
-for ext in pdo pdo_sqlite pdo_mysql pdo_pgsql curl openssl igbinary redis swoole; do
+for ext in pdo pdo_sqlite pdo_mysql pdo_pgsql curl openssl igbinary msgpack redis swoole; do
     if [[ -f "$EXT_DIR/$ext.so" ]]; then
         PHP_ARGS+=(-d "extension=$EXT_DIR/$ext.so")
     fi
