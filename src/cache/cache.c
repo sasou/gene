@@ -1302,10 +1302,22 @@ PHP_METHOD(gene_cache, cachedVersion)
 			RETURN_ZVAL(&cur_data, 1, 1);
 		}
 	}
-	zval_ptr_dtor(&cache_key);
-	zval_ptr_dtor(&cache);
-	zval_ptr_dtor(&key);
-	RETURN_NULL();
+	{
+		zval data_new, cur_data, cur_version;
+		array_init(&cur_version);
+		gene_cache_call(obj, args, &cur_data);
+		gene_cache_build_version_payload(&data_new, &cur_data, &cur_version);
+		hook = gene_di_get(Z_STR_P(hookName));
+		if (hook) {
+			hook_cache_set(hook, &key, &data_new, ttl);
+		}
+		zval_ptr_dtor(&data_new);
+		zval_ptr_dtor(&cur_version);
+		zval_ptr_dtor(&cache_key);
+		zval_ptr_dtor(&cache);
+		zval_ptr_dtor(&key);
+		RETURN_ZVAL(&cur_data, 1, 1);
+	}
 }
 /* }}} */
 
