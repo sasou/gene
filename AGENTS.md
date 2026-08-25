@@ -1,5 +1,57 @@
 # Gene 扩展 — 构建与验证速查
 
+## macOS 构建（phpize，Homebrew / 源码 PHP）
+
+### 前置依赖
+
+- **Xcode Command Line Tools**：`xcode-select --install`
+- **PHP 8.0+** 及匹配的 `phpize` / `php-config`（`php` 与 `phpize` 必须来自同一安装）
+- **autoconf**（Homebrew：`brew install autoconf pkg-config`）
+
+Homebrew 示例（Apple Silicon / Intel 通用）：
+
+```bash
+brew install php@8.1 autoconf pkg-config
+export PATH="$(brew --prefix php@8.1)/bin:$PATH"
+```
+
+### 一键构建
+
+```bash
+# 仓库根目录
+chmod +x tools/mac_build.sh
+tools/mac_build.sh
+```
+
+脚本执行 `phpize` → `./configure --enable-gene=shared --with-php-config=...` → `make`。成功标准：`src/modules/gene.so` 存在且 `php --ri gene` 能加载。不跑 Swoole 验收。
+
+选项：`--install`（`sudo make install`）、`--test`（额外跑 TestRunner）、`--clean`、`--php /path/to/php`。
+
+### 手动构建
+
+```bash
+cd src
+phpize
+./configure --enable-gene=shared --with-php-config="$(command -v php-config)"
+make -j$(sysctl -n hw.ncpu)
+```
+
+### 免安装确认已加载
+
+```bash
+GENE_SO="$(pwd)/src/modules/gene.so"
+PHP="$(brew --prefix php@8.1)/bin/php"
+"$PHP" -n -d "extension=$GENE_SO" --ri gene
+```
+
+### 常见问题
+
+| 现象 | 处理 |
+|------|------|
+| `phpize: command not found` | 将 `$(brew --prefix php@8.1)/bin` 加入 `PATH` |
+| `Cannot find autoconf` | `brew install autoconf` |
+| 扩展加载架构不匹配 | `file "$(command -v php)"` 与 `file src/modules/gene.so` 须同为 `arm64` 或 `x86_64` |
+
 ## Windows 构建（本机已验证 2026-08-20）
 
 - PHP SDK：`F:\php-sdk-2.6.0`，但部分环境下实际安装的是 `F:\php-sdk-2.3.0`（两者 `phpsdk-vs16-x64.bat` 用法相同）——
