@@ -28,20 +28,26 @@ if (!$poolClass::getInstance('acceptance')) {
             fwrite(STDERR, "BLOCKED: set GENE_MYSQL_DSN and GENE_MYSQL_USER.\n");
             exit(2);
         }
-        $config->set('acceptance_db', [[
-            'dsn' => $dsn,
-            'username' => $user,
-            'password' => getenv('GENE_MYSQL_PASS') ?: '',
-        ]]);
+        $config->set('acceptance_db', [
+            'class' => Gene\Db\Mysql::class,
+            'params' => [[
+                $dsn,
+                $user,
+                getenv('GENE_MYSQL_PASS') ?: '',
+            ]],
+        ]);
         Gene\Pool::create('acceptance', 'acceptance_db', ['min' => 2, 'max' => $poolMax]);
     } else {
-        $config->set('acceptance_redis', [[
-            'host' => getenv('GENE_REDIS_HOST') ?: '127.0.0.1',
-            'port' => (int) (getenv('GENE_REDIS_PORT') ?: 6379),
-            'timeout' => (float) (getenv('GENE_REDIS_TIMEOUT') ?: 3),
-            'password' => getenv('GENE_REDIS_PASS') ?: '',
-            'database' => (int) (getenv('GENE_REDIS_DB') ?: 0),
-        ]]);
+        $config->set('acceptance_redis', [
+            'class' => Gene\Cache\Redis::class,
+            'params' => [[
+                'host' => getenv('GENE_REDIS_HOST') ?: '127.0.0.1',
+                'port' => (int) (getenv('GENE_REDIS_PORT') ?: 6379),
+                'timeout' => (float) (getenv('GENE_REDIS_TIMEOUT') ?: 3),
+                'password' => getenv('GENE_REDIS_PASS') ?: '',
+                'database' => (int) (getenv('GENE_REDIS_DB') ?: 0),
+            ]],
+        ]);
         Gene\Cache\RedisPool::create('acceptance', 'acceptance_redis', ['min' => 2, 'max' => $poolMax]);
     }
 }
