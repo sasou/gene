@@ -13,6 +13,7 @@ $count = max(1, (int) ($options['coroutines'] ?? 10000));
 $concurrency = max(1, min($count, (int) ($options['concurrency'] ?? 200)));
 $omitRate = min(1.0, max(0.0, (float) ($options['omit-cleanup-rate'] ?? 0)));
 $before = (new Gene\Memory())->stats();
+$monitorBefore = Gene\Monitor::stats();
 $isolationFailures = 0;
 Swoole\Coroutine\run(static function () use ($count, $concurrency, $omitRate, &$isolationFailures): void {
     for ($offset = 0; $offset < $count; $offset += $concurrency) {
@@ -40,9 +41,29 @@ Swoole\Coroutine\run(static function () use ($count, $concurrency, $omitRate, &$
     }
 });
 $after = (new Gene\Memory())->stats();
+$monitorAfter = Gene\Monitor::stats();
+$deferredDelta = ($monitorAfter['swoole_auto_cleanup_defers'] ?? 0)
+    - ($monitorBefore['swoole_auto_cleanup_defers'] ?? 0);
+$reclaimedDelta = ($monitorAfter['swoole_auto_cleanup_reclaimed'] ?? 0)
+    - ($monitorBefore['swoole_auto_cleanup_reclaimed'] ?? 0);
+$omitThreshold = (int) ($omitRate * 10000);
+$expectedOmitted = 0;
+for ($i = 0; $i < $count; $i++) {
+    if (($i % 10000) < $omitThreshold) {
+        $expectedOmitted++;
+    }
+}
+$autoCleanup = (bool) ini_get('gene.swoole_auto_cleanup');
+$cleanupCountersPassed = !$autoCleanup
+    || ($deferredDelta === $count && $reclaimedDelta === $expectedOmitted);
 $passed = $isolationFailures === 0
     && ($after['co_contexts_items'] ?? -1) === 0
-    && ($after['ctx_pool_size'] ?? -1) <= ($after['ctx_pool_max'] ?? -1);
-$result = compact('count', 'concurrency', 'omitRate', 'isolationFailures', 'before', 'after', 'passed');
+    && ($after['ctx_pool_size'] ?? -1) <= ($after['ctx_pool_max'] ?? -1)
+    && $cleanupCountersPassed;
+$result = compact(
+    'count', 'concurrency', 'omitRate', 'autoCleanup', 'isolationFailures',
+    'expectedOmitted', 'deferredDelta', 'reclaimedDelta', 'cleanupCountersPassed',
+    'before', 'after', 'passed'
+);
 echo json_encode($result, JSON_PRETTY_PRINT | JSON_UNESCAPED_UNICODE) . PHP_EOL;
 exit($passed ? 0 : 1);
