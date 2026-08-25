@@ -1373,13 +1373,44 @@ PHP_METHOD(gene_pool, get)
         }
     }
 
-    /* Read DB config from persistent cache using configKey */
-    char cache_key[256];
-    size_t cache_key_len = ZSTR_LEN(configKey) + sizeof(GENE_CONFIG_CACHE) - 1;
-    if (cache_key_len < sizeof(cache_key)) {
-        memcpy(cache_key, ZSTR_VAL(configKey), ZSTR_LEN(configKey));
-        memcpy(cache_key + ZSTR_LEN(configKey), GENE_CONFIG_CACHE, sizeof(GENE_CONFIG_CACHE) - 1);
-        config_data = gene_memory_get(cache_key, cache_key_len);
+    /* Read DB config from persistent cache using configKey.
+     * [GENE_FIX:2026-08-25] The config cache is keyed by
+     * "<app_key|app_root>:config" with the config name as a nested path (see
+     * Gene\Config::set -> gene_memory_set_by_router). The previous key
+     * "<configKey>:config" never matched, so dsn/username/password were
+     * silently dropped and every pooled connection failed to be created.
+     * Mirror the Gene\Di / Gene\Cache\RedisPool lookup instead. */
+    {
+        char cache_key_buf[256];
+        char *cache_key = cache_key_buf;
+        int cache_key_heap = 0;
+        const char *prefix = NULL;
+        size_t prefix_len = 0, cache_key_len;
+
+        if (GENE_G(app_key) && GENE_G(app_key)[0] != '\0') {
+            prefix = GENE_G(app_key);
+            prefix_len = GENE_G(app_key_len);
+        } else if (GENE_G(app_root) && GENE_G(app_root)[0] != '\0') {
+            prefix = GENE_G(app_root);
+            prefix_len = GENE_G(app_root_len);
+        }
+
+        cache_key_len = prefix_len + sizeof(GENE_CONFIG_CACHE) - 1;
+        if (cache_key_len >= sizeof(cache_key_buf)) {
+            cache_key = emalloc(cache_key_len + 1);
+            cache_key_heap = 1;
+        }
+        if (prefix_len) memcpy(cache_key, prefix, prefix_len);
+        memcpy(cache_key + prefix_len, GENE_CONFIG_CACHE, sizeof(GENE_CONFIG_CACHE));
+
+        config_data = gene_memory_get_by_config(cache_key, cache_key_len, ZSTR_VAL(configKey));
+        if (cache_key_heap) efree(cache_key);
+
+        if (!config_data || Z_TYPE_P(config_data) != IS_ARRAY) {
+            php_error_docref(NULL, E_WARNING,
+                "config key '%s' not found in config cache",
+                ZSTR_VAL(configKey));
+        }
         if (config_data && Z_TYPE_P(config_data) == IS_ARRAY) {
             zval *params = zend_hash_str_find(Z_ARRVAL_P(config_data), ZEND_STRL("params"));
             if (params && Z_TYPE_P(params) == IS_ARRAY) {
@@ -1390,21 +1421,24 @@ PHP_METHOD(gene_pool, get)
                     zval *password = zend_hash_index_find(Z_ARRVAL_P(first_param), 2);
                     zval *db_options = zend_hash_index_find(Z_ARRVAL_P(first_param), 3);
 
+                    /* Values live in the persistent cache: copy them into
+                     * request-local zvals instead of sharing refcounts. */
                     if (dsn && Z_TYPE_P(dsn) == IS_STRING) {
-                        zend_string_addref(Z_STR_P(dsn));
-                        add_assoc_str_ex(&pool_config, ZEND_STRL("dsn"), Z_STR_P(dsn));
+                        add_assoc_stringl_ex(&pool_config, ZEND_STRL("dsn"),
+                            Z_STRVAL_P(dsn), Z_STRLEN_P(dsn));
                     }
                     if (username && Z_TYPE_P(username) == IS_STRING) {
-                        zend_string_addref(Z_STR_P(username));
-                        add_assoc_str_ex(&pool_config, ZEND_STRL("username"), Z_STR_P(username));
+                        add_assoc_stringl_ex(&pool_config, ZEND_STRL("username"),
+                            Z_STRVAL_P(username), Z_STRLEN_P(username));
                     }
                     if (password && Z_TYPE_P(password) == IS_STRING) {
-                        zend_string_addref(Z_STR_P(password));
-                        add_assoc_str_ex(&pool_config, ZEND_STRL("password"), Z_STR_P(password));
+                        add_assoc_stringl_ex(&pool_config, ZEND_STRL("password"),
+                            Z_STRVAL_P(password), Z_STRLEN_P(password));
                     }
                     if (db_options && Z_TYPE_P(db_options) == IS_ARRAY) {
-                        Z_TRY_ADDREF_P(db_options);
-                        add_assoc_zval(&pool_config, "options", db_options);
+                        zval opts_local;
+                        gene_memory_zval_local(&opts_local, db_options);
+                        add_assoc_zval(&pool_config, "options", &opts_local);
                     }
                 }
             }
