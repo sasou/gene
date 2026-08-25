@@ -68,13 +68,15 @@ if ($useMysql) {
 }
 
 // Pool config is read from Gene\Config under key 'pooled_db' (params[0]).
-$poolConfig = ['dsn' => $dsn];
+$poolConfig = [$dsn];
 if ($useMysql) {
-    $poolConfig['username'] = $user;
-    $poolConfig['password'] = $pass;
+    $poolConfig[] = $user;
+    $poolConfig[] = $pass;
 }
 $config = new \Gene\Config();
-$config->set('pooled_db', [$poolConfig]);
+$config->set('pooled_db', [
+    'params' => [$poolConfig],
+]);
 \Gene\Pool::create('txpool', 'pooled_db', ['min' => 1, 'max' => 2]);
 
 $cfg = ['dsn' => $dsn, 'pool' => 'txpool'];
