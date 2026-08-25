@@ -68,8 +68,19 @@ class User extends \Gene\Controller
 }
 ```
 
-- 取参优先 **`$this->request->get/post/request()`**（注入组件）；静态 `Controller::get()` 等价但少用
-- 响应：`success()` / `error()` 返回数组；需直接输出时用 `json()` 或路由 `after` 钩子里的 `\Gene\Response::json()`
+- 取参优先 **`$this->request->get/post/request()`**（注入组件）；JSON body 用 **`$this->request->json()`**，禁止直接读 `php://input`
+- 响应：`success()` / `error()` 返回数组；需直接输出时用 `json()` 或路由 `after` 钩子里的 `\Gene\Response::json()`。JSON API **禁止** `echo` + `exit`
+- 默认使用 `\Gene\Log`（自动带 `request_id`）、`Validate`、`Monitor`、`Memory`（单 worker）/ `Redis::rateLimit`（多 worker）
+
+出站 HTTP 用 `\Gene\Http::request()` / `\Gene\Http::multi()`（FPM=curl / curl_multi；Swoole 单请求=协程客户端，`multi` 在 Native CURL hook 下走 curl_multi），不要裸 `curl_exec`。同进程互调用 `\Gene\Invoke::local` / `\Gene\Rest::call`，不要 `Request::init` 覆盖入站袋。请求级 KV 用 `\Gene\Context`，不要用静态变量。HMAC/随机 ID/AES-GCM 用 `\Gene\Crypto`。
+
+推荐钩子（零 C，见 demo）：
+
+```php
+->hook('cors', 'Hooks\Cors@handle')           // OPTIONS 短路；Origin 白名单，禁止反射
+->hook('requestId', 'Hooks\RequestId@handle') // Context + X-Request-Id
+->hook('adminAuth', 'Hooks\AdminAuth@handle')
+```
 
 ## 路由（`config/router.ini.php`）
 
@@ -81,6 +92,8 @@ $router->clear()
     ->group('/:c')
         ->get('/:a.html', 'Controllers\Admin\:c@:a', 'adminAuth@clearAfter')
     ->group()
+    ->hook('cors', 'Hooks\Cors@handle')
+    ->hook('requestId', 'Hooks\RequestId@handle')
     ->hook('adminAuth', 'Hooks\AdminAuth@handle')   // 推荐类钩子
     ->hook('after', 'Hooks\AfterHook@handle')
     ->error(404, function () { echo '404'; });

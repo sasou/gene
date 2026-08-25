@@ -8,7 +8,7 @@ namespace Gene;
  * @property \Gene\Cache\Memcached $memcache
  * @property \Gene\Cache\Redis $redis
  * @property \Gene\Cache\Cache $cache
- * @property \Ext\Services\Rest $rest
+ * @property \Gene\Rest $rest
  * 
  * @author  sasou<admin@php-gene.com>
  * @version  5.4.3

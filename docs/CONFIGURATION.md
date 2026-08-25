@@ -25,9 +25,9 @@
 | `gene.closure_src_cache_max` | `1024` | long | FPM 闭包源码缓存容量；`<=0` 关闭缓存 |
 | `gene.swoole_auto_cleanup` | `0` | bool | 协程 ctx 随协程结束自动归还（仅 Swoole，opt-in） |
 | `gene.cache_easy_ttl` | `0` | long | cache_easy 文件表 TTL 兜底秒数（0=禁用，惰性过期） |
+| `gene.slow_query_ms` | `0` | long | 慢查询阈值（毫秒，0=禁用）；超限 SQL 计入 `Monitor::stats()` 的 `db_slow_query_count` |
 
 > **`Gene\Memory` TTL 语义说明**：`Memory::set($k, $v, $ttl)` 的 `$ttl` 以秒计，`0` 表示永久。两种运行模式下行为不同——**FPM**：过期键由读路径惰性删除 + 每 32 次 TTL 写入抽样主动清扫，内存可回收；**Swoole**：`workerReady()` 后进程级缓存冻结不可写，过期键仅在读路径被「掩蔽」（返回 miss），内存占用不回收。因此 Swoole 下请勿用带 TTL 的 Memory 键做高频轮转写入（如 `rate:$ip`），需要过期回收请用 `Gene\Cache`（Redis/Memcached）层。
-| `gene.slow_query_ms` | `0` | long | 慢查询阈值（毫秒，0=禁用）；超限 SQL 计入 `Monitor::stats()` 的 `db_slow_query_count` |
 
 ## 推荐最佳配置
 
@@ -83,12 +83,13 @@ $server->on('WorkerStart', function () {
 - **`ctx_pool_max` / `ctx_pool_prewarm`**：按单 worker 实际并发协程峰值设置；
   prewarm 设成与 max 相等可消除冷启动 `emalloc` 抖动（`workerReady()` 已会自动
   prewarm，prewarm 项为可选增强）。
-- **`co_contexts_max`**：高并发服务建议调到 `4096~16384`，避免频繁触发 sweep；
-  不要设过小以免误淘汰长寿协程。
-- **`route_precompile` / `cache_max_items`**：均为新引入的 opt-in 优化，仅 Swoole
-  生效，建议先压测对比再上生产。
-- **`run_environment=2`**：生产务必设为 prod，否则 DB 层每条 SQL 都会做 benchmark
-  标记（仅 dev=0 时记录）。
+- **`co_contexts_max`**：默认 `1024` 对高并发 Swoole 偏小。按「单 worker 峰值协程 + 余量」
+  显式设到 `4096~16384`，避免频繁 sweep；不要设过小以免误淘汰长寿协程。
+- **`cache_max_items=0`**：兼容保留的**无界**默认，长跑可能抬高 RSS。**代码不改默认**；
+  生产先用 `Gene\Monitor::stats()` 回采业务缓存分区水位，再显式设 LRU 上限（如 `10000`）。
+  `route_precompile` 为 Swoole opt-in，建议压测后再开。
+- **`run_environment`**：仅 `0`（dev）记录 SQL history/benchmark；默认 `1`（test）已关闭。
+  生产设 `2`。
 - **`view_compile_check_mtime`**：开发期设 `1`（改模板即时生效），生产设 `0`
   （性能最优）。
 

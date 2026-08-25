@@ -22,6 +22,7 @@
 #include "main/SAPI.h"
 #include "ext/session/php_session.h"
 #include "ext/standard/md5.h"
+#include "zend_exceptions.h"
 #include <time.h>
 
 #ifdef PHP_WIN32
@@ -242,7 +243,11 @@ static zend_string *gene_session_method_delete(void);
 ZEND_BEGIN_ARG_INFO_EX(gene_session_void_arginfo, 0, 0, 0)
 ZEND_END_ARG_INFO()
 
-ZEND_BEGIN_ARG_INFO_EX(gene_session_get_arginfo, 0, 0, 1)
+ZEND_BEGIN_ARG_INFO_EX(gene_session_construct_arginfo, 0, 0, 0)
+	ZEND_ARG_INFO(0, config)
+ZEND_END_ARG_INFO()
+
+ZEND_BEGIN_ARG_INFO_EX(gene_session_get_arginfo, 0, 0, 0)
 	ZEND_ARG_INFO(0, name)
 ZEND_END_ARG_INFO()
 
@@ -1279,7 +1284,7 @@ PHP_METHOD(gene_session, setLifeTime) {
  * {{{ gene_session_methods
  */
 const zend_function_entry gene_session_methods[] = {
-	PHP_ME(gene_session, __construct, gene_session_void_arginfo, ZEND_ACC_PUBLIC)
+	PHP_ME(gene_session, __construct, gene_session_construct_arginfo, ZEND_ACC_PUBLIC)
 	PHP_ME(gene_session, __destruct, gene_session_void_arginfo, ZEND_ACC_PUBLIC)
 	PHP_ME(gene_session, load, gene_session_void_arginfo, ZEND_ACC_PUBLIC)
 	PHP_ME(gene_session, save, gene_session_void_arginfo, ZEND_ACC_PUBLIC)

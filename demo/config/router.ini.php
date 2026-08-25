@@ -65,6 +65,11 @@ $router->clear()
     })
     // 全局前置钩子
     ->hook("before", function() {
+        $cors = new \Hooks\Cors();
+        if ($cors->handle() === false) {
+            return false;
+        }
+        (new \Hooks\RequestId())->handle();
         $user = $this->session->get('admin');
         \Gene\Di::set('user', $user); 
     })

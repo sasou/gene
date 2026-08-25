@@ -46,6 +46,10 @@
  
  ZEND_BEGIN_ARG_INFO_EX(gene_router_void_arginfo, 0, 0, 0)
  ZEND_END_ARG_INFO()
+
+ ZEND_BEGIN_ARG_INFO_EX(gene_router_construct_arginfo, 0, 0, 0)
+	 ZEND_ARG_INFO(0, safe)
+ ZEND_END_ARG_INFO()
  
  ZEND_BEGIN_ARG_INFO_EX(gene_router_display, 0, 0, 1)
 	 ZEND_ARG_INFO(0, file)
@@ -63,7 +67,7 @@
 	 ZEND_ARG_INFO(0, params)
  ZEND_END_ARG_INFO()
  
- ZEND_BEGIN_ARG_INFO_EX(gene_router_run, 0, 0, 2)
+ ZEND_BEGIN_ARG_INFO_EX(gene_router_run, 0, 0, 0)
 	 ZEND_ARG_INFO(0, method)
 	 ZEND_ARG_INFO(0, uri)
  ZEND_END_ARG_INFO()
@@ -92,20 +96,19 @@
 	 ZEND_ARG_INFO(0, value)
  ZEND_END_ARG_INFO()
  
- ZEND_BEGIN_ARG_INFO_EX(gene_router_params, 0, 0, 1)
+ ZEND_BEGIN_ARG_INFO_EX(gene_router_params, 0, 0, 0)
 	 ZEND_ARG_INFO(0, name)
  ZEND_END_ARG_INFO()
  
- ZEND_BEGIN_ARG_INFO_EX(gene_router_prefix_arginfo, 0, 0, 1)
+ ZEND_BEGIN_ARG_INFO_EX(gene_router_prefix_arginfo, 0, 0, 0)
 	 ZEND_ARG_INFO(0, name)
  ZEND_END_ARG_INFO()
  
- ZEND_BEGIN_ARG_INFO_EX(gene_router_group_arginfo, 0, 0, 1)
+ ZEND_BEGIN_ARG_INFO_EX(gene_router_group_arginfo, 0, 0, 0)
 	 ZEND_ARG_INFO(0, name)
  ZEND_END_ARG_INFO()
  
- ZEND_BEGIN_ARG_INFO_EX(gene_router_lang_arginfo, 0, 0, 2)
-	 ZEND_ARG_INFO(0, lang)
+ ZEND_BEGIN_ARG_INFO_EX(gene_router_lang_arginfo, 0, 0, 0)
 	 ZEND_ARG_INFO(0, lang_list)
  ZEND_END_ARG_INFO()
  /* }}} */
@@ -234,7 +237,7 @@
  
 	 result = NULL;
 	 prefix = zend_symtable_str_find(Z_ARRVAL_P(conf), "prefix", 6);
-	 if (prefix) {
+	 if (prefix && Z_TYPE_P(prefix) == IS_STRING) {
 		 size_t prefix_len = Z_STRLEN_P(prefix);
 		 if (prefix_len <= (size_t)path_len
 				 && memcmp(path, Z_STRVAL_P(prefix), prefix_len) == 0) {
@@ -246,7 +249,7 @@
 		 }
 	 }
 	 langs = zend_symtable_str_find(Z_ARRVAL_P(conf), "langs", 5);
-	 if (langs) {
+	 if (langs && Z_TYPE_P(langs) == IS_STRING) {
 		 work = str_init(result ? result : path);
 		 seg = php_strtok_r(work, "/", &ptr);
 		 if (seg && (seg_len = strlen(seg)) > 0) {
@@ -308,7 +311,7 @@
 			 seg_len = next_slash - paths;
 			 seg = paths;
 			 ret = zend_symtable_str_find(Z_ARRVAL_P(val), seg, seg_len);
-			 if (ret) {
+			 if (ret && Z_TYPE_P(ret) == IS_ARRAY) {
 				 leaf = get_path_router_inner(ret, next_slash + 1);
 			 }
 			 if (!leaf) {
@@ -340,7 +343,7 @@
 			 seg_len = strlen(paths);
 			 seg = paths;
 			 ret = zend_symtable_str_find(Z_ARRVAL_P(val), seg, seg_len);
-			 if (ret) {
+			 if (ret && Z_TYPE_P(ret) == IS_ARRAY) {
 				 leaf = zend_symtable_str_find(Z_ARRVAL_P(ret), "leaf", 4);
 			 } else {
 				 ret = zend_symtable_str_find(Z_ARRVAL_P(val), "chird", 5);
@@ -1960,6 +1963,10 @@ void get_router_content_run(char *methodin, char *pathin, const char *safe_str, 
 			  * internal strlen() since ctx->path_len is already cached by the
 			  * gene_ini_router()/request_set_server_val() path populators. */
 			 size_t plen = ctx->path_len;
+			 size_t actual = strlen(ctx->path);
+			 if (plen == 0 || plen > actual || ctx->path[plen] != '\0') {
+				 plen = actual;
+			 }
 			 path = (char *)emalloc(plen + 1);
 			 memcpy(path, ctx->path, plen + 1);
 		 }
@@ -2068,7 +2075,7 @@ void get_router_content_run(char *methodin, char *pathin, const char *safe_str, 
 
 		 if (cache) {
 			 temp = zend_symtable_str_find(Z_ARRVAL_P(cache), (char *)method, method_len);
-			 if (temp == NULL) {
+			 if (temp == NULL || Z_TYPE_P(temp) != IS_ARRAY) {
 				 php_error_docref(NULL, E_WARNING, "Gene Unknown Method Cache:%s", method);
 				 if (method_heap) efree((char *)method);
 				 efree(path);
@@ -2079,16 +2086,25 @@ void get_router_content_run(char *methodin, char *pathin, const char *safe_str, 
 				 return;
 			 }
 			 trim(path, '/');
-			 replaceAll(path, '.', '/');
-			 if (conf && Z_TYPE_P(conf) == IS_ARRAY) {
-				 path_new = get_path_router_init(conf, path);
-				 if (path_new != path) {
-					 efree(path);
+			 {
+				 char *dotted = estrdup(path);
+				 replaceAll(path, '.', '/');
+				 if (conf && Z_TYPE_P(conf) == IS_ARRAY) {
+					 path_new = get_path_router_init(conf, path);
+					 if (path_new != path) {
+						 efree(path);
+					 }
+					 path = path_new;
 				 }
-				 path = path_new;
-			 }
 
-			 lead = get_path_router(temp, path);
+				 lead = get_path_router(temp, path);
+				 /* Registration also maps '.' → '/'; if a tree was written
+				  * with the raw dotted segment, try that before 404. */
+				 if (!lead && dotted[0] != '\0' && strcmp(dotted, path) != 0) {
+					 lead = get_path_router(temp, dotted);
+				 }
+				 efree(dotted);
+			 }
 
 			 if (lead) {
 				 get_router_info(&lead, &cacheHook);
@@ -2445,6 +2461,11 @@ PHP_METHOD(gene_router, __call) {
 	size_t router_e_len;
 	char *method, *path = NULL, *result = NULL, *tmp = NULL, *router_e, *key = NULL;
 	int path_heap = 0; /* 1: path from emalloc/estrdup; 0: stack path_buf in __call */
+	/* Must live for the whole frame: `path` is read by the tree-registration and
+	 * event-registration blocks far below. Declaring it in the inner block left
+	 * `path` dangling into a dead scope, and the compiler is free to overlay the
+	 * router_e_buf/key_buf of those blocks onto the same slots. */
+	char path_buf[512];
  
 	 if (zend_parse_parameters(ZEND_NUM_ARGS(), "sz", &method, &methodlen, &val) == FAILURE) {
 		 RETURN_NULL();
@@ -2456,7 +2477,6 @@ PHP_METHOD(gene_router, __call) {
 		 if (pathVal != NULL && Z_TYPE_P(pathVal) == IS_STRING) {
 			 group = zend_read_property(gene_router_ce, gene_strip_obj(self),GENE_ROUTER_GROUP, strlen(GENE_ROUTER_GROUP), 1,NULL);
 			 size_t path_len = Z_STRLEN_P(group) + Z_STRLEN_P(pathVal);
-			 char path_buf[512];
 			 if (path_len >= sizeof(path_buf)) {
 				 path = emalloc(path_len + 1);
 				 path_heap = 1;
@@ -2528,6 +2548,7 @@ PHP_METHOD(gene_router, __call) {
 					 }
 					 snprintf(router_e, router_e_len + 1, "%s", GENE_ROUTER_ROUTER_TREE);
 				 }
+				 trim(path, '/');
 				 if (strlen(path) == 0) {
 					 ZVAL_STRING(&pathvals, "");
 					 key_len = strlen(method) + 9;
@@ -2587,7 +2608,6 @@ PHP_METHOD(gene_router, __call) {
 						 if (key_heap) efree(key);
 					 }
 				 } else {
-					 trim(path, '/');
 					 ZVAL_STRING(&pathvals, path);
 					 replaceAll(path, '.', '/');
 					 tmp = replace_string(path, ':', GENE_ROUTER_CHIRD);
@@ -3513,7 +3533,7 @@ PHP_METHOD(gene_router, __call) {
   * {{{ gene_router_methods
   */
  const zend_function_entry gene_router_methods[] = {
-	 PHP_ME(gene_router, __construct, gene_router_void_arginfo, ZEND_ACC_PUBLIC)
+	 PHP_ME(gene_router, __construct, gene_router_construct_arginfo, ZEND_ACC_PUBLIC)
 	 PHP_ME(gene_router, getEvent, gene_router_void_arginfo, ZEND_ACC_PUBLIC)
 	 PHP_ME(gene_router, getTree, gene_router_void_arginfo, ZEND_ACC_PUBLIC)
 	 PHP_ME(gene_router, getConf, gene_router_void_arginfo, ZEND_ACC_PUBLIC)

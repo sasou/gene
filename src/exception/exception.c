@@ -1,4 +1,4 @@
-/*
+﻿/*
  +----------------------------------------------------------------------+
  | gene                                                                 |
  +----------------------------------------------------------------------+
@@ -280,6 +280,41 @@ void gene_trigger_error(int type, char *format, ...) {
 	va_end(args);
 
 	gene_throw_exception(type, message);
+	efree(message);
+}
+/* }}} */
+
+/** {{{ void gene_log_diag(int type, char *format, ...)
+ * [GENE_FIX:2026-08-23 SW-LOG] Emit a diagnostic WITHOUT invoking the
+ * userland error handler. The framework registers Gene\Exception::doError
+ * via set_error_handler(), which converts every E_WARNING/E_NOTICE into a
+ * thrown Exception; when such a diagnostic fires inside a Swoole
+ * workerStart callback (e.g. Application::workerReady()), the exception is
+ * uncaught, Swoole reports it as a worker fatal (ERRNO 503) and the master
+ * respawns the worker — an endless crash loop that never serves requests.
+ * Bootstrap-time diagnostics must reach error_log only, so the user handler
+ * is temporarily detached around php_error_docref (save/restore by value;
+ * no refcount churn). Only safe for non-bailing severities
+ * (E_WARNING/E_NOTICE/E_DEPRECATED). */
+void gene_log_diag(int type, char *format, ...) {
+	va_list args;
+	char *message;
+	zval saved_handler;
+	zend_bool had_handler;
+
+	va_start(args, format);
+	vspprintf(&message, 0, format, args);
+	va_end(args);
+
+	had_handler = (Z_TYPE(EG(user_error_handler)) != IS_UNDEF);
+	if (had_handler) {
+		saved_handler = EG(user_error_handler);
+		ZVAL_UNDEF(&EG(user_error_handler));
+	}
+	php_error_docref(NULL, type, "%s", message);
+	if (had_handler) {
+		EG(user_error_handler) = saved_handler;
+	}
 	efree(message);
 }
 /* }}} */

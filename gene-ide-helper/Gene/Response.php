@@ -140,6 +140,50 @@ class Response
     }
 
     /**
+     * write
+     * Chunked write that does not end the response.
+     * FPM: php_write + flush. Swoole: $response->write.
+     *
+     * @param string $chunk
+     * @return bool
+     */
+    public static function write($chunk) {
+
+    }
+
+    /**
+     * sseStart
+     * text/event-stream headers, disable gzip/output buffering, X-Accel-Buffering: no.
+     *
+     * @return bool
+     */
+    public static function sseStart() {
+
+    }
+
+    /**
+     * sseEvent
+     * Write one SSE frame. Arrays/objects are JSON-encoded.
+     *
+     * @param string $event
+     * @param mixed $data
+     * @return bool
+     */
+    public static function sseEvent($event, $data) {
+
+    }
+
+    /**
+     * sseEnd
+     * Equivalent to end().
+     *
+     * @return bool
+     */
+    public static function sseEnd() {
+
+    }
+
+    /**
      * setJsonHeader
      * 
      * @return mixed

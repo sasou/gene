@@ -204,13 +204,12 @@
       并给出经 `Gene\Monitor::stats()` 回采生产水位后显式设值的操作指引。
     - `gene.co_contexts_max=1024` 默认对高并发 Swoole 服务偏小，应按「单 worker 峰值协程 + 余量」显式配置；
       F1 协程 defer 自动 cleanup 落地后风险已降，但默认值指引仍缺。
-- `gene-ide-helper/Gene/Application.php` 版本注解为 5.4.3，实际 5.6.9，需更新。
-- `Router::getRouterUri()` 在 C 层有实现但 ide-helper 中无声明。
+- ide-helper 多数文件头 `@version` 仍为 5.4.3/5.6.9，与 `PHP_GENE_VERSION` 6.1.0 不一致（注解问题，非缺 API）。`Router::getRouterUri()` 已有 stub。
 
 ### 测试
 
 - **来源**：`AUDIT_REPORT_2026_08_06.md` §4.5
-- **现状**：`test/` 已有 16 个用例文件 + `TestRunner.php`。
+- **现状**：`test/` 已含 Orm / Database / Router / Lifecycle / HttpClient / RestInvoke 等 + `TestRunner.php`。
 - **仍缺独立测试的模块**：**Monitor、Exception、Factory、Memcached、RedisPool、MSSQL**。
 
 ---
@@ -235,16 +234,16 @@
 
 ### 7.2.3 ORM 能力缺口（P2，按需求驱动）
 
-- `Query` 缺 `join/group/having/union/offset/first/exists/pluck/update/delete`；无事务、关联、软删除、属性转换。
-  底层 Db 层 08-06/08-07 刚补齐 `join/union/group/having`，ORM 未透出，落差明显。
-  （`Model::find($id, true)` 已返回模型实例，`Query::first()` 仍未实现。）
+> 6.1.0 ORM v2 已落地：Query 有序 ops、`join/group/having/order/limit/first/update/delete`、`lockForUpdate`、`Model::transaction`、`createMany` 等。详见 `plan/orm-v2.md`。以下仅保留仍未做、且规格写明暂缓的项。
+
+- Query **暂缓**：`union` / `pluck` / `exists`（`union` 在 Db 侧已有）。
+- 不做 Eloquent 式：关联 `with()`、软删除、属性转换 / casts、全局 Scope。
 - `$fields` 目前仅作 SELECT 列表，`fill()`/`__set()` 不校验字段名（数字键亦可写入）→ 缺 mass-assignment 白名单。
-- API 对称性：有 `Model::updateBy()` 无 `Query::update()`；`Model::destroy($id)` 与实例 `delete()` 语义重叠。
+- `Model::destroy($id)` 与实例 `delete()` 语义重叠（文档约定即可，不必再加 API）。
 
 ### 7.2.4 文档 / 测试待办
 
-- 文档需写明：ORM 不可跨协程共享同一 Db 实例（应走 `pool` 配置）；生产环境建议 `gene.run_environment=1`
-  以关闭默认开启的 SQL history（单驱动单请求上限 200 条 ≈ 177 KB，非泄漏但会干扰内存 profiling）。
+- 文档需写明：ORM 不可跨协程共享同一 Db 实例（应走 `pool` 配置）。`gene.run_environment` 默认已是 `1`（test）；**仅 `0`（dev）** 记录 SQL history/benchmark（单驱动单请求上限约 200 条）。生产设 `2`。
 - `create()` = insert + lastId 两次独立调用，无事务包裹，需在文档说明并发下的 id 语义。
 - `sendFile()` 路径规范化仍为调用方责任（wrapper 校验已于 08-09 前置统一），需在文档写明。
 - `test/DatabaseTest.php` 中 MySQL/PgSQL/Pool 段仍是旧 API 描述（如 `Pool::initialize()`），

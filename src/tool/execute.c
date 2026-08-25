@@ -29,7 +29,7 @@
 
 zend_class_entry * gene_execute_ce;
 
-ZEND_BEGIN_ARG_INFO_EX(gene_execute_construct_arginfo, 0, 0, 1)
+ZEND_BEGIN_ARG_INFO_EX(gene_execute_construct_arginfo, 0, 0, 0)
 	ZEND_ARG_INFO(0, debug)
 ZEND_END_ARG_INFO()
 

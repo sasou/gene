@@ -33,7 +33,8 @@ class Log
      * debug
      * 
      * @param string $message
-     * @param array $context structured context data (JSON-encoded in log line)
+     * @param array $context structured context data (JSON-encoded in log line).
+     *   Gene\Context request_id is merged in automatically when set.
      * @return void
      */
     public static function debug(string $message, array $context = []) {
@@ -44,7 +45,8 @@ class Log
      * info
      * 
      * @param string $message
-     * @param array $context structured context data (JSON-encoded in log line)
+     * @param array $context structured context data (JSON-encoded in log line).
+     *   Gene\Context request_id is merged in automatically when set.
      * @return void
      */
     public static function info(string $message, array $context = []) {
@@ -55,7 +57,8 @@ class Log
      * notice
      * 
      * @param string $message
-     * @param array $context structured context data (JSON-encoded in log line)
+     * @param array $context structured context data (JSON-encoded in log line).
+     *   Gene\Context request_id is merged in automatically when set.
      * @return void
      */
     public static function notice(string $message, array $context = []) {
@@ -66,7 +69,8 @@ class Log
      * warning
      * 
      * @param string $message
-     * @param array $context structured context data (JSON-encoded in log line)
+     * @param array $context structured context data (JSON-encoded in log line).
+     *   Gene\Context request_id is merged in automatically when set.
      * @return void
      */
     public static function warning(string $message, array $context = []) {
@@ -77,7 +81,8 @@ class Log
      * error
      * 
      * @param string $message
-     * @param array $context structured context data (JSON-encoded in log line)
+     * @param array $context structured context data (JSON-encoded in log line).
+     *   Gene\Context request_id is merged in automatically when set.
      * @return void
      */
     public static function error(string $message, array $context = []) {
@@ -89,7 +94,8 @@ class Log
      * Log a critical-level message (RFC-5424 severity above ERROR).
      *
      * @param string $message
-     * @param array $context structured context data (JSON-encoded in log line)
+     * @param array $context structured context data (JSON-encoded in log line).
+     *   Gene\Context request_id is merged in automatically when set.
      * @return void
      */
     public static function critical(string $message, array $context = []) {
@@ -101,7 +107,8 @@ class Log
      * Log an alert-level message (RFC-5424 severity).
      *
      * @param string $message
-     * @param array $context structured context data (JSON-encoded in log line)
+     * @param array $context structured context data (JSON-encoded in log line).
+     *   Gene\Context request_id is merged in automatically when set.
      * @return void
      */
     public static function alert(string $message, array $context = []) {
@@ -113,7 +120,8 @@ class Log
      * Log an emergency-level message (RFC-5424 severity, highest).
      *
      * @param string $message
-     * @param array $context structured context data (JSON-encoded in log line)
+     * @param array $context structured context data (JSON-encoded in log line).
+     *   Gene\Context request_id is merged in automatically when set.
      * @return void
      */
     public static function emergency(string $message, array $context = []) {

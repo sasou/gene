@@ -1,0 +1,2 @@
+# Shell scripts must use LF on Linux CI and acceptance runners.
+*.sh text eol=lf

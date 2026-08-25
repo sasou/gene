@@ -180,6 +180,10 @@ PHP_METHOD(gene_monitor, stats) {
 	/* [GENE_FEATURE:2026-07-30 F1] auto-cleanup activity. */
 	add_assoc_long(return_value, "swoole_auto_cleanup_defers", (zend_long)GENE_G(swoole_auto_cleanup_defers));
 	add_assoc_long(return_value, "swoole_auto_cleanup_reclaimed", (zend_long)GENE_G(swoole_auto_cleanup_reclaimed));
+	/* [GENE_FIX:2026-08-23 UAF-1] Business inserts refused after the
+	 * workerReady() freeze because GENE_G(cache) was full (raise
+	 * gene.cache_reserve if this keeps growing). */
+	add_assoc_long(return_value, "cache_insert_refused", (zend_long)GENE_G(cache_insert_refused));
 }
 /* }}} */
 
@@ -213,6 +217,7 @@ PHP_METHOD(gene_monitor, reset) {
 	GENE_G(ctx_pool_miss) = 0;
 	GENE_G(closure_src_cache_flushes) = 0;
 	GENE_G(cache_easy_expired) = 0;
+	GENE_G(cache_insert_refused) = 0;
 	RETURN_TRUE;
 }
 /* }}} */

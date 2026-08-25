@@ -190,28 +190,63 @@ static void gene_log_write_message(zend_long level, const char *msg, zval *conte
 	gene_log_get_datetime(&datetime);
 	level_name = gene_log_level_name(level);
 
-	/* Build optional context suffix. */
-	size_t ctx_len = 0;
-	if (context && Z_TYPE_P(context) == IS_ARRAY && zend_hash_num_elements(Z_ARRVAL_P(context)) > 0) {
-		zval json_ret, json_opt;
-		/* [GENE_FIX:2026-08-07] Initialize defensively: if the json_encode
-		 * call ever fails to populate retval, Z_TYPE on garbage would be UB. */
-		ZVAL_UNDEF(&json_ret);
-		ZVAL_LONG(&json_opt, 0);
-		gene_json_encode(context, &json_opt, &json_ret);
-		if (Z_TYPE(json_ret) == IS_STRING) {
-			ctx_len = Z_STRLEN(json_ret);
-			ctx_json = estrndup(Z_STRVAL(json_ret), ctx_len);
+	/* [GENE_FEATURE:2026-08-22] Merge Context.request_id into structured
+	 * context. Caller-supplied request_id wins. */
+	{
+		gene_request_context *rctx = gene_request_ctx();
+		zval *rid = NULL;
+		zval merged;
+		zval *ctx_use = context;
+		ZVAL_UNDEF(&merged);
+		if (rctx && Z_TYPE(rctx->user_bag) == IS_ARRAY) {
+			rid = zend_hash_str_find(Z_ARRVAL(rctx->user_bag), ZEND_STRL("request_id"));
 		}
-		zval_ptr_dtor(&json_ret);
-	}
+		if (rid) {
+			array_init(&merged);
+			if (context && Z_TYPE_P(context) == IS_ARRAY) {
+				zend_string *mk;
+				zend_ulong mi;
+				zval *mv;
+				ZEND_HASH_FOREACH_KEY_VAL(Z_ARRVAL_P(context), mi, mk, mv) {
+					Z_TRY_ADDREF_P(mv);
+					if (mk) {
+						zend_hash_update(Z_ARRVAL(merged), mk, mv);
+					} else {
+						zend_hash_index_update(Z_ARRVAL(merged), mi, mv);
+					}
+				} ZEND_HASH_FOREACH_END();
+			}
+			if (!zend_hash_str_exists(Z_ARRVAL(merged), ZEND_STRL("request_id"))) {
+				Z_TRY_ADDREF_P(rid);
+				zend_hash_str_add(Z_ARRVAL(merged), ZEND_STRL("request_id"), rid);
+			}
+			ctx_use = &merged;
+		}
 
-	if (ctx_json) {
-		log_line_len = spprintf(&log_line, 0, "[%s] [Gene.%s] %s {%.*s}",
-			datetime, level_name, msg, (int)ctx_len, ctx_json);
-		efree(ctx_json);
-	} else {
-		log_line_len = spprintf(&log_line, 0, "[%s] [Gene.%s] %s", datetime, level_name, msg);
+		/* Build optional context suffix. */
+		size_t ctx_len = 0;
+		if (ctx_use && Z_TYPE_P(ctx_use) == IS_ARRAY && zend_hash_num_elements(Z_ARRVAL_P(ctx_use)) > 0) {
+			zval json_ret, json_opt;
+			ZVAL_UNDEF(&json_ret);
+			ZVAL_LONG(&json_opt, 0);
+			gene_json_encode(ctx_use, &json_opt, &json_ret);
+			if (Z_TYPE(json_ret) == IS_STRING) {
+				ctx_len = Z_STRLEN(json_ret);
+				ctx_json = estrndup(Z_STRVAL(json_ret), ctx_len);
+			}
+			zval_ptr_dtor(&json_ret);
+		}
+		if (Z_TYPE(merged) != IS_UNDEF) {
+			zval_ptr_dtor(&merged);
+		}
+
+		if (ctx_json) {
+			log_line_len = spprintf(&log_line, 0, "[%s] [Gene.%s] %s {%.*s}",
+				datetime, level_name, msg, (int)ctx_len, ctx_json);
+			efree(ctx_json);
+		} else {
+			log_line_len = spprintf(&log_line, 0, "[%s] [Gene.%s] %s", datetime, level_name, msg);
+		}
 	}
 	efree(datetime);
 

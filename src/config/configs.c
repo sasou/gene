@@ -36,7 +36,7 @@ ZEND_BEGIN_ARG_INFO_EX(gene_config_construct, 0, 0, 0)
 	ZEND_ARG_INFO(0, safe)
 ZEND_END_ARG_INFO()
 
-ZEND_BEGIN_ARG_INFO_EX(gene_config_set, 0, 0, 3)
+ZEND_BEGIN_ARG_INFO_EX(gene_config_set, 0, 0, 2)
 	ZEND_ARG_INFO(0, key)
     ZEND_ARG_INFO(0, value)
     ZEND_ARG_INFO(0, ttl)

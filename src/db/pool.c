@@ -28,6 +28,7 @@
  #include "../factory/factory.h"
  #include "../config/configs.h"
  #include "../cache/memory.h"
+ #include "../exception/exception.h"
  #include "../db/pool.h"
  #include "../db/pdo.h"
   
@@ -206,6 +207,11 @@ static void pool_start_idle_recycler(zval *self)
  /* {{{ ARG_INFO */
  ZEND_BEGIN_ARG_INFO_EX(gene_pool_void_arginfo, 0, 0, 0)
  ZEND_END_ARG_INFO()
+
+ /* Swoole\Timer::tick invokes the callback as recycleIdle($timerId). */
+ ZEND_BEGIN_ARG_INFO_EX(gene_pool_recycle_idle_arginfo, 0, 0, 0)
+     ZEND_ARG_INFO(0, timerId)
+ ZEND_END_ARG_INFO()
   
  ZEND_BEGIN_ARG_INFO_EX(gene_pool_construct_arginfo, 0, 0, 1)
      ZEND_ARG_INFO(0, config)
@@ -330,7 +336,28 @@ static void pool_start_idle_recycler(zval *self)
      }
 
      if (EG(exception)) {
+         /* [GENE_FIX:2026-08-25] Swallowing the PDOException silently turns
+          * every misconfiguration (bad dsn, wrong credentials, a bogus PDO
+          * option) into an indistinguishable get() === null. Log the reason
+          * before clearing, rate-limited to one line per second so a backend
+          * outage under load cannot flood error_log. gene_log_diag keeps the
+          * userland error handler detached — see the SW-LOG note there. */
+         static time_t last_diag = 0;
+         time_t now = time(NULL);
+         zend_string *reason = NULL;
+         if (now != last_diag) {
+             zend_object *ex = EG(exception);
+             zval rv, *msg = zend_read_property(ex->ce, ex, ZEND_STRL("message"), 1, &rv);
+             if (msg && Z_TYPE_P(msg) == IS_STRING) {
+                 reason = zend_string_copy(Z_STR_P(msg));
+             }
+             last_diag = now;
+         }
          zend_clear_exception();
+         if (reason) {
+             gene_log_diag(E_WARNING, "Gene\\Pool: connection creation failed: %s", ZSTR_VAL(reason));
+             zend_string_release(reason);
+         }
          zval_ptr_dtor(&pdo_object);
          return;
      }
@@ -465,10 +492,16 @@ static void pool_start_idle_recycler(zval *self)
  static void pool_atomic_call_fn(zval *atomic, zend_function *fn, zend_long arg, zval *retval) {
      zval params[1], ret_local;
      if (!retval) retval = &ret_local;
-     ZVAL_LONG(&params[0], arg);
      ZVAL_UNDEF(retval);
      if (EXPECTED(fn)) {
-         zend_call_known_function(fn, Z_OBJ_P(atomic), Z_OBJCE_P(atomic), retval, 1, params, NULL);
+         /* Swoole\Atomic::get() is 0-arg (Swoole 6 uses ZEND_PARSE_PARAMETERS_NONE).
+          * Passing a dummy long is an arginfo/zpp mismatch → Fatal in rshutdown. */
+         if (fn->common.num_args == 0) {
+             zend_call_known_function(fn, Z_OBJ_P(atomic), Z_OBJCE_P(atomic), retval, 0, NULL, NULL);
+         } else {
+             ZVAL_LONG(&params[0], arg);
+             zend_call_known_function(fn, Z_OBJ_P(atomic), Z_OBJCE_P(atomic), retval, 1, params, NULL);
+         }
      }
      if (retval == &ret_local) {
          if (!Z_ISUNDEF(ret_local)) zval_ptr_dtor(&ret_local);
@@ -1043,6 +1076,12 @@ PHP_METHOD(gene_pool, get)
   */
  PHP_METHOD(gene_pool, recycleIdle)
  {
+     zend_long timer_id = 0;
+     ZEND_PARSE_PARAMETERS_START(0, 1)
+         Z_PARAM_OPTIONAL
+         Z_PARAM_LONG(timer_id)
+     ZEND_PARSE_PARAMETERS_END();
+     (void)timer_id;
      pool_recycle_idle(getThis());
  }
  /* }}} */
@@ -1356,13 +1395,44 @@ PHP_METHOD(gene_pool, get)
         }
     }
 
-    /* Read DB config from persistent cache using configKey */
-    char cache_key[256];
-    size_t cache_key_len = ZSTR_LEN(configKey) + sizeof(GENE_CONFIG_CACHE) - 1;
-    if (cache_key_len < sizeof(cache_key)) {
-        memcpy(cache_key, ZSTR_VAL(configKey), ZSTR_LEN(configKey));
-        memcpy(cache_key + ZSTR_LEN(configKey), GENE_CONFIG_CACHE, sizeof(GENE_CONFIG_CACHE) - 1);
-        config_data = gene_memory_get(cache_key, cache_key_len);
+    /* Read DB config from persistent cache using configKey.
+     * [GENE_FIX:2026-08-25] The config cache is keyed by
+     * "<app_key|app_root>:config" with the config name as a nested path (see
+     * Gene\Config::set -> gene_memory_set_by_router). The previous key
+     * "<configKey>:config" never matched, so dsn/username/password were
+     * silently dropped and every pooled connection failed to be created.
+     * Mirror the Gene\Di / Gene\Cache\RedisPool lookup instead. */
+    {
+        char cache_key_buf[256];
+        char *cache_key = cache_key_buf;
+        int cache_key_heap = 0;
+        const char *prefix = NULL;
+        size_t prefix_len = 0, cache_key_len;
+
+        if (GENE_G(app_key) && GENE_G(app_key)[0] != '\0') {
+            prefix = GENE_G(app_key);
+            prefix_len = GENE_G(app_key_len);
+        } else if (GENE_G(app_root) && GENE_G(app_root)[0] != '\0') {
+            prefix = GENE_G(app_root);
+            prefix_len = GENE_G(app_root_len);
+        }
+
+        cache_key_len = prefix_len + sizeof(GENE_CONFIG_CACHE) - 1;
+        if (cache_key_len >= sizeof(cache_key_buf)) {
+            cache_key = emalloc(cache_key_len + 1);
+            cache_key_heap = 1;
+        }
+        if (prefix_len) memcpy(cache_key, prefix, prefix_len);
+        memcpy(cache_key + prefix_len, GENE_CONFIG_CACHE, sizeof(GENE_CONFIG_CACHE));
+
+        config_data = gene_memory_get_by_config(cache_key, cache_key_len, ZSTR_VAL(configKey));
+        if (cache_key_heap) efree(cache_key);
+
+        if (!config_data || Z_TYPE_P(config_data) != IS_ARRAY) {
+            php_error_docref(NULL, E_WARNING,
+                "config key '%s' not found in config cache",
+                ZSTR_VAL(configKey));
+        }
         if (config_data && Z_TYPE_P(config_data) == IS_ARRAY) {
             zval *params = zend_hash_str_find(Z_ARRVAL_P(config_data), ZEND_STRL("params"));
             if (params && Z_TYPE_P(params) == IS_ARRAY) {
@@ -1373,21 +1443,24 @@ PHP_METHOD(gene_pool, get)
                     zval *password = zend_hash_index_find(Z_ARRVAL_P(first_param), 2);
                     zval *db_options = zend_hash_index_find(Z_ARRVAL_P(first_param), 3);
 
+                    /* Values live in the persistent cache: copy them into
+                     * request-local zvals instead of sharing refcounts. */
                     if (dsn && Z_TYPE_P(dsn) == IS_STRING) {
-                        zend_string_addref(Z_STR_P(dsn));
-                        add_assoc_str_ex(&pool_config, ZEND_STRL("dsn"), Z_STR_P(dsn));
+                        add_assoc_stringl_ex(&pool_config, ZEND_STRL("dsn"),
+                            Z_STRVAL_P(dsn), Z_STRLEN_P(dsn));
                     }
                     if (username && Z_TYPE_P(username) == IS_STRING) {
-                        zend_string_addref(Z_STR_P(username));
-                        add_assoc_str_ex(&pool_config, ZEND_STRL("username"), Z_STR_P(username));
+                        add_assoc_stringl_ex(&pool_config, ZEND_STRL("username"),
+                            Z_STRVAL_P(username), Z_STRLEN_P(username));
                     }
                     if (password && Z_TYPE_P(password) == IS_STRING) {
-                        zend_string_addref(Z_STR_P(password));
-                        add_assoc_str_ex(&pool_config, ZEND_STRL("password"), Z_STR_P(password));
+                        add_assoc_stringl_ex(&pool_config, ZEND_STRL("password"),
+                            Z_STRVAL_P(password), Z_STRLEN_P(password));
                     }
                     if (db_options && Z_TYPE_P(db_options) == IS_ARRAY) {
-                        Z_TRY_ADDREF_P(db_options);
-                        add_assoc_zval(&pool_config, "options", db_options);
+                        zval opts_local;
+                        gene_memory_zval_local(&opts_local, db_options);
+                        add_assoc_zval(&pool_config, "options", &opts_local);
                     }
                 }
             }
@@ -1603,7 +1676,7 @@ PHP_METHOD(gene_pool, get)
      PHP_ME(gene_pool, close, gene_pool_void_arginfo, ZEND_ACC_PUBLIC)
      PHP_ME(gene_pool, closeAll, gene_pool_void_arginfo, ZEND_ACC_PUBLIC|ZEND_ACC_STATIC)
      PHP_ME(gene_pool, stopTimers, gene_pool_void_arginfo, ZEND_ACC_PUBLIC|ZEND_ACC_STATIC)
-     PHP_ME(gene_pool, recycleIdle, gene_pool_void_arginfo, ZEND_ACC_PUBLIC)
+     PHP_ME(gene_pool, recycleIdle, gene_pool_recycle_idle_arginfo, ZEND_ACC_PUBLIC)
      PHP_ME(gene_pool, healthCheck, gene_pool_void_arginfo, ZEND_ACC_PUBLIC)
      PHP_ME(gene_pool, stats, gene_pool_void_arginfo, ZEND_ACC_PUBLIC)
      {NULL, NULL, NULL}

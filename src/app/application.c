@@ -62,6 +62,8 @@ ZEND_END_ARG_INFO()
 ZEND_BEGIN_ARG_INFO_EX(gene_application_set_mode, 0, 0, 0)
 	ZEND_ARG_INFO(0, error_type)
 	ZEND_ARG_INFO(0, exception_type)
+	ZEND_ARG_INFO(0, ex_callback)
+	ZEND_ARG_INFO(0, error_callback)
 ZEND_END_ARG_INFO()
 
 ZEND_BEGIN_ARG_INFO_EX(gene_application_set_view, 0, 0, 0)
@@ -69,13 +71,13 @@ ZEND_BEGIN_ARG_INFO_EX(gene_application_set_view, 0, 0, 0)
 	ZEND_ARG_INFO(0, tpl_ext)
 ZEND_END_ARG_INFO()
 
-ZEND_BEGIN_ARG_INFO_EX(gene_application_error, 0, 0, 3)
+ZEND_BEGIN_ARG_INFO_EX(gene_application_error, 0, 0, 1)
 	ZEND_ARG_INFO(0, type)
 	ZEND_ARG_INFO(0, callback)
 	ZEND_ARG_INFO(0, error_type)
 ZEND_END_ARG_INFO()
 
-ZEND_BEGIN_ARG_INFO_EX(gene_application_exception, 0, 0, 2)
+ZEND_BEGIN_ARG_INFO_EX(gene_application_exception, 0, 0, 1)
 	ZEND_ARG_INFO(0, type)
 	ZEND_ARG_INFO(0, callback)
 ZEND_END_ARG_INFO()
@@ -147,6 +149,10 @@ ZEND_BEGIN_ARG_INFO_EX(gene_application_get_runtime_type_name, 0, 0, 0)
 ZEND_END_ARG_INFO()
 
 ZEND_BEGIN_ARG_INFO_EX(gene_application_config, 0, 0, 1)
+	ZEND_ARG_INFO(0, key)
+ZEND_END_ARG_INFO()
+
+ZEND_BEGIN_ARG_INFO_EX(gene_application_params, 0, 0, 0)
 	ZEND_ARG_INFO(0, key)
 ZEND_END_ARG_INFO()
 
@@ -1327,18 +1333,65 @@ PHP_METHOD(gene_application, webscan) {
  */
 PHP_METHOD(gene_application, workerReady) {
 	zval *self = getThis();
+	/* [GENE_FIX:2026-08-23 IDEMPOTENT] workerReady is a once-per-worker
+	 * bootstrap hook: the freeze flag, bucket-array reserve and ctx-pool
+	 * prewarm are one-shot by nature. Absorb per-request misuse (calling it
+	 * from onRequest) with an early return — otherwise every call re-takes
+	 * the write lock and re-runs zend_hash_extend(), which, once the table
+	 * has filled past nTableSize-reserve, does a full pemalloc+memcpy+rehash
+	 * per request AND moves arData post-freeze, invalidating every borrowed
+	 * route/DI/config pointer (reintroducing the UAF that UAF-1 eliminated).
+	 * The contradictory-config warning would also hit error_log on every
+	 * request instead of once per worker. */
+	if (GENE_G(worker_ready)) {
+		if (self) {
+			RETURN_ZVAL(self, 1, 0);
+		}
+		RETURN_TRUE;
+	}
+	/* [GENE_FIX:2026-08-23 P2-3] cache_reserve must exceed cache_max_items:
+	 * with reserve <= max_items the frozen table fills up before the LRU cap
+	 * is ever reached, so eviction never triggers and every new business key
+	 * is silently refused by the insert guard (cache_insert_refused grows,
+	 * the whole Gene\Cache layer degrades to permanent misses).
+	 * [GENE_FIX:2026-08-23 AUTO-RESERVE] The contradiction can never be
+	 * intentional (reserve is internal bucket-array headroom, not a business
+	 * capacity), so gene_memory_reserve() auto-corrects it upward to
+	 * max_items + margin; warn here so operators still fix php.ini.
+	 * [GENE_FIX:2026-08-23 SW-LOG] In Swoole mode (runtime_type >= 2) this
+	 * runs inside the workerStart callback where an uncaught exception from
+	 * the Gene\Exception error handler kills the worker and the master
+	 * respawns it — an endless crash loop. Log-only via gene_log_diag() so
+	 * the service keeps running; FPM keeps the loud user-handler path. */
+	if (GENE_G(cache_max_items) > 0
+			&& GENE_G(cache_reserve) <= GENE_G(cache_max_items)) {
+		if (GENE_G(runtime_type) >= 2) {
+			gene_log_diag(E_WARNING,
+				"Gene: gene.cache_reserve (" ZEND_LONG_FMT ") must be greater than gene.cache_max_items (" ZEND_LONG_FMT "); effective reserve auto-corrected to " ZEND_LONG_FMT " so LRU eviction can trigger before the frozen table fills; please raise gene.cache_reserve in php.ini",
+				GENE_G(cache_reserve), GENE_G(cache_max_items),
+				gene_cache_effective_reserve());
+		} else {
+			php_error_docref(NULL, E_WARNING,
+				"Gene: gene.cache_reserve (" ZEND_LONG_FMT ") must be greater than gene.cache_max_items (" ZEND_LONG_FMT "); effective reserve auto-corrected to " ZEND_LONG_FMT " so LRU eviction can trigger before the frozen table fills; please raise gene.cache_reserve in php.ini",
+				GENE_G(cache_reserve), GENE_G(cache_max_items),
+				gene_cache_effective_reserve());
+		}
+	}
+	/* [GENE_FIX:2026-08-23 UAF-1] Reserve bucket-array headroom BEFORE
+	 * flipping the freeze flag so no reader can observe the table mid-extend.
+	 * After this point the arData address must stay constant. */
+	gene_memory_reserve();
 	GENE_G(worker_ready) = 1;
 	if (GENE_G(runtime_type) >= 2 && GENE_G(ctx_pool_size) == 0) {
 		gene_request_context_pool_prewarm(-1);
 	}
-	/* Keep cache_max_items=0 backward compatible, but make the long-running
-	 * worker risk visible exactly once after the routing/config cache freezes. */
-	if (GENE_G(runtime_type) >= 2 && GENE_G(cache_max_items) == 0
-			&& !GENE_G(cache_unlimited_noticed)) {
-		php_error_docref(NULL, E_NOTICE,
-			"Gene: gene.cache_max_items=0 leaves Gene\\Cache entries unbounded in this Swoole worker; set an explicit capacity for high-cardinality workloads");
-		GENE_G(cache_unlimited_noticed) = 1;
-	}
+	/* [GENE_FIX:2026-08-24 NOTICE-1] Removed the one-time "cache_max_items=0
+	 * leaves entries unbounded" advisory: 0 (unbounded) is the documented
+	 * default and a perfectly ordinary, often intentional choice, not a
+	 * misconfiguration — unlike the reserve<=max_items case above, there is
+	 * no contradictory state to warn about here, so logging on every worker
+	 * boot was pure noise for the common case. cache_unlimited_noticed stays
+	 * a no-op field for now rather than removing the ini/global wholesale. */
 	if (self) {
 		RETURN_ZVAL(self, 1, 0);
 	}
@@ -1539,7 +1592,7 @@ const zend_function_entry gene_application_methods[] = {
 	PHP_ME(gene_application, getRuntimeType, gene_application_get_runtime_type, ZEND_ACC_PUBLIC|ZEND_ACC_STATIC)
 	PHP_ME(gene_application, getRuntimeTypeName, gene_application_get_runtime_type_name, ZEND_ACC_PUBLIC|ZEND_ACC_STATIC)
 	PHP_ME(gene_application, config, gene_application_config, ZEND_ACC_PUBLIC|ZEND_ACC_STATIC)
-	PHP_ME(gene_application, params, gene_application_config, ZEND_ACC_PUBLIC|ZEND_ACC_STATIC)
+	PHP_ME(gene_application, params, gene_application_params, ZEND_ACC_PUBLIC|ZEND_ACC_STATIC)
 	PHP_ME(gene_application, __get, gene_application_get, ZEND_ACC_PUBLIC)
 	PHP_ME(gene_application, __set, gene_application_set, ZEND_ACC_PUBLIC)
 	{ NULL, NULL, NULL }

@@ -13,6 +13,11 @@ class BeforeHook extends \Gene\Hook
      */
     public function handle()
     {
+        $cors = new Cors();
+        if ($cors->handle() === false) {
+            return false;
+        }
+        (new RequestId())->handle();
         $user = $this->session->get('admin');
         \Gene\Di::set('user', $user);
         return true;

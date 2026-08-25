@@ -18,18 +18,27 @@
 #define GENE_MEMORY_H
 #define GENE_MEMORY_SAFE	"safe"
 #define PHP_GENE_URL_PARAMS ":gene_url"
-/* Skip read locks when worker_ready is set: after workerReady() the
- * persistent cache is read-only, so read locks only add contention
- * across Swoole coroutines without providing safety.  In FPM mode
- * worker_ready is always 0, so locks are always taken (correct). */
-#define GENE_CACHE_RDLOCK()    do { if (!GENE_G(worker_ready)) gene_rwlock_rdlock(&GENE_G(cache_lock)); } while(0)
-#define GENE_CACHE_RDUNLOCK()  do { if (!GENE_G(worker_ready)) gene_rwlock_rdunlock(&GENE_G(cache_lock)); } while(0)
+/* Skip read locks when worker_ready is set AND no business-layer write has
+ * happened since the freeze: only then is the persistent cache truly
+ * read-only. The first Gene\Cache request-time write sets
+ * cache_business_dirty, after which readers take the rwlock again so a
+ * concurrent set/del/evict cannot move or free memory under them.
+ * In FPM mode worker_ready is always 0, so locks are always taken (correct). */
+#define GENE_CACHE_RDLOCK()    do { if (!GENE_G(worker_ready) || GENE_G(cache_business_dirty)) gene_rwlock_rdlock(&GENE_G(cache_lock)); } while(0)
+#define GENE_CACHE_RDUNLOCK()  do { if (!GENE_G(worker_ready) || GENE_G(cache_business_dirty)) gene_rwlock_rdunlock(&GENE_G(cache_lock)); } while(0)
 #define GENE_CACHE_WRLOCK()    gene_rwlock_wrlock(&GENE_G(cache_lock))
 #define GENE_CACHE_WRUNLOCK()  gene_rwlock_wrunlock(&GENE_G(cache_lock))
 
-/* Internal: cache.c only — bracket each gene_memory_set/del from Cache methods.
- * Do not span gene_cache_call() or other userland; see gene_memory_write_allowed. */
-#define GENE_CACHE_LAYER_MEMORY_WRITE_ENTER() (GENE_G(cache_layer_memory_write_depth)++)
+/* Bracket each direct gene_memory_set()/gene_memory_del()/gene_memory_adjust()
+ * call from Gene\Cache's own methods (cache.c) AND from Gene\Memory's own
+ * PHP-facing set/del/rateLimit/lock/unlock/incr/decr/mset (memory.c) —
+ * [GENE_FIX:2026-08-24 MEM-RW]. Do not span gene_cache_call() or other
+ * userland callbacks; keep the bracket tight around the leaf write call
+ * itself. See gene_memory_write_allowed(). */
+#define GENE_CACHE_LAYER_MEMORY_WRITE_ENTER() do { \
+	GENE_G(cache_layer_memory_write_depth)++; \
+	GENE_G(cache_business_dirty) = 1; \
+} while (0)
 #define GENE_CACHE_LAYER_MEMORY_WRITE_LEAVE() do { \
 	if (GENE_G(cache_layer_memory_write_depth) > 0) { \
 		GENE_G(cache_layer_memory_write_depth)--; \
@@ -85,6 +94,18 @@ filenode * file_cache_get_easy(char *keyString, size_t keyString_len);
 
 void gene_memory_hash_copy_local(HashTable *target, HashTable *source);
 zval * gene_memory_zval_local(zval *dst, zval *source);
+/* [GENE_FIX:2026-08-23 UAF-2] Request-scope deep copy (no borrowed persistent
+ * pointers) for Gene\Cache business reads; see memory.c. */
+zval * gene_memory_zval_local_copy(zval *dst, zval *source);
+/* [GENE_FIX:2026-08-23 UAF-1] Reserve headroom in GENE_G(cache) at the
+ * workerReady() freeze boundary so post-freeze business inserts never trigger
+ * a perealloc of the bucket array (which would invalidate every borrowed
+ * route/DI/config pointer). */
+void gene_memory_reserve(void);
+/* [GENE_FIX:2026-08-23 AUTO-RESERVE] Effective reserve used by
+ * gene_memory_reserve(): auto-corrects the contradictory
+ * cache_reserve <= cache_max_items combination upward; see memory.c. */
+zend_long gene_cache_effective_reserve(void);
 
 GENE_MINIT_FUNCTION (memory);
 

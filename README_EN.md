@@ -57,8 +57,10 @@ After six rounds of rigorous code audit, the framework features:
 |---------|-------------|-----------|
 | **Routing System** | HTTP REST support, binary tree algorithm, group routing, hook mechanism | ⭐⭐⭐⭐⭐ |
 | **Dependency Injection** | IoC container, supports global injection and local control inversion | ⭐⭐⭐⭐⭐ |
-| **Database** | PDO ORM, connection pool, supports MySQL/PostgreSQL/SQLite etc | ⭐⭐⭐⭐⭐ |
+| **Database** | Four PDO drivers + ORM v2 (ordered Query, batch writes, row locks, IN) | ⭐⭐⭐⭐⭐ |
 | **Cache System** | Method-level caching, real-time version caching, multiple backend support | ⭐⭐⭐⭐⭐ |
+| **Outbound HTTP** | `Gene\Http` (FPM=curl, Swoole=coroutine client); in-process `Invoke`/`Rest` | ⭐⭐⭐⭐☆ |
+| **Request bag / primitives** | `Context`, `Request::json`, `Json`, SSE, `Crypto`, rate limit / lock | ⭐⭐⭐⭐☆ |
 | **View Engine** | Compiled template, native PHP template, layout support | ⭐⭐⭐⭐☆ |
 | **Hooks** | AOP-style route hooks, configuration registration, decoupled calls (middleware pipeline is a future proposal) | ⭐⭐⭐⭐⭐ |
 | **Session Management** | Multi-driver support, Swoole adaptation | ⭐⭐⭐⭐☆ |
