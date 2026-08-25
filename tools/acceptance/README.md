@@ -58,3 +58,5 @@ GENE_SO=/path/to/gene.so bash tools/acceptance/linux_swoole_verify.sh --no-build
 ```
 
 脚本返回非零即表示至少一个启用阶段失败；输出目录同时生成 `status.tsv`、`summary.txt` 与同名 `.tar.gz` 归档。
+
+`tx-hygiene` 之后若使用 `--all` / `--web`，会进入 **gene-web** 阶段（wrk 压测默认约 2.5 分钟，此前脚本无进度日志，易被误判为卡住）。若 `gene_web` 的 MySQL/Redis 不可达，`/healthz` 会在 `waitWorkerReady()` 上阻塞；请查看输出目录中的 `gene-web-swoole.log`，并视环境设置 `GENE_RUN_ENVIRONMENT=0|1`（默认已改为 `1` 即 test 配置）。
