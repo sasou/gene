@@ -283,9 +283,8 @@ bool sqliteInitPdo (zval * self, zval *config) {
 	zval_ptr_dtor(&option);
 
 	if (EG(exception)) {
-		if (checkPdoError(EG(exception))) {
-			zend_clear_exception();
-		}
+		zval_ptr_dtor(&pdo_object);
+		return -1;
 	}
     zend_update_property(gene_db_sqlite_ce, gene_strip_obj(self), ZEND_STRL(GENE_DB_SQLITE_PDO), &pdo_object);
     zval_ptr_dtor(&pdo_object);
