@@ -1507,6 +1507,10 @@ PHP_MINIT_FUNCTION(gene) {
  *  */
 ZEND_BEGIN_ARG_INFO_EX(gene_void_arginfo, 0, 0, 0)
 ZEND_END_ARG_INFO()
+
+ZEND_BEGIN_ARG_INFO_EX(gene_auto_cleanup_defer_arginfo, 0, 0, 0)
+	ZEND_ARG_INFO(0, data)
+ZEND_END_ARG_INFO()
 /* }}} */
 
 /*
@@ -1660,7 +1664,12 @@ PHP_FUNCTION(gene_version) {
  * accident.
  */
 PHP_FUNCTION(gene_auto_cleanup_defer) {
-	ZEND_PARSE_PARAMETERS_NONE();
+	zval *data = NULL;
+	ZEND_PARSE_PARAMETERS_START(0, 1)
+		Z_PARAM_OPTIONAL
+		Z_PARAM_ZVAL(data)
+	ZEND_PARSE_PARAMETERS_END();
+	(void)data;
 	if (GENE_G(swoole_auto_cleanup) && GENE_G(runtime_type) >= 2 && GENE_G(co_contexts)) {
 		zend_long cid = gene_get_coroutine_id();
 		if (cid >= 0) {
@@ -1684,7 +1693,7 @@ PHP_FUNCTION(gene_auto_cleanup_defer) {
  */
 const zend_function_entry gene_functions[] = {
 	PHP_FE(gene_version, gene_void_arginfo)
-	PHP_FE(gene_auto_cleanup_defer, gene_void_arginfo)
+	PHP_FE(gene_auto_cleanup_defer, gene_auto_cleanup_defer_arginfo)
 	PHP_FE_END
 };
 /* }}} */
