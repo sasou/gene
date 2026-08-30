@@ -43,6 +43,10 @@ class Request
 
     }
 
+    public static function input(?string $key = null, $default = null) {
+
+    }
+
     /**
      * post
      * 
@@ -235,7 +239,7 @@ class Request
     }
 
     /**
-     * Bearer token from Authorization header. Empty → null.
+     * Bearer token from Authorization header. Non-Bearer or empty → null.
      *
      * @return string|null
      */

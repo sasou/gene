@@ -109,6 +109,19 @@ static void gene_request_set_header_val(zval *header) {
 	setVal(7, header);
 }
 
+void gene_request_input_invalidate(gene_request_context *ctx) {
+	if (!ctx) return;
+	if (Z_TYPE(ctx->request_json) != IS_UNDEF) {
+		zval_ptr_dtor(&ctx->request_json);
+		ZVAL_UNDEF(&ctx->request_json);
+	}
+	if (ctx->request_json_error) {
+		zend_string_release(ctx->request_json_error);
+		ctx->request_json_error = NULL;
+	}
+	ctx->request_json_state = 0;
+}
+
 /** {{{ ARG_INFO
  */
 ZEND_BEGIN_ARG_INFO_EX(geme_request_void_arginfo, 0, 0, 0)
@@ -141,6 +154,11 @@ ZEND_END_ARG_INFO()
 
 ZEND_BEGIN_ARG_INFO_EX(gene_request_get_arginfo, 0, 0, 1)
 	ZEND_ARG_INFO(0, name)
+ZEND_END_ARG_INFO()
+
+ZEND_BEGIN_ARG_INFO_EX(gene_request_input_arginfo, 0, 0, 0)
+	ZEND_ARG_INFO(0, key)
+	ZEND_ARG_INFO(0, default_value)
 ZEND_END_ARG_INFO()
 
 ZEND_BEGIN_ARG_INFO_EX(gene_request_set_arginfo, 0, 0, 2)
@@ -259,6 +277,7 @@ int gene_request_restore_ctx(gene_request_context *ctx) {
 	for (i = 0; i < sizeof(gene_request_stack_idxs) / sizeof(gene_request_stack_idxs[0]); i++) {
 		gene_request_restore_index(Z_ARRVAL(ctx->request_attr), Z_ARRVAL_P(last), gene_request_stack_idxs[i]);
 	}
+	gene_request_input_invalidate(ctx);
 	zend_hash_index_del(Z_ARRVAL(ctx->request_stack), last_idx);
 	if (zend_hash_num_elements(Z_ARRVAL(ctx->request_stack)) == 0) {
 		zend_hash_clean(Z_ARRVAL(ctx->request_stack));
@@ -673,6 +692,13 @@ PHP_METHOD(gene_request, init) {
 	if (zend_parse_parameters(ZEND_NUM_ARGS(), "|zzzzzzzzz", &get, &post, &cookie, &server, &env, &files, &request, &header, &raw_content) == FAILURE) {
 		return;
 	}
+	{
+		gene_request_context *ctx = gene_request_ctx();
+		gene_request_input_invalidate(ctx);
+		if (Z_TYPE(ctx->request_attr) == IS_ARRAY) {
+			zend_hash_index_del(Z_ARRVAL(ctx->request_attr), GENE_REQUEST_ATTR_RAW);
+		}
+	}
 	if (raw_content && Z_TYPE_P(raw_content) == IS_STRING) {
 		setVal(8, raw_content);
 	}
@@ -780,31 +806,140 @@ PHP_METHOD(gene_request, _set) {
  *  - Swoole: returned from index 8 set via Request::init($..., $rawContent).
  *  - FPM/CLI/CGI: read on-demand from php://input and cached at index 8.
  */
-PHP_METHOD(gene_request, rawContent) {
-	zval *cached = getVal(8, NULL, 0);
+static void gene_request_raw_value(zval *return_value) {
+	zval *cached = getVal(GENE_REQUEST_ATTR_RAW, NULL, 0);
 	php_stream *stream;
 	zend_string *contents;
-
 	if (cached && Z_TYPE_P(cached) == IS_STRING) {
-		RETURN_ZVAL(cached, 1, 0);
+		ZVAL_COPY(return_value, cached);
+		return;
 	}
-
 	stream = php_stream_open_wrapper("php://input", "rb", 0, NULL);
 	if (!stream) {
-		RETURN_EMPTY_STRING();
+		ZVAL_EMPTY_STRING(return_value);
+		return;
 	}
 	contents = php_stream_copy_to_mem(stream, PHP_STREAM_COPY_ALL, 0);
 	php_stream_close(stream);
 	if (!contents) {
-		RETURN_EMPTY_STRING();
+		ZVAL_EMPTY_STRING(return_value);
+		return;
 	}
-	{
-		zval tmp;
-		ZVAL_STR(&tmp, contents);
-		setVal(8, &tmp);
-		zval_ptr_dtor(&tmp);
+	ZVAL_STR(return_value, contents);
+	setVal(GENE_REQUEST_ATTR_RAW, return_value);
+}
+
+static int gene_request_json_value(gene_request_context *ctx, zval *return_value) {
+	zval raw, decoded;
+	if (ctx->request_json_state == 2) {
+		zend_throw_exception_ex(NULL, 0, "%s", ctx->request_json_error ? ZSTR_VAL(ctx->request_json_error) : "Gene\\Request JSON decode failed");
+		return FAILURE;
 	}
-	RETURN_STR_COPY(contents);
+	if (ctx->request_json_state == 1 || ctx->request_json_state == 3) {
+		ZVAL_COPY(return_value, &ctx->request_json);
+		return SUCCESS;
+	}
+	gene_request_raw_value(&raw);
+	if (Z_TYPE(raw) != IS_STRING || Z_STRLEN(raw) == 0) {
+		zval_ptr_dtor(&raw);
+		ZVAL_NULL(&ctx->request_json);
+		ctx->request_json_state = 3;
+		ZVAL_NULL(return_value);
+		return SUCCESS;
+	}
+	ZVAL_UNDEF(&decoded);
+	if (gene_json_decode_throw(Z_STR(raw), &decoded) != SUCCESS) {
+		zval *message = EG(exception) ? zend_read_property(EG(exception)->ce, EG(exception), ZEND_STRL("message"), 1, NULL) : NULL;
+		zval_ptr_dtor(&raw);
+		ctx->request_json_error = message && Z_TYPE_P(message) == IS_STRING
+			? zend_string_copy(Z_STR_P(message))
+			: zend_string_init("Gene\\Request JSON decode failed", sizeof("Gene\\Request JSON decode failed") - 1, 0);
+		ctx->request_json_state = 2;
+		return FAILURE;
+	}
+	zval_ptr_dtor(&raw);
+	ZVAL_COPY_VALUE(&ctx->request_json, &decoded);
+	ctx->request_json_state = 1;
+	ZVAL_COPY(return_value, &ctx->request_json);
+	return SUCCESS;
+}
+
+static zend_bool gene_request_json_content_type(void) {
+	zval *type = getVal(7, ZEND_STRL("Content-Type"));
+	const char *p;
+	size_t len, i;
+	if (!type || Z_TYPE_P(type) != IS_STRING) {
+		type = getVal(TRACK_VARS_SERVER, ZEND_STRL("CONTENT_TYPE"));
+	}
+	if (!type || Z_TYPE_P(type) != IS_STRING) return 0;
+	p = Z_STRVAL_P(type);
+	len = Z_STRLEN_P(type);
+	for (i = 0; i < len && p[i] != ';'; i++) {}
+	len = i;
+	while (len && (p[len - 1] == ' ' || p[len - 1] == '\t')) len--;
+	while (len && (*p == ' ' || *p == '\t')) { p++; len--; }
+	if (len == sizeof("application/json") - 1 && !strncasecmp(p, "application/json", len)) return 1;
+	return len > sizeof("application/+json") - 1
+		&& !strncasecmp(p, "application/", sizeof("application/") - 1)
+		&& !strncasecmp(p + len - (sizeof("+json") - 1), "+json", sizeof("+json") - 1);
+}
+
+void gene_request_input_value(zval *return_value, zend_string *key, zval *def) {
+	gene_request_context *ctx = gene_request_ctx();
+	zval *request = getVal(TRACK_VARS_REQUEST, NULL, 0), json;
+	zend_bool use_json = gene_request_json_content_type();
+	ZVAL_UNDEF(&json);
+	if (use_json) {
+		zval raw;
+		const char *p, *end;
+		zend_bool invalid_top;
+		gene_request_raw_value(&raw);
+		p = Z_TYPE(raw) == IS_STRING ? Z_STRVAL(raw) : "";
+		end = p + (Z_TYPE(raw) == IS_STRING ? Z_STRLEN(raw) : 0);
+		while (p < end && (*p == ' ' || *p == '\t' || *p == '\r' || *p == '\n')) p++;
+		invalid_top = p < end && *p != '{';
+		zval_ptr_dtor(&raw);
+		if (invalid_top) {
+			zend_throw_exception_ex(NULL, 0, "Gene\\Request::input() expects a top-level JSON object");
+			return;
+		}
+		if (gene_request_json_value(ctx, &json) != SUCCESS) return;
+		if (Z_TYPE(json) != IS_NULL && Z_TYPE(json) != IS_ARRAY) {
+			zval_ptr_dtor(&json);
+			zend_throw_exception_ex(NULL, 0, "Gene\\Request::input() expects a top-level JSON object");
+			return;
+		}
+	}
+	if (key) {
+		zval *found = NULL;
+		if (Z_TYPE(json) == IS_ARRAY) found = zend_symtable_find(Z_ARRVAL(json), key);
+		if (!found && request && Z_TYPE_P(request) == IS_ARRAY) found = zend_symtable_find(Z_ARRVAL_P(request), key);
+		if (found) ZVAL_COPY(return_value, found);
+		else if (def) ZVAL_COPY(return_value, def);
+		else ZVAL_NULL(return_value);
+		if (!Z_ISUNDEF(json)) zval_ptr_dtor(&json);
+		return;
+	}
+	array_init(return_value);
+	if (request && Z_TYPE_P(request) == IS_ARRAY) {
+		zend_hash_copy(Z_ARRVAL_P(return_value), Z_ARRVAL_P(request), (copy_ctor_func_t) zval_add_ref);
+	}
+	if (Z_TYPE(json) == IS_ARRAY) {
+		zend_string *str_key;
+		zend_ulong idx;
+		zval *value;
+		ZEND_HASH_FOREACH_KEY_VAL(Z_ARRVAL(json), idx, str_key, value) {
+			zval copy;
+			ZVAL_COPY(&copy, value);
+			if (str_key) zend_hash_update(Z_ARRVAL_P(return_value), str_key, &copy);
+			else zend_hash_index_update(Z_ARRVAL_P(return_value), idx, &copy);
+		} ZEND_HASH_FOREACH_END();
+	}
+	if (!Z_ISUNDEF(json)) zval_ptr_dtor(&json);
+}
+
+PHP_METHOD(gene_request, rawContent) {
+	gene_request_raw_value(return_value);
 }
 /* }}} */
 
@@ -814,23 +949,9 @@ PHP_METHOD(gene_request, rawContent) {
  * Invalid JSON, JSON null, or non-object/array scalars throw.
  */
 PHP_METHOD(gene_request, json) {
-	zval raw;
-	zend_function *fn;
-	ZVAL_UNDEF(&raw);
-	fn = zend_hash_str_find_ptr(&gene_request_ce->function_table, ZEND_STRL("rawcontent"));
-	if (EXPECTED(fn)) {
-		zend_call_known_function(fn, NULL, gene_request_ce, &raw, 0, NULL, NULL);
-	}
-	if (Z_TYPE(raw) != IS_STRING || Z_STRLEN(raw) == 0) {
-		zval_ptr_dtor(&raw);
-		RETURN_NULL();
-	}
-	if (gene_json_decode_throw(Z_STR(raw), return_value) != SUCCESS) {
-		zval_ptr_dtor(&raw);
-		RETURN_THROWS();
-	}
-	zval_ptr_dtor(&raw);
-	if (Z_TYPE_P(return_value) != IS_ARRAY) {
+	gene_request_context *ctx = gene_request_ctx();
+	if (gene_request_json_value(ctx, return_value) != SUCCESS) RETURN_THROWS();
+	if (ctx->request_json_state != 3 && Z_TYPE_P(return_value) != IS_ARRAY) {
 		zval_ptr_dtor(return_value);
 		ZVAL_UNDEF(return_value);
 		zend_throw_exception_ex(NULL, 0, "Gene\\Request::json() expects a JSON object or array");
@@ -838,6 +959,8 @@ PHP_METHOD(gene_request, json) {
 	}
 }
 /* }}} */
+
+GENE_REQUEST_INPUT_METHOD(gene_request)
 
 /*
  * {{{ public gene_request::clear()
@@ -848,6 +971,7 @@ PHP_METHOD(gene_request, clear) {
 		zval_ptr_dtor(&ctx->request_attr);
 	}
 	ZVAL_UNDEF(&ctx->request_attr);
+	gene_request_input_invalidate(ctx);
 	RETURN_TRUE;
 }
 /* }}} */
@@ -875,17 +999,17 @@ PHP_METHOD(gene_request, scope) {
 
 static zend_string *gene_request_find_auth_header(void) {
 	zval *hdrs, *auth;
-	const char *keys[] = {"Authorization", "authorization", "AUTHORIZATION", NULL};
-	int i;
+	zend_string *key;
 
 	hdrs = getVal(7, NULL, 0);
 	if (hdrs && Z_TYPE_P(hdrs) == IS_ARRAY) {
-		for (i = 0; keys[i]; i++) {
-			auth = zend_hash_str_find(Z_ARRVAL_P(hdrs), keys[i], strlen(keys[i]));
-			if (auth && Z_TYPE_P(auth) == IS_STRING && Z_STRLEN_P(auth) > 0) {
+		ZEND_HASH_FOREACH_STR_KEY_VAL(Z_ARRVAL_P(hdrs), key, auth) {
+			if (key && ZSTR_LEN(key) == sizeof("Authorization") - 1
+				&& strncasecmp(ZSTR_VAL(key), "Authorization", sizeof("Authorization") - 1) == 0
+				&& Z_TYPE_P(auth) == IS_STRING && Z_STRLEN_P(auth) > 0) {
 				return Z_STR_P(auth);
 			}
-		}
+		} ZEND_HASH_FOREACH_END();
 	}
 	auth = getVal(TRACK_VARS_SERVER, ZEND_STRL("HTTP_AUTHORIZATION"));
 	if (auth && Z_TYPE_P(auth) == IS_STRING && Z_STRLEN_P(auth) > 0) {
@@ -912,10 +1036,11 @@ PHP_METHOD(gene_request, bearer) {
 	}
 	len = ZSTR_LEN(auth);
 	p = ZSTR_VAL(auth);
-	if (len >= 7 && strncasecmp(p, "Bearer ", 7) == 0) {
-		p += 7;
-		len -= 7;
+	if (len < 7 || strncasecmp(p, "Bearer", 6) != 0 || (p[6] != ' ' && p[6] != '\t')) {
+		RETURN_NULL();
 	}
+	p += 6;
+	len -= 6;
 	while (len > 0 && (*p == ' ' || *p == '\t')) {
 		p++;
 		len--;
@@ -937,6 +1062,7 @@ const zend_function_entry gene_request_methods[] = {
 	PHP_ME(gene_request, __construct, geme_request_construct_arginfo, ZEND_ACC_PUBLIC)
 	PHP_ME(gene_request, get, geme_request_get_param_arginfo, ZEND_ACC_PUBLIC|ZEND_ACC_STATIC)
 	PHP_ME(gene_request, request, geme_request_get_param_arginfo, ZEND_ACC_PUBLIC|ZEND_ACC_STATIC)
+	PHP_ME(gene_request, input, gene_request_input_arginfo, ZEND_ACC_PUBLIC|ZEND_ACC_STATIC)
 	PHP_ME(gene_request, post, geme_request_get_param_arginfo, ZEND_ACC_PUBLIC|ZEND_ACC_STATIC)
 	PHP_ME(gene_request, cookie, geme_request_get_param_arginfo, ZEND_ACC_PUBLIC|ZEND_ACC_STATIC)
 	PHP_ME(gene_request, files, geme_request_get_param_arginfo, ZEND_ACC_PUBLIC|ZEND_ACC_STATIC)

@@ -22,6 +22,8 @@ class Context
      */
     public static function get($key, $default = null) {}
 
+    public static function has($key) {}
+
     /**
      * @return array
      */

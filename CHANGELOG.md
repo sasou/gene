@@ -1,5 +1,48 @@
 # Gene Framework Changelog
 
+## [6.2.0]
+
+> 本版以典型用法差距审计（`plan/typical-usage-gaps.md`）为驱动，补齐 ORM 安全写与复合查询、HTTP 出站参数编码、统一输入入口和 Context 键存在性判断。新增能力均为显式调用；唯一有意收紧的既有行为是 `Request::bearer()` 不再把非 Bearer Authorization 当作 token 返回。
+
+### ✨ 新增
+
+- **结构化 JOIN ON**：`Gene\Orm\Query::joinOn()` 以及 Mysql/Mssql/Pgsql/Sqlite 四驱动的 `joinOn()` 接受 `left`/`op` 加且仅加 `column` 或 `value` 的谓词。标识符按驱动引用，常量始终绑定，NULL 仅支持 `=`/`!=`；JOIN 绑定先于 WHERE/IN 绑定。谓词在终端编译时校验，非法输入在发送 SQL 前抛异常。原 `join()` 行为不变。
+- **ORM UNION**：`Gene\Orm\Query::union()` / `unionAll()` 仅接受使用同一 Db 的 Query，在调用时冻结子分支快照；拒绝 self/循环/超过 8 层嵌套、子分支 order/limit/lock，以及复合查询写入或加锁。`count()` 和 `paginate()` 按最终复合结果包装派生表计数。
+- **复杂结果集分页**：`Gene\Orm\Query::paginateResult()` 使用同一份冻结快照执行 count+list，可正确统计 JOIN/GROUP/HAVING/UNION 的最终结果行数；count 去除当前查询外层 order/limit/lock，list 保留排序并覆盖外层 limit。
+- **原子算术更新**：`Gene\Orm\Query` 新增终端方法 `increment()` / `decrement()`，Mysql/Mssql/Pgsql/Sqlite 四驱动新增对应的链式算术 UPDATE 构建器。单次 `UPDATE SET col = col ± ?` 避免非原子读后写；列名经过校验，步长必须是有限正数。Query 写操作必须带有效 WHERE/IN，`in('id', [])` 直接返回 0 且不发送 SQL；正常执行返回影响行数。
+- **`Gene\Http::request()` 的 `query` / `form` 选项**：
+  - `query` 按 RFC 3986 编码并追加到 URL 的已有 query 后，fragment 保持在末尾；可与任一 body 类型组合。
+  - 无文件的 `form` 编码为 `application/x-www-form-urlencoded`；`files + form` 作为 multipart 普通字段，保留 `files + array body` 兼容写法。
+  - `json`、字符串 `body`、无文件 `form` 互斥；调用方已有 Content-Type 时不重复设置。对象、资源和循环数组拒绝编码。
+  - 未知 option 发 `E_NOTICE` 且不会转发到后端；curl 与 Swoole 后端共用 query/urlencoded 编码语义。
+- **`Gene\Request::input()`**：按 GET → POST → JSON 顺序合并输入，后者覆盖前者。仅在媒体类型为 `application/json` 或 `application/*+json` 且 body 非空时解析 JSON；顶层必须是对象，非法 JSON 或其他顶层类型抛异常。`input()` 与 `json()` 共享每请求解析缓存，`init()`、`clear()`、Request 快照恢复及请求上下文销毁会同步失效或释放缓存；`rawContent()` 保留原始字节。Controller 与 Hook 提供同签名代理。
+- **`Gene\Context::has()`**：区分键不存在与键存在但值为 `null`。
+
+### 🐞 修复
+
+- **Query 绑定顺序**：Query 重放改为先 JOIN、后 WHERE/IN，保证带值 `joinOn()` 的参数顺序与 SQL 占位符顺序一致。
+- **`Request::bearer()` 严格语义**：仅接受大小写不敏感的 Bearer scheme，scheme 后必须有 SP/HTAB；缺失、非 Bearer、空 token 均返回 `null`。Authorization header 名按大小写不敏感方式查找，并保留 `HTTP_AUTHORIZATION` / `REDIRECT_HTTP_AUTHORIZATION` 回退。
+- **只读 ORM 编译不干扰事务**：UNION/复杂分页使用不持有 PDO/pool 的 builder clone，避免临时编译对象析构时误回滚活动事务。
+
+### ⏸️ 未纳入本版
+
+- `Controller/Service/Hook::__get` 回退 Context、`Gene\Response::download()`、`Gene\Http::request(max_bytes)` 均未提供；继续使用显式 `Context::get()`、既有 `Response::sendFile()` 和应用层下载限制。`max_bytes` 在当前 Swoole Coroutine Http Client 下无法保证传输阶段提前中止，因此不提供事后检查的伪降级。
+
+### 🔧 修改文件一览
+
+- `src/orm/query.c` — `joinOn()`/`union()`/`unionAll()`/`increment()`/`decrement()`/`paginateResult()`、冻结编译快照与复合结果计数
+- `src/db/pdo.c` / `pdo.h` — 共享 JOIN ON、算术更新、JOIN 类型、绑定插入与属性拼接 helper
+- `src/db/{mysql,mssql,pgsql,sqlite}.c` — 接入 `joinOn()` / `increment()` / `decrement()` 与对应方言引用
+- `src/http/http.c` — `query`/`form` 编码、multipart 表单字段、URL 合并、互斥与未知选项校验
+- `src/http/request.c` / `request.h` — `input()`、JSON 解析缓存与严格 `bearer()`
+- `src/http/context.c` — `Context::has()`
+- `src/mvc/controller.c` / `src/mvc/hook.c` — `input()` 代理
+- `src/gene.c` / `gene.h` — Request JSON 缓存生命周期与版本号 6.2.0
+- `gene-ide-helper/Gene/{Orm/Query,Db/{Mysql,Mssql,Pgsql,Sqlite},Http,Request,Context,Controller,Hook}.php` — API 存根同步
+- `gene-ai-helper/skills/gene-framework/reference.md` — API 文档同步
+- `test/{OrmTest,HttpClientTest,LifecycleTest}.php` 与审计探针 — SQL/绑定、执行、生命周期和内存回归
+- `plan/typical-usage-gaps.md` — 源码复核、实施结果与验证边界
+
 ## [6.1.0]
 
 > 本版以典型应用用法为驱动：补齐 Db ↔ ORM 对称性，以及全生命周期原语（出站 Http、请求袋、JSON/SSE、限流锁、Crypto）与框架级 REST 互调。规格与复盘见 `plan/orm-v2.md`、`plan/lifecycle-completeness.md`、`plan/rest-invoke.md`。

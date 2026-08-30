@@ -25,6 +25,7 @@
 | [orm-v2.md](orm-v2.md) | Db ↔ ORM 对称性（Query ops、timestamps、批量写、行锁、IN） | 6.1.0 已落地 |
 | [lifecycle-completeness.md](lifecycle-completeness.md) | 全生命周期原语（Http、SSE、Context、限流/锁、Json、Crypto） | 6.1.x 已落地（见文内 §八） |
 | [rest-invoke.md](rest-invoke.md) | 框架级 REST 互调（Request 栈、Invoke 本地隔离、命名 Rest、Http multipart） | 6.1.x 已落地（见文内复盘） |
+| [typical-usage-gaps.md](typical-usage-gaps.md) | 6.1 全面采用后的残留缺口（union、JOIN ON、increment、Context __get、Request::input、Http max_bytes、cachedHotVersion） | 6.2 候选立项 |
 
 ---
 
@@ -70,3 +71,18 @@
 | P0 | `Gene\Rest` 不可变 proxy | 命名服务、本地失败才 HTTP | 协程安全；走现有 Http |
 | P0 | `Http` multipart `files` | 上传不必自造 curl | 双后端一致 |
 | P1 | demo Ping + 双模式测试 | 可回归 | 无环境 SKIP，禁止假绿 |
+
+---
+
+## 典型用法后续缺口（候选）
+
+详细规格见 [typical-usage-gaps.md](typical-usage-gaps.md)。ORM v2 与生命周期原语落地后，应用层仍常见的 `sql()` 逃生舱与 FPM/Swoole 分叉。
+
+| 优先级 | 能力 | 编码效率 | 性能 / 正确性 |
+|--------|------|----------|----------------|
+| P0 | `Query::union` / JOIN 字符串 ON | 砍掉关系列表与聚合计数裸 SQL | 绑定一致 |
+| P0 | `increment` / `decrement` | 砍掉表达式 UPDATE | 原子计数 |
+| P0 | `__get` → Context 回退 | 去掉 Context/Di 双写 | 少请求态 bug |
+| P0 | `Request::input` + 可选 JSON→POST | 去掉三份合并逻辑 | 少重复解析 |
+| P1 | `Http` `max_bytes` | 删掉应用层下载护栏 | 降峰值内存 |
+| P1 | `cachedHotVersion` | 去掉运行时 if | FPM L1 / Swoole 安全分流 |
