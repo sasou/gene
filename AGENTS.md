@@ -86,6 +86,7 @@ D:\wampServer-php8.1_x64_nts\bin\php.exe -n -d extension_dir=D:\wampServer-php8.
 
 - 审计复现脚本：`php audit\repro\<name>.php`（每条审计结论可一键复现）。
 - 测试套件：`php test\OrmTest.php`、`php test\DatabaseTest.php`、`php test\RouterTest.php`。
+- `TestRunner.php` 会通过 `PHP_BINARY` 启动隔离子进程；免部署测试新 DLL 时必须把相同的 `-n/-d extension...` 参数写入 `GENE_TEST_PHP_ARGS`，否则子进程会加载默认 php.ini/旧 DLL，产生假失败。
 - 注意：控制台重定向输出为 UTF-16 是 PowerShell 编码问题，非测试失败。
 
 ## 约定

@@ -127,8 +127,12 @@ class LifecycleTest
         \Gene\Request::init([], [], [], ['CONTENT_TYPE' => 'application/json'], null, [], null, [], '{"v":2}');
         $controller = new \Gene\Controller();
         $hook = new \Gene\Hook();
+        $controllerInput = new \ReflectionMethod(\Gene\Controller::class, 'input');
+        $hookInput = new \ReflectionMethod(\Gene\Hook::class, 'input');
         if (($first['v'] ?? null) === 1 && $second === 1 && \Gene\Request::input('v') === 2
-            && $controller->input('v') === 2 && $hook->input('v') === 2) {
+            && $controller->input('v') === 2 && $hook->input('v') === 2
+            && $controllerInput->getParameters()[1]->getName() === 'default_value'
+            && $hookInput->getParameters()[1]->getName() === 'default_value') {
             echo "✓ json/input share cache, proxies work, and init invalidates it\n";
         } else {
             echo "✗ request JSON cache lifecycle failed\n";
@@ -142,6 +146,8 @@ class LifecycleTest
             \Gene\Request::init([], [], [], [], null, [], null, ['Authorization' => $authorization], '');
             $bearerOk = $bearerOk && \Gene\Request::bearer() === $expected;
         }
+        \Gene\Request::init([], [], [], [], null, [], null, ['AuThOrIzAtIoN' => 'Bearer mixed'], '');
+        $bearerOk = $bearerOk && \Gene\Request::bearer() === 'mixed';
         if ($bearerOk) echo "✓ bearer accepts only strict Bearer scheme\n"; else echo "✗ bearer scheme matrix failed\n";
         echo "\n";
     }
