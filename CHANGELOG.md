@@ -1,5 +1,41 @@
 # Gene Framework Changelog
 
+## [6.2.0]
+
+> 本版以典型用法差距审计（`plan/typical-usage-gaps.md`）为驱动，补齐 ORM 复合查询（UNION/JOIN ON/原子算术）、HTTP 出站编码与选项校验、统一输入入口、Context 魔术属性访问。四份匿名应用静态审计交叉验证需求重复度，所有新增 API 均为显式调用，不改变既有语义。
+
+### ✨ 新增
+
+- **`Gene\Orm\Query::joinOn()`**：在已有 `join()` 基础上新增带谓词 ON 子句的 JOIN 构建器。谓词为结构化数组（`left`/`op`/`column` 或 `left`/`op`/`value`），两侧列名走标识符引用路径，绑定参数按 JOIN→WHERE 顺序正确插入。JOIN 类型经白名单校验（INNER/LEFT/RIGHT/CROSS/FULL）。四个驱动（Mysql/Mssql/Pgsql/Sqlite）共享 `gene_db_build_join_on` 实现。
+- **`Gene\Orm\Query::union()` / `unionAll()`**：链式 UNION / UNION ALL 查询构建。`count()` 和 `paginate()` 自动检测 UNION 并包装为子查询 `SELECT COUNT(*) FROM (...) gene_union_count`；`paginateResult()` 专为 UNION/JOIN/GROUP 等复杂结果集提供 count+list 两阶段分页（独立快照、绑定隔离）。
+- **`Gene\Orm\Query::increment()` / `decrement()`**：原子算术更新，单次 `UPDATE SET col = col ± ?` 消除非原子"读后写"竞态。列名经标识符校验，步进值限正数且有限。返回受影响行数。
+- **`Gene\Http::request` 选项补全**：
+  - `query`（GET 查询参数数组）与 `form`（POST 表单数组）：经 `http_build_query` 编码（RFC 3986），递归守卫防循环引用，对象/资源值拒绝。query 合并到 URL（保留已有 `?`/`#` 片段），form 设置为 `application/x-www-form-urlencoded` body。
+  - 未知选项 `E_NOTICE`：对不在白名单内的 key 发告警，帮助开发者发现拼写错误或无效配置。
+  - `max_bytes`：响应体大小上限（P2，按后端能力门禁）。
+- **`Gene\Request::input()`**：统一输入入口，按优先级合并 GET/POST/JSON body。JSON body 每请求最多解析一次并缓存，后续 `input()` / `json()` 调用复用已解析结果。FPM 与 Swoole 同语义。
+- **`Gene\Context::__get()`**：魔术属性访问，`$ctx->key` 等价于 `$ctx->get('key')`，减少 Context/DI 双写样板。名称碰撞时显式 `get()` 优先。
+
+### 🐞 修复
+
+- **`Request::bearer()` 严格语义**：非 `Bearer` scheme 的 Authorization 头不再原样返回，与方法名和应用正则语义对齐。
+- **`Request::getVal()` SERVER/HEADER 回退**：合并两段重复的小写回退逻辑为单一块，减少 icache 占用。
+
+### 🔧 修改文件一览
+
+- `src/orm/query.c` — `joinOn()`/`union()`/`unionAll()`/`increment()`/`decrement()`/`paginateResult()`；UNION count 包装；方法表登记
+- `src/db/pdo.c` / `pdo.h` — 共享 `gene_db_build_join_on` / `gene_db_build_arithmetic` / `gene_db_join_type` / `gene_db_insert_bind` / `gene_db_append_property`
+- `src/db/{mysql,mssql,pgsql,sqlite}.c` — 接入共享 joinOn/arithmetic 构建器
+- `src/http/http.c` — `query`/`form` 编码、URL 合并、选项白名单校验、`max_bytes` 支持
+- `src/http/request.c` / `request.h` — `input()` 方法、`bearer()` 严格语义、`getVal()` 回退合并
+- `src/http/context.c` — `__get()` 魔术方法
+- `src/mvc/controller.c` / `src/mvc/hook.c` — 方法暴露补齐
+- `src/gene.c` / `gene.h` — 版本号升至 6.2.0
+- `gene-ide-helper/Gene/{Orm/Query,Db/{Mysql,Mssql,Pgsql,Sqlite},Http,Request,Context,Controller,Hook}.php` — 新 API 存根同步
+- `gene-ai-helper/skills/gene-framework/reference.md` — 文档同步
+- `test/{OrmTest,HttpClientTest,LifecycleTest}.php` — 测试用例扩展
+- `plan/typical-usage-gaps.md` — 源码复核版计划文档
+
 ## [6.1.0]
 
 > 本版以典型应用用法为驱动：补齐 Db ↔ ORM 对称性，以及全生命周期原语（出站 Http、请求袋、JSON/SSE、限流锁、Crypto）与框架级 REST 互调。规格与复盘见 `plan/orm-v2.md`、`plan/lifecycle-completeness.md`、`plan/rest-invoke.md`。
