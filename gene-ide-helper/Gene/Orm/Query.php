@@ -71,6 +71,29 @@ final class Query
     }
 
     /**
+     * @param string $table
+     * @param array $predicates 每项严格为 left/op + column 或 value；null 仅支持 =/!=
+     * @param string $type
+     * @return $this
+     */
+    public function joinOn($table, array $predicates, $type = 'INNER')
+    {
+        return $this;
+    }
+
+    /** @return $this */
+    public function union(Query $query)
+    {
+        return $this;
+    }
+
+    /** @return $this */
+    public function unionAll(Query $query)
+    {
+        return $this;
+    }
+
+    /**
      * group — 多次调用以 ", " 累加。
      * 注意：与 count()/paginate() 组合会抛异常（见 count() 注释）。
      * @param string $group
@@ -251,6 +274,17 @@ final class Query
     }
 
     /**
+     * 统计最终 JOIN/GROUP/HAVING/UNION 结果并覆盖外层分页。
+     * @param int $offset
+     * @param int $limit
+     * @return array{count:int,list:array}
+     */
+    public function paginateResult($offset, $limit)
+    {
+        return ['count' => 0, 'list' => []];
+    }
+
+    /**
      * update — 立即执行（调用即执行，与 Model::updateBy 对称），
      * 返回影响行数。要求至少一个**有效** where()/in() 条件，否则抛异常：
      * where([])（空数组）与 where('')（空串）会被静默跳过、不构成条件，
@@ -261,6 +295,26 @@ final class Query
      * @return int
      */
     public function update(array $data)
+    {
+        return 0;
+    }
+
+    /**
+     * @param string $column
+     * @param int|float $amount 有限正数
+     * @return int
+     */
+    public function increment($column, $amount = 1)
+    {
+        return 0;
+    }
+
+    /**
+     * @param string $column
+     * @param int|float $amount 有限正数
+     * @return int
+     */
+    public function decrement($column, $amount = 1)
     {
         return 0;
     }

@@ -20,7 +20,7 @@
  extern zend_module_entry gene_module_entry;
  #define phpext_gene_ptr &gene_module_entry
  
- #define PHP_GENE_VERSION "6.1.0"
+ #define PHP_GENE_VERSION "6.2.0"
  
  #ifdef PHP_WIN32
  #	define PHP_GENE_API __declspec(dllexport)
@@ -228,6 +228,9 @@ static inline uint64_t gene_hrtime(void) {
 	 void *http_sse_leftover;
 	 /* Request bag snapshot stack (get/post/files/request/header/raw). */
 	 zval request_stack;
+	 zval request_json;
+	 zend_string *request_json_error;
+	 zend_uchar request_json_state;
 	 zend_long invoke_depth;
 	 struct timeval bench_start;
 	 struct timeval bench_end;

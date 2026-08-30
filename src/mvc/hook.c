@@ -159,6 +159,8 @@ GENE_REQUEST_METHOD(gene_hook, post, TRACK_VARS_POST);
 GENE_REQUEST_METHOD(gene_hook, request, TRACK_VARS_REQUEST);
 /* }}} */
 
+GENE_REQUEST_INPUT_METHOD(gene_hook);
+
 /** {{{ public gene_hook::files(mixed $name, mixed $default = NULL)
  */
 GENE_REQUEST_METHOD(gene_hook, files, TRACK_VARS_FILES);
@@ -627,6 +629,7 @@ const zend_function_entry gene_hook_methods[] = {
 	PHP_ME(gene_hook, __construct, gene_hook_construct_arginfo, ZEND_ACC_PUBLIC)
 	PHP_ME(gene_hook, get, gene_hook_param_get, ZEND_ACC_PUBLIC|ZEND_ACC_STATIC)
 	PHP_ME(gene_hook, request, gene_hook_param_get, ZEND_ACC_PUBLIC|ZEND_ACC_STATIC)
+	PHP_ME(gene_hook, input, gene_hook_param_get, ZEND_ACC_PUBLIC|ZEND_ACC_STATIC)
 	PHP_ME(gene_hook, post, gene_hook_param_get, ZEND_ACC_PUBLIC|ZEND_ACC_STATIC)
 	PHP_ME(gene_hook, cookie, gene_hook_param_get, ZEND_ACC_PUBLIC|ZEND_ACC_STATIC)
 	PHP_ME(gene_hook, files, gene_hook_param_get, ZEND_ACC_PUBLIC|ZEND_ACC_STATIC)

@@ -417,6 +417,194 @@ static zval *gene_http_opt(HashTable *ht, const char *k, size_t klen) {
 	return zend_hash_str_find(ht, k, klen);
 }
 
+static int gene_http_option_known(zend_string *key) {
+	static const char *known[] = {
+		"method", "url", "headers", "query", "json", "body", "form", "files",
+		"timeout", "connect_timeout", "ssl_verify", "retry", "stream", "sse",
+		"sse_forward", "discard_body", "keep_alive"
+	};
+	size_t i;
+	for (i = 0; i < sizeof(known) / sizeof(known[0]); i++) {
+		size_t len = strlen(known[i]);
+		if (ZSTR_LEN(key) == len && memcmp(ZSTR_VAL(key), known[i], len) == 0) {
+			return 1;
+		}
+	}
+	return 0;
+}
+
+static int gene_http_check_options(zval *opts) {
+	zend_string *key;
+	zend_ulong idx;
+	ZEND_HASH_FOREACH_KEY(Z_ARRVAL_P(opts), idx, key) {
+		if (!key || !gene_http_option_known(key)) {
+			if (key) {
+				php_error_docref(NULL, E_NOTICE, "Gene\\Http::request unknown option: %s", ZSTR_VAL(key));
+			} else {
+				php_error_docref(NULL, E_NOTICE, "Gene\\Http::request unknown option: %lu", (unsigned long)idx);
+			}
+			if (EG(exception)) {
+				return FAILURE;
+			}
+		}
+	} ZEND_HASH_FOREACH_END();
+	return SUCCESS;
+}
+
+static int gene_http_validate_query_value(zval *value) {
+	zval *v = value;
+	ZVAL_DEREF(v);
+	if (Z_TYPE_P(v) == IS_OBJECT || Z_TYPE_P(v) == IS_RESOURCE) {
+		zend_throw_exception_ex(NULL, 0, "Gene\\Http::request query/form does not accept object or resource values");
+		return FAILURE;
+	}
+	if (Z_TYPE_P(v) == IS_ARRAY) {
+		zval *item;
+		if (GC_IS_RECURSIVE(Z_ARRVAL_P(v))) {
+			zend_throw_exception_ex(NULL, 0, "Gene\\Http::request query/form does not accept recursive arrays");
+			return FAILURE;
+		}
+		GC_TRY_PROTECT_RECURSION(Z_ARRVAL_P(v));
+		ZEND_HASH_FOREACH_VAL(Z_ARRVAL_P(v), item) {
+			if (gene_http_validate_query_value(item) != SUCCESS) {
+				GC_TRY_UNPROTECT_RECURSION(Z_ARRVAL_P(v));
+				return FAILURE;
+			}
+		} ZEND_HASH_FOREACH_END();
+		GC_TRY_UNPROTECT_RECURSION(Z_ARRVAL_P(v));
+	}
+	return SUCCESS;
+}
+
+static int gene_http_build_query(zval *data, zend_string **out) {
+	zval params[4], ret;
+	zend_long rfc3986 = gene_http_const(ZEND_STRL("PHP_QUERY_RFC3986"));
+	*out = NULL;
+	if (!data || Z_TYPE_P(data) != IS_ARRAY) {
+		zend_throw_exception_ex(NULL, 0, "Gene\\Http::request query/form must be an array");
+		return FAILURE;
+	}
+	if (gene_http_validate_query_value(data) != SUCCESS) {
+		return FAILURE;
+	}
+	ZVAL_COPY(&params[0], data);
+	ZVAL_EMPTY_STRING(&params[1]);
+	ZVAL_STRING(&params[2], "&");
+	ZVAL_LONG(&params[3], rfc3986 ? rfc3986 : 2);
+	if (gene_http_php_call("http_build_query", sizeof("http_build_query") - 1, 4, params, &ret) != SUCCESS
+		|| Z_TYPE(ret) != IS_STRING) {
+		zval_ptr_dtor(&params[0]);
+		zval_ptr_dtor(&params[1]);
+		zval_ptr_dtor(&params[2]);
+		zval_ptr_dtor(&ret);
+		if (!EG(exception)) {
+			zend_throw_exception_ex(NULL, 0, "Gene\\Http::request failed to encode query/form");
+		}
+		return FAILURE;
+	}
+	zval_ptr_dtor(&params[0]);
+	zval_ptr_dtor(&params[1]);
+	zval_ptr_dtor(&params[2]);
+	*out = Z_STR(ret);
+	return SUCCESS;
+}
+
+static zend_string *gene_http_url_with_query(zend_string *url, zend_string *query) {
+	const char *fragment = memchr(ZSTR_VAL(url), '#', ZSTR_LEN(url));
+	size_t base_len = fragment ? (size_t)(fragment - ZSTR_VAL(url)) : ZSTR_LEN(url);
+	size_t fragment_len = ZSTR_LEN(url) - base_len;
+	const char *question = memchr(ZSTR_VAL(url), '?', base_len);
+	size_t separator_len = question ? ((size_t)(question - ZSTR_VAL(url)) + 1 < base_len ? 1 : 0) : 1;
+	zend_string *result;
+	char *p;
+	if (!query || ZSTR_LEN(query) == 0) {
+		return zend_string_copy(url);
+	}
+	result = zend_string_alloc(base_len + separator_len + ZSTR_LEN(query) + fragment_len, 0);
+	p = ZSTR_VAL(result);
+	memcpy(p, ZSTR_VAL(url), base_len);
+	p += base_len;
+	if (separator_len) {
+		*p++ = question ? '&' : '?';
+	}
+	memcpy(p, ZSTR_VAL(query), ZSTR_LEN(query));
+	p += ZSTR_LEN(query);
+	if (fragment_len) {
+		memcpy(p, fragment, fragment_len);
+	}
+	ZSTR_VAL(result)[ZSTR_LEN(result)] = '\0';
+	return result;
+}
+
+static int gene_http_hex_value(unsigned char c) {
+	if (c >= '0' && c <= '9') return c - '0';
+	if (c >= 'A' && c <= 'F') return c - 'A' + 10;
+	if (c >= 'a' && c <= 'f') return c - 'a' + 10;
+	return -1;
+}
+
+static zend_string *gene_http_percent_decode(const char *src, size_t len) {
+	zend_string *out = zend_string_alloc(len, 0);
+	size_t i, n = 0;
+	for (i = 0; i < len; i++) {
+		if (src[i] == '%' && i + 2 < len) {
+			int hi = gene_http_hex_value((unsigned char)src[i + 1]);
+			int lo = gene_http_hex_value((unsigned char)src[i + 2]);
+			if (hi >= 0 && lo >= 0) {
+				ZSTR_VAL(out)[n++] = (char)((hi << 4) | lo);
+				i += 2;
+				continue;
+			}
+		}
+		ZSTR_VAL(out)[n++] = src[i];
+	}
+	ZSTR_VAL(out)[n] = '\0';
+	ZSTR_LEN(out) = n;
+	return out;
+}
+
+static int gene_http_build_multipart_form(zval *form, zval *out) {
+	zend_string *encoded;
+	const char *p, *end;
+	array_init(out);
+	if (gene_http_build_query(form, &encoded) != SUCCESS) {
+		zval_ptr_dtor(out);
+		ZVAL_UNDEF(out);
+		return FAILURE;
+	}
+	p = ZSTR_VAL(encoded);
+	end = p + ZSTR_LEN(encoded);
+	while (p < end) {
+		const char *amp = memchr(p, '&', (size_t)(end - p));
+		const char *pair_end = amp ? amp : end;
+		const char *eq = memchr(p, '=', (size_t)(pair_end - p));
+		zend_string *key = gene_http_percent_decode(p, eq ? (size_t)(eq - p) : (size_t)(pair_end - p));
+		zend_string *value = gene_http_percent_decode(eq ? eq + 1 : pair_end,
+			eq ? (size_t)(pair_end - eq - 1) : 0);
+		zval zv;
+		ZVAL_STR(&zv, value);
+		zend_hash_update(Z_ARRVAL_P(out), key, &zv);
+		zend_string_release(key);
+		p = amp ? amp + 1 : end;
+	}
+	zend_string_release(encoded);
+	return SUCCESS;
+}
+
+static int gene_http_headers_have_content_type(zval *headers) {
+	zend_string *key;
+	if (!headers || Z_TYPE_P(headers) != IS_ARRAY) {
+		return 0;
+	}
+	ZEND_HASH_FOREACH_STR_KEY(Z_ARRVAL_P(headers), key) {
+		if (key && ZSTR_LEN(key) == sizeof("Content-Type") - 1
+			&& strncasecmp(ZSTR_VAL(key), "Content-Type", sizeof("Content-Type") - 1) == 0) {
+			return 1;
+		}
+	} ZEND_HASH_FOREACH_END();
+	return 0;
+}
+
 static void gene_http_fill_result(zend_long status, zval *headers, zend_string *body, zval *return_value) {
 	array_init(return_value);
 	add_assoc_long_ex(return_value, ZEND_STRL("status"), status);
@@ -436,7 +624,7 @@ static void gene_http_fill_result(zend_long status, zval *headers, zend_string *
 }
 
 /* Build curl header list from assoc array. Returns IS_ARRAY of "K: V" strings. */
-static void gene_http_build_curl_headers(zval *headers_in, zval *headers_out, int json_body) {
+static void gene_http_build_curl_headers(zval *headers_in, zval *headers_out, const char *content_type) {
 	array_init(headers_out);
 	if (headers_in && Z_TYPE_P(headers_in) == IS_ARRAY) {
 		zend_string *k;
@@ -462,8 +650,9 @@ static void gene_http_build_curl_headers(zval *headers_in, zval *headers_out, in
 			zend_string_release(vs);
 		} ZEND_HASH_FOREACH_END();
 	}
-	if (json_body) {
-		add_next_index_string(headers_out, "Content-Type: application/json; charset=UTF-8");
+	if (content_type && !gene_http_headers_have_content_type(headers_in)) {
+		zend_string *line = strpprintf(0, "Content-Type: %s", content_type);
+		add_next_index_str(headers_out, line);
 	}
 }
 
@@ -931,12 +1120,12 @@ static int gene_http_swoole_once(const char *method, zend_string *url, zval *hea
 /* {{{ proto static array Gene\Http::request(array $options) */
 PHP_METHOD(gene_http, request) {
 	zval *opts;
-	zval *zurl, *zmethod, *zheaders, *zjson, *zbody, *ztimeout, *zct, *zssl, *zretry, *zstream, *zsse, *zsse_forward, *zdiscard, *zka, *zfiles;
-	zend_string *url, *body = NULL;
+	zval *zurl, *zmethod, *zheaders, *zquery, *zjson, *zbody, *zform, *ztimeout, *zct, *zssl, *zretry, *zstream, *zsse, *zsse_forward, *zdiscard, *zka, *zfiles;
+	zend_string *url, *owned_url = NULL, *body = NULL, *encoded = NULL;
 	char method_buf[16];
-	const char *method = "GET";
-	zval curl_headers;
-	zend_bool have_json = 0, ssl_verify = 1, keep_alive = 0, own_body = 0;
+	const char *method = "GET", *auto_content_type = NULL;
+	zval curl_headers, multipart_form;
+	zend_bool have_files = 0, have_multipart_form = 0, ssl_verify = 1, keep_alive = 0, own_body = 0;
 	zend_bool had_stream = 0, had_sse = 0, sse_active = 0;
 	double timeout = 60.0, connect_timeout = 3.0;
 	zend_long retry = 0, attempt, status = 0;
@@ -951,6 +1140,10 @@ PHP_METHOD(gene_http, request) {
 	if (zend_parse_parameters(ZEND_NUM_ARGS(), "a", &opts) == FAILURE) {
 		return;
 	}
+	if (gene_http_check_options(opts) != SUCCESS) {
+		RETURN_THROWS();
+	}
+	ZVAL_UNDEF(&multipart_form);
 
 	zurl = gene_http_opt(Z_ARRVAL_P(opts), ZEND_STRL("url"));
 	if (!zurl || Z_TYPE_P(zurl) != IS_STRING || Z_STRLEN_P(zurl) == 0) {
@@ -958,6 +1151,18 @@ PHP_METHOD(gene_http, request) {
 		RETURN_THROWS();
 	}
 	url = Z_STR_P(zurl);
+	zquery = gene_http_opt(Z_ARRVAL_P(opts), ZEND_STRL("query"));
+	if (zquery) {
+		if (gene_http_build_query(zquery, &encoded) != SUCCESS) {
+			RETURN_THROWS();
+		}
+		if (ZSTR_LEN(encoded) > 0) {
+			owned_url = gene_http_url_with_query(url, encoded);
+			url = owned_url;
+		}
+		zend_string_release(encoded);
+		encoded = NULL;
+	}
 
 	zmethod = gene_http_opt(Z_ARRVAL_P(opts), ZEND_STRL("method"));
 	if (zmethod && Z_TYPE_P(zmethod) == IS_STRING && Z_STRLEN_P(zmethod) > 0 && Z_STRLEN_P(zmethod) < sizeof(method_buf)) {
@@ -974,32 +1179,77 @@ PHP_METHOD(gene_http, request) {
 
 	zjson = gene_http_opt(Z_ARRVAL_P(opts), ZEND_STRL("json"));
 	zbody = gene_http_opt(Z_ARRVAL_P(opts), ZEND_STRL("body"));
+	zform = gene_http_opt(Z_ARRVAL_P(opts), ZEND_STRL("form"));
 	zfiles = gene_http_opt(Z_ARRVAL_P(opts), ZEND_STRL("files"));
+	if (zfiles && Z_TYPE_P(zfiles) != IS_ARRAY) {
+		zend_throw_exception_ex(NULL, 0, "Gene\\Http::request files must be an array");
+		if (owned_url) zend_string_release(owned_url);
+		RETURN_THROWS();
+	}
+	have_files = zfiles && zend_hash_num_elements(Z_ARRVAL_P(zfiles)) > 0;
+	if (zform && Z_TYPE_P(zform) != IS_ARRAY) {
+		zend_throw_exception_ex(NULL, 0, "Gene\\Http::request form must be an array");
+		if (owned_url) zend_string_release(owned_url);
+		RETURN_THROWS();
+	}
 	if (zjson && zbody) {
 		zend_throw_exception_ex(NULL, 0, "Gene\\Http::request: json and body are mutually exclusive");
+		if (owned_url) zend_string_release(owned_url);
 		RETURN_THROWS();
 	}
-	if (zjson && zfiles) {
+	if (zjson && zform) {
+		zend_throw_exception_ex(NULL, 0, "Gene\\Http::request: json and form are mutually exclusive");
+		if (owned_url) zend_string_release(owned_url);
+		RETURN_THROWS();
+	}
+	if (zbody && zform) {
+		zend_throw_exception_ex(NULL, 0, "Gene\\Http::request: body and form are mutually exclusive");
+		if (owned_url) zend_string_release(owned_url);
+		RETURN_THROWS();
+	}
+	if (zjson && have_files) {
 		zend_throw_exception_ex(NULL, 0, "Gene\\Http::request: json and files are mutually exclusive");
+		if (owned_url) zend_string_release(owned_url);
 		RETURN_THROWS();
 	}
-	if (zfiles && zbody && Z_TYPE_P(zbody) == IS_STRING) {
+	if (have_files && zbody && Z_TYPE_P(zbody) != IS_ARRAY) {
 		zend_throw_exception_ex(NULL, 0, "Gene\\Http::request: files cannot be combined with a string body");
+		if (owned_url) zend_string_release(owned_url);
 		RETURN_THROWS();
 	}
 	if (zjson) {
-		zval encoded;
-		if (gene_json_encode_throw(zjson, &encoded) != SUCCESS) {
+		zval json_encoded;
+		if (gene_json_encode_throw(zjson, &json_encoded) != SUCCESS) {
+			if (owned_url) zend_string_release(owned_url);
 			RETURN_THROWS();
 		}
-		body = Z_STR(encoded);
+		body = Z_STR(json_encoded);
 		own_body = 1;
-		have_json = 1;
+		auto_content_type = "application/json; charset=UTF-8";
+	} else if (zform && !have_files) {
+		if (gene_http_build_query(zform, &body) != SUCCESS) {
+			if (owned_url) zend_string_release(owned_url);
+			RETURN_THROWS();
+		}
+		own_body = 1;
+		auto_content_type = "application/x-www-form-urlencoded";
 	} else if (zbody) {
-		if (!(zfiles && Z_TYPE_P(zfiles) == IS_ARRAY && Z_TYPE_P(zbody) == IS_ARRAY)) {
+		if (have_files && Z_TYPE_P(zbody) == IS_ARRAY) {
+			if (gene_http_build_multipart_form(zbody, &multipart_form) != SUCCESS) {
+				if (owned_url) zend_string_release(owned_url);
+				RETURN_THROWS();
+			}
+			have_multipart_form = 1;
+		} else {
 			body = zval_get_string(zbody);
 			own_body = 1;
 		}
+	} else if (zform && have_files) {
+		if (gene_http_build_multipart_form(zform, &multipart_form) != SUCCESS) {
+			if (owned_url) zend_string_release(owned_url);
+			RETURN_THROWS();
+		}
+		have_multipart_form = 1;
 	}
 
 	zheaders = gene_http_opt(Z_ARRVAL_P(opts), ZEND_STRL("headers"));
@@ -1032,12 +1282,18 @@ PHP_METHOD(gene_http, request) {
 	if (zstream && zsse && Z_TYPE_P(zstream) != IS_NULL && Z_TYPE_P(zstream) != IS_UNDEF
 		&& Z_TYPE_P(zsse) != IS_NULL && Z_TYPE_P(zsse) != IS_UNDEF) {
 		zend_throw_exception_ex(NULL, 0, "Gene\\Http::request: stream and sse are mutually exclusive");
+		if (have_multipart_form) zval_ptr_dtor(&multipart_form);
+		if (own_body && body) zend_string_release(body);
+		if (owned_url) zend_string_release(owned_url);
 		RETURN_THROWS();
 	}
 
 	ctx = gene_request_ctx();
 	if (ctx && (ctx->http_busy || ctx->http_body_buf)) {
 		zend_throw_exception_ex(NULL, 0, "Nested Gene\\Http::request is not supported");
+		if (have_multipart_form) zval_ptr_dtor(&multipart_form);
+		if (own_body && body) zend_string_release(body);
+		if (owned_url) zend_string_release(owned_url);
 		RETURN_THROWS();
 	}
 	if (ctx) {
@@ -1082,17 +1338,15 @@ PHP_METHOD(gene_http, request) {
 
 		if (use_swoole) {
 			zval hdrs_assoc;
-			ZVAL_UNDEF(&hdrs_assoc);
+			array_init(&hdrs_assoc);
 			if (zheaders && Z_TYPE_P(zheaders) == IS_ARRAY) {
-				ZVAL_COPY(&hdrs_assoc, zheaders);
-			} else {
-				array_init(&hdrs_assoc);
+				zend_hash_copy(Z_ARRVAL(hdrs_assoc), Z_ARRVAL_P(zheaders), (copy_ctor_func_t) zval_add_ref);
 			}
-			if (have_json) {
-				add_assoc_string_ex(&hdrs_assoc, ZEND_STRL("Content-Type"), "application/json; charset=UTF-8");
+			if (auto_content_type && !gene_http_headers_have_content_type(&hdrs_assoc)) {
+				add_assoc_string_ex(&hdrs_assoc, ZEND_STRL("Content-Type"), (char *)auto_content_type);
 			}
-			rc = gene_http_swoole_once(method, url, &hdrs_assoc, body, zfiles,
-				(zfiles && zbody && Z_TYPE_P(zbody) == IS_ARRAY) ? zbody : NULL,
+			rc = gene_http_swoole_once(method, url, &hdrs_assoc, body, have_files ? zfiles : NULL,
+				have_multipart_form ? &multipart_form : NULL,
 				timeout, connect_timeout,
 				ssl_verify, keep_alive, &status, &headers_out, &resp_body, &err);
 			zval_ptr_dtor(&hdrs_assoc);
@@ -1103,7 +1357,9 @@ PHP_METHOD(gene_http, request) {
 		} else {
 			zval ch, zurlv, zto, zcto, zsslpeer, zsslhost, zfollow, zmaxr, zmethodv, zbodyv;
 			if (gene_http_ensure_curl(&ch) != SUCCESS) {
+				if (have_multipart_form) zval_ptr_dtor(&multipart_form);
 				if (own_body && body) zend_string_release(body);
+				if (owned_url) zend_string_release(owned_url);
 				smart_str_free(&sse_leftover);
 				gene_http_restore_state(ctx, &saved_stream, &saved_sse, had_stream, had_sse);
 				RETURN_THROWS();
@@ -1126,16 +1382,17 @@ PHP_METHOD(gene_http, request) {
 			ZVAL_LONG(&zmaxr, 5);
 			gene_http_curl_setopt(&ch, ZEND_STRL("CURLOPT_MAXREDIRS"), &zmaxr);
 
-			gene_http_build_curl_headers(zheaders, &curl_headers, have_json);
+			gene_http_build_curl_headers(zheaders, &curl_headers, auto_content_type);
 			gene_http_curl_setopt(&ch, ZEND_STRL("CURLOPT_HTTPHEADER"), &curl_headers);
 			zval_ptr_dtor(&curl_headers);
 
-			if (zfiles && Z_TYPE_P(zfiles) == IS_ARRAY) {
+			if (have_files) {
 				zval mp;
-				if (gene_http_build_multipart(zfiles,
-					(zbody && Z_TYPE_P(zbody) == IS_ARRAY) ? zbody : NULL, &mp) != SUCCESS) {
+				if (gene_http_build_multipart(zfiles, have_multipart_form ? &multipart_form : NULL, &mp) != SUCCESS) {
 					zval_ptr_dtor(&ch);
+					if (have_multipart_form) zval_ptr_dtor(&multipart_form);
 					if (own_body && body) zend_string_release(body);
+					if (owned_url) zend_string_release(owned_url);
 					smart_str_free(&sse_leftover);
 					gene_http_restore_state(ctx, &saved_stream, &saved_sse, had_stream, had_sse);
 					RETURN_THROWS();
@@ -1186,8 +1443,14 @@ PHP_METHOD(gene_http, request) {
 	}
 	smart_str_free(&sse_leftover);
 
+	if (have_multipart_form) {
+		zval_ptr_dtor(&multipart_form);
+	}
 	if (own_body && body) {
 		zend_string_release(body);
+	}
+	if (owned_url) {
+		zend_string_release(owned_url);
 	}
 
 	if (status <= 0 && err) {
@@ -1469,7 +1732,8 @@ static int gene_http_multi_prepare_easy(zval *opts, gene_http_mslot *s) {
 	ZVAL_TRUE(&ztrue);
 	gene_http_curl_setopt(&s->ch, ZEND_STRL("CURLOPT_RETURNTRANSFER"), &ztrue);
 	gene_http_curl_setopt(&s->ch, ZEND_STRL("CURLOPT_HEADER"), &ztrue);
-	gene_http_build_curl_headers(zheaders, &curl_headers, have_json);
+	gene_http_build_curl_headers(zheaders, &curl_headers,
+		have_json ? "application/json; charset=UTF-8" : NULL);
 	gene_http_curl_setopt(&s->ch, ZEND_STRL("CURLOPT_HTTPHEADER"), &curl_headers);
 	zval_ptr_dtor(&curl_headers);
 
@@ -1762,7 +2026,7 @@ static int gene_http_multi_one_swoole(zval *item, zval *one) {
 	if (zheaders && Z_TYPE_P(zheaders) == IS_ARRAY) {
 		zend_hash_copy(Z_ARRVAL(hdrs_assoc), Z_ARRVAL_P(zheaders), (copy_ctor_func_t) zval_add_ref);
 	}
-	if (have_json) {
+	if (have_json && !gene_http_headers_have_content_type(&hdrs_assoc)) {
 		add_assoc_string_ex(&hdrs_assoc, ZEND_STRL("Content-Type"), "application/json; charset=UTF-8");
 	}
 	ZVAL_UNDEF(&swoole_out);

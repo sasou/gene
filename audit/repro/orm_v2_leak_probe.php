@@ -54,6 +54,23 @@ $ok &= probe('whereLike op build', 10000, function () {
 $ok &= probe('selectSub op build', 10000, function () {
     LM::query()->selectSub('SELECT count(*) FROM m', 'c')->first();
 });
+$ok &= probe('joinOn compile+execute with ordered binds', 10000, function () {
+    LM::query()->joinOn('m x', [
+        ['left' => 'x.id', 'op' => '=', 'column' => 'm.id'],
+        ['left' => 'x.status', 'op' => '=', 'value' => 1],
+    ])->where('m.id', '>=', 1)->all();
+});
+$ok &= probe('increment/decrement guarded writes', 10000, function () {
+    LM::query()->where('id', '=', 1)->increment('status');
+    LM::query()->where('id', '=', 1)->decrement('status');
+});
+$ok &= probe('union snapshot compile+all', 10000, function () {
+    $branch = LM::query()->fields('id')->where('status', '=', 1);
+    LM::query()->fields('id')->where('status', '=', 0)->unionAll($branch)->order('id')->all();
+});
+$ok &= probe('paginateResult frozen count+list', 10000, function () {
+    LM::query()->fields('status, COUNT(*) AS c')->group('status')->having('COUNT(*) >= 1')->paginateResult(0, 3);
+});
 $ok &= probe('createMany 3 rows (meta ts per row)', 2000, function () {
     LM::createMany([
         ['name' => 'b1', 'status' => 1],

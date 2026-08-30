@@ -31,6 +31,8 @@ int gene_request_restore(void);
 int gene_request_restore_ctx(gene_request_context *ctx);
 void gene_request_stack_drain(gene_request_context *ctx);
 void gene_request_scope(zval *get, zval *post, zval *files, zval *request);
+void gene_request_input_invalidate(gene_request_context *ctx);
+void gene_request_input_value(zval *return_value, zend_string *key, zval *def);
 
 /* [GENE_PERF:2026-04-19 #2] Cache ctx once per is-method call — previously issued
  * 2 ctx lookups (one for NULL check, one for strcasecmp). Expanded across
@@ -64,6 +66,16 @@ PHP_METHOD(ce, x) { \
 		RETURN_ZVAL(ret, 1, 0); \
 	} \
 	RETURN_NULL();\
+}
+
+#define GENE_REQUEST_INPUT_METHOD(ce) \
+PHP_METHOD(ce, input) { \
+	zend_string *key = NULL; \
+	zval *def = NULL; \
+	if (zend_parse_parameters(ZEND_NUM_ARGS(), "|S!z", &key, &def) == FAILURE) { \
+		return; \
+	} \
+	gene_request_input_value(return_value, key, def); \
 }
 
 GENE_MINIT_FUNCTION (request);

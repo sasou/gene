@@ -31,6 +31,7 @@ if (!empty($_FILES) && is_array($_FILES)) {
 echo json_encode([
     'method' => $method,
     'uri' => $uri,
+    'content_type' => $_SERVER['CONTENT_TYPE'] ?? '',
     'body' => $body,
     'post' => $_POST ?? [],
     'files' => $files,

@@ -85,6 +85,7 @@
 |------|------|
 | get($key, $default = null) | 获取 GET 参数 |
 | request($key, $default = null) | 获取 REQUEST 参数 |
+| input(?string $key = null, $default = null) | 合并 GET+POST 与 JSON 对象，JSON 覆盖同名字段；仅解析 `application/json`/`application/*+json`，非法或非对象 JSON 抛异常；与 `json()` 共用每请求解析缓存 |
 | post($key, $default = null) | 获取 POST 参数 |
 | cookie($key, $default = null) | 获取 Cookie |
 | files($key, $default = null) | 获取上传文件 |
@@ -98,7 +99,7 @@
 | clear() | 清除请求数据缓存 |
 | init($get, $post, $cookie, $server, $env, $files, $request = null, $header = null, $rawContent = null) | Swoole 注入请求；未传 $request 时合并 GET+POST；$rawContent 对应 Swoole `$request->rawContent()` |
 | json() | 解析 rawContent 为 JSON 对象/数组；空 body → `null`；非法 JSON / JSON `null` / 标量抛异常。禁止直接读 `php://input` |
-| bearer() | 从 header/server 读 `Authorization`，剥 `Bearer `（大小写不敏感）；空则 `null`。Swoole 走 Request 袋，禁止 `$_SERVER`/`getallheaders()` |
+| bearer() | 从 header/server 读 `Authorization`；仅接受大小写不敏感的 `Bearer` scheme + SP/HTAB，非 Bearer、裸 token 或空 token 返回 `null` |
 | snapshot() | 压入 get/post/files/request/header/raw 快照，返回新深度；上限 8 |
 | restore() | 弹出快照；栈空返回 false |
 | scope($get, $post, $files = null, $request = null) | 只改入参袋；`$request===null` 时合并 get+post。业务互调应走 `Invoke`/`Rest`，不要 `init` 整包覆盖 |
@@ -343,6 +344,10 @@ Query 是**一次性构建器**（构建 → 执行 → 丢弃），不可缓存
 User::query()
     ->fields(['u.id', 'u.name'])
     ->join('orders o', ['o.user_id' => 'u.id'], 'LEFT')
+    ->joinOn('flags f', [
+        ['left' => 'f.user_id', 'op' => '=', 'column' => 'u.id'],
+        ['left' => 'f.enabled', 'op' => '=', 'value' => 1],
+    ], 'LEFT')
     ->where(['u.status' => 1])          // 数组条件
     ->where('u.name != ?', $x)          // 原始片段（之间自动 AND）
     ->where('u.id', '>=', $anchor)      // 比较简写：> >= < <= != =（白名单外抛异常）
@@ -358,8 +363,11 @@ User::query()
 |----------|------|
 | all() / row() / cell() / first() | 查询；first() = limit(1)+row() |
 | count() | 继承 where/join，忽略 order/limit/lock；**不得与 group() 组合**（count over GROUP BY 语义会错，检测到即抛异常），分组统计用 count()+all() 两步 |
-| paginate($offset, $limit) | {count, list}；仅保证单表语义，JOIN 场景用 count()+all() 两步；与 group() 组合抛异常 |
-| update($data) / delete() | 立即执行，返回影响行数；**必须**带**有效** where()/in() 条件——无条件、`where([])`、`where('')` 一律抛异常（不会生成无 WHERE 的全表写）；`in('id', [])` 为安全空操作（返回 0）；不支持 join |
+| paginate($offset, $limit) | {count, list}；普通单表快速路径；与 group() 组合抛异常；UNION 自动按最终复合结果统计 |
+| paginateResult($offset, $limit) | 用只读冻结编译快照统计最终 JOIN/GROUP/HAVING/UNION 结果，count 去除外层 order/limit/lock，list 仅覆盖外层 limit |
+| joinOn($table, $predicates, $type = 'INNER') | 结构化 ON：每项严格为 `left/op` 加且仅加 `column` 或 `value`；op 仅 `= != > >= < <=`，null 仅 `=`/`!=`；值始终绑定且绑定按 JOIN→WHERE 顺序 |
+| union($query) / unionAll($query) | 仅接受同一 Db 的 Query；调用时冻结子分支；拒绝 self/环/超过 8 层、子分支 order/limit/lock、复合查询写入或加锁 |
+| update($data) / delete() / increment($column, $amount = 1) / decrement(...) | 立即执行，返回影响行数；算术步长须为有限正数。**必须**带**有效** where()/in() 条件——无条件、`where([])`、`where('')` 一律抛异常；`in('id', [])` 为安全空操作（返回 0）；不支持 join/union |
 | lockForUpdate() / sharedLock() | 行锁（仅 select 终端；MySQL FOR UPDATE / LOCK IN SHARE MODE，Pgsql FOR UPDATE / FOR SHARE，Sqlite no-op+E_NOTICE，Mssql 抛异常）；须在事务内，否则 E_NOTICE |
 
 复杂 SQL 仍用 `$this->db`。Swoole 下配合 `instance=>true` + Pool；见 `swoole.md` §4.3。
@@ -826,6 +834,7 @@ Swoole 协程 **Redis 连接池**（FPM 无效）。API 与 `Gene\Pool` 对称�
 |------|------|
 | set($key, $value) | 写入 |
 | get($key, $default = null) | 读取 |
+| has($key) | 判断键是否存在，可区分缺失与显式 `null` |
 | all() | 返回全部 |
 
 ## Gene\Json
@@ -846,7 +855,9 @@ $r = \Gene\Http::request([
     'method'  => 'POST',
     'url'     => $url,
     'headers' => ['Authorization' => 'Bearer ...'],
-    'json'    => $payload,        // 与 body / files 互斥
+    'query'   => ['page' => 2, 'tag' => ['a', 'b']], // RFC3986，追加已有 query，fragment 留在末尾
+    'json'    => $payload,        // 与 body / form / files 互斥
+    'form'    => ['grant_type' => 'client_credentials'], // 无文件 urlencoded；有文件为 multipart 字段
     'files'   => ['f' => $path],  // multipart；值可为路径或 ['tmp_name','name','type']
     'timeout' => 60,
     'connect_timeout' => 3,
@@ -859,6 +870,10 @@ $r = \Gene\Http::request([
     'discard_body' => false,      // true 不累积 body（流式转发省 RSS）
 ]);
 // ['status'=>int, 'headers'=>array, 'body'=>string]
+
+// query 可与任一 body 类型组合。json、字符串 body、无文件 form 互斥；files + form 推荐用于 multipart。
+// files + array body 仅为兼容写法，body + form 始终抛异常。自动 Content-Type 不覆盖任意大小写的调用方 header。
+// query/form 的对象、资源值会被拒绝；未知 option 发 E_NOTICE（含 key），且不会发送到后端。
 
 $batch = \Gene\Http::multi([
     ['method' => 'GET', 'url' => $u1],
