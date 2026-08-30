@@ -66,8 +66,16 @@ class OrmTest
             }
         }
 
+        foreach (['\\Gene\\Db\\Mysql', '\\Gene\\Db\\Sqlite', '\\Gene\\Db\\Pgsql', '\\Gene\\Db\\Mssql'] as $dbClass) {
+            if (!class_exists($dbClass)) continue;
+            foreach (['joinOn', 'increment', 'decrement'] as $m) {
+                if (method_exists($dbClass, $m)) $this->ok("$dbClass::$m"); else $this->fail("missing method $dbClass::$m");
+            }
+        }
+
         foreach (['where', 'in', 'order', 'limit', 'all', 'row', 'cell', 'count',
-            'join', 'group', 'having', 'fields', 'first', 'paginate', 'update', 'delete',
+            'join', 'joinOn', 'group', 'having', 'fields', 'first', 'paginate', 'paginateResult',
+            'union', 'unionAll', 'update', 'increment', 'decrement', 'delete',
             'lockForUpdate', 'sharedLock', 'selectSub', 'whereLike'] as $m) {
             if (!method_exists('\\Gene\\Orm\\Query', $m)) {
                 $this->fail("missing method Query::$m");
@@ -702,6 +710,113 @@ class OrmTest
                 $this->fail('N1: rejected model write still modified rows');
             }
 
+            $joined = OrmTestQUser::query()
+                ->fields(['q_users.id', 'q_users.name'])
+                ->joinOn('q_orders', [
+                    ['left' => 'q_orders.user_id', 'op' => '=', 'column' => 'q_users.id'],
+                    ['left' => 'q_orders.amount', 'op' => '>', 'value' => 10],
+                ], 'INNER')
+                ->where('q_users.status', '=', 1)
+                ->group('q_users.id')
+                ->all();
+            $printed = OrmTestQUser::query()
+                ->joinOn('q_orders', [
+                    ['left' => 'q_orders.user_id', 'op' => '=', 'column' => 'q_users.id'],
+                    ['left' => 'q_orders.amount', 'op' => '>', 'value' => 10],
+                ])
+                ->where('q_users.status', '=', 1)
+                ->print();
+            if (count($joined) === 1 && ($joined[0]['name'] ?? '') === 'u1'
+                && ($printed['param'] ?? null) === [10, 1]
+                && strpos($printed['sql'] ?? '', 'JOIN') !== false) {
+                $this->ok('joinOn structured predicates and JOIN-before-WHERE bindings');
+            } else {
+                $this->fail('joinOn result/params: ' . json_encode([$joined, $printed]));
+            }
+            foreach ([
+                [] ,
+                [['left' => 'x;drop', 'op' => '=', 'value' => 1]],
+                [['left' => 'q_users.id', 'op' => 'LIKE', 'value' => 1]],
+                [['left' => 'q_users.id', 'op' => '=', 'column' => 'q_orders.id', 'value' => 1]],
+                [['left' => 'q_users.id', 'op' => '>', 'value' => null]],
+            ] as $badOn) {
+                $threw = false;
+                try { OrmTestQUser::query()->joinOn('q_orders', $badOn)->all(); } catch (\Throwable $e) { $threw = true; }
+                if ($threw) $this->ok('joinOn rejects invalid structure'); else $this->fail('joinOn accepted invalid structure');
+            }
+
+            $counterId = OrmTestQUser::create(['name' => 'counter', 'status' => 5]);
+            $inc = OrmTestQUser::query()->where('id', '=', $counterId)->increment('status', 2);
+            $dec = OrmTestQUser::query()->where('id', '=', $counterId)->where('status', '>=', 7)->decrement('status', 1.5);
+            $counter = OrmTestQUser::find($counterId);
+            if ($inc === 1 && $dec === 1 && (float)$counter['status'] === 5.5) {
+                $this->ok('increment/decrement execute atomically with ordered bindings');
+            } else {
+                $this->fail('increment/decrement: ' . json_encode([$inc, $dec, $counter]));
+            }
+            $beforeArithmetic = count((array)$db->history());
+            $emptyArithmetic = OrmTestQUser::query()->in('id', [])->increment('status');
+            $afterArithmetic = count((array)$db->history());
+            if ($emptyArithmetic === 0 && $beforeArithmetic === $afterArithmetic) $this->ok('in([])->increment is no-op'); else $this->fail('in([])->increment issued SQL');
+            foreach ([0, -1, INF, NAN] as $badAmount) {
+                $threw = false;
+                try { OrmTestQUser::query()->where('id', '=', $counterId)->increment('status', $badAmount); } catch (\Throwable $e) { $threw = true; }
+                if ($threw) $this->ok('increment rejects non-positive/non-finite amount'); else $this->fail('increment accepted bad amount');
+            }
+            $threw = false;
+            try { OrmTestQUser::query()->increment('status'); } catch (\Throwable $e) { $threw = true; }
+            if ($threw) $this->ok('increment requires effective where'); else $this->fail('increment without where did not throw');
+
+            $branch = OrmTestQUser::query()->fields('name')->where('status', '=', 1);
+            $compound = OrmTestQUser::query()->fields('name')->where('status', '=', 9)->unionAll($branch)->order('name asc');
+            $frozenPrint = $compound->print();
+            $branch->where('name', '=', 'never');
+            $compoundRows = $compound->all();
+            if (is_array($compoundRows) && count($compoundRows) >= 2
+                && substr_count($frozenPrint['sql'] ?? '', 'UNION ALL') === 1
+                && ($frozenPrint['param'] ?? null) === [9, 1]) {
+                $this->ok('unionAll binding order and frozen child snapshot');
+            } else {
+                $this->fail('unionAll snapshot: ' . json_encode([$compoundRows, $frozenPrint]));
+            }
+            $unionCount = OrmTestQUser::query()->fields('status')->where('status', '=', 1)
+                ->union(OrmTestQUser::query()->fields('status')->where('status', '=', 5.5))->count();
+            if ($unionCount === 2) $this->ok('union count counts final distinct result'); else $this->fail("union count=$unionCount");
+            $self = OrmTestQUser::query();
+            $threw = false;
+            try { $self->union($self); } catch (\Throwable $e) { $threw = true; }
+            if ($threw) $this->ok('self union rejected'); else $this->fail('self union accepted');
+            $threw = false;
+            try { OrmTestQUser::query()->union(OrmTestQUser::query()->order('id'))->all(); } catch (\Throwable $e) { $threw = true; }
+            if ($threw) $this->ok('union branch order rejected'); else $this->fail('union branch order accepted');
+            $threw = false;
+            try { OrmTestQUser::query()->union(OrmTestQUser::query())->lockForUpdate(); } catch (\Throwable $e) { $threw = true; }
+            if ($threw) $this->ok('union lock rejected'); else $this->fail('union lock accepted');
+            $db->beginTransaction();
+            OrmTestQUser::query()->unionAll(OrmTestQUser::query())->print();
+            $compileKeptTransaction = $db->inTransaction();
+            $db->rollBack();
+            if ($compileKeptTransaction) $this->ok('union compilation preserves active transaction'); else $this->fail('union compilation rolled back active transaction');
+
+            $resultPage = OrmTestQUser::query()
+                ->fields('q_users.status, COUNT(q_orders.id) AS order_count')
+                ->join('q_orders', ['q_orders.user_id' => 'q_users.id'], 'LEFT')
+                ->group('q_users.status')->having('COUNT(q_orders.id) >= 1')
+                ->order('q_users.status desc')->paginateResult(0, 1);
+            if (is_array($resultPage) && $resultPage['count'] === 1 && count($resultPage['list']) === 1) {
+                $this->ok('paginateResult counts final GROUP/HAVING result');
+            } else {
+                $this->fail('paginateResult group/having: ' . json_encode($resultPage));
+            }
+            $unionPage = OrmTestQUser::query()->fields('name')->where('status', '=', 1)
+                ->unionAll(OrmTestQUser::query()->fields('name')->where('status', '=', 5.5))
+                ->order('name')->paginateResult(0, 2);
+            if (is_array($unionPage) && $unionPage['count'] >= 3 && count($unionPage['list']) === 2) {
+                $this->ok('paginateResult counts and pages UNION ALL result');
+            } else {
+                $this->fail('paginateResult union: ' . json_encode($unionPage));
+            }
+
             // [P2-5] group() + count()/paginate() must throw (count over
             // GROUP BY would silently return the first group's row count).
             $threw = false;
@@ -1023,9 +1138,43 @@ class OrmTest
         }
     }
 
+    public function testDriverSqlGeneration()
+    {
+        echo "\nTesting four-driver ORM SQL generation:\n";
+        foreach ([
+            '\\Gene\\Db\\Mysql' => '`',
+            '\\Gene\\Db\\Sqlite' => '`',
+            '\\Gene\\Db\\Pgsql' => '"',
+            '\\Gene\\Db\\Mssql' => '[',
+        ] as $class => $quote) {
+            if (!class_exists($class)) continue;
+            try {
+                $db = (new \ReflectionClass($class))->newInstanceWithoutConstructor();
+                $arithmetic = $db->increment('items', 'qty', 2)->where('id = ?', 7)->print();
+                $db->reset()->select('items i')->where('i.status = ?', 1)->joinOn('flags f', [
+                    ['left' => 'f.item_id', 'op' => '=', 'column' => 'i.id'],
+                    ['left' => 'f.kind', 'op' => '=', 'value' => 'hot'],
+                ])->order('i.id')->limit(0, 5);
+                $join = $db->print();
+                if (strpos($arithmetic['sql'] ?? '', ' + ?') !== false
+                    && ($arithmetic['param'] ?? null) === [2, 7]
+                    && strpos($join['sql'] ?? '', ' JOIN ') !== false
+                    && ($join['param'] ?? null) === ['hot', 1]
+                    && strpos($join['sql'] ?? '', $quote) !== false) {
+                    $this->ok("$class SQL/binding snapshot");
+                } else {
+                    $this->fail("$class SQL snapshot: " . json_encode([$arithmetic, $join]));
+                }
+            } catch (\Throwable $e) {
+                $this->fail("$class SQL generation exception: " . $e->getMessage());
+            }
+        }
+    }
+
     public function run()
     {
         $this->testClassSurface();
+        $this->testDriverSqlGeneration();
         $this->testSqliteCrud();
         $this->testQueryOpsList();
         $this->testBatchAndIdempotent();

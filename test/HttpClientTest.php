@@ -77,6 +77,38 @@ class HttpClientTest
                 echo "✗ GET: " . var_export($r, true) . "\n";
             }
 
+            $queryResult = \Gene\Http::request([
+                'method' => 'GET',
+                'url' => 'http://127.0.0.1:' . $this->port . '/echo?existing=one#client',
+                'query' => [
+                    'page' => 2,
+                    'tag' => ['a b', '中'],
+                    'nested' => ['x' => 1],
+                    'empty' => '',
+                    'null' => null,
+                ],
+                'timeout' => 3,
+            ]);
+            $queryEcho = json_decode($queryResult['body'] ?? '', true);
+            $expectedUri = '/echo?existing=one&page=2&tag%5B0%5D=a%20b&tag%5B1%5D=%E4%B8%AD&nested%5Bx%5D=1&empty=';
+            if (($queryResult['status'] ?? 0) === 200 && ($queryEcho['uri'] ?? '') === $expectedUri) {
+                echo "PASS RFC3986 query preserves existing query and fragment position\n";
+            } else {
+                echo "FAIL query encoding: " . var_export($queryResult, true) . "\n";
+            }
+
+            $emptyQueryResult = \Gene\Http::request([
+                'url' => 'http://127.0.0.1:' . $this->port . '/echo?existing=one#client',
+                'query' => [],
+                'timeout' => 3,
+            ]);
+            $emptyQueryEcho = json_decode($emptyQueryResult['body'] ?? '', true);
+            if (($emptyQueryEcho['uri'] ?? '') === '/echo?existing=one') {
+                echo "PASS empty query leaves URL unchanged\n";
+            } else {
+                echo "FAIL empty query: " . var_export($emptyQueryResult, true) . "\n";
+            }
+
             $r2 = \Gene\Http::request([
                 'method' => 'POST',
                 'url' => $url,
@@ -90,6 +122,37 @@ class HttpClientTest
                 echo "✓ POST json body\n";
             } else {
                 echo "✗ POST json: " . var_export($r2, true) . "\n";
+            }
+
+            $formResult = \Gene\Http::request([
+                'method' => 'POST',
+                'url' => 'http://127.0.0.1:' . $this->port . '/echo',
+                'form' => ['grant_type' => 'client credentials', 'tag' => ['a b', '中'], 'empty' => ''],
+                'timeout' => 3,
+            ]);
+            $formEcho = json_decode($formResult['body'] ?? '', true);
+            $expectedForm = 'grant_type=client%20credentials&tag%5B0%5D=a%20b&tag%5B1%5D=%E4%B8%AD&empty=';
+            if (($formResult['status'] ?? 0) === 200
+                && ($formEcho['body'] ?? '') === $expectedForm
+                && ($formEcho['content_type'] ?? '') === 'application/x-www-form-urlencoded') {
+                echo "PASS RFC3986 urlencoded form body and Content-Type\n";
+            } else {
+                echo "FAIL form encoding: " . var_export($formResult, true) . "\n";
+            }
+
+            $customTypeResult = \Gene\Http::request([
+                'method' => 'POST',
+                'url' => 'http://127.0.0.1:' . $this->port . '/echo',
+                'headers' => ['content-type' => 'application/vnd.gene.test'],
+                'form' => ['a' => 'b c'],
+                'timeout' => 3,
+            ]);
+            $customTypeEcho = json_decode($customTypeResult['body'] ?? '', true);
+            if (($customTypeEcho['content_type'] ?? '') === 'application/vnd.gene.test'
+                && ($customTypeEcho['body'] ?? '') === 'a=b%20c') {
+                echo "PASS custom Content-Type is case-insensitively preserved\n";
+            } else {
+                echo "FAIL custom Content-Type: " . var_export($customTypeResult, true) . "\n";
             }
 
             $chunks = [];
@@ -131,9 +194,89 @@ class HttpClientTest
             $echo = json_decode($r5['body'] ?? '', true);
             if (($r5['status'] ?? 0) === 200 && ($echo['files']['up']['name'] ?? '') === 'a.txt'
                 && ($echo['post']['note'] ?? '') === 'x') {
-                echo "✓ multipart files+form\n";
+                echo "PASS multipart files+array body compatibility\n";
             } else {
-                echo "✗ multipart: " . var_export($r5, true) . "\n";
+                echo "FAIL multipart body compatibility: " . var_export($r5, true) . "\n";
+            }
+
+            $multipartFormResult = \Gene\Http::request([
+                'method' => 'POST',
+                'url' => 'http://127.0.0.1:' . $this->port . '/echo',
+                'files' => ['up' => ['tmp_name' => $tmp, 'name' => 'b.txt', 'type' => 'text/plain']],
+                'form' => ['note' => 'a b', 'nested' => ['x' => '中']],
+                'timeout' => 3,
+            ]);
+            $multipartFormEcho = json_decode($multipartFormResult['body'] ?? '', true);
+            if (($multipartFormResult['status'] ?? 0) === 200
+                && ($multipartFormEcho['files']['up']['name'] ?? '') === 'b.txt'
+                && ($multipartFormEcho['post']['note'] ?? '') === 'a b'
+                && ($multipartFormEcho['post']['nested']['x'] ?? '') === '中') {
+                echo "PASS multipart files+form fields\n";
+            } else {
+                echo "FAIL multipart form: " . var_export($multipartFormResult, true) . "\n";
+            }
+
+            $notice = '';
+            set_error_handler(function ($severity, $message) use (&$notice) {
+                if ($severity === E_NOTICE) {
+                    $notice = $message;
+                    return true;
+                }
+                return false;
+            });
+            try {
+                $noticeResult = \Gene\Http::request([
+                    'url' => 'http://127.0.0.1:' . $this->port . '/echo',
+                    'query' => ['ok' => 1],
+                    'typo_option' => true,
+                    'timeout' => 3,
+                ]);
+            } finally {
+                restore_error_handler();
+            }
+            $noticeEcho = json_decode($noticeResult['body'] ?? '', true);
+            if (strpos($notice, 'typo_option') !== false && ($noticeEcho['uri'] ?? '') === '/echo?ok=1') {
+                echo "PASS unknown option emits E_NOTICE and is not forwarded\n";
+            } else {
+                echo "FAIL unknown option notice: " . var_export($notice, true) . "\n";
+            }
+
+            $conflicts = [
+                ['json' => ['a' => 1], 'form' => ['b' => 2]],
+                ['body' => 'raw', 'form' => ['b' => 2]],
+                ['body' => ['legacy' => 1], 'form' => ['b' => 2], 'files' => ['up' => $tmp]],
+            ];
+            $conflictCount = 0;
+            foreach ($conflicts as $conflict) {
+                try {
+                    \Gene\Http::request($conflict + [
+                        'method' => 'POST',
+                        'url' => 'http://127.0.0.1:' . $this->port . '/echo',
+                    ]);
+                } catch (\Throwable $e) {
+                    $conflictCount++;
+                }
+            }
+            if ($conflictCount === count($conflicts)) {
+                echo "PASS json/string body/form conflicts rejected\n";
+            } else {
+                echo "FAIL body/form conflict count: $conflictCount\n";
+            }
+
+            $invalidValueCount = 0;
+            $resource = fopen('php://memory', 'r');
+            foreach ([['query' => ['bad' => new \stdClass()]], ['form' => ['bad' => $resource]]] as $invalid) {
+                try {
+                    \Gene\Http::request($invalid + ['url' => 'http://127.0.0.1:' . $this->port . '/echo']);
+                } catch (\Throwable $e) {
+                    $invalidValueCount++;
+                }
+            }
+            fclose($resource);
+            if ($invalidValueCount === 2) {
+                echo "PASS query/form reject object and resource values\n";
+            } else {
+                echo "FAIL query/form invalid value count: $invalidValueCount\n";
             }
             @unlink($tmp);
         } catch (\Throwable $e) {
@@ -165,12 +308,18 @@ class HttpClientTest
             \Gene\Application::setRuntimeType('swoole');
             try {
                 $r = \Gene\Http::request([
-                    'method' => 'GET',
-                    'url' => $url,
+                    'method' => 'POST',
+                    'url' => $url . '?existing=one#client',
+                    'query' => ['q' => 'a b', 'nested' => ['x' => '中']],
+                    'form' => ['grant_type' => 'client credentials', 'tag' => ['a b', '中']],
                     'timeout' => 3,
                     'connect_timeout' => 1,
                 ]);
-                $ok = is_array($r) && ($r['status'] ?? 0) === 200;
+                $echo = json_decode($r['body'] ?? '', true);
+                $ok = is_array($r) && ($r['status'] ?? 0) === 200
+                    && ($echo['uri'] ?? '') === '/echo?existing=one&q=a%20b&nested%5Bx%5D=%E4%B8%AD'
+                    && ($echo['body'] ?? '') === 'grant_type=client%20credentials&tag%5B0%5D=a%20b&tag%5B1%5D=%E4%B8%AD'
+                    && ($echo['content_type'] ?? '') === 'application/x-www-form-urlencoded';
                 if (!$ok) {
                     $err = var_export($r, true);
                 }
@@ -184,9 +333,9 @@ class HttpClientTest
             }
         });
         if ($ok) {
-            echo "✓ Swoole Coroutine Http Client GET\n";
+            echo "PASS Swoole query/form encoding matches curl contract\n";
         } else {
-            echo "✗ Swoole branch: $err\n";
+            echo "FAIL Swoole branch: $err\n";
         }
         $this->stopEchoServer();
         echo "\n";

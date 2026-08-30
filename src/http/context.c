@@ -92,6 +92,17 @@ PHP_METHOD(gene_context, get) {
 }
 /* }}} */
 
+PHP_METHOD(gene_context, has) {
+	zend_string *key;
+	gene_request_context *ctx;
+	if (zend_parse_parameters(ZEND_NUM_ARGS(), "S", &key) == FAILURE) {
+		return;
+	}
+	ctx = gene_request_ctx();
+	RETURN_BOOL(ctx && Z_TYPE(ctx->user_bag) == IS_ARRAY
+		&& zend_symtable_exists(Z_ARRVAL(ctx->user_bag), key));
+}
+
 /* {{{ proto static array Gene\Context::all() */
 PHP_METHOD(gene_context, all) {
 	gene_request_context *ctx = gene_request_ctx();
@@ -106,6 +117,7 @@ PHP_METHOD(gene_context, all) {
 const zend_function_entry gene_context_methods[] = {
 	PHP_ME(gene_context, set, gene_context_set_arginfo, ZEND_ACC_PUBLIC|ZEND_ACC_STATIC)
 	PHP_ME(gene_context, get, gene_context_get_arginfo, ZEND_ACC_PUBLIC|ZEND_ACC_STATIC)
+	PHP_ME(gene_context, has, gene_context_get_arginfo, ZEND_ACC_PUBLIC|ZEND_ACC_STATIC)
 	PHP_ME(gene_context, all, gene_context_void_arginfo, ZEND_ACC_PUBLIC|ZEND_ACC_STATIC)
 	{NULL, NULL, NULL}
 };

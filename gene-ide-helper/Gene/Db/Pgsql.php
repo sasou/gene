@@ -147,6 +147,18 @@ class Pgsql
 
     }
 
+    public function joinOn($table, array $predicates, $type = 'INNER') {
+
+    }
+
+    public function increment($table, $column, $amount = 1) {
+
+    }
+
+    public function decrement($table, $column, $amount = 1) {
+
+    }
+
     /**
      * leftJoin
      *

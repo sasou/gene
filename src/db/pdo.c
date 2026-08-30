@@ -25,10 +25,204 @@
 #include "zend_exceptions.h"
 #include "zend_smart_str.h"
 #include "ext/pdo/php_pdo_driver.h"
+#include <math.h>
 
 #include "../gene.h"
 #include "../common/common.h"
 #include "pdo.h"
+
+zend_bool gene_db_valid_identifier(zend_string *name)
+{
+    size_t i;
+    zend_bool segment = 0;
+    if (!name || ZSTR_LEN(name) == 0 || ZSTR_LEN(name) > 128) return 0;
+    for (i = 0; i < ZSTR_LEN(name); i++) {
+        unsigned char c = (unsigned char) ZSTR_VAL(name)[i];
+        if (c == '.') {
+            if (!segment) return 0;
+            segment = 0;
+        } else if ((c >= 'A' && c <= 'Z') || (c >= 'a' && c <= 'z') ||
+                   (c >= '0' && c <= '9' && segment) || c == '_') {
+            segment = 1;
+        } else {
+            return 0;
+        }
+    }
+    return segment;
+}
+
+static zend_bool gene_db_join_type(zend_string *type, char *out, size_t out_size)
+{
+    static const char *allowed[] = {"INNER", "LEFT", "RIGHT", "CROSS", "FULL", "LEFT OUTER", "RIGHT OUTER", "FULL OUTER"};
+    const char *src = type && ZSTR_LEN(type) ? ZSTR_VAL(type) : "INNER";
+    size_t len = type && ZSTR_LEN(type) ? ZSTR_LEN(type) : sizeof("INNER") - 1;
+    size_t i, j;
+    if (len >= out_size) return 0;
+    for (i = 0; i < len; i++) {
+        unsigned char c = (unsigned char) src[i];
+        out[i] = (c >= 'a' && c <= 'z') ? (char) (c & ~0x20) : (char) c;
+    }
+    out[len] = '\0';
+    for (j = 0; j < sizeof(allowed) / sizeof(allowed[0]); j++) {
+        if (strcmp(out, allowed[j]) == 0) return 1;
+    }
+    return 0;
+}
+
+static void gene_db_append_property(zval *self, zend_class_entry *ce, const char *prop, size_t prop_len, smart_str *frag)
+{
+    zval *cur = zend_read_property(ce, gene_strip_obj(self), prop, prop_len, 1, NULL);
+    smart_str out = {0};
+    if (cur && Z_TYPE_P(cur) == IS_STRING) smart_str_appendl(&out, Z_STRVAL_P(cur), Z_STRLEN_P(cur));
+    if (frag->s) smart_str_appendl(&out, ZSTR_VAL(frag->s), ZSTR_LEN(frag->s));
+    smart_str_0(&out);
+    zend_update_property_str(ce, gene_strip_obj(self), prop, prop_len, out.s);
+    zend_string_release(out.s);
+}
+
+static void gene_db_insert_bind(zval *self, zend_class_entry *ce, const char *prop, size_t prop_len, zval *value, uint32_t position)
+{
+    zval *data = zend_read_property(ce, gene_strip_obj(self), prop, prop_len, 1, NULL);
+    zval params, *current;
+    uint32_t index = 0;
+    array_init(&params);
+    if (data && Z_TYPE_P(data) == IS_ARRAY) {
+        ZEND_HASH_FOREACH_VAL(Z_ARRVAL_P(data), current) {
+            zval copy;
+            if (index++ == position) {
+                ZVAL_COPY(&copy, value);
+                add_next_index_zval(&params, &copy);
+            }
+            ZVAL_COPY(&copy, current);
+            add_next_index_zval(&params, &copy);
+        } ZEND_HASH_FOREACH_END();
+    }
+    if (index <= position) {
+        zval copy;
+        ZVAL_COPY(&copy, value);
+        add_next_index_zval(&params, &copy);
+    }
+    zend_update_property(ce, gene_strip_obj(self), prop, prop_len, &params);
+    zval_ptr_dtor(&params);
+}
+
+int gene_db_build_join_on(zval *self, zend_class_entry *ce, const char *join_prop, size_t join_prop_len, const char *data_prop, size_t data_prop_len, zend_string *table, zval *predicates, zend_string *type, char oq, char cq)
+{
+    smart_str frag = {0};
+    char tbuf[16];
+    zval *predicate;
+    zend_bool first = 1;
+    char *qt;
+    uint32_t join_binds = 0, new_binds = 0;
+    zval original_join, original_data;
+    zval *current_join = zend_read_property(ce, gene_strip_obj(self), join_prop, join_prop_len, 1, NULL);
+    zval *current_data = zend_read_property(ce, gene_strip_obj(self), data_prop, data_prop_len, 1, NULL);
+    ZVAL_COPY(&original_join, current_join);
+    ZVAL_COPY(&original_data, current_data);
+    if (current_join && Z_TYPE_P(current_join) == IS_STRING) {
+        size_t i;
+        for (i = 0; i < Z_STRLEN_P(current_join); i++) if (Z_STRVAL_P(current_join)[i] == '?') join_binds++;
+    }
+    if (!predicates || Z_TYPE_P(predicates) != IS_ARRAY || zend_hash_num_elements(Z_ARRVAL_P(predicates)) == 0) {
+        zend_throw_exception_ex(NULL, 0, "joinOn() predicates must be a non-empty array");
+        zval_ptr_dtor(&original_join); zval_ptr_dtor(&original_data);
+        return FAILURE;
+    }
+    if (!gene_db_join_type(type, tbuf, sizeof(tbuf))) {
+        zend_throw_exception_ex(NULL, 0, "joinOn() has an invalid JOIN type");
+        zval_ptr_dtor(&original_join); zval_ptr_dtor(&original_data);
+        return FAILURE;
+    }
+    qt = gene_quote_table(ZSTR_VAL(table), oq, cq);
+    smart_str_appendc(&frag, ' ');
+    smart_str_appends(&frag, tbuf);
+    smart_str_appends(&frag, " JOIN ");
+    smart_str_appends(&frag, qt);
+    smart_str_appends(&frag, " ON ");
+    efree(qt);
+    ZEND_HASH_FOREACH_VAL(Z_ARRVAL_P(predicates), predicate) {
+        zval *left, *op, *column, *value;
+        char *ql, *qr;
+        zend_bool has_column, has_value;
+        if (Z_TYPE_P(predicate) != IS_ARRAY || zend_hash_num_elements(Z_ARRVAL_P(predicate)) != 3) goto invalid;
+        left = zend_hash_str_find(Z_ARRVAL_P(predicate), ZEND_STRL("left"));
+        op = zend_hash_str_find(Z_ARRVAL_P(predicate), ZEND_STRL("op"));
+        column = zend_hash_str_find(Z_ARRVAL_P(predicate), ZEND_STRL("column"));
+        value = zend_hash_str_find(Z_ARRVAL_P(predicate), ZEND_STRL("value"));
+        has_column = column != NULL;
+        has_value = value != NULL;
+        if (!left || Z_TYPE_P(left) != IS_STRING || !gene_db_valid_identifier(Z_STR_P(left)) ||
+            !op || Z_TYPE_P(op) != IS_STRING || has_column == has_value) goto invalid;
+        if (strcmp(Z_STRVAL_P(op), "=") && strcmp(Z_STRVAL_P(op), "!=") && strcmp(Z_STRVAL_P(op), ">") &&
+            strcmp(Z_STRVAL_P(op), ">=") && strcmp(Z_STRVAL_P(op), "<") && strcmp(Z_STRVAL_P(op), "<=")) goto invalid;
+        if (has_column && (Z_TYPE_P(column) != IS_STRING || !gene_db_valid_identifier(Z_STR_P(column)))) goto invalid;
+        if (has_value && Z_TYPE_P(value) == IS_NULL && strcmp(Z_STRVAL_P(op), "=") && strcmp(Z_STRVAL_P(op), "!=")) goto invalid;
+        if (!first) smart_str_appends(&frag, " AND ");
+        ql = gene_quote_columns(Z_STRVAL_P(left), oq, cq);
+        smart_str_appends(&frag, ql);
+        efree(ql);
+        if (has_column) {
+            qr = gene_quote_columns(Z_STRVAL_P(column), oq, cq);
+            smart_str_appendc(&frag, ' ');
+            smart_str_appendl(&frag, Z_STRVAL_P(op), Z_STRLEN_P(op));
+            smart_str_appendc(&frag, ' ');
+            smart_str_appends(&frag, qr);
+            efree(qr);
+        } else if (Z_TYPE_P(value) == IS_NULL) {
+            smart_str_appends(&frag, zend_string_equals_literal(Z_STR_P(op), "=") ? " IS NULL" : " IS NOT NULL");
+        } else {
+            smart_str_appendc(&frag, ' ');
+            smart_str_appendl(&frag, Z_STRVAL_P(op), Z_STRLEN_P(op));
+            smart_str_appends(&frag, " ?");
+            gene_db_insert_bind(self, ce, data_prop, data_prop_len, value, join_binds + new_binds++);
+        }
+        first = 0;
+        continue;
+invalid:
+        smart_str_free(&frag);
+        zend_update_property(ce, gene_strip_obj(self), join_prop, join_prop_len, &original_join);
+        zend_update_property(ce, gene_strip_obj(self), data_prop, data_prop_len, &original_data);
+        zval_ptr_dtor(&original_join); zval_ptr_dtor(&original_data);
+        zend_throw_exception_ex(NULL, 0, "joinOn() predicate must contain strict left/op and exactly one column/value");
+        return FAILURE;
+    } ZEND_HASH_FOREACH_END();
+    smart_str_0(&frag);
+    gene_db_append_property(self, ce, join_prop, join_prop_len, &frag);
+    smart_str_free(&frag);
+    zval_ptr_dtor(&original_join); zval_ptr_dtor(&original_data);
+    return SUCCESS;
+}
+
+int gene_db_build_arithmetic(zval *self, zend_class_entry *ce, const char *sql_prop, size_t sql_prop_len, const char *data_prop, size_t data_prop_len, zend_string *table, zend_string *column, double amount, zend_bool amount_is_long, zend_long amount_long, zend_bool increment, char oq, char cq)
+{
+    smart_str sql = {0};
+    zval params, value;
+    char *qt, *qc;
+    if (!gene_db_valid_identifier(column) || !isfinite(amount) || amount <= 0) {
+        zend_throw_exception_ex(NULL, 0, "increment()/decrement() expects a valid column and a finite positive amount");
+        return FAILURE;
+    }
+    qt = gene_quote_table(ZSTR_VAL(table), oq, cq);
+    qc = gene_quote_columns(ZSTR_VAL(column), oq, cq);
+    smart_str_appends(&sql, "UPDATE ");
+    smart_str_appends(&sql, qt);
+    smart_str_appends(&sql, " SET ");
+    smart_str_appends(&sql, qc);
+    smart_str_appends(&sql, " = ");
+    smart_str_appends(&sql, qc);
+    smart_str_appends(&sql, increment ? " + ?" : " - ?");
+    smart_str_0(&sql);
+    zend_update_property_str(ce, gene_strip_obj(self), sql_prop, sql_prop_len, sql.s);
+    zend_string_release(sql.s);
+    efree(qt);
+    efree(qc);
+    array_init(&params);
+    if (amount_is_long) ZVAL_LONG(&value, amount_long); else ZVAL_DOUBLE(&value, amount);
+    add_next_index_zval(&params, &value);
+    zend_update_property(ce, gene_strip_obj(self), data_prop, data_prop_len, &params);
+    zval_ptr_dtor(&params);
+    return SUCCESS;
+}
 
 /* [GENE_AUDIT:2026-07-03 P1->security] Identifier quoting.
  * Previously gene_quote_table/columns/order/identifier were empty stubs that
