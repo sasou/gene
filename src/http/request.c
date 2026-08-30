@@ -999,17 +999,17 @@ PHP_METHOD(gene_request, scope) {
 
 static zend_string *gene_request_find_auth_header(void) {
 	zval *hdrs, *auth;
-	const char *keys[] = {"Authorization", "authorization", "AUTHORIZATION", NULL};
-	int i;
+	zend_string *key;
 
 	hdrs = getVal(7, NULL, 0);
 	if (hdrs && Z_TYPE_P(hdrs) == IS_ARRAY) {
-		for (i = 0; keys[i]; i++) {
-			auth = zend_hash_str_find(Z_ARRVAL_P(hdrs), keys[i], strlen(keys[i]));
-			if (auth && Z_TYPE_P(auth) == IS_STRING && Z_STRLEN_P(auth) > 0) {
+		ZEND_HASH_FOREACH_STR_KEY_VAL(Z_ARRVAL_P(hdrs), key, auth) {
+			if (key && ZSTR_LEN(key) == sizeof("Authorization") - 1
+				&& strncasecmp(ZSTR_VAL(key), "Authorization", sizeof("Authorization") - 1) == 0
+				&& Z_TYPE_P(auth) == IS_STRING && Z_STRLEN_P(auth) > 0) {
 				return Z_STR_P(auth);
 			}
-		}
+		} ZEND_HASH_FOREACH_END();
 	}
 	auth = getVal(TRACK_VARS_SERVER, ZEND_STRL("HTTP_AUTHORIZATION"));
 	if (auth && Z_TYPE_P(auth) == IS_STRING && Z_STRLEN_P(auth) > 0) {

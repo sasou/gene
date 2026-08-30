@@ -351,7 +351,7 @@ User::query()
     ->where(['u.status' => 1])          // 数组条件
     ->where('u.name != ?', $x)          // 原始片段（之间自动 AND）
     ->where('u.id', '>=', $anchor)      // 比较简写：> >= < <= != =（白名单外抛异常）
-    ->in('u.id', $ids)                  // 列形式；空数组 → 终端直接返回空，不发 SQL
+    ->in('u.id', $ids)                  // 列形式；空数组 → 当前链保持为空，终端直接返回空且不发 SQL
     ->whereLike('u.name', $kw)          // LIKE %kw%（自动转义 \ % _，勿双转义）
     ->selectSub('SELECT count(*) FROM orders', 'oc')  // 子查询列（$sql 开发者书写不转义）
     ->group('u.id')->having('count(o.id) >= 1')
@@ -365,7 +365,7 @@ User::query()
 | count() | 继承 where/join，忽略 order/limit/lock；**不得与 group() 组合**（count over GROUP BY 语义会错，检测到即抛异常），分组统计用 count()+all() 两步 |
 | paginate($offset, $limit) | {count, list}；普通单表快速路径；与 group() 组合抛异常；UNION 自动按最终复合结果统计 |
 | paginateResult($offset, $limit) | 用只读冻结编译快照统计最终 JOIN/GROUP/HAVING/UNION 结果，count 去除外层 order/limit/lock，list 仅覆盖外层 limit |
-| joinOn($table, $predicates, $type = 'INNER') | 结构化 ON：每项严格为 `left/op` 加且仅加 `column` 或 `value`；op 仅 `= != > >= < <=`，null 仅 `=`/`!=`；值始终绑定且绑定按 JOIN→WHERE 顺序 |
+| joinOn($table, $predicates, $type = 'INNER') | 结构化 ON：每项严格为 `left/op` 加且仅加 `column` 或 `value`；op 仅 `= != > >= < <=`，null 仅 `=`/`!=`；值始终绑定且绑定按 JOIN→WHERE 顺序；谓词在终端编译时校验，非法输入在发 SQL 前抛异常 |
 | union($query) / unionAll($query) | 仅接受同一 Db 的 Query；调用时冻结子分支；拒绝 self/环/超过 8 层、子分支 order/limit/lock、复合查询写入或加锁 |
 | update($data) / delete() / increment($column, $amount = 1) / decrement(...) | 立即执行，返回影响行数；算术步长须为有限正数。**必须**带**有效** where()/in() 条件——无条件、`where([])`、`where('')` 一律抛异常；`in('id', [])` 为安全空操作（返回 0）；不支持 join/union |
 | lockForUpdate() / sharedLock() | 行锁（仅 select 终端；MySQL FOR UPDATE / LOCK IN SHARE MODE，Pgsql FOR UPDATE / FOR SHARE，Sqlite no-op+E_NOTICE，Mssql 抛异常）；须在事务内，否则 E_NOTICE |
