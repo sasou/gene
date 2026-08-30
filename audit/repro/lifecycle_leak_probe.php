@@ -56,8 +56,9 @@ $ok &= probe('Memory rateLimit + lock/unlock', 5000, function () use ($m) {
 });
 
 $ok &= probe('Request::json + SSE write', 5000, function () {
-    \Gene\Request::init([], [], [], [], null, [], null, [], '{"a":1}');
+    \Gene\Request::init(['g' => 1], ['p' => 2], [], ['CONTENT_TYPE' => 'application/json'], null, [], null, [], '{"a":1}');
     \Gene\Request::json();
+    \Gene\Request::input();
     ob_start();
     \Gene\Response::write('x');
     \Gene\Response::sseEvent('e', 'd');
@@ -66,6 +67,38 @@ $ok &= probe('Request::json + SSE write', 5000, function () {
         \Gene\Application::cleanup();
     }
 });
+
+$runtime = \Gene\Application::getRuntimeType();
+\Gene\Application::setRuntimeType('swoole');
+$ok &= probe('Swoole request input + cleanup', 10000, function () {
+    static $i = 0;
+    $i++;
+    \Gene\Request::init(['i' => $i], [], [], ['CONTENT_TYPE' => 'application/json'], null, [], null, [], '{"json":true}');
+    $input = \Gene\Request::input();
+    if (($input['i'] ?? null) !== $i) throw new \RuntimeException('request context bleed');
+    \Gene\Application::cleanup();
+});
+\Gene\Application::setRuntimeType($runtime);
+
+if (extension_loaded('swoole') && class_exists('Swoole\\Coroutine')) {
+    $swooleOk = true;
+    \Swoole\Coroutine\run(function () use (&$swooleOk) {
+        $runtime = \Gene\Application::getRuntimeType();
+        \Gene\Application::setRuntimeType('swoole');
+        $swooleOk = probe('Swoole coroutine input + cleanup', 10000, function () {
+            static $i = 0;
+            $i++;
+            \Gene\Request::init(['i' => $i], [], [], ['CONTENT_TYPE' => 'application/json'], null, [], null, [], '{"json":true}');
+            $input = \Gene\Request::input();
+            if (($input['i'] ?? null) !== $i) throw new \RuntimeException('coroutine context bleed');
+            \Gene\Application::cleanup();
+        });
+        \Gene\Application::setRuntimeType($runtime);
+    });
+    $ok &= $swooleOk;
+} else {
+    echo str_pad('Swoole coroutine input + cleanup', 46) . " SKIP (no Swoole)\n";
+}
 
 if (function_exists('curl_init')) {
     $ok &= probe('Http curl handle + cleanup', 50, function () {

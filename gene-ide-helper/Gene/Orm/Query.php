@@ -44,8 +44,9 @@ final class Query
      *  - in('id', [1, 2, 3])        列形式，展开为 id IN (?,?,?)
      *  - in('id in(?)', [1, 2])     原始占位符形式（透传 Db::in）
      * 空数组：不发 SQL，终端方法直接返回空结果（all()=[]、count()=0、
-     * row()/cell()=null、paginate()={count:0,list:[]}、update()/delete()=0）
-     * —— 绝不退化为无条件全表。>1000 个值发 E_NOTICE（建议分批）。
+     * row()/cell()=null、paginate()={count:0,list:[]}、update()/delete()=0）。
+     * 空结果状态在当前 Query 链上保持，后续 where()/in() 不会恢复执行；绝不退化为无条件全表。
+     * >1000 个值发 E_NOTICE（建议分批）。
      *
      * @param string $in
      * @param mixed $bind
@@ -66,6 +67,31 @@ final class Query
      * @return $this
      */
     public function join($table, $on, $type = 'INNER')
+    {
+        return $this;
+    }
+
+    /**
+     * 谓词结构在 all()/row()/count() 等终端方法编译 Query 时校验，非法输入会在执行 SQL 前抛异常。
+     *
+     * @param string $table
+     * @param array $predicates 每项严格为 left/op + column 或 value；null 仅支持 =/!=
+     * @param string $type
+     * @return $this
+     */
+    public function joinOn($table, array $predicates, $type = 'INNER')
+    {
+        return $this;
+    }
+
+    /** @return $this */
+    public function union(Query $query)
+    {
+        return $this;
+    }
+
+    /** @return $this */
+    public function unionAll(Query $query)
     {
         return $this;
     }
@@ -251,6 +277,17 @@ final class Query
     }
 
     /**
+     * 统计最终 JOIN/GROUP/HAVING/UNION 结果并覆盖外层分页。
+     * @param int $offset
+     * @param int $limit
+     * @return array{count:int,list:array}
+     */
+    public function paginateResult($offset, $limit)
+    {
+        return ['count' => 0, 'list' => []];
+    }
+
+    /**
      * update — 立即执行（调用即执行，与 Model::updateBy 对称），
      * 返回影响行数。要求至少一个**有效** where()/in() 条件，否则抛异常：
      * where([])（空数组）与 where('')（空串）会被静默跳过、不构成条件，
@@ -261,6 +298,26 @@ final class Query
      * @return int
      */
     public function update(array $data)
+    {
+        return 0;
+    }
+
+    /**
+     * @param string $column
+     * @param int|float $amount 有限正数
+     * @return int
+     */
+    public function increment($column, $amount = 1)
+    {
+        return 0;
+    }
+
+    /**
+     * @param string $column
+     * @param int|float $amount 有限正数
+     * @return int
+     */
+    public function decrement($column, $amount = 1)
     {
         return 0;
     }

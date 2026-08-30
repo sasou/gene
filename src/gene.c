@@ -469,6 +469,9 @@ void gene_request_context_init(gene_request_context *ctx) {
 	ctx->http_discard_body = 0;
 	ctx->http_sse_leftover = NULL;
 	ZVAL_UNDEF(&ctx->request_stack);
+	ZVAL_UNDEF(&ctx->request_json);
+	ctx->request_json_error = NULL;
+	ctx->request_json_state = 0;
 	ctx->invoke_depth = 0;
 	ctx->view_scope_no = 0;
 	ctx->log_file = NULL;
@@ -617,6 +620,15 @@ static void gene_request_context_free_fields(gene_request_context *ctx, int pres
 	if (ctx->log_file) { efree(ctx->log_file); ctx->log_file = NULL; }
 	/* Unwind Request snapshots before request_attr is recycled/freed. */
 	gene_request_stack_drain(ctx);
+	if (Z_TYPE(ctx->request_json) != IS_UNDEF) {
+		zval_ptr_dtor(&ctx->request_json);
+		ZVAL_UNDEF(&ctx->request_json);
+	}
+	if (ctx->request_json_error) {
+		zend_string_release(ctx->request_json_error);
+		ctx->request_json_error = NULL;
+	}
+	ctx->request_json_state = 0;
 	ctx->invoke_depth = 0;
 	ctx->http_busy = 0;
 	if (!preserve_for_reuse) {
@@ -811,6 +823,7 @@ gene_request_context *gene_request_context_pool_acquire(void) {
 		ZVAL_UNDEF(&ctx->di_alias);
 		ZVAL_UNDEF(&ctx->bench_marks);
 		ZVAL_UNDEF(&ctx->orm_meta);
+		ZVAL_UNDEF(&ctx->request_json);
 #endif
 		ctx->view_scope_no = 0;
 		ctx->log_level = 0;
@@ -1743,6 +1756,7 @@ zend_module_entry gene_module_entry = {
 	PHP_RSHUTDOWN(gene),
 	PHP_MINFO(gene),
 	PHP_GENE_VERSION,
+
 	PHP_MODULE_GLOBALS(gene),
 	PHP_GINIT(gene),
 	NULL,

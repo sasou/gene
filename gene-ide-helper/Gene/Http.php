@@ -21,7 +21,9 @@ class Http
      *   method?: string,
      *   url: string,
      *   headers?: array<string,string>,
+     *   query?: array,
      *   json?: mixed,
+     *   form?: array,
      *   files?: array<string, string|array>,
      *   body?: string|array,
      *   timeout?: float|int,
@@ -34,11 +36,14 @@ class Http
      *   discard_body?: bool,
      *   keep_alive?: bool
      * } $options
-     *   json, body (string) and files are mutually exclusive. files + array body
-     *   is multipart form fields. retry is GET/HEAD only, 5xx/timeout,
-     *   exponential backoff, capped at 3. ssl_verify defaults true.
-     *   stream and sse are mutually exclusive. Swoole stream/sse is post-execute
-     *   8KB slices (not TTFB). Nested request() throws.
+     *   query and urlencoded form use RFC3986 encoding. json, string body and
+     *   file-less form are mutually exclusive. files + form is multipart;
+     *   files + array body remains compatible, but body + form throws. Automatic
+     *   Content-Type never replaces a case-insensitive caller header. Unknown
+     *   options emit E_NOTICE. retry is GET/HEAD only, 5xx/timeout, exponential
+     *   backoff, capped at 3. ssl_verify defaults true. stream and sse are mutually
+     *   exclusive. Swoole stream/sse is post-execute 8KB slices (not TTFB).
+     *   Nested request() throws.
      * @return array{status:int, headers:array, body:string}
      * @throws \Exception
      */

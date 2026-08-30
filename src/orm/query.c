@@ -15,6 +15,7 @@
 #include "Zend/zend_API.h"
 #include "zend_exceptions.h"
 #include "zend_smart_str.h"
+#include <math.h>
 
 #include "../gene.h"
 #include "../db/pdo.h"
@@ -36,6 +37,8 @@ zend_class_entry *gene_orm_query_ce;
 #define GENE_ORM_Q_COUNT  1
 #define GENE_ORM_Q_UPDATE 2
 #define GENE_ORM_Q_DELETE 3
+#define GENE_ORM_Q_INCREMENT 4
+#define GENE_ORM_Q_DECREMENT 5
 
 ZEND_BEGIN_ARG_INFO_EX(gene_orm_query_void_arginfo, 0, 0, 0)
 ZEND_END_ARG_INFO()
@@ -77,6 +80,15 @@ ZEND_END_ARG_INFO()
 
 ZEND_BEGIN_ARG_INFO_EX(gene_orm_query_update_arginfo, 0, 0, 1)
 	ZEND_ARG_ARRAY_INFO(0, data, 0)
+ZEND_END_ARG_INFO()
+
+ZEND_BEGIN_ARG_INFO_EX(gene_orm_query_arithmetic_arginfo, 0, 0, 1)
+	ZEND_ARG_INFO(0, column)
+	ZEND_ARG_INFO(0, amount)
+ZEND_END_ARG_INFO()
+
+ZEND_BEGIN_ARG_INFO_EX(gene_orm_query_union_arginfo, 0, 0, 1)
+	ZEND_ARG_OBJ_INFO(0, query, Gene\\Orm\\Query, 0)
 ZEND_END_ARG_INFO()
 
 ZEND_BEGIN_ARG_INFO_EX(gene_orm_query_selectsub_arginfo, 0, 0, 2)
@@ -156,11 +168,15 @@ static zend_always_inline void gene_orm_query_op_str(zval *op, zend_string *s)
 	add_next_index_zval(op, &t);
 }
 
+static zend_bool gene_orm_query_ops_has(zval *ops, const char *name);
+
 static zend_bool gene_orm_query_is_empty(zval *self)
 {
 	zval *e = zend_read_property(gene_orm_query_ce, gene_strip_obj(self),
 		ZEND_STRL(GENE_ORM_QUERY_EMPTY), 1, NULL);
-	return e && zend_is_true(e);
+	zval *ops = zend_read_property(gene_orm_query_ce, gene_strip_obj(self),
+		ZEND_STRL(GENE_ORM_QUERY_OPS), 1, NULL);
+	return e && zend_is_true(e) && !gene_orm_query_ops_has(ops, "union");
 }
 
 /* Rebuild the db chain from the op list.
@@ -201,20 +217,27 @@ static int gene_orm_query_apply(zval *self, zval *db, int mode, zval *data,
 		break;
 	}
 	case GENE_ORM_Q_UPDATE:
-	case GENE_ORM_Q_DELETE: {
+	case GENE_ORM_Q_DELETE:
+	case GENE_ORM_Q_INCREMENT:
+	case GENE_ORM_Q_DECREMENT: {
+		ZVAL_STR_COPY(&args[0], Z_STR_P(table_zv));
 		if (mode == GENE_ORM_Q_UPDATE) {
-			ZVAL_STR_COPY(&args[0], Z_STR_P(table_zv));
 			ZVAL_COPY(&args[1], data);
 			gene_orm_db_call(db, "update", 2, args, &retval);
-			zval_ptr_dtor(&args[0]);
 			zval_ptr_dtor(&args[1]);
-			zval_ptr_dtor(&retval);
-		} else {
-			ZVAL_STR_COPY(&args[0], Z_STR_P(table_zv));
+		} else if (mode == GENE_ORM_Q_DELETE) {
 			gene_orm_db_call(db, "delete", 1, args, &retval);
-			zval_ptr_dtor(&args[0]);
-			zval_ptr_dtor(&retval);
+		} else {
+			zval *column = zend_hash_index_find(Z_ARRVAL_P(data), 0);
+			zval *amount = zend_hash_index_find(Z_ARRVAL_P(data), 1);
+			ZVAL_COPY(&args[1], column);
+			ZVAL_COPY(&args[2], amount);
+			gene_orm_db_call(db, mode == GENE_ORM_Q_INCREMENT ? "increment" : "decrement", 3, args, &retval);
+			zval_ptr_dtor(&args[1]);
+			zval_ptr_dtor(&args[2]);
 		}
+		zval_ptr_dtor(&args[0]);
+		zval_ptr_dtor(&retval);
 		break;
 	}
 	default: {
@@ -250,6 +273,14 @@ static int gene_orm_query_apply(zval *self, zval *db, int mode, zval *data,
 
 	ops_zv = zend_read_property(gene_orm_query_ce, gene_strip_obj(self),
 		ZEND_STRL(GENE_ORM_QUERY_OPS), 1, NULL);
+	if (gene_orm_query_ops_has(ops_zv, "union") && mode >= GENE_ORM_Q_UPDATE) {
+		zend_throw_exception_ex(NULL, 0, "Gene\\Orm\\Query union cannot be combined with write operations");
+		return FAILURE;
+	}
+	if (gene_orm_query_ops_has(ops_zv, "lock") && mode >= GENE_ORM_Q_UPDATE) {
+		zend_throw_exception_ex(NULL, 0, "Gene\\Orm\\Query locks cannot be combined with write operations");
+		return FAILURE;
+	}
 
 	/* --- pass 1: merge all ARRAY where conditions into a single db->where()
 	 * call. Db's makeWhere() does NOT emit a connector when the WHERE slot
@@ -287,6 +318,35 @@ static int gene_orm_query_apply(zval *self, zval *db, int mode, zval *data,
 					zend_hash_index_update(Z_ARRVAL(merged), idx, &tmp);
 				}
 			} ZEND_HASH_FOREACH_END();
+		} ZEND_HASH_FOREACH_END();
+	}
+	if (ops_zv && Z_TYPE_P(ops_zv) == IS_ARRAY) {
+		ZEND_HASH_FOREACH_VAL(Z_ARRVAL_P(ops_zv), op) {
+			zval *tag, *a1, *a2, *a3;
+			uint32_t argc = 2;
+			if (Z_TYPE_P(op) != IS_ARRAY) continue;
+			tag = zend_hash_index_find(Z_ARRVAL_P(op), 0);
+			if (!tag || Z_TYPE_P(tag) != IS_STRING ||
+				(!zend_string_equals_literal(Z_STR_P(tag), "join") && !zend_string_equals_literal(Z_STR_P(tag), "joinon"))) continue;
+			if (mode == GENE_ORM_Q_UPDATE || mode == GENE_ORM_Q_DELETE || mode == GENE_ORM_Q_INCREMENT || mode == GENE_ORM_Q_DECREMENT) {
+				zend_throw_exception_ex(NULL, 0, "Gene\\Orm\\Query: joins are not supported by write operations");
+				goto out;
+			}
+			a1 = zend_hash_index_find(Z_ARRVAL_P(op), 1);
+			a2 = zend_hash_index_find(Z_ARRVAL_P(op), 2);
+			a3 = zend_hash_index_find(Z_ARRVAL_P(op), 3);
+			ZVAL_COPY(&args[0], a1);
+			ZVAL_COPY(&args[1], a2);
+			if (a3 && Z_TYPE_P(a3) == IS_STRING && Z_STRLEN_P(a3) > 0) {
+				ZVAL_COPY(&args[2], a3);
+				argc = 3;
+			}
+			gene_orm_db_call(db, zend_string_equals_literal(Z_STR_P(tag), "joinon") ? "joinOn" : "join", argc, args, &retval);
+			zval_ptr_dtor(&args[0]);
+			zval_ptr_dtor(&args[1]);
+			if (argc == 3) zval_ptr_dtor(&args[2]);
+			zval_ptr_dtor(&retval);
+			if (UNEXPECTED(gene_orm_has_exception())) goto out;
 		} ZEND_HASH_FOREACH_END();
 	}
 	if (merged_init && zend_hash_num_elements(Z_ARRVAL(merged)) > 0) {
@@ -366,29 +426,8 @@ static int gene_orm_query_apply(zval *self, zval *db, int mode, zval *data,
 				zval_ptr_dtor(&retval);
 				where_started = 1;
 				if (UNEXPECTED(gene_orm_has_exception())) goto out;
-			} else if (strcmp(t, "join") == 0) {
-				if (mode == GENE_ORM_Q_UPDATE || mode == GENE_ORM_Q_DELETE) {
-					zend_throw_exception_ex(NULL, 0,
-						"Gene\\Orm\\Query: join() is not supported by update()/delete()");
-					goto out;
-				}
-				{
-					uint32_t argc = 2;
-					ZVAL_COPY(&args[0], a1);
-					ZVAL_COPY(&args[1], a2);
-					if (a3 && Z_TYPE_P(a3) == IS_STRING && Z_STRLEN_P(a3) > 0) {
-						ZVAL_COPY(&args[2], a3);
-						argc = 3;
-					}
-					gene_orm_db_call(db, "join", argc, args, &retval);
-					zval_ptr_dtor(&args[0]);
-					zval_ptr_dtor(&args[1]);
-					if (argc == 3) {
-						zval_ptr_dtor(&args[2]);
-					}
-					zval_ptr_dtor(&retval);
-					if (UNEXPECTED(gene_orm_has_exception())) goto out;
-				}
+			} else if (strcmp(t, "join") == 0 || strcmp(t, "joinon") == 0) {
+				continue;
 			} else if (strcmp(t, "group") == 0) {
 				if (a1 && Z_TYPE_P(a1) == IS_STRING && Z_STRLEN_P(a1) > 0) {
 					/* [GENE_FIX:2026-08-19 P2-5] count over GROUP BY makes
@@ -454,10 +493,10 @@ static int gene_orm_query_apply(zval *self, zval *db, int mode, zval *data,
 	 * the terminal methods runs BEFORE apply(), so a safe no-op does not
 	 * turn into an exception. The verb call above only BUILT sql (lazy);
 	 * nothing has executed yet. */
-	if ((mode == GENE_ORM_Q_UPDATE || mode == GENE_ORM_Q_DELETE) && !where_started) {
+	if ((mode == GENE_ORM_Q_UPDATE || mode == GENE_ORM_Q_DELETE || mode == GENE_ORM_Q_INCREMENT || mode == GENE_ORM_Q_DECREMENT) && !where_started) {
+		const char *method = mode == GENE_ORM_Q_UPDATE ? "update" : mode == GENE_ORM_Q_DELETE ? "delete" : mode == GENE_ORM_Q_INCREMENT ? "increment" : "decrement";
 		zend_throw_exception_ex(NULL, 0,
-			"Gene\\Orm\\Query::%s() requires at least one effective where()/in() condition",
-			mode == GENE_ORM_Q_UPDATE ? "update" : "delete");
+			"Gene\\Orm\\Query::%s() requires at least one effective where()/in() condition", method);
 		goto out;
 	}
 
@@ -523,6 +562,254 @@ out:
 		gene_orm_query_mark_dirty(self, 1);
 	}
 	return status;
+}
+
+static zend_bool gene_orm_query_ops_has(zval *ops, const char *name)
+{
+	zval *op;
+	if (!ops || Z_TYPE_P(ops) != IS_ARRAY) return 0;
+	ZEND_HASH_FOREACH_VAL(Z_ARRVAL_P(ops), op) {
+		zval *tag;
+		if (Z_TYPE_P(op) != IS_ARRAY) continue;
+		tag = zend_hash_index_find(Z_ARRVAL_P(op), 0);
+		if (tag && Z_TYPE_P(tag) == IS_STRING && strcmp(Z_STRVAL_P(tag), name) == 0) return 1;
+	} ZEND_HASH_FOREACH_END();
+	return 0;
+}
+
+static int gene_orm_query_snapshot(zval *query, zval *snapshot)
+{
+	zval *value, copy;
+	array_init_size(snapshot, 5);
+	value = zend_read_property(gene_orm_query_ce, gene_strip_obj(query), ZEND_STRL(GENE_ORM_QUERY_TABLE), 1, NULL);
+	ZVAL_COPY(&copy, value); add_assoc_zval_ex(snapshot, ZEND_STRL("table"), &copy);
+	value = zend_read_property(gene_orm_query_ce, gene_strip_obj(query), ZEND_STRL(GENE_ORM_QUERY_FIELDS), 1, NULL);
+	ZVAL_DUP(&copy, value); add_assoc_zval_ex(snapshot, ZEND_STRL("fields"), &copy);
+	value = zend_read_property(gene_orm_query_ce, gene_strip_obj(query), ZEND_STRL(GENE_ORM_QUERY_OPS), 1, NULL);
+	ZVAL_DUP(&copy, value); add_assoc_zval_ex(snapshot, ZEND_STRL("ops"), &copy);
+	value = zend_read_property(gene_orm_query_ce, gene_strip_obj(query), ZEND_STRL(GENE_ORM_QUERY_EMPTY), 1, NULL);
+	add_assoc_bool_ex(snapshot, ZEND_STRL("empty"), value && zend_is_true(value));
+	add_assoc_long_ex(snapshot, ZEND_STRL("origin"), (zend_long) Z_OBJ_HANDLE_P(query));
+	return SUCCESS;
+}
+
+static zend_bool gene_orm_snapshot_contains(zval *snapshot, zend_long origin)
+{
+	zval *own, *ops, *op;
+	own = zend_hash_str_find(Z_ARRVAL_P(snapshot), ZEND_STRL("origin"));
+	if (own && Z_TYPE_P(own) == IS_LONG && Z_LVAL_P(own) == origin) return 1;
+	ops = zend_hash_str_find(Z_ARRVAL_P(snapshot), ZEND_STRL("ops"));
+	if (!ops || Z_TYPE_P(ops) != IS_ARRAY) return 0;
+	ZEND_HASH_FOREACH_VAL(Z_ARRVAL_P(ops), op) {
+		zval *tag, *child;
+		if (Z_TYPE_P(op) != IS_ARRAY) continue;
+		tag = zend_hash_index_find(Z_ARRVAL_P(op), 0);
+		child = zend_hash_index_find(Z_ARRVAL_P(op), 2);
+		if (tag && Z_TYPE_P(tag) == IS_STRING && !strcmp(Z_STRVAL_P(tag), "union") && child && Z_TYPE_P(child) == IS_ARRAY && gene_orm_snapshot_contains(child, origin)) return 1;
+	} ZEND_HASH_FOREACH_END();
+	return 0;
+}
+
+static int gene_orm_snapshot_depth(zval *snapshot)
+{
+	zval *ops, *op;
+	int max = 1;
+	ops = zend_hash_str_find(Z_ARRVAL_P(snapshot), ZEND_STRL("ops"));
+	if (!ops || Z_TYPE_P(ops) != IS_ARRAY) return max;
+	ZEND_HASH_FOREACH_VAL(Z_ARRVAL_P(ops), op) {
+		zval *tag, *child;
+		int depth;
+		if (Z_TYPE_P(op) != IS_ARRAY) continue;
+		tag = zend_hash_index_find(Z_ARRVAL_P(op), 0);
+		child = zend_hash_index_find(Z_ARRVAL_P(op), 2);
+		if (!tag || Z_TYPE_P(tag) != IS_STRING || strcmp(Z_STRVAL_P(tag), "union") || !child || Z_TYPE_P(child) != IS_ARRAY) continue;
+		depth = 1 + gene_orm_snapshot_depth(child);
+		if (depth > max) max = depth;
+	} ZEND_HASH_FOREACH_END();
+	return max;
+}
+
+static int gene_orm_clone_db(zval *db, zval *clone)
+{
+	zend_object *obj;
+	if (!Z_OBJ_HT_P(db)->clone_obj) {
+		zend_throw_exception_ex(NULL, 0, "Gene\\Orm\\Query db handle cannot be cloned for read-only compilation");
+		return FAILURE;
+	}
+	obj = Z_OBJ_HT_P(db)->clone_obj(Z_OBJ_P(db));
+	if (!obj) return FAILURE;
+	ZVAL_OBJ(clone, obj);
+	zend_update_property_null(Z_OBJCE_P(clone), gene_strip_obj(clone), ZEND_STRL("pdo"));
+	zend_update_property_null(Z_OBJCE_P(clone), gene_strip_obj(clone), ZEND_STRL("pool"));
+	return SUCCESS;
+}
+
+static void gene_orm_params_append(zval *target, zval *source)
+{
+	zval *value;
+	if (!source || Z_TYPE_P(source) != IS_ARRAY) return;
+	ZEND_HASH_FOREACH_VAL(Z_ARRVAL_P(source), value) {
+		zval copy;
+		ZVAL_COPY(&copy, value);
+		add_next_index_zval(target, &copy);
+	} ZEND_HASH_FOREACH_END();
+}
+
+static int gene_orm_query_compile_snapshot(zval *snapshot, zval *db, zend_bool strip_outer, zend_bool force_limit, zend_long offset, zend_long limit, zval *compiled)
+{
+	zval *table, *fields, *ops, *op, filtered, q, clone, printed;
+	zval sql_zv, params_zv;
+	zend_bool has_union, outer_stage;
+	smart_str compound = {0};
+	int status = FAILURE;
+	ZVAL_UNDEF(&printed);
+	ZVAL_UNDEF(&params_zv);
+	table = zend_hash_str_find(Z_ARRVAL_P(snapshot), ZEND_STRL("table"));
+	fields = zend_hash_str_find(Z_ARRVAL_P(snapshot), ZEND_STRL("fields"));
+	ops = zend_hash_str_find(Z_ARRVAL_P(snapshot), ZEND_STRL("ops"));
+	if (!table || Z_TYPE_P(table) != IS_STRING || !ops || Z_TYPE_P(ops) != IS_ARRAY) return FAILURE;
+	has_union = gene_orm_query_ops_has(ops, "union");
+	outer_stage = has_union || strip_outer || force_limit;
+	array_init(&filtered);
+	ZEND_HASH_FOREACH_VAL(Z_ARRVAL_P(ops), op) {
+		zval *tag, copy;
+		if (Z_TYPE_P(op) != IS_ARRAY) continue;
+		tag = zend_hash_index_find(Z_ARRVAL_P(op), 0);
+		if (!tag || Z_TYPE_P(tag) != IS_STRING) continue;
+		if (!strcmp(Z_STRVAL_P(tag), "union")) continue;
+		if (outer_stage && (!strcmp(Z_STRVAL_P(tag), "order") || !strcmp(Z_STRVAL_P(tag), "limit") || !strcmp(Z_STRVAL_P(tag), "lock"))) continue;
+		ZVAL_DUP(&copy, op);
+		add_next_index_zval(&filtered, &copy);
+	} ZEND_HASH_FOREACH_END();
+	{
+		zval *empty = zend_hash_str_find(Z_ARRVAL_P(snapshot), ZEND_STRL("empty"));
+		if (empty && zend_is_true(empty)) {
+			zval empty_op, value;
+			array_init_size(&empty_op, 3);
+			gene_orm_query_op_tag(&empty_op, ZEND_STRL("where"));
+			ZVAL_STRING(&value, "1=0"); add_next_index_zval(&empty_op, &value);
+			ZVAL_NULL(&value); add_next_index_zval(&empty_op, &value);
+			add_next_index_zval(&filtered, &empty_op);
+		}
+	}
+	if (gene_orm_clone_db(db, &clone) != SUCCESS) goto out;
+	gene_orm_query_init(&q, &clone, Z_STR_P(table), fields, NULL);
+	zend_update_property(gene_orm_query_ce, gene_strip_obj(&q), ZEND_STRL(GENE_ORM_QUERY_OPS), &filtered);
+	if (gene_orm_query_apply(&q, &clone, GENE_ORM_Q_SELECT, NULL, 0, 0, 0) != SUCCESS) goto compiled_out;
+	ZVAL_UNDEF(&printed);
+	if (gene_orm_db_call(&clone, "print", 0, NULL, &printed) != SUCCESS || Z_TYPE(printed) != IS_ARRAY) goto compiled_out;
+	{
+		zval *base_sql = zend_hash_str_find(Z_ARRVAL(printed), ZEND_STRL("sql"));
+		zval *base_params = zend_hash_str_find(Z_ARRVAL(printed), ZEND_STRL("param"));
+		if (!base_sql || Z_TYPE_P(base_sql) != IS_STRING) goto compiled_out;
+		smart_str_appendl(&compound, Z_STRVAL_P(base_sql), Z_STRLEN_P(base_sql));
+		array_init(&params_zv);
+		gene_orm_params_append(&params_zv, base_params);
+	}
+	if (has_union) {
+		ZEND_HASH_FOREACH_VAL(Z_ARRVAL_P(ops), op) {
+			zval *tag, *all, *child, child_compiled, *child_sql, *child_params;
+			if (Z_TYPE_P(op) != IS_ARRAY) continue;
+			tag = zend_hash_index_find(Z_ARRVAL_P(op), 0);
+			if (!tag || Z_TYPE_P(tag) != IS_STRING || strcmp(Z_STRVAL_P(tag), "union")) continue;
+			all = zend_hash_index_find(Z_ARRVAL_P(op), 1);
+			child = zend_hash_index_find(Z_ARRVAL_P(op), 2);
+			if (!child || Z_TYPE_P(child) != IS_ARRAY) goto compiled_out;
+			ZVAL_UNDEF(&child_compiled);
+			if (gene_orm_query_compile_snapshot(child, db, 0, 0, 0, 0, &child_compiled) != SUCCESS) goto compiled_out;
+			child_sql = zend_hash_str_find(Z_ARRVAL(child_compiled), ZEND_STRL("sql"));
+			child_params = zend_hash_str_find(Z_ARRVAL(child_compiled), ZEND_STRL("param"));
+			smart_str_appends(&compound, all && zend_is_true(all) ? " UNION ALL " : " UNION ");
+			{
+				zval *child_ops = zend_hash_str_find(Z_ARRVAL_P(child), ZEND_STRL("ops"));
+				if (gene_orm_query_ops_has(child_ops, "union")) smart_str_appends(&compound, "SELECT * FROM (");
+				smart_str_appendl(&compound, Z_STRVAL_P(child_sql), Z_STRLEN_P(child_sql));
+				if (gene_orm_query_ops_has(child_ops, "union")) smart_str_appends(&compound, ") gene_union_branch");
+			}
+			gene_orm_params_append(&params_zv, child_params);
+			zval_ptr_dtor(&child_compiled);
+		} ZEND_HASH_FOREACH_END();
+	}
+	smart_str_0(&compound);
+	if (outer_stage) {
+		zval clone2, args[2], rv;
+		if (gene_orm_clone_db(db, &clone2) != SUCCESS) goto compiled_out;
+		ZVAL_STR_COPY(&args[0], compound.s);
+		ZVAL_COPY(&args[1], &params_zv);
+		gene_orm_db_call(&clone2, "sql", 2, args, &rv);
+		zval_ptr_dtor(&args[0]); zval_ptr_dtor(&args[1]); zval_ptr_dtor(&rv);
+		if (gene_orm_has_exception()) { zval_ptr_dtor(&clone2); goto compiled_out; }
+		if (!strip_outer) {
+			smart_str orders = {0};
+			zend_bool has_limit = 0; zend_long la = 0, lb = -1; int lock_mode = 0;
+			ZEND_HASH_FOREACH_VAL(Z_ARRVAL_P(ops), op) {
+				zval *tag, *a1, *a2;
+				if (Z_TYPE_P(op) != IS_ARRAY) continue;
+				tag = zend_hash_index_find(Z_ARRVAL_P(op), 0); a1 = zend_hash_index_find(Z_ARRVAL_P(op), 1); a2 = zend_hash_index_find(Z_ARRVAL_P(op), 2);
+				if (!tag || Z_TYPE_P(tag) != IS_STRING) continue;
+				if (!strcmp(Z_STRVAL_P(tag), "order") && a1 && Z_TYPE_P(a1) == IS_STRING) { if (orders.s && ZSTR_LEN(orders.s)) smart_str_appends(&orders, ", "); smart_str_appendl(&orders, Z_STRVAL_P(a1), Z_STRLEN_P(a1)); }
+				else if (!strcmp(Z_STRVAL_P(tag), "limit")) { la = a1 && Z_TYPE_P(a1) == IS_LONG ? Z_LVAL_P(a1) : 0; lb = a2 && Z_TYPE_P(a2) == IS_LONG ? Z_LVAL_P(a2) : -1; has_limit = 1; }
+				else if (!strcmp(Z_STRVAL_P(tag), "lock")) { lock_mode = a1 && Z_TYPE_P(a1) == IS_STRING && zend_string_equals_literal(Z_STR_P(a1), "share") ? 2 : 1; }
+			} ZEND_HASH_FOREACH_END();
+			if (orders.s && ZSTR_LEN(orders.s)) { smart_str_0(&orders); ZVAL_STR_COPY(&args[0], orders.s); gene_orm_db_call(&clone2, "order", 1, args, &rv); zval_ptr_dtor(&args[0]); zval_ptr_dtor(&rv); }
+			smart_str_free(&orders);
+			if (force_limit) gene_orm_db_limit(&clone2, offset, limit);
+			else if (has_limit) { if (lb >= 0) gene_orm_db_limit(&clone2, la, lb); else { ZVAL_LONG(&args[0], la); gene_orm_db_call(&clone2, "limit", 1, args, &rv); zval_ptr_dtor(&rv); } }
+			if (lock_mode) { gene_orm_db_call(&clone2, lock_mode == 1 ? "lockForUpdate" : "sharedLock", 0, NULL, &rv); zval_ptr_dtor(&rv); }
+		}
+		if (gene_orm_has_exception()) { zval_ptr_dtor(&clone2); goto compiled_out; }
+		ZVAL_UNDEF(&sql_zv);
+		if (gene_orm_db_call(&clone2, "print", 0, NULL, &sql_zv) != SUCCESS || Z_TYPE(sql_zv) != IS_ARRAY) { if (!Z_ISUNDEF(sql_zv)) zval_ptr_dtor(&sql_zv); zval_ptr_dtor(&clone2); goto compiled_out; }
+		array_init(compiled);
+		{
+			zval *final_sql = zend_hash_str_find(Z_ARRVAL(sql_zv), ZEND_STRL("sql"));
+			zval copy;
+			ZVAL_COPY(&copy, final_sql); add_assoc_zval_ex(compiled, ZEND_STRL("sql"), &copy);
+			ZVAL_COPY(&copy, &params_zv); add_assoc_zval_ex(compiled, ZEND_STRL("param"), &copy);
+		}
+		zval_ptr_dtor(&sql_zv);
+		zval_ptr_dtor(&clone2);
+	} else {
+		array_init(compiled);
+		ZVAL_STR_COPY(&sql_zv, compound.s); add_assoc_zval_ex(compiled, ZEND_STRL("sql"), &sql_zv);
+		ZVAL_COPY(&sql_zv, &params_zv); add_assoc_zval_ex(compiled, ZEND_STRL("param"), &sql_zv);
+	}
+	status = SUCCESS;
+compiled_out:
+	if (!Z_ISUNDEF(printed)) zval_ptr_dtor(&printed);
+	if (compound.s) smart_str_free(&compound);
+	if (Z_TYPE(params_zv) == IS_ARRAY) zval_ptr_dtor(&params_zv);
+	zval_ptr_dtor(&q);
+	zval_ptr_dtor(&clone);
+out:
+	zval_ptr_dtor(&filtered);
+	return status;
+}
+
+static int gene_orm_query_compile(zval *self, zval *db, zend_bool strip_outer, zend_bool force_limit, zend_long offset, zend_long limit, zval *compiled)
+{
+	zval snapshot;
+	int status;
+	gene_orm_query_snapshot(self, &snapshot);
+	status = gene_orm_query_compile_snapshot(&snapshot, db, strip_outer, force_limit, offset, limit, compiled);
+	zval_ptr_dtor(&snapshot);
+	return status;
+}
+
+static int gene_orm_query_execute_compiled(zval *db, zval *compiled, const char *terminal, zval *retval)
+{
+	zval *sql = zend_hash_str_find(Z_ARRVAL_P(compiled), ZEND_STRL("sql"));
+	zval *params = zend_hash_str_find(Z_ARRVAL_P(compiled), ZEND_STRL("param"));
+	zval args[2], rv;
+	ZVAL_COPY(&args[0], sql); ZVAL_COPY(&args[1], params);
+	gene_orm_db_call(db, "sql", 2, args, &rv);
+	zval_ptr_dtor(&args[0]); zval_ptr_dtor(&args[1]); zval_ptr_dtor(&rv);
+	if (gene_orm_has_exception()) return FAILURE;
+	if (gene_orm_db_call(db, terminal, 0, NULL, retval) != SUCCESS || gene_orm_has_exception()) {
+		if (!Z_ISUNDEF_P(retval)) { zval_ptr_dtor(retval); ZVAL_UNDEF(retval); }
+		return FAILURE;
+	}
+	return SUCCESS;
 }
 
 static void gene_orm_query_finish(zval *self, zval *db)
@@ -757,6 +1044,82 @@ PHP_METHOD(gene_orm_query, join)
 	RETURN_ZVAL(self, 1, 0);
 }
 
+PHP_METHOD(gene_orm_query, joinOn)
+{
+	zval *self = getThis(), *predicates = NULL;
+	zend_string *table = NULL, *type = NULL;
+	zval op;
+	if (zend_parse_parameters(ZEND_NUM_ARGS(), "Sa|S", &table, &predicates, &type) == FAILURE) return;
+	if (zend_hash_num_elements(Z_ARRVAL_P(predicates)) == 0) {
+		zend_throw_exception_ex(NULL, 0, "Gene\\Orm\\Query::joinOn() predicates must not be empty");
+		RETURN_NULL();
+	}
+	array_init_size(&op, 4);
+	gene_orm_query_op_tag(&op, ZEND_STRL("joinon"));
+	gene_orm_query_op_str(&op, table);
+	gene_orm_query_op_val(&op, predicates);
+	gene_orm_query_op_str(&op, type);
+	gene_orm_query_push(self, &op);
+	RETURN_ZVAL(self, 1, 0);
+}
+
+static void gene_orm_query_union(INTERNAL_FUNCTION_PARAMETERS, zend_bool all)
+{
+	zval *self = getThis(), *query = NULL, *db, *child_db, snapshot, op, flag;
+	zval *child_ops, *child_op;
+	zend_long origin = (zend_long) Z_OBJ_HANDLE_P(self);
+	if (zend_parse_parameters(ZEND_NUM_ARGS(), "O", &query, gene_orm_query_ce) == FAILURE) return;
+	if (Z_OBJ_P(query) == Z_OBJ_P(self)) {
+		zend_throw_exception_ex(NULL, 0, "Gene\\Orm\\Query cannot union itself");
+		RETURN_NULL();
+	}
+	db = gene_orm_query_db(self);
+	child_db = gene_orm_query_db(query);
+	if (!db || !child_db) RETURN_NULL();
+	if (Z_OBJ_P(db) != Z_OBJ_P(child_db)) {
+		zend_throw_exception_ex(NULL, 0, "Gene\\Orm\\Query union branches must use the same db handle");
+		RETURN_NULL();
+	}
+	child_ops = zend_read_property(gene_orm_query_ce, gene_strip_obj(query), ZEND_STRL(GENE_ORM_QUERY_OPS), 1, NULL);
+	{
+		zval *parent_ops = zend_read_property(gene_orm_query_ce, gene_strip_obj(self), ZEND_STRL(GENE_ORM_QUERY_OPS), 1, NULL);
+		if (gene_orm_query_ops_has(parent_ops, "lock")) {
+			zend_throw_exception_ex(NULL, 0, "Gene\\Orm\\Query union cannot be combined with locks");
+			RETURN_NULL();
+		}
+	}
+	ZEND_HASH_FOREACH_VAL(Z_ARRVAL_P(child_ops), child_op) {
+		zval *tag;
+		if (Z_TYPE_P(child_op) != IS_ARRAY) continue;
+		tag = zend_hash_index_find(Z_ARRVAL_P(child_op), 0);
+		if (tag && Z_TYPE_P(tag) == IS_STRING && (!strcmp(Z_STRVAL_P(tag), "order") || !strcmp(Z_STRVAL_P(tag), "limit") || !strcmp(Z_STRVAL_P(tag), "lock"))) {
+			zend_throw_exception_ex(NULL, 0, "Gene\\Orm\\Query union branches cannot contain order()/limit()/lock");
+			RETURN_NULL();
+		}
+	} ZEND_HASH_FOREACH_END();
+	gene_orm_query_snapshot(query, &snapshot);
+	if (gene_orm_snapshot_contains(&snapshot, origin)) {
+		zval_ptr_dtor(&snapshot);
+		zend_throw_exception_ex(NULL, 0, "Gene\\Orm\\Query union cycle detected");
+		RETURN_NULL();
+	}
+	if (gene_orm_snapshot_depth(&snapshot) >= 8) {
+		zval_ptr_dtor(&snapshot);
+		zend_throw_exception_ex(NULL, 0, "Gene\\Orm\\Query union depth exceeds 8");
+		RETURN_NULL();
+	}
+	array_init_size(&op, 3);
+	gene_orm_query_op_tag(&op, ZEND_STRL("union"));
+	ZVAL_BOOL(&flag, all);
+	add_next_index_zval(&op, &flag);
+	add_next_index_zval(&op, &snapshot);
+	gene_orm_query_push(self, &op);
+	RETURN_ZVAL(self, 1, 0);
+}
+
+PHP_METHOD(gene_orm_query, union) { gene_orm_query_union(INTERNAL_FUNCTION_PARAM_PASSTHRU, 0); }
+PHP_METHOD(gene_orm_query, unionAll) { gene_orm_query_union(INTERNAL_FUNCTION_PARAM_PASSTHRU, 1); }
+
 PHP_METHOD(gene_orm_query, group)
 {
 	zval *self = getThis();
@@ -855,6 +1218,8 @@ PHP_METHOD(gene_orm_query, lockForUpdate)
 {
 	zval *self = getThis();
 	zval op, t;
+	zval *ops = zend_read_property(gene_orm_query_ce, gene_strip_obj(self), ZEND_STRL(GENE_ORM_QUERY_OPS), 1, NULL);
+	if (gene_orm_query_ops_has(ops, "union")) { zend_throw_exception_ex(NULL, 0, "Gene\\Orm\\Query union cannot be combined with locks"); RETURN_NULL(); }
 
 	array_init_size(&op, 2);
 	gene_orm_query_op_tag(&op, ZEND_STRL("lock"));
@@ -868,6 +1233,8 @@ PHP_METHOD(gene_orm_query, sharedLock)
 {
 	zval *self = getThis();
 	zval op, t;
+	zval *ops = zend_read_property(gene_orm_query_ce, gene_strip_obj(self), ZEND_STRL(GENE_ORM_QUERY_OPS), 1, NULL);
+	if (gene_orm_query_ops_has(ops, "union")) { zend_throw_exception_ex(NULL, 0, "Gene\\Orm\\Query union cannot be combined with locks"); RETURN_NULL(); }
 
 	array_init_size(&op, 2);
 	gene_orm_query_op_tag(&op, ZEND_STRL("lock"));
@@ -994,19 +1361,12 @@ PHP_METHOD(gene_orm_query, print)
 		add_assoc_zval_ex(return_value, ZEND_STRL("param"), &z_param);
 		return;
 	}
-	if (gene_orm_query_apply(self, db, GENE_ORM_Q_SELECT, NULL, 0, 0, 0) != SUCCESS) {
+	if (gene_orm_query_compile(self, db, 0, 0, 0, 0, &retval) != SUCCESS) {
 		gene_orm_query_finish(self, db);
 		RETURN_NULL();
 	}
-	if (gene_orm_db_call(db, "print", 0, NULL, &retval) == SUCCESS) {
-		gene_orm_query_finish(self, db);
-		if (Z_ISUNDEF(retval)) {
-			RETURN_NULL();
-		}
-		RETURN_ZVAL(&retval, 0, 1);
-	}
 	gene_orm_query_finish(self, db);
-	RETURN_NULL();
+	RETURN_ZVAL(&retval, 0, 1);
 }
 /* }}} */
 
@@ -1025,6 +1385,15 @@ PHP_METHOD(gene_orm_query, all)
 		gene_orm_query_finish(self, db);
 		array_init(return_value);
 		return;
+	}
+	{
+		zval *ops = zend_read_property(gene_orm_query_ce, gene_strip_obj(self), ZEND_STRL(GENE_ORM_QUERY_OPS), 1, NULL);
+		if (gene_orm_query_ops_has(ops, "union")) {
+			zval compiled;
+			if (gene_orm_query_compile(self, db, 0, 0, 0, 0, &compiled) != SUCCESS) { gene_orm_query_finish(self, db); RETURN_NULL(); }
+			if (gene_orm_query_execute_compiled(db, &compiled, "all", &retval) != SUCCESS) { zval_ptr_dtor(&compiled); gene_orm_query_finish(self, db); RETURN_NULL(); }
+			zval_ptr_dtor(&compiled); gene_orm_query_finish(self, db); RETURN_ZVAL(&retval, 0, 1);
+		}
 	}
 	if (gene_orm_query_apply(self, db, GENE_ORM_Q_SELECT, NULL, 0, 0, 0) != SUCCESS) {
 		gene_orm_query_finish(self, db);
@@ -1053,6 +1422,15 @@ PHP_METHOD(gene_orm_query, row)
 	if (gene_orm_query_is_empty(self)) {
 		gene_orm_query_finish(self, db);
 		RETURN_NULL();
+	}
+	{
+		zval *ops = zend_read_property(gene_orm_query_ce, gene_strip_obj(self), ZEND_STRL(GENE_ORM_QUERY_OPS), 1, NULL);
+		if (gene_orm_query_ops_has(ops, "union")) {
+			zval compiled;
+			if (gene_orm_query_compile(self, db, 0, 0, 0, 0, &compiled) != SUCCESS) { gene_orm_query_finish(self, db); RETURN_NULL(); }
+			if (gene_orm_query_execute_compiled(db, &compiled, "row", &retval) != SUCCESS) { zval_ptr_dtor(&compiled); gene_orm_query_finish(self, db); RETURN_NULL(); }
+			zval_ptr_dtor(&compiled); gene_orm_query_finish(self, db); RETURN_ZVAL(&retval, 0, 1);
+		}
 	}
 	if (gene_orm_query_apply(self, db, GENE_ORM_Q_SELECT, NULL, 0, 0, 0) != SUCCESS) {
 		gene_orm_query_finish(self, db);
@@ -1083,6 +1461,15 @@ PHP_METHOD(gene_orm_query, first)
 		gene_orm_query_finish(self, db);
 		RETURN_NULL();
 	}
+	{
+		zval *ops = zend_read_property(gene_orm_query_ce, gene_strip_obj(self), ZEND_STRL(GENE_ORM_QUERY_OPS), 1, NULL);
+		if (gene_orm_query_ops_has(ops, "union")) {
+			zval compiled;
+			if (gene_orm_query_compile(self, db, 0, 1, 0, 1, &compiled) != SUCCESS) { gene_orm_query_finish(self, db); RETURN_NULL(); }
+			if (gene_orm_query_execute_compiled(db, &compiled, "row", &retval) != SUCCESS) { zval_ptr_dtor(&compiled); gene_orm_query_finish(self, db); RETURN_NULL(); }
+			zval_ptr_dtor(&compiled); gene_orm_query_finish(self, db); RETURN_ZVAL(&retval, 0, 1);
+		}
+	}
 	if (gene_orm_query_apply(self, db, GENE_ORM_Q_SELECT, NULL, 1, 0, 1) != SUCCESS) {
 		gene_orm_query_finish(self, db);
 		RETURN_NULL();
@@ -1112,6 +1499,15 @@ PHP_METHOD(gene_orm_query, cell)
 		gene_orm_query_finish(self, db);
 		RETURN_NULL();
 	}
+	{
+		zval *ops = zend_read_property(gene_orm_query_ce, gene_strip_obj(self), ZEND_STRL(GENE_ORM_QUERY_OPS), 1, NULL);
+		if (gene_orm_query_ops_has(ops, "union")) {
+			zval compiled;
+			if (gene_orm_query_compile(self, db, 0, 0, 0, 0, &compiled) != SUCCESS) { gene_orm_query_finish(self, db); RETURN_NULL(); }
+			if (gene_orm_query_execute_compiled(db, &compiled, "cell", &retval) != SUCCESS) { zval_ptr_dtor(&compiled); gene_orm_query_finish(self, db); RETURN_NULL(); }
+			zval_ptr_dtor(&compiled); gene_orm_query_finish(self, db); RETURN_ZVAL(&retval, 0, 1);
+		}
+	}
 	if (gene_orm_query_apply(self, db, GENE_ORM_Q_SELECT, NULL, 0, 0, 0) != SUCCESS) {
 		gene_orm_query_finish(self, db);
 		RETURN_NULL();
@@ -1140,6 +1536,19 @@ PHP_METHOD(gene_orm_query, count)
 	if (gene_orm_query_is_empty(self)) {
 		gene_orm_query_finish(self, db);
 		RETURN_LONG(0);
+	}
+	{
+		zval *ops = zend_read_property(gene_orm_query_ce, gene_strip_obj(self), ZEND_STRL(GENE_ORM_QUERY_OPS), 1, NULL);
+		if (gene_orm_query_ops_has(ops, "union")) {
+			zval compiled, count_compiled, *sql, *params;
+			smart_str wrapped = {0};
+			if (gene_orm_query_compile(self, db, 1, 0, 0, 0, &compiled) != SUCCESS) { gene_orm_query_finish(self, db); RETURN_LONG(0); }
+			sql = zend_hash_str_find(Z_ARRVAL(compiled), ZEND_STRL("sql")); params = zend_hash_str_find(Z_ARRVAL(compiled), ZEND_STRL("param"));
+			smart_str_appends(&wrapped, "SELECT COUNT(*) FROM ("); smart_str_appendl(&wrapped, Z_STRVAL_P(sql), Z_STRLEN_P(sql)); smart_str_appends(&wrapped, ") gene_union_count"); smart_str_0(&wrapped);
+			array_init(&count_compiled); add_assoc_str_ex(&count_compiled, ZEND_STRL("sql"), wrapped.s); { zval copy; ZVAL_COPY(&copy, params); add_assoc_zval_ex(&count_compiled, ZEND_STRL("param"), &copy); }
+			if (gene_orm_query_execute_compiled(db, &count_compiled, "cell", &retval) != SUCCESS) { zval_ptr_dtor(&count_compiled); zval_ptr_dtor(&compiled); gene_orm_query_finish(self, db); RETURN_LONG(0); }
+			n = zval_get_long(&retval); zval_ptr_dtor(&retval); zval_ptr_dtor(&count_compiled); zval_ptr_dtor(&compiled); gene_orm_query_finish(self, db); RETURN_LONG(n);
+		}
 	}
 	if (gene_orm_query_apply(self, db, GENE_ORM_Q_COUNT, NULL, 0, 0, 0) != SUCCESS) {
 		gene_orm_query_finish(self, db);
@@ -1194,6 +1603,15 @@ PHP_METHOD(gene_orm_query, paginate)
 		add_assoc_zval_ex(return_value, ZEND_STRL("list"), &empty_list);
 		return;
 	}
+	{
+		zval *ops = zend_read_property(gene_orm_query_ce, gene_strip_obj(self), ZEND_STRL(GENE_ORM_QUERY_OPS), 1, NULL);
+		if (gene_orm_query_ops_has(ops, "union")) {
+			zval args[2];
+			ZVAL_LONG(&args[0], offset); ZVAL_LONG(&args[1], limit);
+			if (gene_orm_db_call(self, "paginateResult", 2, args, &retval) == SUCCESS) RETURN_ZVAL(&retval, 0, 1);
+			RETURN_NULL();
+		}
+	}
 
 	/* count phase (no order/limit/lock) */
 	if (gene_orm_query_apply(self, db, GENE_ORM_Q_COUNT, NULL, 0, 0, 0) != SUCCESS) {
@@ -1241,6 +1659,41 @@ PHP_METHOD(gene_orm_query, paginate)
 }
 /* }}} */
 
+PHP_METHOD(gene_orm_query, paginateResult)
+{
+	zval *self = getThis(), *db, snapshot, count_compiled, list_compiled, wrapped_compiled, retval, list;
+	zval *sql, *params;
+	zend_long offset, limit, count = 0;
+	smart_str wrapped = {0};
+	if (zend_parse_parameters(ZEND_NUM_ARGS(), "ll", &offset, &limit) == FAILURE) return;
+	db = gene_orm_query_db(self);
+	if (!db) RETURN_NULL();
+	if (gene_orm_query_is_empty(self)) { array_init(return_value); add_assoc_long_ex(return_value, ZEND_STRL("count"), 0); array_init(&list); add_assoc_zval_ex(return_value, ZEND_STRL("list"), &list); return; }
+	gene_orm_query_snapshot(self, &snapshot);
+	ZVAL_UNDEF(&count_compiled); ZVAL_UNDEF(&list_compiled); ZVAL_UNDEF(&list);
+	if (gene_orm_query_compile_snapshot(&snapshot, db, 1, 0, 0, 0, &count_compiled) != SUCCESS) goto fail;
+	sql = zend_hash_str_find(Z_ARRVAL(count_compiled), ZEND_STRL("sql")); params = zend_hash_str_find(Z_ARRVAL(count_compiled), ZEND_STRL("param"));
+	smart_str_appends(&wrapped, "SELECT COUNT(*) FROM ("); smart_str_appendl(&wrapped, Z_STRVAL_P(sql), Z_STRLEN_P(sql)); smart_str_appends(&wrapped, ") gene_result_count"); smart_str_0(&wrapped);
+	array_init(&wrapped_compiled); add_assoc_str_ex(&wrapped_compiled, ZEND_STRL("sql"), wrapped.s); { zval copy; ZVAL_COPY(&copy, params); add_assoc_zval_ex(&wrapped_compiled, ZEND_STRL("param"), &copy); }
+	if (gene_orm_query_execute_compiled(db, &wrapped_compiled, "cell", &retval) != SUCCESS) { zval_ptr_dtor(&wrapped_compiled); goto fail; }
+	count = zval_get_long(&retval); zval_ptr_dtor(&retval); zval_ptr_dtor(&wrapped_compiled); gene_orm_db_reset(db);
+	if (gene_orm_query_compile_snapshot(&snapshot, db, 0, 1, offset, limit, &list_compiled) != SUCCESS) goto fail;
+	if (gene_orm_query_execute_compiled(db, &list_compiled, "all", &list) != SUCCESS || Z_TYPE(list) != IS_ARRAY) {
+		if (!Z_ISUNDEF(list)) zval_ptr_dtor(&list);
+		array_init(&list);
+	}
+	gene_orm_query_finish(self, db);
+	zval_ptr_dtor(&snapshot); zval_ptr_dtor(&count_compiled); zval_ptr_dtor(&list_compiled);
+	array_init(return_value); add_assoc_long_ex(return_value, ZEND_STRL("count"), count); add_assoc_zval_ex(return_value, ZEND_STRL("list"), &list);
+	return;
+fail:
+	gene_orm_query_finish(self, db);
+	if (!Z_ISUNDEF(count_compiled)) zval_ptr_dtor(&count_compiled);
+	if (!Z_ISUNDEF(list_compiled)) zval_ptr_dtor(&list_compiled);
+	zval_ptr_dtor(&snapshot);
+	RETURN_NULL();
+}
+
 /* {{{ update(array $data) / delete() — immediate execution, symmetric with
  * Model::updateBy()/destroy(). Both REQUIRE at least one where/in condition
  * (a full-table write from a chainable builder is a foot-gun, not a
@@ -1277,6 +1730,37 @@ PHP_METHOD(gene_orm_query, update)
 	gene_orm_query_finish(self, db);
 	RETURN_LONG(0);
 }
+
+static void gene_orm_query_arithmetic(INTERNAL_FUNCTION_PARAMETERS, zend_bool increment)
+{
+	zval *self = getThis(), *amount = NULL, payload, value, *db, retval;
+	zend_string *column = NULL;
+	if (zend_parse_parameters(ZEND_NUM_ARGS(), "S|z", &column, &amount) == FAILURE) return;
+	if (!gene_orm_valid_ident(column) || (amount && Z_TYPE_P(amount) != IS_LONG && Z_TYPE_P(amount) != IS_DOUBLE) ||
+		(amount && Z_TYPE_P(amount) == IS_LONG && Z_LVAL_P(amount) <= 0) ||
+		(amount && Z_TYPE_P(amount) == IS_DOUBLE && (!isfinite(Z_DVAL_P(amount)) || Z_DVAL_P(amount) <= 0))) {
+		zend_throw_exception_ex(NULL, 0, "Gene\\Orm\\Query::increment()/decrement() expects a valid column and finite positive amount");
+		RETURN_LONG(0);
+	}
+	db = gene_orm_query_db(self);
+	if (!db) RETURN_LONG(0);
+	if (gene_orm_query_is_empty(self)) { gene_orm_query_finish(self, db); RETURN_LONG(0); }
+	array_init_size(&payload, 2);
+	ZVAL_STR_COPY(&value, column); add_next_index_zval(&payload, &value);
+	if (amount) ZVAL_COPY(&value, amount); else ZVAL_LONG(&value, 1);
+	add_next_index_zval(&payload, &value);
+	if (gene_orm_query_apply(self, db, increment ? GENE_ORM_Q_INCREMENT : GENE_ORM_Q_DECREMENT, &payload, 0, 0, 0) != SUCCESS) { zval_ptr_dtor(&payload); gene_orm_query_finish(self, db); RETURN_LONG(0); }
+	zval_ptr_dtor(&payload);
+	if (gene_orm_db_call(db, "affectedRows", 0, NULL, &retval) == SUCCESS) {
+		gene_orm_query_finish(self, db);
+		if (Z_ISUNDEF(retval)) RETURN_LONG(0);
+		RETURN_ZVAL(&retval, 0, 1);
+	}
+	gene_orm_query_finish(self, db); RETURN_LONG(0);
+}
+
+PHP_METHOD(gene_orm_query, increment) { gene_orm_query_arithmetic(INTERNAL_FUNCTION_PARAM_PASSTHRU, 1); }
+PHP_METHOD(gene_orm_query, decrement) { gene_orm_query_arithmetic(INTERNAL_FUNCTION_PARAM_PASSTHRU, 0); }
 
 PHP_METHOD(gene_orm_query, delete)
 {
@@ -1316,6 +1800,9 @@ const zend_function_entry gene_orm_query_methods[] = {
 	PHP_ME(gene_orm_query, where, gene_orm_query_where_arginfo, ZEND_ACC_PUBLIC)
 	PHP_ME(gene_orm_query, in, gene_orm_query_in_arginfo, ZEND_ACC_PUBLIC)
 	PHP_ME(gene_orm_query, join, gene_orm_query_join_arginfo, ZEND_ACC_PUBLIC)
+	PHP_ME(gene_orm_query, joinOn, gene_orm_query_join_arginfo, ZEND_ACC_PUBLIC)
+	PHP_ME(gene_orm_query, union, gene_orm_query_union_arginfo, ZEND_ACC_PUBLIC)
+	PHP_ME(gene_orm_query, unionAll, gene_orm_query_union_arginfo, ZEND_ACC_PUBLIC)
 	PHP_ME(gene_orm_query, group, gene_orm_query_str_arginfo, ZEND_ACC_PUBLIC)
 	PHP_ME(gene_orm_query, having, gene_orm_query_str_arginfo, ZEND_ACC_PUBLIC)
 	PHP_ME(gene_orm_query, order, gene_orm_query_str_arginfo, ZEND_ACC_PUBLIC)
@@ -1332,7 +1819,10 @@ const zend_function_entry gene_orm_query_methods[] = {
 	PHP_ME(gene_orm_query, cell, gene_orm_query_void_arginfo, ZEND_ACC_PUBLIC)
 	PHP_ME(gene_orm_query, count, gene_orm_query_void_arginfo, ZEND_ACC_PUBLIC)
 	PHP_ME(gene_orm_query, paginate, gene_orm_query_paginate_arginfo, ZEND_ACC_PUBLIC)
+	PHP_ME(gene_orm_query, paginateResult, gene_orm_query_paginate_arginfo, ZEND_ACC_PUBLIC)
 	PHP_ME(gene_orm_query, update, gene_orm_query_update_arginfo, ZEND_ACC_PUBLIC)
+	PHP_ME(gene_orm_query, increment, gene_orm_query_arithmetic_arginfo, ZEND_ACC_PUBLIC)
+	PHP_ME(gene_orm_query, decrement, gene_orm_query_arithmetic_arginfo, ZEND_ACC_PUBLIC)
 	PHP_ME(gene_orm_query, delete, gene_orm_query_void_arginfo, ZEND_ACC_PUBLIC)
 	{NULL, NULL, NULL}
 };

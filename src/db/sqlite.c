@@ -128,6 +128,12 @@ ZEND_BEGIN_ARG_INFO_EX(gene_db_sqlite_join, 0, 0, 2)
 	ZEND_ARG_INFO(0, type)
 ZEND_END_ARG_INFO()
 
+ZEND_BEGIN_ARG_INFO_EX(gene_db_sqlite_arithmetic_arginfo, 0, 0, 2)
+	ZEND_ARG_INFO(0, table)
+	ZEND_ARG_INFO(0, column)
+	ZEND_ARG_INFO(0, amount)
+ZEND_END_ARG_INFO()
+
 ZEND_BEGIN_ARG_INFO_EX(gene_db_sqlite_side_join, 0, 0, 2)
 	ZEND_ARG_INFO(0, table)
 	ZEND_ARG_INFO(0, on)
@@ -1061,6 +1067,38 @@ PHP_METHOD(gene_db_sqlite, join)
 	gene_db_sqlite_do_join(self, table, on, (type && ZSTR_LEN(type)) ? ZSTR_VAL(type) : NULL);
 	RETURN_ZVAL(self, 1, 0);
 }
+
+PHP_METHOD(gene_db_sqlite, joinOn)
+{
+	zval *self = getThis(), *predicates = NULL;
+	zend_string *table = NULL, *type = NULL;
+	if (zend_parse_parameters(ZEND_NUM_ARGS(), "Sa|S", &table, &predicates, &type) == FAILURE) return;
+	if (gene_db_build_join_on(self, gene_db_sqlite_ce, ZEND_STRL(GENE_DB_SQLITE_JOIN), ZEND_STRL(GENE_DB_SQLITE_DATA), table, predicates, type, '`', '`') != SUCCESS) RETURN_NULL();
+	RETURN_ZVAL(self, 1, 0);
+}
+
+static void gene_db_sqlite_arithmetic(INTERNAL_FUNCTION_PARAMETERS, zend_bool increment)
+{
+	zval *self = getThis(), *amount = NULL;
+	zend_string *table = NULL, *column = NULL;
+	double value;
+	zend_bool is_long;
+	zend_long long_value = 1;
+	if (zend_parse_parameters(ZEND_NUM_ARGS(), "SS|z", &table, &column, &amount) == FAILURE) return;
+	if (amount && Z_TYPE_P(amount) != IS_LONG && Z_TYPE_P(amount) != IS_DOUBLE) {
+		zend_throw_exception_ex(NULL, 0, "increment()/decrement() amount must be int or float");
+		RETURN_NULL();
+	}
+	is_long = !amount || Z_TYPE_P(amount) == IS_LONG;
+	if (amount && is_long) long_value = Z_LVAL_P(amount);
+	value = is_long ? (double) long_value : Z_DVAL_P(amount);
+	sqlite_reset_sql_params(self);
+	if (gene_db_build_arithmetic(self, gene_db_sqlite_ce, ZEND_STRL(GENE_DB_SQLITE_SQL), ZEND_STRL(GENE_DB_SQLITE_DATA), table, column, value, is_long, long_value, increment, '`', '`') != SUCCESS) RETURN_NULL();
+	RETURN_ZVAL(self, 1, 0);
+}
+
+PHP_METHOD(gene_db_sqlite, increment) { gene_db_sqlite_arithmetic(INTERNAL_FUNCTION_PARAM_PASSTHRU, 1); }
+PHP_METHOD(gene_db_sqlite, decrement) { gene_db_sqlite_arithmetic(INTERNAL_FUNCTION_PARAM_PASSTHRU, 0); }
 /* }}} */
 
 /*
@@ -1691,6 +1729,9 @@ const zend_function_entry gene_db_sqlite_methods[] = {
 		PHP_ME(gene_db_sqlite, where, gene_db_sqlite_where, ZEND_ACC_PUBLIC)
 		PHP_ME(gene_db_sqlite, in, gene_db_sqlite_in, ZEND_ACC_PUBLIC)
 		PHP_ME(gene_db_sqlite, join, gene_db_sqlite_join, ZEND_ACC_PUBLIC)
+		PHP_ME(gene_db_sqlite, joinOn, gene_db_sqlite_join, ZEND_ACC_PUBLIC)
+		PHP_ME(gene_db_sqlite, increment, gene_db_sqlite_arithmetic_arginfo, ZEND_ACC_PUBLIC)
+		PHP_ME(gene_db_sqlite, decrement, gene_db_sqlite_arithmetic_arginfo, ZEND_ACC_PUBLIC)
 		PHP_ME(gene_db_sqlite, leftJoin, gene_db_sqlite_side_join, ZEND_ACC_PUBLIC)
 		PHP_ME(gene_db_sqlite, rightJoin, gene_db_sqlite_side_join, ZEND_ACC_PUBLIC)
 		PHP_ME(gene_db_sqlite, union, gene_db_sqlite_union, ZEND_ACC_PUBLIC)

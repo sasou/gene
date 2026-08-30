@@ -15,11 +15,13 @@ class LifecycleTest
         echo "Testing Gene\\Context:\n";
         \Gene\Context::set('request_id', 'abc123');
         \Gene\Context::set('user', ['id' => 1]);
+        \Gene\Context::set('nullable', null);
         $id = \Gene\Context::get('request_id');
         $missing = \Gene\Context::get('nope', 'dflt');
         $all = \Gene\Context::all();
-        if ($id === 'abc123' && $missing === 'dflt' && isset($all['user']['id'])) {
-            echo "✓ set/get/all works\n";
+        if ($id === 'abc123' && $missing === 'dflt' && isset($all['user']['id'])
+            && \Gene\Context::has('nullable') && !\Gene\Context::has('nope')) {
+            echo "✓ set/get/has/all works\n";
         } else {
             echo "✗ Context round-trip failed\n";
         }
@@ -99,6 +101,54 @@ class LifecycleTest
         } catch (\Throwable $e) {
             echo "✓ JSON null (non-empty) throws\n";
         }
+        \Gene\Request::init(['same' => 'get', 'get' => 1], ['same' => 'post'], [],
+            ['CONTENT_TYPE' => 'application/problem+json'], null, [], null, [], '{"same":"json","json":2}');
+        $input = \Gene\Request::input();
+        if ($input === ['same' => 'json', 'get' => 1, 'json' => 2]
+            && \Gene\Request::input('missing', 'default') === 'default'
+            && \Gene\Request::rawContent() === '{"same":"json","json":2}') {
+            echo "✓ input merges GET/POST/JSON and preserves raw bytes\n";
+        } else {
+            echo "✗ input merge failed: " . json_encode($input) . "\n";
+        }
+        \Gene\Request::init([], [], [], ['CONTENT_TYPE' => 'text/plain'], null, [], null, [], '{bad');
+        if (\Gene\Request::input() === []) echo "✓ input ignores non-JSON body\n"; else echo "✗ input parsed non-JSON body\n";
+        $topLevelRejected = false;
+        try {
+            \Gene\Request::init([], [], [], ['CONTENT_TYPE' => 'application/json'], null, [], null, [], '[]');
+            \Gene\Request::input();
+        } catch (\Throwable $e) {
+            $topLevelRejected = true;
+        }
+        if ($topLevelRejected) echo "✓ input rejects top-level list\n"; else echo "✗ input accepted top-level list\n";
+        \Gene\Request::init([], [], [], ['CONTENT_TYPE' => 'application/json'], null, [], null, [], '{"v":1}');
+        $first = \Gene\Request::json();
+        $second = \Gene\Request::input('v');
+        \Gene\Request::init([], [], [], ['CONTENT_TYPE' => 'application/json'], null, [], null, [], '{"v":2}');
+        $controller = new \Gene\Controller();
+        $hook = new \Gene\Hook();
+        $controllerInput = new \ReflectionMethod(\Gene\Controller::class, 'input');
+        $hookInput = new \ReflectionMethod(\Gene\Hook::class, 'input');
+        if (($first['v'] ?? null) === 1 && $second === 1 && \Gene\Request::input('v') === 2
+            && $controller->input('v') === 2 && $hook->input('v') === 2
+            && $controllerInput->getParameters()[1]->getName() === 'default_value'
+            && $hookInput->getParameters()[1]->getName() === 'default_value') {
+            echo "✓ json/input share cache, proxies work, and init invalidates it\n";
+        } else {
+            echo "✗ request JSON cache lifecycle failed\n";
+        }
+        $bearerCases = [
+            'Bearer abc' => 'abc', 'bearer   token' => 'token', "Bearer\txyz" => 'xyz',
+            'Basic abc' => null, 'Bearerxxx' => null, 'Bearer:' => null, 'Bearer ' => null,
+        ];
+        $bearerOk = true;
+        foreach ($bearerCases as $authorization => $expected) {
+            \Gene\Request::init([], [], [], [], null, [], null, ['Authorization' => $authorization], '');
+            $bearerOk = $bearerOk && \Gene\Request::bearer() === $expected;
+        }
+        \Gene\Request::init([], [], [], [], null, [], null, ['AuThOrIzAtIoN' => 'Bearer mixed'], '');
+        $bearerOk = $bearerOk && \Gene\Request::bearer() === 'mixed';
+        if ($bearerOk) echo "✓ bearer accepts only strict Bearer scheme\n"; else echo "✗ bearer scheme matrix failed\n";
         echo "\n";
     }
 

@@ -49,6 +49,10 @@ class Controller
 
     }
 
+    public static function input(?string $key = null, $default = null) {
+
+    }
+
     /**
      * post
      * 

@@ -53,6 +53,11 @@ ZEND_BEGIN_ARG_INFO_EX(gene_controller_param_get, 0, 0, 0)
     ZEND_ARG_INFO(0, value)
 ZEND_END_ARG_INFO()
 
+ZEND_BEGIN_ARG_INFO_EX(gene_controller_input, 0, 0, 0)
+    ZEND_ARG_INFO(0, key)
+    ZEND_ARG_INFO(0, default_value)
+ZEND_END_ARG_INFO()
+
 ZEND_BEGIN_ARG_INFO_EX(gene_controller_redirect, 0, 0, 1)
     ZEND_ARG_INFO(0, url)
     ZEND_ARG_INFO(0, code)
@@ -155,6 +160,8 @@ GENE_REQUEST_METHOD(gene_controller, post, TRACK_VARS_POST);
  */
 GENE_REQUEST_METHOD(gene_controller, request, TRACK_VARS_REQUEST);
 /* }}} */
+
+GENE_REQUEST_INPUT_METHOD(gene_controller);
 
 /** {{{ public gene_controller::files(mixed $name, mixed $default = NULL)
  */
@@ -658,6 +665,7 @@ const zend_function_entry gene_controller_methods[] = {
 	PHP_ME(gene_controller, __construct, gene_controller_construct_arginfo, ZEND_ACC_PUBLIC)
 	PHP_ME(gene_controller, get, gene_controller_param_get, ZEND_ACC_PUBLIC|ZEND_ACC_STATIC)
 	PHP_ME(gene_controller, request, gene_controller_param_get, ZEND_ACC_PUBLIC|ZEND_ACC_STATIC)
+	PHP_ME(gene_controller, input, gene_controller_input, ZEND_ACC_PUBLIC|ZEND_ACC_STATIC)
 	PHP_ME(gene_controller, post, gene_controller_param_get, ZEND_ACC_PUBLIC|ZEND_ACC_STATIC)
 	PHP_ME(gene_controller, cookie, gene_controller_param_get, ZEND_ACC_PUBLIC|ZEND_ACC_STATIC)
 	PHP_ME(gene_controller, files, gene_controller_param_get, ZEND_ACC_PUBLIC|ZEND_ACC_STATIC)
