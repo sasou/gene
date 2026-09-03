@@ -1,4 +1,4 @@
-# Gene Framework - Grace, Fastest, Flexibility, Simplicity
+# Gene Framework — High-Performance PHP Extension Framework
 
 <div align="center">
 
@@ -12,60 +12,67 @@
 
 </div>
 
-<img src="doc/logo.png" width="175" alt="logo" align="right">
+<img src="images/logo.png" width="175" alt="logo" align="right">
 
 ## Framework Introduction
 
-Welcome to Gene Framework, a high-performance PHP extension framework developed in C language. After comprehensive code audit and optimization, Gene Framework achieves industry-leading levels in performance, stability, and memory management.
+Gene is a Web application framework written in C and distributed as a PHP extension. It implements routing, dependency injection, ORM, caching, HTTP, request context, and common Web primitives in the extension layer while supporting both the traditional PHP-FPM request model and Swoole resident coroutine workers.
 
-**Core Advantages:**
-- 🚀 **Extreme Performance**: Binary tree routing algorithm, memory caching mechanism, industry-leading speed
-- 🛡️ **High Stability**: High stability in FPM mode, medium-high stability in Swoole mode, standardized memory management
-- 🔧 **Dual Mode Support**: Supports both PHP-FPM and Swoole resident modes with the same codebase
-- 📦 **Full Stack**: Complete components including routing, caching, dependency injection, database connection pool, hooks
+**Core advantages:**
 
-### Architecture Features
+- **Extension-level execution paths**: Core components run in C, reducing framework bootstrap, file-loading, and userland dispatch overhead.
+- **Two runtime models**: The same application structure can run on PHP-FPM or Swoole, with request-context isolation and explicit cleanup for resident workers.
+- **Complete application stack**: Routing, DI, four PDO drivers, ORM, caching, pools, outbound HTTP, sessions, validation, logging, views, and CLI tooling.
+- **Safe query construction**: Structured conditions, identifier quoting, and parameter binding across JOIN, WHERE, IN, UNION, and atomic updates.
+- **Observable resource control**: Cache and pool statistics, request counters, capacity limits, idle recycling, and diagnostics.
 
-#### 🏗️ Micro-Architecture Design
-- **Loose Coupling**: Service-oriented architecture, supports DDD domain-driven design
-- **Extensible**: Minimal yet extensible architecture, components on demand
-- **Context Isolation**: Complete request context management, coroutine-safe
+### Architecture
 
-#### ⚡ Performance Optimization
-- **Binary Tree Routing**: O(log n) lookup complexity, powerful performance
-- **Memory Caching**: Configuration cached to process, reduces repeated loading, cache hit rate >95%
-- **Connection Pool**: Database connection pool support, connection reuse rate >90%, atomic operations optimized
-- **Persistent Connections**: MySQL/Redis/Memcached persistent connection support
-- **Stack Buffer Optimization**: Hot paths use 256-byte stack buffers instead of heap allocation
-- **Direct Dispatch Mechanism**: Hook system uses direct C calls instead of eval(), reducing 80% overhead
-- **Coroutine ID Caching**: Coroutine ID retrieval performance improved by 40%, avoiding repeated call overhead
-- **Memory Pooling**: Request-level memory pools reduce 30% allocation count
+#### Lightweight composition
 
-#### 🔒 Stability Assurance
-After six rounds of rigorous code audit, the framework features:
-- ✅ **Memory Safety**: A+ grade memory safety, standardized memory management, tested with Valgrind/ASan, no memory leak risks
-- ✅ **Coroutine Safety**: Complete coroutine context management, context leak in exception handling has been fixed
-- ✅ **Request Isolation**: Complete request isolation in FPM mode, symmetric RINIT/RSHUTDOWN
-- ✅ **Error Handling**: Comprehensive exception handling and resource cleanup, finally block ensures cleanup
-- ✅ **Atomic Operations**: Database connection pool uses atomic operations, race conditions have been optimized
-- ✅ **Performance Optimization**: Coroutine ID retrieval performance improved by 40%, stack buffers replace hot-path allocation
-- ✅ **Direct Dispatch**: Hook system uses direct C calls instead of eval(), reducing 80% overhead
+- **Composable components**: Use components independently or combine Application, Router, Controller, Hook, and DI into a complete application.
+- **Request isolation**: FPM follows the standard PHP lifecycle; Swoole uses coroutine-local context and request snapshots to prevent cross-request state leaks.
+- **Multiple databases**: Mysql, Mssql, Pgsql, and Sqlite share query-building capabilities while preserving driver-specific identifier syntax.
+- **Explicit behavior**: Compound queries, Context, internal invocation, and caching features are enabled through explicit APIs to limit hidden side effects.
 
-### Core Features
+#### Performance design
 
-| Feature | Description | Stability |
-|---------|-------------|-----------|
-| **Routing System** | HTTP REST support, binary tree algorithm, group routing, hook mechanism | ⭐⭐⭐⭐⭐ |
-| **Dependency Injection** | IoC container, supports global injection and local control inversion | ⭐⭐⭐⭐⭐ |
-| **Database** | Four PDO drivers + ORM v2 (ordered Query, batch writes, row locks, IN) | ⭐⭐⭐⭐⭐ |
-| **Cache System** | Method-level caching, real-time version caching, multiple backend support | ⭐⭐⭐⭐⭐ |
-| **Outbound HTTP** | `Gene\Http` (FPM=curl, Swoole=coroutine client); in-process `Invoke`/`Rest` | ⭐⭐⭐⭐☆ |
-| **Request bag / primitives** | `Context`, `Request::json`, `Json`, SSE, `Crypto`, rate limit / lock | ⭐⭐⭐⭐☆ |
-| **View Engine** | Compiled template, native PHP template, layout support | ⭐⭐⭐⭐☆ |
-| **Hooks** | AOP-style route hooks, configuration registration, decoupled calls (middleware pipeline is a future proposal) | ⭐⭐⭐⭐⭐ |
-| **Session Management** | Multi-driver support, Swoole adaptation | ⭐⭐⭐⭐☆ |
-| **Internationalization** | Multi-language solution, flexible configuration | ⭐⭐⭐⭐☆ |
-| **Command Line** | Console programs, daemon process support | ⭐⭐⭐⭐☆ |
+- **C-level routing and dispatch**: Route lookup and Controller/Hook dispatch stay in the extension layer, reducing userland middleware overhead.
+- **In-process caching**: Configuration, routes, and application data can remain in workers with capacity limits, approximate LRU, and TTL controls.
+- **Connection reuse**: Swoole database and Redis pools provide capacity limits, wait timeouts, idle recycling, and health checks.
+- **Coroutine hot paths**: Request-context reuse, coroutine-ID fast paths, and optional automatic cleanup target resident-worker workloads.
+- **Batch and atomic operations**: Batch cache/write APIs, upsert, atomic counters, and single-statement arithmetic updates reduce round trips and race windows.
+- **Runtime-aware HTTP**: Outbound HTTP uses curl under FPM/CLI and the coroutine client under Swoole, avoiding blocking curl calls in resident coroutines.
+
+#### Stability design
+
+- **Symmetric lifecycles**: Covers extension startup/shutdown, request startup/shutdown, and Swoole request-context initialization, reset, and release.
+- **Coroutine isolation**: Context, Request, Response, and runtime state are coroutine-local, with manual and optional automatic cleanup paths.
+- **Resource hygiene**: Pools include transaction-leak protection, invalid-connection handling, health checks, and diagnostic statistics.
+- **Memory controls**: Resident caches support capacity and expiration policies; context tables provide limits, reclamation scans, and telemetry.
+- **Fail-fast boundaries**: Invalid query structures, JSON input, and conflicting HTTP payloads fail before execution.
+- **Regression tooling**: The repository includes component tests, audit reproductions, and Windows, macOS, and Linux/Swoole acceptance tools.
+
+### 6.2.0 highlights
+
+- ORM: `joinOn()`, `union()`, `unionAll()`, `paginateResult()`, `increment()`, and `decrement()`.
+- HTTP: `query`, `form`, multipart fields, and strict option/payload validation.
+- Request: `input()` merges GET → POST → JSON and shares a per-request JSON parsing cache.
+- Context: `has()` distinguishes a missing key from an explicit `null` value.
+- Compatibility: PHP 8.0–8.5 support with Windows x64/x86 and macOS build tooling.
+
+### Core capabilities
+
+| Area | Capabilities |
+|------|--------------|
+| **Routing and dispatch** | REST routes, groups, parameter capture, pure matching, Controller forwarding, Hook lifecycle |
+| **Dependencies and invocation** | IoC/DI, explicit instantiation, Controller/Service/Hook, in-process `Invoke`, local/remote `Rest` |
+| **Database and ORM** | Mysql/Mssql/Pgsql/Sqlite, transactions, pools, structured JOIN, UNION, result pagination, batch writes, upsert, row locks, atomic arithmetic |
+| **Cache and concurrency primitives** | Memory, Redis, Memcached, versioned/batch caching, TTL/LRU controls, rate limits, locks, atomic counters |
+| **HTTP and I/O** | curl/Swoole outbound HTTP, query/form/json/multipart, unified `Request::input()`, JSON, SSE, file responses |
+| **Request context** | Coroutine-local Context, Request snapshot/restore/scope, request cleanup, optional automatic cleanup |
+| **Security and sessions** | Input validation, strict Bearer parsing, session backends, session-ID regeneration, HMAC, AES-256-GCM |
+| **Engineering and operations** | Log, Monitor, Benchmark, CLI, IDE helper, audit scripts, multi-platform build tools |
 
 ## System Requirements
 
@@ -249,12 +256,11 @@ $router->clear()
     ->group();
 ```
 
-**Hook Features**:
-- 🎯 **Direct Dispatch**: Uses `gene_factory_load_class` for lightweight instantiation, avoiding constructor overhead
-- ⚡ **C-level Calls**: Direct C function calls instead of eval(), 80% performance improvement
-- 🔄 **Lifecycle**: Supports before/after/handle three hook types
-- 📦 **Dependency Injection**: Auto-injects request/response/view and other services
-- 🛡️ **Type Safety**: Based on `gene_hook_ce` instanceof check ensures type safety
+**Hook features**:
+- **Extension-level dispatch**: Loads and invokes Hooks through the framework factory, reducing userland dispatch layers
+- **Lifecycle**: Supports before, after, and handle Hook types
+- **Dependency injection**: Can inject request, response, view, and other services
+- **Type constraints**: Uses `gene_hook_ce` instance checks
 
 ## Runtime Modes
 
@@ -300,39 +306,34 @@ $http->on("request", function ($request, $response) {
 $http->start();
 ```
 
-## Performance Benchmarks
+## Performance and Capacity
 
-Based on rigorous performance testing, Gene Framework performs excellently:
+Gene optimizes for short framework paths, reuse of in-process state, and fewer external round trips rather than promising fixed QPS independent of hardware, PHP configuration, and application workload:
 
-| Environment | Framework | QPS | Memory Usage | Performance Improvement |
-|------------|----------|-----|-------------|-------------------------|
-| PHP-FPM + Nginx | Gene | ~15,000 | Low | Response time improved 30-40% |
-| PHP-FPM + Nginx | Native PHP | ~16,000 | Lowest | Baseline |
-| Swoole | Gene | ~47,000 | Low | Response time improved 50-70% |
-| Swoole | Native PHP | ~48,000 | Lowest | Baseline |
+| Scenario | Mechanisms |
+|----------|------------|
+| Routing and dispatch | C-level route lookup, optional precompiled cache, direct Controller/Hook dispatch |
+| Configuration and cache | Worker-local configuration/route caches, application-cache limits, approximate LRU, TTL, batch APIs |
+| Data access | PDO builders, batch writes, upsert, connection reuse, atomic arithmetic updates |
+| Swoole resident workers | Coroutine-context reuse, database/Redis pools, coroutine HTTP client |
+| Observability | `Gene\Monitor::stats()` aggregates request, cache, context, and pool metrics |
 
-**Latest Optimization Results (v5.4.3)**:
-- **Memory Usage**: 15-20% reduction compared to baseline version
-- **Response Time**: 30-40% improvement in FPM mode, 50-70% in Swoole mode
-- **Concurrency**: Swoole mode supports 10x+ concurrent connections
-- **Cache Hit Rate**: Route cache hit rate >95%, direct dispatch reduces 80% eval overhead
-- **Connection Reuse**: Connection reuse rate >90%, coroutine switching overhead <1ms
+Actual throughput depends on PHP/Swoole versions, extension settings, databases, network latency, route count, and application code. Benchmark the real routes and dependencies in the target environment, and monitor latency percentiles, error rate, RSS, cache hit rate, and pool wait time.
 
-**Conclusion**: Gene Framework maintains minimal performance loss while providing a complete feature stack, making it one of the fastest PHP frameworks in the industry.
+## Stability and Production Operations
 
-## Stability Assessment
+### PHP-FPM
 
-### FPM Mode: ⭐⭐⭐⭐☆ (High Stability)
-- ✅ Complete request isolation
-- ✅ Automatic memory management
-- ✅ Standard PHP lifecycle
-- ✅ Production environment proven
+- Uses the standard PHP request lifecycle, allowing the engine to reclaim request-scoped resources after each request.
+- Fits applications that prioritize process isolation, straightforward deployment, and compatibility with traditional PHP infrastructure.
+- Persistent connections and in-process configuration caching can reduce repeated initialization work.
 
-### Swoole Mode: ⭐⭐⭐⭐☆ (High Stability)
-- ✅ Complete coroutine context management
-- ✅ Memory cleanup mechanism
-- ✅ Connection pool management
-- ⚠️ Requires monitoring long-term memory usage
+### Swoole
+
+- Isolates request data by coroutine context and provides `Application::cleanup()` plus optional automatic cleanup.
+- Database and Redis pools provide capacity, timeout, idle-recycling, transaction-hygiene, and diagnostic controls.
+- Resident workers should be monitored for RSS, context count, pool waits/timeouts, cache size, and request errors.
+- Run the repository acceptance scripts and long-running soak tests on the target PHP/Swoole combination before production rollout.
 
 ## Production Cases
 
