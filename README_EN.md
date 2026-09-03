@@ -1,18 +1,28 @@
-# Gene Framework — High-Performance PHP Extension Framework
-
 <div align="center">
-
-**A high-performance PHP extension framework developed in C**
+  <img src="images/logo.png" width="150" alt="Gene Framework Logo">
+  <h1>Gene Framework</h1>
+  <p><strong>A fast, flexible, and production-oriented PHP extension framework</strong></p>
+  <p>Core execution paths built in C, with first-class PHP-FPM and Swoole support</p>
 
 [![Version](https://img.shields.io/badge/version-6.2.0-blue.svg)](https://github.com/sasou/php-gene)
 [![License](https://img.shields.io/badge/license-PHP%203.01-green.svg)](http://www.php.net/license/3_01.txt)
 [![Website](https://img.shields.io/badge/website-1xm.net-orange.svg)](https://www.1xm.net/)
 
-[中文](README.md) | [English](README_EN.md)
-
+[中文](README.md) · [English](README_EN.md)
 </div>
 
-<img src="images/logo.png" width="175" alt="logo" align="right">
+---
+
+<p align="center">
+  <a href="#framework-introduction">Introduction</a> ·
+  <a href="#620-highlights">Release Highlights</a> ·
+  <a href="#core-capabilities">Capabilities</a> ·
+  <a href="#quick-start">Quick Start</a> ·
+  <a href="#runtime-modes">Runtime Modes</a> ·
+  <a href="#performance-and-capacity">Performance</a>
+</p>
+
+> **Gene 6.2.0** — Structured JOINs, UNION queries, complex-result pagination, atomic arithmetic updates, unified request input, HTTP form encoding, and PHP 8.0–8.5 support.
 
 ## Framework Introduction
 
@@ -26,16 +36,16 @@ Gene is a Web application framework written in C and distributed as a PHP extens
 - **Safe query construction**: Structured conditions, identifier quoting, and parameter binding across JOIN, WHERE, IN, UNION, and atomic updates.
 - **Observable resource control**: Cache and pool statistics, request counters, capacity limits, idle recycling, and diagnostics.
 
-### Architecture
+## Architecture
 
-#### Lightweight composition
+### Lightweight composition
 
 - **Composable components**: Use components independently or combine Application, Router, Controller, Hook, and DI into a complete application.
 - **Request isolation**: FPM follows the standard PHP lifecycle; Swoole uses coroutine-local context and request snapshots to prevent cross-request state leaks.
 - **Multiple databases**: Mysql, Mssql, Pgsql, and Sqlite share query-building capabilities while preserving driver-specific identifier syntax.
 - **Explicit behavior**: Compound queries, Context, internal invocation, and caching features are enabled through explicit APIs to limit hidden side effects.
 
-#### Performance design
+### Performance design
 
 - **C-level routing and dispatch**: Route lookup and Controller/Hook dispatch stay in the extension layer, reducing userland middleware overhead.
 - **In-process caching**: Configuration, routes, and application data can remain in workers with capacity limits, approximate LRU, and TTL controls.
@@ -44,7 +54,7 @@ Gene is a Web application framework written in C and distributed as a PHP extens
 - **Batch and atomic operations**: Batch cache/write APIs, upsert, atomic counters, and single-statement arithmetic updates reduce round trips and race windows.
 - **Runtime-aware HTTP**: Outbound HTTP uses curl under FPM/CLI and the coroutine client under Swoole, avoiding blocking curl calls in resident coroutines.
 
-#### Stability design
+### Stability design
 
 - **Symmetric lifecycles**: Covers extension startup/shutdown, request startup/shutdown, and Swoole request-context initialization, reset, and release.
 - **Coroutine isolation**: Context, Request, Response, and runtime state are coroutine-local, with manual and optional automatic cleanup paths.
@@ -53,15 +63,18 @@ Gene is a Web application framework written in C and distributed as a PHP extens
 - **Fail-fast boundaries**: Invalid query structures, JSON input, and conflicting HTTP payloads fail before execution.
 - **Regression tooling**: The repository includes component tests, audit reproductions, and Windows, macOS, and Linux/Swoole acceptance tools.
 
-### 6.2.0 highlights
+## 6.2.0 Highlights
 
-- ORM: `joinOn()`, `union()`, `unionAll()`, `paginateResult()`, `increment()`, and `decrement()`.
-- HTTP: `query`, `form`, multipart fields, and strict option/payload validation.
-- Request: `input()` merges GET → POST → JSON and shares a per-request JSON parsing cache.
-- Context: `has()` distinguishes a missing key from an explicit `null` value.
-- Compatibility: PHP 8.0–8.5 support with Windows x64/x86 and macOS build tooling.
+| Area | New in 6.2.0 | Benefit |
+|:---|:---|:---|
+| **ORM queries** | `joinOn()`, `union()`, `unionAll()`, `paginateResult()` | Safely build JOINs and compound queries, then paginate final result sets correctly |
+| **ORM writes** | `increment()`, `decrement()` | Perform atomic arithmetic updates in one SQL statement |
+| **HTTP** | `query`, `form`, multipart fields, strict payload validation | Consistent encoding semantics across curl and Swoole backends |
+| **Request** | `input()` merging GET → POST → JSON | One input API with a shared per-request JSON parsing cache |
+| **Context** | `has()` | Distinguish missing keys from explicit `null` values |
+| **Compatibility** | PHP 8.0–8.5, Windows x64/x86, macOS build tooling | Broader runtime and build-platform coverage |
 
-### Core capabilities
+## Core Capabilities
 
 | Area | Capabilities |
 |------|--------------|
