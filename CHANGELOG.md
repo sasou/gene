@@ -18,11 +18,24 @@
 - **`Gene\Request::input()`**：按 GET → POST → JSON 顺序合并输入，后者覆盖前者。仅在媒体类型为 `application/json` 或 `application/*+json` 且 body 非空时解析 JSON；顶层必须是对象，非法 JSON 或其他顶层类型抛异常。`input()` 与 `json()` 共享每请求解析缓存，`init()`、`clear()`、Request 快照恢复及请求上下文销毁会同步失效或释放缓存；`rawContent()` 保留原始字节。Controller 与 Hook 提供同签名代理。
 - **`Gene\Context::has()`**：区分键不存在与键存在但值为 `null`。
 
-### 🐞 修复
+### 🐞 修复与兼容性调整
 
 - **Query 绑定顺序**：Query 重放改为先 JOIN、后 WHERE/IN，保证带值 `joinOn()` 的参数顺序与 SQL 占位符顺序一致。
 - **`Request::bearer()` 严格语义**：仅接受大小写不敏感的 Bearer scheme，scheme 后必须有 SP/HTAB；缺失、非 Bearer、空 token 均返回 `null`。Authorization header 名按大小写不敏感方式查找，并保留 `HTTP_AUTHORIZATION` / `REDIRECT_HTTP_AUTHORIZATION` 回退。
 - **只读 ORM 编译不干扰事务**：UNION/复杂分页使用不持有 PDO/pool 的 builder clone，避免临时编译对象析构时误回滚活动事务。
+- **PHP 8.5 兼容性**：适配 `zend_class_entry` 的 const 限定变化；PHP 8.2+ 的 opcode 编译位置改用兼容常量，并补充相关回归断言。
+- **参数信息同步**：修正 `Request::input()` 及 Controller/Hook 代理的 arginfo，使反射签名与实际调用约束一致。
+
+### 🔧 构建支持
+
+- 支持 PHP 8.0–8.5，已验证 PHP 8.1.30、8.2.33、8.3.33、8.4.25、8.5.10。
+- 新增 Windows x64/x86、PHP 8.1–8.5 批量构建入口，可按架构和 PHP 版本筛选。
+- Windows 构建任务增加参数化路径、失败检测、错误码传递和工作目录恢复。
+- macOS `phpize` 构建脚本改进匹配 `php`、`phpize`、`php-config` 的发现与错误提示。
+
+### ⚠️ 升级注意
+
+- 若应用此前通过 `Request::bearer()` 读取 Basic、Digest、无 scheme 裸 token 或其他非 Bearer Authorization 内容，升级后将得到 `null`；需要原始值时请改用对应的 header/server API。
 
 ### ⏸️ 未纳入本版
 
