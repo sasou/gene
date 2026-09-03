@@ -70,7 +70,7 @@ After six rounds of rigorous code audit, the framework features:
 ## System Requirements
 
 ### Required Dependencies
-- **PHP 8.0+** - Framework is developed for PHP 8.0+, requires at least PHP 8.0.0
+- **PHP 8.0–8.5** - Requires PHP 8.0 or later; verified on PHP 8.1.30, 8.2.33, 8.3.33, 8.4.25, and 8.5.10
 - **PDO Extension** - Required for database operations, supports MySQL/PostgreSQL/SQLite etc
 
 ### Optional Dependencies

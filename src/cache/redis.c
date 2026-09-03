@@ -23,7 +23,6 @@
 #include "main/SAPI.h"
 #include "Zend/zend_API.h"
 #include "zend_exceptions.h"
-#include "ext/standard/php_rand.h"
 #include <string.h>
 
 
