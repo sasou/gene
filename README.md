@@ -1,24 +1,30 @@
-# Gene 简单编码，优雅生活！
-
 <div align="center">
-
-**A fast, flexible, and production-oriented PHP extension framework**
-
-快速、灵活、面向生产环境的 PHP 扩展框架
+  <img src="images/logo.png" width="150" alt="Gene Framework Logo">
+  <h1>Gene Framework</h1>
+  <p><strong>快速、灵活、面向生产环境的 PHP 扩展框架</strong></p>
+  <p>使用 C 构建核心执行路径，同时支持 PHP-FPM 与 Swoole</p>
 
 [![Version](https://img.shields.io/badge/version-6.2.0-blue.svg)](https://github.com/sasou/php-gene)
 [![License](https://img.shields.io/badge/license-PHP%203.01-green.svg)](http://www.php.net/license/3_01.txt)
 [![Website](https://img.shields.io/badge/website-1xm.net-orange.svg)](https://www.1xm.net/)
 
-[中文](README.md) | [English](README_EN.md)
-
+[中文](README.md) · [English](README_EN.md)
 </div>
 
-<img src="images/logo.png" width="175" alt="logo" align="right">
+---
 
-## 中文文档
+<p align="center">
+  <a href="#框架简介">框架简介</a> ·
+  <a href="#620-能力亮点">版本亮点</a> ·
+  <a href="#核心能力">核心能力</a> ·
+  <a href="#快速开始">快速开始</a> ·
+  <a href="#运行模式">运行模式</a> ·
+  <a href="#性能与容量">性能与容量</a>
+</p>
 
-### 框架简介
+> **Gene 6.2.0** — 新增结构化 JOIN、UNION、复杂结果分页、原子算术更新、统一请求输入和 HTTP 表单编码，并支持 PHP 8.0–8.5。
+
+## 框架简介
 
 Gene 是使用 C 编写、以 PHP 扩展形式运行的 Web 应用框架。框架将路由、依赖注入、ORM、缓存、HTTP、请求上下文和常用 Web 原语放在扩展层实现，同时支持传统 PHP-FPM 请求模型与 Swoole 常驻协程模型。
 
@@ -30,16 +36,16 @@ Gene 是使用 C 编写、以 PHP 扩展形式运行的 Web 应用框架。框�
 - **安全的查询构建**：结构化条件、标识符引用和参数绑定贯穿 JOIN、WHERE、IN、UNION 与原子更新。
 - **可观测与可治理**：提供缓存和连接池统计、请求计数、容量上限、空闲回收与诊断能力。
 
-### 架构特点
+## 架构特点
 
-#### 轻量架构
+### 轻量架构
 
 - **按需组合**：组件可独立使用，也可通过 Application、Router、Controller、Hook 和 DI 组成完整应用。
 - **请求隔离**：FPM 使用标准请求生命周期；Swoole 使用协程级上下文和请求快照，避免跨请求数据污染。
 - **多数据库支持**：Mysql、Mssql、Pgsql、Sqlite 共享统一构建能力，并保留各驱动的标识符方言。
 - **显式行为**：复杂查询、Context、内部调用和缓存能力均通过明确 API 启用，降低隐式副作用。
 
-#### 性能设计
+### 性能设计
 
 - **C 层路由与分发**：路由查找、控制器和 Hook 调度位于扩展层，减少 PHP 用户态中间层。
 - **进程内缓存**：配置、路由和业务缓存可驻留于 worker，并支持容量限制、近似 LRU 与 TTL 治理。
@@ -48,7 +54,7 @@ Gene 是使用 C 编写、以 PHP 扩展形式运行的 Web 应用框架。框�
 - **批量与原子能力**：批量缓存、批量写入、upsert、原子计数及单语句算术更新减少往返和竞争窗口。
 - **后端适配**：出站 HTTP 在 FPM/CLI 使用 curl，在 Swoole 使用协程客户端，避免常驻协程中执行阻塞 curl。
 
-#### 稳定性设计
+### 稳定性设计
 
 - **生命周期对称**：覆盖扩展启动/关闭、请求启动/关闭以及 Swoole 请求上下文的初始化、重置和释放。
 - **协程隔离**：Context、Request、Response 和运行状态按协程维护，并提供手动及可选自动清理路径。
@@ -57,15 +63,18 @@ Gene 是使用 C 编写、以 PHP 扩展形式运行的 Web 应用框架。框�
 - **失败边界**：非法查询结构、JSON 输入和互斥 HTTP 载荷在执行前失败，避免发送部分或歧义请求。
 - **回归验证**：仓库包含组件测试、审计复现脚本及 Windows、macOS、Linux/Swoole 验收工具。
 
-### 6.2.0 能力亮点
+## 6.2.0 能力亮点
 
-- ORM：`joinOn()`、`union()`、`unionAll()`、`paginateResult()`、`increment()`、`decrement()`。
-- HTTP：`query`、`form`、multipart 字段及严格的选项和载荷校验。
-- Request：GET → POST → JSON 合并的 `input()` 与请求级 JSON 解析缓存。
-- Context：可区分缺失键和显式 `null` 的 `has()`。
-- 兼容性：支持 PHP 8.0–8.5，并提供 Windows x64/x86 与 macOS 构建工具。
+| 领域 | 6.2.0 新能力 | 价值 |
+|:---|:---|:---|
+| **ORM 查询** | `joinOn()`、`union()`、`unionAll()`、`paginateResult()` | 安全构建 JOIN 和复合查询，正确分页复杂结果集 |
+| **ORM 写入** | `increment()`、`decrement()` | 单条 SQL 完成原子算术更新，缩短竞争窗口 |
+| **HTTP** | `query`、`form`、multipart 字段与严格载荷校验 | 统一 curl 与 Swoole 后端的编码语义 |
+| **Request** | GET → POST → JSON 合并的 `input()` | 统一输入入口，共享请求级 JSON 解析缓存 |
+| **Context** | `has()` | 区分缺失键与显式 `null` |
+| **兼容性** | PHP 8.0–8.5、Windows x64/x86、macOS 构建工具 | 扩展运行和构建平台覆盖 |
 
-### 核心能力
+## 核心能力
 
 | 领域 | 能力 |
 |------|------|
@@ -78,13 +87,13 @@ Gene 是使用 C 编写、以 PHP 扩展形式运行的 Web 应用框架。框�
 | **安全与会话** | 输入验证、严格 Bearer 解析、Session 多后端、Session ID 再生成、HMAC 与 AES-256-GCM |
 | **工程与运维** | Log、Monitor、Benchmark、CLI、IDE helper、审计脚本及多平台构建工具 |
 
-### 系统要求
+## 系统要求
 
-#### 必需依赖
+### 必需依赖
 - **PHP 8.0–8.5** - 最低要求 PHP 8.0；已验证 PHP 8.1.30、8.2.33、8.3.33、8.4.25、8.5.10
 - **PDO扩展** - 数据库操作必需，支持MySQL/PostgreSQL/SQLite等
 
-#### 可选依赖
+### 可选依赖
 
 **缓存系统**
 - **Redis扩展** - 使用Redis缓存时必需：`extension=redis`
@@ -98,9 +107,9 @@ Gene 是使用 C 编写、以 PHP 扩展形式运行的 Web 应用框架。框�
 - **SQLite PDO驱动** - `extension=pdo_sqlite`
 - **SQL Server PDO驱动** - `extension=pdo_sqlsrv`
 
-### 快速开始
+## 快速开始
 
-#### 1️⃣ 安装框架
+### 1️⃣ 安装框架
 
 ```bash
 # 编译安装
@@ -115,7 +124,7 @@ extension=gene.so
 
 > 完整 INI 配置项说明与 FPM / Swoole 生产推荐配置见 [配置参考文档](docs/CONFIGURATION.md)。
 
-#### 2️⃣ 创建应用入口
+### 2️⃣ 创建应用入口
 
 ```php
 <?php
@@ -127,7 +136,7 @@ $app
     ->run();
 ```
 
-#### 3️⃣ 配置路由
+### 3️⃣ 配置路由
 
 ```php
 <?php
@@ -149,7 +158,7 @@ $router->clear()
     });
 ```
 
-#### 4️⃣ 配置服务
+### 4️⃣ 配置服务
 
 ```php
 <?php
@@ -180,7 +189,7 @@ $config->set("memcache", [
 ]);
 ```
 
-#### 5️⃣ 创建控制器
+### 5️⃣ 创建控制器
 
 ```php
 <?php
@@ -201,7 +210,7 @@ class Index extends \Gene\Controller
 }
 ```
 
-#### 6️⃣ 使用钩子系统
+### 6️⃣ 使用钩子系统
 
 Gene框架提供了强大的钩子系统，支持面向切面编程和事件驱动开发：
 
@@ -267,15 +276,15 @@ $router->clear()
 - **依赖注入**：可注入 request、response、view 等服务
 - **类型约束**：基于 `gene_hook_ce` 进行实例类型检查
 
-### 运行模式
+## 运行模式
 
-#### PHP-FPM 模式
+### PHP-FPM 模式
 ```php
 // 传统Web环境，高稳定性
 // 每个请求独立上下文，自动内存清理
 ```
 
-#### Swoole 模式
+### Swoole 模式
 ```php
 <?php
 // 常驻进程模式，高性能
@@ -311,7 +320,7 @@ $http->on("request", function ($request, $response) {
 $http->start();
 ```
 
-### 性能与容量
+## 性能与容量
 
 Gene 的性能策略是缩短框架路径、复用进程内状态并减少外部往返，而不是承诺脱离硬件、PHP 配置和业务负载的固定 QPS：
 
@@ -325,28 +334,28 @@ Gene 的性能策略是缩短框架路径、复用进程内状态并减少外部
 
 实际吞吐取决于 PHP/Swoole 版本、扩展配置、数据库、网络、路由规模和业务代码。建议在目标部署环境使用真实路由和依赖进行压测，并同时观察延迟分位数、错误率、RSS、缓存命中率和连接池等待情况。
 
-### 稳定性与生产运行
+## 稳定性与生产运行
 
-#### PHP-FPM
+### PHP-FPM
 
 - 使用 PHP 标准请求生命周期，请求结束后由引擎统一回收请求级资源。
 - 适合需要进程隔离、部署简单以及兼容传统 PHP 基础设施的应用。
 - 可使用持久连接和进程内配置缓存降低重复初始化开销。
 
-#### Swoole
+### Swoole
 
 - 请求数据按协程上下文隔离，并提供 `Application::cleanup()` 和可选自动 cleanup。
 - 数据库与 Redis 连接池提供容量、超时、空闲回收、事务卫生和诊断能力。
 - 常驻 worker 应持续监控 RSS、上下文数量、连接池等待/超时、缓存规模与请求错误数。
 - 上线前应在目标 PHP/Swoole 组合上执行仓库验收脚本和长期 soak 测试。
 
-### 生产案例
+## 生产案例
 
 - **湖北省教育用户认证中心**：全省几百万学生、教育用户的登录入口
 - **尚动电子商务平台**：高性能电商平台
 - **生材网**：材料行业B2B平台
 
-### 技术支持
+## 技术支持
 
 - 📖 [官方文档](https://www.1xm.net/)
 - 🐛 [问题反馈](https://github.com/sasou/php-gene/issues)
