@@ -132,7 +132,11 @@ static void gene_orm_meta_to_array(gene_orm_meta_t *meta, zval *arr)
 static zval *gene_orm_read_static(zend_class_entry *ce, const char *name, size_t name_len)
 {
 	zval *zv;
+#if PHP_VERSION_ID >= 80500
+	const zend_class_entry *scope = EG(fake_scope);
+#else
 	zend_class_entry *scope = EG(fake_scope);
+#endif
 
 	EG(fake_scope) = ce;
 	zv = zend_read_static_property(ce, name, name_len, 1);
