@@ -61,27 +61,37 @@ class ExecuteTest
             // Test with simple PHP code (no <?php tag — GetOpcodes compiles raw PHP)
             $simpleCode = '$x = 1 + 2; echo $x;';
             $opcodes1 = $this->execute->GetOpcodes($simpleCode);
-            echo "✓ GetOpcodes() with simple code works\n";
+            echo is_array($opcodes1) && count($opcodes1) > 0
+                ? "✓ GetOpcodes() with simple code works\n"
+                : "✗ GetOpcodes() with simple code failed\n";
             
             // Test with variable assignment
             $variableCode = '$name = "John"; $age = 25; echo "$name is $age years old";';
             $opcodes2 = $this->execute->GetOpcodes($variableCode);
-            echo "✓ GetOpcodes() with variable assignment works\n";
+            echo is_array($opcodes2) && count($opcodes2) > 0
+                ? "✓ GetOpcodes() with variable assignment works\n"
+                : "✗ GetOpcodes() with variable assignment failed\n";
             
             // Test with function definition
             $functionCode = 'function add($a, $b) { return $a + $b; } echo add(5, 3);';
             $opcodes3 = $this->execute->GetOpcodes($functionCode);
-            echo "✓ GetOpcodes() with function definition works\n";
+            echo is_array($opcodes3) && count($opcodes3) > 0
+                ? "✓ GetOpcodes() with function definition works\n"
+                : "✗ GetOpcodes() with function definition failed\n";
             
             // Test with loop
             $loopCode = 'for($i = 0; $i < 5; $i++) { echo $i; }';
             $opcodes4 = $this->execute->GetOpcodes($loopCode);
-            echo "✓ GetOpcodes() with loop works\n";
+            echo is_array($opcodes4) && count($opcodes4) > 0
+                ? "✓ GetOpcodes() with loop works\n"
+                : "✗ GetOpcodes() with loop failed\n";
             
             // Test with class definition
             $classCode = 'class Test { public $prop = "value"; public function method() { return "method"; } }';
             $opcodes5 = $this->execute->GetOpcodes($classCode);
-            echo "✓ GetOpcodes() with class definition works\n";
+            echo is_array($opcodes5) && count($opcodes5) > 0
+                ? "✓ GetOpcodes() with class definition works\n"
+                : "✗ GetOpcodes() with class definition failed\n";
             
         } catch (Exception $e) {
             echo "✗ Error: " . $e->getMessage() . "\n";

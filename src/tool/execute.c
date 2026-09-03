@@ -98,7 +98,11 @@ PHP_METHOD(gene_execute, GetOpcodes) {
 	}
 	array_init(&opcodes_array);
 
+#if PHP_VERSION_ID >= 80200
+	op_array = zend_compile_string(php_script, "", ZEND_COMPILE_POSITION_AFTER_OPEN_TAG);
+#else
 	op_array = zend_compile_string(php_script, "");
+#endif
 	if (!op_array || EG(exception)) {
 		if (op_array) { destroy_op_array(op_array); efree(op_array); }
 		zval_ptr_dtor(&opcodes_array);

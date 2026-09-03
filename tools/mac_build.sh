@@ -78,14 +78,12 @@ if ! command -v autoconf >/dev/null 2>&1; then
     exit 2
 fi
 
-for cmd in "$PHP_BIN" "$PHPIZE_BIN" "$PHP_CONFIG_BIN" "$MAKE_BIN"; do
-    if ! command -v "$cmd" >/dev/null 2>&1; then
-        echo "Missing required command: $cmd" >&2
-        echo "Install Xcode Command Line Tools and PHP (e.g. brew install php@8.1 autoconf)." >&2
-        echo "Then: export PATH=\"\$(brew --prefix php@8.1)/bin:\$PATH\"" >&2
-        exit 2
-    fi
-done
+if ! command -v "$PHP_BIN" >/dev/null 2>&1; then
+    echo "Missing required command: $PHP_BIN" >&2
+    echo "Install Xcode Command Line Tools and PHP (e.g. brew install php@8.1 autoconf)." >&2
+    echo "Then: export PATH=\"\$(brew --prefix php@8.1)/bin:\$PATH\"" >&2
+    exit 2
+fi
 
 PHP_BIN="$(command -v "$PHP_BIN")"
 PHP_DIR="$(dirname "$PHP_BIN")"
@@ -95,8 +93,17 @@ fi
 if [[ -x "$PHP_DIR/php-config" ]]; then
     PHP_CONFIG_BIN="$PHP_DIR/php-config"
 fi
+
+for cmd in "$PHPIZE_BIN" "$PHP_CONFIG_BIN" "$MAKE_BIN"; do
+    if ! command -v "$cmd" >/dev/null 2>&1; then
+        echo "Missing required command: $cmd" >&2
+        echo "Use --php with a PHP installation that includes matching phpize and php-config." >&2
+        exit 2
+    fi
+done
 PHPIZE_BIN="$(command -v "$PHPIZE_BIN")"
 PHP_CONFIG_BIN="$(command -v "$PHP_CONFIG_BIN")"
+MAKE_BIN="$(command -v "$MAKE_BIN")"
 
 PHP_VERSION="$("$PHP_BIN" -r 'echo PHP_VERSION;')"
 PHP_MAJOR="$("$PHP_BIN" -r 'echo PHP_MAJOR_VERSION;')"
