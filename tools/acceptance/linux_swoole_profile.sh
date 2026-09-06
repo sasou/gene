@@ -1,0 +1,140 @@
+#!/usr/bin/env bash
+set -Eeuo pipefail
+
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+GENE_REPO="${GENE_REPO:-$(cd "$SCRIPT_DIR/../.." && pwd)}"
+PHP_BIN="${PHP_BIN:-php}"
+WORKER_PID="${WORKER_PID:-}"
+ROUTE_URL="${ROUTE_URL:-}"
+DB_URL="${DB_URL:-}"
+PERF_FREQUENCY="${PERF_FREQUENCY:-999}"
+PROFILE_DURATION="${PROFILE_DURATION:-60}"
+WARMUP_DURATION="${WARMUP_DURATION:-15s}"
+WRK_THREADS="${WRK_THREADS:-4}"
+WRK_CONNECTIONS="${WRK_CONNECTIONS:-64}"
+FLAMEGRAPH_DIR="${FLAMEGRAPH_DIR:-}"
+OUT="${OUT:-/tmp/gene-swoole-profile-$(date +%Y%m%d-%H%M%S)}"
+
+usage() {
+    cat <<'EOF'
+Usage: tools/acceptance/linux_swoole_profile.sh [options]
+
+Required:
+  --worker-pid PID      One Swoole worker PID, not the manager PID
+  --route-url URL       Representative route/view request without DB
+  --db-url URL          Representative DB + ORM + view request
+
+Options:
+  --output PATH         Result directory
+  --duration SECONDS    perf sampling duration (default: 60)
+  --connections N       wrk connections (default: 64)
+  --threads N           wrk threads (default: 4)
+  --flamegraph PATH     FlameGraph checkout containing stackcollapse-perf.pl
+  --help                Show this help
+
+The target worker must already be serving both URLs with production settings:
+run_environment>=2, view_compile=1, view_compile_check_mtime=1, OPcache CLI
+and realpath cache fixed according to plan/PERFORMANCE_OPTIMIZATION.md section 7.2.
+EOF
+}
+
+while (($#)); do
+    case "$1" in
+        --worker-pid) WORKER_PID="${2:?--worker-pid requires a PID}"; shift 2 ;;
+        --route-url) ROUTE_URL="${2:?--route-url requires a URL}"; shift 2 ;;
+        --db-url) DB_URL="${2:?--db-url requires a URL}"; shift 2 ;;
+        --output) OUT="${2:?--output requires a path}"; shift 2 ;;
+        --duration) PROFILE_DURATION="${2:?--duration requires seconds}"; shift 2 ;;
+        --connections) WRK_CONNECTIONS="${2:?--connections requires a number}"; shift 2 ;;
+        --threads) WRK_THREADS="${2:?--threads requires a number}"; shift 2 ;;
+        --flamegraph) FLAMEGRAPH_DIR="${2:?--flamegraph requires a path}"; shift 2 ;;
+        --help|-h) usage; exit 0 ;;
+        *) echo "Unknown option: $1" >&2; usage >&2; exit 64 ;;
+    esac
+done
+
+for command in perf wrk curl tar awk sed sort head ps grep tr readlink; do
+    if ! command -v "$command" >/dev/null 2>&1; then
+        echo "Missing required command: $command" >&2
+        exit 2
+    fi
+done
+if [[ "$(uname -s)" != Linux ]]; then
+    echo "This profiling script requires Linux perf." >&2
+    exit 2
+fi
+if [[ ! "$WORKER_PID" =~ ^[1-9][0-9]*$ ]] || ! kill -0 "$WORKER_PID" 2>/dev/null; then
+    echo "Invalid or inaccessible WORKER_PID: $WORKER_PID" >&2
+    exit 2
+fi
+if [[ -z "$ROUTE_URL" || -z "$DB_URL" || "$ROUTE_URL" == "$DB_URL" ]]; then
+    echo "ROUTE_URL and DB_URL are required and must be different." >&2
+    exit 2
+fi
+if [[ ! "$PROFILE_DURATION" =~ ^[1-9][0-9]*$ ]]; then
+    echo "PROFILE_DURATION must be a positive integer." >&2
+    exit 2
+fi
+
+mkdir -p "$OUT"
+OUT="$(cd "$OUT" && pwd)"
+
+{
+    date --iso-8601=seconds
+    uname -a
+    "$PHP_BIN" -v
+    "$PHP_BIN" --ri gene
+    "$PHP_BIN" --ri swoole
+    "$PHP_BIN" -i | grep -E '^(opcache\.(enable|enable_cli|memory_consumption|interned_strings_buffer|max_accelerated_files|validate_timestamps|save_comments|jit|jit_buffer_size)|realpath_cache_(size|ttl)|gene\.(runtime_type|run_environment|view_compile|view_compile_check_mtime|route_precompile|swoole_getcid_capi|swoole_auto_cleanup)) =>'
+    perf --version
+    ps -p "$WORKER_PID" -o pid,ppid,lstart,etime,%cpu,%mem,rss,vsz,cmd
+    printf 'worker_exe=%s\n' "$(readlink -f "/proc/$WORKER_PID/exe")"
+    printf 'worker_cmdline='; tr '\0' ' ' <"/proc/$WORKER_PID/cmdline"; echo
+    printf 'git_commit='; git -C "$GENE_REPO" rev-parse HEAD 2>/dev/null || echo unavailable
+    printf 'route_url=%s\ndb_url=%s\n' "$ROUTE_URL" "$DB_URL"
+} >"$OUT/environment.txt" 2>&1
+
+profile_case() {
+    local name="$1" url="$2" dir="$OUT/$1"
+    mkdir -p "$dir"
+    curl -fsS --connect-timeout 5 --max-time 30 "$url" >"$dir/probe-response.txt"
+    wrk -t"$WRK_THREADS" -c"$WRK_CONNECTIONS" -d"$WARMUP_DURATION" --latency "$url" >"$dir/wrk-warmup.txt" 2>&1
+    perf record -F "$PERF_FREQUENCY" -g -p "$WORKER_PID" -o "$dir/perf.data" -- sleep "$PROFILE_DURATION" >"$dir/perf-record.txt" 2>&1 &
+    local perf_pid=$!
+    sleep 1
+    wrk -t"$WRK_THREADS" -c"$WRK_CONNECTIONS" -d"${PROFILE_DURATION}s" --latency "$url" >"$dir/wrk-profile.txt" 2>&1
+    wait "$perf_pid"
+    perf report -i "$dir/perf.data" --stdio --no-children --sort=dso --percent-limit 0 >"$dir/perf-dso.txt" 2>&1
+    perf report -i "$dir/perf.data" --stdio --no-children --sort=symbol --percent-limit 0 >"$dir/perf-symbols.txt" 2>&1
+    awk '/^[[:space:]]*[0-9]+\.[0-9]+%/ { pct=$1; gsub(/%/, "", pct); symbol=$0; sub(/^[[:space:]]*[0-9]+\.[0-9]+%[[:space:]]+/, "", symbol); print pct "\t" symbol }' "$dir/perf-symbols.txt" \
+        | sort -nr | head -20 >"$dir/top-20.tsv"
+    awk '/^[[:space:]]*[0-9]+\.[0-9]+%/ && /gene\.so/ { pct=$1; gsub(/%/, "", pct); sum += pct } END { printf "%.2f\n", sum + 0 }' "$dir/perf-dso.txt" >"$dir/gene-so-self-percent.txt"
+    perf script -i "$dir/perf.data" >"$dir/perf.script"
+    if [[ -n "$FLAMEGRAPH_DIR" ]]; then
+        if [[ ! -x "$FLAMEGRAPH_DIR/stackcollapse-perf.pl" || ! -x "$FLAMEGRAPH_DIR/flamegraph.pl" ]]; then
+            echo "Invalid FLAMEGRAPH_DIR: $FLAMEGRAPH_DIR" >&2
+            return 2
+        fi
+        "$FLAMEGRAPH_DIR/stackcollapse-perf.pl" "$dir/perf.script" >"$dir/perf.folded"
+        "$FLAMEGRAPH_DIR/flamegraph.pl" "$dir/perf.folded" >"$dir/flamegraph.svg"
+    fi
+}
+
+profile_case route-view "$ROUTE_URL"
+profile_case db-orm-view "$DB_URL"
+
+{
+    echo -e 'scenario\tgene_so_self_percent'
+    printf 'route-view\t%s\n' "$(cat "$OUT/route-view/gene-so-self-percent.txt")"
+    printf 'db-orm-view\t%s\n' "$(cat "$OUT/db-orm-view/gene-so-self-percent.txt")"
+    echo
+    echo 'Top-20 files: route-view/top-20.tsv, db-orm-view/top-20.tsv'
+    if [[ -n "$FLAMEGRAPH_DIR" ]]; then
+        echo 'Flamegraphs: route-view/flamegraph.svg, db-orm-view/flamegraph.svg'
+    else
+        echo 'Flamegraphs not rendered; perf.script is included. Re-run with --flamegraph PATH or render offline.'
+    fi
+} | tee "$OUT/summary.txt"
+
+tar -C "$(dirname "$OUT")" -czf "$OUT.tar.gz" "$(basename "$OUT")"
+echo "Result archive: $OUT.tar.gz"

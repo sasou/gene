@@ -754,3 +754,5 @@ php.exe -n -d extension=...\php_gene.dll test\TestRunner.php
 ### 10.3 后续准入条件
 
 取得两条代表性负载、固定的 §7.2 配置与 Linux worker PID 后，先执行 §0.1 profiling 并回填 top-20 热点映射；仅对命中项建立 A/B 微基准。若 `gene.so` on-CPU 占比不足 10%，按 §8 搁置 C 层性能批次，只继续正确性修复与宿主配置调优。
+
+线上采集入口已补充为 `tools/acceptance/linux_swoole_profile.sh`。脚本要求显式传入一个 Swoole worker PID、纯路由/渲染 URL 与 DB + ORM + 模板 URL，分别完成真实 warm-up、并发负载与 `perf record`，输出环境配置、wrk 原始结果、DSO 自身占比、符号 top-20、`perf script`，提供 FlameGraph 工具目录时额外生成 SVG，最后打包为 `tar.gz`。该脚本只建设 profiling 门禁，不把尚未取得的线上数据或收益写入本文档。
