@@ -756,3 +756,14 @@ php.exe -n -d extension=...\php_gene.dll test\TestRunner.php
 取得两条代表性负载、固定的 §7.2 配置与 Linux worker PID 后，先执行 §0.1 profiling 并回填 top-20 热点映射；仅对命中项建立 A/B 微基准。若 `gene.so` on-CPU 占比不足 10%，按 §8 搁置 C 层性能批次，只继续正确性修复与宿主配置调优。
 
 线上采集入口已补充为 `tools/acceptance/linux_swoole_profile.sh`。脚本要求显式传入一个 Swoole worker PID、纯路由/渲染 URL 与 DB + ORM + 模板 URL，分别完成真实 warm-up、并发负载与 `perf record`，输出环境配置、wrk 原始结果、DSO 自身占比、符号 top-20、`perf script`，提供 FlameGraph 工具目录时额外生成 SVG，最后打包为 `tar.gz`。该脚本只建设 profiling 门禁，不把尚未取得的线上数据或收益写入本文档。
+
+### 10.4 首轮线上 profiling 结果（2026-09-06）
+
+| 场景 | `gene.so` self on-CPU 占比 | 结论 |
+|---|---:|---|
+| `/profile/route`（路由 + 模板） | 6.15% | 低于 10% 门槛 |
+| `/profile/db`（DB + ORM + 模板） | 1.89% | 低于 10% 门槛 |
+
+执行环境为 CentOS 7.9、Swoole worker PID 28903；采样参数为 `perf` 30 秒、2 threads、32 connections，两个场景均生成 FlameGraph。原始结果归档为 `gene-swoole-profile-20260906-211117.tar.gz`。
+
+**准入决策**：两类代表性负载的 `gene.so` 占比均低于 §0.1 规定的 10%，本轮不进入 §1/§4/§5/§6 的 C 层微优化和微基准批次，不宣称任何扩展性能收益。后续优先检查并固定 §7.2 宿主 PHP 配置、数据库/网络/模板业务热点；只有新的真实负载 profiling 将 Gene 显著热点打入 top-20 时，才重新开启对应条目的 A/B 和实现评估。
