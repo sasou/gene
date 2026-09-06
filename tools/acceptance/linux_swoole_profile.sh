@@ -107,7 +107,8 @@ profile_case() {
     perf report -i "$dir/perf.data" --stdio --no-children --sort=dso --percent-limit 0 >"$dir/perf-dso.txt" 2>&1
     perf report -i "$dir/perf.data" --stdio --no-children --sort=symbol --percent-limit 0 >"$dir/perf-symbols.txt" 2>&1
     awk '/^[[:space:]]*[0-9]+\.[0-9]+%/ { pct=$1; gsub(/%/, "", pct); symbol=$0; sub(/^[[:space:]]*[0-9]+\.[0-9]+%[[:space:]]+/, "", symbol); print pct "\t" symbol }' "$dir/perf-symbols.txt" \
-        | sort -nr | head -20 >"$dir/top-20.tsv"
+        | sort -nr >"$dir/symbols-sorted.tsv"
+    head -20 "$dir/symbols-sorted.tsv" >"$dir/top-20.tsv"
     awk '/^[[:space:]]*[0-9]+\.[0-9]+%/ && /gene\.so/ { pct=$1; gsub(/%/, "", pct); sum += pct } END { printf "%.2f\n", sum + 0 }' "$dir/perf-dso.txt" >"$dir/gene-so-self-percent.txt"
     perf script -i "$dir/perf.data" >"$dir/perf.script"
     if [[ -n "$FLAMEGRAPH_DIR" ]]; then
