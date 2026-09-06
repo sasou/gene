@@ -20,6 +20,8 @@
 
 ### 🐞 修复与兼容性调整
 
+- **模板编译缓存默认生效**：`gene.view_compile_check_mtime` 默认值由 `0` 改为 `1`；只开启 `gene.view_compile=1` 时将复用未过期的编译产物，不再每请求强制重编译。依赖旧行为的部署可显式设置 `gene.view_compile_check_mtime=0` 回退。
+- **进程缓存容量观测**：`Gene\Memory::stats()` 与 `Gene\Monitor::stats()['memory']` 新增 `cache_num_used`、`cache_num_elements`、`cache_table_size` 和 `cache_insert_refused`，用于识别冻结表 tombstone/预留 bucket 耗尽。
 - **Query 绑定顺序**：Query 重放改为先 JOIN、后 WHERE/IN，保证带值 `joinOn()` 的参数顺序与 SQL 占位符顺序一致。
 - **`Request::bearer()` 严格语义**：仅接受大小写不敏感的 Bearer scheme，scheme 后必须有 SP/HTAB；缺失、非 Bearer、空 token 均返回 `null`。Authorization header 名按大小写不敏感方式查找，并保留 `HTTP_AUTHORIZATION` / `REDIRECT_HTTP_AUTHORIZATION` 回退。
 - **只读 ORM 编译不干扰事务**：UNION/复杂分页使用不持有 PDO/pool 的 builder clone，避免临时编译对象析构时误回滚活动事务。

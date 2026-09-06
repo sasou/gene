@@ -414,8 +414,9 @@ class CacheTest
                     echo "✓ stats key '$key' present\n";
                 }
             }
-            foreach (['cache_items', 'co_contexts_items', 'co_contexts_sweep_count',
-                      'co_contexts_sweep_skipped', 'ctx_pool_size', 'cache_easy_ttl'] as $key) {
+            foreach (['cache_items', 'cache_num_used', 'cache_num_elements', 'cache_table_size', 'cache_insert_refused',
+                      'co_contexts_items', 'co_contexts_sweep_count', 'co_contexts_sweep_skipped',
+                      'ctx_pool_size', 'cache_easy_ttl'] as $key) {
                 if (isset($stats['memory']) && array_key_exists($key, $stats['memory'])) {
                     echo "✓ memory key '$key' present\n";
                 }

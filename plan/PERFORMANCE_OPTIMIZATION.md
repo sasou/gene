@@ -11,7 +11,7 @@
 > v3 依据当前 `src/`、`test/`、`tools/acceptance/` 静态复核，
 > 修正 v2 中默认行为变更、生命周期约束、优先级与验证盲区。v2 提到的
 > `PERFORMANCE_OPTIMIZATION_CHECK.md` 当前仓库未找到，不作为本版证据。
-> 本版只修订方案，未实施 C 代码改动、未运行性能压测；收益均未实测。
+> v4 初稿只修订方案；2026-09-06 已完成首轮第零批落地，结果见 §10。尚未运行 Linux/Swoole profiling 或性能压测，收益均未实测。
 > 下文源码路径除特别注明外相对 `src/`，行号为复核时定位参考，以函数名为准。
 >
 > 执行纪律：
@@ -197,7 +197,7 @@
 
 ### 2.1b 【最高 ROI，独立立项】`view_compile_check_mtime` 默认值是一个坏默认
 - **位置**：`gene.c:153-154`（INI 默认）、`gene.c:1458-1459`（globals 初值）
-- **代码事实（已核对）**：`gene.view_compile` 与 `gene.view_compile_check_mtime` **默认均为 `0`**。
+- **原代码事实**：`gene.view_compile` 与 `gene.view_compile_check_mtime` 默认均为 `0`。
   于是「按直觉只开 `gene.view_compile=1`」这一最常见配置，落到的正是
   `view_compile_needs_rebuild()` 无条件 `return 1` 的路径 —— **每请求 28 轮 `php_pcre_replace`，
   且编译产物写了却永不被使用**。
@@ -214,8 +214,9 @@
 - **兼容性说明**：方案 1/2 会改变默认行为 —— 依赖「每请求重编译」副作用的部署（例如运行期直接改写
   已编译产物、或源文件 mtime 不前进的构建流水线）行为会变。须在 CHANGELOG 标注，
   并保留 `check_mtime=0` 作为显式回退。
+- **落地（2026-09-06）**：采用候选方案 1，INI 与 GINIT 默认值均改为 `1`；显式配置 `0` 仍保留旧行为，兼容性说明已写入 CHANGELOG。Windows PHP 8.1 NTS x64 的 `php -n --ri gene` 已确认默认值为 `On`。
 - **收益**：省掉每请求 28 次 `php_pcre_replace` 与模板 IO，**是本文档中唯一无需基准即可确定为
-  净收益的 C 侧行为改动**；仍应量测以填入实际数字。**风险**：低-中（默认行为变更）。
+  净收益的 C 侧行为改动**；实际数字仍待 Linux 代表性负载量测。**风险**：低-中（默认行为变更）。
 
 ### 2.2 【暂缓 / 收益未证明】视图渲染的 output buffer 捕获
 - **位置**：`mvc/view.c:813-859`
@@ -530,8 +531,8 @@ gene.runtime_type             = 2
 gene.run_environment          = 2     ; 关闭 SQL 历史 / benchmark 采集
 gene.use_namespace            = 1
 
-; —— 视图：以下两行必须成对；两者 INI 默认值都是 0（gene.c:153-154），
-;    只写 view_compile=1 会导致每请求 28 轮 pcre 重编译（见 §2.1 / §2.1b）——
+; —— 视图：check_mtime 自 2026-09-06 首轮落地后默认值为 1；仍建议显式固定两项，
+;    避免旧版扩展中只写 view_compile=1 导致每请求 28 轮 pcre 重编译（见 §2.1 / §2.1b）——
 gene.view_compile             = 1
 gene.view_compile_check_mtime = 1
 ; 若改用「构建期离线预编译 app/Cache/Views」，则应设 gene.view_compile = 0
@@ -718,3 +719,38 @@ realpath_cache_ttl            = 600
    并检查 skip/未覆盖测试，而不只看退出码。Swoole 专项必须另外加载匹配 Swoole 并运行对应脚本。
 4. ASAN 通过只能说明已执行路径未检出内存错误，不证明线程安全或并发覆盖完整。
    生命周期变更必须额外做同进程重复请求与长时间 churn/RSS 趋势回归；性能测试使用正常 release 构建。
+
+---
+
+## 10. 首轮落地结果（2026-09-06）
+
+### 10.1 已完成
+
+| 对应条目 | 实施结果 | 验证结果 |
+|---|---|---|
+| §2.1 / §2.1b | `gene.view_compile_check_mtime` 的 INI 与 GINIT 默认值由 `0` 改为 `1`；显式 `0` 继续作为旧行为回退；CHANGELOG 已记录兼容性变化 | Windows PHP 8.1.30 NTS x64 Release 构建成功；新 DLL 在 `php -n --ri gene` 中显示 Local/Master 均为 `On` |
+| §3.1b 候选 3（观测） | `Gene\Memory::stats()` 与 `Gene\Monitor::stats()['memory']` 导出 `cache_num_used`、`cache_num_elements`、`cache_table_size`、`cache_insert_refused`；前三项分别对应 Zend HashTable 的 `nNumUsed`、`nNumOfElements`、`nTableSize` | `test/CacheTest.php` 通过，并确认聚合监控中的四个键均存在 |
+| §4.9 | 当前扩展默认 `gene.run_environment=1`，§7.1 生产样例固定为 `2`，无需 C 代码变更 | `php -n --ri gene` 确认默认值为 `1` |
+| §6.2 前置核查（Windows） | 使用仓库既有 x64 Release 构建流程，未擅自覆盖编译优化标志 | configure 摘要确认 Release、x64、NTS、VS2019，PGO disabled；尚未取得足以支持 `/O2`/`/GL` 调整的 A/B 证据 |
+
+实际执行的验证入口：
+
+```text
+tools\build_all.bat x64 8.1
+php.exe -n -d extension=...\php_gene.dll --ri gene
+php.exe -n -d extension=...\php_gene.dll test\CacheTest.php
+php.exe -n -d extension=...\php_gene.dll test\TestRunner.php
+```
+
+全量 TestRunner 在显式加载 PDO SQLite 与 OpenSSL 后共 861 项、861 通过（100%）；本次直接相关的 CacheTest 为 49/49 通过。Redis、curl 与 Swoole 环境相关路径按测试约定跳过。该 Windows 结果只作为编译与局部功能回归，不替代 Linux Swoole/ASAN 验收。
+
+### 10.2 本轮未实施及原因
+
+- §0.1、§9.4：当前 Windows 本机没有 Linux Swoole/FPM worker、代表性业务负载、目标 URL 与 `perf` 环境，不能伪造 flamegraph、on-CPU 占比或端到端收益；这些仍是性能批次准入门禁。
+- 第零批中的 route_pc/clear、裸指针与长时间 churn 复现，以及 §3.1b tombstone 原地复用，涉及 Swoole 生命周期和在途借用；本轮仅先落地无语义变化的可观测性，不在缺少 ASAN/Swoole 覆盖时修改 bucket 布局。
+- 第一批及以后所有微优化均未实施：按 §0.1/§8 的纪律，未进入真实负载 top-20 的条目不得以性能名义合入。现阶段没有数据支持 action 查找、ORM known-function、Benchmark C API 等改动。
+- §7.2 是宿主生产配置，仓库没有可安全替代实际部署 php.ini 的目标文件；方案中的基线保持为部署清单，需在目标 Linux 环境固定后再进行 A/B。
+
+### 10.3 后续准入条件
+
+取得两条代表性负载、固定的 §7.2 配置与 Linux worker PID 后，先执行 §0.1 profiling 并回填 top-20 热点映射；仅对命中项建立 A/B 微基准。若 `gene.so` on-CPU 占比不足 10%，按 §8 搁置 C 层性能批次，只继续正确性修复与宿主配置调优。
