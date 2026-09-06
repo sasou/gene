@@ -762,7 +762,7 @@ php.exe -n -d extension=...\php_gene.dll test\TestRunner.php
 
 - §0.1、§9.4：Windows 本机没有 Linux Swoole/FPM worker、代表性业务负载、目标 URL 与 `perf` 环境，不能伪造 flamegraph、on-CPU 占比或端到端收益；因此 Windows 只承担功能回归，C 层优化在 Linux 专项基准与线上同构负载中验收，不再因缺少单次 profiling 结果而整体停摆。
 - 第零批中的 route_pc/clear、裸指针与长时间 churn 复现，以及 §3.1b tombstone 原地复用，涉及 Swoole 生命周期和在途借用；本轮仅先落地无语义变化的可观测性，不在缺少 ASAN/Swoole 覆盖时修改 bucket 布局。
-- v4 首轮未实施第一批及以后微优化，当时按 10%/top-20 门禁停止。v5 已撤销该停止条件：后续按 §8 三轨推进，优先建立 ORM known-function、action dispatch、ctx arena、批量缓存读和池等待的专项基准；Benchmark C API 等低频工具路径继续后排。
+- v4 首轮未实施第一批及以后微优化，当时按 10%/top-20 门禁停止。v5 已撤销该停止条件；§4.4 ORM known-function、§1.2 action 单次查找和 §5.7 Benchmark C API 已在第二批落地（见 §10.5）。后续按 §8 三轨继续推进 ctx arena、批量缓存读和池等待，并为已落地项目补 Linux 专项 A/B。
 - §7.2 是宿主生产配置，仓库没有可安全替代实际部署 php.ini 的目标文件；方案中的基线保持为部署清单，需在目标 Linux 环境固定后再进行 A/B。
 
 ### 10.3 后续执行条件
@@ -781,3 +781,20 @@ php.exe -n -d extension=...\php_gene.dll test\TestRunner.php
 执行环境为 CentOS 7.9、Swoole worker PID 28903；采样参数为 `perf` 30 秒、2 threads、32 connections，两个场景均生成 FlameGraph。原始结果归档为 `gene-swoole-profile-20260906-211117.tar.gz`。
 
 **v5 决策**：6.15% / 1.89% 仅说明在 2 threads、32 connections 的这两条负载中，Gene 的端到端可见占比较低；不再作为停止 C 层优化的准入结论。继续固定 §7.2 并处理数据库/网络/模板业务热点，同时立即按 §8 启动 C 层三轨优化：先做可独立归因的专项基准，再在更高并发、复杂路由、缓存 churn 和池饱和场景复测。任何收益声明必须注明负载、并发和指标范围。
+
+### 10.5 第二批 C 层优化结果（2026-09-06）
+
+| 对应条目 | 实施结果 | 兼容与安全边界 |
+|---|---|---|
+| §4.4 / A1 ORM known-function | `gene_orm_db_call()` 对精确的 `Gene\Db\Mysql/Sqlite/Pgsql/Mssql` CE 使用栈上小写方法名查找内部函数，并通过 `zend_call_known_function()` 派发；省去每次调用的函数名 `zend_string` 分配与通用 `call_user_function()` 调用帧 | 仅精确内部 CE 命中快路径；非 Gene Db、自定义对象和 mock 保留原动态派发。方法名超过栈缓冲或内部方法未命中时同样回退，不缓存请求生命周期的用户函数指针 |
+| §1.2 / A2 action 单次查找 | direct dispatch 将 `zend_hash_str_exists()` 与 `gene_factory_call_1()` 内的第二次查找合并为一次 `zend_hash_str_find_ptr()`；新增接收已解析 `zend_function *` 的 `gene_factory_call_1_known()` | 函数指针只在当前调用栈内借用，不写入 `route_pc`，不改变动态 controller/action、参数、异常或未命中 warning 语义 |
+| §5.7 / A7 Benchmark C API | `Benchmark::start()/end()` 计时由 `gettimeofday()` 改为单调纳秒计时 `gene_hrtime()`；峰值内存由 PHP `memory_get_peak_usage()` 调用改为 `zend_memory_peak_usage(0)`；请求上下文时间字段改为 `uint64_t` | `time()` 的秒数字符串格式及 `memory()` 的 KB/MB 差值格式保持不变；仅移除 PHP 调用帧并提高计时单调性，不改变公开 API |
+
+Windows PHP 8.1.30 NTS x64 Release 使用 `tools\build_all.bat x64 8.1` 构建成功。直接相关回归为：
+
+- `test\OrmTest.php`：177/177；
+- `test\RouterTest.php`：38/38；
+- `test\BenchmarkTest.php`：42/42；
+- 显式加载 PDO SQLite 与 OpenSSL 后，`test\TestRunner.php`：861/861（100%）。
+
+本批结果证明 PHP 8.1 Windows NTS 下的编译与功能兼容性，不构成性能收益数字。尚未执行 Linux/Swoole/FPM 的交替 A/B、分配计数或端到端压测，因此 §4.4、§1.2、§5.7 的 ns/op、CPU/请求、RPS 与尾延迟收益继续标记为**待测**；后续按 §9.2 分别建立真实内部 SQLite ORM、direct dispatch 和 Benchmark 高频循环专项基准，不能使用上述功能测试耗时推导收益。

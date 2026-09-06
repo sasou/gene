@@ -742,10 +742,8 @@ static void gene_request_context_free_fields(gene_request_context *ctx, int pres
 	 * requests / coroutines Gene\Benchmark::time()/memory() could report
 	 * bleed from the previous request when benchmark::start() was not
 	 * called by the current handler. Scalars → unconditional clears. */
-	ctx->bench_start.tv_sec = 0;
-	ctx->bench_start.tv_usec = 0;
-	ctx->bench_end.tv_sec = 0;
-	ctx->bench_end.tv_usec = 0;
+	ctx->bench_start = 0;
+	ctx->bench_end = 0;
 	ctx->bench_memory_start = 0;
 	ctx->bench_memory_end = 0;
 }

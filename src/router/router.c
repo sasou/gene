@@ -461,13 +461,15 @@ static int gene_router_dispatch_direct(const char *class_method, zval *retval) {
 	 }
 	 gene_strtolower(action);
 
-	 if (Z_TYPE(classObject) == IS_OBJECT
-			 && zend_hash_str_exists(&(Z_OBJCE(classObject)->function_table), action, action_len)) {
-		 gene_factory_call_1(&classObject, action, action_len, &ctx->path_params, retval);
-		 zval_ptr_dtor(&classObject);
-		 if (class_alloc) efree(class_alloc);
-		 if (action_alloc) efree(action_alloc);
-		 return 1;
+	 if (Z_TYPE(classObject) == IS_OBJECT) {
+		 zend_function *fn = zend_hash_str_find_ptr(&(Z_OBJCE(classObject)->function_table), action, action_len);
+		 if (fn) {
+			 gene_factory_call_1_known(&classObject, fn, &ctx->path_params, retval);
+			 zval_ptr_dtor(&classObject);
+			 if (class_alloc) efree(class_alloc);
+			 if (action_alloc) efree(action_alloc);
+			 return 1;
+		 }
 	 }
 
 	 php_error_docref(NULL, E_WARNING, "Gene direct dispatch: unable to call method '%s' in class '%s'.", action, class_name);
