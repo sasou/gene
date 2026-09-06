@@ -1917,9 +1917,16 @@ PHP_METHOD(gene_memory, stats) {
 	GENE_CACHE_RDLOCK();
 	add_assoc_long(return_value, "cache_items",
 		GENE_G(cache) ? (zend_long)zend_hash_num_elements(GENE_G(cache)) : 0);
+	add_assoc_long(return_value, "cache_num_used",
+		GENE_G(cache) ? (zend_long)GENE_G(cache)->nNumUsed : 0);
+	add_assoc_long(return_value, "cache_num_elements",
+		GENE_G(cache) ? (zend_long)GENE_G(cache)->nNumOfElements : 0);
+	add_assoc_long(return_value, "cache_table_size",
+		GENE_G(cache) ? (zend_long)GENE_G(cache)->nTableSize : 0);
 	add_assoc_long(return_value, "cache_easy_items",
 		GENE_G(cache_easy) ? (zend_long)zend_hash_num_elements(GENE_G(cache_easy)) : 0);
 	GENE_CACHE_RDUNLOCK();
+	add_assoc_long(return_value, "cache_insert_refused", (zend_long)GENE_G(cache_insert_refused));
 	add_assoc_long(return_value, "fn_cache_items",
 		GENE_G(fn_cache) ? (zend_long)zend_hash_num_elements(GENE_G(fn_cache)) : 0);
 	add_assoc_long(return_value, "co_contexts_items",
