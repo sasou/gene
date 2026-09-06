@@ -21,6 +21,7 @@
 #include "php.h"
 #include "php_ini.h"
 #include "main/SAPI.h"
+#include "ext/standard/php_mt_rand.h"
 #include "Zend/zend_API.h"
 #include "zend_exceptions.h"
 #include <string.h>
