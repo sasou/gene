@@ -26,6 +26,7 @@
 | [lifecycle-completeness.md](lifecycle-completeness.md) | 全生命周期原语（Http、SSE、Context、限流/锁、Json、Crypto） | 6.1.x 已落地（见文内 §八） |
 | [rest-invoke.md](rest-invoke.md) | 框架级 REST 互调（Request 栈、Invoke 本地隔离、命名 Rest、Http multipart） | 6.1.x 已落地（见文内复盘） |
 | [typical-usage-gaps.md](typical-usage-gaps.md) | 6.1 全面采用后的残留缺口（union、JOIN ON、increment、Context __get、Request::input、Http max_bytes、cachedHotVersion） | 6.2 候选立项 |
+| [hook-runtime.md](hook-runtime.md) | Hook 使用驱动的请求策略、终止语义、组级组合与 request-id 收口 | 6.2 分阶段候选 |
 
 ---
 
