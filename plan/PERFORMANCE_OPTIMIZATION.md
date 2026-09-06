@@ -1,11 +1,14 @@
-# Gene 扩展并发性能优化 —— 最终执行版
+# Gene 扩展并发性能优化 —— 源码复核与分阶段执行方案
 
-> 版本：v2（2026-09-06）。v1 为静态审计草案，经 `PERFORMANCE_OPTIMIZATION_CHECK.md` 复核后，
-> 已删除/纠正其中「与代码现状相反」「已实现」「会造成语义回归」「无数据支撑的收益数字」的条目。
+> 版本：v3（2026-09-06）。本次依据当前 `src/`、`test/`、`tools/acceptance/` 静态复核，
+> 修正 v2 中默认行为变更、生命周期约束、优先级与验证盲区。v2 提到的
+> `PERFORMANCE_OPTIMIZATION_CHECK.md` 当前仓库未找到，不作为本版证据。
+> 本版只修订方案，未实施 C 代码改动、未运行性能压测；收益均未实测。
+> 下文源码路径除特别注明外相对 `src/`，行号为复核时定位参考，以函数名为准。
 >
 > 执行纪律：
 > 1. **收益一律先测后填**。本文档不再保留任何未经基准验证的百分比/倍数；标注 `收益：待测` 的项目
->    必须先产出微基准数据才能进入实施。
+>    必须先产出基线数据才能进入性能改造；正确性修复与文档纠错不受收益门禁限制。
 > 2. 涉及生命周期/裸指针的改动，Linux `-fsanitize=address` 下跑全量回归（见 §9）。
 > 3. 任何改变**公开 API 语义**的项目单独立项、单独评审，不得混入「透明性能优化」批次。
 
@@ -30,17 +33,24 @@
 
 ## 1. 请求热路径（Router / Dispatch / Request / Response）
 
-### 1.1 【中】`route_precompile` 默认开关评估
+### 1.1 【高风险，先验证生命周期】`route_precompile` 默认开关评估
 - **位置**：`router/router.c:755-797`（描述符）、`1005-1066`（resolve）、`1364-1392`（缓存键）
 - **现状纠正**：hook 解析结果**已经**存入 `gene_route_pc`，v1 所述「待做 hook 预编译」不成立。
   真正待决策的只有三件事：
   1. 默认值是否从 0 改 1；
   2. action 的 `zend_function *` 是否值得进描述符（见 1.2，结论：**暂不**）；
   3. 失效机制。
-- **前置硬约束**：`route_pc` 以 leaf `HashTable*` 地址为 key，并**借用**路由树内部指针。
-  默认开启的前提是「`workerReady()` 之后路由树绝对只读」必须在代码层强制（增加 frozen 标志，
-  冻结后 `bind()` 直接报错或失效整表），否则会出现 stale descriptor / UAF。
-- **收益**：每请求省若干次哈希查找 + 1 次 alloc，**待测**。**风险**：中（生命周期）。
+- **前置硬约束**：`route_pc` 以 leaf `HashTable*` 地址为 key，借用路由树与 `fn_cache` 指针。
+  现有 `gene_memory_write_allowed()` 已限制部分冻结后框架写，不能把「没有独立 frozen 字段」
+  等同于「没有写保护」；但必须审计所有修改入口与对象生命周期，不能只检查 `bind()`。
+- **优先排查的正确性风险**：`Router::clear()` 在底层删除被拒绝后仍释放 `fn_cache`
+  （`router.c:3081-3114`），而 `route_pc` 没有同步失效；此外请求级 `fn_cache` 在
+  RSHUTDOWN 释放，持久 `route_pc` 到 MSHUTDOWN 才销毁。需分别验证长驻 Swoole worker
+  与同进程多次 FPM 请求（显式调用 `workerReady()`）的可达路径，不把两种请求生命周期混同。
+- **方案**：拒绝写必须无副作用；若允许更新，先设计 generation/失效与在途 dispatch 生命周期。
+  closure 指针优先不缓存或执行时解析；仅销毁整表也可能使在途描述符悬垂，不能机械加 destroy。
+  保持默认关闭，先补 closure/clear/重复请求/worker reload 的回归，再决定是否值得开启。
+- **收益**：哈希查找与分配节省均待计数、压测。**风险**：高（生命周期）；风险复现与修复优先于提速。
 
 ### 1.2 【低】action 双重哈希探测
 - **位置**：`router/router.c:465` `zend_hash_str_exists(function_table)` → `factory/factory.c:276`
@@ -73,8 +83,10 @@
   1. ctx 级**单个小型 arena / 单一 URI backing buffer**；
   2. 各字段只存 `offset + length`；
   3. reset 时整体复位游标，超长才回退 heap 并打所有权标记；
-  4. 所有 `ctx->module != NULL` 的「是否已设置」判断改为长度/标志位。
-- **额外约束**：若字段借用 URI 内容（`ptr,len`），必须严格证明 URI backing 的生命周期覆盖整个请求。
+  4. 使用独立设置标志区分 unset 与空串，不能统一用 length 判定；保持现有 `char*` 调用边界的 NUL 结尾。
+- **额外约束**：URI 并非 module/controller/action 等字段唯一来源，必须支持独立赋值、重复更新、
+  显式路由参数与异常清理。若 arena 扩容，所有借用指针都会受影响；使用 offset 的同时审计全部调用者，
+  严格证明 backing 生命周期覆盖借用期。该方案先原型测量，不预设为单一 URI buffer 即可解决。
 - **收益**：待测（分配器调用次数可直接计数）。**风险**：中（生命周期，需 ASAN）。
 
 ### 1.5 【中】Webscan 每请求实例化
@@ -100,13 +112,22 @@
   3. 或仅合并框架内部产生的非流式小块写入。
 - **风险**：高（API 语义）。**排期**：暂缓，先出设计。
 
-### 1.7 【低】零散 `strlen` / 未缓存函数指针（可立即做）
-- `router/router.c:2147/2222/2478` `zend_read_property(..., strlen(GENE_ROUTER_SAFE))` → `ZEND_STRL`。
-- `factory/factory.c:213-219` 已算 `action_len` 却又 `ZVAL_STRING` 重算 → `ZVAL_STRINGL`。
-- `http/json.c:74/103` 每次 `zend_hash_str_find_ptr(CG(function_table))` → 复用 `GENE_CG_FN_LOOKUP`
-  或直调 `gene_json_encode`。
-- `di/di.c:143-165` alias 链最多 8 跳 → `Di::alias()` 注册期解析到最终目标。
-- `gene.c:410-435` `gene_get_router_uri` 最多 4 次 alloc → 单次 `smart_str` 后 `ZVAL_STR`。
+### 1.7 【低，先测】局部字符串与函数查找
+- `router/router.c:2147/2222/2478` 常量 `strlen(GENE_ROUTER_SAFE)` → `ZEND_STRL` 可统一风格，
+  但编译器通常已常量折叠，不计为已证明的运行时收益。
+- `factory/factory.c:213-219` 已算 `action_len` 的 `ZVAL_STRING` → `ZVAL_STRINGL`。
+- `http/json.c:74/103` 函数查找复用 `GENE_CG_FN_LOOKUP`，保留现有 ZTS 分支和异常传播；
+  直调内部 JSON API 则归入 §6.1，不混为同一低风险修改。
+- `gene.c:410-435` URI 拼接先统计实际分配，再比较精确长度单次分配与 `smart_str`；
+  后者可能扩容，不能直接承诺「单次分配」。
+
+### 1.8 【暂缓】DI alias 注册期展平
+- `di/di.c:136-150, 497-510` 当前允许晚注册、重新绑定，解析上限为 8 跳；环不会强制 miss，
+  而是使用第 8 跳落点。注册时直接保存最终目标会改变这些行为。
+- 保留原始边；若基准确实显示瓶颈，可另做请求/协程级解析缓存，每次 alias 写入递增 generation，
+  使全部解析缓存失效，且保留 8 跳语义和调用用户代码前的 owned string。
+- 回归覆盖链式晚注册、中间节点重绑、环、超过 8 跳、构造函数内改 alias、协程隔离。
+  不进入第一批纯局部优化。
 
 ---
 
@@ -122,9 +143,14 @@
   `php_pcre_replace`，与优化目标完全相反。**
 - **正确配置**（二选一）：
   - 使用运行时编译缓存：`gene.view_compile=1` + **`gene.view_compile_check_mtime=1`**；
-  - 使用离线预编译产物：构建期生成 `app/Cache/Views/*.php`，运行时 `gene.view_compile=0`。
-- **动作**：修正 §7 生产配置、修正对外文档、补一条断言「check_mtime=0 且 view_compile=1」
-  在 `run_environment>=2` 时发 warning。**风险**：低。**优先级**：立即。
+  - 使用离线预编译产物：构建期生成实际 app root 下的 `Cache/Views/*.php`，运行时
+    `gene.view_compile=0`，且调用方不能传 `isCompile=true`（编译条件是二者逻辑或）。
+- **动作**：先修正文档与部署检查。`check_mtime=0` 是保留的合法旧行为，不称为矛盾配置；
+  如新增生产诊断，应单独评审并仅在初始化时记录一次，Swoole 使用 `gene_log_diag()`，
+  不每请求触发 warning 或用户错误处理器。
+- **部署验收**：区分 `display()` 与 `displayExt()`；覆盖缓存缺失、源文件更新、编译失败、
+  多 worker 首次编译和 OPcache 更新。离线产物采用发布版本目录/原子切换；mtime 仅比较时间戳，
+  不能识别保留旧时间戳的内容更新，也不保证并发写入安全。**优先级**：先纠正文档，代码诊断另评。
 
 ### 2.2 【暂缓 / 收益未证明】视图渲染的 output buffer 捕获
 - **位置**：`mvc/view.c:813-859`
@@ -149,20 +175,27 @@
 
 ## 3. 进程缓存（Gene\Memory / Gene\Cache）
 
-### 3.1 【高，架构级第一优先】框架缓存与业务缓存共用一张表、一把锁
-- **位置**：`memory.h:21-46`、`gene.h:296` `cache_business_dirty`
-- **现状**：首次 `Gene\Cache` 业务写将 `cache_business_dirty=1`，此后**所有**读（含路由、配置、DI）
-  永久回到 `rwlock` 路径。
-- **方案**：拆为两张 `HashTable` + 两把锁：
-  - 框架表：`workerReady()` 后真正 write-once、永久无锁；
-  - 业务表：独立锁 / LRU / TTL，并且**允许正常 rehash**。
+### 3.1 【高风险，先设计】框架缓存与业务缓存隔离
+- **位置**：`cache/memory.h:21-46`、`gene.h:296` `cache_business_dirty`
+- **现状**：公开 `Gene\Memory` 写入口和 `Gene\Cache` 业务写都需纳入审计；首次业务写设置
+  `cache_business_dirty=1` 后，读（含路由、配置、DI）回到加锁路径，不能只隔离 `Gene\Cache`。
+- **方案**：按用途拆为框架表与业务表，分别定义锁与生命周期：
+  - 框架表：启动阶段可写，`workerReady()` 后只读，不允许业务覆盖、TTL 或 LRU 淘汰；
+  - 业务表：承接公开 Memory/Cache 用户数据，独立锁 / LRU / TTL，允许正常 rehash；
+  - 拆表前列出全部 `gene_memory_*` 调用者，显式指定表归属，不仅靠 key 前缀猜测；
+    明确既有 Memory 读取框架 key、`clear()`、统计、容量和同名 key 的兼容策略。
+- **安全前置**：`gene_memory_get/get_triple` 返回解锁后的裸指针，重新加锁不等于保护借用期。
+  业务表必须在锁内完成 owned copy，允许 rehash 前移除其全部借用路径；框架表无锁读取则须
+  证明整个借用期无覆盖/删除且销毁顺序安全。单线程不 yield 的路径不能仅因解锁就断言已触发 UAF，
+  应分别构造可重入/协程切换与真实共享线程场景复现。
 - **v1 遗漏的关键问题（必须一并解决）**：冻结后新 key 插入依赖预留 bucket，而删除留下的 tombstone
   **不会降低 `nNumUsed`**（`memory.c:833-865`）。长期高 churn 即使有 LRU 也会逐步耗尽预留 bucket，
   表现为 `cache_insert_refused` 持续增长。拆表的目标之二就是让业务表摆脱「冻结 + 预留 bucket」模型。
 - **表述纠正**：「消除高并发读串行点」在单 Swoole worker（单线程协作调度）下**夸大** ——
   短且不 yield 的 rwlock 临界区主要是固定原子/函数调用开销，未必存在严重线程竞争。真实收益待测。
 - **明确移除**：RCU 方案。单 worker 协程模型下收益有限，回收 epoch 与裸指针风险很大。**不做**。
-- **风险**：中。
+- **风险**：高（公开 API、指针所有权和存储模型同时变化）。先修复可复现的生命周期问题，
+  再以独立提交拆表；不因架构更整洁就预设其吞吐收益。
 
 ### 3.2 【降级 / 大部分已实现】`Memory::get()` 拷贝策略
 - **现状纠正**：
@@ -183,8 +216,12 @@
   2. **深拷贝必须在释放锁之前完成**；
   3. FPM 下的延迟删除行为保持一致；
   4. hit/miss 计数语义不变。
-- **参考实现**：`gene_memory_get_triple()`（`memory.c:901-938`）已具备正确形态，照此扩展。
-- **收益**：N 次锁 → 1 次。**风险**：低（前提是照搬上述四条）。
+- **参考边界**：`gene_memory_get_triple()`（`memory.c:901-938`）仅可参考单锁和 TTL 查找形态；
+  它返回裸指针，没有锁内深拷贝、hit/miss 更新或 FPM 延迟删除，不能照搬作为完整实现。
+- 过期 key 在读锁内只收集；释放后走写路径重新检查过期状态再删除，禁止读锁内升级写锁。
+  锁内避免用户回调/析构；保持 key 转换、重复 key、返回顺序及 Memory 原有值转换语义。
+- **收益**：N 次锁 → 1 次，但无锁快路径收益可能很小，大批量持锁时间会增加。
+  **风险**：中；测试小/大批量、TTL 边界、覆盖与删除、对象/数组值，并测写方尾延迟。
 
 ### 3.4 【低】缓存键生成
 - **位置**：`cache.c:563-619` `gene_cache_key`（已支持 FNV / xxHash64 / FarmHash / Murmur / TurboHash）
@@ -203,21 +240,25 @@
 ### 3.6 【低 / 条件不成立，需先补前置】FPM 非 ZTS 跳锁
 - **现状纠正**：`workerReady()` 在 `runtime_type < 2` 时**并未**提前返回，仍会 reserve 并置
   `worker_ready=1`（`application.c:1317-1387`）。因此 v1 前提「FPM 下 `worker_ready` 永远为 0」**不成立**。
-- **动作**：若要做此优化，必须先在 `workerReady()` 中显式定义 FPM 语义（提前返回，或明确置位含义），
-  再以 `#ifndef ZTS && runtime_type<2` 跳锁。ZTS 必须保留锁。**风险**：中。
+- **动作**：先确认该 HashTable 的真实共享范围、回调重入和锁所有权。若证明 NTS FPM 中无其他线程
+  访问该表，可独立评估锁分支，不必为了优化强行让 `workerReady()` 提前返回（会改变初始化语义）。
+  ZTS 暂保留锁但仍需说明保护的共享对象，不能仅凭宏名证明线程安全。**风险**：中，收益待测。
 
 ---
 
 ## 4. 数据库（Pool / PDO / 驱动）
 
-### 4.1 【P0，立即做】池化连接未设置 `ATTR_DEFAULT_FETCH_MODE`
-- **位置**：`db/pool.c:246-285` `pool_normalize_config()` 只设 ERRMODE(3) / EMULATE_PREPARES(20) /
-  Swoole 下 PERSISTENT(12)；非池路径 `db/mysql.c:265-279` 已设 `19 => 2 (FETCH_ASSOC)`。
-- **后果**：池连接落到 PDO 默认 `FETCH_BOTH`，每行双键（数字+字符串），内存与 `zend_string` 分配翻倍。
-- **方案**：`add_index_long(&z, 19, 2)`，**两个分支都要加**（options 缺省分支与已有 options 分支，
-  后者位于 `pool.c:278-285`）。
-- **附带核查**：确认 Pgsql/Sqlite/Mssql 非池路径的 `ATTR_CASE`、`ATTR_ORACLE_NULLS` 是否需与池路径一致。
-- **收益**：高（可用行数×列数直接量化）。**风险**：低。
+### 4.1 【兼容性评审，不直接改默认】池连接 fetch mode
+- **位置**：`db/pool.c:246-285` 未设置 `ATTR_DEFAULT_FETCH_MODE`；四驱动非池路径均设
+  `19 => 2 (FETCH_ASSOC)`（mysql:268、sqlite:280、pgsql:276、mssql:264）。
+- **后果**：未显式指定模式的池连接可能使用 PDO 默认 `FETCH_BOTH`。数字键与关联键增加 bucket，
+  但并不等于值内容、字符串分配或总内存翻倍，须按列类型/宽度测量。
+- **方案**：第一步用现有 `options[PDO::ATTR_DEFAULT_FETCH_MODE] = PDO::FETCH_ASSOC` 显式选择，
+  不新增开关也不直接改变默认。若决定统一默认，按兼容性变更独立评审；仅在 options 未提供该键时
+  补默认，绝不覆盖用户显式 `FETCH_BOTH/FETCH_NUM/FETCH_OBJ`，缺省与已有 options 两分支都覆盖。
+- **验收**：比较池/非池 `row/all` 与原始 PDO 借出，验证数字下标、显式 fetch 参数、自定义模式、
+  输入配置数组 COW 不被修改；同时核查 `ATTR_CASE/ATTR_ORACLE_NULLS`，不顺手改变其他选项。
+- **收益**：待测（峰值内存、分配量、取行耗时）。**风险**：中高（返回结构兼容性），非 P0 提速项。
 
 ### 4.2 【P1，opt-in，不改默认】FPM 模式不走连接池 / 持久连接
 - **位置**：`db/pool.c:1551-1564`（`runtime_type < 2` 直接返回 0）、`db/mysql.c:215-290`
@@ -235,15 +276,18 @@
   在 FPM 下可能只有请求生命周期 → 进程级静态缓存**只允许对精确的内部 CE 生效**
   （`Z_OBJCE_P(x) == php_pdo_get_dbh_ce()/statement ce` 严格相等判断），其余走动态查找。
 - **优先级下调理由**：相对真实 SQL 网络与 DB 执行时间，一次 HashTable lookup 占比极小。
-  **除非纯内存 mock 微基准证明 CPU 已成瓶颈，否则不进第一批。**
+  **须用真实内部 PDO/PDOStatement 的本地 SQLite 基准测量；用户类 mock 仅验证回退，不进第一批。**
 
 ### 4.4 【P1，第一批】ORM 通过 `call_user_function` 调用 Db 方法
 - **位置**：`orm/meta.c:341-351` `gene_orm_db_call`（`ZVAL_STRING(&fname)` + `call_user_function`），
   被 `orm/model.c`、`orm/query.c` 数十处调用。
 - **可行性**：Gene 的四个 Db 类为 **final**，按精确 CE 缓存函数指针相对安全（优于 4.3）。
-- **方案**：缓存 select/where/limit/row/all/cell/lastId/affectedRows 等，改 `zend_call_known_function`。
-- **收益**：一次 ORM 查询叠加多次链式调用，累积效应大于 4.3；**须用「纯内存 mock Db」微基准测量**，
-  不能用真实远程 SQL 延迟掩盖结果。**风险**：低-中。
+- **方案**：参考 `gene_orm_db_kind()` 的精确 CE 判断，缓存对应类的 public 方法，
+  命中才走 `zend_call_known_function`；非精确 CE、自定义 Db/mock 保留 `call_user_function`。
+  保持参数、返回值初始化、异常和失败状态语义，不长期缓存用户类函数指针。
+- **验证**：PHP mock 只验证回退路径，不能证明 final Db 快路径提速。用真实 `Gene\Db\Sqlite`
+  的内存数据库验证全链路，并单独重复测量内部 Db 链式构建调用，分离 SQL 执行与派发成本。
+- **收益**：待测；多次调用可能累计节省，但不预断言优于 §4.3。**风险**：低-中。
 
 ### 4.5 【暂缓】预处理语句 LRU 复用
 - **位置**：`db/pdo.c:856-866`、`db/mysql.c:349/365`
@@ -251,12 +295,14 @@
   **不省 execute 往返**（v1「省一次 DB 往返」表述含糊）。
 - **适用前提**：SQL 高度重复、同一物理连接、正确关闭 cursor、连接重连后全部失效、
   控制服务端 prepared statement 数量、处理 DDL/`SET`/驱动差异。
-- **风险**：高。**排期**：驱动公共 helper（4.8）落地后再评估。
+- **风险**：高。**排期**：独立设计，不依赖 §4.8 全面去重；先在公共 helper 中验证生命周期与收益。
 
-### 4.6 【P2】SQL 片段全部经 PHP 对象属性中转
-- **位置**：`db/mysql.c:158-173`（reset 11 个属性）、`mysql.c:301-343`（execute 读 9 个属性）；四驱动同构。
-- **方案**：链式构建期在 C 侧对象结构体维护 `smart_str`/字段，`execute` 时组装；对外 API 不变。
-- **收益**：每条 SQL 省 10+ 次 `zend_read/update_property`，待测。**风险**：中。
+### 4.6 【暂缓，API 专项】SQL 片段属性中转
+- **位置**：`db/mysql.c:158-173, 301-343, 1755-1767`；四驱动同构。
+- SQL/where/data 等属性是 public；用户可读取、写入、取引用。只在 C 侧维护字段会使公开属性与
+  实际执行 SQL 不一致，不能宣称「对外 API 不变」，仅在 execute 时写回也不够。
+- 如保留优化，须先设计属性读写/引用同步、clone/析构/GC、异常和 reset 规则；否则作为新 API
+  或版本迁移项目。优先测量属性访问成本，不承诺固定节省次数。**风险**：高。
 
 ### 4.7 【P2】健康检查与回收
 - `db/pool.c:368-404`：探活用 `getAttribute(ATTR_SERVER_INFO)`，借出时不探活 →
@@ -300,8 +346,13 @@
 - **现状纠正**：并非「`max+2` 次 1 ms 忙等」。正常路径是：① 尝试一次 1 ms pop → ② 未满则创建连接 →
   ③ 已满则以 `waitTimeout` 阻塞 pop；只有无效队列项/创建失败等路径才重试。
   准确描述是「**每次空闲队列 miss 多出约 1 ms 延迟**」。
-- **方案**：首次改为**非阻塞** pop；未命中直接进入创建或 `waitTimeout` 阻塞；`workerStart` 预建 `min` 个连接。
-- **收益**：降 p99（不是降 CPU 忙等），待测。
+- **方案**：先核对受支持 Swoole 版本的 Channel timeout 语义，不能直接把 `0.001` 改 `0`
+  并假设非阻塞。候选为已有 `rpool_channel_is_empty()` 判空后，仅非空时取出；必须证明判空到
+  pop 间无 yield/可重入抢占，并覆盖关闭队列、取消、无效元素、创建失败和饱和等待。
+- 保留总等待预算，避免重试反复重置超时。已有 `rpool_fill()`，预建 min 先核对构造/填充路径，
+  不重复实现；是否异步预热是单独策略。
+- **收益**：空闲 miss 可引入约 1 ms 的定时等待，但受调度影响，不是固定成本；
+  只有该路径占足够比例才可能改善 p99。测低负载命中、扩容突发、满池三类场景。
 
 ### 5.3 【低-中】序列化走 PHP `serialize()/unserialize()`
 - **位置**：`common/common.c:743-793`、`cache/redis.c:496-515`、`memcached.c:369`
@@ -316,8 +367,8 @@
 ### 5.5 【降级 / 大部分已实现】Session
 - **现状纠正**：`Session::set()` 只改内存数组并置 dirty，`save()`/析构才写 handler
   （`session.c:947-986, 1034-1055`）；cookie 有 `cookie_sent` 去重。**「写合并」已存在，v1 该项删除。**
-- **仍可做**：`set()/del()` 每次都调用 `gene_session_auto_cookie()` 做属性检查 → 提前用 `cookie_sent`
-  标志短路，省掉属性读取。**风险**：低。
+- **再次纠正**：`gene_session_auto_cookie()`（`session.c:593-600`）已经首先检查 `cookie_sent`
+  并早返回。在 `set()/del()` 外层重复预检并不能省掉该属性读取，从待执行项删除。
 - **ID 生成纠正**：`session.c:334-375` 的 `gettimeofday+snprintf+MD5` 可换 `php_random_bytes`，
   但**不能只取 64-bit**（v1 的 `gene_u64_to_hex` 方案熵仅 64 bit，偏低）。应取
   **至少 16 字节随机数**再 hex 编码为 32 字符。
@@ -346,8 +397,8 @@
 
 ### 6.1 【低-中】JSON 编解码走 PHP 调用帧
 - **位置**：`common/common.c:743-763`
-- **现状**：源码注释已记录权衡 —— PHP 8.x 小版本间内部 API 签名变化、函数指针已缓存、
-  约 0.5 µs 调用帧可接受。
+- **现状**：源码注释已记录内部 API 兼容性与函数指针缓存的权衡；注释中的调用耗时估计
+  不是本次基准结果，不能据此判断收益。
 - **优先级纠正**：v1 标「高」不合理。**除非压测显示每请求存在大量 JSON 编解码调用**，
   否则这是一个「兼容性换性能」的低-中优先级项。**风险**：中（多版本兼容）。
 
@@ -379,7 +430,8 @@
   清除 header/callback/POST body/private data、处理 fork/DNS/TLS/异常、
   绝不长期持有请求级 zval。
 - 直接链接 libcurl 还会新增构建依赖。**这是独立架构功能，不是中风险性能优化。**
-- **可立即做的小项**：开启 `CURLOPT_TCP_KEEPALIVE`。
+- **可选配置评估**：`CURLOPT_TCP_KEEPALIVE` 用于空闲连接探测，不等同于 HTTP 连接复用，
+  不解决每请求初始化成本；按实际 libcurl/系统支持验证，不作为立即提速项。
 
 ---
 
@@ -406,87 +458,116 @@ gene.cache_reserve            = 12560 ; ≥ max_items + max(64, max_items/4)
 gene.slow_query_ms            = 200   ; 可选，用于定位慢 SQL
 ```
 
-运行期观测：`Gene\Monitor::stats()` 中 `cache_insert_refused`、`db_pool_get_timeout`、
-`redis_pool_cas_abandoned`、`co_contexts_sweep_count`、`ctx_pool_miss` 持续增长即为配置不足信号。
-其中 `cache_insert_refused` 增长还可能是 §3.1 的 tombstone 耗尽预留 bucket，需一并排查。
+以上为示例而非通用容量配置：按 worker 峰值活跃上下文、ctx pool 实际命中率和 RSS 预算调整。
+`co_contexts_max` 是触发 sweep 的软阈值，不是最大并发准入限制；自动 cleanup 是兜底，
+需验证 defer 可用与应用清理路径。离线视图仍须避免调用方显式 `isCompile=true`。
+
+运行期使用同一 worker/PID 的区间增量与每请求比率，而不是累计值是否增长：
+- `cache_insert_refused`：正常容量负载应无新增；容量不足或 tombstone 耗尽都可能导致拒绝。
+- `db_pool_get_timeout`、`redis_pool_cas_abandoned`：结合注入失败/饱和测试的预期判断，不能一概归因配置。
+- `co_contexts_sweep_count`、`ctx_pool_miss`：可正常增长，结合 sweep 耗时、存活上下文、RSS 与延迟判断。
+- 后续可补 `cache_business_dirty`、`nNumUsed/nNumOfElements/nTableSize` 与 route_pc hit/miss 指标；
+  这些是待新增观测项，不假定当前 `stats()` 已提供。
 
 ---
 
-## 8. 落地顺序（最终版）
+## 8. 落地顺序（按证据与风险门禁）
 
-### 第一批：低风险、可立即执行
-| # | 项目 | 说明 |
-|---|---|---|
-| 1 | §4.1 池连接 `FETCH_ASSOC` | **两个 options 分支都要加** |
-| 2 | §2.1 修正 View 生产配置 + 文档 + 矛盾配置 warning | v1 最严重错误的纠正 |
-| 3 | §1.2 action 单次 HashTable lookup | **不**缓存进 `route_pc` |
-| 4 | §1.7 零散 `ZEND_STRL` / `ZVAL_STRINGL` / Json fn 缓存 / Di alias 展平 | 纯局部 |
-| 5 | §3.3 `mget()` 单次加锁 | 必须保留 TTL + 锁内深拷贝 + 计数语义 |
-| 6 | §4.4 ORM final Db 类 known-function 调用 | 需 mock Db 微基准 |
-| 7 | §5.5 Session `auto_cookie` 短路 | |
-| 8 | §5.7 Benchmark 改 `gene_hrtime()` + Zend memory C API | 顺带让基准工具本身可信 |
-| 9 | §9 建立微基准套件 | **其余批次的前置条件** |
+### 第零批：基线与正确性，不等待性能收益证明
+1. §9 复用现有验收入口，补真正命中优化路径的微基准，保存版本与原始结果。
+2. §2.1 修正文档/部署检查；新增运行时诊断另评，不直接加入每请求 warning。
+3. §1.1 / §3.1 补 route_pc、clear、借用指针与 churn 最小复现；已复现的内存安全或数据正确性
+   问题作为修复单独处理，不绑在拆表或默认开关调整上。
 
-### 第二批：中风险，需回归 + 数据支撑
-1. §3.1 框架缓存 / 业务缓存拆表（含 tombstone 问题）
-2. §1.5 Webscan 去对象化（flatten 上限单独评审）
-3. §1.4 ctx arena + offset/length 方案
-4. §4.2 FPM 持久连接（显式 opt-in，默认关）
-5. §5.1 Pool worker-local 计数（先完成生命周期约束 1–3 步）
-6. §5.6 Log 时间缓存 + 可选缓冲（opt-in）
-7. §4.6 / §4.7 驱动公共 helper 与池健康检查
-8. §1.1 `route_precompile` 默认开（先做路由树冻结强制）
-9. §6.1 JSON 直调（若基准显示 JSON 调用密集）
-10. §6.2 编译标志（先 dump 实际命令行）
+### 第一批：低风险候选，基线通过后逐项提交
+| 项目 | 准入条件与验收 |
+|---|---|
+| §1.2 action 单次查找 | 保留方法可见性、未命中与异常行为，不跨 dispatch 缓存 |
+| §1.7 字符串长度/Json 函数缓存 | 排除 DI 展平和内部 JSON API 直调；证实确有运行时工作可省 |
+| §4.4 ORM known-function | 精确 CE + 非 Gene Db 回退；真实内部 Db 测快路径，mock 测兼容性 |
+| §5.7 Benchmark C API | 保持单位、精度、start/end 和峰值内存语义；外部 hrtime 基准不依赖此改动 |
 
-### 暂缓 / 先出专项设计
-1. §1.6 响应缓冲（API 语义变更）
-2. §1.3 `chird` 索引（原方案作废，需重新设计）
-3. §2.2 View output buffer（收益未证明）
-4. §4.5 Statement LRU
-5. §4.8 四驱动抽象（与性能改造**分开提交**）
-6. §6.5 libcurl 直连 / process-level handle pool
-7. §3.2 `getBorrowed()`（依赖 §3.1）
-8. **已废弃**：Cache RCU；修改默认缓存哈希算法；OpenSSL EVP 直连
+### 第二批：专项验证通过后实施
+1. §3.3 `mget()` 锁内复制与批量读，补删除锁序和大批量尾延迟验证。
+2. §5.2 RedisPool 消除空队列定时等待，先验证 Channel 版本语义和总超时。
+3. §1.5 Webscan 去对象化，保持扫描顺序、配置类型转换、异常与拦截结果一致。
+4. §1.4 ctx arena，核对 unset/空串、NUL 结尾、字段独立更新与容量增长后指针稳定性；
+   不能把 `length==0` 当成通用 unset，记录峰值协程数 × ctx/pool 常驻内存。
+5. §5.6 仅日志时间格式缓存，处理时区变化；缓冲/输出后端另立项。
+6. §6.1 JSON / §6.2 编译标志：仅在 profiling 支持时试验，不预设收益。
+
+### 架构/API 专项：不混入透明优化批次
+- §3.1 拆表 → 明确公开 Memory 兼容契约与所有权 → 再评估 §3.2 借用读。
+- §1.1 route_precompile：先完成生命周期修复与模式矩阵，不预定默认开启。
+- §4.1 fetch 默认、§4.2 持久连接、§4.6 SQL public 属性、§5.1 Pool 生命周期限制，分别评审。
+- §1.3 路由索引、§1.8 DI 解析缓存、§1.6 响应缓冲、§2.2 View buffer、§4.5 Statement LRU、
+  §4.7 探活/定时器、§4.8 驱动去重、§5.4 MemcachedPool、日志缓冲、Session ID 随机源均独立立项。
+- §6.5 HTTP 连接复用、OpenSSL 直连暂缓；Cache RCU 与无兼容迁移的默认哈希切换不采用。
+- 每项单独提交与回滚；有运行时开关的项目先 opt-in 灰度，无开关的局部改动回滚对应构建产物。
 
 ---
 
 ## 9. 验证方法（前置任务，需先建设）
 
-### 9.1 现有手段不足
-`test/BenchmarkTest.php` 是 `Gene\Benchmark` 的**功能测试**（含大量 `usleep`、打印、普通 PHP 操作），
-**不能**用于验证 Router / Memory / PDO 的性能变化。v1 把它当微基准是错误的。
+### 9.1 复用现有手段，不从零重复建设
+- `test/BenchmarkTest.php` 是功能测试，不是 Router / Memory / PDO 性能基准。
+- `tools/acceptance/swoole_benchmark.php` 已有 getcid/route_precompile 四组合摘要一致性检查，
+  主要是正确性矩阵，不等于 HTTP 性能测量。
+- `tools/acceptance/fpm_benchmark.php` 可执行多轮外部 benchmark_command，但 warmup 目前是 sleep，
+  并不实际预热目标；须由压测命令/前置步骤发送真实请求。
+- `tools/acceptance/linux_swoole_verify.sh` 已有构建、协程/池验收、HTTP 压测和 RSS 采样入口，
+  优先扩展；先检查参数与依赖，性能测试显式使用生产 run_environment（脚本默认值为 0）。
+- `audit/repro/` 已有 Swoole 缓存 UAF、workerReady、路由复现，可用作回归起点，不能替代性能基准。
 
-### 9.2 微基准套件要求
-- 每个优化项一个**独立**的 C/PHP 微基准；
-- 固定 warm-up 轮数；
-- 多轮运行，报告 **median、p95、p99、标准差**（不看单次均值）；
-- CPU pinning，或至少固定 worker 数与关闭频率调节；
-- 基线与优化版使用**完全相同**的 PHP / OPcache / Swoole / 数据库配置与同一次构建工具链。
+### 9.2 微基准套件要求与准入标准
+- 每项独立基准，断言结果正确并确认命中被优化分支；冷热启动分别记录，不把 PHP mock 当内部 CE 快路径。
+- 固定真实 warm-up 工作量；交替 A/B 与 B/A、多独立进程多轮运行，记录样本量与原始输出。
+- 微基准报告批次 ns/op 的 median、离散程度/置信区间、分配次数和内存；少数轮次的均值分布
+  不能冒充单请求 p99。p95/p99 用足够请求样本的端到端延迟分布计算。
+- 固定/记录 CPU、亲和性、频率策略、worker 数、PHP/扩展/OPcache/JIT、数据库、编译命令与提交 ID；
+  Windows NTS 能验证局部功能，但不能替代 Linux Swoole、FPM 跨请求或 ZTS 相关路径。
+- 性能结果必须可重复且超过测量噪声；每项测试前定义业务 SLO 和可接受 CPU/RSS/尾延迟回归预算。
+  无显著收益则不合入性能改动；正确性修复不受收益门禁限制。
 
 ### 9.3 分场景基准
 | 领域 | 场景划分 |
 |---|---|
 | 路由 | 静态路径 / 单占位 / 多同层冲突占位 / 深层嵌套 |
 | Memory | 无业务写（无锁快路径）/ 首次 dirty 之后 / 带 TTL / 高 churn（观察 `cache_insert_refused`）|
-| DB 函数派发 | **mock / 本地无网络** 基准（避免真实 SQL 延迟掩盖 CPU 差异）|
+| DB 函数派发 | 真实内部 Db/PDO 本地基准测快路径；PHP mock 仅测回退兼容性 |
 | DB 真实 SQL | 单独测吞吐与连接建立成本 |
 | 输出 / SSE | 必须测**首字节到达时间与分块到达间隔**，不能只看总 RPS |
 
-### 9.4 压测
-Swoole 模式 `wrk -t8 -c1024 -d60s`，关注 RPS 与 p99；FPM 模式同参数对照。
-压测期间轮询 `Gene\Monitor::stats()` / `Gene\Memory::stats()`，确认拒绝/超时/sweep 计数为 0。
+### 9.4 压测与回归矩阵
+- 并发从低负载逐级增加到饱和（例如 1/32/128/512/1024），固定 worker/CPU 资源并记录压测端瓶颈。
+  `wrk --latency -t8 -c1024 -d60s "$TARGET_URL"` 仅作单档示例，TARGET_URL 由实际环境提供；
+  单次 60 秒与闭环 wrk 不能充分证明尾延迟，另以可控到达率测试过载/排队行为。
+- 同时记录成功 RPS、错误率/超时、p50/p95/p99、CPU/请求、worker RSS 与池等待；
+  正常负载拒绝应无新增，故障/饱和注入按预期计数，sweep/miss 不要求为零。
+- 路由覆盖 closure/hooks、404、冻结后 clear、重复 workerReady、协程交错；缓存覆盖 TTL、
+  churn、数组/对象转换、写后读取；DB 覆盖用户 options、懒执行、事务、异常和非 Gene Db 回退。
+- FPM 要在同一 worker 内连续请求；Swoole 要覆盖多 worker、清理与 reload；CLI 进程隔离测试不能替代它们。
+  各模式先各自 A/B，再做模式比较，不把运行模型差异当成本项优化收益。
 
-### 9.5 ASAN 回归（命令需完整）
-v1 的 ASAN 命令不完整。正确做法：
-1. **configure、编译、链接三个阶段**都要带 sanitizer 参数：
+### 9.5 ASAN 回归（Linux 独立构建，不用于性能测量）
+1. 使用干净的独立构建树及匹配的 phpize/php-config，避免旧对象未重编译；在其 `src/` 执行：
    ```bash
    export CFLAGS="-fsanitize=address -fno-omit-frame-pointer -O1 -g"
    export LDFLAGS="-fsanitize=address"
    phpize && ./configure --enable-gene=shared --with-php-config="$(command -v php-config)"
    make -j"$(nproc)"
    ```
-2. 确保 PHP 进程能加载 ASAN runtime（必要时 `LD_PRELOAD=$(gcc -print-file-name=libasan.so)`）；
-3. `test/*.php` **不是**一条能自动跑全部测试的命令 —— 使用 `TestRunner.php`，
-   并按 `AGENTS.md` 通过 `GENE_TEST_PHP_ARGS` 传入 `-n -d extension=...` 保证子进程加载被测 DLL/so，
-   否则会产生假通过/假失败。
+2. 优先使用同样启用 ASAN 的 PHP；仅检测扩展时也须确保匹配的 runtime 最先加载。
+   GCC 构建必要时设置 `LD_PRELOAD="$(gcc -print-file-name=libasan.so)"`；Clang 使用匹配 runtime，
+   不混用工具链。设置 `USE_ZEND_ALLOC=0` 使 Zend 请求分配进入系统分配器，提升 UAF 可检测性。
+3. 在仓库根目录，按实际构建路径运行（所需 PDO/SQLite 等依赖可能还需显式加载）：
+   ```bash
+   export USE_ZEND_ALLOC=0
+   export GENE_TEST_PHP_ARGS="-n -d extension=$PWD/src/modules/gene.so"
+   php -n -d "extension=$PWD/src/modules/gene.so" --ri gene
+   php -n -d "extension=$PWD/src/modules/gene.so" test/TestRunner.php
+   ```
+   构建路径含空格时，在 `GENE_TEST_PHP_ARGS` 内也须保留 shell 引号。验证主进程与子进程加载相同产物，
+   并检查 skip/未覆盖测试，而不只看退出码。Swoole 专项必须另外加载匹配 Swoole 并运行对应脚本。
+4. ASAN 通过只能说明已执行路径未检出内存错误，不证明线程安全或并发覆盖完整。
+   生命周期变更必须额外做同进程重复请求与长时间 churn/RSS 趋势回归；性能测试使用正常 release 构建。
