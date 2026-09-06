@@ -232,8 +232,8 @@ static inline uint64_t gene_hrtime(void) {
 	 zend_string *request_json_error;
 	 zend_uchar request_json_state;
 	 zend_long invoke_depth;
-	 struct timeval bench_start;
-	 struct timeval bench_end;
+	 uint64_t bench_start;
+	 uint64_t bench_end;
 	 zend_long bench_memory_start;
 	 zend_long bench_memory_end;
 	 char *log_file;
