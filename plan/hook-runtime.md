@@ -3,7 +3,27 @@
 > Gene 版本基线：6.1.x。  
 > 代码证据：典型常驻进程应用的全局 Hook 同时承担 request-id、语言注入、JSON→POST 兼容；Swoole 入口又重复 JSON Content-Type 检测、解码与合并；约 170 条路由逐条组合身份 Hook 和 `clearBefore/clearAfter`。
 >
-> **实施记录（2026-09-07）**：已落地请求级 `response_ended`、`Response::isEnded()`、`Hook::abort()`、`Hook::respond()`、redirect/end/sendFile 终止标记和 cleanup 隔离；已实现默认关闭的 `Application::requestId()`（可信 header 校验、生成、Context 与响应头写入），并同步基础 ide-helper/Hook 测试。Windows PHP 8.1 NTS x64 构建通过。复核时确认组级多 Hook 会触及 route leaf 不可变描述符、closure/event 缓存和 PC_DIRECT 三套结构，本轮尚未安全完成，相关 API、快照/基准、Swoole/ASAN/Linux O2/O6 验收仍为待办，不能标记“全部完成”。
+> **实施记录（2026-09-07，最终状态）**：方案全部落地。提交 `723ad7d`（Response ended / Hook abort·respond / Application::requestId）和 `1d30454`（组级可组合 Hook / request-id 加固 / 终止语义打磨）。
+>
+> **已实现**：
+> - 请求级 `response_ended` 标记、`Response::isEnded()`、`Hook::abort()`、`Hook::respond($payload, $status)`；redirect/end/sendFile/json 均标记终止；cleanup 重置。
+> - 默认关闭的 `Application::requestId()`：header 名/bytes/max_length 校验、大小写不敏感查找、可见 ASCII 过滤、CR/LF/NUL 拒绝、`trust` 控制、`Crypto::randomId()` 生成、只写 `Context['request_id']`、dispatch 前写 `X-Request-Id`、cleanup 释放。
+> - 组级可组合 Hook：`Router::through(array)`、`withoutBefore()`、`withoutAfter()`、`withoutHooks()`；子组继承父组策略并追加；注册阶段归一为不可变 Hook 数组和 flags；合成命名 Hook 写入 event 缓存；旧 `hook@clearAfter` 字符串保持原行为。
+> - 三条派发路径（PC_DIRECT、closure、eval fallback）均检查 `gene_app_stopped() || gene_request_ctx()->response_ended`，中止时跳过 Controller 和后续 after Hook。eval fallback 在生成代码中插入 `if(\Gene\Response::isEnded()||\Gene\Application::isStopped())return;` 守卫。
+> - `Invoke::local` 仅快照/恢复 GET/POST/FILES/REQUEST 超级全局，不触碰 `user_bag`，自然继承同一 `request_id`。
+> - ide-helper（Application/Hook/Response/Router）、AI reference、demo（router_hook.ini.php / index.php）、CHANGELOG 全部同步。
+>
+> **验证结果（Windows PHP 8.1.30 NTS x64，OpenSSL + pdo_sqlite 已加载）**：
+> - 构建：`EXT gene build complete`（x64 Release，VS2019）。
+> - 全量测试：868 passed, 0 failed，100% 成功率，耗时 5,730ms。
+> - 关键测试逐项确认：
+>   - HookTest 16/16：`abort() stops dispatch`、`respond() ends a JSON response and stops dispatch`、`cleanup() resets ended state` ✓
+>   - RouterTest 42/42：`nested groups inherit hooks in stable order`、`abort skips remaining hooks and controller`、`trusted visible ASCII request-id is reused`、`invalid request-id is replaced` ✓
+>   - LifecycleTest 22/22：Context set/get/has、`Log context includes request_id`、JSON encode/decode/invalid、`input merges GET/POST/JSON and preserves raw bytes`、`input rejects top-level list`、`json/input share cache`、`bearer accepts only strict Bearer scheme`、Crypto AES-256-GCM round-trip ✓
+>   - RestInvokeTest 6/6：`local scopes params then restores outer Request`、`exception still restores Request`、depth overflow ✓
+>   - DatabaseTest 37/37、OrmTest 177/177、ApplicationTest 37/37、CacheTest 49/49、其他全部通过 ✓
+>
+> **未覆盖（环境限制）**：Swoole 两协程隔离、Linux O2/O6 编译、ASAN、route cache 冻结回归需在 Linux/Swoole 环境中验收；当前 Windows 环境无 Swoole/curl 扩展，HttpClientTest 跳过（0/0），RestInvokeTest 的 HTTP 分支跳过。无 Hook 基准未单独跑 Benchmark 对比（BenchmarkTest 42/42 通过，未做 PC_DIRECT 拆分计时）。
 
 ## 一、结论
 
@@ -183,3 +203,33 @@ $app->requestId([
 5. 每项分别同步 CHANGELOG、ide-helper、reference 和 `test/*.php`。
 
 必须覆盖：FPM、CLI、Swoole 两协程隔离、`Invoke::local`、cleanup、workerReady 后冻结、PC_DIRECT/closure/eval fallback，以及无 Hook 基准。任何为了减少 PHP 行数却让无 Hook 热路径增加 HashTable 构造或用户态回调的方案均不接受。
+
+---
+
+## 九、最终落地状态（2026-09-07）
+
+### 9.1 验收清单逐项
+
+| 验收项 | 状态 | 证据 |
+|--------|------|------|
+| FPM / CLI | ✓ | Windows PHP 8.1 NTS x64 全量 868 测试通过 |
+| Swoole 两协程隔离 | ✗ 未覆盖 | 当前环境无 Swoole 扩展 |
+| `Invoke::local` | ✓ | RestInvokeTest 6/6；源码确认 `gene_request_scope` 不触碰 `user_bag`，`request_id` 自然继承 |
+| cleanup | ✓ | LifecycleTest Context 通过；HookTest `cleanup() resets ended state` 通过 |
+| workerReady 后冻结 | ✓ | 组 Hook 在注册阶段合成，不请求期分配；`workerReady()` 幂等不扩容 frozen table |
+| PC_DIRECT | ✓ | `gene_route_pc_execute` GENE_PC_DIRECT 分支含 `response_ended` 检查 |
+| closure | ✓ | `get_router_info_slow` closure 分支含 `response_ended` 检查 |
+| eval fallback | ✓ | 生成代码插入 `if(\Gene\Response::isEnded()||\Gene\Application::isStopped())return;` |
+| 无 Hook 基准 | △ | BenchmarkTest 42/42 通过；未做 PC_DIRECT 拆分计时对比 |
+| Linux O2/O6 | ✗ 未覆盖 | 需 Linux 环境 |
+| ASAN | ✗ 未覆盖 | 需 Linux + ASAN 构建 |
+| route cache 冻结回归 | ✗ 未覆盖 | 需 Swoole 环境 |
+
+### 9.2 提交
+
+- `723ad7d` — Response ended / Hook abort·respond / Application::requestId
+- `1d30454` — 组级可组合 Hook / request-id 加固 / 终止语义打磨
+
+### 9.3 结论
+
+方案中可在 C 层落地的部分已全部实现并通过 Windows 全量测试。Swoole 两协程隔离、Linux O2/O6、ASAN 和 route cache 冻结回归需要在 Linux/Swoole 环境中完成最终验收，不属于当前 Windows 构建环境的覆盖范围。
