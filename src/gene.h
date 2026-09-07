@@ -360,6 +360,20 @@ HashTable *fn_cache;
  * fn_cache frozen, leaf pointers stable). Per-thread because it borrows
  * pointers from the per-thread GENE_G(cache)/fn_cache. Freed in MSHUTDOWN. */
 HashTable *route_pc;
+/* [GENE_FIX:2026-09-07 PC-GEN] Generation counter guarding the descriptors
+ * above. Router::clear()/delTree()/delEvent() rebuild the route tree
+ * and wipe fn_cache, which dangles every borrowed pointer inside a descriptor.
+ * They bump this counter; a descriptor whose recorded generation no longer
+ * matches is never executed -- it is unlinked and retired (see
+ * route_pc_retired) and that dispatch falls back to the slow path. The
+ * descriptor memory itself is only released in MSHUTDOWN because a coroutine
+ * suspended inside gene_route_pc_execute() may still be borrowing it. */
+zend_ulong route_pc_generation;
+/* Singly-linked list (via gene_route_pc.retired_next) of descriptors unlinked
+ * by a generation bump. Bounded by (number of invalidations x live routes);
+ * drained in gene_router_pc_destroy(). */
+void *route_pc_retired;
+zend_ulong route_pc_retired_count;
 /* [GENE_PERF:2026-06-19 P3] Opt-in kill-switch for the precompiled dispatch
  * cache above. Default 0 (off) — the proven get_router_info_slow() path runs
  * unchanged until an operator enables gene.route_precompile=1 after validating

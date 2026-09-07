@@ -1337,6 +1337,9 @@ static void php_gene_init_globals() {
 	 * on first dispatch (Swoole, post-workerReady). route_precompile comes from
 	 * php.ini, so — like ctx_pool_prewarm — it must NOT be zeroed here. */
 	GENE_G(route_pc) = NULL;
+	GENE_G(route_pc_generation) = 0;
+	GENE_G(route_pc_retired) = NULL;
+	GENE_G(route_pc_retired_count) = 0;
 	GENE_G(cache) = NULL;
 	GENE_G(cache_easy) = NULL;
 	GENE_G(cache_expiry) = NULL;

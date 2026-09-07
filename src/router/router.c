@@ -753,10 +753,16 @@ static void gene_fn_cache_store(zval *closure, zval *fid_zv) {
   *    cross-thread aliasing. Within a worker, Swoole coroutines are scheduled
   *    cooperatively and neither resolve nor execute yields, so the lazy
   *    populate-on-miss is race-free with respect to concurrent reads.
-  *  - Borrowed pointers (src/before_src/.../route_cl/...) reference persistent
-  *    route-tree strings and fn_cache zvals that are stable for the worker's
-  *    lifetime. Only eval_str is owned (a persistent copy of the concatenated
-  *    eval program) and is freed by the table dtor.
+  *  - Borrowed pointers (src/before_src/... and the *_cl_key fn_cache keys) all
+  *    reference persistent route-tree strings. They are only stable while the
+  *    tree itself is: Router::clear()/delTree()/delEvent() rebuild it,
+  *    so those bump GENE_G(route_pc_generation) and descriptors resolved under an
+  *    older generation are retired instead of executed
+  *    ([GENE_FIX:2026-09-07 PC-GEN]). Closures are NOT cached as zval* because
+  *    fn_cache has a shorter (request) lifetime than the descriptor table; only
+  *    their keys are, and the lookup happens at execute time.
+  *    Only eval_str is owned (a persistent copy of the concatenated eval
+  *    program) and is freed with the descriptor.
   *  - Opt-in: gated behind gene.route_precompile (default off) so the proven
   *    slow path is the only code that runs until an operator validates this.
   */
@@ -771,18 +777,29 @@ static void gene_fn_cache_store(zval *closure, zval *fid_zv) {
 	 const char *before_src; /* before-hook direct src                            */
 	 const char *after_src;  /* after-hook direct src                             */
 	 const char *hook_src;   /* named-hook direct src                             */
-	 /* Borrowed fn_cache closure zvals (NULL = absent). */
-	 zval *route_cl;
-	 zval *before_cl;
-	 zval *after_cl;
-	 zval *hook_cl;
+	 /* [GENE_FIX:2026-09-07 PC-GEN] fn_cache *keys*, not closure zvals. fn_cache
+	  * is request-scoped (destroyed in RSHUTDOWN, and by Router::clear()), so a
+	  * cached zval* into it dangles as soon as either happens. The keys live in
+	  * the persistent route tree, i.e. they share the generation guard below, and
+	  * the closure itself is resolved at execute time (one hash lookup, only for
+	  * closure routes). NULL = absent. */
+	 const char *route_cl_key;  size_t route_cl_key_len;
+	 const char *before_cl_key; size_t before_cl_key_len;
+	 const char *after_cl_key;  size_t after_cl_key_len;
+	 const char *hook_cl_key;   size_t hook_cl_key_len;
 	 /* Owned persistent copy of the eval program (GENE_PC_EVAL only). */
 	 char *eval_str;
 	 size_t eval_len;
+	 /* [GENE_FIX:2026-09-07 PC-GEN] GENE_G(route_pc_generation) at the time this
+	  * descriptor was resolved. A mismatch means the route tree was rebuilt and
+	  * fn_cache wiped since (Router::clear()/delTree()/delEvent()), so
+	  * every borrowed pointer above is dangling and the descriptor must not run. */
+	 zend_ulong generation;
+	 /* Retire-list link, see GENE_G(route_pc_retired). */
+	 struct _gene_route_pc *retired_next;
  } gene_route_pc;
 
- static void gene_route_pc_dtor(zval *zv) {
-	 gene_route_pc *pc = (gene_route_pc *)Z_PTR_P(zv);
+ static void gene_route_pc_free(gene_route_pc *pc) {
 	 if (pc) {
 		 if (pc->eval_str) {
 			 pefree(pc->eval_str, 1);
@@ -791,12 +808,38 @@ static void gene_fn_cache_store(zval *closure, zval *fid_zv) {
 	 }
  }
 
+ /* [GENE_FIX:2026-09-07 PC-GEN] The table owns its descriptors but must never
+  * free one implicitly: an unlink triggered by a generation bump can race with a
+  * coroutine suspended inside gene_route_pc_execute() that still borrows the
+  * descriptor. The table therefore carries no dtor -- entries are freed only
+  * here, at MSHUTDOWN, when no dispatch can be in flight. */
  void gene_router_pc_destroy(void) {
+	 gene_route_pc *pc, *next;
 	 if (GENE_G(route_pc)) {
+		 zval *zv;
+		 ZEND_HASH_FOREACH_VAL(GENE_G(route_pc), zv) {
+			 gene_route_pc_free((gene_route_pc *)Z_PTR_P(zv));
+		 } ZEND_HASH_FOREACH_END();
 		 zend_hash_destroy(GENE_G(route_pc));
 		 pefree(GENE_G(route_pc), 1);
 		 GENE_G(route_pc) = NULL;
 	 }
+	 pc = (gene_route_pc *)GENE_G(route_pc_retired);
+	 while (pc) {
+		 next = pc->retired_next;
+		 gene_route_pc_free(pc);
+		 pc = next;
+	 }
+	 GENE_G(route_pc_retired) = NULL;
+	 GENE_G(route_pc_retired_count) = 0;
+ }
+
+ /* [GENE_FIX:2026-09-07 PC-GEN] Invalidate every precompiled descriptor in O(1).
+  * Called by the router methods that rebuild the tree or drop fn_cache. Live
+  * descriptors keep their now-stale generation and are unlinked lazily on their
+  * next lookup -- the only point where we know no caller is borrowing them. */
+ void gene_router_pc_invalidate(void) {
+	 GENE_G(route_pc_generation)++;
  }
 
  /* Resolve (leaf, cacheHook) into a descriptor. Mirrors get_router_info_slow()'s
@@ -895,11 +938,17 @@ static void gene_fn_cache_store(zval *closure, zval *fid_zv) {
 
 	 if (GENE_G(fn_cache)) {
 		 zval *frun = zend_hash_str_find(Z_ARRVAL_P(*leaf), "frun", 4);
+		 /* [GENE_FIX:2026-09-07 PC-GEN] The *_cl zvals below are only used to
+		  * validate that this leaf really is closure-dispatchable right now; what
+		  * gets recorded in the descriptor are the *_cl_key strings (the fn_cache
+		  * keys, which live in the persistent tree), never the fn_cache zval*. */
+		 zval *frun_key = NULL, *bfcl_key = NULL, *afcl_key = NULL, *hfcl_key = NULL;
 		 zval *route_cl = NULL, *before_cl = NULL, *after_cl = NULL, *hook_cl = NULL;
 		 int use_closure = 1;
 
 		 if (frun && Z_TYPE_P(frun) == IS_STRING) {
 			 route_cl = zend_hash_str_find(GENE_G(fn_cache), Z_STRVAL_P(frun), Z_STRLEN_P(frun));
+			 if (route_cl) frun_key = frun;
 		 }
 		 if (!route_cl && (!src || Z_TYPE_P(src) != IS_STRING || Z_STRLEN_P(src) == 0)) {
 			 use_closure = 0;
@@ -915,6 +964,7 @@ static void gene_fn_cache_store(zval *closure, zval *fid_zv) {
 						 if (bfcl && Z_TYPE_P(bfcl) == IS_STRING) {
 							 before_cl = zend_hash_str_find(GENE_G(fn_cache), Z_STRVAL_P(bfcl), Z_STRLEN_P(bfcl));
 							 if (!before_cl) use_closure = 0;
+							 else bfcl_key = bfcl;
 						 } else { use_closure = 0; }
 						 before_src = NULL;
 					 }
@@ -929,6 +979,7 @@ static void gene_fn_cache_store(zval *closure, zval *fid_zv) {
 						 if (afcl && Z_TYPE_P(afcl) == IS_STRING) {
 							 after_cl = zend_hash_str_find(GENE_G(fn_cache), Z_STRVAL_P(afcl), Z_STRLEN_P(afcl));
 							 if (!after_cl) use_closure = 0;
+							 else afcl_key = afcl;
 						 } else { use_closure = 0; }
 						 after_src = NULL;
 					 }
@@ -948,6 +999,7 @@ static void gene_fn_cache_store(zval *closure, zval *fid_zv) {
 					 if (hfcl && Z_TYPE_P(hfcl) == IS_STRING) {
 						 hook_cl = zend_hash_str_find(GENE_G(fn_cache), Z_STRVAL_P(hfcl), Z_STRLEN_P(hfcl));
 						 if (!hook_cl) use_closure = 0;
+						 else hfcl_key = hfcl;
 					 } else { use_closure = 0; }
 				 }
 			 }
@@ -957,14 +1009,15 @@ static void gene_fn_cache_store(zval *closure, zval *fid_zv) {
 			 pc->kind = GENE_PC_CLOSURE;
 			 pc->is_before = is_before;
 			 pc->is_after = is_after;
-			 pc->route_cl = route_cl;
 			 pc->src = (src && Z_TYPE_P(src) == IS_STRING && Z_STRLEN_P(src) > 0) ? Z_STRVAL_P(src) : NULL;
-			 pc->before_cl  = before_cl;
 			 pc->before_src = (before_src && Z_TYPE_P(before_src) == IS_STRING) ? Z_STRVAL_P(before_src) : NULL;
-			 pc->after_cl   = after_cl;
 			 pc->after_src  = (after_src && Z_TYPE_P(after_src) == IS_STRING) ? Z_STRVAL_P(after_src) : NULL;
-			 pc->hook_cl    = hook_cl;
 			 pc->hook_src   = (hook_src && Z_TYPE_P(hook_src) == IS_STRING) ? Z_STRVAL_P(hook_src) : NULL;
+			 /* Record fn_cache keys (persistent tree strings), not closure zvals. */
+			 if (frun_key) { pc->route_cl_key  = Z_STRVAL_P(frun_key); pc->route_cl_key_len  = Z_STRLEN_P(frun_key); }
+			 if (bfcl_key) { pc->before_cl_key = Z_STRVAL_P(bfcl_key); pc->before_cl_key_len = Z_STRLEN_P(bfcl_key); }
+			 if (afcl_key) { pc->after_cl_key  = Z_STRVAL_P(afcl_key); pc->after_cl_key_len  = Z_STRLEN_P(afcl_key); }
+			 if (hfcl_key) { pc->hook_cl_key   = Z_STRVAL_P(hfcl_key); pc->hook_cl_key_len   = Z_STRLEN_P(hfcl_key); }
 			 if (hookname_alloc) efree(hookname_alloc);
 			 return;
 		 }
@@ -1011,10 +1064,24 @@ static void gene_fn_cache_store(zval *closure, zval *fid_zv) {
 	 if (hookname_alloc) efree(hookname_alloc);
  }
 
+ /* [GENE_FIX:2026-09-07 PC-GEN] Resolve a recorded fn_cache key to its closure.
+  * NULL means "not recorded" for a NULL key, or "no longer available" (fn_cache
+  * was wiped and not repopulated) for a non-NULL one -- the caller distinguishes
+  * the two and bails out to the slow path in the latter case. */
+ static zend_always_inline zval *gene_route_pc_closure(const char *key, size_t key_len) {
+	 if (!key || !GENE_G(fn_cache)) {
+		 return NULL;
+	 }
+	 return zend_hash_str_find(GENE_G(fn_cache), key, key_len);
+ }
+
  /* Execute a precompiled descriptor. Behaviourally identical to the matching
-  * branch of get_router_info_slow(). */
+  * branch of get_router_info_slow(). Returns 1 on success, or -1 when the
+  * descriptor could not be executed at all (closure gone) and the caller must
+  * fall back to get_router_info_slow() -- in that case nothing has run yet. */
  static int gene_route_pc_execute(const gene_route_pc *pc) {
 	 zval dispatch_result;
+	 zval *route_cl = NULL, *before_cl = NULL, *after_cl = NULL, *hook_cl = NULL;
 
 	 if (pc->kind == GENE_PC_EVAL) {
 		 if (pc->eval_str && pc->eval_len > 0) {
@@ -1024,6 +1091,22 @@ static void gene_fn_cache_store(zval *closure, zval *fid_zv) {
 			 } zend_end_try();
 		 }
 		 return 1;
+	 }
+
+	 if (pc->kind == GENE_PC_CLOSURE) {
+		 /* Resolve every recorded closure BEFORE running anything, so a wiped
+		  * fn_cache degrades to a clean slow-path retry rather than a partially
+		  * executed hook chain. */
+		 route_cl  = gene_route_pc_closure(pc->route_cl_key,  pc->route_cl_key_len);
+		 before_cl = gene_route_pc_closure(pc->before_cl_key, pc->before_cl_key_len);
+		 after_cl  = gene_route_pc_closure(pc->after_cl_key,  pc->after_cl_key_len);
+		 hook_cl   = gene_route_pc_closure(pc->hook_cl_key,   pc->hook_cl_key_len);
+		 if (UNEXPECTED((pc->route_cl_key && !route_cl)
+				 || (pc->before_cl_key && !before_cl)
+				 || (pc->after_cl_key && !after_cl)
+				 || (pc->hook_cl_key && !hook_cl))) {
+			 return -1;
+		 }
 	 }
 
 	 ZVAL_NULL(&dispatch_result);
@@ -1047,27 +1130,27 @@ static void gene_fn_cache_store(zval *closure, zval *fid_zv) {
 		 }
 	 } else { /* GENE_PC_CLOSURE */
 		 if (pc->is_before) {
-			 if (pc->before_cl) {
-				 if (!gene_router_exec_closure_hook(pc->before_cl, NULL, 1)) goto pc_cleanup;
+			 if (before_cl) {
+				 if (!gene_router_exec_closure_hook(before_cl, NULL, 1)) goto pc_cleanup;
 			 } else if (pc->before_src) {
 				 if (!gene_router_exec_hook_direct((char *)pc->before_src, NULL, 1)) goto pc_cleanup;
 			 }
 		 }
-		 if (pc->hook_cl) {
-			 if (!gene_router_exec_closure_hook(pc->hook_cl, NULL, 1)) goto pc_cleanup;
+		 if (hook_cl) {
+			 if (!gene_router_exec_closure_hook(hook_cl, NULL, 1)) goto pc_cleanup;
 		 } else if (pc->hook_src) {
 			 if (!gene_router_exec_hook_direct((char *)pc->hook_src, NULL, 1)) goto pc_cleanup;
 		 }
 		 if (gene_app_stopped() || gene_request_ctx()->response_ended) goto pc_cleanup;
-		 if (pc->route_cl) {
-			 gene_router_dispatch_closure(pc->route_cl, &dispatch_result);
+		 if (route_cl) {
+			 gene_router_dispatch_closure(route_cl, &dispatch_result);
 		 } else if (pc->src) {
 			 gene_router_dispatch_direct((char *)pc->src, &dispatch_result);
 		 }
 		 if (gene_app_stopped() || gene_request_ctx()->response_ended) goto pc_cleanup;
 		 if (pc->is_after) {
-			 if (pc->after_cl) {
-				 gene_router_exec_closure_hook(pc->after_cl, &dispatch_result, 0);
+			 if (after_cl) {
+				 gene_router_exec_closure_hook(after_cl, &dispatch_result, 0);
 			 } else if (pc->after_src) {
 				 gene_router_exec_hook_direct((char *)pc->after_src, &dispatch_result, 0);
 			 }
@@ -1389,17 +1472,38 @@ static void gene_fn_cache_store(zval *closure, zval *fid_zv) {
 
 	 if (UNEXPECTED(!GENE_G(route_pc))) {
 		 PALLOC_HASHTABLE(GENE_G(route_pc));
-		 zend_hash_init(GENE_G(route_pc), 16, NULL, gene_route_pc_dtor, 1);
+		 /* No dtor by design -- see gene_router_pc_destroy(). */
+		 zend_hash_init(GENE_G(route_pc), 16, NULL, NULL, 1);
 	 }
 
 	 key = (zend_ulong)(uintptr_t)Z_ARRVAL_P(*leaf);
 	 pc = (gene_route_pc *)zend_hash_index_find_ptr(GENE_G(route_pc), key);
+	 if (pc && UNEXPECTED(pc->generation != GENE_G(route_pc_generation))) {
+		 /* [GENE_FIX:2026-09-07 PC-GEN] Stale descriptor: the tree/fn_cache were
+		  * rebuilt, so its borrowed leaf strings and closure zvals are dangling.
+		  * Unlink it (the table has no dtor, so nothing is freed here), move it to
+		  * the retire list for MSHUTDOWN, and serve this request from the slow
+		  * path. Note the leaf HashTable* key may have been recycled by a
+		  * different route, which is exactly why the address alone is not a valid
+		  * cache key across rebuilds. */
+		 zend_hash_index_del(GENE_G(route_pc), key);
+		 pc->retired_next = (gene_route_pc *)GENE_G(route_pc_retired);
+		 GENE_G(route_pc_retired) = pc;
+		 GENE_G(route_pc_retired_count)++;
+		 return get_router_info_slow(leaf, cacheHook);
+	 }
 	 if (!pc) {
 		 pc = (gene_route_pc *)pemalloc(sizeof(gene_route_pc), 1);
 		 gene_route_pc_resolve(leaf, cacheHook, pc);
+		 pc->generation = GENE_G(route_pc_generation);
+		 pc->retired_next = NULL;
 		 zend_hash_index_add_new_ptr(GENE_G(route_pc), key, pc);
 	 }
-	 return gene_route_pc_execute(pc);
+	 if (UNEXPECTED(gene_route_pc_execute(pc) < 0)) {
+		 /* Closure vanished (fn_cache wiped since resolve) -- nothing ran yet. */
+		 return get_router_info_slow(leaf, cacheHook);
+	 }
+	 return 1;
  }
  /* }}} */
 
@@ -3061,6 +3165,9 @@ PHP_METHOD(gene_router, __call) {
 	 char *router_e;
 	 char router_e_buf[256];
 	 int router_e_heap = 0;
+	 /* [GENE_FIX:2026-09-07 PC-GEN] Dropping the tree dangles the strings that
+	  * precompiled descriptors borrow -- invalidate them first. */
+	 gene_router_pc_invalidate();
 	 safe = zend_read_property(gene_router_ce, gene_strip_obj(self), GENE_ROUTER_SAFE, strlen(GENE_ROUTER_SAFE), 1, NULL);
 	 if (Z_STRLEN_P(safe)) {
 		 router_e_len = Z_STRLEN_P(safe) + strlen(GENE_ROUTER_ROUTER_TREE);
@@ -3099,6 +3206,8 @@ PHP_METHOD(gene_router, __call) {
 	 char *router_e;
 	 char router_e_buf[256];
 	 int router_e_heap = 0;
+	 /* [GENE_FIX:2026-09-07 PC-GEN] Hook/event array about to go away. */
+	 gene_router_pc_invalidate();
 	 safe = zend_read_property(gene_router_ce, gene_strip_obj(self), GENE_ROUTER_SAFE, strlen(GENE_ROUTER_SAFE), 1, NULL);
 	 if (Z_STRLEN_P(safe)) {
 		 router_e_len = Z_STRLEN_P(safe) + strlen(GENE_ROUTER_ROUTER_EVENT);
@@ -3230,6 +3339,10 @@ PHP_METHOD(gene_router, __call) {
 		 FREE_HASHTABLE(GENE_G(fn_cache));
 		 GENE_G(fn_cache) = NULL;
 	 }
+	 /* [GENE_FIX:2026-09-07 PC-GEN] The tree and event array we just dropped own
+	  * every string a precompiled descriptor borrows, so invalidate them all.
+	  * Cheap and unconditional: correctness must not depend on route_precompile. */
+	 gene_router_pc_invalidate();
 	 RETURN_ZVAL(self, 1, 0);
 }
 /* }}} */
