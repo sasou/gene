@@ -536,7 +536,9 @@ PHP_METHOD(gene_hook, json) {
 			php_write(ZEND_STRL(")"));
 		}
 		zval_ptr_dtor(&ret);
-		RETURN_TRUE;
+		gene_request_ctx()->response_ended = 1;
+		gene_app_stop();
+		RETURN_FALSE;
 	}
     zval_ptr_dtor(&ret);
     RETURN_FALSE;

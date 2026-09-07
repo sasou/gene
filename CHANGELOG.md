@@ -17,6 +17,9 @@
   - 未知 option 发 `E_NOTICE` 且不会转发到后端；curl 与 Swoole 后端共用 query/urlencoded 编码语义。
 - **`Gene\Request::input()`**：按 GET → POST → JSON 顺序合并输入，后者覆盖前者。仅在媒体类型为 `application/json` 或 `application/*+json` 且 body 非空时解析 JSON；顶层必须是对象，非法 JSON 或其他顶层类型抛异常。`input()` 与 `json()` 共享每请求解析缓存，`init()`、`clear()`、Request 快照恢复及请求上下文销毁会同步失效或释放缓存；`rawContent()` 保留原始字节。Controller 与 Hook 提供同签名代理。
 - **`Gene\Context::has()`**：区分键不存在与键存在但值为 `null`。
+- **Hook 生命周期终止语义**：新增 `Hook::abort()`、`Hook::respond()`、`Response::isEnded()` 和请求级 ended 状态；redirect/json/end/sendFile 会显式标记终止，Router 保留 false/0 兼容语义且不会继续执行 Controller，cleanup 自动重置。
+- **组级可组合 Hook**：Router 新增 `through()`、`withoutHooks()`、`withoutBefore()`、`withoutAfter()`；嵌套组继承并可追加命名 Hook，顺序稳定，任一 Hook 中止后停止整条链。旧 route `hook@clearAfter` 字符串继续兼容。
+- **标准 request-id 策略**：`Application::requestId()` 默认关闭；启用后大小写不敏感读取可信 header，校验可见 ASCII 和长度，非法/缺失时调用 `Crypto::randomId()` 生成，只写 `Context['request_id']` 并回写响应头。
 
 ### 🐞 修复与兼容性调整
 

@@ -253,6 +253,26 @@ class Router
 
     }
 
+    /** Append registered named hooks to the active group policy. */
+    public function through(array $hooks) {
+
+    }
+
+    /** Clear inherited named hooks for the active group. */
+    public function withoutHooks() {
+
+    }
+
+    /** Disable the global before phase for routes registered in this group. */
+    public function withoutBefore() {
+
+    }
+
+    /** Disable the global after phase for routes registered in this group. */
+    public function withoutAfter() {
+
+    }
+
     /**
      * lang
      *

@@ -1415,6 +1415,14 @@ PHP_METHOD(gene_application, requestId) {
 		return;
 	}
 	if (config) {
+		zval *v = zend_hash_str_find(Z_ARRVAL_P(config), ZEND_STRL("header"));
+		if (v && (Z_TYPE_P(v) != IS_STRING || Z_STRLEN_P(v) == 0 || Z_STRLEN_P(v) > 250 || memchr(Z_STRVAL_P(v), ':', Z_STRLEN_P(v)) || memchr(Z_STRVAL_P(v), '\r', Z_STRLEN_P(v)) || memchr(Z_STRVAL_P(v), '\n', Z_STRLEN_P(v)))) {
+			zend_argument_value_error(1, "header must be a non-empty HTTP header name"); RETURN_THROWS();
+		}
+		v = zend_hash_str_find(Z_ARRVAL_P(config), ZEND_STRL("bytes"));
+		if (v && (Z_TYPE_P(v) != IS_LONG || Z_LVAL_P(v) < 1 || Z_LVAL_P(v) > 64)) { zend_argument_value_error(1, "bytes must be between 1 and 64"); RETURN_THROWS(); }
+		v = zend_hash_str_find(Z_ARRVAL_P(config), ZEND_STRL("max_length"));
+		if (v && (Z_TYPE_P(v) != IS_LONG || Z_LVAL_P(v) < 1 || Z_LVAL_P(v) > 4096)) { zend_argument_value_error(1, "max_length must be between 1 and 4096"); RETURN_THROWS(); }
 		zend_update_static_property(gene_application_ce, ZEND_STRL(GENE_APPLICATION_REQUEST_ID_CONFIG), config);
 	} else {
 		ZVAL_FALSE(&disabled);
@@ -1443,13 +1451,20 @@ static void gene_application_apply_request_id(void) {
 	v = zend_hash_str_find(Z_ARRVAL_P(config), ZEND_STRL("trust"));
 	if (v) trust = zend_is_true(v);
 	if (trust && header_len + 5 < sizeof(server_key)) {
-		zval *incoming;
+		zval *incoming = NULL, *headers = getVal(7, NULL, 0);
+		if (headers && Z_TYPE_P(headers) == IS_ARRAY) {
+			zend_string *key;
+			zval *candidate;
+			ZEND_HASH_FOREACH_STR_KEY_VAL(Z_ARRVAL_P(headers), key, candidate) {
+				if (key && ZSTR_LEN(key) == header_len && strncasecmp(ZSTR_VAL(key), header, header_len) == 0) { incoming = candidate; break; }
+			} ZEND_HASH_FOREACH_END();
+		}
 		memcpy(server_key, "HTTP_", 5);
 		for (i = 0; i < header_len; i++) {
 			unsigned char c = (unsigned char)header[i];
 			server_key[i + 5] = c == '-' ? '_' : (char)toupper(c);
 		}
-		incoming = request_query(TRACK_VARS_SERVER, server_key, header_len + 5);
+		if (!incoming) incoming = request_query(TRACK_VARS_SERVER, server_key, header_len + 5);
 		if (incoming && Z_TYPE_P(incoming) == IS_STRING && Z_STRLEN_P(incoming) <= (size_t)max_length) {
 			const unsigned char *p = (const unsigned char *)Z_STRVAL_P(incoming);
 			for (i = 0; i < Z_STRLEN_P(incoming) && p[i] >= 0x21 && p[i] <= 0x7e; i++) {}
