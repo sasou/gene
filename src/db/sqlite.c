@@ -182,7 +182,7 @@ void sqlite_reset_sql_params(zval *self)
     zend_update_property_null(gene_db_sqlite_ce, gene_strip_obj(self), ZEND_STRL(GENE_DB_SQLITE_DATA));
 }
 
-void sqliteSaveHistory(smart_str *sql, zval *param, struct timeval *start, struct timeval *end, zend_long *mem_start, zend_long *mem_end) {
+void sqliteSaveHistory(smart_str *sql, zval *param, uint64_t *start, uint64_t *end, zend_long *mem_start, zend_long *mem_end) {
 	zval *history = &GENE_REQ(db_sqlite_history);
 	zval params, z_row, z_sql, z_data, z_time, z_memory;
 	char *char_t,*char_m;
@@ -302,7 +302,7 @@ bool gene_sqlite_pdo_execute (zval *self, zval *statement)
 	zval *pdo_object = NULL, *params = NULL, *pdo_sql = NULL, *pdo_join = NULL, *pdo_where = NULL, *pdo_group = NULL,*pdo_having = NULL, *pdo_union = NULL,*pdo_order = NULL, *pdo_limit = NULL, *pdo_lock = NULL;
 	zval retval;
 	smart_str sql = {0};
-	struct timeval db_start, db_end;
+	uint64_t db_start = 0, db_end = 0;
 	zend_long db_sqlite_memory_start = 0, db_sqlite_memory_end = 0;
 
 	pdo_object = zend_read_property(gene_db_sqlite_ce, gene_strip_obj(self), ZEND_STRL(GENE_DB_SQLITE_PDO), 1, NULL);
