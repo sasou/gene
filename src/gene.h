@@ -266,12 +266,14 @@ static inline uint64_t gene_hrtime(void) {
  bool view_compile;
  bool view_compile_check_mtime;
  HashTable *cache;
+ HashTable *business_cache;
  HashTable *cache_easy;
  /* [GENE_FIX:2026-08-07] Per-key expiry (unix ts) for userland Memory::set
   * TTL. The main cache stores bare values, so expiry lives in this parallel
   * persistent table; reads check it under the same cache lock and treat
   * expired keys as missing (lazy delete). */
  HashTable *cache_expiry;
+ HashTable *business_cache_expiry;
  /* [GENE_MEM:2026-06-19 M1] Approximate-LRU tracking set for the Gene\Cache
   * business partition (writes bracketed by cache_layer_memory_write_depth>0).
   * Insertion-ordered set of persistent key copies (least→most recently set);
@@ -296,6 +298,7 @@ zend_ulong cache_insert_refused;
  * sound while the table is truly write-once. */
 zend_bool cache_business_dirty;
 gene_rwlock_t cache_lock;
+gene_rwlock_t business_cache_lock;
  gene_request_context default_ctx;
  gene_request_context *resident_ctx;
  HashTable *co_contexts;
@@ -433,15 +436,19 @@ zend_long forward_depth;
 zend_ulong redis_pool_cas_abandoned;
 zend_bool redis_pool_cas_warned;
 /* [GENE_AUDIT:2026-08-06 C1] DB Pool CAS decrement abandonment counter.
- * pool_decrement_count() gives up after 64 CAS rounds (same semantics as the
- * RedisPool counter above); counted here, exported via Gene\Monitor::stats
- * as db_pool_cas_abandoned, warned once via the same once pattern. */
+ * Retained as a compatibility metric; symmetric Atomic::sub() decrements no
+ * longer abandon and therefore leave this counter at zero. */
 zend_ulong db_pool_cas_abandoned;
 zend_bool db_pool_cas_warned;
 /* [GENE_FEATURE:2026-08-06 F1-7] Pool acquisition timeouts (blocking pop
  * exhausted waitTimeout and fell through to overflow/NULL) and userland
  * Gene\Memory::get() hit/miss counters. Exported via Gene\Monitor::stats. */
 zend_ulong db_pool_get_timeout;
+zend_ulong redis_pool_get_timeout;
+zend_ulong db_pool_idle_miss;
+zend_ulong redis_pool_idle_miss;
+zend_ulong db_pool_pid_mismatch;
+zend_ulong redis_pool_pid_mismatch;
 zend_ulong memory_cache_hit;
 zend_ulong memory_cache_miss;
 /* [GENE_FIX:2026-08-07-5 N3] Write counter driving the sampling sweep of the

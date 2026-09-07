@@ -23,6 +23,11 @@
  #include "main/SAPI.h"
  #include "Zend/zend_API.h"
  #include "zend_exceptions.h"
+#ifdef PHP_WIN32
+#include <process.h>
+#else
+#include <unistd.h>
+#endif
   
  #include "../gene.h"
  #include "../factory/factory.h"
@@ -516,98 +521,10 @@ static void pool_start_idle_recycler(zval *self)
      pool_atomic_call_fn((atomic), _pa_fn, (arg), (retval));                                  \
  } while (0)
  
- /* [GENE_AUDIT:2026-08-06 C1] CAS-based atomic decrement using cmpset.
-  * The previous get→sub sequence had a TOCTOU race when the same Atomic is
-  * shared across worker processes (pool created before Server::start() and
-  * inherited via fork): two processes could both read val==1 and both sub,
-  * underflowing the counter to -1 and distorting pool capacity logic
-  * (auto-shrink in put(), capacity check in get()). This mirrors the
-  * redis_pool.c fix of 2026-07-03 (rpool_atomic_cmpset + 64-round CAS loop
-  * + telemetry), symmetrically applied to the DB pool. */
- static zend_bool pool_atomic_cmpset(zval *atomic, zend_function *fn_cmpset, zend_long old_val, zend_long new_val) {
-     if (!fn_cmpset) return 0;
-     zval params[2], ret;
-     ZVAL_LONG(&params[0], old_val);
-     ZVAL_LONG(&params[1], new_val);
-     ZVAL_UNDEF(&ret);
-     zend_call_known_function(fn_cmpset, Z_OBJ_P(atomic), Z_OBJCE_P(atomic), &ret, 2, params, NULL);
-     zend_bool ok = (Z_TYPE(ret) == IS_TRUE);
-     if (!Z_ISUNDEF(ret)) zval_ptr_dtor(&ret);
-     return ok;
- }
-
- /* Resolve Atomic::get / Atomic::cmpset once per process (internal class,
-  * process-lifetime — safe to cache, same convention as redis_pool.c). */
- static zend_bool pool_count_cas_fns(zval *atomic, zend_function **fn_get, zend_function **fn_cmpset) {
-     static zend_function *s_get = NULL;
-     static zend_function *s_cmpset = NULL;
-     if (UNEXPECTED(!s_get)) {
-         s_get = zend_hash_str_find_ptr(&Z_OBJCE_P(atomic)->function_table, ZEND_STRL("get"));
-         s_cmpset = zend_hash_str_find_ptr(&Z_OBJCE_P(atomic)->function_table, ZEND_STRL("cmpset"));
-     }
-     *fn_get = s_get;
-     *fn_cmpset = s_cmpset;
-     return (s_get && s_cmpset);
- }
-
- /* CAS loop: read val, if >0 atomically set val-1, retry on contention.
-  * `known_val` is a caller-supplied fresh reading (>= 0) that lets put()
-  * reuse a single Atomic::get for both the overflow check and the decrement
-  * ([GENE_PERF:2026-08-06 PF1]); pass -1 to read fresh. A stale known_val is
-  * safe: a failed cmpset forces a re-read on the next round. */
- static void pool_decrement_count_cas(zval *atomic, zend_function *fn_get, zend_function *fn_cmpset, zend_long known_val) {
-     int rounds = 0;
-     zend_bool abandoned = 1;
-     zend_long val = known_val;
-     while (rounds++ < 64) {
-         if (val < 0) {
-             zval ret;
-             ZVAL_UNDEF(&ret);
-             pool_atomic_call_fn(atomic, fn_get, 0, &ret);
-             val = (Z_TYPE(ret) == IS_LONG) ? Z_LVAL(ret) : 0;
-             if (!Z_ISUNDEF(ret)) zval_ptr_dtor(&ret);
-         }
-         if (val <= 0) { abandoned = 0; break; }
-         if (pool_atomic_cmpset(atomic, fn_cmpset, val, val - 1)) { abandoned = 0; break; }
-         /* cmpset failed — another coroutine/process raced us; re-read and retry */
-         val = -1;
-     }
-     if (abandoned) {
-         /* [GENE_AUDIT:2026-08-06 C1] 64 CAS rounds exhausted: the counter
-          * stays one higher than reality. Under Swoole's cooperative
-          * scheduling Atomic get/cmpset never yields, so this is practically
-          * unreachable — a defense gap, not a live bug. Count it (exported
-          * as db_pool_cas_abandoned in Gene\Monitor::stats) and warn once
-          * via the co_contexts_cap_warned-style once pattern. */
-         if (GENE_G(db_pool_cas_abandoned) == 0 && !GENE_G(db_pool_cas_warned)) {
-             php_error_docref(NULL, E_WARNING,
-                 "Gene: DB Pool count CAS decrement abandoned after 64 rounds; "
-                 "counter may read high (see Gene\\Monitor::stats db_pool_cas_abandoned)");
-             GENE_G(db_pool_cas_warned) = 1;
-         }
-         GENE_G(db_pool_cas_abandoned)++;
-     }
- }
-
  static void pool_decrement_count(zval *self) {
      zval *atomic = zend_read_property(gene_pool_ce, gene_strip_obj(self), ZEND_STRL(GENE_POOL_PROPERTY_COUNT), 1, NULL);
      if (atomic && Z_TYPE_P(atomic) == IS_OBJECT) {
-         zend_function *fn_get = NULL, *fn_cmpset = NULL;
-         if (pool_count_cas_fns(atomic, &fn_get, &fn_cmpset)) {
-             pool_decrement_count_cas(atomic, fn_get, fn_cmpset, -1);
-             return;
-         }
-         /* Fallback: cmpset unavailable (stubbed Atomic) — legacy get→sub. */
-         {
-             zval ret;
-             ZVAL_UNDEF(&ret);
-             POOL_ATOMIC_CALL(atomic, "get", 0, &ret);
-             zend_long val = (Z_TYPE(ret) == IS_LONG) ? Z_LVAL(ret) : 0;
-             if (!Z_ISUNDEF(ret)) zval_ptr_dtor(&ret);
-             if (val > 0) {
-                 POOL_ATOMIC_CALL(atomic, "sub", 1, NULL);
-             }
-         }
+         POOL_ATOMIC_CALL(atomic, "sub", 1, NULL);
      }
  }
 
@@ -652,6 +569,25 @@ static void pool_start_idle_recycler(zval *self)
  static bool pool_is_closed(zval *self) {
      zval *closed = zend_read_property(gene_pool_ce, gene_strip_obj(self), ZEND_STRL(GENE_POOL_PROPERTY_CLOSED), 1, NULL);
      return (closed && Z_TYPE_P(closed) == IS_TRUE);
+ }
+
+ static zend_long pool_current_pid(void) {
+#ifdef PHP_WIN32
+     return (zend_long)_getpid();
+#else
+     return (zend_long)getpid();
+#endif
+ }
+
+ static bool pool_pid_valid(zval *self) {
+     zval *creator = zend_read_property(gene_pool_ce, gene_strip_obj(self), ZEND_STRL(GENE_POOL_PROPERTY_CREATOR_PID), 1, NULL);
+     zend_long current = pool_current_pid();
+     if (creator && Z_TYPE_P(creator) == IS_LONG && Z_LVAL_P(creator) == current) return true;
+     GENE_G(db_pool_pid_mismatch)++;
+     php_error_docref(NULL, E_WARNING,
+         "Gene\\Pool cannot be used across fork boundaries (creator PID=%ld, current PID=%ld); create pools inside WorkerStart",
+         (long)((creator && Z_TYPE_P(creator) == IS_LONG) ? Z_LVAL_P(creator) : 0), (long)current);
+     return false;
  }
   
  static double pool_get_wait_timeout(zval *self) {
@@ -719,6 +655,8 @@ static zend_long pool_increment_count_get(zval *self) {
   
  static void pool_recycle_idle(zval *self) {
      zval *channel, *idle_zv;
+
+     if (!pool_pid_valid(self)) return;
      zend_long now, idle_timeout, size, i;
      zval item, *conn_zv, *last_used_zv;
   
@@ -753,6 +691,10 @@ static zend_long pool_increment_count_get(zval *self) {
         if (!pool_channel_pop(channel, 0.001, &item)) {
             break;
         }
+        if (pool_is_closed(self)) {
+            zval_ptr_dtor(&item);
+            return;
+        }
         if (Z_TYPE(item) != IS_ARRAY) {
             zval_ptr_dtor(&item);
             continue;
@@ -774,8 +716,18 @@ static zend_long pool_increment_count_get(zval *self) {
 
         /* Connection is still needed - check alive and push back immediately */
         if (conn_zv && Z_TYPE_P(conn_zv) == IS_OBJECT) {
-            if (pool_is_alive(conn_zv)) {
-                if (!pool_channel_push(channel, conn_zv)) {
+            bool alive = pool_is_alive(conn_zv);
+            if (pool_is_closed(self)) {
+                zval_ptr_dtor(&item);
+                return;
+            }
+            if (alive) {
+                bool pushed = pool_channel_push(channel, conn_zv);
+                if (pool_is_closed(self)) {
+                    zval_ptr_dtor(&item);
+                    return;
+                }
+                if (!pushed) {
                     pool_decrement_count(self);
                     count_cached--;
                 }
@@ -788,11 +740,20 @@ static zend_long pool_increment_count_get(zval *self) {
     }
 
     /* Refill to minimum */
-    while (count_cached < min_cached && !pool_channel_is_full(channel)) {
+    while (!pool_is_closed(self) && count_cached < min_cached && !pool_channel_is_full(channel)) {
         zval conn;
         pool_create_connection(self, &conn);
+        if (pool_is_closed(self)) {
+            if (Z_TYPE(conn) == IS_OBJECT) zval_ptr_dtor(&conn);
+            return;
+        }
         if (Z_TYPE(conn) == IS_OBJECT) {
-            if (pool_channel_push(channel, &conn)) {
+            bool pushed = pool_channel_push(channel, &conn);
+            if (pool_is_closed(self)) {
+                zval_ptr_dtor(&conn);
+                return;
+            }
+            if (pushed) {
                 pool_increment_count(self);
                 count_cached++;
             }
@@ -807,6 +768,10 @@ PHP_METHOD(gene_pool, get)
 {
     zval *self = getThis();
     zval *channel;
+
+    if (!pool_pid_valid(self)) {
+        RETURN_NULL();
+    }
     zend_long retries = 0;
     zend_long max_retries;
 
@@ -822,11 +787,18 @@ PHP_METHOD(gene_pool, get)
     max_retries = pool_get_max(self) + 2;
 
     while (retries < max_retries) {
-        /* 1. Try to pop from idle queue (non-blocking).
-         *    Skip isEmpty() check to avoid TOCTOU race — just pop directly. */
+        /* 1. Try to pop from the idle queue only when it is non-empty. No
+         * coroutine yield occurs between isEmpty() and pop(), so another
+         * borrower cannot consume the item in that interval. */
         {
             zval item;
-            if (pool_channel_pop(channel, 0.001, &item)) {
+            bool idle_empty = pool_channel_is_empty(channel);
+            if (idle_empty) GENE_G(db_pool_idle_miss)++;
+            if (!idle_empty && pool_channel_pop(channel, 0.001, &item)) {
+                if (pool_is_closed(self)) {
+                    zval_ptr_dtor(&item);
+                    RETURN_NULL();
+                }
                 if (Z_TYPE(item) == IS_ARRAY) {
                     /* [GENE_PERF:2026-04-26] packed indexed array: idx 0 = conn */
                     zval *conn = zend_hash_index_find(Z_ARRVAL(item), 0);
@@ -849,10 +821,24 @@ PHP_METHOD(gene_pool, get)
          *    Swoole\Atomic::add(1) returns the post-increment value atomically,
          *    so two coroutines cannot both see count<=max for the same slot. */
         {
-            zend_long new_count = pool_increment_count_get(self);
+            zend_long new_count;
+            if (pool_is_closed(self)) {
+                RETURN_NULL();
+            }
+            new_count = pool_increment_count_get(self);
+            if (pool_is_closed(self)) {
+                pool_decrement_count_unchecked(self);
+                RETURN_NULL();
+            }
             if (new_count <= pool_get_max(self)) {
                 zval conn;
                 pool_create_connection(self, &conn);
+                if (pool_is_closed(self)) {
+                    if (Z_TYPE(conn) == IS_OBJECT) zval_ptr_dtor(&conn);
+                    zval *live_channel = zend_read_property(gene_pool_ce, gene_strip_obj(self), ZEND_STRL(GENE_POOL_PROPERTY_CHANNEL), 1, NULL);
+                    if (live_channel && Z_TYPE_P(live_channel) == IS_OBJECT) pool_decrement_count_unchecked(self);
+                    RETURN_NULL();
+                }
                 if (Z_TYPE(conn) == IS_OBJECT) {
                     RETURN_ZVAL(&conn, 0, 0);
                 }
@@ -867,6 +853,10 @@ PHP_METHOD(gene_pool, get)
         {
             zval item;
             if (pool_channel_pop(channel, pool_get_wait_timeout(self), &item)) {
+                if (pool_is_closed(self)) {
+                    zval_ptr_dtor(&item);
+                    RETURN_NULL();
+                }
                 if (Z_TYPE(item) == IS_ARRAY) {
                     /* [GENE_PERF:2026-04-26] packed indexed array: idx 0 = conn */
                     zval *conn = zend_hash_index_find(Z_ARRVAL(item), 0);
@@ -880,6 +870,9 @@ PHP_METHOD(gene_pool, get)
                 retries++;
                 continue;
             }
+            if (pool_is_closed(self)) {
+                RETURN_NULL();
+            }
             /* Timeout — create an overflow connection to prevent caller exception.
              * The overflow is tracked by currentCount (exceeds max).
              * When returned via put(), excess connections are auto-discarded
@@ -887,10 +880,23 @@ PHP_METHOD(gene_pool, get)
              * [GENE_FEATURE:2026-08-06 F1-7] Count pool acquisition timeouts
              * (exported as db_pool_get_timeout in Gene\Monitor::stats). */
             GENE_G(db_pool_get_timeout)++;
+            if (pool_is_closed(self)) {
+                RETURN_NULL();
+            }
             pool_increment_count(self);
+            if (pool_is_closed(self)) {
+                pool_decrement_count_unchecked(self);
+                RETURN_NULL();
+            }
             {
                 zval overflow_conn;
                 pool_create_connection(self, &overflow_conn);
+                if (pool_is_closed(self)) {
+                    zval *live_channel = zend_read_property(gene_pool_ce, gene_strip_obj(self), ZEND_STRL(GENE_POOL_PROPERTY_CHANNEL), 1, NULL);
+                    if (Z_TYPE(overflow_conn) == IS_OBJECT) zval_ptr_dtor(&overflow_conn);
+                    if (live_channel && Z_TYPE_P(live_channel) == IS_OBJECT) pool_decrement_count_unchecked(self);
+                    RETURN_NULL();
+                }
                 if (Z_TYPE(overflow_conn) == IS_OBJECT) {
                     php_error_docref(NULL, E_NOTICE,
                         "Gene\\Pool: pool exhausted (max=%ld, current=%ld), created overflow connection",
@@ -920,8 +926,11 @@ PHP_METHOD(gene_pool, get)
          return;
      }
   
+     if (!pool_pid_valid(self)) {
+         return;
+     }
+
      if (pool_is_closed(self)) {
-         pool_decrement_count(self);
          return;
      }
   
@@ -934,45 +943,18 @@ PHP_METHOD(gene_pool, get)
      /* Skip liveness check — dead connections are caught by recycleIdle().
      * Avoiding PDO::getAttribute() saves one network RT per put(). */
 
-    /* Auto-shrink overflow: if currentCount exceeds max, discard this
-      * connection instead of pushing it back. This naturally heals the
-      * pool after overflow connections (created when pool was exhausted)
-      * are returned.
-      *
-      * [GENE_PERF:2026-08-06 PF1] Single Atomic::get shared by the overflow
-      * check and the CAS decrement — the previous shape cost up to 3
-      * zend_call_known_function crossings per put() (get here + get+sub in
-      * pool_decrement_count); now 1~2. A stale reading is safe: a failed
-      * cmpset re-reads and retries (see pool_decrement_count_cas). */
-     {
-         zval *atomic = zend_read_property(gene_pool_ce, gene_strip_obj(self), ZEND_STRL(GENE_POOL_PROPERTY_COUNT), 1, NULL);
-         zend_function *fn_get = NULL, *fn_cmpset = NULL;
-         if (atomic && Z_TYPE_P(atomic) == IS_OBJECT && pool_count_cas_fns(atomic, &fn_get, &fn_cmpset)) {
-             zval ret;
-             zend_long cur;
-             ZVAL_UNDEF(&ret);
-             pool_atomic_call_fn(atomic, fn_get, 0, &ret);
-             cur = (Z_TYPE(ret) == IS_LONG) ? Z_LVAL(ret) : 0;
-             if (!Z_ISUNDEF(ret)) zval_ptr_dtor(&ret);
-             if (cur > pool_get_max(self)) {
-                 pool_decrement_count_cas(atomic, fn_get, fn_cmpset, cur);
-                 return;
-             }
-             if (!pool_channel_push(channel, pdo)) {
-                 /* Channel is full or push failed */
-                 pool_decrement_count_cas(atomic, fn_get, fn_cmpset, cur);
-             }
-             return;
-         }
-     }
-     /* Fallback: Atomic/cmpset unavailable (non-Swoole or stubbed Atomic). */
-     if (pool_get_count(self) > pool_get_max(self)) {
-         pool_decrement_count(self);
-         return;
-     }
-     if (!pool_channel_push(channel, pdo)) {
-         pool_decrement_count(self);
-     }
+    /* Auto-shrink overflow with the decrement symmetric to the successful
+     * reservation/overflow increment. Pool objects are PID-bound, so no
+     * inherited worker can mutate this counter. */
+    if (pool_get_count(self) > pool_get_max(self)) {
+        pool_decrement_count(self);
+        return;
+    }
+    {
+        bool pushed = pool_channel_push(channel, pdo);
+        if (pool_is_closed(self)) return;
+        if (!pushed) pool_decrement_count(self);
+    }
  }
  /* }}} */
  
@@ -981,6 +963,7 @@ PHP_METHOD(gene_pool, get)
   */
  PHP_METHOD(gene_pool, remove)
  {
+     if (!pool_pid_valid(getThis()) || pool_is_closed(getThis())) return;
      pool_decrement_count(getThis());
  }
  /* }}} */
@@ -990,6 +973,8 @@ PHP_METHOD(gene_pool, get)
  PHP_METHOD(gene_pool, close)
  {
      zval *self = getThis();
+
+     if (!pool_pid_valid(self)) return;
  
      /* Mark as closed and stop timer (idempotent — safe to call multiple times).
       * closeAll() marks pools closed before calling close(), so we must NOT
@@ -1100,7 +1085,7 @@ PHP_METHOD(gene_pool, get)
      zval *channel;
      zend_long size, i, alive = 0, dead = 0;
 
-     if (pool_is_closed(self)) {
+     if (!pool_pid_valid(self) || pool_is_closed(self)) {
          RETURN_FALSE;
      }
 
@@ -1153,7 +1138,7 @@ PHP_METHOD(gene_pool, get)
           * avoiding a race where pool A's close() yields (during channel drain)
           * and a coroutine borrows from pool B before B is closed. */
          ZEND_HASH_FOREACH_VAL(Z_ARRVAL_P(instances), pool) {
-             if (Z_TYPE_P(pool) == IS_OBJECT && !pool_is_closed(pool)) {
+             if (Z_TYPE_P(pool) == IS_OBJECT && pool_pid_valid(pool) && !pool_is_closed(pool)) {
                  zend_update_property_bool(gene_pool_ce, gene_strip_obj(pool),
                      ZEND_STRL(GENE_POOL_PROPERTY_CLOSED), 1);
                  pool_stop_timer(pool);
@@ -1217,7 +1202,7 @@ PHP_METHOD(gene_pool, get)
      if (instances && Z_TYPE_P(instances) == IS_ARRAY) {
          zval *pool;
          ZEND_HASH_FOREACH_VAL(Z_ARRVAL_P(instances), pool) {
-             if (Z_TYPE_P(pool) == IS_OBJECT) {
+             if (Z_TYPE_P(pool) == IS_OBJECT && pool_pid_valid(pool)) {
                  pool_stop_timer(pool);
              }
          } ZEND_HASH_FOREACH_END();
@@ -1231,6 +1216,7 @@ PHP_METHOD(gene_pool, get)
  PHP_METHOD(gene_pool, stats)
  {
      zval *self = getThis();
+     if (!pool_pid_valid(self)) RETURN_FALSE;
      zval *channel = zend_read_property(gene_pool_ce, gene_strip_obj(self), ZEND_STRL(GENE_POOL_PROPERTY_CHANNEL), 1, NULL);
      zend_long count = pool_get_count(self);
      zend_long idle = (channel && Z_TYPE_P(channel) == IS_OBJECT) ? pool_channel_length(channel) : 0;
@@ -1337,6 +1323,11 @@ PHP_METHOD(gene_pool, get)
      zend_update_property_double(gene_pool_ce, gene_strip_obj(self), ZEND_STRL(GENE_POOL_PROPERTY_WAIT_TIME), wait_time);
      zend_update_property_long(gene_pool_ce, gene_strip_obj(self), ZEND_STRL(GENE_POOL_PROPERTY_TIMER_ID), 0);
      zend_update_property_bool(gene_pool_ce, gene_strip_obj(self), ZEND_STRL(GENE_POOL_PROPERTY_CLOSED), 0);
+     zend_update_property_long(gene_pool_ce, gene_strip_obj(self), ZEND_STRL(GENE_POOL_PROPERTY_CREATOR_PID), pool_current_pid());
+
+     /* Match RedisPool and the configured min contract for direct construction;
+      * create() uses this same constructor and must not fill a second time. */
+     pool_fill(self);
 
      /* [GENE_FIX:2026-04-27] Start the idle-recycler timer in Swoole mode so
       * dead/idle PDO connections are reaped periodically. No-op for FPM/CLI. */
@@ -1507,8 +1498,6 @@ PHP_METHOD(gene_pool, get)
         gene_pool_named_cache_put(name, Z_OBJ_P(return_value));
     }
 
-    /* Fill pool to minimum size */
-    pool_fill(return_value);
  }
  /* }}} */
 
@@ -1664,9 +1653,12 @@ PHP_METHOD(gene_pool, get)
  }
   
  /* ====================== Method table ====================== */
+
+ PHP_METHOD(gene_pool, __clone) {}
   
  const zend_function_entry gene_pool_methods[] = {
      PHP_ME(gene_pool, __construct, gene_pool_construct_arginfo, ZEND_ACC_PUBLIC)
+     PHP_ME(gene_pool, __clone, gene_pool_void_arginfo, ZEND_ACC_PRIVATE)
      PHP_ME(gene_pool, __destruct, gene_pool_void_arginfo, ZEND_ACC_PUBLIC)
      PHP_ME(gene_pool, create, gene_pool_create_arginfo, ZEND_ACC_PUBLIC|ZEND_ACC_STATIC)
      PHP_ME(gene_pool, getInstance, gene_pool_get_instance_arginfo, ZEND_ACC_PUBLIC|ZEND_ACC_STATIC)
@@ -1689,7 +1681,7 @@ PHP_METHOD(gene_pool, get)
      zend_class_entry gene_pool;
      GENE_INIT_CLASS_ENTRY(gene_pool, "Gene_Pool", "Gene\\Pool", gene_pool_methods);
      gene_pool_ce = zend_register_internal_class_ex(&gene_pool, NULL);
-     gene_pool_ce->ce_flags |= ZEND_ACC_FINAL;
+     gene_pool_ce->ce_flags |= ZEND_ACC_FINAL | ZEND_ACC_NOT_SERIALIZABLE;
  #if PHP_VERSION_ID >= 80200
      gene_pool_ce->ce_flags |= ZEND_ACC_ALLOW_DYNAMIC_PROPERTIES;
  #endif
@@ -1703,6 +1695,7 @@ PHP_METHOD(gene_pool, get)
      zend_declare_property_null(gene_pool_ce, ZEND_STRL(GENE_POOL_PROPERTY_COUNT), ZEND_ACC_PROTECTED);
      zend_declare_property_long(gene_pool_ce, ZEND_STRL(GENE_POOL_PROPERTY_TIMER_ID), 0, ZEND_ACC_PROTECTED);
      zend_declare_property_bool(gene_pool_ce, ZEND_STRL(GENE_POOL_PROPERTY_CLOSED), 0, ZEND_ACC_PROTECTED);
+     zend_declare_property_long(gene_pool_ce, ZEND_STRL(GENE_POOL_PROPERTY_CREATOR_PID), 0, ZEND_ACC_PROTECTED);
   
      /* Static property: instances registry */
      zend_declare_property_null(gene_pool_ce, ZEND_STRL(GENE_POOL_PROPERTY_INSTANCES), ZEND_ACC_PROTECTED | ZEND_ACC_STATIC);

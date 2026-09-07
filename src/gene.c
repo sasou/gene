@@ -1306,6 +1306,11 @@ static void php_gene_init_globals() {
 	GENE_G(db_pool_cas_warned) = 0;
 	/* [GENE_FEATURE:2026-08-06 F1-7] */
 	GENE_G(db_pool_get_timeout) = 0;
+	GENE_G(redis_pool_get_timeout) = 0;
+	GENE_G(db_pool_idle_miss) = 0;
+	GENE_G(redis_pool_idle_miss) = 0;
+	GENE_G(db_pool_pid_mismatch) = 0;
+	GENE_G(redis_pool_pid_mismatch) = 0;
 	GENE_G(memory_cache_hit) = 0;
 	GENE_G(memory_cache_miss) = 0;
 	/* [GENE_FIX:2026-08-07-5 N3] */
@@ -1341,13 +1346,16 @@ static void php_gene_init_globals() {
 	GENE_G(route_pc_retired) = NULL;
 	GENE_G(route_pc_retired_count) = 0;
 	GENE_G(cache) = NULL;
+	GENE_G(business_cache) = NULL;
 	GENE_G(cache_easy) = NULL;
 	GENE_G(cache_expiry) = NULL;
+	GENE_G(business_cache_expiry) = NULL;
 	/* [GENE_MEM:2026-06-19 M1] LRU tracking set is lazily allocated on the
 	 * first business write; cache_max_items is loaded from php.ini before
 	 * MINIT so we must NOT zero it here (same rule as ctx_pool_prewarm). */
 	GENE_G(cache_lru) = NULL;
 	gene_rwlock_init(&GENE_G(cache_lock));
+	gene_rwlock_init(&GENE_G(business_cache_lock));
 	gene_memory_init();
 }
 /* }}} */
@@ -1554,6 +1562,15 @@ PHP_MSHUTDOWN_FUNCTION(gene) {
 		pefree(GENE_G(cache_expiry), 1);
 		GENE_G(cache_expiry) = NULL;
 	}
+	if (GENE_G(business_cache)) {
+		gene_hash_destroy(GENE_G(business_cache));
+		GENE_G(business_cache) = NULL;
+	}
+	if (GENE_G(business_cache_expiry)) {
+		zend_hash_destroy(GENE_G(business_cache_expiry));
+		pefree(GENE_G(business_cache_expiry), 1);
+		GENE_G(business_cache_expiry) = NULL;
+	}
 	/* [GENE_MEM:2026-06-19 M1] Tear down the business-cache LRU tracking set
 	 * (frees its persistent key copies) before the lock is destroyed. */
 	gene_cache_lru_destroy();
@@ -1581,6 +1598,7 @@ PHP_MSHUTDOWN_FUNCTION(gene) {
 		GENE_G(validate_ext) = NULL;
 	}
 	gene_rwlock_destroy(&GENE_G(cache_lock));
+	gene_rwlock_destroy(&GENE_G(business_cache_lock));
 	return SUCCESS; // @suppress("Symbol is not resolved")
 }
 
