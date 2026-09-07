@@ -115,18 +115,30 @@ PHP_METHOD(gene_monitor, stats) {
 
 	/* memory partition — mirrors Gene\Memory::stats() (same GENE_G reads). */
 	array_init(&mem);
-	GENE_CACHE_RDLOCK();
+	gene_rwlock_rdlock(&GENE_G(business_cache_lock));
 	add_assoc_long(&mem, "cache_items",
-		GENE_G(cache) ? (zend_long)zend_hash_num_elements(GENE_G(cache)) : 0);
+		(GENE_G(cache) ? (zend_long)zend_hash_num_elements(GENE_G(cache)) : 0) +
+		(GENE_G(business_cache) ? (zend_long)zend_hash_num_elements(GENE_G(business_cache)) : 0));
 	add_assoc_long(&mem, "cache_num_used",
-		GENE_G(cache) ? (zend_long)GENE_G(cache)->nNumUsed : 0);
+		(GENE_G(cache) ? (zend_long)GENE_G(cache)->nNumUsed : 0) +
+		(GENE_G(business_cache) ? (zend_long)GENE_G(business_cache)->nNumUsed : 0));
 	add_assoc_long(&mem, "cache_num_elements",
-		GENE_G(cache) ? (zend_long)GENE_G(cache)->nNumOfElements : 0);
+		(GENE_G(cache) ? (zend_long)GENE_G(cache)->nNumOfElements : 0) +
+		(GENE_G(business_cache) ? (zend_long)GENE_G(business_cache)->nNumOfElements : 0));
 	add_assoc_long(&mem, "cache_table_size",
-		GENE_G(cache) ? (zend_long)GENE_G(cache)->nTableSize : 0);
+		(GENE_G(cache) ? (zend_long)GENE_G(cache)->nTableSize : 0) +
+		(GENE_G(business_cache) ? (zend_long)GENE_G(business_cache)->nTableSize : 0));
+	add_assoc_long(&mem, "framework_cache_items",
+		GENE_G(cache) ? (zend_long)zend_hash_num_elements(GENE_G(cache)) : 0);
+	add_assoc_long(&mem, "business_cache_items",
+		GENE_G(business_cache) ? (zend_long)zend_hash_num_elements(GENE_G(business_cache)) : 0);
+	add_assoc_long(&mem, "business_cache_num_used",
+		GENE_G(business_cache) ? (zend_long)GENE_G(business_cache)->nNumUsed : 0);
+	add_assoc_long(&mem, "business_cache_table_size",
+		GENE_G(business_cache) ? (zend_long)GENE_G(business_cache)->nTableSize : 0);
 	add_assoc_long(&mem, "cache_easy_items",
 		GENE_G(cache_easy) ? (zend_long)zend_hash_num_elements(GENE_G(cache_easy)) : 0);
-	GENE_CACHE_RDUNLOCK();
+	gene_rwlock_rdunlock(&GENE_G(business_cache_lock));
 	add_assoc_long(&mem, "cache_insert_refused", (zend_long)GENE_G(cache_insert_refused));
 	add_assoc_long(&mem, "fn_cache_items",
 		GENE_G(fn_cache) ? (zend_long)zend_hash_num_elements(GENE_G(fn_cache)) : 0);
@@ -181,6 +193,11 @@ PHP_METHOD(gene_monitor, stats) {
 	/* [GENE_FEATURE:2026-08-06 F1-7] Pool acquisition timeouts + userland
 	 * Memory::get hit/miss. */
 	add_assoc_long(return_value, "db_pool_get_timeout", (zend_long)GENE_G(db_pool_get_timeout));
+	add_assoc_long(return_value, "redis_pool_get_timeout", (zend_long)GENE_G(redis_pool_get_timeout));
+	add_assoc_long(return_value, "db_pool_idle_miss", (zend_long)GENE_G(db_pool_idle_miss));
+	add_assoc_long(return_value, "redis_pool_idle_miss", (zend_long)GENE_G(redis_pool_idle_miss));
+	add_assoc_long(return_value, "db_pool_pid_mismatch", (zend_long)GENE_G(db_pool_pid_mismatch));
+	add_assoc_long(return_value, "redis_pool_pid_mismatch", (zend_long)GENE_G(redis_pool_pid_mismatch));
 	add_assoc_long(return_value, "memory_cache_hit", (zend_long)GENE_G(memory_cache_hit));
 	add_assoc_long(return_value, "memory_cache_miss", (zend_long)GENE_G(memory_cache_miss));
 	/* [GENE_FEATURE:2026-08-07 F1-7b] Slow-query counter + active threshold
@@ -213,6 +230,11 @@ PHP_METHOD(gene_monitor, reset) {
 	GENE_G(redis_pool_cas_abandoned) = 0;
 	GENE_G(db_pool_cas_abandoned) = 0;
 	GENE_G(db_pool_get_timeout) = 0;
+	GENE_G(redis_pool_get_timeout) = 0;
+	GENE_G(db_pool_idle_miss) = 0;
+	GENE_G(redis_pool_idle_miss) = 0;
+	GENE_G(db_pool_pid_mismatch) = 0;
+	GENE_G(redis_pool_pid_mismatch) = 0;
 	GENE_G(memory_cache_hit) = 0;
 	GENE_G(memory_cache_miss) = 0;
 	GENE_G(db_slow_query_count) = 0;
@@ -317,7 +339,12 @@ PHP_METHOD(gene_monitor, prometheus) {
 	gene_monitor_prom_counter(&buf, "gene_request_errors_total", "Requests that finished with a pending exception.", (zend_long)GENE_G(request_error_count));
 	gene_monitor_prom_counter(&buf, "gene_memory_cache_hits_total", "Userland Memory::get hits.", (zend_long)GENE_G(memory_cache_hit));
 	gene_monitor_prom_counter(&buf, "gene_memory_cache_misses_total", "Userland Memory::get misses.", (zend_long)GENE_G(memory_cache_miss));
-	gene_monitor_prom_counter(&buf, "gene_db_pool_get_timeouts_total", "Pool acquisitions that exhausted waitTimeout.", (zend_long)GENE_G(db_pool_get_timeout));
+	gene_monitor_prom_counter(&buf, "gene_db_pool_get_timeouts_total", "DB pool acquisitions that exhausted waitTimeout.", (zend_long)GENE_G(db_pool_get_timeout));
+	gene_monitor_prom_counter(&buf, "gene_redis_pool_get_timeouts_total", "Redis pool acquisitions that exhausted waitTimeout.", (zend_long)GENE_G(redis_pool_get_timeout));
+	gene_monitor_prom_counter(&buf, "gene_db_pool_idle_misses_total", "DB pool idle queue misses.", (zend_long)GENE_G(db_pool_idle_miss));
+	gene_monitor_prom_counter(&buf, "gene_redis_pool_idle_misses_total", "Redis pool idle queue misses.", (zend_long)GENE_G(redis_pool_idle_miss));
+	gene_monitor_prom_counter(&buf, "gene_db_pool_pid_mismatches_total", "Rejected DB pool cross-fork uses.", (zend_long)GENE_G(db_pool_pid_mismatch));
+	gene_monitor_prom_counter(&buf, "gene_redis_pool_pid_mismatches_total", "Rejected Redis pool cross-fork uses.", (zend_long)GENE_G(redis_pool_pid_mismatch));
 	gene_monitor_prom_counter(&buf, "gene_db_pool_cas_abandoned_total", "DB pool CAS decrement rounds abandoned.", (zend_long)GENE_G(db_pool_cas_abandoned));
 	gene_monitor_prom_counter(&buf, "gene_redis_pool_cas_abandoned_total", "Redis pool CAS decrement rounds abandoned.", (zend_long)GENE_G(redis_pool_cas_abandoned));
 	gene_monitor_prom_counter(&buf, "gene_db_slow_queries_total", "Queries slower than gene.slow_query_ms.", (zend_long)GENE_G(db_slow_query_count));

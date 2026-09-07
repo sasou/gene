@@ -36,64 +36,43 @@
 
  static zend_string *gene_cache_method_get_name(void) /*{{{*/
  {
- 	static zend_string *method = NULL;
- 	if (!method) {
- 		method = zend_string_init_interned("get", sizeof("get") - 1, 1);
- 	}
+	GENE_INTERNED_STR(method, "get");
  	return method;
  }/*}}}*/
 
  static zend_string *gene_cache_method_set_name(void) /*{{{*/
  {
- 	static zend_string *method = NULL;
- 	if (!method) {
- 		method = zend_string_init_interned("set", sizeof("set") - 1, 1);
- 	}
+	GENE_INTERNED_STR(method, "set");
  	return method;
  }/*}}}*/
 
  static zend_string *gene_cache_method_incr_name(void) /*{{{*/
  {
- 	static zend_string *method = NULL;
- 	if (!method) {
- 		method = zend_string_init_interned("incr", sizeof("incr") - 1, 1);
- 	}
+	GENE_INTERNED_STR(method, "incr");
  	return method;
  }/*}}}*/
 
  static zend_string *gene_cache_method_delete_name(void) /*{{{*/
  {
- 	static zend_string *method = NULL;
- 	if (!method) {
- 		method = zend_string_init_interned("delete", sizeof("delete") - 1, 1);
- 	}
+	GENE_INTERNED_STR(method, "delete");
  	return method;
  }/*}}}*/
 
  static zend_string *gene_cache_function_apcu_store_name(void) /*{{{*/
  {
- 	static zend_string *function_name = NULL;
- 	if (!function_name) {
- 		function_name = zend_string_init_interned("apcu_store", sizeof("apcu_store") - 1, 1);
- 	}
+	GENE_INTERNED_STR(function_name, "apcu_store");
  	return function_name;
  }/*}}}*/
 
  static zend_string *gene_cache_function_apcu_fetch_name(void) /*{{{*/
  {
- 	static zend_string *function_name = NULL;
- 	if (!function_name) {
- 		function_name = zend_string_init_interned("apcu_fetch", sizeof("apcu_fetch") - 1, 1);
- 	}
+	GENE_INTERNED_STR(function_name, "apcu_fetch");
  	return function_name;
  }/*}}}*/
 
  static zend_string *gene_cache_function_apcu_delete_name(void) /*{{{*/
  {
- 	static zend_string *function_name = NULL;
- 	if (!function_name) {
- 		function_name = zend_string_init_interned("apcu_delete", sizeof("apcu_delete") - 1, 1);
- 	}
+	GENE_INTERNED_STR(function_name, "apcu_delete");
  	return function_name;
  }/*}}}*/
 
@@ -1502,15 +1481,8 @@ PHP_METHOD(gene_cache, processCached)
 	}
 
 	zval key;
-	zval *cached_val;
 	gene_cache_key(sign, 1, obj, args, ttl, &key, (int)hash_mode);
-	cached_val = gene_memory_get(Z_STRVAL(key), Z_STRLEN(key));
-	if (cached_val) {
-		/* [GENE_FIX:2026-08-23 UAF-2] Business entries may be overwritten
-		 * (pefree'd) by another coroutine while this request still uses the
-		 * returned value — deep-copy into request memory instead of borrowing
-		 * the persistent zend_string pointers. */
-		gene_memory_zval_local_copy(return_value, cached_val);
+	if (gene_business_memory_get_copy(Z_STRVAL(key), Z_STRLEN(key), return_value)) {
 		zval_ptr_dtor(&key);
 		return;
 	}
@@ -1582,8 +1554,8 @@ PHP_METHOD(gene_cache, processCachedVersion)
 		RETURN_NULL();
 	}
 
-	zval key, cache_key, cur_version;
-	zval *cached_val;
+	zval key, cache_key, cur_version, cached_local;
+	zval *cached_val = NULL;
 	gene_cache_key(sign, 0, obj, args, ttl, &key, (int)hash_mode);
 	gene_cache_get_version_arr(versionSign, versionField, &cache_key, NULL, (int)hash_mode);
 	hook = gene_di_get(Z_STR_P(hookName));
@@ -1594,7 +1566,9 @@ PHP_METHOD(gene_cache, processCachedVersion)
 	}
 	gene_cache_get(hook, &cache_key, &cur_version);
 
-	cached_val = gene_memory_get(Z_STRVAL(key), Z_STRLEN(key));
+	if (gene_business_memory_get_copy(Z_STRVAL(key), Z_STRLEN(key), &cached_local)) {
+		cached_val = &cached_local;
+	}
 	if (cached_val && Z_TYPE_P(cached_val) == IS_ARRAY) {
 		zval *cacheData = zend_hash_str_find(Z_ARRVAL_P(cached_val), ZEND_STRL("data"));
 		zval *cacheVersion = zend_hash_str_find(Z_ARRVAL_P(cached_val), ZEND_STRL("version"));
@@ -1610,6 +1584,7 @@ PHP_METHOD(gene_cache, processCachedVersion)
 			gene_memory_set(Z_STRVAL(key), Z_STRLEN(key), &data_new, 0);
 			GENE_CACHE_LAYER_MEMORY_WRITE_LEAVE();
 			zval_ptr_dtor(&data_new);
+			zval_ptr_dtor(&cached_local);
 			zval_ptr_dtor(&cur_version);
 			zval_ptr_dtor(&cache_key);
 			zval_ptr_dtor(&key);
@@ -1617,10 +1592,14 @@ PHP_METHOD(gene_cache, processCachedVersion)
 		}
 		/* [GENE_FIX:2026-08-23 UAF-2] Deep copy, see processCached. */
 		gene_memory_zval_local_copy(return_value, cacheData);
+		zval_ptr_dtor(&cached_local);
 		zval_ptr_dtor(&key);
 		zval_ptr_dtor(&cache_key);
 		zval_ptr_dtor(&cur_version);
 		return;
+	}
+	if (cached_val) {
+		zval_ptr_dtor(&cached_local);
 	}
 
 	zval data_new, cur_data;
@@ -1892,11 +1871,8 @@ PHP_METHOD(gene_cache, processCachedBatch)
 			add_next_index_null(return_value);
 			continue;
 		}
-		zval *cached_val = gene_memory_get(Z_STRVAL(keys[i]), Z_STRLEN(keys[i]));
-		if (cached_val) {
-			zval local_val;
-			/* [GENE_FIX:2026-08-23 UAF-2] Deep copy, see processCached. */
-			gene_memory_zval_local_copy(&local_val, cached_val);
+		zval local_val;
+		if (gene_business_memory_get_copy(Z_STRVAL(keys[i]), Z_STRLEN(keys[i]), &local_val)) {
 			add_next_index_zval(return_value, &local_val);
 		} else {
 			zval data;
@@ -2231,7 +2207,11 @@ PHP_METHOD(gene_cache, processCachedVersionBatch)
 			add_next_index_null(return_value);
 			continue;
 		}
-		zval *cached_val = gene_memory_get(Z_STRVAL(data_keys[i]), Z_STRLEN(data_keys[i]));
+		zval cached_local;
+		zval *cached_val = NULL;
+		if (gene_business_memory_get_copy(Z_STRVAL(data_keys[i]), Z_STRLEN(data_keys[i]), &cached_local)) {
+			cached_val = &cached_local;
+		}
 		if (cached_val && Z_TYPE_P(cached_val) == IS_ARRAY) {
 			zval *cacheData = zend_hash_str_find(Z_ARRVAL_P(cached_val), ZEND_STRL("data"));
 			zval *cacheVersion = zend_hash_str_find(Z_ARRVAL_P(cached_val), ZEND_STRL("version"));
@@ -2242,9 +2222,13 @@ PHP_METHOD(gene_cache, processCachedVersionBatch)
 				/* [GENE_FIX:2026-08-23 UAF-2] Deep copy, see processCached. */
 				gene_memory_zval_local_copy(&local_val, cacheData);
 				add_next_index_zval(return_value, &local_val);
+				zval_ptr_dtor(&cached_local);
 				zval_ptr_dtor(&data_keys[i]);
 				continue;
 			}
+		}
+		if (cached_val) {
+			zval_ptr_dtor(&cached_local);
 		}
 		zval cur_data, data_new;
 		gene_cache_call(&objs[i], &args_arr[i], &cur_data);

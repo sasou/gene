@@ -363,6 +363,19 @@ class DatabaseTest
             $this->pool = new Pool($config);
             echo "✓ Pool constructor with config works\n";
 
+            try {
+                $copy = clone $this->pool;
+                $this->fail('Pool clone unexpectedly succeeded');
+            } catch (Throwable $e) {
+                echo "✓ Pool clone is forbidden\n";
+            }
+            try {
+                serialize($this->pool);
+                $this->fail('Pool serialization unexpectedly succeeded');
+            } catch (Throwable $e) {
+                echo "✓ Pool serialization is forbidden\n";
+            }
+
             // stats() reports the configured geometry; not closed yet
             $stats = $this->pool->stats();
             if (is_array($stats)
@@ -380,6 +393,12 @@ class DatabaseTest
             // Without it the pool degrades gracefully: get()=null, healthCheck()=false.
             if (class_exists('Swoole\Coroutine\Channel') && class_exists('Swoole\Atomic')) {
                 Swoole\Coroutine\run(function () {
+                    $initial = $this->pool->stats();
+                    if (($initial['total'] ?? null) === 2 && ($initial['idle'] ?? null) === 2) {
+                        echo "✓ Direct Pool construction pre-fills min connections exactly once\n";
+                    } else {
+                        $this->fail('Pool min prefill mismatch: ' . json_encode($initial));
+                    }
                     $conn = $this->pool->get();
                     if ($conn instanceof PDO) {
                         echo "✓ Pool get() returns a PDO connection\n";

@@ -24,10 +24,13 @@
  * cache_business_dirty, after which readers take the rwlock again so a
  * concurrent set/del/evict cannot move or free memory under them.
  * In FPM mode worker_ready is always 0, so locks are always taken (correct). */
-#define GENE_CACHE_RDLOCK()    do { if (!GENE_G(worker_ready) || GENE_G(cache_business_dirty)) gene_rwlock_rdlock(&GENE_G(cache_lock)); } while(0)
-#define GENE_CACHE_RDUNLOCK()  do { if (!GENE_G(worker_ready) || GENE_G(cache_business_dirty)) gene_rwlock_rdunlock(&GENE_G(cache_lock)); } while(0)
-#define GENE_CACHE_WRLOCK()    gene_rwlock_wrlock(&GENE_G(cache_lock))
-#define GENE_CACHE_WRUNLOCK()  gene_rwlock_wrunlock(&GENE_G(cache_lock))
+#define GENE_MEMORY_IS_BUSINESS() (GENE_G(cache_layer_memory_write_depth) > 0)
+#define GENE_MEMORY_TABLE() (GENE_MEMORY_IS_BUSINESS() ? GENE_G(business_cache) : GENE_G(cache))
+#define GENE_MEMORY_EXPIRY_TABLE() (GENE_MEMORY_IS_BUSINESS() ? GENE_G(business_cache_expiry) : GENE_G(cache_expiry))
+#define GENE_CACHE_RDLOCK() do { if (GENE_MEMORY_IS_BUSINESS()) gene_rwlock_rdlock(&GENE_G(business_cache_lock)); else if (!GENE_G(worker_ready)) gene_rwlock_rdlock(&GENE_G(cache_lock)); } while (0)
+#define GENE_CACHE_RDUNLOCK() do { if (GENE_MEMORY_IS_BUSINESS()) gene_rwlock_rdunlock(&GENE_G(business_cache_lock)); else if (!GENE_G(worker_ready)) gene_rwlock_rdunlock(&GENE_G(cache_lock)); } while (0)
+#define GENE_CACHE_WRLOCK() do { if (GENE_MEMORY_IS_BUSINESS()) gene_rwlock_wrlock(&GENE_G(business_cache_lock)); else gene_rwlock_wrlock(&GENE_G(cache_lock)); } while (0)
+#define GENE_CACHE_WRUNLOCK() do { if (GENE_MEMORY_IS_BUSINESS()) gene_rwlock_wrunlock(&GENE_G(business_cache_lock)); else gene_rwlock_wrunlock(&GENE_G(cache_lock)); } while (0)
 
 /* Bracket each direct gene_memory_set()/gene_memory_del()/gene_memory_adjust()
  * call from Gene\Cache's own methods (cache.c) AND from Gene\Memory's own
@@ -71,6 +74,7 @@ void gene_hash_destroy(HashTable *ht);
 void gene_cache_lru_destroy(void);
 void gene_memory_set(char *keyString, size_t keyString_len, zval *zvalue, int validity);
 zval * gene_memory_get(char *keyString, size_t keyString_len);
+int gene_business_memory_get_copy(char *keyString, size_t keyString_len, zval *dst);
 /* [GENE_PERF:2026-04-19] gene_memory_get_quick collapsed to macro — it was an alias
  * of gene_memory_get. Macro expansion eliminates one function call per lookup on
  * the hottest router dispatch path (router_tree/router_event/router_conf lookups

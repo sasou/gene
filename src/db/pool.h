@@ -26,6 +26,7 @@
 #define GENE_POOL_PROPERTY_COUNT     "currentCount"
 #define GENE_POOL_PROPERTY_TIMER_ID  "timerId"
 #define GENE_POOL_PROPERTY_CLOSED    "closed"
+#define GENE_POOL_PROPERTY_CREATOR_PID "creatorPid"
 #define GENE_POOL_PROPERTY_INSTANCES "instances"
 
 extern zend_class_entry *gene_pool_ce;
