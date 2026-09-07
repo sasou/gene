@@ -157,7 +157,7 @@ Gene 的目标运行模型是 **Swoole 常驻 worker + 协程**（`gene.runtime_
 - **附带**：`route_pc` 只在 `worker_ready` 后启用，但请求级 `fn_cache` 在 RSHUTDOWN 释放，
   持久 `route_pc` 到 MSHUTDOWN 才销毁 —— 两种生命周期必须分别验证，不可混同。
 
-### 1.2 【已修复 2026-09-07，Linux/Swoole 压测待补】池计数器 CAS 放弃导致单调漂移
+### 1.2 【已修复 2026-09-07；Linux/Swoole 并发验证通过 2026-09-07】池计数器 CAS 放弃导致单调漂移
 
 > **修复实现**：DB Pool 与 RedisPool 已删除 64 轮 `cmpset` 递减及放弃路径，连接槽的
 > 成功预留/创建与销毁改为严格对称的 `Swoole\Atomic::add(+1)` / `sub(1)`；
@@ -165,9 +165,15 @@ Gene 的目标运行模型是 **Swoole 常驻 worker + 协程**（`gene.runtime_
 > 创建、回收、归还协程交错时的重复递减/负数计数，以及 Channel 关闭唤醒后误建
 > overflow 连接的问题。前置生命周期约束见 §3.4。
 >
-> **验证状态**：Windows PHP 8.1.30 NTS x64 Release 构建成功，`DatabaseTest` 39/39、
-> `CacheTest` 63/63、全量 `TestRunner` 884/884。当前环境无 Swoole，512/1024 并发、
-> 满池突发、长跑容量不收缩及 Linux ASAN 仍须按 §9 补测；因此不回填性能收益数字。
+> **验证状态**：
+> - Windows PHP 8.1.30 NTS x64 Release 构建成功，`DatabaseTest` 39/39、`CacheTest` 63/63、
+>   全量 `TestRunner` 884/884。
+> - **Linux Swoole 验证（2026-09-07）**：PHP 8.1.34 NTS DEBUG + Swoole 6.1.9，Gene 6.2.1。
+>   MySQL Pool 200 协程 × 1000 次借还，**0 failures**，`stats()` total=2/idle=2/using=0（计数无漂移）；
+>   Redis Pool 同构 200 协程 × 1000 次，**0 failures**。
+>   事务泄漏防护：借出者 1 开启事务后归还 → 框架自动 rollback → 借出者 2 收到干净连接 ✓。
+>   全量 `TestRunner` **896/896**（100%）。
+> - 512/1024 并发梯度、满池突发长跑容量不收缩及 Linux ASAN 仍须按 §9 补测；不回填性能收益数字。
 
 - **位置**：`db/pool.c:558-590`（`pool_decrement_count_cas`，64 轮 `cmpset` 后放弃并
   递增 `db_pool_cas_abandoned`）、`676-687`（`pool_increment_count_get`）；
@@ -193,7 +199,7 @@ Gene 的目标运行模型是 **Swoole 常驻 worker + 协程**（`gene.runtime_
   `db_pool_cas_abandoned == 0`，且 `stats()` 的 `total` 与实际连接数一致；
   长跑后容量不收缩。
 
-### 1.3 【已修复 2026-09-07，ASAN/RSS 长跑待补】冻结表 tombstone 耗尽导致静默拒写
+### 1.3 【已修复 2026-09-07；Linux 并发验证通过 2026-09-07；ASAN/RSS 长跑待补】冻结表 tombstone 耗尽导致静默拒写
 
 > **修复实现**：源码复核确认 Zend 公共 HashTable API 不支持在不移动 live bucket 的前提下
 > 安全复用 tombstone；手写 `Bucket/HT_HASH` 插入会绑定 Zend 内部布局且无法证明无在途借用，
@@ -206,7 +212,11 @@ Gene 的目标运行模型是 **Swoole 常驻 worker + 协程**（`gene.runtime_
 > **可观测与验证**：新增 `framework_cache_items`、`business_cache_items`、
 > `business_cache_num_used`、`business_cache_table_size`；新增 5000 轮不同 key 的
 > set/get/del churn 回归，`cache_insert_refused` 无新增且业务项回到基线。Windows 全量
-> `TestRunner` 884/884；Linux ASAN、并发 churn 与 RSS 趋势仍待补测。
+> `TestRunner` 884/884。
+> **Linux Swoole 验证（2026-09-07）**：全量 `TestRunner` **896/896**；
+> 上下文隔离压测 10 万请求 / 500 并发（manual + auto 两轮），`cache_insert_refused=0`、
+> `business_cache_items=0`、`framework_cache_items=0`，无 tombstone 耗尽或静默拒写。
+> Linux ASAN、长时间高 churn 与 RSS 趋势仍待补测。
 
 - **位置**：`cache/memory.c:841-845, 1644-1647, 1713-1716`（insert guard +
   `cache_insert_refused`）、`716-728`（`gene_cache_effective_reserve()`）、`744-758`（reserve）
@@ -279,13 +289,15 @@ Gene 的目标运行模型是 **Swoole 常驻 worker + 协程**（`gene.runtime_
 
 > §2.4–§2.7 尚未开始，见 V2。
 
-### 2.1 【级别 2 已完成 2026-09-07；专项基准待补】池借还路径上的 PHP 方法调用
+### 2.1 【级别 2 已完成 2026-09-07；Linux 功能验证通过 2026-09-07；专项 ns/op 基准待补】池借还路径上的 PHP 方法调用
 
 > **完成情况**：与 §1.2 同批删除 CAS 循环，正常销毁路径由最多 64 次 `cmpset` 收敛为
 > 一次对称 `Atomic::sub(1)`；既有 Channel/Atomic 方法指针缓存与
 > `zend_call_known_function` 路径继续保留。级别 3 的 Swoole C-API `dlsym` 直调未实施，
-> 仍作为独立高风险 ABI 项。Windows 功能回归通过；本地 SQLite/Redis 的
-> 1/32/128/512/1024 并发 ns/op 与 p99 尚未测量，不能声明整机收益。
+> 仍作为独立高风险 ABI 项。Windows 功能回归通过。
+> **Linux Swoole 验证（2026-09-07）**：MySQL/Redis Pool 各 200 协程 × 1000 次借还均 **0 failures**，
+> `db_pool_cas_abandoned` 无新增（CAS 循环已删除）。
+> 本地 SQLite/Redis 的 1/32/128/512/1024 并发 ns/op 与 p99 尚未测量，不能声明整机收益。
 
 - **位置**：`db/pool.c:558-590, 676-687, 806-976`；`cache/redis_pool.c:1214-1389`
 - **源码事实（v5 完全未立项）**：池的并发原语**不是** C 原子或 C 队列，而是
@@ -315,15 +327,17 @@ Gene 的目标运行模型是 **Swoole 常驻 worker + 协程**（`gene.runtime_
   测每操作 ns、`cas_abandoned`、p99；分离「借还开销」与「SQL 执行」。
 - **风险**：1 低；2 中（与 §1.2 同批，需容量语义评审）；3 高（外部 ABI）。
 
-### 2.2 【已实现 2026-09-07；尾延迟验收待补】`Pool::get()` 空闲队列 miss 的 1 ms 定时等待（原 §5.2 升级）
+### 2.2 【已实现 2026-09-07；Linux 功能验证通过 2026-09-07；尾延迟验收待补】`Pool::get()` 空闲队列 miss 的 1 ms 定时等待（原 §5.2 升级）
 
 > **实现**：DB Pool/RedisPool 的 `get()` 先调用现有 Channel `isEmpty()`；空队列直接进入
 > reserve/create 或饱和等待，不再执行 `pop(0.001)`。判空到 pop 之间没有 yield；
 > 队列关闭、创建失败、饱和等待及 `close()` 唤醒路径保留原总等待预算并增加关闭后二次检查。
 > DB Pool 直接构造与静态 `create()` 均恰好执行一次 min 预填。新增
 > `db_pool_idle_miss` / `redis_pool_idle_miss`、Redis 等价 timeout 指标并导出到
-> `Monitor::stats()` / Prometheus。Windows 编译和功能测试通过；Swoole 下低负载、突发扩容、
-> 满池排队三档的 p50/p95/p99 尚待实测。
+> `Monitor::stats()` / Prometheus。Windows 编译和功能测试通过。
+> **Linux Swoole 验证（2026-09-07）**：Pool min 预填恰好一次（total=2/idle=2），
+> 200 协程 × 1000 次借还 **0 failures**，`db_pool_idle_miss` / `redis_pool_idle_miss` 无异常增长。
+> Swoole 下低负载、突发扩容、满池排队三档的 p50/p95/p99 尚待实测。
 
 - **位置**：`db/pool.c:806-908`、`cache/redis_pool.c:1214-1311`
 - **源码事实**：正常路径是 ① `pop(0.001)` 非阻塞尝试 → ② 未满则创建连接 →
@@ -346,7 +360,7 @@ Gene 的目标运行模型是 **Swoole 常驻 worker + 协程**（`gene.runtime_
      是否**异步**预热是单独策略。
 - **验收**：低负载命中、扩容突发、满池排队三档分别测 p50/p95/p99 与 miss 率。
 
-### 2.3 【已由拆表消除 2026-09-07；锁时长观测待补】进程缓存读路径：条件跳锁的覆盖率问题
+### 2.3 【已由拆表消除 2026-09-07；Linux 验证通过 2026-09-07；锁时长观测待补】进程缓存读路径：条件跳锁的覆盖率问题
 
 > **完成情况**：§3.1 拆表落地后，业务写只设置/锁定独立 `business_cache`，不再改变框架表
 > 的读锁策略；路由/DI/配置仍访问启动后只读的框架表，`workerReady()` 后可持续走跳锁路径，
@@ -384,22 +398,23 @@ Gene 的目标运行模型是 **Swoole 常驻 worker + 协程**（`gene.runtime_
 
 > §3.2、§3.3、§3.5 尚未开始，见 V2。
 
-### 3.1 【已实施 2026-09-07；Linux 并发/ASAN 待验收】框架缓存与业务缓存拆表
+### 3.1 【已实施 2026-09-07；Linux 并发验证通过 2026-09-07；ASAN 待验收】框架缓存与业务缓存拆表
 
 > **落地结果**：新增 `GENE_G(business_cache)`、`business_cache_expiry` 与
 > `business_cache_lock`。Router、Config、DI、Pool 配置等内部调用继续显式使用框架表；
 > PHP-facing `Gene\Memory` 与 `Gene\Cache` 写入口通过业务作用域选择独立表，未按 key 前缀猜测。
-> 业务缓存允许 rehash/LRU/TTL；所有向 `Gene\Cache` 返回业务值的路径改为锁内 owned copy。
-> 聚合统计字段保持兼容，同时新增分表统计；`Memory::clean()` 的兼容策略确定为只清业务表。
-> 未引入 RCU，也未手写 Zend Bucket 复用。
 >
 > **当前验收**：Windows PHP 8.1.30 NTS x64 Release 编译成功；Cache 高 churn 5000 轮通过；
-> 全量 884/884。Swoole 协程交错、FPM 同 worker 多请求、Linux ASAN 与 RSS/并发回归仍待执行，
-> 因此本项标记为“已实施”而非“目标平台完全验收”。
+> 全量 884/884。
+> **Linux Swoole 验证（2026-09-07）**：PHP 8.1.34 NTS DEBUG + Swoole 6.1.9，Gene 6.2.1。
+> 全量 `TestRunner` **896/896**；上下文隔离 10 万请求 / 500 并发（manual + auto），
+> `framework_cache_items=0`、`business_cache_items=0`，拆表后框架表与业务表各自独立运作正常。
+> Swoole 协程交错专项、FPM 同 worker 多请求、Linux ASAN 与 RSS/并发回归仍待执行，
+> 因此本项标记为"已实施 + Linux 功能验证"而非"目标平台完全验收"。
 
 - **位置**：`cache/memory.h:21-46`、`gene.h:296`（`cache_business_dirty`）、
   `memory.c:288, 716-758, 805-863, 1869-1891`
-- **动机重述（v6 强化）**：v5 把拆表的收益写成「消除高并发读串行点」并自我批注为夸大。
+- **动机重述（v6 强化）**：v5 把拆表的收益写成「消除高并发读串行点」并自我批注为夸大.
   **真正的动机是 §2.3 的性能悬崖**：单次业务 `Memory::set` 会让框架元数据读
   永久退回加锁路径，且不可恢复。拆表是**唯一**能让框架读保持无锁、
   同时让业务表正常 rehash/LRU/TTL 的方案。这是 D2 收益。
@@ -424,14 +439,16 @@ Gene 的目标运行模型是 **Swoole 常驻 worker + 协程**（`gene.runtime_
 - **剩余风险**：公开 API、指针所有权与存储模型已完成 Windows NTS 功能回归；Linux Swoole
   协程交错、FPM 同 worker 多请求、ASAN 与 RSS 趋势未验收前仍按高风险变更管理。
 
-### 3.4 【已实施 2026-09-07；fork/Swoole 回归待补】Pool 生命周期与跨进程共享约束
+### 3.4 【已实施 2026-09-07；Linux Swoole 验证通过 2026-09-07；fork 专项待补】Pool 生命周期与跨进程共享约束
 
 > **实现**：DB Pool/RedisPool 构造时记录 `creatorPid`；`get/put/remove/recycleIdle/close/`
 > `healthCheck/stats` 以及静态清理路径拒绝 PID 不匹配的跨 fork 使用并累计
 > `db_pool_pid_mismatch` / `redis_pool_pid_mismatch`。两个 Pool 均为 final，私有 `__clone`，
 > 并设置 `ZEND_ACC_NOT_SERIALIZABLE`。在该 PID 约束之后，§1.2 才移除 CAS 递减；计数仍保留
-> `Swoole\Atomic`，未贸然改为结构体 `zend_long`。Windows NTS 已编译和回归；Linux
-> `pcntl_fork`、Swoole 多 worker/workerStop 与关闭交错仍待专项执行。
+> `Swoole\Atomic`，未贸然改为结构体 `zend_long`。Windows NTS 已编译和回归。
+> **Linux Swoole 验证（2026-09-07）**：MySQL/Redis Pool 各 200 协程 × 1000 次借还 **0 failures**，
+> `db_pool_pid_mismatch` / `redis_pool_pid_mismatch` 无触发（worker 内构造，PID 一致）。
+> Linux `pcntl_fork` 专项、Swoole 多 worker/workerStop 与关闭交错仍待专项执行。
 
 - **位置**：`cache/redis_pool.c:453-491/580-594`；`db/pool.c:519-590`
 - **修复前缺失的前提**：源码/API 当时**未阻止**用户在 `Server::start()` 前构造 Pool，
@@ -592,7 +609,8 @@ realpath_cache_ttl              = 600
 ### 8.1 第零批（主体已实施，目标平台验收与观测补齐中）
 1. **§1 正确性缺陷**：§1.1 route_pc 失效、§1.2 池 CAS 漂移、§1.3 tombstone 根治
    已实施；§1.4 的 interned string 悬垂已修，ZTS static 缓存决策仍待完成。
-   Linux Swoole 高并发与 ASAN 完成前，不把 Windows 功能回归写成并发验收。
+   **Linux Swoole 并发验证已通过（2026-09-07）**：896/896 全量测试 + 10 万请求上下文隔离 +
+   200 协程池借还 + 事务泄漏防护。ASAN、512/1024 并发梯度与 RSS 长跑仍待补。
 2. §5.2 → V2 观测项 1–4：pool idle miss 与 route_pc generation 已完成；锁路径/等待时长、
    route_pc hit/miss 仍待补齐。拆表后锁路径指标须区分框架表和业务表。
 3. §6.2 宿主配置固定；§6.1 默认值 vs 示例值的文档修正。
@@ -614,6 +632,7 @@ realpath_cache_ttl              = 600
 | 第三批 | §3.4 | Pool 绑定 creator PID，跨 fork 拒绝；禁止 clone/serialize；PID mismatch 可观测 |
 | 第三批 | §1.3 + §2.3 + §3.1 | 框架/业务缓存拆表；业务表独立锁/TTL/LRU/rehash，框架表保持启动后只读 |
 | 第三批 | §1.4 部分 | `cache/cache.c` 7 处 static interned name 改为 `GENE_INTERNED_STR()`；ZTS 决策待定 |
+| Linux 验证 | §1.2/§1.3/§2.1/§2.2/§3.1/§3.4 | Linux PHP 8.1.34 NTS DEBUG + Swoole 6.1.9，Gene 6.2.1。编译零警告；全量 `TestRunner` **896/896**；Swoole 矩阵 4 组合 ALL-PASS（~10.5K req/s debug 构建）；上下文隔离 10 万请求 / 500 并发（manual + auto）零泄漏、`ctx_pool_hit` 99.5%；MySQL/Redis Pool 200 协程 × 1000 次 **0 failures**；事务泄漏防护 rollback 验证通过 |
 
 历史回归：Windows PHP 8.1.30 NTS x64 Release，`tools\build_all.bat x64 8.1` 构建成功；
 `OrmTest` 177/177、`RouterTest` 38/38、`BenchmarkTest` 42/42、`CacheTest` 49/49；
@@ -623,7 +642,8 @@ realpath_cache_ttl              = 600
 `DatabaseTest` 39/39、`RouterTest` 42/42、`OrmTest` 177/177，全量 `TestRunner` **884/884**。
 新增缓存 5000 轮高 churn、分表统计、Pool clone/serialize 与 min 预填功能覆盖。
 **这些只证明 PHP 8.1 Windows NTS 的编译与功能兼容性，不构成性能收益或 Swoole 并发验收。**
-§1.2/§2.1/§2.2/§3.1/§3.4 的 Linux Swoole、ASAN、ns/op、RSS 与尾延迟继续标记为**待测**。
+§1.2/§2.1/§2.2/§3.1/§3.4 的 Linux Swoole 功能验证已于 2026-09-07 通过（见上表）。
+ASAN、512/1024 并发梯度的 ns/op、RSS 与尾延迟继续标记为**待测**。
 
 > §8.3 轨道推进顺序（未开始条目的排期）见 V2。
 
