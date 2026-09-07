@@ -419,6 +419,16 @@ class Hook
         return true;
     }
 
+    /** Stop dispatch without producing a response. */
+    public static function abort() {
+        return false;
+    }
+
+    /** End the response and stop dispatch. Non-string payloads are JSON encoded. */
+    public static function respond($payload, int $status = 200) {
+        return false;
+    }
+
     /**
      * __get
      * DI property accessor

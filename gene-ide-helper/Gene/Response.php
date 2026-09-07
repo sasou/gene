@@ -230,6 +230,11 @@ class Response
 
     }
 
+    /** Returns whether end(), redirect(), sendFile(), or Hook::respond() ended the request response. */
+    public static function isEnded() {
+
+    }
+
     /**
      * sendFile
      * Send a local file to the client. In Swoole mode this delegates to the

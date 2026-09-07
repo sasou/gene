@@ -2,6 +2,8 @@
 
 > Gene 版本基线：6.1.x。  
 > 代码证据：典型常驻进程应用的全局 Hook 同时承担 request-id、语言注入、JSON→POST 兼容；Swoole 入口又重复 JSON Content-Type 检测、解码与合并；约 170 条路由逐条组合身份 Hook 和 `clearBefore/clearAfter`。
+>
+> **实施记录（2026-09-07）**：已落地请求级 `response_ended`、`Response::isEnded()`、`Hook::abort()`、`Hook::respond()`、redirect/end/sendFile 终止标记和 cleanup 隔离；已实现默认关闭的 `Application::requestId()`（可信 header 校验、生成、Context 与响应头写入），并同步基础 ide-helper/Hook 测试。Windows PHP 8.1 NTS x64 构建通过。复核时确认组级多 Hook 会触及 route leaf 不可变描述符、closure/event 缓存和 PC_DIRECT 三套结构，本轮尚未安全完成，相关 API、快照/基准、Swoole/ASAN/Linux O2/O6 验收仍为待办，不能标记“全部完成”。
 
 ## 一、结论
 
