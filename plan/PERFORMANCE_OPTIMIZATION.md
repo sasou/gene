@@ -82,7 +82,7 @@ Gene 的目标运行模型是 **Swoole 常驻 worker + 协程**（`gene.runtime_
 |---|---|---|
 | 请求上下文 | `gene_request_context` 内联 `path_params`、struct 池复用（`ctx_pool`）、`co_contexts` 冷却式 sweep、`vm_stack` 同协程快路径跳过 `getcid()`、CID 复用时校验表指针身份 | `gene.c:767-905, 1123-1250` |
 | 协程 ID | `dlsym` 直调 Swoole C-API `get_current_cid()`（`gene.swoole_getcid_capi=1`，默认开） | `gene.c:175-213` |
-| 路由 | 预编译 dispatch 描述符 `route_pc`（`gene.route_precompile`，默认关，且要求 `runtime_type>=2 && worker_ready`）；`Router::run()` 三键单锁读 `gene_memory_get_triple()` | `router.c:759-794, 1009-1073, 2072-2076` |
+| 路由 | 预编译 dispatch 描述符 `route_pc`（`gene.route_precompile`，默认关，且要求 `runtime_type>=2 && worker_ready`；generation 失效 + 键式 closure 解析见 §1.1）；`Router::run()` 三键单锁读 `gene_memory_get_triple()` | `router.c:759-794, 1009-1073, 2072-2076` |
 | 类/函数查找 | `gene_lookup_class_str` 栈上小写缓冲直查 `EG(class_table)`；`GENE_CG_FN_LOOKUP` 缓存内部函数指针 | `gene.c:259-289`、`gene.h:73-90` |
 | 进程缓存 | `workerReady()` 冻结前 `zend_hash_extend()` 预留 bucket（保持 `arData` 不动）+ 条件跳锁读；标量 `ZVAL_COPY_VALUE`；对象/资源在任意深度被拒 | `memory.h:27-30`、`memory.c:288, 716-758, 772-794` |
 | 模板编译 | 编译结果以 `zend_string*` 流转；`view_compile_check_mtime` 增量重编译（v5 起默认 `1`） | `view.c:52-72, 610-630` |
@@ -99,7 +99,31 @@ Gene 的目标运行模型是 **Swoole 常驻 worker + 协程**（`gene.runtime_
 这一节的条目**全部**属于 §0.2 的 A 类：长跑 worker 在高并发下会失效、漂移或悬垂。
 它们不是性能条目，但**在修完之前，高并发压测结果不可信**，因此排在所有性能轨道之前。
 
-### 1.1 【已确认缺陷】`Router::clear()` 不失效 `route_pc`，留下悬垂描述符
+### 1.1 【已修复 2026-09-07】`Router::clear()` 不失效 `route_pc`，留下悬垂描述符
+
+> **修复实现**（`[GENE_FIX:2026-09-07 PC-GEN]`）：采纳方案 2 + 方案 3 的组合。
+> - **generation**：新增 `GENE_G(route_pc_generation)`。`Router::clear()/delTree()/delEvent()`
+>   调用 `gene_router_pc_invalidate()` 递增该计数；描述符记录解析时的生成号，
+>   `get_router_info()` 查表命中后先比对，不匹配则**不执行**：从表中摘除（表已改为
+>   **无 dtor**，摘除不释放内存）、挂入 `GENE_G(route_pc_retired)` 延迟回收链，
+>   本次请求走 `get_router_info_slow()`。旧描述符只在 MSHUTDOWN 释放
+>   （`gene_router_pc_destroy()` 同时清空表与回收链），因此协程在
+>   `gene_route_pc_execute()` 中挂起时持有的描述符不会被抽走 —— 解决在途借用。
+> - **不再缓存 closure zval**（方案 3）：描述符改存 `fn_cache` 的**键**
+>   （`route_cl_key/before_cl_key/after_cl_key/hook_cl_key`，字符串位于持久路由树，
+>   与其它借用指针同受 generation 保护），执行时再查 `fn_cache`。这样请求级
+>   `fn_cache` 在 RSHUTDOWN 被释放不再使描述符悬垂（消除 §1.1「附带」的生命周期错配）。
+>   四个 closure 在**任何 hook 执行之前**一次性解析完；若某个已登记的键查不到
+>   （`fn_cache` 被清空且未重建），`gene_route_pc_execute()` 返回 `-1`，调用方
+>   干净地回退慢路径，绝不会出现「hook 链执行一半」。
+> - **可观测**：`Memory::stats()` / `Monitor::stats()` 新增 `route_pc_generation`、
+>   `route_pc_retired`。
+> - **验证**：`php -d gene.route_precompile=1 audit\repro\route_pc_clear_invalidate.php`
+>   与 `=0` 输出逐行一致（行为等价），`generation` 随每次 `clear()` 推进、
+>   `retired` 随之增长且 `items` 不再返回悬垂描述符；`test\RouterTest.php` 全通过。
+>   注：脚本里 `workerReady()` 之后的 `clear()` 因进程缓存已冻结无法真正改写路由树，
+>   慢路径本身会因 closure `object handle` 复用把 `/hello` 与 `/plain` 的处理器对调 ——
+>   该现象在 `route_precompile=0` 下完全相同，属**既有**问题，不在本条范围内。
 - **位置**：`router/router.c:3057-3119`（`clear()`）、`759-794`（描述符构造与
   `gene_router_pc_destroy()`，仅在 MSHUTDOWN 调用）、`1009-1073`（`gene_route_pc_execute()`）
 - **源码事实**（v5 只列为「优先排查的风险」，现已确认）：

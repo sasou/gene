@@ -1949,6 +1949,10 @@ PHP_METHOD(gene_memory, stats) {
 		GENE_G(cache_lru) ? (zend_long)zend_hash_num_elements(GENE_G(cache_lru)) : 0);
 	add_assoc_long(return_value, "route_pc_items",
 		GENE_G(route_pc) ? (zend_long)zend_hash_num_elements(GENE_G(route_pc)) : 0);
+	/* [GENE_FIX:2026-09-07 PC-GEN] Bumped by Router::clear()/delTree()/delEvent();
+	 * retired = descriptors unlinked by such a bump, freed at MSHUTDOWN. */
+	add_assoc_long(return_value, "route_pc_generation", (zend_long)GENE_G(route_pc_generation));
+	add_assoc_long(return_value, "route_pc_retired", (zend_long)GENE_G(route_pc_retired_count));
 	add_assoc_long(return_value, "closure_src_cache_items", gene_closure_src_cache_items());
 	add_assoc_long(return_value, "closure_src_cache_flushes", (zend_long)GENE_G(closure_src_cache_flushes));
 }
