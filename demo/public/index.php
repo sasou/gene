@@ -8,6 +8,7 @@ $app
     ->load("router.ini.php", CONF_DIR)
     ->load("config.ini.php", CONF_DIR)
     ->setMode(1, 1)
+    ->requestId(['header' => 'X-Request-Id', 'bytes' => 8, 'trust' => true, 'max_length' => 128])
     ->webscan(1, 'admin', function () {
         if (\Gene\Request::isAjax()) {
             return json_encode(\Gene\Response::error("Illegal access"));

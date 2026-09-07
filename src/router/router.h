@@ -18,6 +18,12 @@
  #define GENE_ROUTER_H
  #define GENE_ROUTER_SAFE	"safe"
  #define GENE_ROUTER_GROUP	"group"
+#define GENE_ROUTER_GROUP_HOOKS "groupHooks"
+#define GENE_ROUTER_GROUP_STACK "groupStack"
+#define GENE_ROUTER_GROUP_HOOK_STACK "groupHookStack"
+#define GENE_ROUTER_GROUP_BEFORE "groupBefore"
+#define GENE_ROUTER_GROUP_AFTER "groupAfter"
+#define GENE_ROUTER_GROUP_FLAG_STACK "groupFlagStack"
  #define GENE_ROUTER_PREFIX	"prefix"
  #define GENE_ROUTER_LANG	"lang"
  #define GENE_ROUTER_LANGS	"langs"

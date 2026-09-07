@@ -111,6 +111,10 @@
  ZEND_BEGIN_ARG_INFO_EX(gene_router_lang_arginfo, 0, 0, 0)
 	 ZEND_ARG_INFO(0, lang_list)
  ZEND_END_ARG_INFO()
+
+ ZEND_BEGIN_ARG_INFO_EX(gene_router_through_arginfo, 0, 0, 1)
+	 ZEND_ARG_ARRAY_INFO(0, hooks, 0)
+ ZEND_END_ARG_INFO()
  /* }}} */
  
  /** {{{ int setMca(zend_string *key)
@@ -575,6 +579,7 @@ check_retval:
                 abort = 1;
             }
         }
+        if (gene_request_ctx()->response_ended) abort = 1;
         zval_ptr_dtor(&retval);
         return abort ? 0 : 1;
     }
@@ -698,6 +703,7 @@ static void gene_fn_cache_store(zval *closure, zval *fid_zv) {
 				 abort = 1;
 			 }
 		 }
+		 if (gene_request_ctx()->response_ended) abort = 1;
 		 zval_ptr_dtor(&retval);
 		 return abort ? 0 : 1;
 	 }
@@ -987,6 +993,7 @@ static void gene_fn_cache_store(zval *closure, zval *fid_zv) {
 			 smart_str_appendl(&buf, Z_STRVAL_P(m), Z_STRLEN_P(m));
 		 }
 		 if (is_after && *cacheHook && Z_TYPE_P(*cacheHook) == IS_ARRAY) {
+			 smart_str_appends(&buf, "if(\\Gene\\Response::isEnded()||\\Gene\\Application::isStopped())return;");
 			 after = zend_hash_str_find(Z_ARRVAL_P(*cacheHook), "hook:after", 10);
 			 if (after && Z_TYPE_P(after) == IS_STRING && Z_STRLEN_P(after) > 0) {
 				 smart_str_appendl(&buf, Z_STRVAL_P(after), Z_STRLEN_P(after));
@@ -1030,11 +1037,11 @@ static void gene_fn_cache_store(zval *closure, zval *fid_zv) {
 		 }
 		 /* [GENE_FEATURE:2026-08-07] Application::stop(): if a before/hook
 		  * called stop(), skip the controller action and after-hooks. */
-		 if (gene_app_stopped()) goto pc_cleanup;
+		 if (gene_app_stopped() || gene_request_ctx()->response_ended) goto pc_cleanup;
 		 if (pc->src) {
 			 gene_router_dispatch_direct((char *)pc->src, &dispatch_result);
 		 }
-		 if (gene_app_stopped()) goto pc_cleanup;
+		 if (gene_app_stopped() || gene_request_ctx()->response_ended) goto pc_cleanup;
 		 if (pc->is_after && pc->after_src) {
 			 gene_router_exec_hook_direct((char *)pc->after_src, &dispatch_result, 0);
 		 }
@@ -1051,13 +1058,13 @@ static void gene_fn_cache_store(zval *closure, zval *fid_zv) {
 		 } else if (pc->hook_src) {
 			 if (!gene_router_exec_hook_direct((char *)pc->hook_src, NULL, 1)) goto pc_cleanup;
 		 }
-		 if (gene_app_stopped()) goto pc_cleanup;
+		 if (gene_app_stopped() || gene_request_ctx()->response_ended) goto pc_cleanup;
 		 if (pc->route_cl) {
 			 gene_router_dispatch_closure(pc->route_cl, &dispatch_result);
 		 } else if (pc->src) {
 			 gene_router_dispatch_direct((char *)pc->src, &dispatch_result);
 		 }
-		 if (gene_app_stopped()) goto pc_cleanup;
+		 if (gene_app_stopped() || gene_request_ctx()->response_ended) goto pc_cleanup;
 		 if (pc->is_after) {
 			 if (pc->after_cl) {
 				 gene_router_exec_closure_hook(pc->after_cl, &dispatch_result, 0);
@@ -1184,13 +1191,13 @@ static void gene_fn_cache_store(zval *closure, zval *fid_zv) {
 		 /* [GENE_FIX:2026-08-07] Application::stop(): check before dispatch too,
 		  * mirroring the PC_DIRECT / closure checkpoints, so a before-hook that
 		  * calls stop() also prevents the controller from running here. */
-		 if (gene_app_stopped()) goto direct_cleanup;
+		 if (gene_app_stopped() || gene_request_ctx()->response_ended) goto direct_cleanup;
 
 		 gene_router_dispatch_direct(Z_STRVAL_P(src), &dispatch_result);
 
 		 /* [GENE_FEATURE:2026-08-07] Application::stop(): skip after-hook if
 		  * the controller action called stop(). */
-		 if (gene_app_stopped()) goto direct_cleanup;
+		 if (gene_app_stopped() || gene_request_ctx()->response_ended) goto direct_cleanup;
 		 if (is_after && after_src) {
 			 gene_router_exec_hook_direct(Z_STRVAL_P(after_src), &dispatch_result, 0);
 		 }
@@ -1287,7 +1294,7 @@ static void gene_fn_cache_store(zval *closure, zval *fid_zv) {
 
 			 /* [GENE_FEATURE:2026-08-07] Application::stop(): skip action+after
 			  * if a before/named hook called stop(). */
-			 if (gene_app_stopped()) goto closure_cleanup;
+			 if (gene_app_stopped() || gene_request_ctx()->response_ended) goto closure_cleanup;
 
 			 /* Route action */
 			 if (route_cl) {
@@ -1298,7 +1305,7 @@ static void gene_fn_cache_store(zval *closure, zval *fid_zv) {
 
 			 /* [GENE_FEATURE:2026-08-07] Application::stop(): skip after-hook
 			  * if the controller action called stop(). */
-			 if (gene_app_stopped()) goto closure_cleanup;
+			 if (gene_app_stopped() || gene_request_ctx()->response_ended) goto closure_cleanup;
 
 			 /* After hook */
 			 if (is_after) {
@@ -1336,6 +1343,7 @@ static void gene_fn_cache_store(zval *closure, zval *fid_zv) {
 			 smart_str_appendl(&buf, Z_STRVAL_P(m), Z_STRLEN_P(m));
 		 }
 		 if (is_after && *cacheHook && Z_TYPE_P(*cacheHook) == IS_ARRAY) {
+			 smart_str_appends(&buf, "if(\\Gene\\Response::isEnded()||\\Gene\\Application::isStopped())return;");
 			 after = zend_hash_str_find(Z_ARRVAL_P(*cacheHook), "hook:after", 10);
 			 if (after && Z_TYPE_P(after) == IS_STRING && Z_STRLEN_P(after) > 0) {
 				 smart_str_appendl(&buf, Z_STRVAL_P(after), Z_STRLEN_P(after));
@@ -2400,10 +2408,15 @@ restore:
  PHP_METHOD(gene_router, __construct) {
 	 zval *safe = NULL;
 	 int len = 0;
+	 zval state;
 	 zval *obj = getThis();
 	 if (zend_parse_parameters(ZEND_NUM_ARGS(), "|z", &safe) == FAILURE) {
 		 RETURN_NULL();
 	 }
+	 array_init(&state); zend_update_property(gene_router_ce, gene_strip_obj(obj), ZEND_STRL(GENE_ROUTER_GROUP_HOOKS), &state); zval_ptr_dtor(&state);
+	 array_init(&state); zend_update_property(gene_router_ce, gene_strip_obj(obj), ZEND_STRL(GENE_ROUTER_GROUP_STACK), &state); zval_ptr_dtor(&state);
+	 array_init(&state); zend_update_property(gene_router_ce, gene_strip_obj(obj), ZEND_STRL(GENE_ROUTER_GROUP_HOOK_STACK), &state); zval_ptr_dtor(&state);
+	 array_init(&state); zend_update_property(gene_router_ce, gene_strip_obj(obj), ZEND_STRL(GENE_ROUTER_GROUP_FLAG_STACK), &state); zval_ptr_dtor(&state);
 	 /* [GENE_FIX:2026-05-21 F5] zend_parse_parameters("|z") permits non-string
 	  * input. zend_update_property_string requires a NUL-terminated C string
 	  * via Z_STRVAL_P; a non-string zval would feed strlen() with the wrong
@@ -2451,10 +2464,103 @@ static int gene_router_is_event(const char *m) {
 	return (strcmp(m, "hook") == 0 || strcmp(m, "error") == 0);
 }
 
+static int gene_router_chain_add(zval *events, zend_string *name, zval *chain) {
+	char key[320];
+	int n;
+	zval descriptor;
+	zval *value;
+	array_init(&descriptor);
+	n = snprintf(key, sizeof(key), "hsrc:%s", ZSTR_VAL(name));
+	value = n > 0 && (size_t)n < sizeof(key) ? zend_hash_str_find(Z_ARRVAL_P(events), key, n) : NULL;
+	if (value && Z_TYPE_P(value) == IS_STRING) add_assoc_str(&descriptor, "src", zend_string_copy(Z_STR_P(value)));
+	else {
+		n = snprintf(key, sizeof(key), "fcl:%s", ZSTR_VAL(name));
+		value = n > 0 && (size_t)n < sizeof(key) ? zend_hash_str_find(Z_ARRVAL_P(events), key, n) : NULL;
+		if (value && Z_TYPE_P(value) == IS_STRING) add_assoc_str(&descriptor, "fcl", zend_string_copy(Z_STR_P(value)));
+		else {
+			n = snprintf(key, sizeof(key), "hook:%s", ZSTR_VAL(name));
+			value = n > 0 && (size_t)n < sizeof(key) ? zend_hash_str_find(Z_ARRVAL_P(events), key, n) : NULL;
+			if (value && Z_TYPE_P(value) == IS_STRING) add_assoc_str(&descriptor, "eval", zend_string_copy(Z_STR_P(value)));
+			else { zval_ptr_dtor(&descriptor); zend_value_error("named hook '%s' is not registered", ZSTR_VAL(name)); return 0; }
+		}
+	}
+	add_next_index_zval(chain, &descriptor);
+	return 1;
+}
+
+static zval *gene_router_compose_group_hooks(zval *self, const char *method, const char *path, zval *route_hook, zval *out) {
+	zval *hooks = zend_read_property(gene_router_ce, gene_strip_obj(self), ZEND_STRL(GENE_ROUTER_GROUP_HOOKS), 1, NULL);
+	zval *before = zend_read_property(gene_router_ce, gene_strip_obj(self), ZEND_STRL(GENE_ROUTER_GROUP_BEFORE), 1, NULL);
+	zval *after = zend_read_property(gene_router_ce, gene_strip_obj(self), ZEND_STRL(GENE_ROUTER_GROUP_AFTER), 1, NULL);
+	zval *safe, *events, *name;
+	char event_key[256], synthetic[96], lookup[320];
+	size_t event_len;
+	smart_str program = {0};
+	zval chain;
+	char chain_key[384];
+	zend_ulong hash;
+	zend_bool use_before = zend_is_true(before), use_after = zend_is_true(after);
+	if ((!hooks || Z_TYPE_P(hooks) != IS_ARRAY || zend_hash_num_elements(Z_ARRVAL_P(hooks)) == 0) && use_before && use_after) return route_hook;
+	safe = zend_read_property(gene_router_ce, gene_strip_obj(self), ZEND_STRL(GENE_ROUTER_SAFE), 1, NULL);
+	event_len = (safe && Z_TYPE_P(safe) == IS_STRING ? Z_STRLEN_P(safe) : 0) + 3;
+	if (event_len >= sizeof(event_key)) { php_error_docref(NULL, E_WARNING, "router safe key is too long for group hooks"); return route_hook; }
+	if (safe && Z_TYPE_P(safe) == IS_STRING && Z_STRLEN_P(safe)) memcpy(event_key, Z_STRVAL_P(safe), Z_STRLEN_P(safe));
+	memcpy(event_key + event_len - 3, GENE_ROUTER_ROUTER_EVENT, 3); event_key[event_len] = '\0';
+	events = gene_memory_get(event_key, event_len);
+	if (!events || Z_TYPE_P(events) != IS_ARRAY) return route_hook;
+	array_init(&chain);
+	if (hooks && Z_TYPE_P(hooks) == IS_ARRAY) {
+		ZEND_HASH_FOREACH_VAL(Z_ARRVAL_P(hooks), name) {
+			int n = snprintf(lookup, sizeof(lookup), "hook:%s", Z_STRVAL_P(name));
+			zval *code = n > 0 && (size_t)n < sizeof(lookup) ? zend_hash_str_find(Z_ARRVAL_P(events), lookup, n) : NULL;
+			if (!gene_router_chain_add(events, Z_STR_P(name), &chain)) { smart_str_free(&program); zval_ptr_dtor(&chain); return NULL; }
+			if (code && Z_TYPE_P(code) == IS_STRING) smart_str_append(&program, Z_STR_P(code));
+		} ZEND_HASH_FOREACH_END();
+	}
+	if (route_hook && Z_TYPE_P(route_hook) == IS_STRING && Z_STRLEN_P(route_hook)) {
+		const char *at = memchr(Z_STRVAL_P(route_hook), '@', Z_STRLEN_P(route_hook));
+		size_t base_len = at ? (size_t)(at - Z_STRVAL_P(route_hook)) : Z_STRLEN_P(route_hook);
+		if (at) {
+			size_t flag_len = Z_STRLEN_P(route_hook) - base_len - 1;
+			if ((flag_len == sizeof("clearBefore") - 1 && memcmp(at + 1, "clearBefore", flag_len) == 0) || (flag_len == sizeof("clearAll") - 1 && memcmp(at + 1, "clearAll", flag_len) == 0)) use_before = 0;
+			if ((flag_len == sizeof("clearAfter") - 1 && memcmp(at + 1, "clearAfter", flag_len) == 0) || (flag_len == sizeof("clearAll") - 1 && memcmp(at + 1, "clearAll", flag_len) == 0)) use_after = 0;
+		}
+		if (base_len > 0) {
+			int n = snprintf(lookup, sizeof(lookup), "hook:%.*s", (int)base_len, Z_STRVAL_P(route_hook));
+			zval *code = n > 0 && (size_t)n < sizeof(lookup) ? zend_hash_str_find(Z_ARRVAL_P(events), lookup, n) : NULL;
+			zend_string *route_name = zend_string_init(Z_STRVAL_P(route_hook), base_len, 0);
+			if (!gene_router_chain_add(events, route_name, &chain)) { zend_string_release(route_name); smart_str_free(&program); zval_ptr_dtor(&chain); return NULL; }
+			zend_string_release(route_name);
+			if (code && Z_TYPE_P(code) == IS_STRING) smart_str_append(&program, Z_STR_P(code));
+		}
+	}
+	smart_str_0(&program);
+	hash = zend_hash_func(path, strlen(path)) ^ zend_hash_func(method, strlen(method)) ^ zend_hash_func(event_key, event_len);
+	snprintf(synthetic, sizeof(synthetic), "__group_%u_" ZEND_ULONG_FMT, Z_OBJ_HANDLE_P(self), hash);
+	snprintf(chain_key, sizeof(chain_key), ":hook-chain:%s", synthetic);
+	gene_memory_set(chain_key, strlen(chain_key), &chain, 0);
+	zval_ptr_dtor(&chain);
+	{
+		zval code;
+		zend_string *source = strpprintf(0, "$gene_h=\\Gene\\Router::dispatchHooks(\"%s\");if(isset($gene_h)&&($gene_h==0))return;", chain_key);
+		ZVAL_STR(&code, source);
+		snprintf(lookup, sizeof(lookup), "hook:%s", synthetic);
+		gene_memory_set_by_router(event_key, event_len, lookup, &code, 0);
+		zval_ptr_dtor(&code);
+	}
+	if (!use_before && !use_after) ZVAL_STR(out, strpprintf(0, "%s@clearAll", synthetic));
+	else if (!use_before) ZVAL_STR(out, strpprintf(0, "%s@clearBefore", synthetic));
+	else if (!use_after) ZVAL_STR(out, strpprintf(0, "%s@clearAfter", synthetic));
+	else ZVAL_STRING(out, synthetic);
+	smart_str_free(&program);
+	return out;
+}
+
 PHP_METHOD(gene_router, __call) {
 	zval *val = NULL, *group, *safe, *pathVal = NULL, *contentval = NULL, *hook = NULL, *self = getThis();
-	zval content;
+	zval content, composed_hook;
 	ZVAL_UNDEF(&content);
+	ZVAL_UNDEF(&composed_hook);
 	zend_long methodlen;
 	int is_string_route = 0;
 	int is_closure_route = 0;
@@ -2517,8 +2623,14 @@ PHP_METHOD(gene_router, __call) {
 		 }
  
 		 hook = zend_hash_index_find(Z_ARRVAL_P(val), 2);
-		 if (hook != NULL && Z_TYPE_P(hook) != IS_STRING) {
-			 hook = NULL;
+		 if (hook != NULL && Z_TYPE_P(hook) != IS_STRING) hook = NULL;
+		 hook = gene_router_compose_group_hooks(self, method, path, hook, &composed_hook);
+		 if (EG(exception)) {
+			 if (path_heap) efree(path);
+			 zval_ptr_dtor(&content);
+			 if (Z_TYPE(fid_zv) != IS_UNDEF) zval_ptr_dtor(&fid_zv);
+			 if (Z_TYPE(composed_hook) != IS_UNDEF) zval_ptr_dtor(&composed_hook);
+			 RETURN_THROWS();
 		 }
  
 		//call tree
@@ -2735,6 +2847,7 @@ PHP_METHOD(gene_router, __call) {
 			zval_ptr_dtor(&content);
 			zval_ptr_dtor(&pathvals);
 			if (Z_TYPE(fid_zv) != IS_UNDEF) zval_ptr_dtor(&fid_zv);
+			if (Z_TYPE(composed_hook) != IS_UNDEF) zval_ptr_dtor(&composed_hook);
 			RETURN_ZVAL(self, 1, 0);
 		}
 	}
@@ -2805,6 +2918,7 @@ PHP_METHOD(gene_router, __call) {
 			 if (path_heap) efree(path);
 			 zval_ptr_dtor(&content);
 			 if (Z_TYPE(fid_zv) != IS_UNDEF) zval_ptr_dtor(&fid_zv);
+			 if (Z_TYPE(composed_hook) != IS_UNDEF) zval_ptr_dtor(&composed_hook);
 			 RETURN_ZVAL(self, 1, 0);
 		 }
 	 }
@@ -2816,6 +2930,7 @@ PHP_METHOD(gene_router, __call) {
 	 }
 	 }
 	 if (Z_TYPE(fid_zv) != IS_UNDEF) zval_ptr_dtor(&fid_zv);
+	 if (Z_TYPE(composed_hook) != IS_UNDEF) zval_ptr_dtor(&composed_hook);
 	 RETURN_ZVAL(self, 1, 0);
  }
  /* }}} */
@@ -3381,22 +3496,90 @@ PHP_METHOD(gene_router, __call) {
  PHP_METHOD(gene_router, group) {
 	 zend_string *name = NULL;
 	 zval *self = getThis();
-	 char *group = NULL;
-	 if (zend_parse_parameters(ZEND_NUM_ARGS(), "|S", &name) == FAILURE) {
-		 return;
-	 }
- 
-	 if (name == NULL) {
-		 zend_update_property_string(gene_router_ce, gene_strip_obj(self), GENE_ROUTER_GROUP, strlen(GENE_ROUTER_GROUP), "");
-	 } else {
-		 group = estrndup(ZSTR_VAL(name), ZSTR_LEN(name));
-		 trim(group, '/');
-		 zend_update_property_string(gene_router_ce, gene_strip_obj(self), GENE_ROUTER_GROUP, strlen(GENE_ROUTER_GROUP), group);
-		 efree(group);
-	 }
- 
+	 zval *current, *hooks, *before, *after, *paths, *hook_stack, *flag_stack;
+	 if (zend_parse_parameters(ZEND_NUM_ARGS(), "|S", &name) == FAILURE) return;
+	 current = zend_read_property(gene_router_ce, gene_strip_obj(self), ZEND_STRL(GENE_ROUTER_GROUP), 1, NULL);
+	 hooks = zend_read_property(gene_router_ce, gene_strip_obj(self), ZEND_STRL(GENE_ROUTER_GROUP_HOOKS), 1, NULL);
+	 before = zend_read_property(gene_router_ce, gene_strip_obj(self), ZEND_STRL(GENE_ROUTER_GROUP_BEFORE), 1, NULL);
+	 after = zend_read_property(gene_router_ce, gene_strip_obj(self), ZEND_STRL(GENE_ROUTER_GROUP_AFTER), 1, NULL);
+	 paths = zend_read_property(gene_router_ce, gene_strip_obj(self), ZEND_STRL(GENE_ROUTER_GROUP_STACK), 1, NULL);
+	 hook_stack = zend_read_property(gene_router_ce, gene_strip_obj(self), ZEND_STRL(GENE_ROUTER_GROUP_HOOK_STACK), 1, NULL);
+	 flag_stack = zend_read_property(gene_router_ce, gene_strip_obj(self), ZEND_STRL(GENE_ROUTER_GROUP_FLAG_STACK), 1, NULL);
+	 if (name) {
+		 zval saved, flags;
+		 char *part = estrndup(ZSTR_VAL(name), ZSTR_LEN(name));
+		 trim(part, '/');
+		 ZVAL_COPY(&saved, current); add_next_index_zval(paths, &saved);
+		 ZVAL_COPY(&saved, hooks); add_next_index_zval(hook_stack, &saved);
+		 array_init(&flags); add_next_index_bool(&flags, zend_is_true(before)); add_next_index_bool(&flags, zend_is_true(after)); add_next_index_zval(flag_stack, &flags);
+		 if (Z_STRLEN_P(current) > 0) {
+			 zend_string *joined = strpprintf(0, "%s/%s", Z_STRVAL_P(current), part);
+			 zend_update_property_str(gene_router_ce, gene_strip_obj(self), ZEND_STRL(GENE_ROUTER_GROUP), joined);
+			 zend_string_release(joined);
+		 } else zend_update_property_string(gene_router_ce, gene_strip_obj(self), ZEND_STRL(GENE_ROUTER_GROUP), part);
+		 efree(part);
+	 } else if (zend_hash_num_elements(Z_ARRVAL_P(paths)) > 0) {
+		 zend_ulong index = zend_hash_num_elements(Z_ARRVAL_P(paths)) - 1;
+		 zval *saved = zend_hash_index_find(Z_ARRVAL_P(paths), index);
+		 zval *saved_hooks = zend_hash_index_find(Z_ARRVAL_P(hook_stack), index);
+		 zval *flags = zend_hash_index_find(Z_ARRVAL_P(flag_stack), index);
+		 zend_update_property(gene_router_ce, gene_strip_obj(self), ZEND_STRL(GENE_ROUTER_GROUP), saved);
+		 zend_update_property(gene_router_ce, gene_strip_obj(self), ZEND_STRL(GENE_ROUTER_GROUP_HOOKS), saved_hooks);
+		 if (flags && Z_TYPE_P(flags) == IS_ARRAY) {
+			 zval *b = zend_hash_index_find(Z_ARRVAL_P(flags), 0), *a = zend_hash_index_find(Z_ARRVAL_P(flags), 1);
+			 zend_update_property_bool(gene_router_ce, gene_strip_obj(self), ZEND_STRL(GENE_ROUTER_GROUP_BEFORE), b && zend_is_true(b));
+			 zend_update_property_bool(gene_router_ce, gene_strip_obj(self), ZEND_STRL(GENE_ROUTER_GROUP_AFTER), a && zend_is_true(a));
+		 }
+		 zend_hash_index_del(Z_ARRVAL_P(paths), index); zend_hash_index_del(Z_ARRVAL_P(hook_stack), index); zend_hash_index_del(Z_ARRVAL_P(flag_stack), index);
+		 if (zend_hash_num_elements(Z_ARRVAL_P(paths)) == 0) { zend_hash_clean(Z_ARRVAL_P(paths)); zend_hash_clean(Z_ARRVAL_P(hook_stack)); zend_hash_clean(Z_ARRVAL_P(flag_stack)); }
+	 } else zend_update_property_string(gene_router_ce, gene_strip_obj(self), ZEND_STRL(GENE_ROUTER_GROUP), "");
 	 RETURN_ZVAL(self, 1, 0);
  }
+
+ PHP_METHOD(gene_router, dispatchHooks) {
+	 zend_string *key;
+	 zval *chain, *descriptor;
+	 if (zend_parse_parameters(ZEND_NUM_ARGS(), "S", &key) == FAILURE) return;
+	 chain = gene_memory_get(ZSTR_VAL(key), ZSTR_LEN(key));
+	 if (!chain || Z_TYPE_P(chain) != IS_ARRAY) RETURN_FALSE;
+	 ZEND_HASH_FOREACH_VAL(Z_ARRVAL_P(chain), descriptor) {
+		 zval *value;
+		 int proceed = 1;
+		 if (Z_TYPE_P(descriptor) != IS_ARRAY) continue;
+		 value = zend_hash_str_find(Z_ARRVAL_P(descriptor), ZEND_STRL("src"));
+		 if (value && Z_TYPE_P(value) == IS_STRING) proceed = gene_router_exec_hook_direct(Z_STRVAL_P(value), NULL, 1);
+		 else if ((value = zend_hash_str_find(Z_ARRVAL_P(descriptor), ZEND_STRL("fcl"))) && Z_TYPE_P(value) == IS_STRING && GENE_G(fn_cache)) {
+			 zval *closure = zend_hash_find(GENE_G(fn_cache), Z_STR_P(value));
+			 proceed = closure ? gene_router_exec_closure_hook(closure, NULL, 1) : 0;
+		 } else if ((value = zend_hash_str_find(Z_ARRVAL_P(descriptor), ZEND_STRL("eval"))) && Z_TYPE_P(value) == IS_STRING) {
+			 zend_try { zend_eval_stringl(Z_STRVAL_P(value), Z_STRLEN_P(value), NULL, ""); } zend_catch { } zend_end_try();
+			 proceed = !gene_app_stopped() && !gene_request_ctx()->response_ended;
+		 }
+		 if (!proceed || gene_app_stopped() || gene_request_ctx()->response_ended) RETURN_FALSE;
+	 } ZEND_HASH_FOREACH_END();
+	 RETURN_TRUE;
+ }
+
+ PHP_METHOD(gene_router, through) {
+	 zval *incoming, *self = getThis(), *hooks;
+	 zval *entry;
+	 if (zend_parse_parameters(ZEND_NUM_ARGS(), "a", &incoming) == FAILURE) return;
+	 hooks = zend_read_property(gene_router_ce, gene_strip_obj(self), ZEND_STRL(GENE_ROUTER_GROUP_HOOKS), 1, NULL);
+	 ZEND_HASH_FOREACH_VAL(Z_ARRVAL_P(incoming), entry) {
+		 if (Z_TYPE_P(entry) != IS_STRING || Z_STRLEN_P(entry) == 0) { zend_argument_value_error(1, "must contain only non-empty hook names"); RETURN_THROWS(); }
+		 Z_TRY_ADDREF_P(entry); add_next_index_zval(hooks, entry);
+	 } ZEND_HASH_FOREACH_END();
+	 RETURN_ZVAL(self, 1, 0);
+ }
+
+ PHP_METHOD(gene_router, withoutHooks) {
+	 zval *self = getThis(), empty;
+	 array_init(&empty); zend_update_property(gene_router_ce, gene_strip_obj(self), ZEND_STRL(GENE_ROUTER_GROUP_HOOKS), &empty); zval_ptr_dtor(&empty);
+	 RETURN_ZVAL(self, 1, 0);
+ }
+
+ PHP_METHOD(gene_router, withoutBefore) { zval *self = getThis(); zend_update_property_bool(gene_router_ce, gene_strip_obj(self), ZEND_STRL(GENE_ROUTER_GROUP_BEFORE), 0); RETURN_ZVAL(self, 1, 0); }
+ PHP_METHOD(gene_router, withoutAfter) { zval *self = getThis(); zend_update_property_bool(gene_router_ce, gene_strip_obj(self), ZEND_STRL(GENE_ROUTER_GROUP_AFTER), 0); RETURN_ZVAL(self, 1, 0); }
  /* }}} */
  
  /*
@@ -3556,6 +3739,11 @@ PHP_METHOD(gene_router, __call) {
 	 PHP_ME(gene_router, params, gene_router_params, ZEND_ACC_PUBLIC|ZEND_ACC_STATIC)
 	 PHP_ME(gene_router, prefix, gene_router_prefix_arginfo, ZEND_ACC_PUBLIC)
 	 PHP_ME(gene_router, group, gene_router_group_arginfo, ZEND_ACC_PUBLIC)
+	 PHP_ME(gene_router, through, gene_router_through_arginfo, ZEND_ACC_PUBLIC)
+	 PHP_ME(gene_router, dispatchHooks, gene_router_read_file, ZEND_ACC_PUBLIC|ZEND_ACC_STATIC)
+	 PHP_ME(gene_router, withoutHooks, gene_router_void_arginfo, ZEND_ACC_PUBLIC)
+	 PHP_ME(gene_router, withoutBefore, gene_router_void_arginfo, ZEND_ACC_PUBLIC)
+	 PHP_ME(gene_router, withoutAfter, gene_router_void_arginfo, ZEND_ACC_PUBLIC)
 	 PHP_ME(gene_router, lang, gene_router_lang_arginfo, ZEND_ACC_PUBLIC)
 	 PHP_ME(gene_router, getLang, gene_router_void_arginfo, ZEND_ACC_PUBLIC|ZEND_ACC_STATIC)
 	 PHP_ME(gene_router, __call, gene_router_call_arginfo, ZEND_ACC_PUBLIC)
@@ -3577,6 +3765,12 @@ PHP_METHOD(gene_router, __call) {
 	 //prop
 	 zend_declare_property_string(gene_router_ce, GENE_ROUTER_SAFE, strlen(GENE_ROUTER_SAFE), "", ZEND_ACC_PUBLIC);
 	 zend_declare_property_string(gene_router_ce, GENE_ROUTER_GROUP, strlen(GENE_ROUTER_GROUP), "", ZEND_ACC_PUBLIC);
+	 zend_declare_property_null(gene_router_ce, ZEND_STRL(GENE_ROUTER_GROUP_HOOKS), ZEND_ACC_PRIVATE);
+	 zend_declare_property_null(gene_router_ce, ZEND_STRL(GENE_ROUTER_GROUP_STACK), ZEND_ACC_PRIVATE);
+	 zend_declare_property_null(gene_router_ce, ZEND_STRL(GENE_ROUTER_GROUP_HOOK_STACK), ZEND_ACC_PRIVATE);
+	 zend_declare_property_null(gene_router_ce, ZEND_STRL(GENE_ROUTER_GROUP_FLAG_STACK), ZEND_ACC_PRIVATE);
+	 zend_declare_property_bool(gene_router_ce, ZEND_STRL(GENE_ROUTER_GROUP_BEFORE), 1, ZEND_ACC_PRIVATE);
+	 zend_declare_property_bool(gene_router_ce, ZEND_STRL(GENE_ROUTER_GROUP_AFTER), 1, ZEND_ACC_PRIVATE);
  
 	 return SUCCESS; // @suppress("Symbol is not resolved")
  }

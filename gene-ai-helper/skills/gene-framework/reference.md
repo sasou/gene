@@ -53,6 +53,7 @@
 | error($type, $callback = null, $error_type = null) | 注册错误处理回调，返回 $this |
 | exception($type, $callback = null) | 注册异常处理回调，返回 $this |
 | run($method = null, $uri = null) | 启动路由分发；FPM 无参读 $_SERVER；Swoole 无参读 Request 上下文 |
+| requestId($config = null) | 显式启用 request-id 策略；支持 `header`、`bytes`、`trust`、`max_length`，写入 `Context['request_id']` 和响应头；传 null 关闭 |
 | webscan(...) | 内置 Web 扫描防护（开关、白名单目录/URL、GET/POST/Cookie/Referer） |
 | waitWorkerReady() | Swoole：阻塞直到 workerStart 调用 workerReady() |
 | workerReady() | Swoole：标记 Worker 就绪，冻结进程级 Memory，预热请求上下文池 |
@@ -160,7 +161,8 @@ $rest->use('user')->call('Ping', 'pong', $params);
 | success($msg, $code = 2000) | 构建成功响应数组 |
 | error($msg, $code = 4000) | 构建失败响应数组 |
 | data($data, $count = -1, $msg = null, $code = 2000) | 构建带数据响应数组 |
-| json($data, $callback = null, $code = 256) | JSON 编码并输出，支持 JSONP |
+| json($data, $callback = null, $code = 256) | JSON 编码并输出，支持 JSONP，并标记响应已结束 |
+| isEnded() | 查询当前请求是否已由 redirect/json/end/sendFile/respond 终止 |
 | header($key, $value) | 设置自定义响应头 |
 | cookie($name, $value = null, $expires = null, $path = null, $domain = null, $secure = null, $httponly = null, $samesite = null) | 设置 Cookie（samesite: "Lax"/"Strict"/"None"，设为 "None" 时通常需同时 secure=true） |
 | url($path) | 带当前语言前缀的 URL |
@@ -200,7 +202,10 @@ $rest->use('user')->call('Ping', 'pong', $params);
 | get/post/put/patch/delete($path, $handler, $hooks = null) | 注册对应 HTTP 方法路由（通过 `__call` 实现）|
 | hook($name, $callback) | 注册钩子（通过 `__call` 实现） |
 | error($code, $callback) | 注册错误处理（通过 `__call` 实现） |
-| group($prefix = null) | 开始/结束路由分组，无参数时结束当前分组 |
+| group($prefix = null) | 开始嵌套路由分组；子组继承路径、命名 Hook 与 phase 策略；无参数时结束当前层 |
+| through(array $hooks) | 按顺序追加已注册命名 Hook；任一中止会跳过后续 Hook 和 Controller |
+| withoutHooks() | 清除当前组继承的命名 Hook |
+| withoutBefore() / withoutAfter() | 关闭当前组路由的全局 before/after phase |
 | prefix($name = null) | 设置全局路由前缀，返回 $this |
 | lang($lang_list) | 启用多语言路由，`$lang_list` 为逗号分隔语言列表，返回 $this |
 | run($method = null, $uri = null) | 执行路由匹配与分发 |
@@ -779,7 +784,9 @@ class AdminAuth extends \Gene\Hook {
 
 | 方法 | 说明 |
 |------|------|
-| handle() | 命名钩子入口；返回 false 中止请求 |
+| handle() | 命名钩子入口；返回 false/0 中止请求 |
+| abort() | 显式中止后续 Hook 和 Controller，不生成响应 |
+| respond($payload, $status = 200) | 字符串原样、其他值 JSON 编码，结束响应并中止派发 |
 | before() / after($params) | 全局前后钩子可覆写 |
 | get/post/request/params/... | 与 Controller 相同的静态取参 |
 | redirect($url, $code), assign, display, success/error/data/json | 实例或静态辅助 |

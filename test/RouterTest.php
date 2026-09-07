@@ -8,6 +8,13 @@
 
 use Gene\Router;
 
+class RouterGroupTrace { public static $values = []; }
+class RouterGroupHookA extends \Gene\Hook { public function handle() { RouterGroupTrace::$values[] = 'a'; return true; } }
+class RouterGroupHookB extends \Gene\Hook { public function handle() { RouterGroupTrace::$values[] = 'b'; return true; } }
+class RouterGroupHookStop extends \Gene\Hook { public function handle() { RouterGroupTrace::$values[] = 'stop'; return self::abort(); } }
+class RouterGroupController { public function run() { RouterGroupTrace::$values[] = 'controller'; } }
+class RouterRequestIdController { public function run() { RouterGroupTrace::$values[] = \Gene\Context::get('request_id'); } }
+
 class RouterTest
 {
     private $router;
@@ -513,6 +520,53 @@ class RouterTest
         echo "\n";
     }
     
+    public function testComposableGroupHooks()
+    {
+        echo "Testing Composable Group Hooks:\n";
+        $router = new Router('group-hook-test');
+        $router->clear()
+            ->hook('groupA', 'RouterGroupHookA@handle')
+            ->hook('groupB', 'RouterGroupHookB@handle')
+            ->hook('groupStop', 'RouterGroupHookStop@handle');
+        RouterGroupTrace::$values = [];
+        $router->group('/admin')->through(['groupA'])
+            ->group('/users')->through(['groupB'])
+            ->get('/list', 'RouterGroupController@run')
+            ->group()->group();
+        $router->run('GET', '/admin/users/list');
+        if (RouterGroupTrace::$values === ['a', 'b', 'controller']) echo "✓ nested groups inherit hooks in stable order\n"; else echo "✗ group order mismatch: " . json_encode(RouterGroupTrace::$values) . "\n";
+        $router->group('/blocked')->through(['groupA', 'groupStop', 'groupB'])
+            ->get('/run', 'RouterGroupController@run')->group();
+        RouterGroupTrace::$values = [];
+        $router->run('GET', '/blocked/run');
+        $blockedTrace = array_slice(RouterGroupTrace::$values, -2);
+        if ($blockedTrace === ['a', 'stop']) echo "✓ abort skips remaining hooks and controller\n"; else echo "✗ group abort mismatch: " . json_encode($blockedTrace) . "\n";
+        \Gene\Application::cleanup();
+        echo "\n";
+    }
+
+    public function testRequestIdPolicy()
+    {
+        echo "Testing Request-id Policy:\n";
+        $router = new Router('request-id-test');
+        $router->clear()->get('/', 'RouterRequestIdController@run');
+        $app = new \Gene\Application('request-id-test');
+        $app->requestId(['header' => 'X-Request-Id', 'bytes' => 8, 'trust' => true, 'max_length' => 32]);
+        RouterGroupTrace::$values = [];
+        \Gene\Request::init([], [], [], [], null, [], null, ['x-request-id' => 'trusted-id'], '');
+        @$app->run('GET', '/');
+        if (array_slice(RouterGroupTrace::$values, -1) === ['trusted-id']) echo "✓ trusted visible ASCII request-id is reused\n"; else echo "✗ trusted request-id was not reused\n";
+        \Gene\Application::cleanup();
+        RouterGroupTrace::$values = [];
+        \Gene\Request::init([], [], [], [], null, [], null, ['X-Request-Id' => "bad\r\nid"], '');
+        @$app->run('GET', '/');
+        $generated = end(RouterGroupTrace::$values);
+        if (is_string($generated) && strlen($generated) === 16 && ctype_xdigit($generated)) echo "✓ invalid request-id is replaced\n"; else echo "✗ invalid request-id replacement failed\n";
+        $app->requestId(null);
+        \Gene\Application::cleanup();
+        echo "\n";
+    }
+
     /**
      * Run all tests
      */
@@ -533,6 +587,8 @@ class RouterTest
         $this->testMiddlewareAndHooks();
         $this->testPerformance();
         $this->testHeadOptionsRoot();
+        $this->testComposableGroupHooks();
+        $this->testRequestIdPolicy();
         
         echo "=== Router Test Suite Complete ===\n";
     }
