@@ -3565,6 +3565,7 @@ PHP_METHOD(gene_router, __call) {
 	 zval *entry;
 	 if (zend_parse_parameters(ZEND_NUM_ARGS(), "a", &incoming) == FAILURE) return;
 	 hooks = zend_read_property(gene_router_ce, gene_strip_obj(self), ZEND_STRL(GENE_ROUTER_GROUP_HOOKS), 1, NULL);
+	 SEPARATE_ARRAY(hooks);
 	 ZEND_HASH_FOREACH_VAL(Z_ARRVAL_P(incoming), entry) {
 		 if (Z_TYPE_P(entry) != IS_STRING || Z_STRLEN_P(entry) == 0) { zend_argument_value_error(1, "must contain only non-empty hook names"); RETURN_THROWS(); }
 		 Z_TRY_ADDREF_P(entry); add_next_index_zval(hooks, entry);
