@@ -6,7 +6,7 @@
 
 [![PHP](https://img.shields.io/badge/PHP-8.0~8.5-777BB4?style=flat-square&logo=php&logoColor=white)](https://www.php.net/)
 [![Language](https://img.shields.io/badge/Language-C-00599C?style=flat-square&logo=c&logoColor=white)](https://en.wikipedia.org/wiki/C_(programming_language))
-[![Release](https://img.shields.io/badge/Release-v6.2.0-blue?style=flat-square&logo=github)](https://github.com/sasou/php-gene/releases)
+[![Release](https://img.shields.io/badge/Release-v6.2.1-blue?style=flat-square&logo=github)](https://github.com/sasou/php-gene/releases)
 [![Swoole](https://img.shields.io/badge/Swoole-Supported-brightgreen?style=flat-square&logo=swoole&logoColor=white)](https://www.swoole.com/)
 [![Platform](https://img.shields.io/badge/Platform-Linux%20|%20macOS%20|%20Windows-lightgrey?style=flat-square&logo=linux&logoColor=white)](https://github.com/sasou/php-gene)
 [![License](https://img.shields.io/badge/License-PHP%203.01-green.svg?style=flat-square)](http://www.php.net/license/3_01.txt)
@@ -28,7 +28,7 @@
   <a href="#performance-and-capacity">📊 Performance</a>
 </p>
 
-> 💡 **Gene 6.2.0** — Structured JOINs, UNION queries, complex-result pagination, atomic arithmetic updates, unified request input, HTTP form encoding, and PHP 8.0–8.5 support.
+> 💡 **Gene 6.2.1** — Hook lifecycle termination, composable group hooks, and standard request-id policy.
 
 ---
 
