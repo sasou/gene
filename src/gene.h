@@ -190,6 +190,7 @@ static inline uint64_t gene_hrtime(void) {
 	  * through Gene\Response in Swoole mode (redirect/status); 0 = unset.
 	  * FPM reads SG(sapi_headers).http_response_code instead. */
 	 zend_long response_status;
+	 zend_bool response_ended;
 	 /* [GENE_FIX:2026-08-07-5 N2] Application::stop() latch, moved here from
 	  * module globals: per-request state (reset by ctx reset), per-coroutine
 	  * isolated in Swoole mode. The old module-global latch was reset only in

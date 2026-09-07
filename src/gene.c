@@ -679,6 +679,7 @@ static void gene_request_context_free_fields(gene_request_context *ctx, int pres
 		ZVAL_UNDEF(&ctx->bench_marks);
 	}
 	ctx->response_status = 0;
+	ctx->response_ended = 0;
 	/* [GENE_FIX:2026-08-07-5 N2] Stop latch lives in the ctx, so it is
 	 * automatically re-armed for every request/coroutine that reuses it. */
 	ctx->app_stopped = 0;
