@@ -216,7 +216,7 @@ class Response
      *
      * @return int
      */
-    public function getStatusCode() {
+    public static function getStatusCode() {
 
     }
 
@@ -226,7 +226,7 @@ class Response
      *
      * @return bool
      */
-    public function isSent() {
+    public static function isSent() {
 
     }
 
@@ -249,7 +249,7 @@ class Response
      * @param int $length max bytes to send (0 = until EOF)
      * @return bool
      */
-    public function sendFile(string $file, int $offset = 0, int $length = 0) {
+    public static function sendFile(string $file, int $offset = 0, int $length = 0) {
 
     }
 

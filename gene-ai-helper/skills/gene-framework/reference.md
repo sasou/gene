@@ -25,6 +25,8 @@
 | getMethod() | 获取请求方法（小写），返回 string\|null |
 | getLang() | 获取当前语言前缀 |
 | isGet(), isPost(), isPut(), isHead(), isOptions(), isDelete(), isCli() | 请求方法判断 |
+| input($key = null, $default = null) | 同 `Request::input()`：合并 GET+POST 与 JSON body |
+| forward($controller, $action, $params = []) | 进程内转发到另一 controller/action，返回其返回值；不切 Request（与 `Invoke` 区别）。转发深度上限 5，超限返回 false 并触发 E_WARNING |
 | redirect($url, $code = null) | 重定向（默认 302） |
 | assign($name, $value) | 视图变量赋值 |
 | display($file, $parent_file = null) | 渲染视图模板 |
@@ -54,6 +56,8 @@
 | exception($type, $callback = null) | 注册异常处理回调，返回 $this |
 | run($method = null, $uri = null) | 启动路由分发；FPM 无参读 $_SERVER；Swoole 无参读 Request 上下文 |
 | requestId($config = null) | 显式启用 request-id 策略；支持 `header`、`bytes`、`trust`、`max_length`，写入 `Context['request_id']` 和响应头；传 null 关闭 |
+| stop() | 标记当前请求停止后续动作与 after 钩子（实例方法，每请求） |
+| isStopped() | 当前请求是否已 `stop()` |
 | webscan(...) | 内置 Web 扫描防护（开关、白名单目录/URL、GET/POST/Cookie/Referer） |
 | waitWorkerReady() | Swoole：阻塞直到 workerStart 调用 workerReady() |
 | workerReady() | Swoole：标记 Worker 就绪，冻结进程级 Memory，预热请求上下文池 |
@@ -95,8 +99,10 @@
 | params($key = null) | 获取路由路径参数 |
 | isAjax() | 是否 AJAX 请求 |
 | getMethod() | 获取请求方法 |
-| isGet(), isPost(), isPut(), isHead(), isOptions(), isCli() | 请求方法判断 |
+| isGet(), isPost(), isPut(), isHead(), isOptions(), isDelete(), isCli() | 请求方法判断 |
+| isSecure() | 当前请求是否走 HTTPS/TLS |
 | header($key, $default = null) | 获取 HTTP 请求头 |
+| rawContent() | 获取原始 HTTP 请求体；Swoole 来自 `Request::init()` 的 `$rawContent`，FPM/CLI 按需读 `php://input` 并缓存。`getContent()` 为别名 |
 | clear() | 清除请求数据缓存 |
 | init($get, $post, $cookie, $server, $env, $files, $request = null, $header = null, $rawContent = null) | Swoole 注入请求；未传 $request 时合并 GET+POST；$rawContent 对应 Swoole `$request->rawContent()` |
 | json() | 解析 rawContent 为 JSON 对象/数组；空 body → `null`；非法 JSON / JSON `null` / 标量抛异常。禁止直接读 `php://input` |
@@ -163,6 +169,9 @@ $rest->use('user')->call('Ping', 'pong', $params);
 | data($data, $count = -1, $msg = null, $code = 2000) | 构建带数据响应数组 |
 | json($data, $callback = null, $code = 256) | JSON 编码并输出，支持 JSONP，并标记响应已结束 |
 | isEnded() | 查询当前请求是否已由 redirect/json/end/sendFile/respond 终止 |
+| getStatusCode() | 获取当前响应的 HTTP 状态码 |
+| isSent() | 判断响应是否已发送给客户端 |
+| sendFile($file, $offset = 0, $length = 0) | 发送本地文件下载（Swoole 走内核 sendfile，FPM 按 8KB 分块流式）；仅接受本地普通文件（拒绝 http://、php:// 等流包装器），`$file` 不要直接拼接用户输入；响应头需先用 `header()` 设置 |
 | header($key, $value) | 设置自定义响应头 |
 | cookie($name, $value = null, $expires = null, $path = null, $domain = null, $secure = null, $httponly = null, $samesite = null) | 设置 Cookie（samesite: "Lax"/"Strict"/"None"，设为 "None" 时通常需同时 secure=true） |
 | url($path) | 带当前语言前缀的 URL |
@@ -187,7 +196,11 @@ $rest->use('user')->call('Ping', 'pong', $params);
 | displayExt($file, $parent_file = null, $isCompile = false) | 扩展渲染（编译模板引擎） |
 | contains() | 返回子视图文件路径 |
 | containsExt() | 返回子视图编译文件路径 |
+| render($template, $vars = []) | 渲染模板并返回字符串（不输出）；`assign()` 的变量与 `$vars` 均可用 |
+| clearAssign() | 清除所有已赋值的视图变量 |
 | url($path) | 带语言前缀的 URL |
+| getPath($withoutLang = false) | 当前请求路径；`true` 时去除语言前缀 |
+| getRouterUri() | 当前路由模式 URI（:m/:c/:a 已替换） |
 | scope($num = 0) | 管理视图变量作用域版本号（多层模板嵌套隔离） |
 
 ---
@@ -209,9 +222,11 @@ $rest->use('user')->call('Ping', 'pong', $params);
 | prefix($name = null) | 设置全局路由前缀，返回 $this |
 | lang($lang_list) | 启用多语言路由，`$lang_list` 为逗号分隔语言列表，返回 $this |
 | run($method = null, $uri = null) | 执行路由匹配与分发 |
+| match($method, $uri) | 纯路由匹配：复用 run() 的查找逻辑但不执行 handler、不触发 hook，query string 剥离但不并入 `$_GET`；命中返回 `['module','controller','action','params','route']`，未命中返回 `false`。用于路由单元测试与预检 |
 | runError($method) | 触发指定错误路由（如 `"404"`） |
 | dispatch($class, $action, $params) | 直接实例化类并调用方法，支持 :c/:a 替换 |
 | params($name = null) | 获取路由路径参数 |
+| getRouterUri() | 获取当前匹配到的路由注册键（路由模式串） |
 | getLang() | 获取当前语言 |
 | getTree(), getEvent(), getConf() | 获取路由树/事件/配置（用于调试） |
 | delTree(), delEvent(), delConf() | 清除路由树/事件/配置缓存 |
@@ -273,6 +288,8 @@ $title = $this->language->login_title; // 读取键值
 | 方法 | 说明 |
 |------|------|
 | getInstance() | 获取容器单例 |
+| instance($class, $params = []) | 显式实例化一个类（走工厂加载 + 构造参数转发），不写入容器注册表——每次调用产生新对象，适用于瞬态/值对象；类不存在返回 `null` |
+| alias($alias, $target) | 注册服务别名；后续 `instance($alias)` 先解析别名到目标服务再查注册表 |
 | get($name) | 获取已注册对象（优先内存，再读 config 自动创建） |
 | has($name) | 判断容器中是否存在指定 key |
 | set($name, $value) | 向容器注册对象或值 |
@@ -808,6 +825,7 @@ Swoole 协程 **PDO 连接池**（FPM 无效）。
 | remove() | 连接失效，不归还 |
 | close() | 关闭单池 |
 | recycleIdle() | 立即回收空闲超时的连接，通常由定时器自动调用 |
+| healthCheck() | 空闲连接轻量探活：逐个弹出检测，存活归还、死连接丢弃；返回 `['alive'=>n,'dead'=>n]`，池关闭/未初始化返回 `false`。须在协程内调用 |
 | closeAll() / stopTimers() | Worker 停止/退出时清理 |
 | stats() | 连接数、空闲、overflow 等 |
 
@@ -817,7 +835,7 @@ Swoole 协程 **PDO 连接池**（FPM 无效）。
 
 ## Gene\Cache\RedisPool
 
-Swoole 协程 **Redis 连接池**（FPM 无效）。API 与 `Gene\Pool` 对称：`create`、`get`、`put`、`remove`、`close`、`recycleIdle`、`closeAll`、`stopTimers`、`stats`。
+Swoole 协程 **Redis 连接池**（FPM 无效）。API 与 `Gene\Pool` 基本对称：`create`、`getInstance`、`get`、`put`、`remove`、`close`、`recycleIdle`、`closeAll`、`stopTimers`、`stats`（无 `healthCheck`）。
 
 `Gene\Cache\Redis` 配置 `'pool' => 'redisPool'` 后自动借还；`release()` 显式归还。
 
