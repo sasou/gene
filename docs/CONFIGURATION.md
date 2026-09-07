@@ -13,7 +13,7 @@
 | `gene.runtime_type` | `1` | `<2`=FPM/CLI；`>=2`=Swoole(2)/协程(3) | 决定整个运行时分流（最关键开关） |
 | `gene.use_namespace` | `1` | bool | 命名空间风格加载 / 回调解析 |
 | `gene.view_compile` | `0` | bool | 模板编译缓存 |
-| `gene.view_compile_check_mtime` | `0` | bool | 编译模板按 mtime 失效校验 |
+| `gene.view_compile_check_mtime` | `1` | bool | 编译模板按 mtime 失效校验（默认开启，生产建议显式设为 `0`） |
 | `gene.use_library` | `0` | bool | 启用 library 自动加载回退 |
 | `gene.library_root` | `""` | path | library 根目录（配合 `use_library`） |
 | `gene.co_contexts_max` | `1024` | long | 协程上下文软上限，超过触发 sweep |
@@ -21,6 +21,7 @@
 | `gene.ctx_pool_prewarm` | `0` | long | RINIT 自动预热数量（仅 Swoole） |
 | `gene.swoole_getcid_capi` | `1` | bool | 用 Swoole C-API 直接取协程 id（更快） |
 | `gene.cache_max_items` | `0` | long | 业务缓存分区上限（0=不限，>0 启用 LRU 淘汰） |
+| `gene.cache_reserve` | `4096` | long | 进程缓存哈希表桶预留容量；Swoole `workerReady()` 冻结前按此值预扩展。必须大于 `cache_max_items`；`<=` 时自动矫正为 `max_items + max(64, max_items/4)` 并记 warning |
 | `gene.route_precompile` | `0` | bool | 路由预编译派发缓存（仅 Swoole，opt-in） |
 | `gene.closure_src_cache_max` | `1024` | long | FPM 闭包源码缓存容量；`<=0` 关闭缓存 |
 | `gene.swoole_auto_cleanup` | `0` | bool | 协程 ctx 随协程结束自动归还（仅 Swoole，opt-in） |
@@ -90,8 +91,12 @@ $server->on('WorkerStart', function () {
   `route_precompile` 为 Swoole opt-in，建议压测后再开。
 - **`run_environment`**：仅 `0`（dev）记录 SQL history/benchmark；默认 `1`（test）已关闭。
   生产设 `2`。
-- **`view_compile_check_mtime`**：开发期设 `1`（改模板即时生效），生产设 `0`
-  （性能最优）。
+- **`view_compile_check_mtime`**：默认 `1`（改模板即时生效，对开发友好），
+  生产环境建议显式设 `0`（性能最优）。
+- **`cache_reserve`**：Swoole 下与 `cache_max_items` 联动。启用 LRU（`cache_max_items>0`）
+  时务必让 `cache_reserve > cache_max_items`（如 `cache_max_items=10000` 配
+  `cache_reserve=12500`），否则 `workerReady()` 会自动向上矫正并告警；
+  `Memory` 与 `Gene\Cache` 在冻结后共享这部分余量，高频新增 key 的业务可适当调大。
 
 ## 新增 API（2026-08-07 审计补全批次）
 

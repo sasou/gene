@@ -1,14 +1,14 @@
 ---
 name: gene-framework
 description: >-
-  基于 Gene PHP C 扩展框架（6.1.x）开发 Web、REST、CLI 或 Swoole 常驻应用。
+  基于 Gene PHP C 扩展框架（6.2.x）开发 Web、REST、CLI 或 Swoole 常驻应用。
   在用户编写/修改 Gene 项目的控制器、路由、配置、Service、Model、钩子、缓存、
-  多语言、Session，或询问 Gene API、Swoole 连接池、版本化缓存、ORM v2 时使用。
+  多语言、Session，或询问 Gene API、Swoole 连接池、版本化缓存、ORM、组级 Hook、request-id 时使用。
 ---
 
 # Gene 框架开发
 
-Gene 是 **PHP 8.0+ 的 C 扩展框架**（非 Composer 包）。开发时以本仓库 `gene-ide-helper/` 与 `demo/` 为准，**不要臆造不存在的 API**。
+Gene 是 **PHP 8.0–8.5 的 C 扩展框架**（非 Composer 包，当前 **6.2.1**）。开发时以本仓库 `gene-ide-helper/` 与 `demo/` 为准，**不要臆造不存在的 API**。
 
 ## 何时使用本技能
 
@@ -44,7 +44,7 @@ Controller → Service → Model
 - **Service**：继承 `\Gene\Service`，业务与 `cachedVersion` / `updateVersion`
 - **Model**：数据模型继承 `\Gene\Orm\Model` 使用 ActiveRecord；需要手写 SQL 时继承 `\Gene\Model` 并使用 `$this->db` 链式调用
 
-继承：`\Gene\Controller`、`\Gene\Service`、`\Gene\Model`、`\Gene\Hook`。
+继承：`\Gene\Controller`、`\Gene\Service`、`\Gene\Orm\Model`（或手写 SQL 时 `\Gene\Model`）、`\Gene\Hook`。
 
 ## 控制器模板
 
@@ -57,7 +57,7 @@ class User extends \Gene\Controller
 {
     public function save()
     {
-        $data = $this->request->post();
+        $data = $this->request->input(); // GET→POST→JSON；纯表单可用 post()
         $this->validate->init($data)
             ->name('user_name')->required()->msg('用户名不能为空')
             ->valid() || return $this->error($this->validate->error());
@@ -68,19 +68,23 @@ class User extends \Gene\Controller
 }
 ```
 
-- 取参优先 **`$this->request->get/post/request()`**（注入组件）；JSON body 用 **`$this->request->json()`**，禁止直接读 `php://input`
+- 取参优先 **`$this->request->input()`**（GET→POST→JSON 深度合并，与 `json()` 共享解析缓存）；仅表单用 `get/post/request()`。禁止直接读 `php://input`
 - 响应：`success()` / `error()` 返回数组；需直接输出时用 `json()` 或路由 `after` 钩子里的 `\Gene\Response::json()`。JSON API **禁止** `echo` + `exit`
 - 默认使用 `\Gene\Log`（自动带 `request_id`）、`Validate`、`Monitor`、`Memory`（单 worker）/ `Redis::rateLimit`（多 worker）
 
 出站 HTTP 用 `\Gene\Http::request()` / `\Gene\Http::multi()`（FPM=curl / curl_multi；Swoole 单请求=协程客户端，`multi` 在 Native CURL hook 下走 curl_multi），不要裸 `curl_exec`。同进程互调用 `\Gene\Invoke::local` / `\Gene\Rest::call`，不要 `Request::init` 覆盖入站袋。请求级 KV 用 `\Gene\Context`，不要用静态变量。HMAC/随机 ID/AES-GCM 用 `\Gene\Crypto`。
 
-推荐钩子（零 C，见 demo）：
+推荐：入口启用扩展级 request-id；路由用**组级 `through()`** 挂已注册命名 Hook。
 
 ```php
-->hook('cors', 'Hooks\Cors@handle')           // OPTIONS 短路；Origin 白名单，禁止反射
-->hook('requestId', 'Hooks\RequestId@handle') // Context + X-Request-Id
-->hook('adminAuth', 'Hooks\AdminAuth@handle')
+$app->requestId(['header' => 'X-Request-Id', 'bytes' => 8, 'trust' => true, 'max_length' => 128]);
+
+$router->hook('cors', 'Hooks\Cors@handle')           // OPTIONS 短路；Origin 白名单，禁止反射
+    ->hook('adminAuth', 'Hooks\AdminAuth@handle')
+    ->group('/admin')->through(['cors', 'adminAuth']);
 ```
+
+中止派发用 `return false`、`Hook::abort()` 或 `Hook::respond($payload)`；`Response::isEnded()` 可查询是否已结束。不要再新增 PHP `Hooks\RequestId`（demo 旧钩子仅兼容）。
 
 ## 路由（`config/router.ini.php`）
 
@@ -88,26 +92,27 @@ class User extends \Gene\Controller
 /** @var \Gene\Router $router */
 $router->clear()
     ->lang('zh,en')   // 必须在 group/route 之前
-    ->get('/admin.html', 'Controllers\Admin\Index@run', 'adminAuth@clearAfter')
-    ->group('/:c')
-        ->get('/:a.html', 'Controllers\Admin\:c@:a', 'adminAuth@clearAfter')
-    ->group()
     ->hook('cors', 'Hooks\Cors@handle')
-    ->hook('requestId', 'Hooks\RequestId@handle')
-    ->hook('adminAuth', 'Hooks\AdminAuth@handle')   // 推荐类钩子
+    ->hook('adminAuth', 'Hooks\AdminAuth@handle')
     ->hook('after', 'Hooks\AfterHook@handle')
+    ->get('/admin.html', 'Controllers\Admin\Index@run', '@clearAfter')
+    ->group('/:c')
+        ->through(['cors', 'adminAuth'])
+        ->get('/:a.html', 'Controllers\Admin\:c@:a', '@clearAfter')
+    ->group()
     ->error(404, function () { echo '404'; });
 ```
 
 | 后缀/钩子 | 含义 |
 |-----------|------|
-| `@clearAfter` | 输出后清缓冲 |
-| `@clearBefore` | 输出前清缓冲 |
-| `@clearAll` | 不输出，仅清缓冲 |
-| `@` | 仅挂钩子，不额外清缓冲 |
+| `through(['name', ...])` | 组级追加已注册命名 Hook；嵌套组继承，任一中止则停止整条链 |
+| `withoutHooks()` | 清除当前组继承的命名 Hook |
+| `withoutBefore()` / `withoutAfter()` | 关闭当前组全局 before/after |
+| `@clearAfter` | 输出后清缓冲（可与 `through` 并用） |
+| `@clearBefore` / `@clearAll` / `@` | 输出前清 / 不输出仅清 / 仅挂钩子 |
 | handler | `"Controllers\Xxx@action"` 或 `"Hooks\Xxx@handle"` |
 
-认证钩子返回 **`false`** 中止请求；未登录可 `$this->redirect()` 或 `\Gene\Response::json(\Gene\Response::error('...'))`。
+认证钩子返回 **`false`** 或调用 `abort()`/`respond()` 中止请求。旧 route 字符串 `'adminAuth@clearAfter'` 继续兼容。
 
 ## 配置注入（`config/config.ini.*.php`）
 
@@ -181,6 +186,7 @@ define('CONF_DIR', dirname(__DIR__) . '/config');
     ->load('router.ini.php', CONF_DIR)
     ->load('config.ini.php', CONF_DIR)
     ->setMode(1, 1)
+    ->requestId(['header' => 'X-Request-Id', 'bytes' => 8, 'trust' => true, 'max_length' => 128])
     ->run();                    // FPM：自动读 $_SERVER
 // CLI：->run('get', $argv[1] ?? '/');
 ```
@@ -196,6 +202,22 @@ $this->display('web/page');                       // 无 layout
 ```
 
 Layout 内嵌子视图：`$this->view->contains()`。
+
+## ORM 复合查询（6.2）
+
+等值列 JOIN 可用 `join()`；**带常量/绑定值的 ON 必须用 `joinOn()`**。JOIN/GROUP/UNION 的分页用 `paginateResult()`；行级原子加减用 `increment()`/`decrement()`（必须有有效 WHERE）。
+
+```php
+User::query()
+    ->joinOn('flags f', [
+        ['left' => 'f.user_id', 'op' => '=', 'column' => 'u.id'],
+        ['left' => 'f.enabled', 'op' => '=', 'value' => 1],
+    ], 'LEFT')
+    ->where(['u.status' => 1])
+    ->paginateResult($offset, $limit);
+```
+
+出站 HTTP 的 querystring / 表单用 `\Gene\Http::request()` 的 `query` / `form` 选项，不要手拼 URL。键是否存在用 `Context::has()`（区别于值为 `null`）。
 
 ## AI 行为准则
 

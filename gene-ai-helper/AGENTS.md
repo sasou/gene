@@ -7,7 +7,7 @@
 
 ## 1. 框架认知
 
-- Gene 是 **PHP 扩展**（`extension=gene`），版本线 **6.1.x**，要求 **PHP 8.0+**
+- Gene 是 **PHP 扩展**（`extension=gene`），版本线 **6.2.x**（当前 6.2.1），要求 **PHP 8.0–8.5**
 - 权威 API 来源：`gene-ide-helper/Gene/**/*.php`、`demo/` 示例
 - **禁止**编造类名、方法名或配置键；不确定时 grep 仓库或读 reference
 
@@ -41,8 +41,8 @@ public function action()
 }
 ```
 
-- 取参：**`$this->request`**（已注入），勿混用未文档化的超全局
-- 响应：`return $this->success/error/data(...)`；钩子内裸 JSON 用 `\Gene\Response::json()`
+- 取参：**`$this->request`**（已注入）。表单/查询用 `get/post/request()`；JSON 与混合输入用 **`$this->request->input()`**（GET→POST→JSON 覆盖，禁止直接读 `php://input`）
+- 响应：`return $this->success/error/data(...)`；钩子内裸 JSON 用 `\Gene\Response::json()` 或 `\Gene\Hook::respond()`
 - 方法保持短小，**不写 SQL、不写复杂业务**
 
 ---
@@ -52,13 +52,18 @@ public function action()
 ```php
 $router->clear()
     ->lang('zh,en')
-    ->get('/path', 'Controllers\Xxx@action', 'adminAuth@clearAfter')
+    ->hook('cors', 'Hooks\Cors@handle')
     ->hook('adminAuth', 'Hooks\AdminAuth@handle')
+    ->group('/admin')
+        ->through(['cors', 'adminAuth'])
+        ->get('/path', 'Controllers\Xxx@action', '@clearAfter')
+    ->group()
     ->error(404, function () { /* ... */ });
 ```
 
 - Handler 格式：`"命名空间\\类@方法"`
-- 认证失败：`return false`（类钩子 `handle()`）
+- **组级 Hook（6.2.1，推荐）**：`through(['已注册名', ...])` 按顺序执行；`withoutHooks()` / `withoutBefore()` / `withoutAfter()` 控制继承。旧写法 `'adminAuth@clearAfter'` 仍可用
+- 认证失败：`return false`，或 `\Gene\Hook::abort()`（无响应）/ `respond($payload)`（写响应并中止）
 - 输出控制：`@clearAfter` | `@clearBefore` | `@clearAll` | `@`
 - 新增路由放入**现有分组**（如 admin、rest），避免无分组散落
 
@@ -96,6 +101,8 @@ class User extends \Gene\Orm\Model {
 return User::query()->where(['status' => 1])->order('user_id DESC')->limit($start, $count)->all();
 ```
 
+带常量的 JOIN 用 `joinOn()`（值绑定），不要把字面量拼进 ON 字符串；复合结果分页用 `paginateResult()`。
+
 **Model 示例（手写 Db 链）**
 
 ```php
@@ -123,9 +130,11 @@ $this->cache->updateVersion(['db.sys_user' => null, 'db.sys_role' => null]);
 
 | 环境 | 入口要点 |
 |------|----------|
-| **FPM** | `->setMode(1,1)->run()` 无参 |
+| **FPM** | `->setMode(1,1)->requestId([...])->run()` 无参 |
 | **CLI** | `->run('get', $path)` |
 | **Swoole** | `setRuntimeType` → worker 内 `Pool::create` → `workerReady()` → 请求内 `Request::init` → `run()` → **`cleanup()`** |
+
+request-id 用 **`Application::requestId()`**（默认关闭；写入 `Context['request_id']` 并回写响应头），不要再新增 PHP `Hooks\RequestId`。
 
 Swoole 细则：**必读** `skills/gene-framework/swoole.md`。
 

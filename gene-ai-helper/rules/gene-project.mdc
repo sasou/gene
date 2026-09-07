@@ -6,19 +6,19 @@ alwaysApply: false
 
 # Gene 项目约定
 
-完整说明见 `gene-ai-helper/AGENTS.md` 与 `gene-ai-helper/skills/gene-framework/SKILL.md`。
+完整说明见 `gene-ai-helper/AGENTS.md` 与 `gene-ai-helper/skills/gene-framework/SKILL.md`。版本线 **6.2.x**。
 
 ## 分层
 
 - `Controllers\*` 继承 `\Gene\Controller`：取参 → 校验 → Service → `success/error/data` 或 `display`
 - `Services\*` 继承 `\Gene\Service`，`::getInstance()`，含 `cachedVersion` / `updateVersion`
-- `Models\*` 继承 `\Gene\Model`，仅 `$this->db` 链式查询
-- `Hooks\*` 继承 `\Gene\Hook`，路由注册 `"Hooks\Xxx@handle"`
+- `Models\*` 数据模型继承 `\Gene\Orm\Model`；仅手写 SQL 时继承 `\Gene\Model` 并用 `$this->db`
+- `Hooks\*` 继承 `\Gene\Hook`，路由注册 `"Hooks\Xxx@handle"`，组内用 `through(['name'])`
 
 ## 控制器
 
 ```php
-$data = $this->request->post();
+$data = $this->request->input(); // 或纯表单 post()
 $this->validate->init($data)->name('f')->required()->msg('err')->valid()
     || return $this->error($this->validate->error());
 return $this->data($rows, $count);
@@ -27,24 +27,25 @@ return $this->data($rows, $count);
 ## 路由（config/router.ini.php）
 
 - `->lang()` 在分组前；`->group('/prefix')` … `->group()`
-- `"Controllers\Admin\:c@:a"` + 钩子名 + `@clearAfter|clearBefore|clearAll`
-- 类钩子：`->hook('adminAuth', 'Hooks\AdminAuth@handle')`，失败 `return false`
+- 先 `->hook('name', 'Hooks\Xxx@handle')`，组内 `->through(['name'])`；`withoutHooks()` / `withoutBefore()` / `withoutAfter()` 控制继承
+- 旧字符串 `"Controllers\Admin\:c@:a"` + `'adminAuth@clearAfter'` 仍可用
+- 失败：`return false` / `Hook::abort()` / `Hook::respond($payload)`
 
 ## 配置（config/config.ini.{env}.php）
 
 - `$config->set('key', ['class' => '\Gene\...', 'params' => [...], 'instance' => bool])`
-- FPM：`db` 通常 `instance => false`；redis/cache `instance => true`
-- Swoole：`db` 用 `instance => true` + `pool` 键，Worker 内 `Gene\Pool::create`；见 `skills/gene-framework/swoole.md`
+- `instance` 均为**请求级**（不跨请求）：`false` 按 name 单例，`true` 按类名单例。FPM/Swoole 的 `db` 都可用 `true`；Swoole 另加 `pool`，Worker 内 `Gene\Pool::create`
+- 见 `skills/gene-framework/swoole.md`
 
 ## 缓存版本键
 
 - 读：`cachedVersion([$obj, $method], $args, ['db.table.id' => $id], $ttl)`
-- 写：`updateVersion(['db.table.id' => $id, 'db.table' => null])`
+- 写：`updateVersion(['db.table.id' => $id, 'db.table' => null])`（事务提交之后）
 
 ## 入口
 
-- FPM：`Application::getInstance()->autoload(APP_ROOT)->load(...)->setMode(1,1)->run()`
+- FPM：`Application::getInstance()->autoload(APP_ROOT)->load(...)->setMode(1,1)->requestId([...])->run()`
 - CLI：`->run('get', $path)`
 - Swoole：每请求 `Request::init($get, $post, $cookie, $server, null, $files, null, $header, $rawContent)` → `run()` → `Application::cleanup()`
-  - `$rawContent` 来自 `$request->rawContent()` 用于获取原始请求体（JSON/XML等）
-  - 使用 `Request::rawContent()` 或 `Request::getContent()` 获取缓存的原始请求体
+  - `$rawContent` 来自 `$request->rawContent()`
+  - 读缓存体用 `Request::rawContent()` / `getContent()`；混合入参用 `Request::input()`
