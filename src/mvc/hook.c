@@ -30,6 +30,7 @@
 #include "../mvc/hook.h"
 #include "../http/request.h"
 #include "../http/response.h"
+#include "../http/json.h"
 #include "../cache/memory.h"
 #include "../router/router.h"
 #include "../mvc/view.h"
