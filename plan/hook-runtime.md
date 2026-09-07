@@ -23,7 +23,14 @@
 >   - RestInvokeTest 6/6：`local scopes params then restores outer Request`、`exception still restores Request`、depth overflow ✓
 >   - DatabaseTest 37/37、OrmTest 177/177、ApplicationTest 37/37、CacheTest 49/49、其他全部通过 ✓
 >
-> **未覆盖（环境限制）**：Swoole 两协程隔离、Linux O2/O6 编译、ASAN、route cache 冻结回归需在 Linux/Swoole 环境中验收；当前 Windows 环境无 Swoole/curl 扩展，HttpClientTest 跳过（0/0），RestInvokeTest 的 HTTP 分支跳过。无 Hook 基准未单独跑 Benchmark 对比（BenchmarkTest 42/42 通过，未做 PC_DIRECT 拆分计时）。
+> **Linux 验证（PHP 8.1.34 NTS，GCC 9.3.1 devtoolset-9，OpenSSL + pdo_sqlite + curl + swoole 已加载）**：
+> - 修复 DEBUG 构建首次 O2 时 RouterTest 的 `zend_hash_index_add_or_update_i` 引用计数断言；根因为 `through()` 对 `hooks` 数组做共享写；用户改用 `SEPARATE_ARRAY(hooks)` 后重跑通过。
+> - Linux O2：`CFLAGS="-O2 -g -fno-omit-frame-pointer"` 构建，编译命令含 `-O2`；`TestRunner` 879 passed, 0 failed，5,244ms。
+> - Linux O6：`CFLAGS="-O6 -g -fno-omit-frame-pointer"` 构建，编译命令含 `-O6`；`TestRunner` 879 passed, 0 failed。
+> - Swoole 两协程隔离 + route cache 冻结回归：`tools/acceptance/linux_swoole_verify.sh` 四格矩阵（`swoole_getcid_capi=0/1` × `route_precompile=0/1`）全部 `ALL-PASS`，同一 `RESULT-DIGEST=b887e533c417447e`；`swoole_context_soak.php` 手动/自动 cleanup 各 100,000 协程并发 500，`isolationFailures=0`，`co_contexts_items=0`，context pool 未超限。
+> - ASAN：扩展可成功编译（`-fsanitize=address`），但当前 PHP 二进制 `dlopen` 使用 `RTLD_DEEPBIND`，与 sanitizer runtime 不兼容（`You are trying to dlopen ... with RTLD_DEEPBIND flag which is incompatibe with sanitizer runtime`）。需 PHP 本身也启用 ASAN 才能运行；记录为环境限制。
+>
+> **未覆盖（环境限制）**：ASAN 在现有非 ASAN PHP 二进制上无法直接运行，需重建 ASAN PHP 后复测；无 Hook 基准未单独跑 PC_DIRECT 拆分计时对比；Windows 环境无 Swoole/curl 扩展时 HttpClientTest 跳过、RestInvokeTest HTTP 分支跳过。
 
 ## 一、结论
 
@@ -212,18 +219,18 @@ $app->requestId([
 
 | 验收项 | 状态 | 证据 |
 |--------|------|------|
-| FPM / CLI | ✓ | Windows PHP 8.1 NTS x64 全量 868 测试通过 |
-| Swoole 两协程隔离 | ✗ 未覆盖 | 当前环境无 Swoole 扩展 |
+| FPM / CLI | ✓ | Windows PHP 8.1 NTS x64 全量 868 测试通过；Linux release PHP 8.1.34 O2/O6 各 879 测试通过 |
+| Swoole 两协程隔离 | ✓ | `tools/acceptance/linux_swoole_verify.sh` 四格矩阵全 PASS，`RESULT-DIGEST=b887e533c417447e`，`context-manual`/`context-auto` 各 100,000 协程 `isolationFailures=0` |
 | `Invoke::local` | ✓ | RestInvokeTest 6/6；源码确认 `gene_request_scope` 不触碰 `user_bag`，`request_id` 自然继承 |
 | cleanup | ✓ | LifecycleTest Context 通过；HookTest `cleanup() resets ended state` 通过 |
-| workerReady 后冻结 | ✓ | 组 Hook 在注册阶段合成，不请求期分配；`workerReady()` 幂等不扩容 frozen table |
+| workerReady 后冻结 | ✓ | 组 Hook 在注册阶段合成，不请求期分配；`workerReady()` 幂等不扩容 frozen table；Swoole 矩阵 `route_precompile=0/1` 均通过且 digest 一致 |
 | PC_DIRECT | ✓ | `gene_route_pc_execute` GENE_PC_DIRECT 分支含 `response_ended` 检查 |
 | closure | ✓ | `get_router_info_slow` closure 分支含 `response_ended` 检查 |
 | eval fallback | ✓ | 生成代码插入 `if(\Gene\Response::isEnded()||\Gene\Application::isStopped())return;` |
 | 无 Hook 基准 | △ | BenchmarkTest 42/42 通过；未做 PC_DIRECT 拆分计时对比 |
-| Linux O2/O6 | ✗ 未覆盖 | 需 Linux 环境 |
-| ASAN | ✗ 未覆盖 | 需 Linux + ASAN 构建 |
-| route cache 冻结回归 | ✗ 未覆盖 | 需 Swoole 环境 |
+| Linux O2/O6 | ✓ | release PHP 8.1.34 + GCC 9.3.1，O2/O6 编译均 879/0，编译命令分别含 `-O2`/`-O6` |
+| ASAN | ✗ 受限 | 扩展可编译，但 PHP 二进制 `dlopen` 使用 `RTLD_DEEPBIND`，与 sanitizer runtime 不兼容，需 PHP 本身启用 ASAN 后复测 |
+| route cache 冻结回归 | ✓ | Swoole 矩阵 `route_precompile=0/1` 均未崩溃、同 digest；`route_pc_items` 在 context soak 前后归零 |
 
 ### 9.2 提交
 
@@ -232,4 +239,4 @@ $app->requestId([
 
 ### 9.3 结论
 
-方案中可在 C 层落地的部分已全部实现并通过 Windows 全量测试。Swoole 两协程隔离、Linux O2/O6、ASAN 和 route cache 冻结回归需要在 Linux/Swoole 环境中完成最终验收，不属于当前 Windows 构建环境的覆盖范围。
+方案中可在 C 层落地的部分已全部实现并通过 Windows 与 Linux 全量测试。Linux/Swoole 验证已完成：release PHP 8.1.34 上 O2/O6 编译与 `TestRunner` 全绿；Swoole 两协程隔离、`route_precompile` 冻结回归、`swoole_context_soak` 10 万协程上下文隔离均通过。ASAN 扩展构建成功，但受限于当前 PHP 二进制未启用 ASAN 且使用 `RTLD_DEEPBIND`，无法直接加载运行，需额外构建 ASAN PHP 后复测。
