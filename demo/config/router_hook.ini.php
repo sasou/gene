@@ -9,6 +9,11 @@
  */
 $router = new \Gene\Router();
 $router->clear()
+    ->hook("adminAuth", "Hooks\AdminAuth@handle")
+    ->hook("cors", "Hooks\Cors@handle")
+    ->hook("before", "Hooks\BeforeHook@handle")
+    ->hook("after", "Hooks\AfterHook@handle")
+
     // Web 页面路由
     ->get("/", "\Controllers\Index@index","@clearAll")
     ->get("/doc.html", "\Controllers\Index@doc","@clearAll")
@@ -26,13 +31,13 @@ $router->clear()
     ->post("/save.html", "Controllers\Admin\User@save", "adminAuth@")
 
     // Admin模块路由规则
-    ->group("/:c")
-    ->get(".html", "Controllers\Admin\:c@run", "adminAuth@clearAfter")
-    ->get("/:a", "Controllers\Admin\:c@:a", "adminAuth@")
-    ->get("/:a.html", "Controllers\Admin\:c@:a", "adminAuth@clearAfter")
-    ->get("/:a/:id", "Controllers\Admin\:c@:a", "adminAuth@")
-    ->get("/:a/:id.html", "Controllers\Admin\:c@:a", "adminAuth@clearAfter")
-    ->post("/:a", "Controllers\Admin\:c@:a", "adminAuth@")
+    ->group("/:c")->through(["adminAuth"])
+    ->get(".html", "Controllers\Admin\:c@run", "@clearAfter")
+    ->get("/:a", "Controllers\Admin\:c@:a", "@")
+    ->get("/:a.html", "Controllers\Admin\:c@:a", "@clearAfter")
+    ->get("/:a/:id", "Controllers\Admin\:c@:a", "@")
+    ->get("/:a/:id.html", "Controllers\Admin\:c@:a", "@clearAfter")
+    ->post("/:a", "Controllers\Admin\:c@:a", "@")
     ->group()
     
     // Doc 模块路由
@@ -45,11 +50,4 @@ $router->clear()
     ->post("/:a", "Controllers\Doc\Mark@:a", "adminAuth@")
     ->group()
         
-    ->error(404, "Hooks\AdminAuth@handle")
-
-    // 使用 Gene\Hook 子类注册钩子 (避免 eval，走C直接调用)
-    ->hook("adminAuth", "Hooks\AdminAuth@handle")
-    ->hook("cors", "Hooks\Cors@handle")
-    ->hook("requestId", "Hooks\RequestId@handle")
-    ->hook("before", "Hooks\BeforeHook@handle")
-    ->hook("after", "Hooks\AfterHook@handle");
+    ->error(404, "Hooks\AdminAuth@handle");

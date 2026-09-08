@@ -18,6 +18,12 @@
  #define GENE_ROUTER_H
  #define GENE_ROUTER_SAFE	"safe"
  #define GENE_ROUTER_GROUP	"group"
+#define GENE_ROUTER_GROUP_HOOKS "groupHooks"
+#define GENE_ROUTER_GROUP_STACK "groupStack"
+#define GENE_ROUTER_GROUP_HOOK_STACK "groupHookStack"
+#define GENE_ROUTER_GROUP_BEFORE "groupBefore"
+#define GENE_ROUTER_GROUP_AFTER "groupAfter"
+#define GENE_ROUTER_GROUP_FLAG_STACK "groupFlagStack"
  #define GENE_ROUTER_PREFIX	"prefix"
  #define GENE_ROUTER_LANG	"lang"
  #define GENE_ROUTER_LANGS	"langs"
@@ -57,6 +63,14 @@
   * (GENE_G(route_pc)). No-op when the cache was never allocated. Called from
   * MSHUTDOWN. */
  void gene_router_pc_destroy(void);
+/* [GENE_FIX:2026-09-07 PC-GEN] Invalidate every precompiled dispatch descriptor
+ * by bumping GENE_G(route_pc_generation). Must be called by anything that
+ * drops or rebuilds the route tree or event/hook array (Router::clear()/
+ * delTree()/delEvent()), otherwise descriptors keep borrowed pointers into
+ * freed route strings. fn_cache teardown needs no invalidation: descriptors store fn_cache
+ * keys, not closure zvals, and resolve them per dispatch. O(1) -- stale
+ * descriptors are unlinked lazily on their next lookup. */
+void gene_router_pc_invalidate(void);
  /* [GENE_PERF:2026-06-19 P6] Free the persistent FPM closure-source cache.
   * No-op when never allocated. Called from MSHUTDOWN. */
  void gene_closure_src_cache_destroy(void);

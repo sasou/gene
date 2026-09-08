@@ -66,66 +66,30 @@ ZEND_END_ARG_INFO()
 /*
  * {{{ void markStart(timeval *start, zend_long *memory_start)
  */
-void markStart(struct timeval *start, zend_long *memory_start) {
-	zval ret;
-	gettimeofday( start, NULL );
-
-	/* [GENE_AUDIT:2026-07-03 T1#4] Use GENE_CG_FN_LOOKUP for ZTS-safe
-	 * function pointer caching (non-ZTS caches in static, ZTS per-call). */
-#ifndef ZTS
-	static zend_function *mem_fn = NULL;
-#else
-	zend_function *mem_fn = NULL;
-#endif
-	mem_fn = GENE_CG_FN_LOOKUP(mem_fn, "memory_get_peak_usage");
-	ZVAL_UNDEF(&ret);
-	if (EXPECTED(mem_fn)) {
-		zend_call_known_function(mem_fn, NULL, NULL, &ret, 0, NULL, NULL);
-	}
-	if (Z_TYPE(ret) == IS_LONG) {
-		*memory_start = Z_LVAL(ret);
-	}
-	zval_ptr_dtor(&ret);
+void markStart(uint64_t *start, zend_long *memory_start) {
+	*start = gene_hrtime();
+	*memory_start = (zend_long)zend_memory_peak_usage(0);
 }
 /* }}} */
 
 /*
  * {{{ void markEnd()
  */
-void markEnd(struct timeval *end, zend_long *memory_end) {
-	zval ret;
-    gettimeofday( end, NULL );
-
-	/* [GENE_AUDIT:2026-07-03 T1#4] See markStart. */
-#ifndef ZTS
-	static zend_function *mem_fn = NULL;
-#else
-	zend_function *mem_fn = NULL;
-#endif
-	mem_fn = GENE_CG_FN_LOOKUP(mem_fn, "memory_get_peak_usage");
-	ZVAL_UNDEF(&ret);
-	if (EXPECTED(mem_fn)) {
-		zend_call_known_function(mem_fn, NULL, NULL, &ret, 0, NULL, NULL);
-	}
-	if (Z_TYPE(ret) == IS_LONG) {
-		*memory_end = Z_LVAL(ret);
-	}
-	zval_ptr_dtor(&ret);
+void markEnd(uint64_t *end, zend_long *memory_end) {
+	*end = gene_hrtime();
+	*memory_end = (zend_long)zend_memory_peak_usage(0);
 }
 /* }}} */
 
 /*
  * {{{ double difftimeval(const struct timeval *start, const struct timeval *end)
  */
-double difftimeval(const struct timeval *start, const struct timeval *end)
+double difftimeval(const uint64_t *start, const uint64_t *end)
 {
-	double timeuse;
-	timeuse= 1000000 * (end->tv_sec-start->tv_sec) + end->tv_usec - start->tv_usec;
-	timeuse /= 1000000;
-	return(timeuse);
+	return (double)(*end - *start) / 1000000000.0;
 }
 
-void getBenchTime(struct timeval *start, struct timeval *end, char **ret, bool type) {
+void getBenchTime(uint64_t *start, uint64_t *end, char **ret, bool type) {
 	double time;
 	char time_buf[32];
 	time = difftimeval(start, end);

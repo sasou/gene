@@ -179,6 +179,23 @@ static zend_function    *gene_swoole_resp_cache_end_fn = NULL;
 static zend_class_entry *gene_swoole_resp_cache_write_ce = NULL;
 static zend_function    *gene_swoole_resp_cache_write_fn = NULL;
 
+void gene_response_set_status(zend_long code) {
+	zval *swoole_resp = gene_response_context_obj();
+	if (swoole_resp) {
+		zend_function *fn = zend_hash_str_find_ptr(&Z_OBJCE_P(swoole_resp)->function_table, ZEND_STRL("status"));
+		if (fn) {
+			zval retval, zcode;
+			ZVAL_UNDEF(&retval);
+			ZVAL_LONG(&zcode, code);
+			zend_call_known_function(fn, Z_OBJ_P(swoole_resp), Z_OBJCE_P(swoole_resp), &retval, 1, &zcode, NULL);
+			zval_ptr_dtor(&retval);
+		}
+	} else {
+		SG(sapi_headers).http_response_code = code;
+	}
+	gene_request_ctx()->response_status = code;
+}
+
 /** {{{ void gene_response_set_redirect(char *url, zend_long code)
  */
 void gene_response_set_redirect(char *url, zend_long code) {
@@ -205,6 +222,7 @@ void gene_response_set_redirect(char *url, zend_long code) {
 			gene_request_ctx()->response_status = code;
 		}
 		zval_ptr_dtor(&retval);
+		gene_request_ctx()->response_ended = 1;
 		return;
 	}
 	/* [GENE_PERF:2026-05-21 F7] FPM redirect hot path: replace
@@ -234,6 +252,7 @@ void gene_response_set_redirect(char *url, zend_long code) {
 	if (header_heap) {
 		efree(header_ptr);
 	}
+	gene_request_ctx()->response_ended = 1;
 }
 /* }}} */
 
@@ -573,6 +592,7 @@ PHP_METHOD(gene_response, json) {
 			php_write(ZEND_STRL(")"));
 		}
 		zval_ptr_dtor(&ret);
+		gene_request_ctx()->response_ended = 1;
 		RETURN_TRUE;
 	}
     zval_ptr_dtor(&ret);
@@ -624,22 +644,14 @@ PHP_METHOD(gene_response, url) {
 }
 /* }}} */
 
-/** {{{ proto public gene_response::end(string $data)
- */
-PHP_METHOD(gene_response, end) {
-	zend_string *data = NULL;
-
-	if (zend_parse_parameters(ZEND_NUM_ARGS(), "|S", &data) == FAILURE) {
-		return;
-	}
-
+void gene_response_end(zend_string *data) {
 	zval *swoole_resp = gene_response_context_obj();
 	if (swoole_resp) {
 		/* [GENE_PERF:2026-05-19] Swoole mode: php_write does not flush to the
 		 * client (Swoole owns the response). If Swoole\Http\Response::end is
 		 * unresolvable there is no meaningful fallback — return TRUE silently. */
 		zend_function *end_fn = GENE_SWOOLE_RESP_METHOD(Z_OBJCE_P(swoole_resp), end);
-		if (UNEXPECTED(!end_fn)) RETURN_TRUE;
+		if (UNEXPECTED(!end_fn)) return;
 		zval retval;
 		ZVAL_UNDEF(&retval);
 		if (data && ZSTR_LEN(data) > 0) {
@@ -652,12 +664,28 @@ PHP_METHOD(gene_response, end) {
 			zend_call_known_function(end_fn, Z_OBJ_P(swoole_resp), Z_OBJCE_P(swoole_resp), &retval, 0, NULL, NULL);
 		}
 		zval_ptr_dtor(&retval);
-		RETURN_TRUE;
+		gene_request_ctx()->response_ended = 1;
+		return;
 	}
 	if (data && ZSTR_LEN(data) > 0) {
 		php_write(ZSTR_VAL(data), ZSTR_LEN(data));
 	}
+	gene_request_ctx()->response_ended = 1;
+}
+
+/** {{{ proto public gene_response::end(string $data)
+ */
+PHP_METHOD(gene_response, end) {
+	zend_string *data = NULL;
+	if (zend_parse_parameters(ZEND_NUM_ARGS(), "|S", &data) == FAILURE) {
+		return;
+	}
+	gene_response_end(data);
 	RETURN_TRUE;
+}
+
+PHP_METHOD(gene_response, isEnded) {
+	RETURN_BOOL(gene_request_ctx()->response_ended);
 }
 /* }}} */
 
@@ -763,6 +791,7 @@ PHP_METHOD(gene_response, sendFile) {
 		if (!Z_ISUNDEF(retval)) {
 			zval_ptr_dtor(&retval);
 		}
+		gene_request_ctx()->response_ended = 1;
 		RETURN_TRUE;
 	}
 
@@ -809,6 +838,7 @@ PHP_METHOD(gene_response, sendFile) {
 			}
 		}
 		php_stream_close(stream);
+		gene_request_ctx()->response_ended = 1;
 		RETURN_TRUE;
 	}
 }
@@ -1005,6 +1035,7 @@ const zend_function_entry gene_response_methods[] = {
 	/* [GENE_FEATURE:2026-08-07] Status introspection + file streaming. */
 	PHP_ME(gene_response, getStatusCode, gene_response_void_arginfo, ZEND_ACC_PUBLIC|ZEND_ACC_STATIC)
 	PHP_ME(gene_response, isSent, gene_response_void_arginfo, ZEND_ACC_PUBLIC|ZEND_ACC_STATIC)
+	PHP_ME(gene_response, isEnded, gene_response_void_arginfo, ZEND_ACC_PUBLIC|ZEND_ACC_STATIC)
 	PHP_ME(gene_response, sendFile, gene_response_arg_send_file, ZEND_ACC_PUBLIC|ZEND_ACC_STATIC)
 	PHP_ME(gene_response, setJsonHeader, gene_response_void_arginfo, ZEND_ACC_PUBLIC|ZEND_ACC_STATIC)
 	PHP_ME(gene_response, setHtmlHeader, gene_response_void_arginfo, ZEND_ACC_PUBLIC|ZEND_ACC_STATIC)

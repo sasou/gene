@@ -395,6 +395,35 @@ class CacheTest
         echo "\n";
     }
 
+    public function testBusinessCacheHighChurn()
+    {
+        echo "Testing business cache high churn:\n";
+
+        try {
+            $memory = new \Gene\Memory('churn');
+            $before = $memory->stats();
+            for ($i = 0; $i < 5000; $i++) {
+                $key = "key_$i";
+                $memory->set($key, $i, 2);
+                if ($memory->get($key) !== $i || !$memory->del($key)) {
+                    throw new RuntimeException("high churn failed at $i");
+                }
+            }
+            $after = $memory->stats();
+            if (($after['cache_insert_refused'] ?? 0) !== ($before['cache_insert_refused'] ?? 0)) {
+                throw new RuntimeException('business churn unexpectedly refused inserts');
+            }
+            if (($after['business_cache_items'] ?? -1) !== ($before['business_cache_items'] ?? -2)) {
+                throw new RuntimeException('business cache did not return to its pre-churn size');
+            }
+            echo "✓ 5000 write/read/delete cycles rehash without refused inserts\n";
+        } catch (\Throwable $e) {
+            echo "✗ Error: " . $e->getMessage() . "\n";
+        }
+
+        echo "\n";
+    }
+
     /**
      * Test Gene\Monitor aggregated stats export (F2)
      */
@@ -408,20 +437,43 @@ class CacheTest
                 echo "✓ Monitor::stats() returns array\n";
             }
             foreach (['memory', 'db_pools', 'redis_pools', 'requests',
-                      'redis_pool_cas_abandoned',
+                      'redis_pool_cas_abandoned', 'db_pool_cas_abandoned',
+                      'db_pool_get_timeout', 'redis_pool_get_timeout',
+                      'db_pool_idle_miss', 'redis_pool_idle_miss',
+                      'db_pool_pid_mismatch', 'redis_pool_pid_mismatch',
                       'swoole_auto_cleanup_defers', 'swoole_auto_cleanup_reclaimed'] as $key) {
                 if (array_key_exists($key, $stats)) {
                     echo "✓ stats key '$key' present\n";
                 }
             }
-            foreach (['cache_items', 'co_contexts_items', 'co_contexts_sweep_count',
-                      'co_contexts_sweep_skipped', 'ctx_pool_size', 'cache_easy_ttl'] as $key) {
+            foreach (['cache_items', 'cache_num_used', 'cache_num_elements', 'cache_table_size', 'cache_insert_refused',
+                      'framework_cache_items', 'business_cache_items', 'business_cache_num_used', 'business_cache_table_size',
+                      'co_contexts_items', 'co_contexts_sweep_count', 'co_contexts_sweep_skipped',
+                      'ctx_pool_size', 'cache_easy_ttl'] as $key) {
                 if (isset($stats['memory']) && array_key_exists($key, $stats['memory'])) {
                     echo "✓ memory key '$key' present\n";
                 }
             }
             if (isset($stats['requests']['count'], $stats['requests']['errors'])) {
                 echo "✓ requests count/errors present\n";
+            }
+            if (class_exists('Gene\\Cache\\RedisPool')) {
+                $ref = new \ReflectionClass('Gene\\Cache\\RedisPool');
+                $pool = $ref->newInstanceWithoutConstructor();
+                $ref->getProperty('creatorPid')->setValue($pool, getmypid());
+                $ref->getProperty('closed')->setValue($pool, true);
+                try {
+                    $copy = clone $pool;
+                    echo "✗ RedisPool clone unexpectedly succeeded\n";
+                } catch (\Throwable $e) {
+                    echo "✓ RedisPool clone is forbidden\n";
+                }
+                try {
+                    serialize($pool);
+                    echo "✗ RedisPool serialization unexpectedly succeeded\n";
+                } catch (\Throwable $e) {
+                    echo "✓ RedisPool serialization is forbidden\n";
+                }
             }
         } catch (\Throwable $e) {
             echo "✗ Error: " . $e->getMessage() . "\n";
@@ -472,6 +524,7 @@ class CacheTest
         $this->testErrorHandling();
         $this->testPerformance();
         $this->testCacheConfigurations();
+        $this->testBusinessCacheHighChurn();
         $this->testMonitorStats();
         $this->testMgetMset();
 

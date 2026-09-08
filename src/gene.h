@@ -1,4 +1,4 @@
-﻿/*
+/*
  +----------------------------------------------------------------------+
  | gene                                                                 |
  +----------------------------------------------------------------------+
@@ -20,7 +20,7 @@
  extern zend_module_entry gene_module_entry;
  #define phpext_gene_ptr &gene_module_entry
  
- #define PHP_GENE_VERSION "6.2.0"
+ #define PHP_GENE_VERSION "6.2.2"
  
  #ifdef PHP_WIN32
  #	define PHP_GENE_API __declspec(dllexport)
@@ -190,6 +190,7 @@ static inline uint64_t gene_hrtime(void) {
 	  * through Gene\Response in Swoole mode (redirect/status); 0 = unset.
 	  * FPM reads SG(sapi_headers).http_response_code instead. */
 	 zend_long response_status;
+	 zend_bool response_ended;
 	 /* [GENE_FIX:2026-08-07-5 N2] Application::stop() latch, moved here from
 	  * module globals: per-request state (reset by ctx reset), per-coroutine
 	  * isolated in Swoole mode. The old module-global latch was reset only in
@@ -232,8 +233,8 @@ static inline uint64_t gene_hrtime(void) {
 	 zend_string *request_json_error;
 	 zend_uchar request_json_state;
 	 zend_long invoke_depth;
-	 struct timeval bench_start;
-	 struct timeval bench_end;
+	 uint64_t bench_start;
+	 uint64_t bench_end;
 	 zend_long bench_memory_start;
 	 zend_long bench_memory_end;
 	 char *log_file;
@@ -265,12 +266,14 @@ static inline uint64_t gene_hrtime(void) {
  bool view_compile;
  bool view_compile_check_mtime;
  HashTable *cache;
+ HashTable *business_cache;
  HashTable *cache_easy;
  /* [GENE_FIX:2026-08-07] Per-key expiry (unix ts) for userland Memory::set
   * TTL. The main cache stores bare values, so expiry lives in this parallel
   * persistent table; reads check it under the same cache lock and treat
   * expired keys as missing (lazy delete). */
  HashTable *cache_expiry;
+ HashTable *business_cache_expiry;
  /* [GENE_MEM:2026-06-19 M1] Approximate-LRU tracking set for the Gene\Cache
   * business partition (writes bracketed by cache_layer_memory_write_depth>0).
   * Insertion-ordered set of persistent key copies (least→most recently set);
@@ -295,6 +298,7 @@ zend_ulong cache_insert_refused;
  * sound while the table is truly write-once. */
 zend_bool cache_business_dirty;
 gene_rwlock_t cache_lock;
+gene_rwlock_t business_cache_lock;
  gene_request_context default_ctx;
  gene_request_context *resident_ctx;
  HashTable *co_contexts;
@@ -359,6 +363,20 @@ HashTable *fn_cache;
  * fn_cache frozen, leaf pointers stable). Per-thread because it borrows
  * pointers from the per-thread GENE_G(cache)/fn_cache. Freed in MSHUTDOWN. */
 HashTable *route_pc;
+/* [GENE_FIX:2026-09-07 PC-GEN] Generation counter guarding the descriptors
+ * above. Router::clear()/delTree()/delEvent() rebuild the route tree
+ * and wipe fn_cache, which dangles every borrowed pointer inside a descriptor.
+ * They bump this counter; a descriptor whose recorded generation no longer
+ * matches is never executed -- it is unlinked and retired (see
+ * route_pc_retired) and that dispatch falls back to the slow path. The
+ * descriptor memory itself is only released in MSHUTDOWN because a coroutine
+ * suspended inside gene_route_pc_execute() may still be borrowing it. */
+zend_ulong route_pc_generation;
+/* Singly-linked list (via gene_route_pc.retired_next) of descriptors unlinked
+ * by a generation bump. Bounded by (number of invalidations x live routes);
+ * drained in gene_router_pc_destroy(). */
+void *route_pc_retired;
+zend_ulong route_pc_retired_count;
 /* [GENE_PERF:2026-06-19 P3] Opt-in kill-switch for the precompiled dispatch
  * cache above. Default 0 (off) — the proven get_router_info_slow() path runs
  * unchanged until an operator enables gene.route_precompile=1 after validating
@@ -418,15 +436,19 @@ zend_long forward_depth;
 zend_ulong redis_pool_cas_abandoned;
 zend_bool redis_pool_cas_warned;
 /* [GENE_AUDIT:2026-08-06 C1] DB Pool CAS decrement abandonment counter.
- * pool_decrement_count() gives up after 64 CAS rounds (same semantics as the
- * RedisPool counter above); counted here, exported via Gene\Monitor::stats
- * as db_pool_cas_abandoned, warned once via the same once pattern. */
+ * Retained as a compatibility metric; symmetric Atomic::sub() decrements no
+ * longer abandon and therefore leave this counter at zero. */
 zend_ulong db_pool_cas_abandoned;
 zend_bool db_pool_cas_warned;
 /* [GENE_FEATURE:2026-08-06 F1-7] Pool acquisition timeouts (blocking pop
  * exhausted waitTimeout and fell through to overflow/NULL) and userland
  * Gene\Memory::get() hit/miss counters. Exported via Gene\Monitor::stats. */
 zend_ulong db_pool_get_timeout;
+zend_ulong redis_pool_get_timeout;
+zend_ulong db_pool_idle_miss;
+zend_ulong redis_pool_idle_miss;
+zend_ulong db_pool_pid_mismatch;
+zend_ulong redis_pool_pid_mismatch;
 zend_ulong memory_cache_hit;
 zend_ulong memory_cache_miss;
 /* [GENE_FIX:2026-08-07-5 N3] Write counter driving the sampling sweep of the

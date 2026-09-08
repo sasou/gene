@@ -151,7 +151,7 @@ STD_PHP_INI_ENTRY("gene.run_environment", "1", PHP_INI_SYSTEM, OnUpdateLong, run
 STD_PHP_INI_ENTRY("gene.runtime_type", "1", PHP_INI_SYSTEM, OnUpdateLong, runtime_type, zend_gene_globals, gene_globals) // @suppress("Symbol is not resolved")
 STD_PHP_INI_BOOLEAN("gene.use_namespace", "1", PHP_INI_SYSTEM, OnUpdateBool, use_namespace, zend_gene_globals, gene_globals) // @suppress("Symbol is not resolved")
 STD_PHP_INI_BOOLEAN("gene.view_compile", "0", PHP_INI_SYSTEM, OnUpdateBool, view_compile, zend_gene_globals, gene_globals) // @suppress("Symbol is not resolved")
-STD_PHP_INI_BOOLEAN("gene.view_compile_check_mtime", "0", PHP_INI_SYSTEM, OnUpdateBool, view_compile_check_mtime, zend_gene_globals, gene_globals) // @suppress("Symbol is not resolved")
+STD_PHP_INI_BOOLEAN("gene.view_compile_check_mtime", "1", PHP_INI_SYSTEM, OnUpdateBool, view_compile_check_mtime, zend_gene_globals, gene_globals) // @suppress("Symbol is not resolved")
 STD_PHP_INI_BOOLEAN("gene.use_library", "0", PHP_INI_SYSTEM, OnUpdateBool, use_library, zend_gene_globals, gene_globals) // @suppress("Symbol is not resolved")
 STD_PHP_INI_ENTRY("gene.library_root", "", PHP_INI_SYSTEM, OnUpdateString, library_root, zend_gene_globals, gene_globals) // @suppress("Symbol is not resolved")
 STD_PHP_INI_ENTRY("gene.co_contexts_max", "1024", PHP_INI_SYSTEM, OnUpdateLong, co_contexts_max, zend_gene_globals, gene_globals) // @suppress("Symbol is not resolved")
@@ -679,6 +679,7 @@ static void gene_request_context_free_fields(gene_request_context *ctx, int pres
 		ZVAL_UNDEF(&ctx->bench_marks);
 	}
 	ctx->response_status = 0;
+	ctx->response_ended = 0;
 	/* [GENE_FIX:2026-08-07-5 N2] Stop latch lives in the ctx, so it is
 	 * automatically re-armed for every request/coroutine that reuses it. */
 	ctx->app_stopped = 0;
@@ -742,10 +743,8 @@ static void gene_request_context_free_fields(gene_request_context *ctx, int pres
 	 * requests / coroutines Gene\Benchmark::time()/memory() could report
 	 * bleed from the previous request when benchmark::start() was not
 	 * called by the current handler. Scalars → unconditional clears. */
-	ctx->bench_start.tv_sec = 0;
-	ctx->bench_start.tv_usec = 0;
-	ctx->bench_end.tv_sec = 0;
-	ctx->bench_end.tv_usec = 0;
+	ctx->bench_start = 0;
+	ctx->bench_end = 0;
 	ctx->bench_memory_start = 0;
 	ctx->bench_memory_end = 0;
 }
@@ -1307,6 +1306,11 @@ static void php_gene_init_globals() {
 	GENE_G(db_pool_cas_warned) = 0;
 	/* [GENE_FEATURE:2026-08-06 F1-7] */
 	GENE_G(db_pool_get_timeout) = 0;
+	GENE_G(redis_pool_get_timeout) = 0;
+	GENE_G(db_pool_idle_miss) = 0;
+	GENE_G(redis_pool_idle_miss) = 0;
+	GENE_G(db_pool_pid_mismatch) = 0;
+	GENE_G(redis_pool_pid_mismatch) = 0;
 	GENE_G(memory_cache_hit) = 0;
 	GENE_G(memory_cache_miss) = 0;
 	/* [GENE_FIX:2026-08-07-5 N3] */
@@ -1338,14 +1342,20 @@ static void php_gene_init_globals() {
 	 * on first dispatch (Swoole, post-workerReady). route_precompile comes from
 	 * php.ini, so — like ctx_pool_prewarm — it must NOT be zeroed here. */
 	GENE_G(route_pc) = NULL;
+	GENE_G(route_pc_generation) = 0;
+	GENE_G(route_pc_retired) = NULL;
+	GENE_G(route_pc_retired_count) = 0;
 	GENE_G(cache) = NULL;
+	GENE_G(business_cache) = NULL;
 	GENE_G(cache_easy) = NULL;
 	GENE_G(cache_expiry) = NULL;
+	GENE_G(business_cache_expiry) = NULL;
 	/* [GENE_MEM:2026-06-19 M1] LRU tracking set is lazily allocated on the
 	 * first business write; cache_max_items is loaded from php.ini before
 	 * MINIT so we must NOT zero it here (same rule as ctx_pool_prewarm). */
 	GENE_G(cache_lru) = NULL;
 	gene_rwlock_init(&GENE_G(cache_lock));
+	gene_rwlock_init(&GENE_G(business_cache_lock));
 	gene_memory_init();
 }
 /* }}} */
@@ -1456,7 +1466,7 @@ PHP_GINIT_FUNCTION(gene) {
 	gene_globals->runtime_type = 1;
 	gene_globals->use_namespace = 1;
 	gene_globals->view_compile = 0;
-	gene_globals->view_compile_check_mtime = 0;
+	gene_globals->view_compile_check_mtime = 1;
 	gene_globals->use_library = 0;
 	gene_globals->slow_query_ms = 0;
 }
@@ -1552,6 +1562,15 @@ PHP_MSHUTDOWN_FUNCTION(gene) {
 		pefree(GENE_G(cache_expiry), 1);
 		GENE_G(cache_expiry) = NULL;
 	}
+	if (GENE_G(business_cache)) {
+		gene_hash_destroy(GENE_G(business_cache));
+		GENE_G(business_cache) = NULL;
+	}
+	if (GENE_G(business_cache_expiry)) {
+		zend_hash_destroy(GENE_G(business_cache_expiry));
+		pefree(GENE_G(business_cache_expiry), 1);
+		GENE_G(business_cache_expiry) = NULL;
+	}
 	/* [GENE_MEM:2026-06-19 M1] Tear down the business-cache LRU tracking set
 	 * (frees its persistent key copies) before the lock is destroyed. */
 	gene_cache_lru_destroy();
@@ -1579,6 +1598,7 @@ PHP_MSHUTDOWN_FUNCTION(gene) {
 		GENE_G(validate_ext) = NULL;
 	}
 	gene_rwlock_destroy(&GENE_G(cache_lock));
+	gene_rwlock_destroy(&GENE_G(business_cache_lock));
 	return SUCCESS; // @suppress("Symbol is not resolved")
 }
 

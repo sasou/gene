@@ -21,6 +21,11 @@
 #include "php.h"
 #include "php_ini.h"
 #include "main/SAPI.h"
+#if PHP_VERSION_ID < 80400
+#include "ext/standard/php_mt_rand.h"
+#else
+#include "ext/random/php_random.h"
+#endif
 #include "Zend/zend_API.h"
 #include "zend_exceptions.h"
 #include <string.h>
@@ -668,8 +673,11 @@ static void gene_redis_eval(zval *self, const char *script, zend_string **sha_sl
 	}
 	if (*sha_slot) {
 		gene_redis_eval_call(object, "evalsha", sizeof("evalsha") - 1, *sha_slot, args, nkeys, retval);
-		if (EG(exception) && gene_redis_ex_contains(EG(exception), "NOSCRIPT")) {
-			zend_clear_exception();
+		if ((EG(exception) && gene_redis_ex_contains(EG(exception), "NOSCRIPT"))
+				|| (!EG(exception) && Z_TYPE_P(retval) == IS_FALSE)) {
+			if (EG(exception)) {
+				zend_clear_exception();
+			}
 			if (!Z_ISUNDEF_P(retval)) {
 				zval_ptr_dtor(retval);
 				ZVAL_UNDEF(retval);
@@ -696,8 +704,11 @@ static void gene_redis_eval(zval *self, const char *script, zend_string **sha_sl
 		if (object && Z_TYPE_P(object) == IS_OBJECT) {
 			if (*sha_slot) {
 				gene_redis_eval_call(object, "evalsha", sizeof("evalsha") - 1, *sha_slot, args, nkeys, retval);
-				if (EG(exception) && gene_redis_ex_contains(EG(exception), "NOSCRIPT")) {
-					zend_clear_exception();
+				if ((EG(exception) && gene_redis_ex_contains(EG(exception), "NOSCRIPT"))
+						|| (!EG(exception) && Z_TYPE_P(retval) == IS_FALSE)) {
+					if (EG(exception)) {
+						zend_clear_exception();
+					}
 					if (!Z_ISUNDEF_P(retval)) {
 						zval_ptr_dtor(retval);
 						ZVAL_UNDEF(retval);
@@ -750,6 +761,26 @@ PHP_METHOD(gene_redis, rateLimit) {
 	if (Z_TYPE(ret) == IS_TRUE) {
 		zval_ptr_dtor(&ret);
 		RETURN_TRUE;
+	}
+	/* [GENE_FIX:2026-09-08] Some phpredis/Swoole-coroutine hooked paths hand
+	 * back the Lua integer as a numeric string ("1"/"0") instead of IS_LONG.
+	 * Treating that as "indeterminate" made rateLimit() return null on every
+	 * call, so callers fail-open and the limiter never engages. Parse a
+	 * numeric-string result as the real counter verdict. */
+	if (Z_TYPE(ret) == IS_STRING) {
+		zend_long lval;
+		double dval;
+		zend_uchar t = is_numeric_string(Z_STRVAL(ret), Z_STRLEN(ret), &lval, &dval, 0);
+		if (t == IS_LONG) {
+			RETVAL_BOOL(lval == 1);
+			zval_ptr_dtor(&ret);
+			return;
+		}
+		if (t == IS_DOUBLE) {
+			RETVAL_BOOL(dval == 1.0);
+			zval_ptr_dtor(&ret);
+			return;
+		}
 	}
 	/* Not a script result: the eval call failed rather than the counter
 	 * exceeding max. Report indeterminate instead of a false "blocked". */
@@ -825,6 +856,25 @@ PHP_METHOD(gene_redis, unlock) {
 	if (Z_TYPE(ret) == IS_TRUE) {
 		zval_ptr_dtor(&ret);
 		RETURN_TRUE;
+	}
+	/* [GENE_FIX:2026-09-08] Same numeric-string coercion as rateLimit(): the
+	 * unlock Lua returns DEL's integer count, which hooked redis may surface
+	 * as "1"/"0". Parse it so a successful compare-and-del is not reported as
+	 * a token mismatch. */
+	if (Z_TYPE(ret) == IS_STRING) {
+		zend_long lval;
+		double dval;
+		zend_uchar t = is_numeric_string(Z_STRVAL(ret), Z_STRLEN(ret), &lval, &dval, 0);
+		if (t == IS_LONG) {
+			RETVAL_BOOL(lval > 0);
+			zval_ptr_dtor(&ret);
+			return;
+		}
+		if (t == IS_DOUBLE) {
+			RETVAL_BOOL(dval > 0.0);
+			zval_ptr_dtor(&ret);
+			return;
+		}
 	}
 	zval_ptr_dtor(&ret);
 	RETURN_FALSE;

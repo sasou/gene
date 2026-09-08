@@ -10,7 +10,9 @@
  * - static request accessors (get/post/server/cookie/env)
  */
 
+use Gene\Application;
 use Gene\Hook;
+use Gene\Response;
 
 /**
  * Subclass overriding the lifecycle hooks, mirroring real usage.
@@ -213,6 +215,33 @@ class HookTest
         echo "\n";
     }
 
+    public function testTerminationResults()
+    {
+        echo "Testing Hook Termination Results:\n";
+        Application::cleanup();
+        if (Hook::abort() === false && Application::isStopped()) {
+            echo "✓ abort() stops dispatch\n";
+        } else {
+            echo "✗ abort() did not stop dispatch\n";
+        }
+        Application::cleanup();
+        ob_start();
+        $result = Hook::respond(['error' => 'denied'], 401);
+        $body = ob_get_clean();
+        if ($result === false && Response::isEnded() && str_ends_with($body, '{"error":"denied"}')) {
+            echo "✓ respond() ends a JSON response and stops dispatch\n";
+        } else {
+            echo "✗ respond() mismatch: " . json_encode([$result, Response::isEnded(), $body]) . "\n";
+        }
+        Application::cleanup();
+        if (!Response::isEnded()) {
+            echo "✓ cleanup() resets ended state\n";
+        } else {
+            echo "✗ cleanup() retained ended state\n";
+        }
+        echo "\n";
+    }
+
     public function runAllTests()
     {
         $this->testDefaultHooks();
@@ -220,6 +249,7 @@ class HookTest
         $this->testResponsePayloads();
         $this->testMethodPredicates();
         $this->testRequestAccessors();
+        $this->testTerminationResults();
 
         echo "=== Hook Test Suite Complete ===\n";
     }

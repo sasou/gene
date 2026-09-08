@@ -252,6 +252,7 @@ class LifecycleTest
                 'timeout' => 0.3,
                 'serializer' => 0,
             ]);
+            $r->__call('script', ['flush']);
             $k = 'gene:rl:' . bin2hex(random_bytes(4));
             $ok1 = $r->rateLimit($k, 2, 30);
             $ok2 = $r->rateLimit($k, 2, 30);

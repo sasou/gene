@@ -340,11 +340,31 @@ void gene_orm_db_reset(zval *db)
 
 int gene_orm_db_call(zval *db, const char *method, uint32_t argc, zval *argv, zval *retval)
 {
+	zend_class_entry *ce;
+	zend_function *fn;
 	zval fname;
+	char method_lc[32];
+	size_t method_len;
 	int r;
 
-	ZVAL_STRING(&fname, method);
 	ZVAL_UNDEF(retval);
+	if (db && Z_TYPE_P(db) == IS_OBJECT) {
+		ce = Z_OBJCE_P(db);
+		if (ce == gene_db_mysql_ce || ce == gene_db_sqlite_ce ||
+			ce == gene_db_pgsql_ce || ce == gene_db_mssql_ce) {
+			method_len = strlen(method);
+			if (method_len < sizeof(method_lc)) {
+				zend_str_tolower_copy(method_lc, method, method_len);
+				fn = zend_hash_str_find_ptr(&ce->function_table, method_lc, method_len);
+				if (fn) {
+					zend_call_known_function(fn, Z_OBJ_P(db), ce, retval, argc, argv, NULL);
+					return SUCCESS;
+				}
+			}
+		}
+	}
+
+	ZVAL_STRING(&fname, method);
 	r = call_user_function(NULL, db, &fname, retval, argc, argv);
 	zval_ptr_dtor(&fname);
 	return r;
