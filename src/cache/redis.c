@@ -673,8 +673,11 @@ static void gene_redis_eval(zval *self, const char *script, zend_string **sha_sl
 	}
 	if (*sha_slot) {
 		gene_redis_eval_call(object, "evalsha", sizeof("evalsha") - 1, *sha_slot, args, nkeys, retval);
-		if (EG(exception) && gene_redis_ex_contains(EG(exception), "NOSCRIPT")) {
-			zend_clear_exception();
+		if ((EG(exception) && gene_redis_ex_contains(EG(exception), "NOSCRIPT"))
+				|| (!EG(exception) && Z_TYPE_P(retval) == IS_FALSE)) {
+			if (EG(exception)) {
+				zend_clear_exception();
+			}
 			if (!Z_ISUNDEF_P(retval)) {
 				zval_ptr_dtor(retval);
 				ZVAL_UNDEF(retval);
@@ -701,8 +704,11 @@ static void gene_redis_eval(zval *self, const char *script, zend_string **sha_sl
 		if (object && Z_TYPE_P(object) == IS_OBJECT) {
 			if (*sha_slot) {
 				gene_redis_eval_call(object, "evalsha", sizeof("evalsha") - 1, *sha_slot, args, nkeys, retval);
-				if (EG(exception) && gene_redis_ex_contains(EG(exception), "NOSCRIPT")) {
-					zend_clear_exception();
+				if ((EG(exception) && gene_redis_ex_contains(EG(exception), "NOSCRIPT"))
+						|| (!EG(exception) && Z_TYPE_P(retval) == IS_FALSE)) {
+					if (EG(exception)) {
+						zend_clear_exception();
+					}
 					if (!Z_ISUNDEF_P(retval)) {
 						zval_ptr_dtor(retval);
 						ZVAL_UNDEF(retval);
