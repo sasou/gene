@@ -153,6 +153,15 @@ class Application
     }
 
     /**
+     * Enable the request-id policy, or disable it by passing null.
+     * @param array|null $config header, bytes, trust and max_length options
+     * @return static
+     */
+    public function requestId(?array $config = null) {
+
+    }
+
+    /**
      * waitWorkerReady
      *
      * Swoole/常驻模式下等待 workerStart 初始化结束（workerReady 标记）。

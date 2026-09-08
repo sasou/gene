@@ -1,5 +1,65 @@
 # Gene Framework Changelog
 
+## [6.2.2]
+
+> 本版将持久缓存按框架元数据与业务写入分区隔离，修复路由预编译描述符在路由重建后的失效问题，补齐连接池/缓存/路由的 Monitor 可观测指标，并处理 Redis Lua 边界返回、PHP 8.4+ 头文件迁移等兼容性细节。
+
+### ✨ 新增
+
+- **持久缓存业务/框架分区隔离**：`Gene\Cache` / `Gene\Memory` 等业务写入进入独立的 `business_cache` HashTable 与 `business_cache_lock`，与路由/配置/事件等框架只读元数据解耦。`workerReady()` 后业务写仍持有细粒度锁，框架读路径继续免锁，降低 Swoole 多协程并发锁竞争。`Memory::stats()` / `Monitor::stats()` 新增 `business_cache_items`、`business_cache_num_used`、`business_cache_table_size` 分区指标。
+- **连接池可观测指标**：`Monitor::stats()` 新增 `redis_pool_get_timeout`、`db_pool_idle_miss`、`redis_pool_idle_miss`、`db_pool_pid_mismatch`、`redis_pool_pid_mismatch`，用于定位取连接超时、空闲回收未命中及跨进程 PID 漂移场景。
+- **路由预编译生成号与失效遥测**：`Router::clear()` / `delTree()` / `delEvent()` 触发路由树重建时会递增 `route_pc_generation`；`Monitor::stats()` 导出 `route_pc_generation` 与 `route_pc_retired_count`，可观测预编译描述符失效与退休数量。
+
+### 🐞 修复
+
+- **连接池原子操作简化**：DB/Redis 连接池对称递减改用 `Swoole\Atomic::sub()`，替换原 CAS 循环，消除多 worker 计数下溢风险；配合新增计数器，超时/空闲未命中/PID 漂移可观测。
+- **路由预编译描述符失效 (PC-GEN)**：新增 `route_pc_generation` 全局计数与 `gene_router_pc_invalidate()`；重建路由树/擦除 `fn_cache` 后，旧生成号的描述符在下次派发时自动解链并回退到慢路径，避免借用已释放的闭包/缓存指针。退休描述符进入 GC 列表，MSHUTDOWN 统一释放。
+- **`Router::through()` 共享 Hook 数组隔离**：使用 `SEPARATE_ARRAY` 复制父组继承的 Hook 数组，避免嵌套组追加 Hook 时污染共享数组，确保组级可组合 Hook 继承顺序稳定。
+- **Redis `evalSha` 脚本回退**：当 Lua 返回 `false` 且未触发 `NOSCRIPT` 异常时仍能正确回退到 `eval` 执行；`LifecycleTest` 增加 `SCRIPT FLUSH` 避免测试间脚本缓存串扰。
+- **Redis Lua 数字字符串解析**：`rateLimit` / `unlock` 在 Swoole 协程下遇到 Lua 返回数字字符串时按数值解析，避免误判为失败。
+- **PHP 8.4+ 兼容性**：`php_mt_rand.h` 迁移到 `ext/random/php_random.h`，修正 PHP 8.4+ 编译头文件路径。
+- **构建头文件补齐**：`src/mvc/hook.c` 补全 `json.h` 头文件包含。
+
+### ⚡ 性能优化
+
+- **DB 查询计时统一**：MySQL/MSSQL/PgSQL/SQLite 四个驱动将 `struct timeval` 替换为 `uint64_t` 单调纳秒/微秒计时，减少 `gettimeofday` 系统调用并统一跨平台精度。
+
+### ✅ 测试
+
+- `DatabaseTest::testPoolClass` 入口改为直接包装在 `Coroutine::run` 内，避免 Swoole 协程嵌套调用。
+
+### 📝 文档与计划
+
+- 拆分 `PERFORMANCE_OPTIMIZATION.md` 为 `Performance-tuning-V1.md`（已完成/待验收）与 `Performance-tuning-V2.md`（未开始）。
+- 新增 `plan/application-entry-runtime.md`，规划 FPM/Swoole 统一入口。
+- 回填 Linux Swoole 验证结果到 `plan/hook-runtime.md` 与 `plan/Performance-tuning-V1.md`。
+- 同步 API reference、AI helper skills，并修正 `gene-ide-helper/Gene/Response.php` 的静态方法签名。
+
+### 🔧 修改文件一览
+
+- `src/cache/cache.c` / `src/cache/memory.c` / `src/cache/memory.h` — 业务缓存分区、独立锁、`Memory::stats()` 分区指标
+- `src/cache/redis.c` — Redis `evalSha` 回退、PHP 8.4+ 头文件迁移
+- `src/cache/redis_pool.c` / `src/cache/redis_pool.h` — Lua 数字字符串解析、池指标、空闲回收器/定时器重构
+- `src/db/pool.c` / `src/db/pool.h` — 池原子操作、空闲连接探活/补充逻辑、DB 池指标
+- `src/db/{mysql,mssql,pgsql,sqlite}.c` — `uint64_t` 查询计时
+- `src/gene.c` / `src/gene.h` — 业务缓存全局初始化、`route_pc_generation`/`retired` 计数、版本号 6.2.2
+- `src/router/router.c` / `src/router/router.h` — 路由预编译失效、生成号管理、`through()` 共享数组隔离
+- `src/mvc/hook.c` — 补全 `json.h` 头文件
+- `src/tool/monitor.c` — 新增业务缓存/连接池/路由预编译计数器导出
+- `test/CacheTest.php` / `test/DatabaseTest.php` / `test/LifecycleTest.php` — 分区、池场景与脚本刷新
+- `audit/repro/route_pc_clear_invalidate.php` — 路由预编译失效回归复现
+- `docs/CONFIGURATION.md`、`plan/*`、`gene-ai-helper/*`、`gene-ide-helper/Gene/Response.php` — 文档与 IDE helper
+
+## [6.2.1]
+
+> 本版补齐 Hook 生命周期终止语义、组级可组合 Hook 和标准 request-id 策略，使常驻进程应用的全局 Hook 可以安全替代重复的入口逻辑。
+
+### ✨ 新增
+
+- **Hook 生命周期终止语义**：新增 `Hook::abort()`、`Hook::respond()`、`Response::isEnded()` 和请求级 ended 状态；redirect/json/end/sendFile 会显式标记终止，Router 保留 false/0 兼容语义且不会继续执行 Controller，cleanup 自动重置。
+- **组级可组合 Hook**：Router 新增 `through()`、`withoutHooks()`、`withoutBefore()`、`withoutAfter()`；嵌套组继承并可追加命名 Hook，顺序稳定，任一 Hook 中止后停止整条链。旧 route `hook@clearAfter` 字符串继续兼容。
+- **标准 request-id 策略**：`Application::requestId()` 默认关闭；启用后大小写不敏感读取可信 header，校验可见 ASCII 和长度，非法/缺失时调用 `Crypto::randomId()` 生成，只写 `Context['request_id']` 并回写响应头。
+
 ## [6.2.0]
 
 > 本版以典型用法差距审计（`plan/typical-usage-gaps.md`）为驱动，补齐 ORM 安全写与复合查询、HTTP 出站参数编码、统一输入入口和 Context 键存在性判断。新增能力均为显式调用；唯一有意收紧的既有行为是 `Request::bearer()` 不再把非 Bearer Authorization 当作 token 返回。
@@ -20,6 +80,8 @@
 
 ### 🐞 修复与兼容性调整
 
+- **模板编译缓存默认生效**：`gene.view_compile_check_mtime` 默认值由 `0` 改为 `1`；只开启 `gene.view_compile=1` 时将复用未过期的编译产物，不再每请求强制重编译。依赖旧行为的部署可显式设置 `gene.view_compile_check_mtime=0` 回退。
+- **进程缓存容量观测**：`Gene\Memory::stats()` 与 `Gene\Monitor::stats()['memory']` 新增 `cache_num_used`、`cache_num_elements`、`cache_table_size` 和 `cache_insert_refused`，用于识别冻结表 tombstone/预留 bucket 耗尽。
 - **Query 绑定顺序**：Query 重放改为先 JOIN、后 WHERE/IN，保证带值 `joinOn()` 的参数顺序与 SQL 占位符顺序一致。
 - **`Request::bearer()` 严格语义**：仅接受大小写不敏感的 Bearer scheme，scheme 后必须有 SP/HTAB；缺失、非 Bearer、空 token 均返回 `null`。Authorization header 名按大小写不敏感方式查找，并保留 `HTTP_AUTHORIZATION` / `REDIRECT_HTTP_AUTHORIZATION` 回退。
 - **只读 ORM 编译不干扰事务**：UNION/复杂分页使用不持有 PDO/pool 的 builder clone，避免临时编译对象析构时误回滚活动事务。

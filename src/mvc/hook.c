@@ -30,6 +30,7 @@
 #include "../mvc/hook.h"
 #include "../http/request.h"
 #include "../http/response.h"
+#include "../http/json.h"
 #include "../cache/memory.h"
 #include "../router/router.h"
 #include "../mvc/view.h"
@@ -136,6 +137,10 @@ ZEND_END_ARG_INFO()
 ZEND_BEGIN_ARG_INFO_EX(gene_hook_handle_arginfo, 0, 0, 0)
 ZEND_END_ARG_INFO()
 
+ZEND_BEGIN_ARG_INFO_EX(gene_hook_respond_arginfo, 0, 0, 1)
+	ZEND_ARG_INFO(0, payload)
+	ZEND_ARG_INFO(0, status)
+ZEND_END_ARG_INFO()
 
 /*
  * {{{ gene_hook
@@ -295,7 +300,8 @@ PHP_METHOD(gene_hook, redirect) {
 		return;
 	}
 	gene_response_set_redirect(ZSTR_VAL(url), code);
-	RETURN_TRUE;
+	gene_app_stop();
+	RETURN_FALSE;
 }
 /* }}} */
 
@@ -531,7 +537,9 @@ PHP_METHOD(gene_hook, json) {
 			php_write(ZEND_STRL(")"));
 		}
 		zval_ptr_dtor(&ret);
-		RETURN_TRUE;
+		gene_request_ctx()->response_ended = 1;
+		gene_app_stop();
+		RETURN_FALSE;
 	}
     zval_ptr_dtor(&ret);
     RETURN_FALSE;
@@ -579,6 +587,40 @@ PHP_METHOD(gene_hook, handle) {
 	RETURN_TRUE;
 }
 /* }}} */
+
+PHP_METHOD(gene_hook, abort) {
+	gene_app_stop();
+	RETURN_FALSE;
+}
+
+PHP_METHOD(gene_hook, respond) {
+	zval *payload;
+	zend_long status = 200;
+	zval encoded;
+	zend_string *body;
+	if (zend_parse_parameters(ZEND_NUM_ARGS(), "z|l", &payload, &status) == FAILURE) {
+		return;
+	}
+	if (status < 100 || status > 599) {
+		zend_argument_value_error(2, "must be between 100 and 599");
+		RETURN_THROWS();
+	}
+	if (Z_TYPE_P(payload) == IS_STRING) {
+		body = zend_string_copy(Z_STR_P(payload));
+	} else {
+		if (gene_json_encode_throw(payload, &encoded) != SUCCESS) {
+			RETURN_THROWS();
+		}
+		body = zend_string_copy(Z_STR(encoded));
+		zval_ptr_dtor(&encoded);
+		gene_response_set_header("Content-Type", "application/json; charset=UTF-8");
+	}
+	gene_response_set_status(status);
+	gene_response_end(body);
+	zend_string_release(body);
+	gene_app_stop();
+	RETURN_FALSE;
+}
 
 /*
  * {{{ gene_hook
@@ -669,6 +711,8 @@ const zend_function_entry gene_hook_methods[] = {
 	PHP_ME(gene_hook, before, gene_hook_before_arginfo, ZEND_ACC_PUBLIC)
 	PHP_ME(gene_hook, after, gene_hook_after_arginfo, ZEND_ACC_PUBLIC)
 	PHP_ME(gene_hook, handle, gene_hook_handle_arginfo, ZEND_ACC_PUBLIC)
+	PHP_ME(gene_hook, abort, gene_hook_void_arginfo, ZEND_ACC_PUBLIC|ZEND_ACC_STATIC)
+	PHP_ME(gene_hook, respond, gene_hook_respond_arginfo, ZEND_ACC_PUBLIC|ZEND_ACC_STATIC)
 	PHP_ME(gene_hook, __get, gene_hook_get, ZEND_ACC_PUBLIC)
 	PHP_ME(gene_hook, __set, gene_hook_set, ZEND_ACC_PUBLIC)
 	{ NULL, NULL, NULL }

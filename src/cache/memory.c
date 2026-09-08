@@ -187,6 +187,10 @@ void gene_memory_init() {
 		PALLOC_HASHTABLE(GENE_G(cache));
 		zend_hash_init(GENE_G(cache), 8, NULL, gene_memory_zval_dtor, 1);
 	}
+	if (!GENE_G(business_cache)) {
+		PALLOC_HASHTABLE(GENE_G(business_cache));
+		zend_hash_init(GENE_G(business_cache), 8, NULL, gene_memory_zval_dtor, 1);
+	}
 	if (!GENE_G(cache_easy)) {
 		PALLOC_HASHTABLE(GENE_G(cache_easy));
 		zend_hash_init(GENE_G(cache_easy), 8, NULL, NULL, 1);
@@ -195,12 +199,16 @@ void gene_memory_init() {
 		PALLOC_HASHTABLE(GENE_G(cache_expiry));
 		zend_hash_init(GENE_G(cache_expiry), 8, NULL, NULL, 1);
 	}
+	if (!GENE_G(business_cache_expiry)) {
+		PALLOC_HASHTABLE(GENE_G(business_cache_expiry));
+		zend_hash_init(GENE_G(business_cache_expiry), 8, NULL, NULL, 1);
+	}
 	return;
 }
 /* }}} */
 
 /* [GENE_FIX:2026-08-07] TTL support helpers. The main persistent cache stores
- * bare values; expiry timestamps live in GENE_G(cache_expiry) (unix ts,
+ * bare values; expiry timestamps live in GENE_MEMORY_EXPIRY_TABLE() (unix ts,
  * IS_LONG). All accesses happen under the same cache lock as the main table.
  * Expired keys are treated as missing and lazily deleted by the reader when
  * writes are still allowed (they are frozen after workerReady, where the
@@ -210,25 +218,25 @@ static int gene_memory_expired_nolock(const char *keyString, size_t keyString_le
 	/* [GENE_FIX:2026-08-07-5 N4] Most deployments never use TTL; skip the
 	 * extra hash lookup on the hot read path when the expiry table is empty
 	 * (one integer comparison instead of a full hash find per get). */
-	if (!GENE_G(cache_expiry) || zend_hash_num_elements(GENE_G(cache_expiry)) == 0) {
+	if (!GENE_MEMORY_EXPIRY_TABLE() || zend_hash_num_elements(GENE_MEMORY_EXPIRY_TABLE()) == 0) {
 		return 0;
 	}
-	exp = zend_hash_str_find(GENE_G(cache_expiry), keyString, keyString_len);
+	exp = zend_hash_str_find(GENE_MEMORY_EXPIRY_TABLE(), keyString, keyString_len);
 	return (exp && Z_TYPE_P(exp) == IS_LONG && Z_LVAL_P(exp) <= (zend_long)time(NULL)) ? 1 : 0;
 }
 
 /* Caller must hold GENE_CACHE_WRLOCK. */
 static void gene_memory_set_expiry_nolock(const char *keyString, size_t keyString_len, int validity) {
-	if (!GENE_G(cache_expiry)) {
+	if (!GENE_MEMORY_EXPIRY_TABLE()) {
 		return;
 	}
 	if (validity > 0) {
 		zval exp;
 		ZVAL_LONG(&exp, (zend_long)time(NULL) + validity);
-		zend_hash_str_update(GENE_G(cache_expiry), keyString, keyString_len, &exp);
+		zend_hash_str_update(GENE_MEMORY_EXPIRY_TABLE(), keyString, keyString_len, &exp);
 	} else {
 		/* 0 = permanent: drop any stale expiry from a previous TTLed set. */
-		zend_hash_str_del(GENE_G(cache_expiry), keyString, keyString_len);
+		zend_hash_str_del(GENE_MEMORY_EXPIRY_TABLE(), keyString, keyString_len);
 	}
 }
 
@@ -435,7 +443,7 @@ zval *gene_memory_zval_local(zval *dst, zval *source) /* {{{ */
 /* [GENE_FIX:2026-08-23 UAF-2] Request-scope deep copy of a persistent-cache
  * value: every string is rebuilt with zend_string_init(..., 0) and every
  * bucket key is re-created in the request heap, so the returned zval owns no
- * pointer into GENE_G(cache). Use this for Gene\Cache business reads, whose
+ * pointer into GENE_MEMORY_TABLE(). Use this for Gene\Cache business reads, whose
  * entries may be overwritten (pefree'd) or evicted while a request still
  * holds the returned value. Framework metadata reads (routes/config/DI) keep
  * using the zero-copy gene_memory_zval_local above. */
@@ -491,7 +499,7 @@ zval *gene_memory_zval_local_copy(zval *dst, zval *source) /* {{{ */
 
 /* {{{ M1 — persistent business-cache cap + approximate-LRU eviction.
  *
- * Problem (audit M1): GENE_G(cache) is a process-persistent (pemalloc) table
+ * Problem (audit M1): GENE_MEMORY_TABLE() is a process-persistent (pemalloc) table
  * shared by framework metadata (routes / configs / events) AND the userland
  * Gene\Cache data layer. The framework metadata is written once at startup and
  * is read-only afterwards (in Swoole it is frozen at workerReady()), so it can
@@ -528,22 +536,22 @@ static int gene_memory_del_core(const char *keyString, size_t keyString_len) {
 	 * member of its Bucket, so (Bucket*)zv->key yields the stored key pointer
 	 * (NULL for numeric/index entries, which need no manual free). This replaces
 	 * the former O(N) scan so capped-cache eviction stays cheap under the lock. */
-	stored_val = zend_symtable_str_find(GENE_G(cache), (char *)keyString, keyString_len);
+	stored_val = zend_symtable_str_find(GENE_MEMORY_TABLE(), (char *)keyString, keyString_len);
 	if (!stored_val) {
 		return 0;
 	}
 	stored_key = ((Bucket *)stored_val)->key;
 	gene_memory_zval_dtor(stored_val);
-	orig_dtor = GENE_G(cache)->pDestructor;
-	GENE_G(cache)->pDestructor = NULL;
-	zend_symtable_str_del(GENE_G(cache), keyString, keyString_len);
-	GENE_G(cache)->pDestructor = orig_dtor;
+	orig_dtor = GENE_MEMORY_TABLE()->pDestructor;
+	GENE_MEMORY_TABLE()->pDestructor = NULL;
+	zend_symtable_str_del(GENE_MEMORY_TABLE(), keyString, keyString_len);
+	GENE_MEMORY_TABLE()->pDestructor = orig_dtor;
 	if (stored_key && (GC_FLAGS(stored_key) & (IS_STR_INTERNED | IS_STR_PERMANENT))) {
 		pefree(stored_key, 1);
 	}
 	/* [GENE_FIX:2026-08-07] Drop any TTL bookkeeping for the removed key. */
-	if (GENE_G(cache_expiry)) {
-		zend_hash_str_del(GENE_G(cache_expiry), keyString, keyString_len);
+	if (GENE_MEMORY_EXPIRY_TABLE()) {
+		zend_hash_str_del(GENE_MEMORY_EXPIRY_TABLE(), keyString, keyString_len);
 	}
 	return 1;
 }
@@ -559,8 +567,9 @@ static int gene_memory_del_core(const char *keyString, size_t keyString_len) {
  * this only ever runs while writes are allowed. */
 #define GENE_MEMORY_EXPIRY_SWEEP_INTERVAL 32
 #define GENE_MEMORY_EXPIRY_SWEEP_BATCH 64
+static void gene_cache_lru_remove_nolock(const char *keyString, size_t keyString_len);
 static void gene_memory_expiry_sweep_nolock(void) {
-	HashTable *expiry = GENE_G(cache_expiry);
+	HashTable *expiry = GENE_MEMORY_EXPIRY_TABLE();
 	zend_string *keys[GENE_MEMORY_EXPIRY_SWEEP_BATCH];
 	uint32_t n = 0;
 	zend_string *k;
@@ -581,7 +590,9 @@ static void gene_memory_expiry_sweep_nolock(void) {
 	while (n > 0) {
 		n--;
 		/* gene_memory_del_core also removes the key from the expiry table. */
-		gene_memory_del_core(ZSTR_VAL(keys[n]), ZSTR_LEN(keys[n]));
+		if (gene_memory_del_core(ZSTR_VAL(keys[n]), ZSTR_LEN(keys[n]))) {
+			gene_cache_lru_remove_nolock(ZSTR_VAL(keys[n]), ZSTR_LEN(keys[n]));
+		}
 		zend_string_release(keys[n]);
 	}
 }
@@ -732,7 +743,7 @@ zend_long gene_cache_effective_reserve(void) {
 
 /** {{{ void gene_memory_reserve(void)
  * [GENE_FIX:2026-08-23 UAF-1] Called from Application::workerReady() at the
- * freeze boundary. Pre-extends GENE_G(cache) by the effective reserve (see
+ * freeze boundary. Pre-extends GENE_MEMORY_TABLE() by the effective reserve (see
  * gene_cache_effective_reserve) so post-freeze business inserts fit without
  * resizing the bucket array. [GENE_FIX:2026-08-24 MEM-RW] Since Gene\Memory's
  * own set/del/rateLimit/lock/unlock/incr/decr/mset also write into this same
@@ -750,12 +761,12 @@ void gene_memory_reserve(void) {
 	 * the very invariant this function exists to protect. workerReady() now
 	 * early-returns on repeat calls; this guard protects against any future
 	 * caller reaching here after the freeze. */
-	if (!GENE_G(cache) || reserve <= 0 || GENE_G(worker_ready)) {
+	if (!GENE_MEMORY_TABLE() || reserve <= 0 || GENE_G(worker_ready)) {
 		return;
 	}
 	GENE_CACHE_WRLOCK();
-	zend_hash_extend(GENE_G(cache),
-			GENE_G(cache)->nNumUsed + (uint32_t)reserve, 0);
+	zend_hash_extend(GENE_MEMORY_TABLE(),
+			GENE_MEMORY_TABLE()->nNumUsed + (uint32_t)reserve, 0);
 	GENE_CACHE_WRUNLOCK();
 }
 /* }}} */
@@ -832,7 +843,7 @@ void gene_memory_set(char *keyString, size_t keyString_len, zval *zvalue,
 		if (validity > 0 && ++GENE_G(memory_expiry_sweep_ctr) % GENE_MEMORY_EXPIRY_SWEEP_INTERVAL == 0) {
 			gene_memory_expiry_sweep_nolock();
 		}
-	copyval = zend_symtable_str_find(GENE_G(cache), keyString, keyString_len);
+	copyval = zend_symtable_str_find(GENE_MEMORY_TABLE(), keyString, keyString_len);
 	if (copyval == NULL) {
 		/* [GENE_FIX:2026-08-23 UAF-1] After the workerReady() freeze the bucket
 		 * array address must stay constant: router/DI/config readers hold raw
@@ -840,15 +851,9 @@ void gene_memory_set(char *keyString, size_t keyString_len, zval *zvalue,
 		 * resize (perealloc) is therefore refused — the caller simply gets a
 		 * cache miss instead of a SIGSEGV. workerReady() pre-extends the table
 		 * by gene.cache_reserve so normal business churn still fits. */
-		if (UNEXPECTED(GENE_G(runtime_type) >= 2 && GENE_G(worker_ready)
-				&& GENE_G(cache)->nNumUsed >= GENE_G(cache)->nTableSize)) {
-			GENE_G(cache_insert_refused)++;
-			GENE_CACHE_WRUNLOCK();
-			return;
-		}
 		gene_memory_zval_persistent(&ret, zvalue);
 		key = gene_str_persistent(keyString, keyString_len);
-		gene_symtable_update(GENE_G(cache), key, &ret);
+		gene_symtable_update(GENE_MEMORY_TABLE(), key, &ret);
 			/* key is now owned by the hash table; do not free here.
 			 * zend_string_release is a no-op for interned strings. */
 			if (is_business) {
@@ -891,11 +896,28 @@ zval * gene_memory_get(char *keyString, size_t keyString_len) {
 		}
 		return NULL;
 	}
-	zvalue = zend_symtable_str_find(GENE_G(cache), keyString, keyString_len);
+	zvalue = zend_symtable_str_find(GENE_MEMORY_TABLE(), keyString, keyString_len);
 	GENE_CACHE_RDUNLOCK();
 	return zvalue;
 }
 /* }}} */
+
+int gene_business_memory_get_copy(char *keyString, size_t keyString_len, zval *dst) {
+	zval *zvalue;
+	int found = 0;
+	GENE_G(cache_layer_memory_write_depth)++;
+	GENE_CACHE_RDLOCK();
+	if (!gene_memory_expired_nolock(keyString, keyString_len)) {
+		zvalue = zend_symtable_str_find(GENE_MEMORY_TABLE(), keyString, keyString_len);
+		if (zvalue) {
+			gene_memory_zval_local_copy(dst, zvalue);
+			found = 1;
+		}
+	}
+	GENE_CACHE_RDUNLOCK();
+	GENE_G(cache_layer_memory_write_depth)--;
+	return found;
+}
 
 /* [GENE_PERF:2026-04-19] gene_memory_get_quick is now a macro in memory.h
  * (collapsed to gene_memory_get) — no function definition needed here. */
@@ -908,7 +930,7 @@ zval * gene_memory_get(char *keyString, size_t keyString_len) {
  * builds that's 3× the atomic-contention footprint for a purely read-only
  * operation. Merging them into a single RDLOCK span reduces contended atomic
  * ops by 3× without changing correctness (all three reads observe the same
- * consistent snapshot of GENE_G(cache)).
+ * consistent snapshot of GENE_MEMORY_TABLE()).
  *
  * Any of out1/out2/out3 may be NULL for unused slots. Keys of length 0 are
  * likewise skipped. */
@@ -919,7 +941,7 @@ void gene_memory_get_triple(
 {
 	HashTable *ht;
 	GENE_CACHE_RDLOCK();
-	ht = GENE_G(cache);
+	ht = GENE_MEMORY_TABLE();
 	/* [GENE_FIX:2026-08-07] Apply the same TTL semantics as gene_memory_get:
 	 * an expired key must read as missing here too, otherwise the two read
 	 * paths disagree. The empty-expiry-table short-circuit in
@@ -960,7 +982,7 @@ zval * gene_memory_get_by_config(char *keyString, size_t keyString_len, char *pa
 	zval *copyval = NULL;
 
 	GENE_CACHE_RDLOCK();
-	copyval = zend_symtable_str_find(GENE_G(cache), keyString, keyString_len);
+	copyval = zend_symtable_str_find(GENE_MEMORY_TABLE(), keyString, keyString_len);
 	GENE_CACHE_RDUNLOCK();
 
 	if (!copyval) {
@@ -1094,11 +1116,11 @@ void gene_memory_set_by_router(char *keyString, size_t keyString_len, char *path
 		path_heap = 1;
 	}
 	GENE_CACHE_WRLOCK();
-	copyval = zend_symtable_str_find(GENE_G(cache), keyString, keyString_len);
+	copyval = zend_symtable_str_find(GENE_MEMORY_TABLE(), keyString, keyString_len);
 	if (copyval == NULL || Z_TYPE_P(copyval) != IS_ARRAY) {
 		gene_hash_init(&ret, 0);
 		keyS = gene_str_persistent(keyString, keyString_len);
-		copyval = gene_symtable_update(GENE_G(cache), keyS, &ret);
+		copyval = gene_symtable_update(GENE_MEMORY_TABLE(), keyS, &ret);
 	}
 	tmp = copyval;
 	if (tmp == NULL || Z_TYPE_P(tmp) != IS_ARRAY) {
@@ -1133,7 +1155,7 @@ void gene_memory_set_by_router(char *keyString, size_t keyString_len, char *path
 int gene_memory_exists(char *keyString, size_t keyString_len) {
 	int result;
 	GENE_CACHE_RDLOCK();
-	result = zend_symtable_str_exists(GENE_G(cache), keyString, keyString_len) == 1 ? 1 : 0;
+	result = zend_symtable_str_exists(GENE_MEMORY_TABLE(), keyString, keyString_len) == 1 ? 1 : 0;
 	/* [GENE_FIX:2026-08-07] Honor TTL: expired entries are not "existing". */
 	if (result && gene_memory_expired_nolock(keyString, keyString_len)) {
 		result = 0;
@@ -1149,7 +1171,7 @@ zend_long gene_memory_getTime(char *keyString, size_t keyString_len) {
 	zval *zvalue = NULL;
 	zend_long result = 0;
 	GENE_CACHE_RDLOCK();
-	zvalue = zend_symtable_str_find(GENE_G(cache), keyString, keyString_len);
+	zvalue = zend_symtable_str_find(GENE_MEMORY_TABLE(), keyString, keyString_len);
 	if (zvalue && Z_TYPE_P(zvalue) == IS_LONG) {
 		result = Z_LVAL_P(zvalue);
 	}
@@ -1265,7 +1287,7 @@ PHP_METHOD(gene_memory, get) {
 	char *router_e = stack_buf;
 	size_t router_e_len;
 	int router_e_heap = 0;
-	zval *zvalue, *safe;
+	zval *safe;
 	if (zend_parse_parameters(ZEND_NUM_ARGS(), "S", &keyString) == FAILURE) {
 		return;
 	}
@@ -1290,17 +1312,16 @@ PHP_METHOD(gene_memory, get) {
 		memcpy(router_e + 1, ZSTR_VAL(keyString), ZSTR_LEN(keyString));
 		router_e[router_e_len] = '\0';
 	}
-	zvalue = gene_memory_get(router_e, router_e_len);
+	if (gene_business_memory_get_copy(router_e, router_e_len, return_value)) {
+		if (router_e_heap) efree(router_e);
+		GENE_G(memory_cache_hit)++;
+		return;
+	}
 	if (router_e_heap) efree(router_e);
 	/* [GENE_FEATURE:2026-08-06 F1-7] Userland Memory::get() hit/miss
 	 * telemetry (memory_cache_hit/memory_cache_miss in Gene\Monitor::stats).
 	 * Only the userland entry point is counted — the internal router/DI
 	 * lookups on the hot dispatch path are deliberately excluded. */
-	if (zvalue) {
-		GENE_G(memory_cache_hit)++;
-		gene_memory_zval_local(return_value, zvalue);
-		return;
-	}
 	GENE_G(memory_cache_miss)++;
 	RETURN_NULL();
 }
@@ -1341,7 +1362,9 @@ PHP_METHOD(gene_memory, getTime) {
 		memcpy(router_e + 1, ZSTR_VAL(keyString), ZSTR_LEN(keyString));
 		router_e[router_e_len] = '\0';
 	}
+	GENE_G(cache_layer_memory_write_depth)++;
 	ret = gene_memory_getTime(router_e, router_e_len);
+	GENE_G(cache_layer_memory_write_depth)--;
 	if (router_e_heap) efree(router_e);
 	RETURN_LONG(ret);
 }
@@ -1382,7 +1405,9 @@ PHP_METHOD(gene_memory, exists) {
 		memcpy(router_e + 1, ZSTR_VAL(keyString), ZSTR_LEN(keyString));
 		router_e[router_e_len] = '\0';
 	}
+	GENE_G(cache_layer_memory_write_depth)++;
 	ret = gene_memory_exists(router_e, router_e_len);
+	GENE_G(cache_layer_memory_write_depth)--;
 	if (router_e_heap) efree(router_e);
 	RETURN_BOOL(ret);
 }
@@ -1484,17 +1509,11 @@ static zend_long gene_memory_adjust(const char *keyString, size_t keyString_len,
 		return 0;
 	}
 	GENE_CACHE_WRLOCK();
-	copyval = zend_symtable_str_find(GENE_G(cache), keyString, keyString_len);
+	copyval = zend_symtable_str_find(GENE_MEMORY_TABLE(), keyString, keyString_len);
 	if (copyval == NULL) {
-		if (UNEXPECTED(GENE_G(runtime_type) >= 2 && GENE_G(worker_ready)
-				&& GENE_G(cache)->nNumUsed >= GENE_G(cache)->nTableSize)) {
-			GENE_G(cache_insert_refused)++;
-			GENE_CACHE_WRUNLOCK();
-			return 0;
-		}
 		ZVAL_LONG(&ret, step);
 		key = gene_str_persistent(keyString, keyString_len);
-		gene_symtable_update(GENE_G(cache), key, &ret);
+		gene_symtable_update(GENE_MEMORY_TABLE(), key, &ret);
 		/* key is now owned by the hash table; do not free here. */
 		*ok = 1;
 		result = step;
@@ -1504,6 +1523,10 @@ static zend_long gene_memory_adjust(const char *keyString, size_t keyString_len,
 		Z_LVAL_P(copyval) += step;
 		*ok = 1;
 		result = Z_LVAL_P(copyval);
+	}
+	if (*ok && GENE_G(cache_max_items) > 0) {
+		gene_cache_lru_touch_nolock(keyString, keyString_len);
+		gene_cache_lru_evict_nolock();
 	}
 	GENE_CACHE_WRUNLOCK();
 	return result;
@@ -1638,22 +1661,14 @@ PHP_METHOD(gene_memory, rateLimit) {
 	if (gene_memory_expired_nolock(router_e, router_e_len)) {
 		gene_memory_del_core(router_e, router_e_len);
 	}
-	copyval = zend_symtable_str_find(GENE_G(cache), router_e, router_e_len);
+	copyval = zend_symtable_str_find(GENE_MEMORY_TABLE(), router_e, router_e_len);
 	if (copyval == NULL) {
 		/* [GENE_FIX:2026-08-24 MEM-RW] Same UAF-1 resize guard as
 		 * gene_memory_set(): refuse only this insert, not the whole write,
 		 * if it would grow the frozen bucket array. */
-		if (UNEXPECTED(GENE_G(runtime_type) >= 2 && GENE_G(worker_ready)
-				&& GENE_G(cache)->nNumUsed >= GENE_G(cache)->nTableSize)) {
-			GENE_G(cache_insert_refused)++;
-			GENE_CACHE_WRUNLOCK();
-			if (router_e_heap) efree(router_e);
-			GENE_CACHE_LAYER_MEMORY_WRITE_LEAVE();
-			RETURN_FALSE;
-		}
 		ZVAL_LONG(&one, 1);
 		pkey = gene_str_persistent(router_e, router_e_len);
-		gene_symtable_update(GENE_G(cache), pkey, &one);
+		gene_symtable_update(GENE_MEMORY_TABLE(), pkey, &one);
 		gene_memory_set_expiry_nolock(router_e, router_e_len, (int)window);
 		allowed = 1;
 	} else if (Z_TYPE_P(copyval) == IS_LONG) {
@@ -1662,6 +1677,10 @@ PHP_METHOD(gene_memory, rateLimit) {
 			Z_LVAL_P(copyval) = n + 1;
 			allowed = 1;
 		}
+	}
+	if (allowed && GENE_G(cache_max_items) > 0) {
+		gene_cache_lru_touch_nolock(router_e, router_e_len);
+		gene_cache_lru_evict_nolock();
 	}
 	GENE_CACHE_WRUNLOCK();
 	if (router_e_heap) efree(router_e);
@@ -1707,27 +1726,22 @@ PHP_METHOD(gene_memory, lock) {
 	if (gene_memory_expired_nolock(router_e, router_e_len)) {
 		gene_memory_del_core(router_e, router_e_len);
 	}
-	copyval = zend_symtable_str_find(GENE_G(cache), router_e, router_e_len);
+	copyval = zend_symtable_str_find(GENE_MEMORY_TABLE(), router_e, router_e_len);
 	if (copyval == NULL) {
 		/* [GENE_FIX:2026-08-24 MEM-RW] Same UAF-1 resize guard as
 		 * gene_memory_set()/rateLimit(): refuse only this insert if it
 		 * would grow the frozen bucket array. */
-		if (UNEXPECTED(GENE_G(runtime_type) >= 2 && GENE_G(worker_ready)
-				&& GENE_G(cache)->nNumUsed >= GENE_G(cache)->nTableSize)) {
-			GENE_G(cache_insert_refused)++;
-			GENE_CACHE_WRUNLOCK();
-			if (router_e_heap) efree(router_e);
-			zend_string_release(token);
-			GENE_CACHE_LAYER_MEMORY_WRITE_LEAVE();
-			RETURN_FALSE;
-		}
 		zval src;
 		ZVAL_STR(&src, token); /* borrow; gene_memory_zval_persistent copies */
 		gene_memory_zval_persistent(&tok, &src);
 		pkey = gene_str_persistent(router_e, router_e_len);
-		gene_symtable_update(GENE_G(cache), pkey, &tok);
+		gene_symtable_update(GENE_MEMORY_TABLE(), pkey, &tok);
 		gene_memory_set_expiry_nolock(router_e, router_e_len, (int)ttl);
 		ok = 1;
+		if (GENE_G(cache_max_items) > 0) {
+			gene_cache_lru_touch_nolock(router_e, router_e_len);
+			gene_cache_lru_evict_nolock();
+		}
 	}
 	GENE_CACHE_WRUNLOCK();
 	if (router_e_heap) efree(router_e);
@@ -1765,13 +1779,18 @@ PHP_METHOD(gene_memory, unlock) {
 	router_e = gene_memory_build_key(safe, keyString, stack_buf, sizeof(stack_buf), &router_e_len, &router_e_heap);
 	GENE_CACHE_WRLOCK();
 	if (gene_memory_expired_nolock(router_e, router_e_len)) {
-		gene_memory_del_core(router_e, router_e_len);
+		if (gene_memory_del_core(router_e, router_e_len)) {
+			gene_cache_lru_remove_nolock(router_e, router_e_len);
+		}
 	} else {
-		copyval = zend_symtable_str_find(GENE_G(cache), router_e, router_e_len);
+		copyval = zend_symtable_str_find(GENE_MEMORY_TABLE(), router_e, router_e_len);
 		if (copyval && Z_TYPE_P(copyval) == IS_STRING
 			&& Z_STRLEN_P(copyval) == ZSTR_LEN(token)
 			&& memcmp(Z_STRVAL_P(copyval), ZSTR_VAL(token), ZSTR_LEN(token)) == 0) {
 			ok = gene_memory_del_core(router_e, router_e_len);
+			if (ok) {
+				gene_cache_lru_remove_nolock(router_e, router_e_len);
+			}
 		}
 	}
 	GENE_CACHE_WRUNLOCK();
@@ -1801,7 +1820,7 @@ PHP_METHOD(gene_memory, mget) {
 		char *router_e;
 		size_t router_e_len;
 		int router_e_heap = 0;
-		zval *zvalue, item;
+		zval item;
 		if (!orig_key) {
 			/* Numeric-keyed list of key names: the entry value is the key. */
 			if (Z_TYPE_P(entry) != IS_STRING) {
@@ -1812,12 +1831,11 @@ PHP_METHOD(gene_memory, mget) {
 			continue;
 		}
 		router_e = gene_memory_build_key(safe, orig_key, stack_buf, sizeof(stack_buf), &router_e_len, &router_e_heap);
-		zvalue = gene_memory_get(router_e, router_e_len);
-		if (router_e_heap) efree(router_e);
-		if (zvalue) {
+		if (gene_business_memory_get_copy(router_e, router_e_len, &item)) {
+			if (router_e_heap) efree(router_e);
 			GENE_G(memory_cache_hit)++;
-			gene_memory_zval_local(&item, zvalue);
 		} else {
+			if (router_e_heap) efree(router_e);
 			GENE_G(memory_cache_miss)++;
 			ZVAL_NULL(&item);
 		}
@@ -1869,19 +1887,17 @@ PHP_METHOD(gene_memory, mset) {
  * refused after workerReady() in Swoole.
  */
 PHP_METHOD(gene_memory, clean) {
-	if (UNEXPECTED(!gene_memory_write_allowed("Memory::clean"))) {
-		RETURN_FALSE;
-	}
+	GENE_CACHE_LAYER_MEMORY_WRITE_ENTER();
 	GENE_CACHE_WRLOCK();
-	if (GENE_G(cache)) {
-		gene_hash_destroy(GENE_G(cache));
-		GENE_G(cache) = NULL;
+	if (GENE_G(business_cache)) {
+		gene_hash_destroy(GENE_G(business_cache));
+		GENE_G(business_cache) = NULL;
 	}
 	/* [GENE_FIX:2026-08-07] Wipe TTL bookkeeping together with the cache. */
-	if (GENE_G(cache_expiry)) {
-		zend_hash_destroy(GENE_G(cache_expiry));
-		pefree(GENE_G(cache_expiry), 1);
-		GENE_G(cache_expiry) = NULL;
+	if (GENE_G(business_cache_expiry)) {
+		zend_hash_destroy(GENE_G(business_cache_expiry));
+		pefree(GENE_G(business_cache_expiry), 1);
+		GENE_G(business_cache_expiry) = NULL;
 	}
 	/* [GENE_MEM:2026-06-19 M1] clean() wipes the whole persistent cache, so the
 	 * LRU tracking set's keys now point at freed entries — drop it too. It will
@@ -1889,6 +1905,7 @@ PHP_METHOD(gene_memory, clean) {
 	gene_cache_lru_destroy();
 	gene_memory_init();
 	GENE_CACHE_WRUNLOCK();
+	GENE_CACHE_LAYER_MEMORY_WRITE_LEAVE();
 	RETURN_TRUE;
 }
 /* }}} */
@@ -1916,12 +1933,31 @@ PHP_METHOD(gene_memory, clean) {
  */
 PHP_METHOD(gene_memory, stats) {
 	array_init(return_value);
-	GENE_CACHE_RDLOCK();
+	gene_rwlock_rdlock(&GENE_G(business_cache_lock));
 	add_assoc_long(return_value, "cache_items",
+		(GENE_G(cache) ? (zend_long)zend_hash_num_elements(GENE_G(cache)) : 0) +
+		(GENE_G(business_cache) ? (zend_long)zend_hash_num_elements(GENE_G(business_cache)) : 0));
+	add_assoc_long(return_value, "cache_num_used",
+		(GENE_G(cache) ? (zend_long)GENE_G(cache)->nNumUsed : 0) +
+		(GENE_G(business_cache) ? (zend_long)GENE_G(business_cache)->nNumUsed : 0));
+	add_assoc_long(return_value, "cache_num_elements",
+		(GENE_G(cache) ? (zend_long)GENE_G(cache)->nNumOfElements : 0) +
+		(GENE_G(business_cache) ? (zend_long)GENE_G(business_cache)->nNumOfElements : 0));
+	add_assoc_long(return_value, "cache_table_size",
+		(GENE_G(cache) ? (zend_long)GENE_G(cache)->nTableSize : 0) +
+		(GENE_G(business_cache) ? (zend_long)GENE_G(business_cache)->nTableSize : 0));
+	add_assoc_long(return_value, "framework_cache_items",
 		GENE_G(cache) ? (zend_long)zend_hash_num_elements(GENE_G(cache)) : 0);
+	add_assoc_long(return_value, "business_cache_items",
+		GENE_G(business_cache) ? (zend_long)zend_hash_num_elements(GENE_G(business_cache)) : 0);
+	add_assoc_long(return_value, "business_cache_num_used",
+		GENE_G(business_cache) ? (zend_long)GENE_G(business_cache)->nNumUsed : 0);
+	add_assoc_long(return_value, "business_cache_table_size",
+		GENE_G(business_cache) ? (zend_long)GENE_G(business_cache)->nTableSize : 0);
 	add_assoc_long(return_value, "cache_easy_items",
 		GENE_G(cache_easy) ? (zend_long)zend_hash_num_elements(GENE_G(cache_easy)) : 0);
-	GENE_CACHE_RDUNLOCK();
+	gene_rwlock_rdunlock(&GENE_G(business_cache_lock));
+	add_assoc_long(return_value, "cache_insert_refused", (zend_long)GENE_G(cache_insert_refused));
 	add_assoc_long(return_value, "fn_cache_items",
 		GENE_G(fn_cache) ? (zend_long)zend_hash_num_elements(GENE_G(fn_cache)) : 0);
 	add_assoc_long(return_value, "co_contexts_items",
@@ -1944,6 +1980,10 @@ PHP_METHOD(gene_memory, stats) {
 		GENE_G(cache_lru) ? (zend_long)zend_hash_num_elements(GENE_G(cache_lru)) : 0);
 	add_assoc_long(return_value, "route_pc_items",
 		GENE_G(route_pc) ? (zend_long)zend_hash_num_elements(GENE_G(route_pc)) : 0);
+	/* [GENE_FIX:2026-09-07 PC-GEN] Bumped by Router::clear()/delTree()/delEvent();
+	 * retired = descriptors unlinked by such a bump, freed at MSHUTDOWN. */
+	add_assoc_long(return_value, "route_pc_generation", (zend_long)GENE_G(route_pc_generation));
+	add_assoc_long(return_value, "route_pc_retired", (zend_long)GENE_G(route_pc_retired_count));
 	add_assoc_long(return_value, "closure_src_cache_items", gene_closure_src_cache_items());
 	add_assoc_long(return_value, "closure_src_cache_flushes", (zend_long)GENE_G(closure_src_cache_flushes));
 }
