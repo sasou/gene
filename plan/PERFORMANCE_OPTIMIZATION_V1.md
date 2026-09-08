@@ -1,10 +1,15 @@
-# Gene 扩展极致并发优化 —— V1：已完成与待验证
+# Gene 扩展极致并发优化 —— V1：已关闭
 
-> 版本：v6-split（2026-09-07）。本文件由原 `PERFORMANCE_OPTIMIZATION.md`（v6，2026-09-06）
-> 按执行状态拆分：
-> - **V1（本文件）**：已修复 / 已实施 / 已结案的条目，以及它们的**待验证**项
->   （Linux Swoole 并发梯度、ASAN、RSS 趋势、专项基准）。
-> - **V2（`PERFORMANCE_OPTIMIZATION_V2.md`）**：尚未开始的条目与需专项设计的项目。
+> 版本：v6-close（2026-09-08）。本文件由原 `PERFORMANCE_OPTIMIZATION.md`（v6，2026-09-06）
+> 按执行状态拆分，并于 2026-09-08 完成 V1 收口：
+> - **V1（本文件）**：已修复 / 已实施 / 已结案的第一批条目；支持矩阵内的实现与功能验收已完成。
+> - **V2（`PERFORMANCE_OPTIMIZATION_V2.md`）**：尚未开始的优化，以及从 V1 移交的增强验证、收益量化和平台扩展。
+>
+> **关闭口径**：V1 的支持矩阵为 PHP 8.1 **NTS**（Windows x64 与 Linux Swoole）。关闭表示
+> 目标缺陷已修复、功能回归和已执行的 Linux 并发验证通过；不表示已经证明所有负载下的整机收益。
+> ZTS 多线程 SAPI 不在 V1 支持矩阵内，相关 static 缓存治理作为平台扩展移交 V2。ASAN 降为
+> 建议性的补充诊断，不再作为关闭门槛；512/1024 梯度、RSS 长跑、专项 ns/op/p99、FPM/fork/
+> opcache 配置矩阵也移交 V2，只有取得数据后才允许补充对应收益或平台兼容性声明。
 >
 > 章节编号沿用原 v6 文档，未纳入本文件的章节以「→ V2」标注。
 > 本文中 §2.4–§2.7、§3.2、§3.3、§3.5、§4.1–§4.3、§4.5、§5.2、§7、§8.3 见 V2。
@@ -39,7 +44,7 @@
 > 2. **profiling 只排期，不否决**。任何被判定为「随规模放大」的条目，
 >    即使在当前负载 flamegraph 中不可见，也照常推进。
 > 3. **正确性缺陷不受任何性能准入约束**（§1 全节）。
-> 4. 涉及生命周期/裸指针/跨线程共享的改动，Linux `-fsanitize=address` 下跑全量回归（§7.4 → V2）。
+> 4. 涉及生命周期/裸指针的改动优先运行 Linux `-fsanitize=address` 全量回归；ASAN 是建议性的补充诊断，不能替代功能、并发和生命周期不变式审查，也不单独阻塞 V1 关闭（执行方法见 §9.5）。
 > 5. 改变**公开 API 语义**的项目单独立项、单独评审，不混入透明优化批次。
 
 ---
@@ -110,7 +115,7 @@ Gene 的目标运行模型是 **Swoole 常驻 worker + 协程**（`gene.runtime_
 这一节的条目**全部**属于 §0.2 的 A 类：长跑 worker 在高并发下会失效、漂移或悬垂。
 它们不是性能条目，但**在修完之前，高并发压测结果不可信**，因此排在所有性能轨道之前。
 
-### 1.1 【已修复 2026-09-07】`Router::clear()` 不失效 `route_pc`，留下悬垂描述符
+### 1.1 【已关闭 2026-09-08；压力矩阵移交 V2】`Router::clear()` 不失效 `route_pc`，留下悬垂描述符
 
 > **修复实现**（`[GENE_FIX:2026-09-07 PC-GEN]`）：采纳方案 2 + 方案 3 的组合。
 > - **generation**：新增 `GENE_G(route_pc_generation)`。`Router::clear()/delTree()/delEvent()`
@@ -157,7 +162,7 @@ Gene 的目标运行模型是 **Swoole 常驻 worker + 协程**（`gene.runtime_
 - **附带**：`route_pc` 只在 `worker_ready` 后启用，但请求级 `fn_cache` 在 RSHUTDOWN 释放，
   持久 `route_pc` 到 MSHUTDOWN 才销毁 —— 两种生命周期必须分别验证，不可混同。
 
-### 1.2 【已修复 2026-09-07；Linux/Swoole 并发验证通过 2026-09-07】池计数器 CAS 放弃导致单调漂移
+### 1.2 【已关闭 2026-09-08；高梯度长跑移交 V2】池计数器 CAS 放弃导致单调漂移
 
 > **修复实现**：DB Pool 与 RedisPool 已删除 64 轮 `cmpset` 递减及放弃路径，连接槽的
 > 成功预留/创建与销毁改为严格对称的 `Swoole\Atomic::add(+1)` / `sub(1)`；
@@ -173,7 +178,7 @@ Gene 的目标运行模型是 **Swoole 常驻 worker + 协程**（`gene.runtime_
 >   Redis Pool 同构 200 协程 × 1000 次，**0 failures**。
 >   事务泄漏防护：借出者 1 开启事务后归还 → 框架自动 rollback → 借出者 2 收到干净连接 ✓。
 >   全量 `TestRunner` **896/896**（100%）。
-> - 512/1024 并发梯度、满池突发长跑容量不收缩及 Linux ASAN 仍须按 §9 补测；不回填性能收益数字。
+> - 现有结果满足 V1 功能关闭标准。512/1024 并发梯度、满池突发长跑及 Linux ASAN 移交 V2；补测前不回填性能收益数字。
 
 - **位置**：`db/pool.c:558-590`（`pool_decrement_count_cas`，64 轮 `cmpset` 后放弃并
   递增 `db_pool_cas_abandoned`）、`676-687`（`pool_increment_count_get`）；
@@ -199,7 +204,7 @@ Gene 的目标运行模型是 **Swoole 常驻 worker + 协程**（`gene.runtime_
   `db_pool_cas_abandoned == 0`，且 `stats()` 的 `total` 与实际连接数一致；
   长跑后容量不收缩。
 
-### 1.3 【已修复 2026-09-07；Linux 并发验证通过 2026-09-07；ASAN/RSS 长跑待补】冻结表 tombstone 耗尽导致静默拒写
+### 1.3 【已关闭 2026-09-08；增强验证移交 V2】冻结表 tombstone 耗尽导致静默拒写
 
 > **修复实现**：源码复核确认 Zend 公共 HashTable API 不支持在不移动 live bucket 的前提下
 > 安全复用 tombstone；手写 `Bucket/HT_HASH` 插入会绑定 Zend 内部布局且无法证明无在途借用，
@@ -216,7 +221,7 @@ Gene 的目标运行模型是 **Swoole 常驻 worker + 协程**（`gene.runtime_
 > **Linux Swoole 验证（2026-09-07）**：全量 `TestRunner` **896/896**；
 > 上下文隔离压测 10 万请求 / 500 并发（manual + auto 两轮），`cache_insert_refused=0`、
 > `business_cache_items=0`、`framework_cache_items=0`，无 tombstone 耗尽或静默拒写。
-> Linux ASAN、长时间高 churn 与 RSS 趋势仍待补测。
+> 以上证据满足 V1 的 NTS 功能关闭标准；Linux ASAN、长时间高 churn 与 RSS 趋势作为增强验证移交 V2，不据此声明内存收益。
 
 - **位置**：`cache/memory.c:841-845, 1644-1647, 1713-1716`（insert guard +
   `cache_insert_refused`）、`716-728`（`gene_cache_effective_reserve()`）、`744-758`（reserve）
@@ -239,7 +244,7 @@ Gene 的目标运行模型是 **Swoole 常驻 worker + 协程**（`gene.runtime_
 - **验收**：持续写删不同 key 超过 `reserve` 数倍，断言 `cache_insert_refused`
   **不随时间单调增长**且 `nNumUsed` 有界；配合 ASAN 与 RSS 趋势。
 
-### 1.4 【部分修复 2026-09-07；ZTS 支持决策待定】文件作用域 `static` 缓存不是线程局部
+### 1.4 【V1 支持范围内已关闭 2026-09-08；ZTS 平台扩展移交 V2】文件作用域 `static` 缓存不是线程局部
 
 > **已完成**：全库复核后，仍存在的直接
 > `static zend_string* + zend_string_init_interned(..., 1)` 不安全模式集中在
@@ -247,10 +252,10 @@ Gene 的目标运行模型是 **Swoole 常驻 worker + 协程**（`gene.runtime_
 > `IS_STR_PERMANENT` 时跨请求缓存，opcache 关闭或 `file_cache_only=1` 时不再保留请求级指针。
 > Windows NTS 构建与全量 884/884 回归通过。
 >
-> **未关闭部分**：文件作用域 `zend_function*` / `zend_class_entry*` / `HashTable*` 的 ZTS
-> 惰性初始化竞争尚未系统迁移，也尚未在构建时明确拒绝 ZTS；在完成多线程 SAPI 决策与
-> 对应构建矩阵前，本条保持“部分修复”。同一 worker 的 opcache 关/
-> `file_cache_only=1` 跨请求专项回归也仍待补测。
+> **范围决策**：V1 只承诺 PHP 8.1 NTS，不把尚未验证的 ZTS 多线程 SAPI 纳入支持矩阵。
+> 文件作用域 `zend_function*` / `zend_class_entry*` / `HashTable*` 的 ZTS 惰性初始化治理、
+> ZTS 构建矩阵，以及 opcache 关/`file_cache_only=1` 的同 worker 跨请求专项回归移交 V2。
+> 在这些验证完成前不得对外声明 ZTS 或上述 opcache 配置已获专项兼容性认证。
 
 - **位置**（已全库审计）：
   - `http/response.c:171-180`（`gene_swoole_resp_cache_*`）、`response.c:557`（`json_fn`）
@@ -289,7 +294,7 @@ Gene 的目标运行模型是 **Swoole 常驻 worker + 协程**（`gene.runtime_
 
 > §2.4–§2.7 尚未开始，见 V2。
 
-### 2.1 【级别 2 已完成 2026-09-07；Linux 功能验证通过 2026-09-07；专项 ns/op 基准待补】池借还路径上的 PHP 方法调用
+### 2.1 【级别 2 已关闭 2026-09-08；收益量化移交 V2】池借还路径上的 PHP 方法调用
 
 > **完成情况**：与 §1.2 同批删除 CAS 循环，正常销毁路径由最多 64 次 `cmpset` 收敛为
 > 一次对称 `Atomic::sub(1)`；既有 Channel/Atomic 方法指针缓存与
@@ -297,7 +302,7 @@ Gene 的目标运行模型是 **Swoole 常驻 worker + 协程**（`gene.runtime_
 > 仍作为独立高风险 ABI 项。Windows 功能回归通过。
 > **Linux Swoole 验证（2026-09-07）**：MySQL/Redis Pool 各 200 协程 × 1000 次借还均 **0 failures**，
 > `db_pool_cas_abandoned` 无新增（CAS 循环已删除）。
-> 本地 SQLite/Redis 的 1/32/128/512/1024 并发 ns/op 与 p99 尚未测量，不能声明整机收益。
+> 本地 SQLite/Redis 的 1/32/128/512/1024 并发 ns/op 与 p99 移交 V2；测量完成前不声明整机收益。
 
 - **位置**：`db/pool.c:558-590, 676-687, 806-976`；`cache/redis_pool.c:1214-1389`
 - **源码事实（v5 完全未立项）**：池的并发原语**不是** C 原子或 C 队列，而是
@@ -327,7 +332,7 @@ Gene 的目标运行模型是 **Swoole 常驻 worker + 协程**（`gene.runtime_
   测每操作 ns、`cas_abandoned`、p99；分离「借还开销」与「SQL 执行」。
 - **风险**：1 低；2 中（与 §1.2 同批，需容量语义评审）；3 高（外部 ABI）。
 
-### 2.2 【已实现 2026-09-07；Linux 功能验证通过 2026-09-07；尾延迟验收待补】`Pool::get()` 空闲队列 miss 的 1 ms 定时等待（原 §5.2 升级）
+### 2.2 【已关闭 2026-09-08；尾延迟量化移交 V2】`Pool::get()` 空闲队列 miss 的 1 ms 定时等待（原 §5.2 升级）
 
 > **实现**：DB Pool/RedisPool 的 `get()` 先调用现有 Channel `isEmpty()`；空队列直接进入
 > reserve/create 或饱和等待，不再执行 `pop(0.001)`。判空到 pop 之间没有 yield；
@@ -337,7 +342,7 @@ Gene 的目标运行模型是 **Swoole 常驻 worker + 协程**（`gene.runtime_
 > `Monitor::stats()` / Prometheus。Windows 编译和功能测试通过。
 > **Linux Swoole 验证（2026-09-07）**：Pool min 预填恰好一次（total=2/idle=2），
 > 200 协程 × 1000 次借还 **0 failures**，`db_pool_idle_miss` / `redis_pool_idle_miss` 无异常增长。
-> Swoole 下低负载、突发扩容、满池排队三档的 p50/p95/p99 尚待实测。
+> Swoole 下低负载、突发扩容、满池排队三档的 p50/p95/p99 移交 V2；在数据补齐前只声明已消除固定 1 ms miss 路径，不声明端到端尾延迟收益。
 
 - **位置**：`db/pool.c:806-908`、`cache/redis_pool.c:1214-1311`
 - **源码事实**：正常路径是 ① `pop(0.001)` 非阻塞尝试 → ② 未满则创建连接 →
@@ -360,7 +365,7 @@ Gene 的目标运行模型是 **Swoole 常驻 worker + 协程**（`gene.runtime_
      是否**异步**预热是单独策略。
 - **验收**：低负载命中、扩容突发、满池排队三档分别测 p50/p95/p99 与 miss 率。
 
-### 2.3 【已由拆表消除 2026-09-07；Linux 验证通过 2026-09-07；锁时长观测待补】进程缓存读路径：条件跳锁的覆盖率问题
+### 2.3 【已关闭 2026-09-08；诊断指标移交 V2】进程缓存读路径：条件跳锁的覆盖率问题
 
 > **完成情况**：§3.1 拆表落地后，业务写只设置/锁定独立 `business_cache`，不再改变框架表
 > 的读锁策略；路由/DI/配置仍访问启动后只读的框架表，`workerReady()` 后可持续走跳锁路径，
@@ -398,7 +403,7 @@ Gene 的目标运行模型是 **Swoole 常驻 worker + 协程**（`gene.runtime_
 
 > §3.2、§3.3、§3.5 尚未开始，见 V2。
 
-### 3.1 【已实施 2026-09-07；Linux 并发验证通过 2026-09-07；ASAN 待验收】框架缓存与业务缓存拆表
+### 3.1 【已关闭 2026-09-08；增强验证移交 V2】框架缓存与业务缓存拆表
 
 > **落地结果**：新增 `GENE_G(business_cache)`、`business_cache_expiry` 与
 > `business_cache_lock`。Router、Config、DI、Pool 配置等内部调用继续显式使用框架表；
@@ -409,8 +414,8 @@ Gene 的目标运行模型是 **Swoole 常驻 worker + 协程**（`gene.runtime_
 > **Linux Swoole 验证（2026-09-07）**：PHP 8.1.34 NTS DEBUG + Swoole 6.1.9，Gene 6.2.1。
 > 全量 `TestRunner` **896/896**；上下文隔离 10 万请求 / 500 并发（manual + auto），
 > `framework_cache_items=0`、`business_cache_items=0`，拆表后框架表与业务表各自独立运作正常。
-> Swoole 协程交错专项、FPM 同 worker 多请求、Linux ASAN 与 RSS/并发回归仍待执行，
-> 因此本项标记为"已实施 + Linux 功能验证"而非"目标平台完全验收"。
+> 以上证据满足 V1 的 PHP 8.1 NTS 功能关闭标准。Swoole 协程交错专项、FPM 同 worker 多请求、
+> Linux ASAN 与 RSS/并发回归移交 V2；完成前不扩展平台认证范围，也不声明 RSS 收益。
 
 - **位置**：`cache/memory.h:21-46`、`gene.h:296`（`cache_business_dirty`）、
   `memory.c:288, 716-758, 805-863, 1869-1891`
@@ -436,10 +441,10 @@ Gene 的目标运行模型是 **Swoole 常驻 worker + 协程**（`gene.runtime_
 - **明确移除**：**RCU 方案不做**。单 worker 协作调度下收益有限，
   回收 epoch 与裸指针风险很大。
 - **关系**：§1.3 不得被本项阻塞。本项落地后 §1.3 的 tombstone 模型可退役、§3.2 → V2 可重新评估。
-- **剩余风险**：公开 API、指针所有权与存储模型已完成 Windows NTS 功能回归；Linux Swoole
-  协程交错、FPM 同 worker 多请求、ASAN 与 RSS 趋势未验收前仍按高风险变更管理。
+- **关闭后约束**：公开 API、指针所有权与存储模型已完成 Windows NTS 与 Linux Swoole 功能回归；
+  协程交错、FPM 同 worker、ASAN 与 RSS 趋势继续作为 V2 增强验证管理，异常结果必须重开缺陷而非修改 V1 收益口径。
 
-### 3.4 【已实施 2026-09-07；Linux Swoole 验证通过 2026-09-07；fork 专项待补】Pool 生命周期与跨进程共享约束
+### 3.4 【已关闭 2026-09-08；fork 扩展矩阵移交 V2】Pool 生命周期与跨进程共享约束
 
 > **实现**：DB Pool/RedisPool 构造时记录 `creatorPid`；`get/put/remove/recycleIdle/close/`
 > `healthCheck/stats` 以及静态清理路径拒绝 PID 不匹配的跨 fork 使用并累计
@@ -448,7 +453,7 @@ Gene 的目标运行模型是 **Swoole 常驻 worker + 协程**（`gene.runtime_
 > `Swoole\Atomic`，未贸然改为结构体 `zend_long`。Windows NTS 已编译和回归。
 > **Linux Swoole 验证（2026-09-07）**：MySQL/Redis Pool 各 200 协程 × 1000 次借还 **0 failures**，
 > `db_pool_pid_mismatch` / `redis_pool_pid_mismatch` 无触发（worker 内构造，PID 一致）。
-> Linux `pcntl_fork` 专项、Swoole 多 worker/workerStop 与关闭交错仍待专项执行。
+> creator PID 拒绝策略及 worker 内正常路径满足 V1 关闭标准；Linux `pcntl_fork`、Swoole 多 worker/workerStop 与关闭交错矩阵移交 V2。
 
 - **位置**：`cache/redis_pool.c:453-491/580-594`；`db/pool.c:519-590`
 - **修复前缺失的前提**：源码/API 当时**未阻止**用户在 `Server::start()` 前构造 Pool，
@@ -606,15 +611,15 @@ realpath_cache_ttl              = 600
 
 ## 8. 执行顺序
 
-### 8.1 第零批（主体已实施，目标平台验收与观测补齐中）
-1. **§1 正确性缺陷**：§1.1 route_pc 失效、§1.2 池 CAS 漂移、§1.3 tombstone 根治
-   已实施；§1.4 的 interned string 悬垂已修，ZTS static 缓存决策仍待完成。
-   **Linux Swoole 并发验证已通过（2026-09-07）**：896/896 全量测试 + 10 万请求上下文隔离 +
-   200 协程池借还 + 事务泄漏防护。ASAN、512/1024 并发梯度与 RSS 长跑仍待补。
-2. §5.2 → V2 观测项 1–4：pool idle miss 与 route_pc generation 已完成；锁路径/等待时长、
-   route_pc hit/miss 仍待补齐。拆表后锁路径指标须区分框架表和业务表。
-3. §6.2 宿主配置固定；§6.1 默认值 vs 示例值的文档修正。
-4. 每轮保存构建参数、PHP/扩展版本、CPU/RSS、原始压测结果和 flamegraph。
+### 8.1 第零批（已关闭 2026-09-08）
+1. **§1 正确性缺陷**：§1.1 route_pc 失效、§1.2 池 CAS 漂移、§1.3 tombstone 根治与
+   §1.4 NTS 范围内的 interned string 悬垂均已修复并关闭。
+2. **支持矩阵证据**：Windows PHP 8.1 NTS 全量 884/884；Linux PHP 8.1 NTS + Swoole 全量
+   896/896、10 万请求上下文隔离、200 协程池借还与事务泄漏防护通过。
+3. **移交 V2**：ZTS 平台扩展、ASAN、512/1024 梯度、RSS/churn 长跑、专项 ns/op/p99、
+   FPM/fork/opcache 配置矩阵，以及锁路径/等待时长和 route_pc hit/miss 观测。
+4. **声明边界**：V1 关闭只代表上述支持矩阵内的实现与功能验收，不产生未测量的整机收益、
+   尾延迟、RSS、ZTS 或扩展配置兼容性声明；V2 补测若发现缺陷必须重新立项修复。
 
 ### 8.2 已完成（历史）
 
@@ -631,7 +636,7 @@ realpath_cache_ttl              = 600
 | 第三批 | §2.2 | 空闲 Channel 判空后仅在非空时 pop；新增 DB/Redis idle miss 与 timeout 指标 |
 | 第三批 | §3.4 | Pool 绑定 creator PID，跨 fork 拒绝；禁止 clone/serialize；PID mismatch 可观测 |
 | 第三批 | §1.3 + §2.3 + §3.1 | 框架/业务缓存拆表；业务表独立锁/TTL/LRU/rehash，框架表保持启动后只读 |
-| 第三批 | §1.4 部分 | `cache/cache.c` 7 处 static interned name 改为 `GENE_INTERNED_STR()`；ZTS 决策待定 |
+| 第三批 | §1.4（V1 范围） | `cache/cache.c` 7 处 static interned name 改为 `GENE_INTERNED_STR()`；V1 限定 PHP 8.1 NTS，ZTS 平台扩展移交 V2 |
 | Linux 验证 | §1.2/§1.3/§2.1/§2.2/§3.1/§3.4 | Linux PHP 8.1.34 NTS DEBUG + Swoole 6.1.9，Gene 6.2.1。编译零警告；全量 `TestRunner` **896/896**；Swoole 矩阵 4 组合 ALL-PASS（~10.5K req/s debug 构建）；上下文隔离 10 万请求 / 500 并发（manual + auto）零泄漏、`ctx_pool_hit` 99.5%；MySQL/Redis Pool 200 协程 × 1000 次 **0 failures**；事务泄漏防护 rollback 验证通过 |
 
 历史回归：Windows PHP 8.1.30 NTS x64 Release，`tools\build_all.bat x64 8.1` 构建成功；
@@ -643,7 +648,7 @@ realpath_cache_ttl              = 600
 新增缓存 5000 轮高 churn、分表统计、Pool clone/serialize 与 min 预填功能覆盖。
 **这些只证明 PHP 8.1 Windows NTS 的编译与功能兼容性，不构成性能收益或 Swoole 并发验收。**
 §1.2/§2.1/§2.2/§3.1/§3.4 的 Linux Swoole 功能验证已于 2026-09-07 通过（见上表）。
-ASAN、512/1024 并发梯度的 ns/op、RSS 与尾延迟继续标记为**待测**。
+ASAN、512/1024 并发梯度的 ns/op、RSS 与尾延迟已作为**非阻塞增强验证移交 V2**。
 
 > §8.3 轨道推进顺序（未开始条目的排期）见 V2。
 
@@ -717,7 +722,7 @@ ASAN、512/1024 并发梯度的 ns/op、RSS 与尾延迟继续标记为**待测*
   CLI 进程隔离测试不能替代它们。各模式先各自 A/B，再做模式比较，
   不把运行模型差异当成本项优化收益。
 
-### 9.5 ASAN 回归（Linux 独立构建，不用于性能测量）
+### 9.5 ASAN 补充诊断（建议执行，非 V1 关闭门槛）
 1. 干净独立构建树 + 匹配的 phpize/php-config，在其 `src/` 执行：
    ```bash
    export CFLAGS="-fsanitize=address -fno-omit-frame-pointer -O1 -g"
