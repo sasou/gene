@@ -1,5 +1,55 @@
 # Gene Framework Changelog
 
+## [6.2.2]
+
+> 本版将持久缓存按框架元数据与业务写入分区隔离，修复路由预编译描述符在路由重建后的失效问题，补齐连接池/缓存/路由的 Monitor 可观测指标，并处理 Redis Lua 边界返回、PHP 8.4+ 头文件迁移等兼容性细节。
+
+### ✨ 新增
+
+- **持久缓存业务/框架分区隔离**：`Gene\Cache` / `Gene\Memory` 等业务写入进入独立的 `business_cache` HashTable 与 `business_cache_lock`，与路由/配置/事件等框架只读元数据解耦。`workerReady()` 后业务写仍持有细粒度锁，框架读路径继续免锁，降低 Swoole 多协程并发锁竞争。`Memory::stats()` / `Monitor::stats()` 新增 `business_cache_items`、`business_cache_num_used`、`business_cache_table_size` 分区指标。
+- **连接池可观测指标**：`Monitor::stats()` 新增 `redis_pool_get_timeout`、`db_pool_idle_miss`、`redis_pool_idle_miss`、`db_pool_pid_mismatch`、`redis_pool_pid_mismatch`，用于定位取连接超时、空闲回收未命中及跨进程 PID 漂移场景。
+- **路由预编译生成号与失效遥测**：`Router::clear()` / `delTree()` / `delEvent()` 触发路由树重建时会递增 `route_pc_generation`；`Monitor::stats()` 导出 `route_pc_generation` 与 `route_pc_retired_count`，可观测预编译描述符失效与退休数量。
+
+### 🐞 修复
+
+- **连接池原子操作简化**：DB/Redis 连接池对称递减改用 `Swoole\Atomic::sub()`，替换原 CAS 循环，消除多 worker 计数下溢风险；配合新增计数器，超时/空闲未命中/PID 漂移可观测。
+- **路由预编译描述符失效 (PC-GEN)**：新增 `route_pc_generation` 全局计数与 `gene_router_pc_invalidate()`；重建路由树/擦除 `fn_cache` 后，旧生成号的描述符在下次派发时自动解链并回退到慢路径，避免借用已释放的闭包/缓存指针。退休描述符进入 GC 列表，MSHUTDOWN 统一释放。
+- **`Router::through()` 共享 Hook 数组隔离**：使用 `SEPARATE_ARRAY` 复制父组继承的 Hook 数组，避免嵌套组追加 Hook 时污染共享数组，确保组级可组合 Hook 继承顺序稳定。
+- **Redis `evalSha` 脚本回退**：当 Lua 返回 `false` 且未触发 `NOSCRIPT` 异常时仍能正确回退到 `eval` 执行；`LifecycleTest` 增加 `SCRIPT FLUSH` 避免测试间脚本缓存串扰。
+- **Redis Lua 数字字符串解析**：`rateLimit` / `unlock` 在 Swoole 协程下遇到 Lua 返回数字字符串时按数值解析，避免误判为失败。
+- **PHP 8.4+ 兼容性**：`php_mt_rand.h` 迁移到 `ext/random/php_random.h`，修正 PHP 8.4+ 编译头文件路径。
+- **构建头文件补齐**：`src/mvc/hook.c` 补全 `json.h` 头文件包含。
+
+### ⚡ 性能优化
+
+- **DB 查询计时统一**：MySQL/MSSQL/PgSQL/SQLite 四个驱动将 `struct timeval` 替换为 `uint64_t` 单调纳秒/微秒计时，减少 `gettimeofday` 系统调用并统一跨平台精度。
+
+### ✅ 测试
+
+- `DatabaseTest::testPoolClass` 入口改为直接包装在 `Coroutine::run` 内，避免 Swoole 协程嵌套调用。
+
+### 📝 文档与计划
+
+- 拆分 `PERFORMANCE_OPTIMIZATION.md` 为 `Performance-tuning-V1.md`（已完成/待验收）与 `Performance-tuning-V2.md`（未开始）。
+- 新增 `plan/application-entry-runtime.md`，规划 FPM/Swoole 统一入口。
+- 回填 Linux Swoole 验证结果到 `plan/hook-runtime.md` 与 `plan/Performance-tuning-V1.md`。
+- 同步 API reference、AI helper skills，并修正 `gene-ide-helper/Gene/Response.php` 的静态方法签名。
+
+### 🔧 修改文件一览
+
+- `src/cache/cache.c` / `src/cache/memory.c` / `src/cache/memory.h` — 业务缓存分区、独立锁、`Memory::stats()` 分区指标
+- `src/cache/redis.c` — Redis `evalSha` 回退、PHP 8.4+ 头文件迁移
+- `src/cache/redis_pool.c` / `src/cache/redis_pool.h` — Lua 数字字符串解析、池指标、空闲回收器/定时器重构
+- `src/db/pool.c` / `src/db/pool.h` — 池原子操作、空闲连接探活/补充逻辑、DB 池指标
+- `src/db/{mysql,mssql,pgsql,sqlite}.c` — `uint64_t` 查询计时
+- `src/gene.c` / `src/gene.h` — 业务缓存全局初始化、`route_pc_generation`/`retired` 计数、版本号 6.2.2
+- `src/router/router.c` / `src/router/router.h` — 路由预编译失效、生成号管理、`through()` 共享数组隔离
+- `src/mvc/hook.c` — 补全 `json.h` 头文件
+- `src/tool/monitor.c` — 新增业务缓存/连接池/路由预编译计数器导出
+- `test/CacheTest.php` / `test/DatabaseTest.php` / `test/LifecycleTest.php` — 分区、池场景与脚本刷新
+- `audit/repro/route_pc_clear_invalidate.php` — 路由预编译失效回归复现
+- `docs/CONFIGURATION.md`、`plan/*`、`gene-ai-helper/*`、`gene-ide-helper/Gene/Response.php` — 文档与 IDE helper
+
 ## [6.2.1]
 
 > 本版补齐 Hook 生命周期终止语义、组级可组合 Hook 和标准 request-id 策略，使常驻进程应用的全局 Hook 可以安全替代重复的入口逻辑。
