@@ -756,6 +756,26 @@ PHP_METHOD(gene_redis, rateLimit) {
 		zval_ptr_dtor(&ret);
 		RETURN_TRUE;
 	}
+	/* [GENE_FIX:2026-09-08] Some phpredis/Swoole-coroutine hooked paths hand
+	 * back the Lua integer as a numeric string ("1"/"0") instead of IS_LONG.
+	 * Treating that as "indeterminate" made rateLimit() return null on every
+	 * call, so callers fail-open and the limiter never engages. Parse a
+	 * numeric-string result as the real counter verdict. */
+	if (Z_TYPE(ret) == IS_STRING) {
+		zend_long lval;
+		double dval;
+		zend_uchar t = is_numeric_string(Z_STRVAL(ret), Z_STRLEN(ret), &lval, &dval, 0);
+		if (t == IS_LONG) {
+			RETVAL_BOOL(lval == 1);
+			zval_ptr_dtor(&ret);
+			return;
+		}
+		if (t == IS_DOUBLE) {
+			RETVAL_BOOL(dval == 1.0);
+			zval_ptr_dtor(&ret);
+			return;
+		}
+	}
 	/* Not a script result: the eval call failed rather than the counter
 	 * exceeding max. Report indeterminate instead of a false "blocked". */
 	zval_ptr_dtor(&ret);
@@ -830,6 +850,25 @@ PHP_METHOD(gene_redis, unlock) {
 	if (Z_TYPE(ret) == IS_TRUE) {
 		zval_ptr_dtor(&ret);
 		RETURN_TRUE;
+	}
+	/* [GENE_FIX:2026-09-08] Same numeric-string coercion as rateLimit(): the
+	 * unlock Lua returns DEL's integer count, which hooked redis may surface
+	 * as "1"/"0". Parse it so a successful compare-and-del is not reported as
+	 * a token mismatch. */
+	if (Z_TYPE(ret) == IS_STRING) {
+		zend_long lval;
+		double dval;
+		zend_uchar t = is_numeric_string(Z_STRVAL(ret), Z_STRLEN(ret), &lval, &dval, 0);
+		if (t == IS_LONG) {
+			RETVAL_BOOL(lval > 0);
+			zval_ptr_dtor(&ret);
+			return;
+		}
+		if (t == IS_DOUBLE) {
+			RETVAL_BOOL(dval > 0.0);
+			zval_ptr_dtor(&ret);
+			return;
+		}
 	}
 	zval_ptr_dtor(&ret);
 	RETURN_FALSE;
