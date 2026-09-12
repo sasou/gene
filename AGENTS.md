@@ -99,6 +99,9 @@ D:\wampServer-php8.1_x64_nts\bin\php.exe -n -d extension_dir=D:\wampServer-php8.
   不会重写日志，也不会 post-freeze 扩容 bucket 数组（扩容会移动 arData → 读者裸指针悬垂）。
 - Db 驱动（Mysql/Sqlite/Pgsql/Mssql）的 `insert()` 等写方法是**惰性执行**：下一次读调用
   （`lastId()`/`affectedRows()`/`row()`/`all()` 等）才真正执行，重复调用会重复执行。
+  `history()` 返回的是**快照**：返回后引擎继续记录新语句，但不会改动调用方已拿到的数组
+  （[GENE_FIX:2026-09-12] 之前 SaveHistory 对共享 HashTable 原地写，debug 构建断言崩溃、
+  release 下静默污染用户数组；复现 `php audit\repro\db_history_cow.php`）。
 - ORM：`fill()` 含非空主键即视为已持久化（`exists=1`），`find($id, true)` 返回模型实例
   （hydrate 会调用 **public 且**无必填参数的构造函数；private/protected 构造函数跳过）。**自然主键/UUID 表**请用 `fill($data, false)`、
   `setExists(false)` 或 `Model::create()` 插入；hydrate 模型 `save()` 命中 0 行会发

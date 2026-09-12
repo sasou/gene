@@ -194,6 +194,13 @@ void pgsqlSaveHistory(smart_str *sql, zval *param, uint64_t *start, uint64_t *en
 	add_assoc_zval_ex(&z_row, ZEND_STRL("memory"), &z_memory);
 
 	if (history && Z_TYPE_P(history) == IS_ARRAY) {
+		/* [GENE_FIX:2026-09-12] history() exposes this array to userland via
+		 * RETURN_ZVAL (refcount > 1 from then on). In-place del/add on the
+		 * shared HashTable is a COW violation: it silently mutates the
+		 * caller's snapshot on release builds and trips
+		 * _zend_hash_index_add_or_update_i's refcount assertion on debug
+		 * builds. Separate before mutating. */
+		SEPARATE_ARRAY(history);
 		if (zend_hash_num_elements(Z_ARRVAL_P(history)) >= GENE_DB_HISTORY_MAX) {
 			zend_ulong _hk; zend_string *_sk;
 			ZEND_HASH_FOREACH_KEY(Z_ARRVAL_P(history), _hk, _sk) {
