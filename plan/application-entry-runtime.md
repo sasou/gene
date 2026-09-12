@@ -32,7 +32,9 @@
 >
 > **未实施**：无——P0/P1/P2 全部落地。`default → dev` 未知编号维持 BC 回落，仅加一次告警（非异常）。
 >
-> **未覆盖（环境限制，待 Linux 补验）**：本机无 Swoole 扩展，全部用 duck-typed mock 验证；真实 HTTP 端到端、`swoole_getcid_capi=0/1` × `route_precompile=0/1` 四格矩阵、10 万协程 soak（`co_contexts_items=0` 断言）、worker reload/exit/stop 无池定时器挂起、三方案（手写九参 / initSwoole+手动 / handleSwoole）性能对比均待 Linux + Swoole 环境执行。
+> **未覆盖（环境限制，待 Linux 执行已就绪的脚本）**：本机无 Swoole 扩展，全部用 duck-typed mock 验证（30 断言）。Linux 侧脚本已补齐：`tools/acceptance/swoole_entry_verify.php`（自包含服务端+协程客户端，`--entry=manual|init|handle` 三入口同路由响应等价、`--soak=N` 断言 `co_contexts_items=0`、`--bench` 出四类路径吞吐/p50/p99/RSS，env 给 DSN/Redis 时 `pools()`/`startPools()`/`stopPoolTimers()`/`closePools()` 走真实路径）；`linux_swoole_verify.sh` 新增 `entry-matrix`（handleSwoole × 四格）、`entry-soak`、`entry-bench-equiv`（三入口 digest 一致性）阶段。待执行项：真实 HTTP 端到端、四格矩阵、10 万 soak、worker reload/exit/stop 无池定时器挂起、三入口性能对比。
+>
+> **附带发现并已修复**：`Response::sendFile()` 的 wrapper 检查（2026-08-07 批次引入）在 `STREAM_LOCATE_WRAPPERS_ONLY` 下把 `NULL`（纯本地路径返回值）当作拒绝条件，导致所有本地文件被拒——本次 sendFile 用例首次暴露；已改为「解析到任何 wrapper 才拒绝」并在 `response.c` 内注释说明。
 
 ---
 

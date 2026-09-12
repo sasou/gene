@@ -24,6 +24,7 @@
 - **Redis Lua 数字字符串解析**：`rateLimit` / `unlock` 在 Swoole 协程下遇到 Lua 返回数字字符串时按数值解析，避免误判为失败。
 - **PHP 8.4+ 兼容性**：`php_mt_rand.h` 迁移到 `ext/random/php_random.h`，修正 PHP 8.4+ 编译头文件路径。
 - **构建头文件补齐**：`src/mvc/hook.c` 补全 `json.h` 头文件包含。
+- **`Response::sendFile()` 本地文件全量被拒**（2026-08-07 批次引入）：`STREAM_LOCATE_WRAPPERS_ONLY` 模式下纯本地路径返回 `NULL` 而非 `&php_plain_files_wrapper`，`!wrapper ||` 判定把所有本地文件当 wrapper 拒绝。改为"解析到任何 wrapper 才拒绝"——`php://`/`data:`/`http://`/`phar://` 仍被拦，普通路径与 `file://` 恢复可用；新增 SwooleEntryTest 回归用例。
 
 ### ⚡ 性能优化
 
@@ -32,6 +33,9 @@
 ### ✅ 测试
 
 - `DatabaseTest::testPoolClass` 入口改为直接包装在 `Coroutine::run` 内，避免 Swoole 协程嵌套调用。
+- `SwooleEntryTest` 增至 30 断言：补 `sendFile`（kernel sendfile 后不二次 end）、`Hook::respond`/`Hook::abort`（控制器跳过、响应不改写）用例。
+- `tools/acceptance/swoole_entry_verify.php`：自包含 Linux+Swoole 入口验收——`--entry=manual|init|handle` 三入口同路由响应等价（RESULT-DIGEST 跨入口一致即语义等价）、`--soak=N` 请求级 soak 断言 `co_contexts_items=0`、`--bench` 输出四类路径吞吐/p50/p99/RSS；workerStart 走 `pools()+startPools()`、workerExit/Stop 走 `stopPoolTimers()/closePools()`。
+- `linux_swoole_verify.sh` 新增 `entry-matrix`（handleSwoole × 四格 INI）、`entry-soak`、`entry-bench-{manual,init,handle}` + `entry-bench-equiv`（三入口 digest 一致性）阶段。
 
 ### 📝 文档与计划
 
@@ -49,12 +53,14 @@
 - `src/db/{mysql,mssql,pgsql,sqlite}.c` — `uint64_t` 查询计时
 - `src/gene.c` / `src/gene.h` — 业务缓存全局初始化、`route_pc_generation`/`retired` 计数、`swoole_handle_depth`/`env_fallback_warned`/`pool_decls` 全局、版本号 6.2.2
 - `src/http/request.c` / `src/http/request.h` — `initSwoole()` 与 `gene_request_init_bags()`/`gene_request_init_swoole()` 共享体
+- `src/http/response.c` — `sendFile()` wrapper 判定修正（`STREAM_LOCATE_WRAPPERS_ONLY` 下 `wrapper != NULL` 才拒绝）
 - `src/app/application.c` — `handleSwoole()`、`bootstrap()`、`pools()`/`startPools()`/`stopPoolTimers()`/`closePools()`、`cleanup()`/`setResponse()` 共享体抽取、gray 环境、run() 降级 auto-cleanup 的 handle-depth 抑制
 - `src/router/router.c` / `src/router/router.h` — 路由预编译失效、生成号管理、`through()` 共享数组隔离
 - `src/mvc/hook.c` — 补全 `json.h` 头文件
 - `src/tool/monitor.c` — 新增业务缓存/连接池/路由预编译计数器导出
 - `test/CacheTest.php` / `test/DatabaseTest.php` / `test/LifecycleTest.php` — 分区、池场景与脚本刷新
-- `test/SwooleEntryTest.php` / `test/TestRunner.php` — initSwoole/handleSwoole/bootstrap/pool 编排回归测试（duck-typed mock，无需真实 Swoole）
+- `test/SwooleEntryTest.php` / `test/TestRunner.php` — initSwoole/handleSwoole/bootstrap/pool 编排回归测试（duck-typed mock，无需真实 Swoole），含 sendFile/Hook 终止用例
+- `tools/acceptance/swoole_entry_verify.php` / `linux_swoole_verify.sh` — 三入口等价性、handleSwoole 四格矩阵、请求级 soak 与 bench 阶段
 - `demo/public/swoole.php` — worker 生命周期改用 `bootstrap` + `pools`/`startPools`/`stopPoolTimers`/`closePools`，请求入口 `handleSwoole` 一行收口，移除无条件 Content-Type 与固定 /50x.html 反模式
 - `audit/repro/route_pc_clear_invalidate.php` — 路由预编译失效回归复现
 - `docs/CONFIGURATION.md`、`plan/*`、`gene-ai-helper/*`、`gene-ide-helper/Gene/{Application,Request,Response}.php`、`README*.md` — 文档与 IDE helper

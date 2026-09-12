@@ -123,6 +123,7 @@ class FakeSwooleResponse
 class SwooleEntryState
 {
     public static $resp;
+    public static $ran = false;
 }
 
 class SwooleEchoController
@@ -191,6 +192,23 @@ class SwooleWriteController
     {
         Response::write('chunk1');
         echo 'tail';
+    }
+}
+
+class SwooleFileController
+{
+    public function run()
+    {
+        Response::sendFile(__FILE__);
+    }
+}
+
+class SwooleGuardedController
+{
+    public function run()
+    {
+        SwooleEntryState::$ran = true;
+        echo 'guarded-body';
     }
 }
 
@@ -328,7 +346,16 @@ class SwooleEntryTest
             ->get('/direct', 'SwooleDirectEndController@run')
             ->get('/gend', 'SwooleGeneEndController@run')
             ->get('/redir', 'SwooleRedirectController@run')
-            ->get('/write', 'SwooleWriteController@run');
+            ->get('/write', 'SwooleWriteController@run')
+            ->get('/file', 'SwooleFileController@run')
+            ->get('/denied', 'SwooleGuardedController@run', 'deny')
+            ->get('/vetoed', 'SwooleGuardedController@run', 'veto')
+            ->hook('deny', function () {
+                \Gene\Hook::respond(['error' => 'denied'], 401);
+            })
+            ->hook('veto', function () {
+                \Gene\Hook::abort();
+            });
         $this->app = new Application('swoole-entry');
         $this->app->workerReady();
 
@@ -459,6 +486,40 @@ class SwooleEntryTest
             echo "✓ non-callable catch rejected\n";
         } else {
             echo "✗ non-callable catch accepted\n";
+        }
+
+        /* Response::sendFile → kernel sendfile ends the response; entry must
+         * not append a second end() (isWritable() false after sendfile). */
+        $resp = new FakeSwooleResponse();
+        $this->app->handleSwoole($this->swooleRequest('/file'), $resp);
+        if ($resp->endCount === 0 && $resp->ended === true && $resp->body === 'file:' . __FILE__) {
+            echo "✓ sendFile ends via kernel sendfile, no second end\n";
+        } else {
+            echo "✗ sendFile path failed: " . json_encode([$resp->endCount, $resp->ended, $resp->body]) . "\n";
+        }
+
+        /* Hook::respond in a named route hook → ends response itself,
+         * controller skipped, entry does not rewrite or double-end. */
+        SwooleEntryState::$ran = false;
+        $resp = new FakeSwooleResponse();
+        $this->app->handleSwoole($this->swooleRequest('/denied'), $resp);
+        if (SwooleEntryState::$ran === false && $resp->endCount === 1
+            && $resp->status === 401 && $resp->body === '{"error":"denied"}'
+            && ($resp->headers['Content-Type'] ?? '') === 'application/json; charset=UTF-8') {
+            echo "✓ Hook::respond ends response; controller skipped, no rewrite\n";
+        } else {
+            echo "✗ Hook::respond path failed: " . json_encode([SwooleEntryState::$ran, $resp->endCount, $resp->status, $resp->body]) . "\n";
+        }
+
+        /* Hook::abort in a named route hook → controller skipped, nothing
+         * ended; entry flushes the (empty) buffered body exactly once. */
+        SwooleEntryState::$ran = false;
+        $resp = new FakeSwooleResponse();
+        $this->app->handleSwoole($this->swooleRequest('/vetoed'), $resp);
+        if (SwooleEntryState::$ran === false && $resp->endCount === 1 && $resp->body === '') {
+            echo "✓ Hook::abort skips controller; entry ends once\n";
+        } else {
+            echo "✗ Hook::abort path failed: " . json_encode([SwooleEntryState::$ran, $resp->endCount, $resp->body]) . "\n";
         }
         echo "\n";
     }

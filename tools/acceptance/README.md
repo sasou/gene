@@ -32,7 +32,23 @@ ORM 不额外持有连接，仅要求 `db.instance=true` + Pool，并在请求 `
 
 ## Linux Swoole 一键验证
 
-在 **Linux** 上构建并跑隔离全测、四组 Swoole 开关矩阵、手动/自动 Context cleanup soak。发布验收以 Linux 为准。
+在 **Linux** 上构建并跑隔离全测、四组 Swoole 开关矩阵、手动/自动 Context cleanup soak、入口适配验证。发布验收以 Linux 为准。
+
+`linux_swoole_verify.sh` 的入口验证阶段（`tools/acceptance/swoole_entry_verify.php`）：
+
+- `entry-matrix`：`handleSwoole` 入口跑 `swoole_getcid_capi × route_precompile` 四格，digest 一致 + ALL-PASS×4；
+- `entry-soak`：`--soak=100000` 次真实 HTTP 请求后经 `handleSwoole` 收口，断言 `co_contexts_items=0`、`ctx_pool` 不超限；
+- `entry-bench-{manual,init,handle}`：九参手写 / `initSwoole`+手动 / `handleSwoole` 三入口各打空控制器、echo、JSON、DI 四类路径，输出吞吐/p50/p99/RSS；`entry-bench-equiv` 要求三入口 `RESULT-DIGEST` 完全一致（语义等价证明）。`RUN_ENTRY_BENCH=0` 可跳过。
+
+单独运行：
+
+```bash
+php tools/acceptance/swoole_entry_verify.php --entry=handle
+php tools/acceptance/swoole_entry_verify.php --entry=handle --soak=100000
+for e in manual init handle; do php tools/acceptance/swoole_entry_verify.php --entry=$e --bench; done
+```
+
+`GENE_MYSQL_DSN`/`GENE_REDIS_HOST` 存在时脚本会经 `pools()+startPools()` 真实建池，`workerExit`/`workerStop` 对应 `stopPoolTimers()`/`closePools()`，顺带覆盖编排 API 的真实生命周期路径。
 
 macOS 只需编出扩展：`tools/mac_build.sh`（见仓库根 `AGENTS.md`）。
 
