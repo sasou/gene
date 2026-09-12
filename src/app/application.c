@@ -1822,7 +1822,8 @@ static zend_always_inline zend_string *gene_app_env_expand(zend_string *name, ze
  *   ->load($router, $confDir)            // options['router']，可含 {env}
  *   ->load($config, $confDir)            // options['config']，{env} 展开为
  *                                      //   getEnvironmentName()
- *   ->setMode($mode ?? 1, $debug)        // $debug = env ∈ options['debug_envs']
+ *   ->setMode($mode ?? 1, $debug, $ex_callback, $error_callback)
+ *                                      // $debug = options['debug'] ?? (env ∈ options['debug_envs'])
  *
  * 不承载 request-id/webscan/时区/池名/业务异常信封 —— 这些由应用显式配置。
  */
@@ -1830,8 +1831,10 @@ PHP_METHOD(gene_application, bootstrap) {
 	zend_string *app_root = NULL, *conf_dir = NULL;
 	zval *options = NULL, *self = getThis();
 	zval *router_v = NULL, *config_v = NULL, *debug_envs = NULL;
+	zval *debug_v = NULL, *ex_cb = NULL, *err_cb = NULL;
 	zend_long mode = 1, debug = 0;
-	zval ret, env_ret, params[2];
+	int mode_argc = 2, cb_placeholder = 0;
+	zval ret, env_ret, params[4];
 
 	if (zend_parse_parameters(ZEND_NUM_ARGS(), "SS|a", &app_root, &conf_dir, &options) == FAILURE) {
 		return;
@@ -1860,6 +1863,17 @@ PHP_METHOD(gene_application, bootstrap) {
 			zend_argument_value_error(3, "'debug_envs' must be an array of environment names");
 			RETURN_THROWS();
 		}
+		debug_v = zend_hash_str_find(Z_ARRVAL_P(options), ZEND_STRL("debug"));
+		ex_cb = zend_hash_str_find(Z_ARRVAL_P(options), ZEND_STRL("ex_callback"));
+		if (ex_cb && Z_TYPE_P(ex_cb) != IS_NULL && !zend_is_callable(ex_cb, 0, NULL)) {
+			zend_argument_value_error(3, "'ex_callback' must be a callable");
+			RETURN_THROWS();
+		}
+		err_cb = zend_hash_str_find(Z_ARRVAL_P(options), ZEND_STRL("error_callback"));
+		if (err_cb && Z_TYPE_P(err_cb) != IS_NULL && !zend_is_callable(err_cb, 0, NULL)) {
+			zend_argument_value_error(3, "'error_callback' must be a callable");
+			RETURN_THROWS();
+		}
 	}
 
 	/* 环境名仅在 {env} 展开或 debug_envs 判定时需要，惰性取一次。 */
@@ -1876,7 +1890,10 @@ PHP_METHOD(gene_application, bootstrap) {
 			ZVAL_UNDEF(&env_ret);
 		}
 	}
-	if (debug_envs && Z_TYPE_P(debug_envs) == IS_ARRAY && Z_TYPE(env_ret) == IS_STRING) {
+	if (debug_v && Z_TYPE_P(debug_v) != IS_NULL) {
+		/* 显式 debug 优先于 debug_envs 环境匹配（等价旧式 setMode(1,1) 恒开） */
+		debug = zend_is_true(debug_v) ? 1 : 0;
+	} else if (debug_envs && Z_TYPE_P(debug_envs) == IS_ARRAY && Z_TYPE(env_ret) == IS_STRING) {
 		zval *env_name;
 		ZEND_HASH_FOREACH_VAL(Z_ARRVAL_P(debug_envs), env_name) {
 			zend_string *s = zval_get_string(env_name);
@@ -1923,7 +1940,29 @@ PHP_METHOD(gene_application, bootstrap) {
 
 	ZVAL_LONG(&params[0], mode);
 	ZVAL_LONG(&params[1], debug);
-	gene_app_call(ZEND_STRL("setmode"), Z_OBJ_P(self), &ret, 2, params);
+	if (ex_cb && Z_TYPE_P(ex_cb) != IS_NULL) {
+		params[2] = *ex_cb;
+		mode_argc = 3;
+	}
+	if (err_cb && Z_TYPE_P(err_cb) != IS_NULL) {
+		if (mode_argc == 2) {
+			/* ex_callback 缺省占位：显式传 Gene 内置异常处理器名，
+			 * 等价 setMode 第三参缺省时 gene_exception_register(NULL) 的回退，
+			 * 不能传 NULL zval（set_exception_handler(NULL) 会卸掉处理器）。 */
+			if (GENE_G(use_namespace)) {
+				ZVAL_STRING(&params[2], GENE_EXCEPTION_FUNC_NAME_NS);
+			} else {
+				ZVAL_STRING(&params[2], GENE_EXCEPTION_FUNC_NAME);
+			}
+			cb_placeholder = 1;
+		}
+		params[3] = *err_cb;
+		mode_argc = 4;
+	}
+	gene_app_call(ZEND_STRL("setmode"), Z_OBJ_P(self), &ret, mode_argc, params);
+	if (cb_placeholder) {
+		zval_ptr_dtor(&params[2]);
+	}
 
 done:
 	if (!Z_ISUNDEF(ret)) {

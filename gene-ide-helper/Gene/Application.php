@@ -383,17 +383,19 @@ class Application
      *   autoload($appRoot)
      *   ->load($options['router'], $confDir)    // 可含 {env} 占位符
      *   ->load($options['config'], $confDir)   // {env} 展开为 getEnvironmentName()
-     *   ->setMode($options['mode'] ?? 1, $debug)
+     *   ->setMode($options['mode'] ?? 1, $debug, $options['ex_callback'], $options['error_callback'])
      *
-     * $debug = getEnvironmentName() ∈ options['debug_envs']。注意 debug 即
-     * setMode 的 exception_type：环境未命中时不注册异常处理器（未捕获
-     * 异常直接 fatal）。旧式 setMode(1,1) 恒开语义等价于列出全部
-     * 非 prod 环境：['dev', 'test', 'gray']。不承载
-     * request-id/webscan/时区/池名等业务策略，这些由应用显式配置。
+     * $debug = options['debug'] ?? (getEnvironmentName() ∈ options['debug_envs'])。
+     * 注意 debug 即 setMode 的 exception_type：为 0 时不注册异常处理器（未捕获
+     * 异常直接 fatal）。旧式 setMode(1,1) 恒开语义等价于 'debug' => 1 或列出
+     * 全部非 prod 环境：['dev', 'test', 'gray']。
+     * ex_callback/error_callback 分别透传为 setMode 的第 3/4 参（如
+     * 'doException' 字符串或闭包）；非 callable 抛 ValueError。
+     * 不承载 request-id/webscan/时区/池名等业务策略，这些由应用显式配置。
      *
      * @param string $appRoot 应用目录（autoload 目标）
      * @param string $confDir 配置目录
-     * @param array|null $options ['router' => string|null, 'config' => string|null, 'mode' => int(默认1), 'debug_envs' => array(内置 env：dev/test/gray/prod)]
+     * @param array|null $options ['router' => string|null, 'config' => string|null, 'mode' => int(默认1), 'debug_envs' => array(内置 env：dev/test/gray/prod), 'debug' => int|bool(优先于 debug_envs), 'ex_callback' => callable|null, 'error_callback' => callable|null]
      * @return static
      */
     public function bootstrap($appRoot, $confDir, $options = []) {

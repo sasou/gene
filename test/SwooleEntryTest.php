@@ -561,10 +561,32 @@ class SwooleEntryTest
         $err = 0;
         try { $this->app->bootstrap($dir, $dir, ['router' => 123]); } catch (\ValueError $e) { $err++; }
         try { $this->app->bootstrap($dir, $dir, ['debug_envs' => 'dev']); } catch (\ValueError $e) { $err++; }
-        if ($err === 2) {
+        try { $this->app->bootstrap($dir, $dir, ['ex_callback' => 123]); } catch (\ValueError $e) { $err++; }
+        try { $this->app->bootstrap($dir, $dir, ['error_callback' => 'not_a_function_xyz']); } catch (\ValueError $e) { $err++; }
+        if ($err === 4) {
             echo "✓ bootstrap validates option types\n";
         } else {
-            echo "✗ bootstrap option validation: $err/2\n";
+            echo "✗ bootstrap option validation: $err/4\n";
+        }
+
+        /* 'debug' 显式恒开 + ex_callback/error_callback 透传 setMode 3/4 参：
+         * set_*_handler 返回上一个处理器即当前注册值，验证后逐层 restore 复原。 */
+        $this->app->bootstrap($dir, $dir, [
+            'mode'           => 1,
+            'debug'          => 1,
+            'ex_callback'    => 'strtoupper',
+            'error_callback' => 'strlen',
+        ]);
+        $prevEx = set_exception_handler(function () {});
+        $prevErr = set_error_handler(function () {});
+        restore_error_handler();
+        restore_exception_handler();
+        restore_error_handler();
+        restore_exception_handler();
+        if ($prevEx === 'strtoupper' && $prevErr === 'strlen') {
+            echo "✓ bootstrap debug+callback passthrough\n";
+        } else {
+            echo "✗ bootstrap callbacks: ex=" . var_export($prevEx, true) . " err=" . var_export($prevErr, true) . "\n";
         }
 
         /* pools() declaration validation */

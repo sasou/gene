@@ -1,5 +1,11 @@
 # Gene Framework Changelog
 
+## [Unreleased]
+
+### ✨ 新增
+
+- **`bootstrap()` 支持 `setMode` 全参透传**：新增 `debug`（显式 debug 标志，优先于 `debug_envs` 环境匹配，等价旧式 `setMode(1,1)` 恒开）、`ex_callback`、`error_callback` 三个 options——后两者直接透传为 `setMode` 的第 3/4 参（自定义异常/错误处理器，如 CLI 入口的 `doException`），非 callable 抛 `ValueError`；`error_callback` 单独给出时 `ex_callback` 占位为 Gene 内置异常处理器，语义与 `setMode` 缺省一致。
+
 ## [6.2.3]
 
 > 本版落地 `plan/application-entry-runtime.md`：FPM/Swoole 入口收口——Swoole 请求适配与派发生命周期进入扩展 API（`Request::initSwoole`/`Application::handleSwoole`），应用装载收口为 `bootstrap()`，连接池边界改为显式声明编排；新增 `gray` 环境映射，修复 `sendFile()` 本地路径全量被拒回归。
