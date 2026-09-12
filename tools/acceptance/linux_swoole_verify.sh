@@ -23,6 +23,8 @@ WRK_CONNECTIONS="${WRK_CONNECTIONS:-500}"
 WRK_WARMUP_DURATION="${WRK_WARMUP_DURATION:-30s}"
 WRK_DURATION="${WRK_DURATION:-2m}"
 MATRIX_TIMEOUT="${MATRIX_TIMEOUT:-180}"
+ENTRY_SOAK_TIMEOUT="${ENTRY_SOAK_TIMEOUT:-900}"
+RUN_ENTRY_BENCH="${RUN_ENTRY_BENCH:-1}"
 RSS_INTERVAL="${RSS_INTERVAL:-10}"
 GENE_SWOOLE_HOST="${GENE_SWOOLE_HOST:-127.0.0.1}"
 GENE_SWOOLE_PORT="${GENE_SWOOLE_PORT:-9501}"
@@ -107,7 +109,8 @@ Useful tuning:
   CONTEXT_COROUTINES=100000 CONTEXT_CONCURRENCY=500
   POOL_MAX=32 POOL_COROUTINES=200 POOL_ITERATIONS=1000 POOL_TIMEOUT=600
   WRK_DURATION=10m WRK_CONNECTIONS=500 GENE_SWOOLE_WORKERS=4
-  MATRIX_TIMEOUT=180
+  MATRIX_TIMEOUT=180 ENTRY_SOAK_TIMEOUT=900
+  RUN_ENTRY_BENCH=0        Skip the manual/init/handle entry benchmark
   GENE_RUN_ENVIRONMENT=1 WEB_START_TIMEOUT=120
   CURL_CONNECT_TIMEOUT=5 CURL_MAX_TIME=30
 EOF
@@ -368,6 +371,75 @@ if ((MATRIX_FAILED == 0)) && ((${#DIGESTS[@]} == 4)) && ((UNIQUE_DIGESTS == 1)) 
     record swoole-matrix PASS 0
 else
     record swoole-matrix FAIL 1
+fi
+
+# [GENE_FEATURE:2026-09-12] Entry-adapter matrix: the same 4 INI cells driven
+# through Application::handleSwoole (swoole_entry_verify.php). The manual
+# matrix above still covers the handwritten 9-arg entry.
+ENTRY_MATRIX_FAILED=0
+for capi in 0 1; do
+    for precompile in 0 1; do
+        name="entry-capi-${capi}-precompile-${precompile}"
+        set +e
+        run_timeout "$MATRIX_TIMEOUT" "${PHP_CMD[@]}" \
+            -d gene.runtime_type=2 \
+            -d gene.swoole_getcid_capi="$capi" \
+            -d gene.route_precompile="$precompile" \
+            -d gene.swoole_auto_cleanup=1 \
+            "$GENE_REPO/tools/acceptance/swoole_entry_verify.php" \
+            --entry=handle \
+            2>&1 | tee "$OUT/$name.log"
+        code=${PIPESTATUS[0]}
+        set -e
+        if ((code != 0)); then
+            ENTRY_MATRIX_FAILED=1
+        fi
+    done
+done
+
+mapfile -t ENTRY_DIGESTS < <(grep -hEo 'RESULT-DIGEST=[a-f0-9]+' "$OUT"/entry-capi-*-precompile-*.log | cut -d= -f2)
+ENTRY_UNIQUE_DIGESTS="$(printf '%s\n' "${ENTRY_DIGESTS[@]:-}" | sed '/^$/d' | sort -u | wc -l)"
+ENTRY_ALL_PASS_COUNT="$( { grep -h -c 'ALL-PASS' "$OUT"/entry-capi-*-precompile-*.log || true; } | awk '{s+=$1} END {print s+0}')"
+if ((ENTRY_MATRIX_FAILED == 0)) && ((${#ENTRY_DIGESTS[@]} == 4)) && ((ENTRY_UNIQUE_DIGESTS == 1)) && ((ENTRY_ALL_PASS_COUNT == 4)); then
+    record entry-matrix PASS 0
+else
+    record entry-matrix FAIL 1
+fi
+
+# Request-level soak through handleSwoole: real HTTP requests, then
+# co_contexts_items must return to 0 (asserted inside the script).
+run_logged entry-soak "$OUT/entry-soak.log" \
+    run_timeout "$ENTRY_SOAK_TIMEOUT" "${PHP_CMD[@]}" \
+    -d gene.runtime_type=2 \
+    -d gene.swoole_auto_cleanup=1 \
+    -d gene.co_contexts_max=4096 \
+    -d gene.ctx_pool_max=512 \
+    "$GENE_REPO/tools/acceptance/swoole_entry_verify.php" \
+    --entry=handle --soak="$CONTEXT_COROUTINES"
+
+# Three-entry equivalence + throughput comparison: manual 9-arg vs
+# initSwoole+manual vs handleSwoole must yield identical RESULT-DIGESTs.
+if ((RUN_ENTRY_BENCH)); then
+    for em in manual init handle; do
+        run_logged "entry-bench-$em" "$OUT/entry-bench-$em.log" \
+            run_timeout "$MATRIX_TIMEOUT" "${PHP_CMD[@]}" \
+            -d gene.runtime_type=2 \
+            -d gene.swoole_auto_cleanup=1 \
+            "$GENE_REPO/tools/acceptance/swoole_entry_verify.php" \
+            --entry="$em" --bench
+    done
+    mapfile -t BENCH_DIGESTS < <(grep -hEo 'RESULT-DIGEST=[a-f0-9]+' "$OUT"/entry-bench-*.log | cut -d= -f2)
+    BENCH_UNIQUE_DIGESTS="$(printf '%s\n' "${BENCH_DIGESTS[@]:-}" | sed '/^$/d' | sort -u | wc -l)"
+    if ((${#BENCH_DIGESTS[@]} == 3)) && ((BENCH_UNIQUE_DIGESTS == 1)); then
+        record entry-bench-equiv PASS 0
+    else
+        record entry-bench-equiv FAIL 1
+    fi
+else
+    record entry-bench-manual SKIP 0
+    record entry-bench-init SKIP 0
+    record entry-bench-handle SKIP 0
+    record entry-bench-equiv SKIP 0
 fi
 
 run_logged context-manual "$OUT/context-manual.json" \
