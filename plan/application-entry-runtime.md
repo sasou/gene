@@ -4,7 +4,7 @@
 > 代码证据：典型应用的 FPM 与 Swoole 入口重复环境映射、应用装载和 request-id 配置；Swoole 每请求手工完成九参数 `Request::init()`、Response 绑定、输出缓冲、异常处理与 `cleanup()`，已经出现 raw body 调用错误和 Content-Type 覆盖。  
 > 定位：补齐无业务语义的运行时适配能力，减少入口样板并固化常驻进程正确性；不把 Swoole Server 配置、业务异常信封和部署策略放进扩展。
 >
-> **实施记录（2026-09-12，6.2.2 工作树）**：P0 两项、P1 gray 映射、P1 `bootstrap()` 与 P2 显式 Pool 编排全部落地（后两项按用户指示不受「≥3 真实样本」前置限制）。
+> **实施记录（2026-09-12，随 6.2.3 发布）**：P0 两项、P1 gray 映射、P1 `bootstrap()` 与 P2 显式 Pool 编排全部落地（后两项按用户指示不受「≥3 真实样本」前置限制）。
 >
 > **已实现**：
 > - `Request::initSwoole(object $request)`（`src/http/request.c`）：抽出 `init()` 主体为 `gene_request_init_bags()` 共享体（含无条件 JSON/raw 失效 + `GENE_REQUEST_ATTR_RAW` 删除前缀）；`gene_request_init_swoole()` 经 `zend_read_property` 静默读取 get/post/cookie/server/files/header 六属性，缺失/非数组/引用一律置显式空数组；`rawContent()` 用函数表显式查找 + `zend_call_known_function` 调一次——方法缺失抛可捕获 `Error`（`zend_call_method` 对缺失方法是不可捕获 E_ERROR，会杀死 worker），非字符串返回按空请求体处理；袋值在 rawContent 成功后才提交，失败不留半初始化请求；ENV 永不注入；REQUEST 沿用 init() 的 GET+POST 自动合并。
