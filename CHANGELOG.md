@@ -6,6 +6,11 @@
 
 - **`bootstrap()` 支持 `setMode` 全参透传**：新增 `debug`（显式 debug 标志，优先于 `debug_envs` 环境匹配，等价旧式 `setMode(1,1)` 恒开）、`ex_callback`、`error_callback` 三个 options——后两者直接透传为 `setMode` 的第 3/4 参（自定义异常/错误处理器，如 CLI 入口的 `doException`），非 callable 抛 `ValueError`；`error_callback` 单独给出时 `ex_callback` 占位为 Gene 内置异常处理器，语义与 `setMode` 缺省一致。
 
+### 🐞 修复
+
+- **`Router->error(404, ...)` 整数事件名静默失效**：`__call` 仅在首参为 `IS_STRING` 时取作事件名，文档形式的 `->error(404, ...)`（int）被丢成空名，实际注册为 `error:`/`fcl:`，而派发查找 `error:404`/`fcl:404` → 404 处理器从未执行，未匹配路由只落得 `Gene Unknown Url` 警告。标量首参（long/double/bool）现在先字符串化再注册；非标量维持原空名兜底。`hook(503, ...)`、`runError('404')` 路径同理修复。Linux 验收 `swoole_entry_verify.php` 的 `/no/such/route` 用例（注册 `error(404)` 期望 `R:404` 响应）由 FAIL 转 PASS。
+- **`swoole_entry_verify.php` `/di` 用例修正**：`Di::set` 原为 workerStart 内调用——DI 注册表是请求/协程级（`ctx->di_regs`），workerStart 协程的注册对请求协程不可见，导致 `/di` 恒返回空。改为在 `onRequest` 回调内（与派发同协程）注册 `entry_verify_svc`，三入口一致通过；DI 保持严格请求作用域，不新增 worker 级共享语义。
+
 ## [6.2.3]
 
 > 本版落地 `plan/application-entry-runtime.md`：FPM/Swoole 入口收口——Swoole 请求适配与派发生命周期进入扩展 API（`Request::initSwoole`/`Application::handleSwoole`），应用装载收口为 `bootstrap()`，连接池边界改为显式声明编排；新增 `gray` 环境映射，修复 `sendFile()` 本地路径全量被拒回归。
