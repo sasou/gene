@@ -59,15 +59,21 @@
 | stop() | 标记当前请求停止后续动作与 after 钩子（实例方法，每请求） |
 | isStopped() | 当前请求是否已 `stop()` |
 | webscan(...) | 内置 Web 扫描防护（开关、白名单目录/URL、GET/POST/Cookie/Referer） |
-| waitWorkerReady() | Swoole：阻塞直到 workerStart 调用 workerReady() |
+| waitWorkerReady() | Swoole：阻塞直到 workerStart 调用 workerReady()（`handleSwoole` 已内建） |
 | workerReady() | Swoole：标记 Worker 就绪，冻结进程级 Memory，预热请求上下文池 |
+| bootstrap($appRoot, $confDir, $options = []) | 应用装载收口：autoload + `load(router)` + `load(config)`（文件名支持 `{env}` 展开为 getEnvironmentName()）+ `setMode(mode ?? 1, env ∈ debug_envs)`；FPM/Swoole 通用 |
+| pools($decls) | 登记连接池声明：`name => ['driver' => 'db'\|'redis', 'component' => config键名, 'params' => [...]?]`；已启动的池不可重声明 |
+| startPools() | workerStart 中创建全部未启动的声明池；FPM 下返回 false；失败抛异常且该声明保持未启动（可重试），幂等 |
+| stopPoolTimers() | workerExit：仅对已启动驱动族调用 stopTimers()，幂等 |
+| closePools() | workerStop：对已启动驱动族调用 closeAll() 并复位 started，幂等 |
+| handleSwoole($request, $response, $options = []) | **Swoole 推荐入口**：一站式 waitWorkerReady → `Request::initSwoole` → setResponse → 输出缓冲 → run() → Throwable 边界 → 可写则 `end(输出)` → cleanup。options：`cleanup_gc`(默认 false)、`catch`（`function(\Throwable $e, $request, $response)`）；未配 catch 时记 `Log::exception()` 并补最小 500。不设默认 Content-Type，不覆盖业务 status/header，已 end/json/redirect/sendFile 的请求不二次 end |
 | prewarmCtxPool($count = -1) | Swoole：预热请求上下文池到指定数量（-1 表示填充到 `gene.ctx_pool_max`），返回实际新增的上下文数 |
 | setRuntimeType($type) | 设置运行时类型：`'fpm'`/1、`'swoole'`/2、`'coroutine'`/3，返回 bool |
 | getRuntimeType() | 返回当前运行时类型整数 |
 | getRuntimeTypeName() | 返回运行时类型名称字符串（`"fpm"` / `"swoole"` / `"coroutine"`） |
-| setEnvironment($type = null) | 设置运行环境（1=dev, 2=test, 3=prod），返回 bool |
+| setEnvironment($type = null) | 设置运行环境（0=dev, 1=test, 2=prod, 3=gray），返回 bool |
 | getEnvironment() | 返回当前环境整数 |
-| getEnvironmentName() | 返回环境名称字符串（`"dev"` / `"test"` / `"prod"`） |
+| getEnvironmentName() | 返回环境名称字符串（`"dev"` / `"test"` / `"prod"` / `"gray"`）；未知编号回落 `"dev"` 并按进程告警一次 |
 | getMethod() | 获取当前 HTTP 请求方法 |
 | getPath() | 获取当前请求路径 |
 | getRouterUri() | 获取路由模式 URI（:m/:c/:a 已替换） |
@@ -105,6 +111,7 @@
 | rawContent() | 获取原始 HTTP 请求体；Swoole 来自 `Request::init()` 的 `$rawContent`，FPM/CLI 按需读 `php://input` 并缓存。`getContent()` 为别名 |
 | clear() | 清除请求数据缓存 |
 | init($get, $post, $cookie, $server, $env, $files, $request = null, $header = null, $rawContent = null) | Swoole 注入请求；未传 $request 时合并 GET+POST；$rawContent 对应 Swoole `$request->rawContent()` |
+| initSwoole($request) | **Swoole 推荐**：从 `$request->get/post/cookie/server/files/header` 提取并注入，RAW 取一次 `$request->rawContent()` 方法调用；缺失/非数组属性按 `[]` 处理，REQUEST 自动合并 GET+POST，ENV 不注入；`rawContent()` 缺失抛可捕获 Error |
 | json() | 解析 rawContent 为 JSON 对象/数组；空 body → `null`；非法 JSON / JSON `null` / 标量抛异常。禁止直接读 `php://input` |
 | bearer() | 从 header/server 读 `Authorization`；仅接受大小写不敏感的 `Bearer` scheme + SP/HTAB，非 Bearer、裸 token 或空 token 返回 `null` |
 | snapshot() | 压入 get/post/files/request/header/raw 快照，返回新深度；上限 8 |

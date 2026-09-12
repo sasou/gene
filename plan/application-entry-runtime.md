@@ -3,6 +3,36 @@
 > Gene 版本基线：6.1.x。  
 > 代码证据：典型应用的 FPM 与 Swoole 入口重复环境映射、应用装载和 request-id 配置；Swoole 每请求手工完成九参数 `Request::init()`、Response 绑定、输出缓冲、异常处理与 `cleanup()`，已经出现 raw body 调用错误和 Content-Type 覆盖。  
 > 定位：补齐无业务语义的运行时适配能力，减少入口样板并固化常驻进程正确性；不把 Swoole Server 配置、业务异常信封和部署策略放进扩展。
+>
+> **实施记录（2026-09-12，6.2.2 工作树）**：P0 两项、P1 gray 映射、P1 `bootstrap()` 与 P2 显式 Pool 编排全部落地（后两项按用户指示不受「≥3 真实样本」前置限制）。
+>
+> **已实现**：
+> - `Request::initSwoole(object $request)`（`src/http/request.c`）：抽出 `init()` 主体为 `gene_request_init_bags()` 共享体（含无条件 JSON/raw 失效 + `GENE_REQUEST_ATTR_RAW` 删除前缀）；`gene_request_init_swoole()` 经 `zend_read_property` 静默读取 get/post/cookie/server/files/header 六属性，缺失/非数组/引用一律置显式空数组；`rawContent()` 用函数表显式查找 + `zend_call_known_function` 调一次——方法缺失抛可捕获 `Error`（`zend_call_method` 对缺失方法是不可捕获 E_ERROR，会杀死 worker），非字符串返回按空请求体处理；袋值在 rawContent 成功后才提交，失败不留半初始化请求；ENV 永不注入；REQUEST 沿用 init() 的 GET+POST 自动合并。
+> - `Application::handleSwoole($request, $response, $options = [])`（`src/app/application.c`）：waitWorkerReady → initSwoole → `gene_application_bind_response`（setResponse 共享体）→ 本层 `php_output_start_internal` buffer → `zend_call_known_function(run)` → Throwable 边界 → 收敛本层输出（业务泄漏的嵌套 buffer 逐级 end 收敛进本层，入口前的外层 buffer 不动）→ 仅当 Swoole 响应仍可写时 `gene_response_end(输出)` → `gene_application_cleanup_ctx(cleanup_gc)`。
+> - 收口判断**只看 Swoole 侧 `isWritable()`**，不看 `response_ended`：`Response::json()` 只 `php_write` 进 buffer 并置 ended 标记、不调 Swoole `end()`，若以 ended 为闸门 JSON body 会丢失；而已 `end/redirect/sendFile` 的请求 `isWritable()` 天然为 false，杜绝二次 end。
+> - options：`cleanup_gc`（默认 false）与 `catch`（`function(\Throwable $e, $request, $response)`）。未配 catch 时记 `Gene\Log::exception()` 并在响应可写时补 `status(500)` + `end(已缓冲输出)`——不吞业务已产出输出、不内置 `/50x.html` 等业务信封；catch 再抛的异常向外传播，cleanup 照常执行；非 callable catch 抛 `ValueError`。
+> - 新增全局 `swoole_handle_depth`：抑制 `run()` 内降级 auto-cleanup（旧 Swoole 无 `Coroutine::defer` 路径），cleanup 时机由 handleSwoole 独占；`env_fallback_warned` 支撑 unknown env 每进程告警一次。
+> - `getEnvironmentName()`：`3 → "gray"`；未知编号保持回落 `"dev"`（BC）但不再静默——FPM 走 `php_error_docref(E_WARNING)`，Swoole workerStart 内走 `gene_log_diag()` 仅写 error_log（沿用 workerReady 矛盾诊断约定，避免用户错误处理器触发 worker 重启循环）。
+> - `demo/public/swoole.php`：入口一行 `$app->handleSwoole($request, $response)`；移除无条件 `Content-Type: text/html` 与固定 `/50x.html` 跳转；worker 生命周期改用 `bootstrap()` + `pools()`/`startPools()`/`stopPoolTimers()`/`closePools()`，`workerReady()` 保留在应用层。
+> - `Application::bootstrap($appRoot, $confDir, $options)`（`src/app/application.c`）：FPM/Swoole 共享装载收口，等价于 `autoload` → `load(router)` → `load(config)` → `setMode(mode ?? 1, debug)`；`router`/`config` 文件名支持 `{env}` 占位符经 `getEnvironmentName()` 展开；`debug_envs` 命中环境 debug=1；全程经 `zend_call_known_function` 调本类现有方法，不复制装载逻辑。不含 request-id/webscan/时区/池名/业务信封。
+> - 显式 Pool 编排（`src/app/application.c`）：`pools($decls)` 登记 `name => ['driver' => 'db'|'redis', 'component' => config键, 'params' => array?]` 到 worker 级全局表 `GENE_G(pool_decls)`（RSHUTDOWN 释放）；`startPools()` FPM 返回 false、逐声明预检 config 存在性（缺失抛 `Exception`、不留半初始化/timer）、经 `zend_call_known_function` 调 `Pool::create`/`RedisPool::create`、幂等且失败声明可重试；`stopPoolTimers()`/`closePools()` 只作用于已启动驱动族，`closePools()` 复位 started 标记允许重入。不扫描配置猜类型，不注册 Swoole 回调。
+> - 测试 `test/SwooleEntryTest.php`（27 断言，duck-typed mock，无需真实 Swoole）：覆盖六袋提取、缺失/非法属性 → `[]`、rawContent 缺失抛 Error、JSON body + `input()` 合并、REQUEST 合并、小写 `request_method/request_uri` 快路径、两次 initSwoole 间缓存失效、handleSwoole 输出缓冲/响应绑定/成功与异常 cleanup/异常最小 500 + 缓冲输出/catch 消费与再抛传播/泄漏嵌套 buffer 收敛/直调 `$response->end()` 与 `Response::end()` 不二次 end/redirect 保留 status+Location/`write()` 分块 + 尾部缓冲/`cleanup_gc` 选项/非 callable catch 拒绝、bootstrap {env} 展开与选项校验、pools 声明校验/FPM 拒绝/缺配置明确失败+可重试/未启动可重声明/fail-fast 顺序/stop-close 空转、3→gray 与未知编号回落。
+> - 文档同步：`gene-ide-helper/Gene/{Application,Request}.php`（含 `setEnvironment` 原 1-based 注释勘误为 0=dev/1=test/2=prod/3=gray）、`reference.md`、`swoole.md`、`rules/gene-project.mdc`、`AGENTS.md`、`README.md`、`README_EN.md`、`CHANGELOG.md`、`test/TestRunner.php`。
+>
+> **验证结果（Windows PHP 8.1.30 NTS x64，VS2019，`F:\php-sdk-2.3.0`；openssl + pdo_sqlite 已加载）**：
+> - 构建：`EXT gene build complete`（`x64\Release\php_gene.dll`）；`php --ri gene` 显示 `gene version: 6.2.2`。注意 Makefile 必须在 x64 SDK 环境生成（`BUILD_DIR=x64\Release`），此前曾被 x86 环境污染过，需重跑 `config.nice.bat`。
+> - 全量 `TestRunner`：**911 passed / 0 failed / 100%**，约 9.2s；`SwooleEntryTest` 27/27。`GENE_TEST_PHP_ARGS` 必须带 `-d extension=openssl`，否则 `LifecycleTest` 的 Crypto 用例环境性失败（非回归）。
+>
+> **与原方案的偏差**：
+> 1. `rawContent()` 不用 `zend_call_method`——缺失方法是不可捕获 E_ERROR；改为函数表查找 + `zend_call_known_function`，缺失时抛可捕获 `Error`，满足"明确失败"且不杀 worker。
+> 2. 最终 `end()` 闸门用 Swoole `isWritable()` 而非 `Response::isEnded()`（上文 JSON 语义）；`isWritable` 方法不可解析时按未发送处理交给 `end()` 兜底，无 Swoole 响应对象时回落 `SG(headers_sent)`。
+> 3. handleSwoole 的本层 buffer 收敛策略：dispatch 期间业务泄漏的嵌套 buffer 逐级并入本层后整体取回，**不转发给入口前的外层 buffer**——避免嵌套 ob 场景下输出穿透。
+> 4. 异常路径保留业务已缓冲输出（`status(500)` + `end($out)`），而非清空重建——与"不吞业务输出"一致；需要自定义错误页的经 `catch` 选项自行 `redirect`/`end`。
+> 5. `bootstrap()`/`pools()` 按用户指示落地，放宽「≥3 真实样本」前置约束；`bootstrap()` 的 `{env}` 展开、`debug_envs` 语义严格按 §6.2 等价式实现，未加入样本外选项。
+>
+> **未实施**：无——P0/P1/P2 全部落地。`default → dev` 未知编号维持 BC 回落，仅加一次告警（非异常）。
+>
+> **未覆盖（环境限制，待 Linux 补验）**：本机无 Swoole 扩展，全部用 duck-typed mock 验证；真实 HTTP 端到端、`swoole_getcid_capi=0/1` × `route_precompile=0/1` 四格矩阵、10 万协程 soak（`co_contexts_items=0` 断言）、worker reload/exit/stop 无池定时器挂起、三方案（手写九参 / initSwoole+手动 / handleSwoole）性能对比均待 Linux + Swoole 环境执行。
 
 ---
 

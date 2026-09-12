@@ -32,6 +32,9 @@ int gene_request_restore_ctx(gene_request_context *ctx);
 void gene_request_stack_drain(gene_request_context *ctx);
 void gene_request_scope(zval *get, zval *post, zval *files, zval *request);
 void gene_request_input_invalidate(gene_request_context *ctx);
+/* [GENE_FEATURE:2026-09-12] Duck-typed Swoole request → request bags.
+ * FAILURE leaves a pending exception; SUCCESS commits all bags. */
+int gene_request_init_swoole(zval *request_obj);
 void gene_request_input_value(zval *return_value, zend_string *key, zval *def);
 
 /* [GENE_PERF:2026-04-19 #2] Cache ctx once per is-method call — previously issued

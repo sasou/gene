@@ -132,7 +132,7 @@ $this->cache->updateVersion(['db.sys_user' => null, 'db.sys_role' => null]);
 |------|----------|
 | **FPM** | `->setMode(1,1)->requestId([...])->run()` 无参 |
 | **CLI** | `->run('get', $path)` |
-| **Swoole** | `setRuntimeType` → worker 内 `Pool::create` → `workerReady()` → 请求内 `Request::init` → `run()` → **`cleanup()`** |
+| **Swoole** | `setRuntimeType` → worker 内 `bootstrap()` → `pools()`+`startPools()` → `workerReady()` → 请求内 **`handleSwoole($request, $response)`** 一行收口 |
 
 request-id 用 **`Application::requestId()`**（默认关闭；写入 `Context['request_id']` 并回写响应头），不要再新增 PHP `Hooks\RequestId`。
 

@@ -326,42 +326,12 @@ Ideal for high-concurrency microservices and resident API gateways, unlocking fu
 
 $http = new swoole_http_server("0.0.0.0", 9501);
 
-$http->on("request", function ($request, $response) {
-    // Inject request context snapshot
-    \Gene\Request::init(
-        $request->get,
-        $request->post,
-        $request->cookie,
-        $request->server,
-        null,
-        $request->files,
-        null,
-        $request->header
-    );
-    \Gene\Application::setResponse($response);
+$app = \Gene\Application::getInstance();
 
-    ob_start();
-    $error = false;
-    try {
-        \Gene\Application::getInstance()->run();
-    } catch (\Throwable $e) {
-        $error = true;
-        \Gene\Log::exception($e);
-    } finally {
-        $out = ob_get_clean();
-        // Clean up coroutine-local request resources
-        \Gene\Application::cleanup();
-    }
-
-    if ($error) {
-        $response->redirect('/50x.html');
-        return;
-    }
-
-    if (!$response->isWritable()) {
-        return;
-    }
-    $response->end($out);
+$http->on("request", function ($request, $response) use ($app) {
+    // One-call lifecycle: waitWorkerReady → initSwoole → setResponse → run()
+    // → Throwable boundary (Log::exception + minimal 500) → end(output) → cleanup
+    $app->handleSwoole($request, $response);
 });
 
 $http->start();

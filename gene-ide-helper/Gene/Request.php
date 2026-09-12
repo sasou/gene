@@ -280,6 +280,26 @@ class Request
     }
 
     /**
+     * initSwoole
+     *
+     * Swoole 请求适配器：从 Swoole\Http\Request 兼容对象提取请求数据并填充
+     * 请求上下文（替代 onRequest 里的九参数 init() 调用）。
+     *
+     * 数据来源：$request->get / post / cookie / server / files / header
+     * （缺失或非数组时按空数组处理）；ENV 不注入；REQUEST 按 init() 语义
+     * 自动合并 GET+POST；RAW 取自一次 $request->rawContent() 方法调用
+     * （非字符串返回值按空请求体处理）。rawContent() 方法缺失或抛错时
+     * 抛出可捕获的 Error，不会留下半初始化的请求数据。
+     *
+     * @param object $request Swoole\Http\Request 或 duck-type 兼容对象
+     * @return bool
+     * @throws \Error 请求对象缺少 rawContent() 方法时
+     */
+    public static function initSwoole($request) {
+
+    }
+
+    /**
      * __set
      * 
      * @param mixed $name name
