@@ -312,6 +312,13 @@ $app->autoload(APP_ROOT)
     ->setMode(1, $debug);
 ```
 
+> 实施注记：`$debug` 即 `setMode` 的 exception_type——环境未命中
+> `debug_envs` 时**不注册异常处理器**（未捕获异常直接 fatal，而非渲染
+> Gene Exception 页）。旧式 `setMode(1,1)` 恒开语义的等价写法是列出
+> 全部非 prod 环境 `['dev','test','gray']`；demo 各入口已按此修正
+> （扩展默认 `gene.run_environment=1` → env=`test`，仅写 `['dev']`
+> 会导致默认环境下异常无人接管）。
+
 ### 6.3 不进入 bootstrap 的内容
 
 - request-id 的 trust/header 策略；

@@ -27,13 +27,15 @@ $app = \Gene\Application::getInstance();
 
 $http->on("workerStart", function ($server, $workerId) use ($app) {
     // 共享装载收口：autoload → load(router) → load(config) → setMode
-    // （mode=1 注册默认错误/异常处理器；debug_envs 命中时 debug=1）。
+    // （mode=1 注册错误处理器；debug_envs 命中才注册异常处理器，
+    // 旧写法 setMode(1,1) 恒开 → 等价语义为非 prod 环境全列，
+    // 内置 env：dev/test/gray/prod）。
     // config 名支持 {env} 占位符展开为 getEnvironmentName()，本 demo 用固定文件。
     $app->bootstrap(APP_ROOT, CONF_DIR, [
         'router'     => 'router.ini.php',
         'config'     => 'config.ini.php',
         'mode'       => 1,
-        'debug_envs' => ['dev'],
+        'debug_envs' => ['dev', 'test', 'gray'],
     ]);
 
     // 显式声明连接池（driver 仅 db/redis；component 为 config.ini.php

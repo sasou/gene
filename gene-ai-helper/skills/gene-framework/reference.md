@@ -61,7 +61,7 @@
 | webscan(...) | 内置 Web 扫描防护（开关、白名单目录/URL、GET/POST/Cookie/Referer） |
 | waitWorkerReady() | Swoole：阻塞直到 workerStart 调用 workerReady()（`handleSwoole` 已内建） |
 | workerReady() | Swoole：标记 Worker 就绪，冻结进程级 Memory，预热请求上下文池 |
-| bootstrap($appRoot, $confDir, $options = []) | 应用装载收口：autoload + `load(router)` + `load(config)`（文件名支持 `{env}` 展开为 getEnvironmentName()）+ `setMode(mode ?? 1, env ∈ debug_envs)`；FPM/Swoole 通用 |
+| bootstrap($appRoot, $confDir, $options = []) | 应用装载收口：autoload + `load(router)` + `load(config)`（文件名支持 `{env}` 展开为 getEnvironmentName()）+ `setMode(mode ?? 1, env ∈ debug_envs)`；注意 debug 即 exception_type，环境未命中时不注册异常处理器（`setMode(1,1)` 恒开语义 = `['dev','test','gray']`）；FPM/Swoole 通用 |
 | pools($decls) | 登记连接池声明：`name => ['driver' => 'db'\|'redis', 'component' => config键名, 'params' => [...]?]`；已启动的池不可重声明 |
 | startPools() | workerStart 中创建全部未启动的声明池；FPM 下返回 false；失败抛异常且该声明保持未启动（可重试），幂等 |
 | stopPoolTimers() | workerExit：仅对已启动驱动族调用 stopTimers()，幂等 |

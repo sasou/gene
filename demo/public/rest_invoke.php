@@ -7,7 +7,8 @@ define('APP_ROOT', dirname(__dir__) . '/application');
 define('CONF_DIR', dirname(__dir__) . '/config');
 
 $app = \Gene\Application::getInstance();
-$app->autoload(APP_ROOT)->load('config.ini.php', CONF_DIR)->setMode(1, 1);
+// debug_envs 命中才注册异常处理器（内置 env：dev/test/gray/prod），非 prod 全开。
+$app->bootstrap(APP_ROOT, CONF_DIR, ['config' => 'config.ini.php', 'mode' => 1, 'debug_envs' => ['dev', 'test', 'gray']]);
 
 \Gene\Request::init([], ['from' => 'cli'], [], [], [], []);
 $rest = new \Gene\Rest([

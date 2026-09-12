@@ -385,12 +385,15 @@ class Application
      *   ->load($options['config'], $confDir)   // {env} 展开为 getEnvironmentName()
      *   ->setMode($options['mode'] ?? 1, $debug)
      *
-     * $debug = getEnvironmentName() ∈ options['debug_envs']。不承载
+     * $debug = getEnvironmentName() ∈ options['debug_envs']。注意 debug 即
+     * setMode 的 exception_type：环境未命中时不注册异常处理器（未捕获
+     * 异常直接 fatal）。旧式 setMode(1,1) 恒开语义等价于列出全部
+     * 非 prod 环境：['dev', 'test', 'gray']。不承载
      * request-id/webscan/时区/池名等业务策略，这些由应用显式配置。
      *
      * @param string $appRoot 应用目录（autoload 目标）
      * @param string $confDir 配置目录
-     * @param array|null $options ['router' => string|null, 'config' => string|null, 'mode' => int(默认1), 'debug_envs' => array]
+     * @param array|null $options ['router' => string|null, 'config' => string|null, 'mode' => int(默认1), 'debug_envs' => array(内置 env：dev/test/gray/prod)]
      * @return static
      */
     public function bootstrap($appRoot, $confDir, $options = []) {

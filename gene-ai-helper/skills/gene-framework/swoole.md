@@ -82,7 +82,9 @@ $http->on('workerStart', function ($server, $workerId) use ($app) {
         'router'     => 'router.ini.php',
         'config'     => 'config.ini.php',   // 或 'config.ini.{env}.php' 按环境展开
         'mode'       => 1,
-        'debug_envs' => ['dev'],
+        // debug 即 setMode 的 exception_type：未命中 env 不注册异常处理器。
+        // 旧式 setMode(1,1) 恒开语义 = 列出全部非 prod 环境。
+        'debug_envs' => ['dev', 'test', 'gray'],
     ]);
 
     $app->pools([
