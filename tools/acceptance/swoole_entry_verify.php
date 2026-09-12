@@ -260,7 +260,6 @@ namespace {
             ->hook('deny', function () { \Gene\Hook::respond(['error' => 'denied'], 401); })
             ->hook('veto', function () { \Gene\Hook::abort(); });
 
-        \Gene\Di::set('entry_verify_svc', 'R:di');
         $app->setMode(1, 0);
 
         /* 编排 API 走线：env 提供 DSN/Redis 时真实建池，否则 pools([]) no-op。
@@ -300,6 +299,9 @@ namespace {
     $server->on('workerStop', function () use ($app) { $app->closePools(); });
 
     $server->on('request', function ($request, $response) use ($app, $ENTRY) {
+        /* Di 注册表是请求/协程级（ctx->di_regs）：必须在请求协程内注册，
+         * workerStart 里的 set 写在另一个协程的 ctx 中，对请求不可见。 */
+        \Gene\Di::set('entry_verify_svc', 'R:di');
         if ($ENTRY === 'handle') {
             $app->handleSwoole($request, $response);
             return;

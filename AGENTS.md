@@ -107,3 +107,8 @@ D:\wampServer-php8.1_x64_nts\bin\php.exe -n -d extension_dir=D:\wampServer-php8.
   `setExists(false)` 或 `Model::create()` 插入；hydrate 模型 `save()` 命中 0 行会发
   `E_NOTICE`（不再静默丢失）。`create()`/`save()` 在 payload 自带主键时原样返回该主键，
   否则返回 `lastId()`（数字串归一为 int）。
+- `Gene\Di` 注册表是**请求/协程级**（`ctx->di_regs`）：Swoole 下 workerStart 回调跑在独立协程，
+  其中 `Di::set` 对 onRequest 协程不可见——worker 级共享服务请用 `Config` 定义
+  `class`/`params` 惰性实例化（`gene_di_get` 的 config 缓存回落），或在 onRequest 内注册。
+- `Router->error()`/`hook()` 首参（事件名）接受整数等标量：`->error(404, ...)` 会注册为
+  `error:404`（[GENE_FIX:2026-09-12] 之前非字符串被静默丢成空名 `error:`，404 处理器永不触发）。
