@@ -54,6 +54,8 @@ macOS 只需编出扩展：`tools/mac_build.sh`（见仓库根 `AGENTS.md`）。
 
 ```bash
 bash tools/acceptance/linux_swoole_verify.sh
+# `sh tools/acceptance/linux_swoole_verify.sh` 亦可：脚本顶部含 sh→bash 重引导
+# （CentOS7 的 sh 是 bash4.2 POSIX 模式，禁用 <(...) 进程替换，会在 mapfile 行报语法错误）。
 ```
 
 带 Redis、MySQL 和 gene_web HTTP 压测：

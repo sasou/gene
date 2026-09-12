@@ -1,4 +1,9 @@
 #!/usr/bin/env bash
+# Re-exec under full bash when invoked via `sh`: POSIX-mode bash (<5.1) and
+# non-bash shells (dash/ash) lack features this script relies on.
+if [ -z "${BASH_VERSION:-}" ] || set -o 2>/dev/null | grep -qE '^posix[[:space:]]+on'; then
+    exec bash "$0" "$@"
+fi
 set -Eeuo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"

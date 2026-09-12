@@ -1,4 +1,11 @@
 #!/usr/bin/env bash
+# Re-exec under full bash when invoked via `sh`: bash < 5.1 in POSIX mode
+# (e.g. CentOS 7 `sh` -> bash 4.2) disables process substitution used below
+# (`mapfile ... < <(...)` -> "syntax error near unexpected token `<'"), and
+# non-bash shells (dash/ash) lack arrays/PIPESTATUS entirely.
+if [ -z "${BASH_VERSION:-}" ] || set -o 2>/dev/null | grep -qE '^posix[[:space:]]+on'; then
+    exec bash "$0" "$@"
+fi
 set -Eeuo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
