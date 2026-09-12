@@ -142,22 +142,58 @@ namespace {
         $check("{$N} 并发协程上下文零串扰", $isoOk, $badSample);
 
         if ($soak > 0) {
-            echo "\n[C] handleSwoole 请求级 soak（{$soak} 次 /echo）\n";
+            echo "\n[C] 请求级 soak（entry={$entry}，{$soak} 次 /echo）\n";
             $conc = 200;
-            $remaining = $soak;
-            while ($remaining > 0) {
-                $batch = min($conc, $remaining);
-                $wg = new \Swoole\Coroutine\WaitGroup();
-                for ($i = 0; $i < $batch; $i++) {
-                    $wg->add();
-                    go(function () use ($wg) {
-                        http_get('/echo');
-                        $wg->done();
-                    });
+            $done = 0;
+            $bad = 0;
+            $badDetail = '';
+            $finished = false;
+            $t0 = microtime(true);
+            /* 每协程复用一条 keep-alive 连接：soak 要压的是请求级 ctx 生命周期，
+             * 服务端每请求仍独立协程，覆盖面不变；每请求新建短连接只会被
+             * ephemeral 端口耗尽/TIME_WAIT 拖慢（~28k 端口/60s 回收窗口）。 */
+            go(function () use (&$finished, &$done, $soak, $t0) {
+                while (!$finished) {
+                    \Swoole\Coroutine::sleep(2);
+                    if (!$finished) {
+                        printf("  ... %d/%d  (%.0f req/s)\n", $done, $soak,
+                            $done / max(microtime(true) - $t0, 0.001));
+                    }
                 }
-                $wg->wait();
-                $remaining -= $batch;
+            });
+            $wg = new \Swoole\Coroutine\WaitGroup();
+            for ($c = 0; $c < $conc; $c++) {
+                $n = intdiv($soak, $conc) + ($c < $soak % $conc ? 1 : 0);
+                $wg->add();
+                go(function () use ($n, $wg, &$done, &$bad, &$badDetail) {
+                    $cli = null;
+                    for ($i = 0; $i < $n; $i++) {
+                        if ($cli === null || !$cli->get('/echo')) {
+                            if ($cli !== null) $cli->close();
+                            $cli = new \Swoole\Coroutine\Http\Client(VHOST, VPORT);
+                            $cli->set(['timeout' => 30]);
+                            $cli->get('/echo');
+                        }
+                        $s = (int) $cli->statusCode;
+                        $b = (string) $cli->body;
+                        $done++;
+                        if ($s !== 200 || $b !== 'R:echo') {
+                            $bad++;
+                            if ($badDetail === '') {
+                                $badDetail = "status={$s} errCode={$cli->errCode} body='" . substr($b, 0, 30) . "'";
+                            }
+                        }
+                    }
+                    if ($cli !== null) $cli->close();
+                    $wg->done();
+                });
             }
+            $wg->wait();
+            $finished = true;
+            $dt = microtime(true) - $t0;
+            printf("  soak 完成: %d/%d 请求, %.1fs, %.0f req/s\n", $done, $soak, $dt, $done / max($dt, 0.001));
+            $check('soak 请求全部 200+R:echo', $done === $soak && $bad === 0,
+                "done={$done} bad={$bad}" . ($badDetail !== '' ? " first:{$badDetail}" : ''));
             /* 本协程自身可能占一个 ctx —— 先自清理再读 stats。worker_num=1
              * 时全部请求与本协程同属一个 worker，计数准确。 */
             \Gene\Application::cleanup();
