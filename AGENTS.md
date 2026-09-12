@@ -112,3 +112,13 @@ D:\wampServer-php8.1_x64_nts\bin\php.exe -n -d extension_dir=D:\wampServer-php8.
   `class`/`params` 惰性实例化（`gene_di_get` 的 config 缓存回落），或在 onRequest 内注册。
 - `Router->error()`/`hook()` 首参（事件名）接受整数等标量：`->error(404, ...)` 会注册为
   `error:404`（[GENE_FIX:2026-09-12] 之前非字符串被静默丢成空名 `error:`，404 处理器永不触发）。
+  `tools\verify_5_6_6_swoole.php` 第 8 项因此期望响应体恰为 `R:404`（修复前回落
+  "Unknown Url" 警告）。
+- `Validate::name($f)` 同时写 KEY 与 FIELD（[GENE_FIX:2026-09-12] 起）：`name('x')->rule_email()`
+  等 `rule_*` 直调不再报 "Please call the name method" 且返回真实校验结果；FIELD 在
+  `valid()`/`groupValid()` 内仍按逗号拆分逐字段覆盖。`rule_int` 仅认 `IS_LONG`
+  （数字串校验用 `digit`）。复现 `php audit\repro\validate_name_field.php`。
+- `tools\acceptance\linux_swoole_verify.sh` / `linux_swoole_profile.sh` 顶部内置
+  sh→bash 重引导守卫：CentOS7 的 `sh` 是 bash 4.2 POSIX 模式，**禁用 `<(...)` 进程替换**
+  （bash<5.1），`sh xxx.sh` 会在 `mapfile -t X < <(...)` 处报
+  "syntax error near unexpected token `<'"——现在会自动 `exec bash` 重跑。

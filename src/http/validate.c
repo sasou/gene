@@ -438,6 +438,12 @@ PHP_METHOD(gene_validate, name)
 
 	zend_update_property_null(gene_validate_ce, gene_strip_obj(self), ZEND_STRL(GENE_VALIDATE_METHOD));
 	zend_update_property_str(gene_validate_ce, gene_strip_obj(self), ZEND_STRL(GENE_VALIDATE_KEY), name);
+	/* [GENE_FIX:2026-09-12] Also seed FIELD: direct rule_*() calls
+	 * (name('x')->rule_email()) read FIELD via getFieldVal()/required(),
+	 * which was only populated inside valid()/groupValid() — so the
+	 * documented "call name() first" flow always warned. valid() still
+	 * overwrites FIELD per comma-split field during its own iteration. */
+	zend_update_property_str(gene_validate_ce, gene_strip_obj(self), ZEND_STRL(GENE_VALIDATE_FIELD), name);
 	RETURN_ZVAL(self, 1, 0);
 }
 /* }}} */
