@@ -423,6 +423,19 @@ zend_bool swoole_defer_resolved;
 zend_bool swoole_defer_notice_sent;
 zend_ulong swoole_auto_cleanup_defers;
 zend_ulong swoole_auto_cleanup_reclaimed;
+/* [GENE_FEATURE:2026-09-12] >0 while Application::handleSwoole() owns the
+ * request boundary — suppresses the degraded in-run() auto-cleanup reclaim
+ * (swoole_auto_cleanup + defer-unavailable) so the post-dispatch ctx stays
+ * valid for the ended/sent checks. Counter, not flag: nested forward safe. */
+zend_long swoole_handle_depth;
+/* [GENE_FEATURE:2026-09-12] Once-flag for the getEnvironmentName() unknown
+ * value diagnostic (co_contexts_cap_warned-style: fire once per process). */
+zend_bool env_fallback_warned;
+/* [GENE_FEATURE:2026-09-12] Explicit pool declarations registered via
+ * Application::pools(): name => ['driver' => 'db'|'redis', 'component' =>
+ * config key, 'params' => array|null, 'started' => bool]. Worker-lifetime
+ * table — created lazily, destroyed in RSHUTDOWN beside co_contexts. */
+HashTable *pool_decls;
 zend_long run_depth;
 /* [GENE_FEATURE:2026-08-06 F1-6] Controller::forward() recursion guard.
  * Incremented on entry, decremented on exit; forwarding is refused once the

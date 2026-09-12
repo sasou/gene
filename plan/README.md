@@ -27,7 +27,7 @@
 | [rest-invoke.md](rest-invoke.md) | 框架级 REST 互调（Request 栈、Invoke 本地隔离、命名 Rest、Http multipart） | 6.1.x 已落地（见文内复盘） |
 | [typical-usage-gaps.md](typical-usage-gaps.md) | 6.1 全面采用后的残留缺口（union、JOIN ON、increment、Context __get、Request::input、Http max_bytes、cachedHotVersion） | 6.2 候选立项 |
 | [hook-runtime.md](hook-runtime.md) | Hook 使用驱动的请求策略、终止语义、组级组合与 request-id 收口 | 6.2 分阶段候选 |
-| [application-entry-runtime.md](application-entry-runtime.md) | FPM/Swoole 入口收口（请求适配、派发清理、环境装载与 Pool 边界） | 6.2 分阶段候选 |
+| [application-entry-runtime.md](application-entry-runtime.md) | FPM/Swoole 入口收口（请求适配、派发清理、环境装载与 Pool 边界） | 6.2.2 全部落地（见文内实施记录） |
 
 ---
 

@@ -326,42 +326,12 @@ $router->clear()
 
 $http = new swoole_http_server("0.0.0.0", 9501);
 
-$http->on("request", function ($request, $response) {
-    // 注入请求上下文快照
-    \Gene\Request::init(
-        $request->get,
-        $request->post,
-        $request->cookie,
-        $request->server,
-        null,
-        $request->files,
-        null,
-        $request->header
-    );
-    \Gene\Application::setResponse($response);
+$app = \Gene\Application::getInstance();
 
-    ob_start();
-    $error = false;
-    try {
-        \Gene\Application::getInstance()->run();
-    } catch (\Throwable $e) {
-        $error = true;
-        \Gene\Log::exception($e);
-    } finally {
-        $out = ob_get_clean();
-        // 显式清理协程请求资源与上下文
-        \Gene\Application::cleanup();
-    }
-
-    if ($error) {
-        $response->redirect('/50x.html');
-        return;
-    }
-
-    if (!$response->isWritable()) {
-        return;
-    }
-    $response->end($out);
+$http->on("request", function ($request, $response) use ($app) {
+    // 一行收口：waitWorkerReady → initSwoole → setResponse → run()
+    // → 异常边界（Log::exception + 最小 500）→ 未结束则 end(输出) → cleanup
+    $app->handleSwoole($request, $response);
 });
 
 $http->start();

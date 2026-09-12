@@ -9,6 +9,11 @@
 - **持久缓存业务/框架分区隔离**：`Gene\Cache` / `Gene\Memory` 等业务写入进入独立的 `business_cache` HashTable 与 `business_cache_lock`，与路由/配置/事件等框架只读元数据解耦。`workerReady()` 后业务写仍持有细粒度锁，框架读路径继续免锁，降低 Swoole 多协程并发锁竞争。`Memory::stats()` / `Monitor::stats()` 新增 `business_cache_items`、`business_cache_num_used`、`business_cache_table_size` 分区指标。
 - **连接池可观测指标**：`Monitor::stats()` 新增 `redis_pool_get_timeout`、`db_pool_idle_miss`、`redis_pool_idle_miss`、`db_pool_pid_mismatch`、`redis_pool_pid_mismatch`，用于定位取连接超时、空闲回收未命中及跨进程 PID 漂移场景。
 - **路由预编译生成号与失效遥测**：`Router::clear()` / `delTree()` / `delEvent()` 触发路由树重建时会递增 `route_pc_generation`；`Monitor::stats()` 导出 `route_pc_generation` 与 `route_pc_retired_count`，可观测预编译描述符失效与退休数量。
+- **`Gene\Request::initSwoole($request)`**：Swoole 请求适配器，从 `$request->get/post/cookie/server/files/header` 提取请求袋（缺失/非数组按 `[]` 处理），RAW 取一次 `$request->rawContent()` 方法调用，REQUEST 自动合并 GET+POST，ENV 不注入；`rawContent()` 缺失或抛错时抛出可捕获 `Error`，绝不留下半初始化请求。替代 onRequest 里的九参数 `init()` 样板。
+- **`Gene\Application::handleSwoole($request, $response, $options = [])`**：一站式 Swoole onRequest 生命周期适配器，内建 waitWorkerReady → initSwoole → setResponse → 输出缓冲 → run() → Throwable 边界 → 响应可写时 `end(输出)` → cleanup。options 支持 `cleanup_gc`（默认 false）与 `catch` 回调；未配 `catch` 时记 `Log::exception()` 并补最小 `status(500)`。不设默认 Content-Type、不覆盖业务 status/header，dispatch 内已 `end/json/redirect/sendFile` 的请求绝不二次 `end()`。
+- **`getEnvironmentName()` 新增 `gray` 环境**：编号 `3` 映射为 `"gray"`；未知编号仍回落 `"dev"`，但每进程告警一次（Swoole 下走 `gene_log_diag()` 仅写 error_log，不触发用户错误处理器）。
+- **`Gene\Application::bootstrap($appRoot, $confDir, $options)`**：FPM/Swoole 共享的应用装载收口，等价于 `autoload` → `load(router)` → `load(config)` → `setMode(mode ?? 1, debug)`。`router`/`config` 文件名支持 `{env}` 占位符展开为 `getEnvironmentName()`；`debug_envs` 命中的环境 debug=1。不承载 request-id/webscan/时区/池名/业务异常信封。
+- **显式 Pool 生命周期编排**：`Application::pools($decls)` 登记池声明（`driver` 仅 `db`/`redis`，`component` 为 config 键名，`params` 可选池参数），`startPools()` 在 workerStart 中创建全部未启动池，`stopPoolTimers()`/`closePools()` 对应 workerExit/workerStop。FPM 下 `startPools()` 明确返回 false；重复启停幂等；某池创建失败抛异常且声明保持未启动可重试，不留下半初始化注册项或游离 timer；不扫描配置猜测池类型，不替应用注册 Swoole 回调。
 
 ### 🐞 修复
 
@@ -42,13 +47,17 @@
 - `src/cache/redis_pool.c` / `src/cache/redis_pool.h` — Lua 数字字符串解析、池指标、空闲回收器/定时器重构
 - `src/db/pool.c` / `src/db/pool.h` — 池原子操作、空闲连接探活/补充逻辑、DB 池指标
 - `src/db/{mysql,mssql,pgsql,sqlite}.c` — `uint64_t` 查询计时
-- `src/gene.c` / `src/gene.h` — 业务缓存全局初始化、`route_pc_generation`/`retired` 计数、版本号 6.2.2
+- `src/gene.c` / `src/gene.h` — 业务缓存全局初始化、`route_pc_generation`/`retired` 计数、`swoole_handle_depth`/`env_fallback_warned`/`pool_decls` 全局、版本号 6.2.2
+- `src/http/request.c` / `src/http/request.h` — `initSwoole()` 与 `gene_request_init_bags()`/`gene_request_init_swoole()` 共享体
+- `src/app/application.c` — `handleSwoole()`、`bootstrap()`、`pools()`/`startPools()`/`stopPoolTimers()`/`closePools()`、`cleanup()`/`setResponse()` 共享体抽取、gray 环境、run() 降级 auto-cleanup 的 handle-depth 抑制
 - `src/router/router.c` / `src/router/router.h` — 路由预编译失效、生成号管理、`through()` 共享数组隔离
 - `src/mvc/hook.c` — 补全 `json.h` 头文件
 - `src/tool/monitor.c` — 新增业务缓存/连接池/路由预编译计数器导出
 - `test/CacheTest.php` / `test/DatabaseTest.php` / `test/LifecycleTest.php` — 分区、池场景与脚本刷新
+- `test/SwooleEntryTest.php` / `test/TestRunner.php` — initSwoole/handleSwoole/bootstrap/pool 编排回归测试（duck-typed mock，无需真实 Swoole）
+- `demo/public/swoole.php` — worker 生命周期改用 `bootstrap` + `pools`/`startPools`/`stopPoolTimers`/`closePools`，请求入口 `handleSwoole` 一行收口，移除无条件 Content-Type 与固定 /50x.html 反模式
 - `audit/repro/route_pc_clear_invalidate.php` — 路由预编译失效回归复现
-- `docs/CONFIGURATION.md`、`plan/*`、`gene-ai-helper/*`、`gene-ide-helper/Gene/Response.php` — 文档与 IDE helper
+- `docs/CONFIGURATION.md`、`plan/*`、`gene-ai-helper/*`、`gene-ide-helper/Gene/{Application,Request,Response}.php`、`README*.md` — 文档与 IDE helper
 
 ## [6.2.1]
 

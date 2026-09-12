@@ -35,28 +35,21 @@ sequenceDiagram
     participant R as request
     participant G as Gene Application
 
-    W->>G: autoload + load router/config
-    W->>G: Pool::create / RedisPool::create
+    W->>G: bootstrap(APP_ROOT, CONF_DIR, [...])
+    W->>G: pools([...]) → startPools()
     W->>G: workerReady()
-    R->>G: waitWorkerReady()
-    R->>G: Request::init(...)
-    R->>G: setResponse($response)
-    R->>G: run()
-    R->>G: cleanup()
+    R->>G: handleSwoole($request, $response)
+    Note over R,G: waitWorkerReady → initSwoole → setResponse<br/>→ ob + run() → Throwable 边界 → end(output)<br/>→ cleanup（全部内建）
 ```
 
 | 阶段 | 调用 | 说明 |
 |------|------|------|
-| Worker 启动 | `autoload` → `load(router)` → `load(config)` → `setMode` | 每个 Worker 一次 |
-| Worker 启动 | `Pool::create` / `RedisPool::create` | 从 Config 键读取连接参数 |
+| Worker 启动 | `bootstrap(APP_ROOT, CONF_DIR, $options)` | autoload + load(router) + load(config，支持 `{env}`) + setMode 一步收口 |
+| Worker 启动 | `pools($decls)` → `startPools()` | 显式声明并创建连接池；FPM 下 `startPools()` 返回 false |
 | Worker 启动 | **`workerReady()`** | 标记就绪；冻结进程级 Memory；预热请求上下文池 |
-| 每次请求 | **`waitWorkerReady()`** | 防止首批请求早于 workerStart |
-| 每次请求 | **`Request::init(...)`** | 注入 GET/POST/COOKIE/SERVER/FILES/HEADER/RAW_CONTENT |
-| 每次请求 | **`setResponse($response)`** | 绑定 Swoole Response |
-| 每次请求 | **`run()`** 无参 | 从 Request 上下文读 method/uri |
-| 每次请求 | **`cleanup(true)`** | 释放协程上下文（`finally` 中必须执行） |
-| Worker 退出 | `stopTimers()` | `onWorkerExit`，便于事件循环退出 |
-| Worker 停止 | `closeAll()` | `onWorkerStop`，释放连接池 |
+| 每次请求 | **`handleSwoole($request, $response)`** | 一站式入口：内建 waitWorkerReady、initSwoole、setResponse、run、异常边界、end、cleanup |
+| Worker 退出 | `stopPoolTimers()` | `onWorkerExit`，清除已启动池的定时器，便于事件循环退出 |
+| Worker 停止 | `closePools()` | `onWorkerStop`，关闭已声明池 |
 
 ---
 
@@ -82,69 +75,38 @@ $http->set([
     'document_root'         => WWW_ROOT,
 ]);
 
-$http->on('workerStart', function ($server, $workerId) {
-    \Gene\Application::getInstance()
-        ->autoload(APP_ROOT)
-        ->load('router.ini.php', CONF_DIR)
-        ->load('config.ini.php', CONF_DIR)
-        ->setMode(1, 1);
+$app = \Gene\Application::getInstance();
 
-    \Gene\Pool::create('dbPool', 'db');
-    \Gene\Cache\RedisPool::create('redisPool', 'redis');
+$http->on('workerStart', function ($server, $workerId) use ($app) {
+    $app->bootstrap(APP_ROOT, CONF_DIR, [
+        'router'     => 'router.ini.php',
+        'config'     => 'config.ini.php',   // 或 'config.ini.{env}.php' 按环境展开
+        'mode'       => 1,
+        'debug_envs' => ['dev'],
+    ]);
 
-    \Gene\Application::getInstance()->workerReady();
+    $app->pools([
+        'dbPool'    => ['driver' => 'db',    'component' => 'db'],
+        'redisPool' => ['driver' => 'redis', 'component' => 'redis'],
+    ]);
+    $app->startPools();
+
+    $app->workerReady();
 });
 
-$http->on('workerExit', function () {
-    \Gene\Pool::stopTimers();
-    \Gene\Cache\RedisPool::stopTimers();
+$http->on('workerExit', function () use ($app) {
+    $app->stopPoolTimers();
 });
 
-$http->on('workerStop', function () {
-    \Gene\Pool::closeAll();
-    \Gene\Cache\RedisPool::closeAll();
+$http->on('workerStop', function () use ($app) {
+    $app->closePools();
     gc_collect_cycles();
 });
 
-$http->on('request', function ($request, $response) {
-    \Gene\Application::waitWorkerReady();
-
-    \Gene\Request::init(
-        $request->get,
-        $request->post,
-        $request->cookie,
-        $request->server,
-        null,
-        $request->files,
-        null,
-        $request->header ?? [],
-        $request->rawContent()
-    );
-    \Gene\Application::setResponse($response);
-
-    ob_start();
-    $error = false;
-    try {
-        \Gene\Application::getInstance()->run();
-    } catch (\Throwable $e) {
-        $error = true;
-        \Gene\Log::exception($e);
-    } finally {
-        $out = ob_get_clean();
-        \Gene\Application::cleanup(true);
-    }
-
-    if ($error) {
-        if ($response->isWritable()) {
-            $response->redirect('/50x.html');
-        }
-        return;
-    }
-    if (!$response->isWritable()) {
-        return;
-    }
-    $response->header('Content-Type', 'text/html; charset=utf-8');
-    $response->end($out);
+$http->on('request', function ($request, $response) use ($app) {
+    // 一行收口：waitWorkerReady → Request::initSwoole → setResponse → run()
+    // → Throwable 边界（Log::exception + 最小 500）→ 未结束则 end(输出) → cleanup
+    $app->handleSwoole($request, $response);
 });
 
 $http->start();
@@ -152,9 +114,11 @@ $http->start();
 
 要点：
 
-- **`run()` 不传 method/uri**，依赖 `Request::init` 写入的 server 数据（含自动大写的 `REQUEST_METHOD`、`REQUEST_URI`）。
+- **`handleSwoole($request, $response, $options = [])`** 是推荐入口；`$app` 为 `Application::getInstance()`。
+- 可选 `$options`：`['cleanup_gc' => false, 'catch' => function (\Throwable $e, $request, $response) { ... }]`。
+- 未配 `catch` 时异常记 `Gene\Log::exception()`，响应仍可写则补 `status(500)` + `end(已缓冲输出)`；配了 `catch` 则由业务全权处理异常（可再抛，向外传播）。
+- 不设默认 `Content-Type`，不覆盖业务 status/header；dispatch 内已 `end`/`json`/`sendFile`/`redirect` 的请求不会被二次 `end()`。
 - 业务代码仍用 **`$this->request`**（控制器/钩子），与 FPM 写法一致。
-- 异常后检查 **`$response->isWritable()`**，避免重复写响应。
 
 ---
 
@@ -269,6 +233,8 @@ User::query()
 
 ## 5. 连接池 API
 
+> **推荐编排方式**：`workerStart` 中 `pools($decls)` + `startPools()`，`workerExit`/`workerStop` 中 `stopPoolTimers()`/`closePools()`（见 §2/§3）。`Pool::create`/`closeAll`/`stopTimers` 是低层 API，手动管理时仍可用。
+
 ### 5.1 `Gene\Pool`（PDO）
 
 ```php
@@ -316,11 +282,16 @@ API 与 `Gene\Pool` 对称：
 | 方法 | 时机 |
 |------|------|
 | `setRuntimeType('swoole'\|2)` | Server 创建前 |
-| `waitWorkerReady()` | 每个 `request` 开头 |
+| `bootstrap($appRoot, $confDir, $options)` | `workerStart` 开头：autoload + load(router) + load(config，`{env}` 占位) + setMode 一步收口 |
+| `pools($decls)` + `startPools()` | `workerStart`：声明 + 创建连接池；FPM 下 `startPools()` 返回 false |
+| `stopPoolTimers()` / `closePools()` | `workerExit` / `workerStop`；只作用已启动的驱动族，幂等 |
+| `handleSwoole($request, $response, $options = [])` | **每个 `request` 唯一调用**；内建下列 `waitWorkerReady`/`initSwoole`/`setResponse`/`run`/`cleanup` 全链路 |
 | `workerReady()` | `workerStart` 末尾（加载完路由/配置/建池后） |
-| `setResponse($response)` | 每个 `request`，在 `run()` 前 |
-| `run()` | 无参；等价于自动检测当前 Request |
-| `cleanup($gc = false)` | 每个 `request` 的 `finally`；推荐 `cleanup(true)` |
+| `waitWorkerReady()` | 手写入口时每个 `request` 开头（`handleSwoole` 已内建） |
+| `Request::initSwoole($request)` | 手写入口时替代九参数 `init()`（`handleSwoole` 已内建） |
+| `setResponse($response)` | 手写入口时每个 `request`，在 `run()` 前（`handleSwoole` 已内建） |
+| `run()` | 无参；等价于自动检测当前 Request（`handleSwoole` 已内建） |
+| `cleanup($gc = false)` | 手写入口时每个 `request` 的 `finally`（`handleSwoole` 已内建，`cleanup_gc` 选项控制 GC） |
 | `clearState()` / `destroyContext()` | 低层拆分清理；**优先用 `cleanup()`**。`clearState()` 会检测仍开启的事务并 rollBack（6.1.0+），避免持久连接上脏事务跨请求泄漏 |
 
 ### `workerReady()` 的副作用
@@ -333,9 +304,18 @@ API 与 `Gene\Pool` 对称：
 
 ---
 
-## 7. Request::init
+## 7. Request::initSwoole / init
 
-Swoole 无 PHP 超全局，必须用 `init` 注入：
+Swoole 无 PHP 超全局。推荐 **`Request::initSwoole($request)`**（`handleSwoole` 已内建），自动从请求对象提取：
+
+```php
+\Gene\Request::initSwoole($request);
+// 等价于读取 $request->get / post / cookie / server / files / header
+// + 一次 $request->rawContent() 方法调用；REQUEST 自动合并 GET+POST；
+// ENV 不注入。缺失/非数组属性按空数组处理，rawContent() 缺失抛可捕获 Error。
+```
+
+低层九参数 `init` 仍可用于非标准来源（如自建协议网关）：
 
 ```php
 \Gene\Request::init(
@@ -351,7 +331,7 @@ Swoole 无 PHP 超全局，必须用 `init` 注入：
 );
 ```
 
-请求结束后由 **`Application::cleanup()`** 清理，一般无需手动 `Request::clear()`。
+请求结束后由 **`Application::cleanup()`**（或 `handleSwoole` 内建）清理，一般无需手动 `Request::clear()`。
 
 ### 7.1 自动 cleanup 兜底（5.6.8+，`gene.swoole_auto_cleanup`）
 
@@ -368,11 +348,12 @@ Swoole 无 PHP 超全局，必须用 `init` 注入：
 | 错误做法 | 后果 / 正确做法 |
 |----------|-----------------|
 | ~~使用 `PDO::ATTR_PERSISTENT`~~ | **已无需手动处理**：Swoole/coroutine 模式下扩展自动改为 `false`（四驱动一致），配置可保留 `true` 适配 FPM/Swoole 双模式 |
-| 忘记 `cleanup()` | 协程上下文泄漏、内存上涨（5.6.8+ 可用 `gene.swoole_auto_cleanup=1` 兜底，见 §7.1） |
-| 忘记 `workerReady()` / `waitWorkerReady()` | 首批请求异常或竞态 |
+| 忘记 `cleanup()` | 协程上下文泄漏、内存上涨（`handleSwoole` 内建 cleanup；手写入口 5.6.8+ 可用 `gene.swoole_auto_cleanup=1` 兜底，见 §7.1） |
+| 忘记 `workerReady()` / `waitWorkerReady()` | 首批请求异常或竞态（`handleSwoole` 内建 `waitWorkerReady`） |
 | `workerReady()` 后在请求里 `Memory::set` | 运行期禁止写入；改 Redis 或 worker 启动前预热 |
 | 闭包钩子里持有请求级大对象 | 常驻进程易泄漏；优先 **类钩子** `Hooks\*` |
-| `run($method, $uri)` 与 `init` 混用不当 | Swoole 标准路径是 **init + run() 无参** |
+| `run($method, $uri)` 与 `init` 混用不当 | Swoole 标准路径是 **`handleSwoole` 一行收口**（或 initSwoole + run() 无参） |
+| 入口手动 `ob_start`/`end($out)`/`isWritable` 样板 | 已由 `handleSwoole` 收口，勿重复实现 |
 | Worker 未 `closeAll()` 就退出 | 连接泄漏；`onWorkerStop` 必须关闭池 |
 
 ---
@@ -392,6 +373,6 @@ Swoole 无 PHP 超全局，必须用 `init` 注入：
 - 出站 HTTP：`\Gene\Http::request()` 在 `runtime_type >= 2` 时走 `Swoole\Coroutine\Http\Client`，**不要**裸 `curl_exec`。`keep_alive=>true` 仅在当前协程请求内按 host 复用 Client；`stream` 为收完后 8KB 切片，不是边收边调。
 - SSE：`Response::sseStart()` / `sseEvent()` / `write()` / `sseEnd()` 对应 `$response->write` / `end`
 - 限流/锁：多 worker 用 `$this->redis->rateLimit/lock/unlock`（Lua **EVALSHA**，NOSCRIPT 回落 EVAL）；`Memory::rateLimit` 仅当前 worker 且 `workerReady()` 后冻结
-- 生产建议打开 `gene.swoole_auto_cleanup=1`，请求 `finally` 仍显式 `cleanup()`
+- 生产建议打开 `gene.swoole_auto_cleanup=1`；`handleSwoole` 已内建 cleanup，手写入口 `finally` 仍显式 `cleanup()`
 
 更多方法签名见 [reference.md](reference.md) 中 Application、Pool、RedisPool、Request、Http 章节。
