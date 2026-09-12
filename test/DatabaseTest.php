@@ -269,6 +269,19 @@ class DatabaseTest
             $history = $this->sqlite->history();
             echo "✓ SQLite history() returns " . gettype($history) . "\n";
 
+            // history() returns the engine's array by reference-count;
+            // later statements must not mutate the caller's snapshot (COW).
+            if (is_array($history)) {
+                $hCount = count($history);
+                $this->sqlite->select('test')->all();
+                $hNow = $this->sqlite->history();
+                if (count($history) === $hCount && is_array($hNow) && count($hNow) === $hCount + 1) {
+                    echo "✓ SQLite history() snapshot not mutated by later queries\n";
+                } else {
+                    $this->fail("SQLite history() snapshot mutated by later query");
+                }
+            }
+
             // Cleanup
             $this->sqlite->delete('test')->where('id=?', [$lastId])->affectedRows();
             echo "✓ SQLite delete() method works\n";
