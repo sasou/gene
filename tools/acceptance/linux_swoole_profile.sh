@@ -39,7 +39,7 @@ Options:
 
 The target worker must already be serving both URLs with production settings:
 run_environment>=2, view_compile=1, view_compile_check_mtime=1, OPcache CLI
-and realpath cache fixed according to plan/PERFORMANCE_OPTIMIZATION.md section 7.2.
+and realpath cache fixed according to plan/Performance-tuning-V1.closed.md §7.2.
 EOF
 }
 
