@@ -9,14 +9,14 @@
         </span>
         </div>
 
-    </div> 
+    </div>
 </div>
 <div class="layui-row" style="margin-top:10px;">
 <div class="layui-col-md3">
   <div class="layui-card">
-    <div class="layui-card-header">使用帮助</div>
-    <div class="layui-card-body">
-    <ul>
+    <div class="layui-card-header"><i class="layui-icon layui-icon-tips" style="color:#4f46e5;margin-right:6px;"></i>使用帮助</div>
+    <div class="layui-card-body" style="padding:10px;">
+    <ul class="gene-doc-nav">
     <?php if(isset($help[0])):?>
     <?php foreach($help as $v):?>
       <li role="presentation" <?php if($id==$v['mark_id']):?>class="active"<?php endif;?>><a href="/doc/<?php echo $v['mark_id'];?>.html"><?php echo $v['mark_title'];?></a></li>
@@ -25,11 +25,11 @@
     </ul>
     </div>
   </div>
-  
+
   <div class="layui-card">
-    <div class="layui-card-header">框架类文档</div>
-    <div class="layui-card-body">
-    <ul>
+    <div class="layui-card-header"><i class="layui-icon layui-icon-read" style="color:#06b6d4;margin-right:6px;"></i>框架类文档</div>
+    <div class="layui-card-body" style="padding:10px;">
+    <ul class="gene-doc-nav">
     <?php if(isset($doc[0])):?>
     <?php foreach($doc as $v):?>
       <li role="presentation" <?php if($id==$v['mark_id']):?>class="active"<?php endif;?>><a href="/doc/<?php echo $v['mark_id'];?>.html"><?php echo $v['mark_title'];?></a></li>
@@ -42,7 +42,7 @@
 <div class="layui-col-md9">
   <div class="layui-card" style="margin-left:10px;">
     <div class="layui-card-header"><?php if(!$id):?>正文<?php else:?><?php echo isset($mark) ? $mark['mark_title'] : '';?><?php endif;?></div>
-    <div class="layui-card-body">
+    <div class="layui-card-body gene-doc-body">
 <?php if(!$id):?>
 <p style="text-align: left;">
 <strong>安装：</strong><br>
