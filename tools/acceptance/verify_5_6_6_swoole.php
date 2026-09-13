@@ -12,13 +12,13 @@
  *
  * 用法（在 Linux 服务器，已加载 swoole + gene 扩展）：
  *   # 基线：capi=1(默认) precompile=0(默认)
- *   php tools/verify_5_6_6_swoole.php
+ *   php tools/acceptance/verify_5_6_6_swoole.php
  *   # P3 预编译派发开启
- *   php -d gene.route_precompile=1 tools/verify_5_6_6_swoole.php
+ *   php -d gene.route_precompile=1 tools/acceptance/verify_5_6_6_swoole.php
  *   # P1 回退路径（关闭 C-API 直调，强制 PHP 调用）
- *   php -d gene.swoole_getcid_capi=0 tools/verify_5_6_6_swoole.php
+ *   php -d gene.swoole_getcid_capi=0 tools/acceptance/verify_5_6_6_swoole.php
  *   # 两项同时开启
- *   php -d gene.route_precompile=1 -d gene.swoole_getcid_capi=1 tools/verify_5_6_6_swoole.php
+ *   php -d gene.route_precompile=1 -d gene.swoole_getcid_capi=1 tools/acceptance/verify_5_6_6_swoole.php
  *
  * 闭环判据（把四次运行的输出发回即可核验）：
  *   1) 每次运行末尾必须出现 “ALL-PASS”；

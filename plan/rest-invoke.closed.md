@@ -1,6 +1,6 @@
 # Gene 框架级 REST 互调
 
-> 基线：Gene **6.1.x（已落地，2026-08-23）**。`Gene\Http` / `Context` / `cleanup()` 已按 [lifecycle-completeness.md](lifecycle-completeness.md) 落地。  
+> 基线：Gene **6.1.x（已落地，2026-08-23）**。`Gene\Http` / `Context` / `cleanup()` 已按 [lifecycle-completeness.closed.md](lifecycle-completeness.closed.md) 落地。  
 > 定位：补齐**进程内隔离调用**与**命名出站 REST**，同一套 API 覆盖 **FPM/CLI** 与 **Swoole 协程**，请求级生命周期、无业务语义。  
 > 本文只写扩展：`src/`、ide-helper、`test/`、`demo/`、`gene-ai-helper`。不写业务仓库迁移。
 
@@ -196,7 +196,7 @@ $rest->call(string $class, string $action, array $params = [], array $options = 
 
 ## 八、与生命周期文档的关系
 
-[lifecycle-completeness.md](lifecycle-completeness.md) §3.1 的 `Gene\Http` 是运输层。本文是其上的 **互调原语**（隔离本地 + 命名客户端）。不重复实现第二套 HTTP 后端。
+[lifecycle-completeness.closed.md](lifecycle-completeness.closed.md) §3.1 的 `Gene\Http` 是运输层。本文是其上的 **互调原语**（隔离本地 + 命名客户端）。不重复实现第二套 HTTP 后端。
 
 ---
 

@@ -359,7 +359,7 @@ for capi in 0 1; do
             -d gene.runtime_type=2 \
             -d gene.swoole_getcid_capi="$capi" \
             -d gene.route_precompile="$precompile" \
-            "$GENE_REPO/tools/verify_5_6_6_swoole.php" \
+            "$GENE_REPO/tools/acceptance/verify_5_6_6_swoole.php" \
             2>&1 | tee "$OUT/$name.log"
         code=${PIPESTATUS[0]}
         set -e

@@ -10,7 +10,7 @@
   },
   "functional_commands": [
     {"command": ["php", "TestRunner.php"], "cwd": "test"},
-    ["php", "tools/verify_5_6_6.php"]
+    ["php", "tools/acceptance/verify_5_6_6.php"]
   ],
   "benchmark_command": [
     "wrk",

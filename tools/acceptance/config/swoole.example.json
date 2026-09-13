@@ -9,8 +9,8 @@
     }
   },
   "functional_commands": [
-    ["php", "tools/verify_5_6_6.php"]
+    ["php", "tools/acceptance/verify_5_6_6.php"]
   ],
   "php_binary": "php",
-  "swoole_verify_script": "tools/verify_5_6_6_swoole.php"
+  "swoole_verify_script": "tools/acceptance/verify_5_6_6_swoole.php"
 }
