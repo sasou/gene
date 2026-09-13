@@ -44,14 +44,18 @@ ORM 不额外持有连接，仅要求 `db.instance=true` + Pool，并在请求 `
 头部「部署配置」段集中填写 DSN/账号/Redis 地址（同名环境变量可覆盖，密码留空则交互询问）：
 
 ```bash
+# 前置：MySQL 密码必填（GENE_MYSQL_PASS），Redis 有密码时给 GENE_REDIS_PASS。
+export GENE_MYSQL_PASS='***'
+export GENE_REDIS_PASS='***'        # 无密码可省
 bash tools/acceptance/mysql_redis_verify.sh          # preflight + 直连/Gene层探测 + 池并发 + tx-hygiene
 bash tools/acceptance/mysql_redis_verify.sh --full   # 追加 exec linux_swoole_verify.sh --all
 ```
 
 阶段：`mysql-raw`（PDO）→ `mysql-gene`（`Gene\Db\Mysql`）→ `redis-raw`（ext-redis）→
 `redis-gene`（`Gene\Cache\Redis` 往返）→ `mysql-pool` / `redis-pool`（`pool_concurrency.php`
-200 协程 × 1000 迭代）→ `tx-hygiene`（`audit/repro/tx_leak_pool.php`）。
-各阶段输出落 `$OUT/status.tsv` 与 `summary.txt`。
+200 协程 × 1000 迭代，**每次借用执行一条真实命令**：redis `PING` / db `SELECT 1`，
+失败计入 `commandFailures` 并走 `remove()` 弃连接而非放回池）→ `tx-hygiene`
+（`audit/repro/tx_leak_pool.php`）。各阶段输出落 `$OUT/status.tsv` 与 `summary.txt`。
 
 ## Linux Swoole 一键验证
 
@@ -100,6 +104,26 @@ WRK_DURATION=10m bash tools/acceptance/linux_swoole_verify.sh \
 GENE_SO=/path/to/gene.so bash tools/acceptance/linux_swoole_verify.sh --no-build
 ```
 
+已验证部署（gene_web @ `/data/webapp/www/gene_web/`，CentOS 7 + PHP 8.1 + Swoole 6）：
+
+```bash
+cd /data/src/gene
+export GENE_REDIS_HOST=127.0.0.1 GENE_REDIS_PORT=6379 GENE_REDIS_PASS='***'
+export GENE_MYSQL_DSN='mysql:dbname=gene_web;host=127.0.0.1;port=3306;charset=utf8mb4'
+export GENE_MYSQL_USER='gene_web' GENE_MYSQL_PASS='***'
+GENE_RUN_ENVIRONMENT=0 WRK_DURATION=2m \
+  bash tools/acceptance/linux_swoole_verify.sh \
+      --all /data/webapp/www/gene_web --output /tmp/gene-swoole-result-$(date +%Y%m%d)
+# 前置：curl + wrk 在 PATH；gene_web 需暴露 /healthz 与 /metrics，
+# 否则 wait_for_gene_web 阻塞 WEB_START_TIMEOUT(默认120s) 后判 FAIL。
+```
+
+结果判读：`status.tsv` 全 PASS；`RESULT-DIGEST` 在 swoole-matrix 四格、entry-matrix 四格、
+entry-bench 三入口内各自一致即"优化开关不改语义"。`entry-bench` 各路径 req/s 是客户端短连接
+微基准，偶发 10s 级超时是 ephemeral 端口/TIME_WAIT 耗尽噪声（soak 阶段为此用 keep-alive），
+非判据。`process-rss.txt` 中 worker PID 高频轮换是应用 `max_request` 正常回收，看 RSS 是否
+单调增长判断泄漏；`gene_requests_total` 为 per-worker 计数，随回收清零，与 wrk 总量不可直接比对。
+
 脚本返回非零即表示至少一个启用阶段失败；输出目录同时生成 `status.tsv`、`summary.txt` 与同名 `.tar.gz` 归档。
 
 `tx-hygiene` 之后若使用 `--all` / `--web`，会进入 **gene-web** 阶段（wrk 压测默认约 2.5 分钟；脚本会打 `START gene-web` 与 wrk 进度日志）。若 `gene_web` 的 MySQL/Redis 不可达，`/healthz` 会在 `waitWorkerReady()` 上阻塞；请查看输出目录中的 `gene-web-swoole.log`，并视环境设置 `GENE_RUN_ENVIRONMENT=0|1`（默认 `1` 即 test 配置）。
@@ -109,3 +133,4 @@ GENE_SO=/path/to/gene.so bash tools/acceptance/linux_swoole_verify.sh --no-build
 | 日期 | 环境 | 结果 | 证据 |
 |------|------|------|------|
 | 2026-08-25 | Linux 192.168.27.101，PHP 8.1.34，MySQL + Redis + gene_web | **12/12 PASS** | `gene-swoole-verify-20260825-195941`；`RESULT-DIGEST=b887e533c417447e`；`tx-hygiene` → `POOL TX HYGIENE OK`；gene-web wrk 5816 req/s、0 错误。计划文档回写见 `plan/orm-v2.closed.md` §十六。 |
+| 2026-09-13 | 同上，PHP 8.1.34 NTS DEBUG，gene 6.2.3 + swoole 6.1.9，MariaDB 10.5.9 | **17/17 PASS** | `gene-swoole-result-20260913`；`swoole-matrix` digest `856ba31839fa8675`（9/12 起 404 修复改响应，与旧值不同属预期）；entry 三入口 digest `fd1425a4658c643a` 一致；entry-soak 10 万请求 24895 req/s、`co_contexts_items=0`；gene-web wrk **19849 req/s**（238 万请求，0 错误，p50 23ms/p99 121ms），RSS 平稳无泄漏。 |
