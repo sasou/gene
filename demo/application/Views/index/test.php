@@ -2,13 +2,23 @@
 
 <div class="layui-row" style="margin-bottom:10px;">
   <div class="layui-card">
-    <div class="layui-card-header"><strong>当前请求 Benchmark（Gene\Benchmark）</strong></div>
-    <div class="layui-card-body" style="padding:10px 15px;">
-      <p>执行时间：<code><?php echo $bench_time; ?> ms</code> &nbsp;&nbsp;
-         内存消耗：<code><?php echo $bench_memory; ?> MB</code> &nbsp;&nbsp;
-         Gene\Memory 进程内命中次数：<code><?php echo $hit_count; ?></code>
-      </p>
-      <blockquote class="layui-elem-quote" style="font-size:12px;">
+    <div class="layui-card-header"><strong><i class="layui-icon layui-icon-chart-screen" style="color:#4f46e5;margin-right:6px;"></i>当前请求 Benchmark（Gene\Benchmark）</strong></div>
+    <div class="layui-card-body" style="padding:15px 18px;">
+      <div class="gene-bench">
+        <div class="gene-bench-item">
+          <span class="num"><?php echo $bench_time; ?><small>ms</small></span>
+          <span class="label">执行时间</span>
+        </div>
+        <div class="gene-bench-item" style="border-top-color:#06b6d4;">
+          <span class="num"><?php echo $bench_memory; ?><small>MB</small></span>
+          <span class="label">内存消耗</span>
+        </div>
+        <div class="gene-bench-item" style="border-top-color:#10b981;">
+          <span class="num"><?php echo $hit_count; ?><small>次</small></span>
+          <span class="label">Gene\Memory 进程内命中次数</span>
+        </div>
+      </div>
+      <blockquote class="layui-elem-quote" style="font-size:12px;margin-bottom:0;">
         Gene\Benchmark::start() / end() 统计本次请求执行耗时与内存，Gene\Memory 跨请求保存进程内计数。
       </blockquote>
     </div>
@@ -28,16 +38,17 @@
 
 <div class="layui-row" style="margin-top:10px;">
     <div class="layui-col-md12 layui-card" style="padding:10px;">
-           <blockquote class="layui-elem-quote"><p style="text-align: left;">
+      <div class="layui-card-body" style="padding:10px 15px;">
+           <blockquote class="layui-elem-quote"><p style="text-align: left;margin:0;">
             <strong>测试环境：</strong><br/>
             system：centos 7 CPU：4核 内存：8 GB<br/>
             nginx：1.15.0<br/>
             php：7.1.18<br/>
-            gene：V<?php echo gene_version();?></blockquote>
-          <div class="layui-row">
+            gene：V<?php echo gene_version();?></p></blockquote>
+          <div class="layui-row layui-col-space20">
             <div class="layui-col-md6">
-                  <img src="/static/images/test.png" alt="原生代码测试">
-                  <div class="caption">
+                  <img class="gene-compare-img" src="/static/images/test.png" alt="原生代码测试">
+                  <div class="gene-caption">
                     <strong>原生代码测试</strong>
                     <p>ab -n10000 -c100 127.0.0.1/test.php</p>
                     <br/>
@@ -45,8 +56,8 @@
                   </div>
             </div>
             <div class="layui-col-md6">
-                  <img src="/static/images/gene.png" alt="Gene框架代码测试">
-                  <div class="caption">
+                  <img class="gene-compare-img" src="/static/images/gene.png" alt="Gene框架代码测试">
+                  <div class="gene-caption">
                     <strong>Gene框架代码测试</strong>
                     <p>ab -n10000 -c100 127.0.0.1/test</p>
                     <br/>
@@ -55,7 +66,7 @@
             </div>
           </div>
 
-            <div>
+            <div class="gene-doc-body" style="margin-top:10px;">
                 <strong>测试分析：</strong>
                 <br/>
                 原生测试就一个文件、一个方法<br/>
@@ -65,8 +76,8 @@
                 <strong>测试代码：</strong>
                 <br/>
                     真金不怕火炼，欢迎围观，测试代码下载！<a href="/static/test/demo.zip">demo.zip</a>
-                </p>
             </div>
+      </div>
     </div>
 </div>
 </div>
