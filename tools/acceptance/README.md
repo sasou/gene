@@ -153,9 +153,12 @@ entry-bench 三入口内各自一致即"优化开关不改语义"。`entry-bench
 php demo/database/init_sqlite.php
 
 # 2) 以生产配置启动 demo Swoole 服务（在仓库根执行，无需 cd demo）
+#    注意必须关闭 max_request 回收（GENE_SWOOLE_MAX_REQUEST=0）：demo 默认 10000，
+#    wrk 下 worker 每 ~2s 就被换新 PID，单 worker 采样必然落空
+#    （perf record -p <死 PID> 直接失败）。
 GENE_DEMO_LOCAL=1 \
 GENE_SWOOLE_HOST=127.0.0.1 GENE_SWOOLE_PORT=9501 GENE_SWOOLE_WORKERS=4 \
-GENE_SWOOLE_PID_FILE=/tmp/gene-demo-swoole.pid \
+GENE_SWOOLE_PID_FILE=/tmp/gene-demo-swoole.pid GENE_SWOOLE_MAX_REQUEST=0 \
 php -d gene.runtime_type=2 -d gene.run_environment=2 \
     -d gene.view_compile=1 -d gene.view_compile_check_mtime=1 \
     -d gene.swoole_auto_cleanup=1 \
@@ -164,6 +167,8 @@ php -d gene.runtime_type=2 -d gene.run_environment=2 \
     demo/public/swoole.php &
 
 # 3) 取一个 worker PID（非 master/manager）：master(最老) → manager → workers
+#    关闭回收后 PID 在采样期间保持稳定；若服务在跑 max_request>0，
+#    取到的 PID 会在压测开始后几秒内失效。
 MASTER=$(pgrep -fo 'public/swoole.php')
 MANAGER=$(pgrep -P "$MASTER" | head -1)
 pgrep -P "$MANAGER"                       # 列出的全部是 worker，任取一个
