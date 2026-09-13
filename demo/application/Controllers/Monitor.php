@@ -38,7 +38,7 @@ class Monitor extends Controller
     }
 
     /**
-     * GET /metrics — 指标出口（gene_web 同名端口的 demo 版）。
+     * GET /metrics — 指标出口（验收脚本 demo-web 阶段依赖）。
      * 直接复用 Gene\Monitor::stats() 聚合，JSON 输出。
      */
     public function metrics()

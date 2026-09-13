@@ -1,5 +1,5 @@
 <?php
-// 复现线上 swoole 模式路由 404：使用与 gene_web 一致的路由注册顺序
+// 复现线上 swoole 模式路由 404：使用与 demo 一致的路由注册顺序
 $router = new \Gene\Router();
 $router->clear()
     ->lang('zh,en')

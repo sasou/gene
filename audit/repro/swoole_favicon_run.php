@@ -1,6 +1,6 @@
 <?php
-define('APP_ROOT', 'F:/codeup/gene_web/application');
-define('CONF_DIR', 'F:/codeup/gene_web/config');
+define('APP_ROOT', dirname(__DIR__, 2) . '/demo/application');
+define('CONF_DIR', dirname(__DIR__, 2) . '/demo/config');
 \Gene\Application::setRuntimeType('swoole');
 $a = \Gene\Application::getInstance()
     ->autoload(APP_ROOT)

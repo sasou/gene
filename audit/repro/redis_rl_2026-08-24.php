@@ -1,7 +1,7 @@
 <?php
 /**
  * Live verification of Gene\Cache\Redis::rateLimit against a real redis
- * server (config lifted from gene_web config/config.ini.dev.php).
+ * server (config lifted from demo config/config.ini.php).
  * Run with: php -n -d extension_dir=... -d extension=php_redis.dll
  *   -d extension=php_gene.dll redis_rl_2026-08-24.php
  */
