@@ -29,7 +29,7 @@
     <ul class="layui-nav layui-layout-right">
       <li class="layui-nav-item">
         <a href="javascript:;">
-          <img src="http://t.cn/RCzsdCq" class="layui-nav-img">
+          <img src="/static/images/logo.png" class="layui-nav-img">
           <?php echo $this->user['user_name'];?> [<?php echo $this->user['group_title'];?>]
         </a>
         <dl class="layui-nav-child">
@@ -71,7 +71,7 @@
   
   <div class="layui-body">
     <div style="padding: 15px;">
-        <div class="layui-row">
+        <div class="gene-crumbs">
             <span class="layui-breadcrumb">
                 <a href="/"><cite>首页</cite></a>
                 <?php $i = 0;foreach($path as $v): ?>
@@ -79,7 +79,7 @@
                 <?php $i++;?>
                 <?php endforeach;?>
             </span>
-            <a class="layui-btn layui-btn-xs reload-btn" style="float:right"  href="javascript:;" title="刷新"><i class="layui-icon layui-icon-refresh-1"> </i></a>
+            <a class="layui-btn layui-btn-xs reload-btn"  href="javascript:;" title="刷新"><i class="layui-icon layui-icon-refresh-1"> </i></a>
         </div>
 		<div class="layui-row" style="margin-top:15px;">
         <?php require $this->contains();?>

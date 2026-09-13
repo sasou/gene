@@ -2,7 +2,7 @@
 /**
  * Swoole 路由丢失定位探针。
  *
- * 用法：把 gene_probe() 这个函数体贴进 gene_web/public/swoole.php，
+ * 用法：把 gene_probe() 这个函数体贴进 demo/public/swoole.php，
  * 然后在三个位置各调一次（见下方 A/B/C 注释），重启 swoole 并抓 stderr。
  *
  * Router::match() 走的是和 Application::run() 完全相同的 trie 查找与 safe

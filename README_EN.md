@@ -196,7 +196,7 @@ $config->clear();
 $config->set("db", [
     'class' => '\Gene\Db\Mysql',
     'params' => [[
-        'dsn' => 'mysql:dbname=gene_web;host=127.0.0.1;port=3306;charset=utf8',
+        'dsn' => 'mysql:dbname=gene_demo;host=127.0.0.1;port=3306;charset=utf8',
         'username' => 'root',
         'password' => '',
         'options' => [PDO::ATTR_PERSISTENT => true]

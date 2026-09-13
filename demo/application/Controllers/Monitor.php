@@ -1,6 +1,6 @@
 <?php
 
-namespace Application\Controllers;
+namespace Controllers;
 
 use Gene\Controller;
 use Gene\Monitor as GeneMonitor;
@@ -21,5 +21,28 @@ class Monitor extends Controller
         $stats = GeneMonitor::stats();
         $stats['elapsed_ms'] = round((microtime(true) - $started) * 1000, 3);
         Response::json($stats);
+    }
+
+    /**
+     * GET /healthz — 存活探针。
+     * handleSwoole 入口自带 waitWorkerReady 阻塞，能返回 200 即说明
+     * worker 已完成 bootstrap + workerReady。
+     */
+    public function healthz()
+    {
+        Response::json([
+            'status' => 'ok',
+            'env'    => \Gene\Application::getInstance()->getEnvironmentName(),
+            'time'   => time(),
+        ]);
+    }
+
+    /**
+     * GET /metrics — 指标出口（验收脚本 demo-web 阶段依赖）。
+     * 直接复用 Gene\Monitor::stats() 聚合，JSON 输出。
+     */
+    public function metrics()
+    {
+        Response::json(GeneMonitor::stats());
     }
 }
