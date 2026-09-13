@@ -21,19 +21,21 @@ todos:
     content: 构建 + 三套测试回归；核对线上 gene.* ini 取值
     status: completed
   - id: p0-jit
-    content: "P0 定性实验：关闭 opcache JIT 后重跑同一复现序列，排除/确认 JIT 嫌疑"
+    content: "P0 定性实验：关闭 opcache JIT 后重跑同一复现序列，排除/确认 JIT 嫌疑（已移交 plan/audit-backlog.md §七）"
     status: pending
   - id: p1-symbols
-    content: "P1 可观测性：带符号构建 + thread apply all bt full；测试机 ASAN 复跑 ab"
+    content: "P1 可观测性：带符号构建 + thread apply all bt full；测试机 ASAN 复跑 ab（已移交 plan/audit-backlog.md §七）"
     status: pending
   - id: p2-defects
     content: "P2 三处真实缺陷：嵌套类型全量预检、cacheData 判空、cache_reserve/cache_max_items 配置矛盾"
     status: completed
   - id: p3-observe
-    content: "P3 观测点：cache_insert_refused / cache_business_items / closure_src_cache_flushes"
+    content: "P3 观测点：cache_insert_refused / cache_business_items / closure_src_cache_flushes（已移交 plan/audit-backlog.md §七）"
     status: pending
 isProject: false
 ---
+
+> 状态：**已关闭**——修复主体全部落地；3 项遗留观察项移交 [`audit-backlog.md`](audit-backlog.md) §七。
 
 > 结论先行：不是泄漏，是 **use-after-free**。`signal=11` + "压测把表撑大后才崩" + "崩一次后又正常" 三个现象共同指向 `GENE_G(cache)` 的桶数组在请求期被 `perealloc`/`pefree`，而在飞的协程仍持有旧指针。
 

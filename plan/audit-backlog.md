@@ -1,8 +1,9 @@
-# Gene 未实现功能与待验证项计划
+# Gene 审计驱动待办（audit backlog）
 
 > 本文件整理自 audit 历史报告，**仅存放尚未落地或待验证的待办项**。已完成的条目不再保留，避免与审计报告的「落地情况」节重复。
-> 来源审计报告：`AUDIT_REPORT_2026_07_30.md`、`AUDIT_REPORT_2026_08_06.md`（及更早的 05-25 / 06-20 / 07-03 / 07-12 / 07-13 报告）。
-> 维护约定见文末 §九。
+> 2026-09-13 由 `audit/plan/PLAN.md` 迁至本目录：审计驱动待办与产品驱动计划统一在 `plan/` 维护，以本文件区分立项依据（源码审计、压测、ASAN）。
+> 来源审计报告：`audit/AUDIT_REPORT_2026_07_30.md`、`audit/AUDIT_REPORT_2026_08_06.md`（及更早的 05-25 / 06-20 / 07-03 / 07-12 / 07-13 报告，早期原文见 git 历史）。
+> 维护约定见文末 §八。
 
 ---
 
@@ -49,6 +50,7 @@
 ## 三、性能 / 压测量化后待立项的优化
 
 > **准入约束**：本节所有项必须先通过 `tools/acceptance` 的 profile 准入脚本拿到证据，否则不得进入主线。
+> 性能优化的自动化验收规范与后续待实现项见 [Performance-tuning-V2.md](Performance-tuning-V2.md)；本节保留审计原始观测点与出处，两者口径不同（本节沿用 profile 准入纪律）。
 
 ### route_pc 全树预热
 
@@ -223,6 +225,14 @@
   - persistent PDO / 外部代理部署建议：生产部署文档与灰度验收模板。
   - FPM worker RSS 与 `pm.max_requests` 验收：依赖人工提供生产等价环境和基线数据。
 
+### UAF 修复遗留观察项（`gene_swoole_uaf_fix.closed.md` 移交，2026-09-13）
+
+- **来源**：`plan/gene_swoole_uaf_fix.closed.md` front-matter todos（修复主体已全部落地，以下为遗留待验证项）。
+- **待办**：
+  - **P0** 定性实验：关闭 opcache JIT 后重跑 `audit/repro/swoole_cache_uaf.php` 复现序列，排除/确认 JIT 嫌疑。
+  - **P1** 可观测性：带符号构建 + `thread apply all bt full`；测试机 ASAN 复跑 ab。
+  - **P3** 观测点：`cache_insert_refused` / `cache_business_items` / `closure_src_cache_flushes` 指标核查。
+
 ---
 
 ## 七之二、2026-08-09 审计新增待办（ORM v1 + 近两周优化）
@@ -234,10 +244,9 @@
 
 ### 7.2.3 ORM 能力缺口（P2，按需求驱动）
 
-> 6.1.0 ORM v2 已落地：Query 有序 ops、`join/group/having/order/limit/first/update/delete`、`lockForUpdate`、`Model::transaction`、`createMany` 等。详见 `plan/orm-v2.md`。以下仅保留仍未做、且规格写明暂缓的项。
+> 6.1.0 ORM v2 已落地：Query 有序 ops、`join/group/having/order/limit/first/update/delete`、`lockForUpdate`、`Model::transaction`、`createMany` 等，详见 [orm-v2.closed.md](orm-v2.closed.md)；6.2.0 再补 `Query::union()/unionAll()`、`increment()/decrement()`、`joinOn()`、`paginateResult()`。
+> 「暂缓 / 不做」清单（`pluck`/`exists`、Eloquent 式 `with()`/软删除/casts/全局 Scope 等）与 [orm-v2.closed.md](orm-v2.closed.md) §五 P2 同源，**以该文为准不再重复**；此处仅保留审计侧增量观察项。
 
-- Query **暂缓**：`union` / `pluck` / `exists`（`union` 在 Db 侧已有）。
-- 不做 Eloquent 式：关联 `with()`、软删除、属性转换 / casts、全局 Scope。
 - `$fields` 目前仅作 SELECT 列表，`fill()`/`__set()` 不校验字段名（数字键亦可写入）→ 缺 mass-assignment 白名单。
 - `Model::destroy($id)` 与实例 `delete()` 语义重叠（文档约定即可，不必再加 API）。
 

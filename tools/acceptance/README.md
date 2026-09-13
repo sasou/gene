@@ -22,6 +22,14 @@ Swoole profile 会执行 `gene.swoole_getcid_capi` 与
 4. 出现 crash、digest 不一致、UAF/OOB，或 p99/CPU 每请求退化超过 3%
    时，关闭该 INI 开关并保留输出目录作为回归证据。
 
+## 版本回归验证脚本
+
+- `verify_5_6_6.php`（FPM/CLI，Windows 可跑）：5.6.6 内存与高并发审计落地项——`swoole_getcid_capi` / `cache_max_items` / `route_precompile` / `closure_src_cache_max` INI 注册、`Memory::stats()` 字段、业务缓存上限 + 近似 LRU 淘汰、`processCached` 多轮稳定性。
+  `php tools/acceptance/verify_5_6_6.php`；`php -d gene.cache_max_items=10 tools/acceptance/verify_5_6_6.php` 复验淘汰行为。
+- `verify_5_6_6_swoole.php`（仅 Linux + Swoole）：脚本自起 Swoole HTTP Server，注册闭包/MCA 直派/动态/带钩子/404 五类路由，`workerReady()` 后协程高并发自打流量逐条校验。四组 `capi × precompile` 开关矩阵要求输出 `ALL-PASS` 且 `RESULT-DIGEST` 完全一致。
+  其中 404 用例注册 `->error(404, ...)`（整数事件名，注册为 `error:404`），期望响应体恰为 `R:404`；若返回 "Unknown Url" 警告即整数事件名未生效。
+- 两者已被 `config/*.example.json` 的 `functional_commands` / `swoole_verify_script` 引用，随 `run_acceptance.php` 一起执行；`linux_swoole_verify.sh` 的 `swoole-matrix` 阶段也直接驱动后者。
+
 ## ORM（Gene\Orm）
 
 `test/OrmTest.php` 已纳入 `TestRunner.php`（functional 默认命令会跑到）。
@@ -85,4 +93,4 @@ GENE_SO=/path/to/gene.so bash tools/acceptance/linux_swoole_verify.sh --no-build
 
 | 日期 | 环境 | 结果 | 证据 |
 |------|------|------|------|
-| 2026-08-25 | Linux 192.168.27.101，PHP 8.1.34，MySQL + Redis + gene_web | **12/12 PASS** | `gene-swoole-verify-20260825-195941`；`RESULT-DIGEST=b887e533c417447e`；`tx-hygiene` → `POOL TX HYGIENE OK`；gene-web wrk 5816 req/s、0 错误。计划文档回写见 `plan/orm-v2.md` §十六。 |
+| 2026-08-25 | Linux 192.168.27.101，PHP 8.1.34，MySQL + Redis + gene_web | **12/12 PASS** | `gene-swoole-verify-20260825-195941`；`RESULT-DIGEST=b887e533c417447e`；`tx-hygiene` → `POOL TX HYGIENE OK`；gene-web wrk 5816 req/s、0 错误。计划文档回写见 `plan/orm-v2.closed.md` §十六。 |

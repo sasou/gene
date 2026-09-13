@@ -7,7 +7,7 @@ function acceptance_functional(array $config, string $root): array
 {
     $commands = $config['functional_commands'] ?? [
         ['command' => ['php', 'TestRunner.php'], 'cwd' => 'test'],
-        ['command' => ['php', 'tools/verify_5_6_6.php']],
+        ['command' => ['php', 'tools/acceptance/verify_5_6_6.php']],
     ];
     $results = [];
     foreach ($commands as $entry) {
