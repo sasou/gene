@@ -23,68 +23,51 @@ $http->on("start", function ($server) {
     echo "Gene Swoole server started at http://0.0.0.0:80\n";
 });
 
-$http->on("workerStart", function ($server, $workerId) {
-    \Gene\Application::getInstance()
-        ->autoload(APP_ROOT)
-        ->load("router.ini.php", CONF_DIR)
-        ->load("config.ini.php", CONF_DIR)
-        ->setMode(1, 1);
+$app = \Gene\Application::getInstance();
 
-    // 创建数据库连接池（每个Worker进程独立）
-    // 第二个参数 'db' 对应 config.ini.php 中 $config->set("db", ...) 的配置key，自动从持久化配置缓存中读取 dsn/username/password
-    // 第三个参数可选，不传则使用默认连接池参数（v5.4.3起默认max=64）
-    \Gene\Pool::create('dbPool', 'db');
+$http->on("workerStart", function ($server, $workerId) use ($app) {
+    // 共享装载收口：autoload → load(router) → load(config) → setMode
+    // （mode=1 注册错误处理器；debug_envs 命中才注册异常处理器，
+    // 旧写法 setMode(1,1) 恒开 → 等价语义为非 prod 环境全列，
+    // 内置 env：dev/test/gray/prod）。
+    // config 名支持 {env} 占位符展开为 getEnvironmentName()，本 demo 用固定文件。
+    $app->bootstrap(APP_ROOT, CONF_DIR, [
+        'router'     => 'router.ini.php',
+        'config'     => 'config.ini.php',
+        'mode'       => 1,
+        'debug_envs' => ['dev', 'test', 'gray'],
+    ]);
 
-    // 创建Redis连接池（每个Worker进程独立）
-    // 第二个参数 'redis' 对应 config.ini.php 中 $config->set("redis", ...) 的配置key，自动从持久化配置缓存中读取连接参数
-    // 第三个参数可选，不传则使用默认连接池参数（v5.4.3起默认max=64）
-    \Gene\Cache\RedisPool::create('redisPool', 'redis');
+    // 显式声明连接池（driver 仅 db/redis；component 为 config.ini.php
+    // 中 $config->set(...) 的键名；params 可选池参数 min/max/idleTimeout/
+    // waitTimeout，不传则默认 max=64）。FPM 下 startPools 明确返回 false。
+    $app->pools([
+        'dbPool'    => ['driver' => 'db',    'component' => 'db'],
+        'redisPool' => ['driver' => 'redis', 'component' => 'redis'],
+    ]);
+    $app->startPools();
 
-    // 标记Worker已就绪，request 回调开头会先阻塞等待此标记
-    \Gene\Application::getInstance()->workerReady();
+    // 标记Worker已就绪，handleSwoole 入口会先阻塞等待此标记
+    $app->workerReady();
 });
 
-$http->on("workerExit", function ($server, $workerId) {
-    // 清除连接池定时器，让事件循环可以正常退出
-    \Gene\Pool::stopTimers();
-    \Gene\Cache\RedisPool::stopTimers();
+$http->on("workerExit", function ($server, $workerId) use ($app) {
+    // 清除已声明池的定时器，让事件循环可以正常退出（幂等）
+    $app->stopPoolTimers();
 });
 
-$http->on("workerStop", function ($server, $workerId) {
-    // 关闭所有连接池，释放资源
-    \Gene\Pool::closeAll();
-    \Gene\Cache\RedisPool::closeAll();
+$http->on("workerStop", function ($server, $workerId) use ($app) {
+    // 关闭已声明池，释放资源（幂等，可安全重入）
+    $app->closePools();
     gc_collect_cycles();
 });
 
-$http->on("request", function ($request, $response) {
-    // 先等待 workerStart 初始化完成，避免首批请求过早进入 run() 导致异常
-    \Gene\Application::waitWorkerReady();
-    \Gene\Request::init($request->get, $request->post, $request->cookie, $request->server, null, $request->files, null, $request->header,  $request->rawContent());
-    \Gene\Application::setResponse($response);
-
-    ob_start();
-    $error = false;
-    try {
-        \Gene\Application::getInstance()->run();
-    } catch (\Throwable $e) {
-        $error = true;
-        \Gene\Log::exception($e);
-    } finally {
-        $out = ob_get_clean();
-        \Gene\Application::cleanup(true);
-    }
-
-    if ($error) {
-        $response->redirect('/50x.html');
-        return;
-    }
-
-    if (!$response->isWritable()) {
-        return;
-    }
-    $response->header('Content-Type', 'text/html; charset=utf-8');
-    $response->end($out);
+$http->on("request", function ($request, $response) use ($app) {
+    // 一行收口：waitWorkerReady → Request::initSwoole → setResponse → run()
+    // → Throwable 边界（Log::exception + 最小 500）→ 未结束则 end(输出)
+    // → cleanup。不覆盖业务 status/header/Content-Type，不二次 end。
+    $app->handleSwoole($request, $response);
+    // 可选 options：['cleanup_gc' => false, 'catch' => function (\Throwable $e, $request, $response) { ... }]
 });
 
 $http->start();

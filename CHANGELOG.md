@@ -1,5 +1,67 @@
 # Gene Framework Changelog
 
+## [6.2.4]
+
+> 本版为修正版：`bootstrap()` 新增 `debug`/`ex_callback`/`error_callback` 透传 `setMode` 全参；修复三处功能缺陷——路由整数事件名静默失效、DB `history()` 快照被引擎续写（COW 违例）、`Validate::name()` 未播种 FIELD 导致 `rule_*()` 直调失效。
+
+### ✨ 新增
+
+- **`bootstrap()` 支持 `setMode` 全参透传**：新增 `debug`（显式 debug 标志，优先于 `debug_envs` 环境匹配，等价旧式 `setMode(1,1)` 恒开）、`ex_callback`、`error_callback` 三个 options——后两者直接透传为 `setMode` 的第 3/4 参（自定义异常/错误处理器，如 CLI 入口的 `doException`），非 callable 抛 `ValueError`；`error_callback` 单独给出时 `ex_callback` 占位为 Gene 内置异常处理器，语义与 `setMode` 缺省一致。
+
+### 🐞 修复
+
+- **`Router->error(404, ...)` 整数事件名静默失效**：`__call` 仅在首参为 `IS_STRING` 时取作事件名，文档形式的 `->error(404, ...)`（int）被丢成空名，实际注册为 `error:`/`fcl:`，而派发查找 `error:404`/`fcl:404` → 404 处理器从未执行，未匹配路由只落得 `Gene Unknown Url` 警告。标量首参（long/double/bool）现在先字符串化再注册；非标量维持原空名兜底。`hook(503, ...)`、`runError('404')` 路径同理修复。Linux 验收 `swoole_entry_verify.php` 的 `/no/such/route` 用例（注册 `error(404)` 期望 `R:404` 响应）由 FAIL 转 PASS。
+- **DB `history()` 快照被引擎原地续写（COW 违例）**：`history()` 以 `RETURN_ZVAL` 把引擎数组返还用户态后 refcount>1，此后每条语句仍对共享 HashTable 原地 `add_next_index_zval`（到 `GENE_DB_HISTORY_MAX` 上限还会 `zend_hash_index_del` 挤掉头元素）——release 下静默污染调用方已拿到的快照，debug 构建在 `GC_REFCOUNT(ht)==1` 断言处中止进程。四个驱动（mysql/sqlite/pgsql/mssql）的 SaveHistory 写前补 `SEPARATE_ARRAY`：快照真正冻结，引擎继续独立记录。复现：`php -d gene.run_environment=0 audit\repro\db_history_cow.php`。
+- **`Validate::name()` 未播种 FIELD，`name('x')->rule_*()` 直调失效**：`name($f)` 只写 KEY，而 `rule_*()` 经 `getFieldVal()`/`required()` 读 FIELD——后者仅在 `valid()`/`groupValid()` 的逗号拆分迭代内填充，文档式"先 `name()` 再 `rule_*()`"流程恒警告 "Please call the name method" 且无真实校验结果。`name()` 现同时写 KEY+FIELD；`valid()` 仍按字段覆盖 FIELD，流式配置路径行为不变。复现：`php audit\repro\validate_name_field.php`。
+- **`swoole_entry_verify.php` `/di` 用例修正**：`Di::set` 原为 workerStart 内调用——DI 注册表是请求/协程级（`ctx->di_regs`），workerStart 协程的注册对请求协程不可见，导致 `/di` 恒返回空。改为在 `onRequest` 回调内（与派发同协程）注册 `entry_verify_svc`，三入口一致通过；DI 保持严格请求作用域，不新增 worker 级共享语义。
+
+### 🔧 修改文件一览
+
+- `src/app/application.c` — `bootstrap()` `debug`/`ex_callback`/`error_callback` 透传 `setMode`
+- `src/router/router.c` — `__call` 标量事件/钩子名字符串化
+- `src/db/{mysql,sqlite,pgsql,mssql}.c` — SaveHistory 写前 `SEPARATE_ARRAY`
+- `src/http/validate.c` — `name()` 同播 KEY+FIELD
+- `src/gene.h` — 版本号 6.2.4
+
+## [6.2.3]
+
+> 本版落地 `plan/application-entry-runtime.md`：FPM/Swoole 入口收口——Swoole 请求适配与派发生命周期进入扩展 API（`Request::initSwoole`/`Application::handleSwoole`），应用装载收口为 `bootstrap()`，连接池边界改为显式声明编排；新增 `gray` 环境映射，修复 `sendFile()` 本地路径全量被拒回归。
+
+### ✨ 新增
+
+- **`Gene\Request::initSwoole($request)`**：Swoole 请求适配器，从 `$request->get/post/cookie/server/files/header` 提取请求袋（缺失/非数组按 `[]` 处理），RAW 取一次 `$request->rawContent()` 方法调用，REQUEST 自动合并 GET+POST，ENV 不注入；`rawContent()` 缺失或抛错时抛出可捕获 `Error`，绝不留下半初始化请求。替代 onRequest 里的九参数 `init()` 样板。
+- **`Gene\Application::handleSwoole($request, $response, $options = [])`**：一站式 Swoole onRequest 生命周期适配器，内建 waitWorkerReady → initSwoole → setResponse → 输出缓冲 → run() → Throwable 边界 → 响应可写时 `end(输出)` → cleanup。options 支持 `cleanup_gc`（默认 false）与 `catch` 回调；未配 `catch` 时记 `Log::exception()` 并补最小 `status(500)`。不设默认 Content-Type、不覆盖业务 status/header，dispatch 内已 `end/json/redirect/sendFile` 的请求绝不二次 `end()`。
+- **`getEnvironmentName()` 新增 `gray` 环境**：编号 `3` 映射为 `"gray"`；未知编号仍回落 `"dev"`，但每进程告警一次（Swoole 下走 `gene_log_diag()` 仅写 error_log，不触发用户错误处理器）。
+- **`Gene\Application::bootstrap($appRoot, $confDir, $options)`**：FPM/Swoole 共享的应用装载收口，等价于 `autoload` → `load(router)` → `load(config)` → `setMode(mode ?? 1, debug)`。`router`/`config` 文件名支持 `{env}` 占位符展开为 `getEnvironmentName()`；`debug_envs` 命中的环境 debug=1（即 `setMode` 的 exception_type，未命中则不注册异常处理器）。不承载 request-id/webscan/时区/池名/业务异常信封。
+- **显式 Pool 生命周期编排**：`Application::pools($decls)` 登记池声明（`driver` 仅 `db`/`redis`，`component` 为 config 键名，`params` 可选池参数），`startPools()` 在 workerStart 中创建全部未启动池，`stopPoolTimers()`/`closePools()` 对应 workerExit/workerStop。FPM 下 `startPools()` 明确返回 false；重复启停幂等；某池创建失败抛异常且声明保持未启动可重试，不留下半初始化注册项或游离 timer；不扫描配置猜测池类型，不替应用注册 Swoole 回调。
+
+### 🐞 修复
+
+- **`Response::sendFile()` 本地文件全量被拒**（2026-08-07 批次引入）：`STREAM_LOCATE_WRAPPERS_ONLY` 模式下纯本地路径返回 `NULL` 而非 `&php_plain_files_wrapper`，`!wrapper ||` 判定把所有本地文件当 wrapper 拒绝。改为"解析到任何 wrapper 才拒绝"——`php://`/`data:`/`http://`/`phar://` 仍被拦，普通路径与 `file://` 恢复可用；新增 SwooleEntryTest 回归用例。
+
+### ✅ 测试
+
+- `SwooleEntryTest` 新增 30 断言（duck-typed mock，无需真实 Swoole）：六袋提取、rawContent 缺失抛 `Error`、两次 initSwoole 间缓存失效、handleSwoole 输出缓冲/异常最小 500/catch 消费与再抛/嵌套 buffer 收敛/已 `end|json|redirect|sendFile|write` 不二次 end、`cleanup_gc`、bootstrap `{env}` 展开与选项校验、pools 声明校验/FPM 拒绝/缺配置失败可重试/幂等 stop-close、`sendFile`、`Hook::respond`/`Hook::abort`、`3→gray`。
+- `tools/acceptance/swoole_entry_verify.php`：自包含 Linux+Swoole 入口验收——`--entry=manual|init|handle` 三入口同路由响应等价（RESULT-DIGEST 跨入口一致即语义等价）、`--soak=N` 请求级 soak 断言 `co_contexts_items=0`、`--bench` 输出四类路径吞吐/p50/p99/RSS；workerStart 走 `pools()+startPools()`、workerExit/Stop 走 `stopPoolTimers()/closePools()`。
+- `linux_swoole_verify.sh` 新增 `entry-matrix`（handleSwoole × 四格 INI）、`entry-soak`、`entry-bench-{manual,init,handle}` + `entry-bench-equiv`（三入口 digest 一致性）阶段。
+
+### 📝 文档与计划
+
+- `demo/public/{index,cli,rest_invoke}.php` 迁移至 `bootstrap()`；`demo/public/swoole.php` worker 生命周期改用 `bootstrap` + `pools`/`startPools`/`stopPoolTimers`/`closePools`，请求入口 `handleSwoole` 一行收口，移除无条件 `Content-Type: text/html` 与固定 `/50x.html` 反模式；四入口 `debug_envs` 统一为 `['dev','test','gray']`（等价旧式 `setMode(1,1)` 恒开语义）。
+- `plan/application-entry-runtime.md` 回填实施记录（P0/P1/P2 全部落地、4 条偏差说明、Linux 待执行清单）。
+- 同步 `gene-ide-helper/Gene/{Application,Request}.php`、`reference.md`、`swoole.md`、`rules/gene-project.mdc`、`AGENTS.md`；`debug_envs` ⇒ `exception_type` 语义加注；`setEnvironment` 原 1-based 注释勘误为 0=dev/1=test/2=prod/3=gray。
+
+### 🔧 修改文件一览
+
+- `src/http/request.c` / `src/http/request.h` — `initSwoole()` 与 `gene_request_init_bags()`/`gene_request_init_swoole()` 共享体
+- `src/http/response.c` — `sendFile()` wrapper 判定修正（`STREAM_LOCATE_WRAPPERS_ONLY` 下 `wrapper != NULL` 才拒绝）
+- `src/app/application.c` — `handleSwoole()`、`bootstrap()`、`pools()`/`startPools()`/`stopPoolTimers()`/`closePools()`、`cleanup()`/`setResponse()` 共享体抽取、gray 环境、run() 降级 auto-cleanup 的 handle-depth 抑制
+- `src/gene.c` / `src/gene.h` — `swoole_handle_depth`/`env_fallback_warned`/`pool_decls` 全局、版本号 6.2.3
+- `test/SwooleEntryTest.php` / `test/TestRunner.php` — 入口运行时回归测试注册
+- `demo/public/{index,cli,rest_invoke,swoole}.php` — bootstrap 迁移与入口收口
+- `tools/acceptance/{swoole_entry_verify.php,linux_swoole_verify.sh,README.md}` — Linux 入口验收
+- `plan/application-entry-runtime.md` / `plan/README.md`、`gene-ai-helper/*`、`gene-ide-helper/Gene/*` — 文档与 IDE helper
+
 ## [6.2.2]
 
 > 本版将持久缓存按框架元数据与业务写入分区隔离，修复路由预编译描述符在路由重建后的失效问题，补齐连接池/缓存/路由的 Monitor 可观测指标，并处理 Redis Lua 边界返回、PHP 8.4+ 头文件迁移等兼容性细节。
@@ -48,7 +110,7 @@
 - `src/tool/monitor.c` — 新增业务缓存/连接池/路由预编译计数器导出
 - `test/CacheTest.php` / `test/DatabaseTest.php` / `test/LifecycleTest.php` — 分区、池场景与脚本刷新
 - `audit/repro/route_pc_clear_invalidate.php` — 路由预编译失效回归复现
-- `docs/CONFIGURATION.md`、`plan/*`、`gene-ai-helper/*`、`gene-ide-helper/Gene/Response.php` — 文档与 IDE helper
+- `docs/CONFIGURATION.md`、`plan/*`、`gene-ai-helper/*`、`gene-ide-helper/Gene/Response.php`、`README*.md` — 文档与 IDE helper
 
 ## [6.2.1]
 

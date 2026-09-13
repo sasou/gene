@@ -1,7 +1,7 @@
 # ORM v2：Db ↔ ORM 对称性
 
 > Gene 版本基线：**6.1.0（已落地）**。  
-> 审计交叉：[`audit/plan/PLAN.md`](../audit/plan/PLAN.md)。  
+> 审计交叉：[audit-backlog.md](audit-backlog.md)。  
 > **v2（源码核对版）**：已对照 `src/orm/query.c`、`src/orm/meta.c`、`src/orm/model.c`、`src/db/mysql.c`、`src/gene.c` 核实可实施性，修正 5 处会导致返工的偏差（见 §0）。
 
 **方案定位**：补齐 **Db ↔ ORM 对称性** 与少量约定（时间戳、批量写、锁、IN 批量读），**不是** Eloquent 式高度抽象（关联图、Scope、模型事件、Unit of Work）。C 层只加重复 ≥3 处或热路径 API。
@@ -291,7 +291,7 @@ Db 新增 `LOCK` 片段，拼装在 `limit` **之后**，并纳入全部 4 驱�
 2. **Db 层惰性** / **ORM 层即时**（`createMany` 遵此）
 3. 新 API 必须有 `OrmTest` / `DatabaseTest`：多条件叠加、空数组 IN、跨驱动不支持
 4. ide-helper + `reference.md` 同步；驱动差异必须写明
-5. 性能项留在 `audit/plan/PLAN.md`，此处不立项
+5. 性能项留在 `audit-backlog.md`，此处不立项
 6. **消费方迁移不在本仓库**
 
 ### 7.1 收益类型
@@ -323,7 +323,7 @@ B   toggle / LIKE / selectSub / Validate 文档
 | timestamps meta 四处（C4） | `src/orm/meta.c` |
 | 请求上下文（C5/M6/M7） | `src/gene.c` |
 | paginate | `src/orm/model.c` |
-| 审计 ORM 缺口 | `audit/plan/PLAN.md` |
+| 审计 ORM 缺口 | `audit-backlog.md` |
 
 ---
 

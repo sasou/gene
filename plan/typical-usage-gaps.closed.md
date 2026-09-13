@@ -1,7 +1,7 @@
 # 典型用法驱动：Gene 6.2 候选增强（源码复核版）
 
 > Gene 版本基线：**6.1.x（ORM v2、生命周期原语、REST 互调已落地）**。  
-> 交叉引用：[orm-v2.md](orm-v2.md) · [lifecycle-completeness.md](lifecycle-completeness.md) · [rest-invoke.md](rest-invoke.md) · [audit/plan/PLAN.md](../audit/plan/PLAN.md)  
+> 交叉引用：[orm-v2.closed.md](orm-v2.closed.md) · [lifecycle-completeness.closed.md](lifecycle-completeness.closed.md) · [rest-invoke.closed.md](rest-invoke.closed.md) · [audit-backlog.md](audit-backlog.md)  
 > 立项依据：典型 Web 应用采用 6.1 后仍反复出现、无业务语义且可跨项目复用的样板代码或 `sql()` 逃生舱。
 
 **方案定位**：优先补齐 ORM 安全写、JOIN 条件、统一输入和 HTTP 标准编码；UNION、复杂结果集分页、Context 魔术属性、文件下载响应和出站下载限额在满足各自前置条件后再落地。不把“少写一行分支”直接等同于框架能力或性能收益。
@@ -714,4 +714,4 @@ flowchart TD
 
 本机没有 Swoole 扩展，也没有 Pgsql/Mssql/MySQL 服务端，因此本轮对 Swoole 完成了 context 生命周期模拟与可执行 coroutine 探针，对四数据库完成 SQL/绑定生成快照，并以 Sqlite 完成真实执行。发布前仍应在 Linux Swoole 环境运行 `audit/repro/lifecycle_leak_probe.php` 与 `test/HttpClientTest.php`，在目标数据库 CI 执行四驱动集成回归；不以 SKIP 冒充动态通过。
 
-**状态**：本文档为 **6.2 候选立项稿（源码复核版）**。先完成里程碑 A；其余项目必须通过各节前置条件后再进入实现。
+**状态**：**已关闭**——里程碑 A 已随 6.2.0 落地（见 §十）；§10.2 暂缓项为前置条件触发（Swoole 后端能力 / 第二应用证据 / DX 收益确认），满足条件时另行立项。

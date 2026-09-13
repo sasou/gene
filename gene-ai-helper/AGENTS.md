@@ -7,7 +7,7 @@
 
 ## 1. 框架认知
 
-- Gene 是 **PHP 扩展**（`extension=gene`），版本线 **6.2.x**（当前 6.2.2），要求 **PHP 8.0–8.5**
+- Gene 是 **PHP 扩展**（`extension=gene`），版本线 **6.2.x**（当前 6.2.4），要求 **PHP 8.0–8.5**
 - 权威 API 来源：`gene-ide-helper/Gene/**/*.php`、`demo/` 示例
 - **禁止**编造类名、方法名或配置键；不确定时 grep 仓库或读 reference
 
@@ -132,7 +132,7 @@ $this->cache->updateVersion(['db.sys_user' => null, 'db.sys_role' => null]);
 |------|----------|
 | **FPM** | `->setMode(1,1)->requestId([...])->run()` 无参 |
 | **CLI** | `->run('get', $path)` |
-| **Swoole** | `setRuntimeType` → worker 内 `Pool::create` → `workerReady()` → 请求内 `Request::init` → `run()` → **`cleanup()`** |
+| **Swoole** | `setRuntimeType` → worker 内 `bootstrap()` → `pools()`+`startPools()` → `workerReady()` → 请求内 **`handleSwoole($request, $response)`** 一行收口 |
 
 request-id 用 **`Application::requestId()`**（默认关闭；写入 `Context['request_id']` 并回写响应头），不要再新增 PHP `Hooks\RequestId`。
 

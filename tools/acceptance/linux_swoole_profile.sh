@@ -1,4 +1,9 @@
 #!/usr/bin/env bash
+# Re-exec under full bash when invoked via `sh`: POSIX-mode bash (<5.1) and
+# non-bash shells (dash/ash) lack features this script relies on.
+if [ -z "${BASH_VERSION:-}" ] || set -o 2>/dev/null | grep -qE '^posix[[:space:]]+on'; then
+    exec bash "$0" "$@"
+fi
 set -Eeuo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -62,6 +67,11 @@ done
 if [[ "$(uname -s)" != Linux ]]; then
     echo "This profiling script requires Linux perf." >&2
     exit 2
+fi
+if [[ -z "$WORKER_PID" || -z "$ROUTE_URL" || -z "$DB_URL" ]]; then
+    echo "Missing required options: --worker-pid, --route-url and --db-url." >&2
+    usage >&2
+    exit 64
 fi
 if [[ ! "$WORKER_PID" =~ ^[1-9][0-9]*$ ]] || ! kill -0 "$WORKER_PID" 2>/dev/null; then
     echo "Invalid or inaccessible WORKER_PID: $WORKER_PID" >&2

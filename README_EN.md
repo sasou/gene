@@ -6,7 +6,7 @@
 
 [![PHP](https://img.shields.io/badge/PHP-8.0~8.5-777BB4?style=flat-square&logo=php&logoColor=white)](https://www.php.net/)
 [![Language](https://img.shields.io/badge/Language-C-00599C?style=flat-square&logo=c&logoColor=white)](https://en.wikipedia.org/wiki/C_(programming_language))
-[![Release](https://img.shields.io/badge/Release-v6.2.2-blue?style=flat-square&logo=github)](https://github.com/sasou/php-gene/releases)
+[![Release](https://img.shields.io/badge/Release-v6.2.4-blue?style=flat-square&logo=github)](https://github.com/sasou/php-gene/releases)
 [![Swoole](https://img.shields.io/badge/Swoole-Supported-brightgreen?style=flat-square&logo=swoole&logoColor=white)](https://www.swoole.com/)
 [![Platform](https://img.shields.io/badge/Platform-Linux%20|%20macOS%20|%20Windows-lightgrey?style=flat-square&logo=linux&logoColor=white)](https://github.com/sasou/php-gene)
 [![License](https://img.shields.io/badge/License-PHP%203.01-green.svg?style=flat-square)](http://www.php.net/license/3_01.txt)
@@ -28,7 +28,7 @@
   <a href="#performance-and-capacity">📊 Performance</a>
 </p>
 
-> 💡 **Gene 6.2.2** — Business/framework cache partition isolation, connection pool and route-precompile reliability fixes, expanded Monitor metrics, plus PHP 8.4+ and Redis Lua edge compatibility.
+> 💡 **Gene 6.2.4** — `bootstrap()` passthrough of `setMode`'s `debug`/`ex_callback`/`error_callback` params; fixes for integer router event names (`->error(404)` now registers), DB `history()` snapshot isolation, and `Validate::name()` seeding FIELD for direct `rule_*()` calls.
 
 ---
 
@@ -326,42 +326,12 @@ Ideal for high-concurrency microservices and resident API gateways, unlocking fu
 
 $http = new swoole_http_server("0.0.0.0", 9501);
 
-$http->on("request", function ($request, $response) {
-    // Inject request context snapshot
-    \Gene\Request::init(
-        $request->get,
-        $request->post,
-        $request->cookie,
-        $request->server,
-        null,
-        $request->files,
-        null,
-        $request->header
-    );
-    \Gene\Application::setResponse($response);
+$app = \Gene\Application::getInstance();
 
-    ob_start();
-    $error = false;
-    try {
-        \Gene\Application::getInstance()->run();
-    } catch (\Throwable $e) {
-        $error = true;
-        \Gene\Log::exception($e);
-    } finally {
-        $out = ob_get_clean();
-        // Clean up coroutine-local request resources
-        \Gene\Application::cleanup();
-    }
-
-    if ($error) {
-        $response->redirect('/50x.html');
-        return;
-    }
-
-    if (!$response->isWritable()) {
-        return;
-    }
-    $response->end($out);
+$http->on("request", function ($request, $response) use ($app) {
+    // One-call lifecycle: waitWorkerReady → initSwoole → setResponse → run()
+    // → Throwable boundary (Log::exception + minimal 500) → end(output) → cleanup
+    $app->handleSwoole($request, $response);
 });
 
 $http->start();

@@ -6,7 +6,7 @@ require_once __DIR__ . '/bootstrap.php';
 function acceptance_swoole_benchmark(array $config, string $root): array
 {
     $php = $config['php_binary'] ?? 'php';
-    $script = $config['swoole_verify_script'] ?? 'tools/verify_5_6_6_swoole.php';
+    $script = $config['swoole_verify_script'] ?? 'tools/acceptance/verify_5_6_6_swoole.php';
     $matrix = [
         ['gene.swoole_getcid_capi=0', 'gene.route_precompile=0'],
         ['gene.swoole_getcid_capi=1', 'gene.route_precompile=0'],

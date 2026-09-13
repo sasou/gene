@@ -1,134 +1,62 @@
 # Gene Framework Test Suite
 
-This directory contains comprehensive test files for all major classes in the Gene Framework. Each test file covers the important methods and functionality of its corresponding class.
+This directory contains the regression test suite for the Gene extension. `TestRunner.php` executes each `*Test.php` file below in an isolated PHP child process and aggregates pass/fail counts.
 
-## Test Files
+Related verification assets outside this directory:
 
-### Core Framework Classes
+- `audit/repro/` — one-shot reproduction / leak-probe scripts backing individual audit findings (see `audit/README.md`).
+- `tools/acceptance/` — FPM/Swoole acceptance harness, benchmark and Linux release gate (see `tools/acceptance/README.md`).
 
-1. **ApplicationTest.php** - Tests for `Gene\Application` class
-   - Constructor and getInstance methods
-   - Environment and runtime configuration
-   - Request information methods
-   - State management
-   - Configuration and autoloading
-   - Error and exception handling
-   - View configuration
-   - Magic methods
+## Test Files (run by TestRunner)
 
-2. **CacheTest.php** - Tests for `Gene\Cache` class
-   - Constructor with different configurations
-   - Basic caching functionality
-   - Version-based caching
-   - Cache invalidation
-   - TTL (Time To Live) management
-   - Complex object caching
-   - Performance testing
-   - Error handling
+### Core Framework
 
-3. **RouterTest.php** - Tests for `Gene\Router` class
-   - Constructor and basic routing
-   - Route registration and matching
-   - Template rendering
-   - Dispatch functionality
-   - Parameter handling
-   - Route groups and prefixes
-   - Language support
-   - Magic methods for HTTP verbs
-
-### Utility Classes
-
-4. **SessionTest.php** - Tests for `Gene\Session` class
-   - Constructor with configuration
-   - Session data operations (get, set, delete)
-   - Session lifecycle management
-   - Session ID management
-   - Lifetime configuration
-   - Cookie operations
-   - Data type handling
-   - Performance testing
-
-5. **LogTest.php** - Tests for `Gene\Log` class
-   - Basic logging methods (debug, info, warning, error)
-   - Exception logging
-   - Log level management
-   - File configuration
-   - Message type handling
-   - Performance testing
-   - Error handling
-
-6. **LanguageTest.php** - Tests for `Gene\Language` class
-   - Constructor and configuration
-   - Language switching
-   - Translation retrieval
-   - Magic methods (__call, __get)
-   - Fallback behavior
-   - Parameter substitution
-   - Nested translations
-   - Performance testing
-
-7. **ServiceTest.php** - Tests for `Gene\Service` class
-   - Constructor and magic methods
-   - Success and error responses
-   - Property management
-   - Response formats
-   - State management
-   - Data container functionality
-   - Response consistency
-
-8. **BenchmarkTest.php** - Tests for `Gene\Benchmark` class
-   - Constructor and timing methods
-   - Memory usage tracking
-   - Multiple benchmark cycles
-   - Different operation types
-   - Accuracy and precision
-   - Nested operations
-   - Performance testing
-
-9. **ExecuteTest.php** - Tests for `Gene\Execute` class
-   - Constructor and configuration
-   - Opcode generation
-   - String code execution
-   - Complex code execution
-   - Error handling
-   - PHP features support
-   - Security considerations
-   - Return type handling
+| File | Coverage |
+|------|----------|
+| `ApplicationTest.php` | `Gene\Application`: getInstance, environment/runtime config, request info, state management, config & autoloading, error/exception handling, view config, magic methods |
+| `CacheTest.php` | `Gene\Cache`: configurations, basic caching, versioned cache, invalidation, TTL, complex objects, performance, error handling |
+| `ConfigTest.php` | `Gene\Config`: dotted-key write/read, scalar-leaf vs nested-directory overwrite semantics |
+| `RouterTest.php` | `Gene\Router`: registration & matching, groups/prefixes, dispatch, params, language routes, HTTP verb magic methods, template rendering |
+| `SessionTest.php` | `Gene\Session`: data ops, lifecycle, session-id management, lifetime, cookies, data types, performance |
+| `LogTest.php` | `Gene\Log`: debug/info/warning/error, exception logging, level management, file config, message types, performance |
+| `LanguageTest.php` | `Gene\Language`: switching, retrieval, `__call`/`__get`, fallback, parameter substitution, nested translations |
+| `ServiceTest.php` | `Gene\Service`: magic methods, success/error responses, property & state management, response consistency |
+| `BenchmarkTest.php` | `Gene\Benchmark`: timing, memory tracking, multiple cycles, accuracy, nested operations |
+| `ExecuteTest.php` | `Gene\Execute`: opcode generation, string code execution, error handling, PHP feature support, security |
+| `DiTest.php` | `Gene\Di`: static set/get/has/del registry, magic accessors via singleton, verbatim value semantics |
+| `HookTest.php` | `Gene\Hook`: before/after/handle override points, success/error/data payload shapes, method predicates, static request accessors |
 
 ### HTTP Layer
 
-10. **HttpTest.php** - Tests for HTTP classes
-    - **Request class**: Method detection, parameter handling, headers, files, cookies
-    - **Response class**: Content setting, status codes, headers, redirects
-    - **Validate class**: String, numeric, email, URL, file validation
-    - HTTP workflow integration
-    - Security features
-    - Performance testing
-
-17. **LifecycleTest.php** - Context / Json / Request::json / SSE write / Crypto / Memory rateLimit+lock  
-    Redis 无环境时显式 SKIP。泄漏探针见 `audit/repro/lifecycle_leak_probe.php`（`memory_get_usage(true)` delta 须为 0）。
-
-18. **HttpClientTest.php** - `Gene\Http::request()`：FPM/CLI 走 curl（本地 `php -S` echo）；`runtime_type>=2` 走 Swoole 协程客户端，无环境则 SKIP，禁止假通过。
+| File | Coverage |
+|------|----------|
+| `HttpTest.php` | `Request`/`Response`/`Validate`: method detection, params, headers, files, cookies; status codes & redirects; string/numeric/email/url/file validation; workflow integration |
+| `HttpClientTest.php` | `Gene\Http::request()`: curl backend against a local `php -S` echo fixture; Swoole coroutine client when `runtime_type>=2` — explicit SKIP without the env, no fake pass |
+| `LifecycleTest.php` | `Context` / `Json` / `Request::json` / SSE `write` / `Crypto` / `Memory` rateLimit+lock; Redis paths SKIP without env. Leak probe: `audit/repro/lifecycle_leak_probe.php` |
+| `RestInvokeTest.php` | `Gene\Invoke` local dispatch and `Gene\Rest` immutable proxy semantics |
+| `SwooleEntryTest.php` | `Request::initSwoole` / `Application::handleSwoole` / `bootstrap()` / `pools()` lifecycle via duck-typed Swoole doubles — ext-swoole not required |
 
 ### MVC Layer
 
-11. **MvcTest.php** - Tests for MVC classes
-    - **Controller class**: Action handling, rendering, redirection, parameter management
-    - **Model class**: CRUD operations, query building, relationships, events
-    - **View class**: Template rendering, variable assignment, helpers, caching
-    - MVC integration and patterns
-    - Performance testing
-    - Error handling
+| File | Coverage |
+|------|----------|
+| `MvcTest.php` | `Controller`/`Model`/`View`: action handling, rendering, redirects, parameter management, integration patterns |
+| `OrmTest.php` | `Gene\Orm\Model` & `Query`: class surface always asserted; SQLite in-memory CRUD when available via DI |
 
 ### Database Layer
 
-12. **DatabaseTest.php** - Tests for Database classes
-    - **MySQL class**: Connection, CRUD operations, transactions, prepared statements
-    - **PostgreSQL class**: Specific features, JSON/Array support, parameter binding
-    - **SQLite class**: In-memory database, specific features, PRAGMA settings
-    - **PDO class**: Generic database access, different DSN formats
-    - **Pool class**: Connection pooling, management, statistics
-    - Query builder, migrations, security, performance
+| File | Coverage |
+|------|----------|
+| `DatabaseTest.php` | `Mysql`/`Pgsql`/`Sqlite`/`Pdo`/`Pool`: connections, CRUD, transactions, prepared statements, query builder, migrations; real-server sections degrade to reported items when unreachable |
+
+## Standalone Helpers (not run by TestRunner)
+
+| File | Purpose |
+|------|---------|
+| `FixedTest.php` | Minimal smoke checks for Application/Router instantiation |
+| `SimpleTest.php` | Instantiation smoke test across core classes |
+| `url_methods_test.php` | URL/path helper probe across Application/Controller/View/Hook/Response — prints values, no assertions |
+| `fixtures/http_echo.php` | Echo endpoint served via `php -S`, used by `HttpClientTest` and `RestInvokeTest` |
 
 ## Usage
 
@@ -142,11 +70,7 @@ php TestRunner.php
 
 ```bash
 php TestRunner.php --test ApplicationTest.php
-```
-
-or
-
-```bash
+# or
 php TestRunner.php -t ApplicationTest.php
 ```
 
@@ -164,6 +88,32 @@ php CacheTest.php
 php RouterTest.php
 # ... etc
 ```
+
+## Running Against a Locally Built Extension (no install)
+
+`TestRunner.php` spawns each test through `PHP_BINARY` in a child process and forwards the contents of the `GENE_TEST_PHP_ARGS` environment variable as extra php arguments. To exercise a freshly built DLL/SO without installing it (e.g. while WampServer still locks the deployed copy), pass the same `-n` / `-d extension=...` arguments to both the runner and its children:
+
+```bat
+rem cmd.exe — Windows, testing the no-deploy DLL
+set GENE_TEST_PHP_ARGS=-n -d extension_dir=D:\wampServer-php8.1_x64_nts\php_ext -d extension=pdo_sqlite -d extension=F:\php_src\php-8.1.30-src\x64\Release\php_gene.dll
+D:\wampServer-php8.1_x64_nts\bin\php.exe %GENE_TEST_PHP_ARGS% test\TestRunner.php
+```
+
+```powershell
+# PowerShell equivalent
+$env:GENE_TEST_PHP_ARGS = '-n -d extension=pdo_sqlite -d extension=F:\php_src\php-8.1.30-src\x64\Release\php_gene.dll'
+D:\wampServer-php8.1_x64_nts\bin\php.exe -n -d extension=pdo_sqlite -d extension=F:\php_src\php-8.1.30-src\x64\Release\php_gene.dll test\TestRunner.php
+```
+
+```bash
+# Linux/macOS equivalent
+export GENE_TEST_PHP_ARGS='-n -d extension=pdo_sqlite -d extension=/path/to/gene.so'
+php $GENE_TEST_PHP_ARGS test/TestRunner.php
+```
+
+- Without `GENE_TEST_PHP_ARGS`, child processes load the default `php.ini` (and possibly an older installed `gene` extension), producing false failures.
+- Some tests need extra extensions in these args — e.g. `openssl` for the `LifecycleTest` Crypto cases; missing extensions surface as environmental failures/SKIPs, not regressions.
+- On Windows, redirected console output may appear UTF-16 encoded — that is a PowerShell encoding quirk, not a test failure.
 
 ## Test Structure
 
@@ -213,7 +163,7 @@ The test suite covers:
 
 When adding new tests:
 
-1. Follow the existing naming conventions
+1. Follow the existing naming conventions (`*Test.php`) and register the file in `TestRunner.php`'s `$testFiles` list — otherwise it is never executed by the suite
 2. Include both positive and negative test cases
 3. Add performance tests for critical operations
 4. Test error conditions and edge cases

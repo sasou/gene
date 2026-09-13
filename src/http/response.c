@@ -763,10 +763,15 @@ PHP_METHOD(gene_response, sendFile) {
 	 * close the SSRF surface when $file is derived from user input.
 	 * REPORT_ERRORS alone does not gate the wrapper — reject anything that
 	 * is not the plain files wrapper (php://filter, data://, and http://
-	 * under allow_url_fopen=On would otherwise pass through). */
+	 * under allow_url_fopen=On would otherwise pass through).
+	 * [GENE_FIX:2026-09-12] STREAM_LOCATE_WRAPPERS_ONLY never returns
+	 * &php_plain_files_wrapper: a plain path (and file://, which falls back to
+	 * plain) yields NULL, while php://, data:, http://, phar:// etc. resolve to
+	 * their wrapper object. So the guard is "any located wrapper => reject";
+	 * the old !wrapper || != &plain test rejected every local file outright. */
 	{
 		php_stream_wrapper *wrapper = php_stream_locate_url_wrapper(ZSTR_VAL(file), NULL, STREAM_LOCATE_WRAPPERS_ONLY);
-		if (!wrapper || wrapper != &php_plain_files_wrapper) {
+		if (wrapper) {
 			php_error_docref(NULL, E_WARNING, "sendFile() only accepts local file paths");
 			RETURN_FALSE;
 		}
