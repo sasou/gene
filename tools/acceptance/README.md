@@ -38,6 +38,21 @@ Swoole profile 会执行 `gene.swoole_getcid_capi` 与
 Swoole 长跑 / 池压测仍用既有 `swoole_context_soak.php`、`pool_concurrency.php`：
 ORM 不额外持有连接，仅要求 `db.instance=true` + Pool，并在请求 `cleanup()`。
 
+## MySQL / Redis 专项验证（gene_web 部署）
+
+`mysql_redis_verify.sh` — 针对 `/data/webapp/www/gene_web/` 部署的 DB/Redis 快速验收，
+头部「部署配置」段集中填写 DSN/账号/Redis 地址（同名环境变量可覆盖，密码留空则交互询问）：
+
+```bash
+bash tools/acceptance/mysql_redis_verify.sh          # preflight + 直连/Gene层探测 + 池并发 + tx-hygiene
+bash tools/acceptance/mysql_redis_verify.sh --full   # 追加 exec linux_swoole_verify.sh --all
+```
+
+阶段：`mysql-raw`（PDO）→ `mysql-gene`（`Gene\Db\Mysql`）→ `redis-raw`（ext-redis）→
+`redis-gene`（`Gene\Cache\Redis` 往返）→ `mysql-pool` / `redis-pool`（`pool_concurrency.php`
+200 协程 × 1000 迭代）→ `tx-hygiene`（`audit/repro/tx_leak_pool.php`）。
+各阶段输出落 `$OUT/status.tsv` 与 `summary.txt`。
+
 ## Linux Swoole 一键验证
 
 在 **Linux** 上构建并跑隔离全测、四组 Swoole 开关矩阵、手动/自动 Context cleanup soak、入口适配验证。发布验收以 Linux 为准。
