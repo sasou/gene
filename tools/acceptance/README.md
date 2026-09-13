@@ -152,8 +152,7 @@ entry-bench 三入口内各自一致即"优化开关不改语义"。`entry-bench
 # 1) 一次性：初始化 demo 本地 sqlite（幂等）
 php demo/database/init_sqlite.php
 
-# 2) 以生产配置启动 demo Swoole 服务（在仓库根执行）
-cd demo
+# 2) 以生产配置启动 demo Swoole 服务（在仓库根执行，无需 cd demo）
 GENE_DEMO_LOCAL=1 \
 GENE_SWOOLE_HOST=127.0.0.1 GENE_SWOOLE_PORT=9501 GENE_SWOOLE_WORKERS=4 \
 GENE_SWOOLE_PID_FILE=/tmp/gene-demo-swoole.pid \
@@ -162,7 +161,7 @@ php -d gene.runtime_type=2 -d gene.run_environment=2 \
     -d gene.swoole_auto_cleanup=1 \
     -d opcache.enable_cli=1 -d opcache.validate_timestamps=0 \
     -d realpath_cache_size=4096k -d realpath_cache_ttl=600 \
-    public/swoole.php &
+    demo/public/swoole.php &
 
 # 3) 取一个 worker PID（非 master/manager）：master(最老) → manager → workers
 MASTER=$(pgrep -fo 'public/swoole.php')
