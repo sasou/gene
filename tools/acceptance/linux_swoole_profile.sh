@@ -6,6 +6,9 @@ if [ -z "${BASH_VERSION:-}" ] || set -o 2>/dev/null | grep -qE '^posix[[:space:]
 fi
 set -Eeuo pipefail
 
+trap 'rc=$?; echo "linux_swoole_profile.sh: line $LINENO exited $rc: $BASH_COMMAND" >&2' ERR
+trap 'echo "linux_swoole_profile.sh: interrupted; partial output in ${OUT:-<not-created>} (no summary.txt/.tar.gz)" >&2' INT TERM
+
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 GENE_REPO="${GENE_REPO:-$(cd "$SCRIPT_DIR/../.." && pwd)}"
 PHP_BIN="${PHP_BIN:-php}"
@@ -58,7 +61,7 @@ while (($#)); do
     esac
 done
 
-for command in perf wrk curl tar awk sed sort head ps grep tr readlink; do
+for command in perf wrk curl tar awk sed sort head ps grep tr readlink tail df wc; do
     if ! command -v "$command" >/dev/null 2>&1; then
         echo "Missing required command: $command" >&2
         exit 2
@@ -96,6 +99,20 @@ fi
 mkdir -p "$OUT"
 OUT="$(cd "$OUT" && pwd)"
 
+echo "Output dir: $OUT"
+echo "Plan: route-view -> db-orm-view; each = ${WARMUP_DURATION} wrk warmup + ${PROFILE_DURATION}s perf sampling + report."
+parent_pid="$(ps -o ppid= -p "$WORKER_PID" 2>/dev/null | tr -d ' ' || true)"
+if command -v pgrep >/dev/null 2>&1 && [[ -n "$parent_pid" ]]; then
+    worker_count="$(pgrep -P "$parent_pid" 2>/dev/null | wc -l || true)"
+    if (( worker_count > 1 )); then
+        echo "Note: $worker_count workers under manager $parent_pid; only pid $WORKER_PID is sampled, so it sees ~1/$worker_count of the wrk traffic."
+    fi
+fi
+avail_kb="$(df -Pk "$OUT" | awk 'NR==2 {print $4}')"
+if [[ "$avail_kb" =~ ^[0-9]+$ ]] && (( avail_kb < 262144 )); then
+    echo "Warning: <256MB free on $OUT filesystem; perf.data may not fit (tmpfs /tmp is common)." >&2
+fi
+
 {
     date --iso-8601=seconds
     uname -a
@@ -114,17 +131,38 @@ OUT="$(cd "$OUT" && pwd)"
 profile_case() {
     local name="$1" url="$2" dir="$OUT/$1"
     mkdir -p "$dir"
+    echo "== [$name] probe $url"
     curl -fsS --connect-timeout 5 --max-time 30 "$url" >"$dir/probe-response.txt"
-    wrk -t"$WRK_THREADS" -c"$WRK_CONNECTIONS" -d"$WARMUP_DURATION" --latency "$url" >"$dir/wrk-warmup.txt" 2>&1
+    echo "== [$name] wrk warmup ${WARMUP_DURATION} (-t${WRK_THREADS} -c${WRK_CONNECTIONS})"
+    if ! wrk -t"$WRK_THREADS" -c"$WRK_CONNECTIONS" -d"$WARMUP_DURATION" --latency "$url" >"$dir/wrk-warmup.txt" 2>&1; then
+        echo "profile_case($name): wrk warmup exited non-zero; tail of $dir/wrk-warmup.txt:" >&2
+        tail -20 "$dir/wrk-warmup.txt" >&2 || true
+        exit 2
+    fi
     if ! grep -qE '[1-9][0-9]* requests in' "$dir/wrk-warmup.txt"; then
         echo "profile_case($name): wrk warmup got 0 responses for $url (see $dir/wrk-warmup.txt)" >&2
         exit 2
     fi
+    echo "== [$name] sampling ${PROFILE_DURATION}s: perf record -F${PERF_FREQUENCY} on pid $WORKER_PID + wrk load"
     perf record -F "$PERF_FREQUENCY" -g -p "$WORKER_PID" -o "$dir/perf.data" -- sleep "$PROFILE_DURATION" >"$dir/perf-record.txt" 2>&1 &
     local perf_pid=$!
     sleep 1
-    wrk -t"$WRK_THREADS" -c"$WRK_CONNECTIONS" -d"${PROFILE_DURATION}s" --latency "$url" >"$dir/wrk-profile.txt" 2>&1
-    wait "$perf_pid"
+    if ! wrk -t"$WRK_THREADS" -c"$WRK_CONNECTIONS" -d"${PROFILE_DURATION}s" --latency "$url" >"$dir/wrk-profile.txt" 2>&1; then
+        echo "profile_case($name): wrk profile run exited non-zero; tail of $dir/wrk-profile.txt:" >&2
+        tail -20 "$dir/wrk-profile.txt" >&2 || true
+        exit 2
+    fi
+    if ! wait "$perf_pid"; then
+        echo "profile_case($name): perf record exited non-zero; tail of $dir/perf-record.txt:" >&2
+        tail -20 "$dir/perf-record.txt" >&2 || true
+        exit 2
+    fi
+    if [[ ! -s "$dir/perf.data" ]]; then
+        echo "profile_case($name): $dir/perf.data missing or empty; tail of $dir/perf-record.txt:" >&2
+        tail -20 "$dir/perf-record.txt" >&2 || true
+        exit 2
+    fi
+    echo "== [$name] perf report/script"
     perf report -i "$dir/perf.data" --stdio --no-children --sort=dso --percent-limit 0 >"$dir/perf-dso.txt" 2>&1
     perf report -i "$dir/perf.data" --stdio --no-children --sort=symbol --percent-limit 0 >"$dir/perf-symbols.txt" 2>&1
     awk '/^[[:space:]]*[0-9]+\.[0-9]+%/ { pct=$1; gsub(/%/, "", pct); symbol=$0; sub(/^[[:space:]]*[0-9]+\.[0-9]+%[[:space:]]+/, "", symbol); print pct "\t" symbol }' "$dir/perf-symbols.txt" \
@@ -147,9 +185,11 @@ profile_case() {
         exit 2
     fi
     if [[ -n "$FLAMEGRAPH_DIR" ]]; then
+        echo "== [$name] flamegraph"
         "$FLAMEGRAPH_DIR/stackcollapse-perf.pl" "$dir/perf.script" >"$dir/perf.folded"
         "$FLAMEGRAPH_DIR/flamegraph.pl" "$dir/perf.folded" >"$dir/flamegraph.svg"
     fi
+    echo "== [$name] done"
 }
 
 profile_case route-view "$ROUTE_URL"
