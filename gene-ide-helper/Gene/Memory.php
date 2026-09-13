@@ -77,6 +77,16 @@ class Memory
     public function del($key) {}
 
     /**
+     * delete
+     * `del` 的别名；使 Memory 满足 Session 存储句柄契约（get/set/delete），
+     * 可直接作为 session.driver 使用。
+     *
+     * @param string $key 缓存 key
+     * @return bool
+     */
+    public function delete($key) {}
+
+    /**
      * incr
      * 原子自增（读-改-写全程在写锁内完成）。key 不存在时以 $step 为初始值创建；
      * 已有值为非整数时返回 false。与 set 一样受 Swoole workerReady 冻结约束。

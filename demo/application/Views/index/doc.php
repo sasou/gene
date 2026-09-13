@@ -41,7 +41,7 @@
 </div>
 <div class="layui-col-md9">
   <div class="layui-card" style="margin-left:10px;">
-    <div class="layui-card-header"><?php if(!$id):?>正文<?php else:?><?php echo $this->mark['mark_title'];?><?php endif;?></div>
+    <div class="layui-card-header"><?php if(!$id):?>正文<?php else:?><?php echo isset($mark) ? $mark['mark_title'] : '';?><?php endif;?></div>
     <div class="layui-card-body">
 <?php if(!$id):?>
 <p style="text-align: left;">
@@ -70,7 +70,7 @@ http://1xm.net/demo/admin/ajax.js<br>
 http://1xm.net/demo/admin/blog/test/baidu<br>
 </p>
 <?php endif;?>
-<?php echo $this->text;?>
+<?php echo isset($text) ? $text : '';?>
     </div>
   </div>
 </div>

@@ -1,0 +1,3 @@
+# demo 本地运行产物
+demo/application/Cache/
+demo/database/*.db

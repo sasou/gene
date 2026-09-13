@@ -38,7 +38,8 @@ class Index extends \Gene\Controller
         $mark = \Services\Doc\Mark::getInstance()->row($id);
         if ($mark) {
             $this->assign('mark', $mark);
-            $this->assign('title', $parsedown->text($this->view->mark['app_description']));
+            $this->assign('title', $mark['mark_title']);
+            $this->assign('text', $parsedown->text($mark['app_description']));
         }
         $this->view->display('index/doc', 'common');
     }    

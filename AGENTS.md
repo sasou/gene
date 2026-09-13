@@ -125,3 +125,13 @@ D:\wampServer-php8.1_x64_nts\bin\php.exe -n -d extension_dir=D:\wampServer-php8.
 - `Validate::name($f)` 同时写 KEY 与 FIELD：`name('x')->rule_email()` 等 `rule_*` 直调可用且
   返回真实校验结果；FIELD 在 `valid()`/`groupValid()` 内仍按逗号拆分逐字段覆盖。
   `rule_int` 仅认 `IS_LONG`（数字串校验用 `digit`）。
+- `Gene\Memory` 有 `delete`（`del` 别名）：满足 Session 存储句柄契约 get/set/delete，
+  可作 `session.driver` 的零依赖本地实现。
+- demo 自包含验收：`GENE_DEMO_LOCAL=1` 时 `config.ini.php` 将 db 切到
+  `demo/database/gene_demo.db`（`demo/database/init_sqlite.php` 幂等初始化）、session driver 与
+  cache hook 切到 `localStore`（`Ext\LocalStore`：包 `Gene\Memory`，数组 key 走 `mget`，
+  补 `delete` 别名），swoole 入口只建 `dbPool`；`linux_swoole_verify.sh --demo` 用该模式跑
+  /healthz + /metrics + wrk，不再依赖外部 gene_web。profile 见 `tools/acceptance/README.md`。
+- 视图变量与 DI 是两套存储：`assign()` 写入的变量在模板里以裸 `$name` 访问（extract 进
+  符号表）；`View::__get/__set`（模板内 `$this->x`）走 `gene_di_get_class` 解析 DI 组件，
+  读不到 assign 的值。控制器内同理，`$this->view->x` 不是取视图变量的方式。

@@ -96,6 +96,9 @@ Options:
   --redis             Run Redis pool concurrency verification
   --mysql             Run MySQL pool concurrency verification
   --web PATH          Run gene_web Swoole HTTP and wrk verification
+  --demo              Run the repo-local demo app (demo/) over Swoole HTTP and
+                      wrk; implies GENE_DEMO_LOCAL=1 (sqlite db, in-process
+                      session/cache) so no external services are required
   --all PATH          Run Redis, MySQL, and gene_web verification
   --output PATH       Result directory
   --help              Show this help
@@ -148,6 +151,13 @@ while (($#)); do
             RUN_MYSQL_POOL=1
             RUN_WEB=1
             shift 2
+            ;;
+        --demo)
+            GENE_WEB="$GENE_REPO/demo"
+            RUN_WEB=1
+            GENE_DEMO_LOCAL="${GENE_DEMO_LOCAL:-1}"
+            export GENE_DEMO_LOCAL
+            shift
             ;;
         --output)
             OUT="${2:?--output requires a path}"
@@ -508,6 +518,14 @@ if ((RUN_WEB)); then
         GENE_WEB="$(cd "$GENE_WEB" && pwd)"
         export GENE_SWOOLE_HOST GENE_SWOOLE_PORT GENE_SWOOLE_WORKERS GENE_SWOOLE_PID_FILE
         export GENE_MONITOR_TOKEN="${GENE_MONITOR_TOKEN:-$(openssl rand -hex 24 2>/dev/null || date +%s%N)}"
+        WEB_FAILED=0
+        # --demo / GENE_DEMO_LOCAL: seed the repo-local sqlite database so the
+        # demo doc pages exercise ORM without an external MySQL.
+        if [[ "${GENE_DEMO_LOCAL:-}" == "1" && -f "$GENE_WEB/database/init_sqlite.php" ]]; then
+            log "gene-web seeding demo sqlite database"
+            "${PHP_CMD[@]}" "$GENE_WEB/database/init_sqlite.php" || WEB_FAILED=1
+        fi
+        if ((WEB_FAILED == 0)); then
         log "gene-web launching on 127.0.0.1:$GENE_SWOOLE_PORT (run_environment=$GENE_RUN_ENVIRONMENT workers=$GENE_SWOOLE_WORKERS)"
         (
             cd "$GENE_WEB"
@@ -525,7 +543,6 @@ if ((RUN_WEB)); then
         SERVER_PID=$!
         echo "$SERVER_PID" >"$OUT/gene-web-server.pid"
 
-        WEB_FAILED=0
         HEALTH_URL="http://127.0.0.1:$GENE_SWOOLE_PORT/healthz"
         METRICS_URL="http://127.0.0.1:$GENE_SWOOLE_PORT/metrics"
         if ! wait_for_gene_web "$HEALTH_URL"; then
@@ -567,6 +584,7 @@ if ((RUN_WEB)); then
             curl_probe "$METRICS_URL" >"$OUT/metrics-after.txt" || WEB_FAILED=1
         fi
 
+        fi
         stop_server
         if ((WEB_FAILED == 0)); then
             record gene-web PASS 0

@@ -2,6 +2,14 @@
 $config = new \Gene\Config();
 $config->clear();
 
+// GENE_DEMO_LOCAL=1：完全本地化模式（验收/压测用，不依赖任何外部服务）——
+//   db      → sqlite 文件 demo/database/gene_demo.db（init_sqlite.php 幂等初始化）
+//   session → localStore（Ext\LocalStore：Gene\Memory 适配 get/set/delete 句柄契约）
+//   cache   → hook 改用 localStore（cachedVersion 的数组 key 走 mget，数据键走 set/incr）
+// 同时 swoole.php 入口在此模式下只声明 dbPool（sqlite 连接池），不建 redisPool。
+$demoLocal = (bool)getenv('GENE_DEMO_LOCAL');
+$demoDbFile = dirname(__DIR__) . '/database/gene_demo.db';
+
 //视图类注入配置
 $config->set("view", [
     'class' => '\Gene\View'
@@ -33,7 +41,7 @@ $config->set("validate", [
 $config->set("session", [
     'class' => '\Gene\Session',
     'params' => [[
-    'driver' => "memcache",
+    'driver' => $demoLocal ? 'localStore' : 'memcache',
     'prefix' => 'memc.sess.key.',
     'name' => 'SSID',
     'domain' => '',
@@ -65,7 +73,14 @@ $config->set("redis", [
 // pool: 连接池名称（可选），在Swoole协程模式下启用连接池。需在workerStart中通过
 //   Gene\Pool::create('dbPool', 'db') 预先创建，自动读取此处的dsn/username/password。
 //   FPM模式下此参数被忽略，行为不变。
-$config->set("db", [
+$config->set("db", $demoLocal ? [
+    'class' => '\Gene\Db\Sqlite',
+    'params' => [[
+    'dsn' => 'sqlite:' . $demoDbFile,
+    'pool' => 'dbPool'
+        ]],
+    'instance' => true
+] : [
     'class' => '\Gene\Db\Mysql',
     'params' => [[
     'dsn' => 'mysql:dbname=gene_demo;host=127.0.0.1;port=3306;charset=utf8',
@@ -116,7 +131,7 @@ $config->set("redis", [
 $config->set("cache", [
     'class' => '\Gene\Cache\Cache',
     'params' => [[
-    'hook' => 'memcache',
+    'hook' => $demoLocal ? 'localStore' : 'memcache',
     'sign' => 'demo:',
     'versionSign' => 'database:',
     'hash_mode' => 0,  // 可选 0-5，1-5 提升性能
@@ -130,6 +145,13 @@ $config->set("cache", [
 $config->set("memory", [
     'class'    => '\Gene\Memory',
     'params'   => [['demo']],
+    'instance' => true
+]);
+
+//本地存储适配器：包一层 Gene\Memory，补齐 cache hook（数组 key→mget）与
+// session 句柄（delete）契约；GENE_DEMO_LOCAL 时作为 session.driver 与 cache.hook
+$config->set("localStore", [
+    'class'    => '\Ext\LocalStore',
     'instance' => true
 ]);
 
