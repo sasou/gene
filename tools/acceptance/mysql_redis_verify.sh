@@ -21,6 +21,11 @@ set -Eeuo pipefail
 #   redis-pool   同上，RedisPool
 #   tx-hygiene   池归还事务卫生（release 未提交事务 → 回滚+告警）
 #
+# 注意：redis-pool 阶段只证明 TCP connect() 可达——RedisPool::get()/put()
+# 都跳过 PING 验活（src/cache/redis_pool.c:1221/1354），从不执行 Redis 命令。
+# 服务器要求 AUTH 而 GENE_REDIS_PASS 缺失时，池测试仍可能 PASS（假阳性），
+# 命令级健康以 redis-raw / redis-gene 阶段为准（分步诊断，日志直指失败步）。
+#
 # 用法：
 #   1) 编辑下方「部署配置」中的密码/DSN（或同名环境变量注入）
 #   2) bash tools/acceptance/mysql_redis_verify.sh            # 仅 DB/Redis 阶段
@@ -174,50 +179,87 @@ else record preflight FAIL "$PF_CODE"; log "FAIL  preflight"; exit 2; fi
 
 # ------------------------- mysql-raw：原生 PDO -------------------------
 run_logged mysql-raw "$OUT/mysql-raw.log" run_timeout 60 "${PHP_CMD[@]}" -r '
-$pdo = new PDO(getenv("GENE_MYSQL_DSN"), getenv("GENE_MYSQL_USER"), getenv("GENE_MYSQL_PASS"),
-    [PDO::ATTR_TIMEOUT => 5, PDO::ATTR_ERRMODE => PDO::ERRMODE_EXCEPTION]);
-printf("server_version=%s\n", $pdo->query("SELECT VERSION()")->fetchColumn());
-printf("select_1=%s\n", $pdo->query("SELECT 1")->fetchColumn());
-echo "MYSQL RAW CONNECT OK\n";'
+try {
+    $pdo = new PDO(getenv("GENE_MYSQL_DSN"), getenv("GENE_MYSQL_USER"), getenv("GENE_MYSQL_PASS"),
+        [PDO::ATTR_TIMEOUT => 5, PDO::ATTR_ERRMODE => PDO::ERRMODE_EXCEPTION]);
+    printf("connect OK server_version=%s\n", $pdo->query("SELECT VERSION()")->fetchColumn());
+    printf("select_1=%s\n", $pdo->query("SELECT 1")->fetchColumn());
+    echo "MYSQL RAW OK\n";
+} catch (Throwable $e) {
+    fwrite(STDERR, "FAIL " . get_class($e) . ": " . $e->getMessage() . "\n");
+    exit(1);
+}'
 
 # ------------------------- mysql-gene：Gene\Db\Mysql 层 -------------------------
 run_logged mysql-gene "$OUT/mysql-gene.log" run_timeout 60 "${PHP_CMD[@]}" -r '
-$db = new Gene\Db\Mysql([
-    "dsn" => getenv("GENE_MYSQL_DSN"),
-    "username" => getenv("GENE_MYSQL_USER"),
-    "password" => getenv("GENE_MYSQL_PASS"),
-]);
-$one = $db->sql("SELECT 1")->cell();
-printf("gene_db_select_1=%s\n", var_export($one, true));
-exit(((int)$one === 1) ? 0 : 1);'
+try {
+    $db = new Gene\Db\Mysql([
+        "dsn" => getenv("GENE_MYSQL_DSN"),
+        "username" => getenv("GENE_MYSQL_USER"),
+        "password" => getenv("GENE_MYSQL_PASS"),
+    ]);
+    $one = $db->sql("SELECT 1")->cell();
+    printf("gene_db_select_1=%s\n", var_export($one, true));
+    if ((int)$one !== 1) { fwrite(STDERR, "FAIL select_1 mismatch\n"); exit(1); }
+    echo "MYSQL GENE OK\n";
+} catch (Throwable $e) {
+    fwrite(STDERR, "FAIL " . get_class($e) . ": " . $e->getMessage() . "\n");
+    exit(1);
+}'
 
-# ------------------------- redis-raw：ext-redis -------------------------
+# ------------------------- redis-raw：ext-redis 分步诊断 -------------------------
+# 注意：RedisPool::get()/put() 均跳过 PING（src/cache/redis_pool.c:1221/1354），
+# 池测试仅证明 TCP connect 成功。本阶段逐命令验证：connect → auth → select →
+# ping → set/get/del 往返，哪步失败日志里直接可见。
 run_logged redis-raw "$OUT/redis-raw.log" run_timeout 60 "${PHP_CMD[@]}" -r '
-$r = new Redis();
-if (!$r->connect(getenv("GENE_REDIS_HOST"), (int)getenv("GENE_REDIS_PORT"), 3.0)) {
-    fwrite(STDERR, "connect failed\n"); exit(1);
-}
-$pass = getenv("GENE_REDIS_PASS");
-if (is_string($pass) && $pass !== "") { if (!$r->auth($pass)) { fwrite(STDERR,"auth failed\n"); exit(1); } }
-$db = (int)getenv("GENE_REDIS_DB");
-if ($db > 0) $r->select($db);
-printf("ping=%s\n", var_export($r->ping(), true));
-echo "REDIS RAW CONNECT OK\n";'
+$host = getenv("GENE_REDIS_HOST"); $port = (int)getenv("GENE_REDIS_PORT");
+$pass = getenv("GENE_REDIS_PASS"); $db  = (int)getenv("GENE_REDIS_DB");
+try {
+    $fp = @fsockopen($host, $port, $en, $es, 3.0);
+    if (!$fp) { fwrite(STDERR, "FAIL tcp_connect $host:$port ($en $es)\n"); exit(1); }
+    fclose($fp); echo "tcp_connect OK\n";
+    $r = new Redis();
+    if (!$r->connect($host, $port, 3.0)) { fwrite(STDERR, "FAIL connect()=false\n"); exit(1); }
+    echo "connect OK\n";
+    if (is_string($pass) && $pass !== "") {
+        $a = $r->auth($pass); echo "auth => " . var_export($a, true) . "\n";
+        if ($a !== true) { fwrite(STDERR, "FAIL auth()=false\n"); exit(1); }
+    }
+    if ($db > 0) {
+        $s = $r->select($db); echo "select($db) => " . var_export($s, true) . "\n";
+        if ($s !== true) { fwrite(STDERR, "FAIL select()=false (DB index out of range?)\n"); exit(1); }
+    }
+    echo "ping => " . var_export($r->ping(), true) . "\n";
+    $r->set("gene_probe_raw", "1");
+    echo "set/get => " . var_export($r->get("gene_probe_raw"), true) . "\n";
+    $r->del("gene_probe_raw");
+    echo "REDIS RAW OK\n";
+} catch (Throwable $e) {
+    fwrite(STDERR, "FAIL " . get_class($e) . ": " . $e->getMessage() . "\n");
+    exit(1);
+}'
 
 # ------------------------- redis-gene：Gene\Cache\Redis 层 -------------------------
 run_logged redis-gene "$OUT/redis-gene.log" run_timeout 60 "${PHP_CMD[@]}" -r '
-$params = ["host" => getenv("GENE_REDIS_HOST"), "port" => (int)getenv("GENE_REDIS_PORT"),
-           "timeout" => 3.0];
-$pass = getenv("GENE_REDIS_PASS");
-if (is_string($pass) && $pass !== "") $params["password"] = $pass;
-$db = (int)getenv("GENE_REDIS_DB");
-if ($db > 0) $params["database"] = $db;
-$redis = new Gene\Cache\Redis($params);
-$redis->set("gene_probe_key", "gene-ok", 30);
-$got = $redis->get("gene_probe_key");
-$redis->del("gene_probe_key");
-printf("set_get_roundtrip=%s ping=%s\n", var_export($got, true), var_export($redis->ping(), true));
-exit(($got === "gene-ok") ? 0 : 1);'
+try {
+    $params = ["host" => getenv("GENE_REDIS_HOST"), "port" => (int)getenv("GENE_REDIS_PORT"),
+               "timeout" => 3.0];
+    $pass = getenv("GENE_REDIS_PASS");
+    if (is_string($pass) && $pass !== "") $params["password"] = $pass;
+    $db = (int)getenv("GENE_REDIS_DB");
+    if ($db > 0) $params["database"] = $db;
+    $redis = new Gene\Cache\Redis($params);
+    echo "ping => " . var_export($redis->ping(), true) . "\n";
+    $redis->set("gene_probe_key", "gene-ok", 30);
+    $got = $redis->get("gene_probe_key");
+    echo "set/get => " . var_export($got, true) . "\n";
+    $redis->del("gene_probe_key");
+    if ($got !== "gene-ok") { fwrite(STDERR, "FAIL roundtrip mismatch\n"); exit(1); }
+    echo "REDIS GENE OK\n";
+} catch (Throwable $e) {
+    fwrite(STDERR, "FAIL " . get_class($e) . ": " . $e->getMessage() . "\n");
+    exit(1);
+}'
 
 # ------------------------- mysql-pool：协程池并发 -------------------------
 run_logged mysql-pool "$OUT/mysql-pool.log" \
