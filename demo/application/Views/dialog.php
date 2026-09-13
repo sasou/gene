@@ -16,9 +16,9 @@
   <script src="/static/layui/layui.js" charset="utf-8"></script>
   <script src="/static/js/admin.js" charset="utf-8"></script>
 </head>
-<body>
+<body style="background:#eef1f7;">
 <div style="padding: 15px;">
-    <div class="layui-row">
+    <div class="gene-crumbs">
         <span class="layui-breadcrumb">
             <?php $path = \Services\Admin\Module::getInstance()->path; ?>
             <a><cite>首页</cite></a>
@@ -28,7 +28,7 @@
             <?php endforeach;?>
         </span>
     </div>
-    <div class="layui-row" style="margin-top:15px;">
+    <div class="layui-row gene-panel" style="margin-top:15px;padding:20px 22px;">
     <?php require $this::contains();?>
     </div>
 </div>

@@ -38,9 +38,9 @@ Swoole profile 会执行 `gene.swoole_getcid_capi` 与
 Swoole 长跑 / 池压测仍用既有 `swoole_context_soak.php`、`pool_concurrency.php`：
 ORM 不额外持有连接，仅要求 `db.instance=true` + Pool，并在请求 `cleanup()`。
 
-## MySQL / Redis 专项验证（gene_web 部署）
+## MySQL / Redis 专项验证
 
-`mysql_redis_verify.sh` — 针对 `/data/webapp/www/gene_web/` 部署的 DB/Redis 快速验收，
+`mysql_redis_verify.sh` — 面向任意 MySQL/Redis 服务的 DB/Redis 快速验收，
 头部「部署配置」段集中填写 DSN/账号/Redis 地址（同名环境变量可覆盖，密码留空则交互询问）：
 
 ```bash
@@ -85,7 +85,16 @@ bash tools/acceptance/linux_swoole_verify.sh
 # （CentOS7 的 sh 是 bash4.2 POSIX 模式，禁用 <(...) 进程替换，会在 mapfile 行报语法错误）。
 ```
 
-带 Redis、MySQL 和 gene_web HTTP 压测：
+仓库内 demo 闭环验证（**无外部服务依赖**：db→sqlite 文件、session/cache→进程级 Memory、只建 dbPool）：
+
+```bash
+bash tools/acceptance/linux_swoole_verify.sh --demo
+# 等价于 GENE_DEMO_LOCAL=1 + 以 <repo>/demo 为 web 根；启动前自动执行
+# demo/database/init_sqlite.php 幂等建表+种子数据，然后跑 /healthz + /metrics + wrk。
+# GENE_DEMO_LOCAL=0 --demo 可退回 MySQL/Redis 配置（需 demo/database/gene_demo.sql 导入的 gene_demo 库）。
+```
+
+带 Redis、MySQL 和 demo HTTP 压测：
 
 ```bash
 export GENE_REDIS_HOST=127.0.0.1 GENE_REDIS_PORT=6379
@@ -94,7 +103,7 @@ export GENE_MYSQL_USER=gene_test
 read -rsp 'MySQL password: ' GENE_MYSQL_PASS; echo; export GENE_MYSQL_PASS
 
 WRK_DURATION=10m bash tools/acceptance/linux_swoole_verify.sh \
-  --all /path/to/gene_web \
+  --all \
   --output /tmp/gene-swoole-result
 ```
 
@@ -104,18 +113,18 @@ WRK_DURATION=10m bash tools/acceptance/linux_swoole_verify.sh \
 GENE_SO=/path/to/gene.so bash tools/acceptance/linux_swoole_verify.sh --no-build
 ```
 
-已验证部署（gene_web @ `/data/webapp/www/gene_web/`，CentOS 7 + PHP 8.1 + Swoole 6）：
+完整门禁示例（demo web + MySQL/Redis 服务，CentOS 7 + PHP 8.1 + Swoole 6 已验证）：
 
 ```bash
 cd /data/src/gene
 export GENE_REDIS_HOST=127.0.0.1 GENE_REDIS_PORT=6379 GENE_REDIS_PASS='***'
-export GENE_MYSQL_DSN='mysql:dbname=gene_web;host=127.0.0.1;port=3306;charset=utf8mb4'
-export GENE_MYSQL_USER='gene_web' GENE_MYSQL_PASS='***'
+export GENE_MYSQL_DSN='mysql:dbname=gene_demo;host=127.0.0.1;port=3306;charset=utf8mb4'
+export GENE_MYSQL_USER='gene_demo' GENE_MYSQL_PASS='***'
 GENE_RUN_ENVIRONMENT=0 WRK_DURATION=2m \
   bash tools/acceptance/linux_swoole_verify.sh \
-      --all /data/webapp/www/gene_web --output /tmp/gene-swoole-result-$(date +%Y%m%d)
-# 前置：curl + wrk 在 PATH；gene_web 需暴露 /healthz 与 /metrics，
-# 否则 wait_for_gene_web 阻塞 WEB_START_TIMEOUT(默认120s) 后判 FAIL。
+      --all --output /tmp/gene-swoole-result-$(date +%Y%m%d)
+# 前置：curl + wrk 在 PATH；demo 已内置 /healthz 与 /metrics 路由，
+# 否则 wait_for_demo_web 阻塞 WEB_START_TIMEOUT(默认120s) 后判 FAIL。
 ```
 
 结果判读：`status.tsv` 全 PASS；`RESULT-DIGEST` 在 swoole-matrix 四格、entry-matrix 四格、
@@ -126,7 +135,77 @@ entry-bench 三入口内各自一致即"优化开关不改语义"。`entry-bench
 
 脚本返回非零即表示至少一个启用阶段失败；输出目录同时生成 `status.tsv`、`summary.txt` 与同名 `.tar.gz` 归档。
 
-`tx-hygiene` 之后若使用 `--all` / `--web`，会进入 **gene-web** 阶段（wrk 压测默认约 2.5 分钟；脚本会打 `START gene-web` 与 wrk 进度日志）。若 `gene_web` 的 MySQL/Redis 不可达，`/healthz` 会在 `waitWorkerReady()` 上阻塞；请查看输出目录中的 `gene-web-swoole.log`，并视环境设置 `GENE_RUN_ENVIRONMENT=0|1`（默认 `1` 即 test 配置）。
+`tx-hygiene` 之后若使用 `--all` / `--demo`，会进入 **demo-web** 阶段（wrk 压测默认约 2.5 分钟；脚本会打 `START demo-web` 与 wrk 进度日志）。若 `GENE_DEMO_LOCAL=0` 退回外部 MySQL/Redis 配置且服务不可达，`/healthz` 会在 `waitWorkerReady()` 上阻塞；请查看输出目录中的 `demo-web-swoole.log`，并视环境设置 `GENE_RUN_ENVIRONMENT=0|1`（默认 `1` 即 test 配置）。
+
+## Linux Swoole 单 worker profiling
+
+`linux_swoole_profile.sh`（仅 Linux）：不自起服务，要求目标 Swoole worker **已在跑**且为生产配置
+（`run_environment>=2`、`view_compile=1`、`view_compile_check_mtime=1`、OPcache CLI + realpath cache，
+见 `plan/Performance-tuning-V1.closed.md` §7.2），对单个 worker 做 `perf record` 采样并打包结果。
+
+前置：`perf` `wrk` `curl` 在 PATH；perf 采样权限（root 或
+`echo -1 | sudo tee /proc/sys/kernel/perf_event_paranoid`）。
+
+仓库内 demo 闭环（无外部服务依赖，`GENE_DEMO_LOCAL=1`：db→sqlite、session/cache→Memory）：
+
+```bash
+# 1) 一次性：初始化 demo 本地 sqlite（幂等）
+php demo/database/init_sqlite.php
+
+# 2) 以生产配置启动 demo Swoole 服务（在仓库根执行，无需 cd demo）
+#    注意必须关闭 max_request 回收（GENE_SWOOLE_MAX_REQUEST=0）：demo 默认 10000，
+#    wrk 下 worker 每 ~2s 就被换新 PID，单 worker 采样必然落空
+#    （perf record -p <死 PID> 直接失败）。
+GENE_DEMO_LOCAL=1 \
+GENE_SWOOLE_HOST=127.0.0.1 GENE_SWOOLE_PORT=9501 GENE_SWOOLE_WORKERS=4 \
+GENE_SWOOLE_PID_FILE=/tmp/gene-demo-swoole.pid GENE_SWOOLE_MAX_REQUEST=0 \
+php -d gene.runtime_type=2 -d gene.run_environment=2 \
+    -d gene.view_compile=1 -d gene.view_compile_check_mtime=1 \
+    -d gene.swoole_auto_cleanup=1 \
+    -d opcache.enable_cli=1 -d opcache.validate_timestamps=0 \
+    -d realpath_cache_size=4096k -d realpath_cache_ttl=600 \
+    demo/public/swoole.php &
+
+# 3) 取一个 worker PID（非 master/manager）：master(最老) → manager → workers
+#    关闭回收后 PID 在采样期间保持稳定；若服务在跑 max_request>0，
+#    取到的 PID 会在压测开始后几秒内失效。
+MASTER=$(pgrep -fo 'public/swoole.php')
+MANAGER=$(pgrep -P "$MASTER" | head -1)
+pgrep -P "$MANAGER"                       # 列出的全部是 worker，任取一个
+WORKER_PID=$(pgrep -P "$MANAGER" | head -1)
+
+# 4) 完整命令（--worker-pid / --route-url / --db-url 必填，route 与 db 必须不同）
+bash tools/acceptance/linux_swoole_profile.sh \
+  --worker-pid "$WORKER_PID" \
+  --route-url "http://127.0.0.1:9501/test.html" \
+  --db-url    "http://127.0.0.1:9501/doc/1.html" \
+  --duration 60 \
+  --threads 4 \
+  --connections 64 \
+  --flamegraph /opt/FlameGraph \
+  --output /tmp/gene-swoole-profile-$(date +%Y%m%d-%H%M%S)
+```
+
+- `--route-url`：纯路由+视图、无 DB 的代表请求；`--db-url`：DB+ORM+视图的代表请求。
+  demo 应用可用 `/test.html`（Benchmark+Memory+视图，无 DB）与
+  `/doc/1.html`（`Services\Doc\Mark::row()` 走 `app_mark` 表 ORM + 视图；本地模式下为 sqlite）。
+  其他可用探针：`/`（视图）、`/healthz`（存活）、`/metrics`（`Gene\Monitor::stats()`）、`/monitor`。
+- `--flamegraph` 指向含 `stackcollapse-perf.pl` / `flamegraph.pl` 的 FlameGraph checkout；
+  参数解析后即校验（不合法直接退出，不会白跑一个采样周期）；可省略，仅产出 `perf.script`。
+- 可用环境变量覆盖：`PHP_BIN`、`GENE_REPO`、`PERF_FREQUENCY`（默认 999Hz）、
+  `WARMUP_DURATION`（默认 15s）、`PROFILE_DURATION`、`WRK_THREADS`、`WRK_CONNECTIONS`、`OUT`。
+- 运行期间脚本按阶段打印 `== [name] ...` 进度日志（总耗时约 `2×(WARMUP_DURATION+PROFILE_DURATION)`
+  加 report 时间）。中途 `^C` 或任一步骤失败会留下无 `summary.txt`/`$OUT.tar.gz` 的半成品目录；
+  ERR trap 会报出失败行号与命令，wrk/perf 自身输出见 `$dir/*.txt`。
+
+输出：`$OUT/{route-view,db-orm-view}/` 各含 `perf.data`、`perf-symbols.txt`、`top-20.tsv`、
+`gene-so-self-percent.txt`（gene.so 自身占比）、可选 `flamegraph.svg`；外加
+`environment.txt`（php/INI/worker 指纹）、`summary.txt` 与 `$OUT.tar.gz` 归档。
+
+结果判读：`worker_cmdline` 无 `-d` 覆盖时 `environment.txt` 中的 php.ini 值即 worker 实际配置——
+若 `run_environment`/`view_compile` 非生产值，采样会多出 per-request 模板 stat/校验开销，占比偏保守；
+`db-orm-view` 若出现 `[k] e1000_xmit_frame` 等内核网卡符号居首，说明依赖打到了远端主机
+（loopback 不经过物理网卡），应改用 `GENE_DEMO_LOCAL=1` 本地依赖重测。
 
 ## 验收记录
 
