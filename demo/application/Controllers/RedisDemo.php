@@ -1,6 +1,6 @@
 <?php
 
-namespace Application\Controllers;
+namespace Controllers;
 
 use Gene\Controller;
 use Gene\Di;
