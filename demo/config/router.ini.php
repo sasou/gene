@@ -17,7 +17,7 @@ $router->clear()
     // Monitor 聚合可观测出口演示（F2）
     ->get("/monitor", "\Controllers\Monitor@index", "@clearAfter")
 
-    // 健康检查与指标出口（验收脚本 wait_for_gene_web 依赖）
+    // 健康检查与指标出口（验收脚本 wait_for_demo_web 依赖）
     ->get("/healthz", "\Controllers\Monitor@healthz", "@clearAfter")
     ->get("/metrics", "\Controllers\Monitor@metrics", "@clearAfter")
 

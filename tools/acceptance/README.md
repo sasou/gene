@@ -38,9 +38,9 @@ Swoole profile 会执行 `gene.swoole_getcid_capi` 与
 Swoole 长跑 / 池压测仍用既有 `swoole_context_soak.php`、`pool_concurrency.php`：
 ORM 不额外持有连接，仅要求 `db.instance=true` + Pool，并在请求 `cleanup()`。
 
-## MySQL / Redis 专项验证（gene_web 部署）
+## MySQL / Redis 专项验证
 
-`mysql_redis_verify.sh` — 针对 `/data/webapp/www/gene_web/` 部署的 DB/Redis 快速验收，
+`mysql_redis_verify.sh` — 面向任意 MySQL/Redis 服务的 DB/Redis 快速验收，
 头部「部署配置」段集中填写 DSN/账号/Redis 地址（同名环境变量可覆盖，密码留空则交互询问）：
 
 ```bash
@@ -89,12 +89,12 @@ bash tools/acceptance/linux_swoole_verify.sh
 
 ```bash
 bash tools/acceptance/linux_swoole_verify.sh --demo
-# 等价于 --web <repo>/demo + GENE_DEMO_LOCAL=1；启动前自动执行
+# 等价于 GENE_DEMO_LOCAL=1 + 以 <repo>/demo 为 web 根；启动前自动执行
 # demo/database/init_sqlite.php 幂等建表+种子数据，然后跑 /healthz + /metrics + wrk。
 # GENE_DEMO_LOCAL=0 --demo 可退回 MySQL/Redis 配置（需 demo/database/gene_demo.sql 导入的 gene_demo 库）。
 ```
 
-带 Redis、MySQL 和 gene_web HTTP 压测：
+带 Redis、MySQL 和 demo HTTP 压测：
 
 ```bash
 export GENE_REDIS_HOST=127.0.0.1 GENE_REDIS_PORT=6379
@@ -103,7 +103,7 @@ export GENE_MYSQL_USER=gene_test
 read -rsp 'MySQL password: ' GENE_MYSQL_PASS; echo; export GENE_MYSQL_PASS
 
 WRK_DURATION=10m bash tools/acceptance/linux_swoole_verify.sh \
-  --all /path/to/gene_web \
+  --all \
   --output /tmp/gene-swoole-result
 ```
 
@@ -113,18 +113,18 @@ WRK_DURATION=10m bash tools/acceptance/linux_swoole_verify.sh \
 GENE_SO=/path/to/gene.so bash tools/acceptance/linux_swoole_verify.sh --no-build
 ```
 
-已验证部署（gene_web @ `/data/webapp/www/gene_web/`，CentOS 7 + PHP 8.1 + Swoole 6）：
+完整门禁示例（demo web + MySQL/Redis 服务，CentOS 7 + PHP 8.1 + Swoole 6 已验证）：
 
 ```bash
 cd /data/src/gene
 export GENE_REDIS_HOST=127.0.0.1 GENE_REDIS_PORT=6379 GENE_REDIS_PASS='***'
-export GENE_MYSQL_DSN='mysql:dbname=gene_web;host=127.0.0.1;port=3306;charset=utf8mb4'
-export GENE_MYSQL_USER='gene_web' GENE_MYSQL_PASS='***'
+export GENE_MYSQL_DSN='mysql:dbname=gene_demo;host=127.0.0.1;port=3306;charset=utf8mb4'
+export GENE_MYSQL_USER='gene_demo' GENE_MYSQL_PASS='***'
 GENE_RUN_ENVIRONMENT=0 WRK_DURATION=2m \
   bash tools/acceptance/linux_swoole_verify.sh \
-      --all /data/webapp/www/gene_web --output /tmp/gene-swoole-result-$(date +%Y%m%d)
-# 前置：curl + wrk 在 PATH；gene_web 需暴露 /healthz 与 /metrics，
-# 否则 wait_for_gene_web 阻塞 WEB_START_TIMEOUT(默认120s) 后判 FAIL。
+      --all --output /tmp/gene-swoole-result-$(date +%Y%m%d)
+# 前置：curl + wrk 在 PATH；demo 已内置 /healthz 与 /metrics 路由，
+# 否则 wait_for_demo_web 阻塞 WEB_START_TIMEOUT(默认120s) 后判 FAIL。
 ```
 
 结果判读：`status.tsv` 全 PASS；`RESULT-DIGEST` 在 swoole-matrix 四格、entry-matrix 四格、
@@ -135,7 +135,7 @@ entry-bench 三入口内各自一致即"优化开关不改语义"。`entry-bench
 
 脚本返回非零即表示至少一个启用阶段失败；输出目录同时生成 `status.tsv`、`summary.txt` 与同名 `.tar.gz` 归档。
 
-`tx-hygiene` 之后若使用 `--all` / `--web`，会进入 **gene-web** 阶段（wrk 压测默认约 2.5 分钟；脚本会打 `START gene-web` 与 wrk 进度日志）。若 `gene_web` 的 MySQL/Redis 不可达，`/healthz` 会在 `waitWorkerReady()` 上阻塞；请查看输出目录中的 `gene-web-swoole.log`，并视环境设置 `GENE_RUN_ENVIRONMENT=0|1`（默认 `1` 即 test 配置）。
+`tx-hygiene` 之后若使用 `--all` / `--demo`，会进入 **demo-web** 阶段（wrk 压测默认约 2.5 分钟；脚本会打 `START demo-web` 与 wrk 进度日志）。若 `GENE_DEMO_LOCAL=0` 退回外部 MySQL/Redis 配置且服务不可达，`/healthz` 会在 `waitWorkerReady()` 上阻塞；请查看输出目录中的 `demo-web-swoole.log`，并视环境设置 `GENE_RUN_ENVIRONMENT=0|1`（默认 `1` 即 test 配置）。
 
 ## Linux Swoole 单 worker profiling
 

@@ -84,8 +84,8 @@ $config->set("db", $demoLocal ? [
     'class' => '\Gene\Db\Mysql',
     'params' => [[
     'dsn' => 'mysql:dbname=gene_demo;host=127.0.0.1;port=3306;charset=utf8',
-    'username' => 'dev',
-    'password' => 'dev123',
+    'username' => 'root',
+    'password' => '123456',
     'pool' => 'dbPool'
         ]],
     'instance' => true
@@ -115,6 +115,7 @@ $config->set("redis", [
     'port' => 6379,
     'timeout' => 3,
     'ttl' => 0,
+    'pass' => 'rds2024',
     'serializer' => 1
         ]],
     'instance' => true

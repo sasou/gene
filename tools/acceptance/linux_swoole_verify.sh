@@ -10,7 +10,7 @@ set -Eeuo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 GENE_REPO="${GENE_REPO:-$(cd "$SCRIPT_DIR/../.." && pwd)}"
-GENE_WEB="${GENE_WEB:-}"
+WEB_ROOT=""
 PHP_BIN="${PHP_BIN:-php}"
 PHPIZE_BIN="${PHPIZE_BIN:-phpize}"
 PHP_CONFIG_BIN="${PHP_CONFIG_BIN:-php-config}"
@@ -36,7 +36,7 @@ RSS_INTERVAL="${RSS_INTERVAL:-10}"
 GENE_SWOOLE_HOST="${GENE_SWOOLE_HOST:-127.0.0.1}"
 GENE_SWOOLE_PORT="${GENE_SWOOLE_PORT:-9501}"
 GENE_SWOOLE_WORKERS="${GENE_SWOOLE_WORKERS:-4}"
-GENE_SWOOLE_PID_FILE="${GENE_SWOOLE_PID_FILE:-/tmp/gene-web-swoole.pid}"
+GENE_SWOOLE_PID_FILE="${GENE_SWOOLE_PID_FILE:-/tmp/gene-demo-swoole.pid}"
 GENE_RUN_ENVIRONMENT="${GENE_RUN_ENVIRONMENT:-0}"
 WEB_START_TIMEOUT="${WEB_START_TIMEOUT:-120}"
 CURL_CONNECT_TIMEOUT="${CURL_CONNECT_TIMEOUT:-5}"
@@ -95,11 +95,10 @@ Options:
   --no-build          Use GENE_SO instead of rebuilding Gene
   --redis             Run Redis pool concurrency verification
   --mysql             Run MySQL pool concurrency verification
-  --web PATH          Run gene_web Swoole HTTP and wrk verification
   --demo              Run the repo-local demo app (demo/) over Swoole HTTP and
                       wrk; implies GENE_DEMO_LOCAL=1 (sqlite db, in-process
                       session/cache) so no external services are required
-  --all PATH          Run Redis, MySQL, and gene_web verification
+  --all               Run Redis, MySQL, and demo verification
   --output PATH       Result directory
   --help              Show this help
 
@@ -140,20 +139,15 @@ while (($#)); do
             RUN_MYSQL_POOL=1
             shift
             ;;
-        --web)
-            GENE_WEB="${2:?--web requires a path}"
-            RUN_WEB=1
-            shift 2
-            ;;
         --all)
-            GENE_WEB="${2:?--all requires a gene_web path}"
             RUN_REDIS_POOL=1
             RUN_MYSQL_POOL=1
             RUN_WEB=1
-            shift 2
+            GENE_DEMO_LOCAL="${GENE_DEMO_LOCAL:-1}"
+            export GENE_DEMO_LOCAL
+            shift
             ;;
         --demo)
-            GENE_WEB="$GENE_REPO/demo"
             RUN_WEB=1
             GENE_DEMO_LOCAL="${GENE_DEMO_LOCAL:-1}"
             export GENE_DEMO_LOCAL
@@ -229,19 +223,19 @@ curl_probe() {
         "$@"
 }
 
-wait_for_gene_web() {
+wait_for_demo_web() {
     local url="$1" deadline=$((SECONDS + WEB_START_TIMEOUT))
     while ((SECONDS < deadline)); do
         if curl_probe "$url" >/dev/null 2>&1; then
             return 0
         fi
         if [[ -n "$SERVER_PID" ]] && ! kill -0 "$SERVER_PID" 2>/dev/null; then
-            log "gene-web server exited before ready (see $OUT/gene-web-swoole.log)"
+            log "demo-web server exited before ready (see $OUT/demo-web-swoole.log)"
             return 1
         fi
         sleep 1
     done
-    log "gene-web not ready after ${WEB_START_TIMEOUT}s (see $OUT/gene-web-swoole.log)"
+    log "demo-web not ready after ${WEB_START_TIMEOUT}s (see $OUT/demo-web-swoole.log)"
     return 1
 }
 
@@ -506,29 +500,29 @@ else
 fi
 
 if ((RUN_WEB)); then
-    log "START gene-web"
-    if [[ ! -d "$GENE_WEB/public" || ! -f "$GENE_WEB/public/swoole.php" ]]; then
-        record gene-web FAIL 2
-        log "FAIL  gene-web (invalid GENE_WEB path)"
+    log "START demo-web"
+    WEB_ROOT="$GENE_REPO/demo"
+    if [[ ! -d "$WEB_ROOT/public" || ! -f "$WEB_ROOT/public/swoole.php" ]]; then
+        record demo-web FAIL 2
+        log "FAIL  demo-web (missing demo/public/swoole.php)"
     elif ! command -v curl >/dev/null 2>&1 || ! command -v wrk >/dev/null 2>&1; then
-        echo "gene_web verification requires curl and wrk" >&2
-        record gene-web FAIL 2
-        log "FAIL  gene-web (missing curl or wrk)"
+        echo "demo web verification requires curl and wrk" >&2
+        record demo-web FAIL 2
+        log "FAIL  demo-web (missing curl or wrk)"
     else
-        GENE_WEB="$(cd "$GENE_WEB" && pwd)"
         export GENE_SWOOLE_HOST GENE_SWOOLE_PORT GENE_SWOOLE_WORKERS GENE_SWOOLE_PID_FILE
         export GENE_MONITOR_TOKEN="${GENE_MONITOR_TOKEN:-$(openssl rand -hex 24 2>/dev/null || date +%s%N)}"
         WEB_FAILED=0
-        # --demo / GENE_DEMO_LOCAL: seed the repo-local sqlite database so the
+        # GENE_DEMO_LOCAL: seed the repo-local sqlite database so the
         # demo doc pages exercise ORM without an external MySQL.
-        if [[ "${GENE_DEMO_LOCAL:-}" == "1" && -f "$GENE_WEB/database/init_sqlite.php" ]]; then
-            log "gene-web seeding demo sqlite database"
-            "${PHP_CMD[@]}" "$GENE_WEB/database/init_sqlite.php" || WEB_FAILED=1
+        if [[ "${GENE_DEMO_LOCAL:-}" == "1" && -f "$WEB_ROOT/database/init_sqlite.php" ]]; then
+            log "demo-web seeding demo sqlite database"
+            "${PHP_CMD[@]}" "$WEB_ROOT/database/init_sqlite.php" || WEB_FAILED=1
         fi
         if ((WEB_FAILED == 0)); then
-        log "gene-web launching on 127.0.0.1:$GENE_SWOOLE_PORT (run_environment=$GENE_RUN_ENVIRONMENT workers=$GENE_SWOOLE_WORKERS)"
+        log "demo-web launching on 127.0.0.1:$GENE_SWOOLE_PORT (run_environment=$GENE_RUN_ENVIRONMENT workers=$GENE_SWOOLE_WORKERS)"
         (
-            cd "$GENE_WEB"
+            cd "$WEB_ROOT"
             exec "${PHP_CMD[@]}" \
                 -d gene.runtime_type=2 \
                 -d gene.run_environment="$GENE_RUN_ENVIRONMENT" \
@@ -539,13 +533,13 @@ if ((RUN_WEB)); then
                 -d gene.cache_reserve=16384 \
                 -d gene.swoole_auto_cleanup=1 \
                 public/swoole.php
-        ) >"$OUT/gene-web-swoole.log" 2>&1 &
+        ) >"$OUT/demo-web-swoole.log" 2>&1 &
         SERVER_PID=$!
-        echo "$SERVER_PID" >"$OUT/gene-web-server.pid"
+        echo "$SERVER_PID" >"$OUT/demo-web-server.pid"
 
         HEALTH_URL="http://127.0.0.1:$GENE_SWOOLE_PORT/healthz"
         METRICS_URL="http://127.0.0.1:$GENE_SWOOLE_PORT/metrics"
-        if ! wait_for_gene_web "$HEALTH_URL"; then
+        if ! wait_for_demo_web "$HEALTH_URL"; then
             WEB_FAILED=1
         fi
 
@@ -555,7 +549,7 @@ if ((RUN_WEB)); then
         fi
 
         if ((WEB_FAILED == 0)); then
-            log "gene-web wrk warmup ($WRK_WARMUP_DURATION)"
+            log "demo-web wrk warmup ($WRK_WARMUP_DURATION)"
             wrk -t"$WRK_THREADS" -c"$WRK_CONNECTIONS" -d"$WRK_WARMUP_DURATION" --latency \
                 "$HEALTH_URL" >"$OUT/wrk-warmup.txt" 2>&1 || WEB_FAILED=1
         fi
@@ -574,7 +568,7 @@ if ((RUN_WEB)); then
                 done
             ) >"$OUT/process-rss.txt" 2>&1 &
             RSS_PID=$!
-            log "gene-web wrk load test ($WRK_DURATION)"
+            log "demo-web wrk load test ($WRK_DURATION)"
             wrk -t"$WRK_THREADS" -c"$WRK_CONNECTIONS" -d"$WRK_DURATION" --latency \
                 "$HEALTH_URL" >"$OUT/wrk-health.txt" 2>&1 || WEB_FAILED=1
             kill "$RSS_PID" 2>/dev/null || true
@@ -587,16 +581,16 @@ if ((RUN_WEB)); then
         fi
         stop_server
         if ((WEB_FAILED == 0)); then
-            record gene-web PASS 0
-            log "PASS  gene-web"
+            record demo-web PASS 0
+            log "PASS  demo-web"
         else
-            record gene-web FAIL 1
-            log "FAIL  gene-web (see $OUT/gene-web-swoole.log and health/metrics artifacts)"
+            record demo-web FAIL 1
+            log "FAIL  demo-web (see $OUT/demo-web-swoole.log and health/metrics artifacts)"
         fi
     fi
 else
-    record gene-web SKIP 0
-    log "SKIP  gene-web"
+    record demo-web SKIP 0
+    log "SKIP  demo-web"
 fi
 
 {
