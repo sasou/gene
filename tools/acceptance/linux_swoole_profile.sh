@@ -85,6 +85,13 @@ if [[ ! "$PROFILE_DURATION" =~ ^[1-9][0-9]*$ ]]; then
     echo "PROFILE_DURATION must be a positive integer." >&2
     exit 2
 fi
+# Validate the FlameGraph checkout before any sampling: the previous lazy check
+# inside profile_case() ran only after a full warmup+perf cycle, wasting a whole
+# scenario when the path was wrong.
+if [[ -n "$FLAMEGRAPH_DIR" ]] && { [[ ! -x "$FLAMEGRAPH_DIR/stackcollapse-perf.pl" ]] || [[ ! -x "$FLAMEGRAPH_DIR/flamegraph.pl" ]]; }; then
+    echo "Invalid FLAMEGRAPH_DIR: $FLAMEGRAPH_DIR (need executable stackcollapse-perf.pl and flamegraph.pl)" >&2
+    exit 2
+fi
 
 mkdir -p "$OUT"
 OUT="$(cd "$OUT" && pwd)"
@@ -122,10 +129,6 @@ profile_case() {
     awk '/^[[:space:]]*[0-9]+\.[0-9]+%/ && /gene\.so/ { pct=$1; gsub(/%/, "", pct); sum += pct } END { printf "%.2f\n", sum + 0 }' "$dir/perf-dso.txt" >"$dir/gene-so-self-percent.txt"
     perf script -i "$dir/perf.data" >"$dir/perf.script"
     if [[ -n "$FLAMEGRAPH_DIR" ]]; then
-        if [[ ! -x "$FLAMEGRAPH_DIR/stackcollapse-perf.pl" || ! -x "$FLAMEGRAPH_DIR/flamegraph.pl" ]]; then
-            echo "Invalid FLAMEGRAPH_DIR: $FLAMEGRAPH_DIR" >&2
-            return 2
-        fi
         "$FLAMEGRAPH_DIR/stackcollapse-perf.pl" "$dir/perf.script" >"$dir/perf.folded"
         "$FLAMEGRAPH_DIR/flamegraph.pl" "$dir/perf.folded" >"$dir/flamegraph.svg"
     fi

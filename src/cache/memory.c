@@ -1997,6 +1997,10 @@ const zend_function_entry gene_memory_methods[] = {
 	PHP_ME(gene_memory, getTime, gene_memory_arg_get, ZEND_ACC_PUBLIC)
 	PHP_ME(gene_memory, exists, gene_memory_arg_get, ZEND_ACC_PUBLIC)
 	PHP_ME(gene_memory, del, gene_memory_arg_del, ZEND_ACC_PUBLIC)
+	/* [GENE_FEATURE:2026-09-13] `delete` alias of `del` so Gene\Memory
+	 * satisfies the session storage handler contract (get/set/delete) and can
+	 * be used as `session.driver` in fully local deployments. */
+	PHP_MALIAS(gene_memory, delete, del, gene_memory_arg_del, ZEND_ACC_PUBLIC)
 	PHP_ME(gene_memory, incr, gene_memory_arg_incr, ZEND_ACC_PUBLIC)
 	PHP_ME(gene_memory, decr, gene_memory_arg_incr, ZEND_ACC_PUBLIC)
 	PHP_ME(gene_memory, rateLimit, gene_memory_arg_rate_limit, ZEND_ACC_PUBLIC)

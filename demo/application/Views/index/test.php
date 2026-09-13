@@ -41,7 +41,7 @@
                     <strong>原生代码测试</strong>
                     <p>ab -n10000 -c100 127.0.0.1/test.php</p>
                     <br/>
-                    <?php highlight_file(APP_ROOT . "/../public/static/test/test.php"); ?>
+                    <?php is_file($f = APP_ROOT . "/../public/static/test/test.php") ? highlight_file($f) : null; ?>
                   </div>
             </div>
             <div class="layui-col-md6">
@@ -50,7 +50,7 @@
                     <strong>Gene框架代码测试</strong>
                     <p>ab -n10000 -c100 127.0.0.1/test</p>
                     <br/>
-                    <?php highlight_file(APP_ROOT . "/../public/static/test/gene.php"); ?>
+                    <?php is_file($f = APP_ROOT . "/../public/static/test/gene.php") ? highlight_file($f) : null; ?>
                   </div>
             </div>
           </div>

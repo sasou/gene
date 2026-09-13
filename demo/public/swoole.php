@@ -8,19 +8,32 @@ define('WWW_ROOT', dirname(__dir__) . '/public');
 
 \Swoole\Runtime::enableCoroutine(SWOOLE_HOOK_ALL);
 
-$http = new \Swoole\Http\Server("0.0.0.0", 80, SWOOLE_PROCESS);
+// 监听与工作进程参数支持环境变量覆盖（验收脚本 linux_swoole_verify.sh 依赖）：
+//   GENE_SWOOLE_HOST / GENE_SWOOLE_PORT / GENE_SWOOLE_WORKERS /
+//   GENE_SWOOLE_PID_FILE / GENE_SWOOLE_MAX_REQUEST
+$swooleHost    = getenv('GENE_SWOOLE_HOST') ?: '0.0.0.0';
+$swoolePort    = (int)(getenv('GENE_SWOOLE_PORT') ?: 80);
+$swooleWorkers = (int)(getenv('GENE_SWOOLE_WORKERS') ?: 2);
+$swoolePidFile = getenv('GENE_SWOOLE_PID_FILE') ?: '';
+$swooleMaxReq  = (int)(getenv('GENE_SWOOLE_MAX_REQUEST') ?: 10000);
 
-$http->set([
+$http = new \Swoole\Http\Server($swooleHost, $swoolePort, SWOOLE_PROCESS);
+
+$settings = [
     'reactor_num'            => 1,
-    'worker_num'             => 2,
-    'max_request'            => 10000,
+    'worker_num'             => $swooleWorkers,
+    'max_request'            => $swooleMaxReq,
     'dispatch_mode'          => 2,
     'enable_static_handler'  => true,
     'document_root'          => WWW_ROOT
-]);
+];
+if ($swoolePidFile !== '') {
+    $settings['pid_file'] = $swoolePidFile;
+}
+$http->set($settings);
 
-$http->on("start", function ($server) {
-    echo "Gene Swoole server started at http://0.0.0.0:80\n";
+$http->on("start", function ($server) use ($swooleHost, $swoolePort) {
+    echo "Gene Swoole server started at http://{$swooleHost}:{$swoolePort}\n";
 });
 
 $app = \Gene\Application::getInstance();
@@ -41,10 +54,14 @@ $http->on("workerStart", function ($server, $workerId) use ($app) {
     // 显式声明连接池（driver 仅 db/redis；component 为 config.ini.php
     // 中 $config->set(...) 的键名；params 可选池参数 min/max/idleTimeout/
     // waitTimeout，不传则默认 max=64）。FPM 下 startPools 明确返回 false。
-    $app->pools([
+    // GENE_DEMO_LOCAL=1 本地模式：仅建 dbPool（sqlite），不依赖外部 Redis。
+    $pools = [
         'dbPool'    => ['driver' => 'db',    'component' => 'db'],
-        'redisPool' => ['driver' => 'redis', 'component' => 'redis'],
-    ]);
+    ];
+    if (!getenv('GENE_DEMO_LOCAL')) {
+        $pools['redisPool'] = ['driver' => 'redis', 'component' => 'redis'];
+    }
+    $app->pools($pools);
     $app->startPools();
 
     // 标记Worker已就绪，handleSwoole 入口会先阻塞等待此标记

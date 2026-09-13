@@ -123,6 +123,7 @@ $http->start();
 - 未配 `catch` 时异常记 `Gene\Log::exception()`，响应仍可写则补 `status(500)` + `end(已缓冲输出)`；配了 `catch` 则由业务全权处理异常（可再抛，向外传播）。
 - 不设默认 `Content-Type`，不覆盖业务 status/header；dispatch 内已 `end`/`json`/`sendFile`/`redirect` 的请求不会被二次 `end()`。
 - 业务代码仍用 **`$this->request`**（控制器/钩子），与 FPM 写法一致。
+- `demo/public/swoole.php` 支持环境变量覆盖监听与进程参数：`GENE_SWOOLE_HOST` / `GENE_SWOOLE_PORT` / `GENE_SWOOLE_WORKERS` / `GENE_SWOOLE_PID_FILE` / `GENE_SWOOLE_MAX_REQUEST`；`GENE_DEMO_LOCAL=1` 时只声明 `dbPool`（sqlite），不建 `redisPool`，配套 `demo/database/init_sqlite.php` 做幂等初始化——验收脚本 `--demo` 走的就是这条零外部依赖路径。
 
 ---
 
