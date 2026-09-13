@@ -1295,6 +1295,10 @@ static void php_gene_init_globals() {
 	GENE_G(swoole_defer_notice_sent) = 0;
 	GENE_G(swoole_auto_cleanup_defers) = 0;
 	GENE_G(swoole_auto_cleanup_reclaimed) = 0;
+	/* [GENE_FEATURE:2026-09-12] handleSwoole ownership + env once-flag. */
+	GENE_G(swoole_handle_depth) = 0;
+	GENE_G(env_fallback_warned) = 0;
+	GENE_G(pool_decls) = NULL;
 	GENE_G(run_depth) = 0;
 	/* [GENE_FEATURE:2026-08-06 F1-6] */
 	GENE_G(forward_depth) = 0;
@@ -1440,6 +1444,13 @@ static void php_gene_close_request_globals() {
 		zend_hash_destroy(GENE_G(co_contexts));
 		FREE_HASHTABLE(GENE_G(co_contexts));
 		GENE_G(co_contexts) = NULL;
+	}
+	/* [GENE_FEATURE:2026-09-12] Pool declarations live on worker lifetime
+	 * like co_contexts — release them on the same RSHUTDOWN boundary. */
+	if (GENE_G(pool_decls)) {
+		zend_hash_destroy(GENE_G(pool_decls));
+		FREE_HASHTABLE(GENE_G(pool_decls));
+		GENE_G(pool_decls) = NULL;
 	}
 	/* [GENE_PERF:2026-04-24] Drain the struct pool on RSHUTDOWN for FPM so
 	 * request-scoped memory is fully reclaimed. In Swoole mode RSHUTDOWN

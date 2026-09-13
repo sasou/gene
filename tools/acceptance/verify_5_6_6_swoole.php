@@ -12,13 +12,13 @@
  *
  * 用法（在 Linux 服务器，已加载 swoole + gene 扩展）：
  *   # 基线：capi=1(默认) precompile=0(默认)
- *   php tools/verify_5_6_6_swoole.php
+ *   php tools/acceptance/verify_5_6_6_swoole.php
  *   # P3 预编译派发开启
- *   php -d gene.route_precompile=1 tools/verify_5_6_6_swoole.php
+ *   php -d gene.route_precompile=1 tools/acceptance/verify_5_6_6_swoole.php
  *   # P1 回退路径（关闭 C-API 直调，强制 PHP 调用）
- *   php -d gene.swoole_getcid_capi=0 tools/verify_5_6_6_swoole.php
+ *   php -d gene.swoole_getcid_capi=0 tools/acceptance/verify_5_6_6_swoole.php
  *   # 两项同时开启
- *   php -d gene.route_precompile=1 -d gene.swoole_getcid_capi=1 tools/verify_5_6_6_swoole.php
+ *   php -d gene.route_precompile=1 -d gene.swoole_getcid_capi=1 tools/acceptance/verify_5_6_6_swoole.php
  *
  * 闭环判据（把四次运行的输出发回即可核验）：
  *   1) 每次运行末尾必须出现 “ALL-PASS”；
@@ -86,12 +86,13 @@ namespace {
             $check("GET {$path} => {$expect}", $got === $expect, $got === $expect ? '' : "got='{$got}'");
             $digestParts[] = $path . '=' . $got;
         }
-        // 未匹配路由：本极简脚本未 autoload 应用根，错误闭包解析不命中，
-        // gene 以可恢复的 “Unknown Url” 警告优雅处理（不崩溃、确定性）。
-        // 判据：响应确定性地携带 Unknown Url 信号即视为通过（与 P1/P3 无关）。
+        // 未匹配路由：->error(404, ...) 自 [GENE_FIX:2026-09-12] 起正确注册为
+        // error:404 并实际接管派发（此前被静默注册成空名 "error:"，永不触发，
+        // 只能回落到 “Unknown Url” 警告）。判据：响应确定性地等于注册的
+        // 404 闭包输出 R:404（与 P1/P3 无关）。
         $got404 = $get('/no/such/route');
-        $check("GET /no/such/route 被优雅处理（Unknown Url）",
-            strpos($got404, 'Unknown Url') !== false, "got='{$got404}'");
+        $check("GET /no/such/route 由 error:404 优雅处理（R:404）",
+            $got404 === 'R:404', "got='{$got404}'");
         $digestParts[] = '/no/such/route=' . $got404;
 
         echo "\n[B] 协程上下文隔离（P1：getcid 正确解析每协程上下文）\n";

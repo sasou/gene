@@ -8,7 +8,7 @@ description: >-
 
 # Gene 框架开发
 
-Gene 是 **PHP 8.0–8.5 的 C 扩展框架**（非 Composer 包，当前 **6.2.2**）。开发时以本仓库 `gene-ide-helper/` 与 `demo/` 为准，**不要臆造不存在的 API**。
+Gene 是 **PHP 8.0–8.5 的 C 扩展框架**（非 Composer 包，当前 **6.2.4**）。开发时以本仓库 `gene-ide-helper/` 与 `demo/` 为准，**不要臆造不存在的 API**。
 
 ## 何时使用本技能
 

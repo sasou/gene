@@ -10,8 +10,8 @@
  *   - M5  request_attr 跨请求复用（CLI 下不发请求，仅核对扩展不崩溃）
  *
  * 用法（在仓库根目录）：
- *   php tools/verify_5_6_6.php
- *   php -d gene.cache_max_items=10 tools/verify_5_6_6.php
+ *   php tools/acceptance/verify_5_6_6.php
+ *   php -d gene.cache_max_items=10 tools/acceptance/verify_5_6_6.php
  */
 
 $failures = 0;
@@ -91,7 +91,7 @@ if ($cap > 0) {
         $delta >= $N,
         "新增业务条目={$delta} >= {$N}"
     );
-    echo "      提示：用 `php -d gene.cache_max_items=10 tools/verify_5_6_6.php` 复验淘汰行为\n";
+    echo "      提示：用 `php -d gene.cache_max_items=10 tools/acceptance/verify_5_6_6.php` 复验淘汰行为\n";
 }
 
 /* 清理业务分区，确认 clean() 与跟踪集同步无崩溃 */

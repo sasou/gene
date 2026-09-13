@@ -152,6 +152,10 @@ ZEND_BEGIN_ARG_INFO_EX(gene_request_init_arginfo, 0, 0, 0)
 	ZEND_ARG_INFO(0, rawContent)
 ZEND_END_ARG_INFO()
 
+ZEND_BEGIN_ARG_INFO_EX(gene_request_init_swoole_arginfo, 0, 0, 1)
+	ZEND_ARG_TYPE_INFO(0, request, IS_OBJECT, 0)
+ZEND_END_ARG_INFO()
+
 ZEND_BEGIN_ARG_INFO_EX(gene_request_get_arginfo, 0, 0, 1)
 	ZEND_ARG_INFO(0, name)
 ZEND_END_ARG_INFO()
@@ -684,14 +688,12 @@ PHP_METHOD(gene_request, params) {
 }
 /* }}} */
 
-/*
- * {{{ public gene_request::init($get, $post, $cookie, $server, $env, $files, $request)
- */
-PHP_METHOD(gene_request, init) {
-	zval *get = NULL, *post = NULL, *cookie = NULL, *server = NULL, *env = NULL, *files = NULL, *request = NULL, *header = NULL, *raw_content = NULL;
-	if (zend_parse_parameters(ZEND_NUM_ARGS(), "|zzzzzzzzz", &get, &post, &cookie, &server, &env, &files, &request, &header, &raw_content) == FAILURE) {
-		return;
-	}
+/* [GENE_FEATURE:2026-09-12] Shared request-bag population used by init()
+ * and initSwoole(). Runs the JSON/raw invalidation prologue, then stores
+ * only arguments carrying the expected type (array bags / string raw body).
+ * init() semantics: absent args leave that bag untouched; initSwoole()
+ * passes explicit empty arrays to honour its "missing property → []" rule. */
+static void gene_request_init_bags(zval *get, zval *post, zval *cookie, zval *server, zval *env, zval *files, zval *request, zval *header, zval *raw_content) {
 	{
 		gene_request_context *ctx = gene_request_ctx();
 		gene_request_input_invalidate(ctx);
@@ -742,6 +744,117 @@ PHP_METHOD(gene_request, init) {
 	}
 	if (header && Z_TYPE_P(header) == IS_ARRAY) {
 		gene_request_set_header_val(header);
+	}
+}
+
+/*
+ * {{{ public gene_request::init($get, $post, $cookie, $server, $env, $files, $request)
+ */
+PHP_METHOD(gene_request, init) {
+	zval *get = NULL, *post = NULL, *cookie = NULL, *server = NULL, *env = NULL, *files = NULL, *request = NULL, *header = NULL, *raw_content = NULL;
+	if (zend_parse_parameters(ZEND_NUM_ARGS(), "|zzzzzzzzz", &get, &post, &cookie, &server, &env, &files, &request, &header, &raw_content) == FAILURE) {
+		return;
+	}
+	gene_request_init_bags(get, post, cookie, server, env, files, request, header, raw_content);
+	RETURN_TRUE;
+}
+/* }}} */
+
+/* [GENE_FEATURE:2026-09-12] Silent property read for the duck-typed Swoole
+ * request object. Returns the array zval or NULL when the property is
+ * absent, UNDEF/NULL, a non-array value, or an IS_REFERENCE wrapper. A
+ * throwing __get leaves EG(exception) pending for the caller to bail on. */
+static zval *gene_request_swoole_prop(zval *obj, const char *name, size_t name_len, zval *rv) {
+	zval *prop = zend_read_property(Z_OBJCE_P(obj), Z_OBJ_P(obj), name, name_len, 1, rv);
+	if (prop && Z_TYPE_P(prop) == IS_REFERENCE) {
+		prop = Z_REFVAL_P(prop);
+	}
+	if (!prop || Z_TYPE_P(prop) != IS_ARRAY) {
+		return NULL;
+	}
+	return prop;
+}
+
+/* {{{ int gene_request_init_swoole(zval *request_obj)
+ * [GENE_FEATURE:2026-09-12] Populate the request bags from a duck-typed
+ * Swoole\Http\Request-like object. Bag sources: $request->get/post/cookie/
+ * server/files/header (missing or non-array → explicit empty array); ENV is
+ * never injected; REQUEST follows init() semantics (auto GET+POST merge).
+ * RAW comes from a single $request->rawContent() call; a missing method or
+ * a throwing __get/rawContent surfaces a catchable Error, and a
+ * non-string return (Swoole false on oversized bodies) maps to "empty body"
+ * by leaving the raw bag unset. Bags are committed only after rawContent()
+ * has run, so a failure never leaves a half-adapted request. Returns
+ * FAILURE with a pending exception, SUCCESS otherwise. */
+int gene_request_init_swoole(zval *request_obj) {
+	zval rv[6], vals[6], raw_ret;
+	zval *prop;
+	zend_function *raw_fn;
+	int i;
+	static const char *prop_names[] = { "get", "post", "cookie", "server", "files", "header" };
+	static const uint8_t prop_lens[] = { 3, 4, 6, 6, 5, 6 };
+
+	for (i = 0; i < 6; i++) {
+		prop = gene_request_swoole_prop(request_obj, prop_names[i], prop_lens[i], &rv[i]);
+		if (prop) {
+			/* Materialize into a request-owned zval: rawContent() may legally
+			 * mutate the object and invalidate property-slot pointers. */
+			ZVAL_COPY(&vals[i], prop);
+		} else {
+			array_init(&vals[i]);
+		}
+	}
+	if (UNEXPECTED(EG(exception))) {
+		for (i = 0; i < 6; i++) {
+			zval_ptr_dtor(&vals[i]);
+		}
+		return FAILURE;
+	}
+	/* Explicit lookup instead of zend_call_method: a missing method there is
+	 * an uncatchable E_ERROR that would kill the worker mid-request. */
+	raw_fn = zend_hash_str_find_ptr(&Z_OBJCE_P(request_obj)->function_table, ZEND_STRL("rawcontent"));
+	if (UNEXPECTED(!raw_fn)) {
+		zend_throw_error(NULL, "Gene\\Request::initSwoole: %s::rawContent() is not implemented",
+			ZSTR_VAL(Z_OBJCE_P(request_obj)->name));
+		for (i = 0; i < 6; i++) {
+			zval_ptr_dtor(&vals[i]);
+		}
+		return FAILURE;
+	}
+	ZVAL_UNDEF(&raw_ret);
+	zend_call_known_function(raw_fn, Z_OBJ_P(request_obj), Z_OBJCE_P(request_obj), &raw_ret, 0, NULL, NULL);
+	if (UNEXPECTED(EG(exception))) {
+		for (i = 0; i < 6; i++) {
+			zval_ptr_dtor(&vals[i]);
+		}
+		if (!Z_ISUNDEF(raw_ret)) {
+			zval_ptr_dtor(&raw_ret);
+		}
+		return FAILURE;
+	}
+	gene_request_init_bags(&vals[0], &vals[1], &vals[2], &vals[3], NULL, &vals[4], NULL, &vals[5],
+		(Z_TYPE(raw_ret) == IS_STRING) ? &raw_ret : NULL);
+	for (i = 0; i < 6; i++) {
+		zval_ptr_dtor(&vals[i]);
+	}
+	zval_ptr_dtor(&raw_ret);
+	return SUCCESS;
+}
+/* }}} */
+
+/*
+ * {{{ public static gene_request::initSwoole(object $request)
+ * Swoole request adapter: \Gene\Request::initSwoole($request) replaces the
+ * nine-argument init() call in the Swoole onRequest hot path.
+ */
+PHP_METHOD(gene_request, initSwoole) {
+	zval *request_obj = NULL;
+	if (zend_parse_parameters(ZEND_NUM_ARGS(), "o", &request_obj) == FAILURE) {
+		RETURN_FALSE;
+	}
+	if (gene_request_init_swoole(request_obj) == FAILURE) {
+		/* Exception still pending — propagate to the caller. */
+		return;
 	}
 	RETURN_TRUE;
 }
@@ -1085,6 +1198,8 @@ const zend_function_entry gene_request_methods[] = {
 	/* [GENE_FEATURE:2026-08-07] HTTPS detection (see isSecure impl). */
 	PHP_ME(gene_request, isSecure, geme_request_void_arginfo, ZEND_ACC_PUBLIC|ZEND_ACC_STATIC)
 	PHP_ME(gene_request, init, gene_request_init_arginfo, ZEND_ACC_PUBLIC|ZEND_ACC_STATIC)
+	/* [GENE_FEATURE:2026-09-12] Swoole request adapter — see initSwoole. */
+	PHP_ME(gene_request, initSwoole, gene_request_init_swoole_arginfo, ZEND_ACC_PUBLIC|ZEND_ACC_STATIC)
 	PHP_ME(gene_request, clear, geme_request_void_arginfo, ZEND_ACC_PUBLIC|ZEND_ACC_STATIC)
 	PHP_ME(gene_request, rawContent, geme_request_void_arginfo, ZEND_ACC_PUBLIC|ZEND_ACC_STATIC)
 	PHP_MALIAS(gene_request, getContent, rawContent, geme_request_void_arginfo, ZEND_ACC_PUBLIC|ZEND_ACC_STATIC)

@@ -21,7 +21,9 @@
 #include "php.h"
 #include "php_ini.h"
 #include "standard/php_filestat.h"
+#include "standard/php_string.h"
 #include "main/SAPI.h"
+#include "main/php_output.h"
 #include "Zend/zend_API.h"
 #include "zend_exceptions.h"
 #include <ctype.h>
@@ -30,7 +32,9 @@
 #include "../app/application.h"
 #include "../factory/load.h"
 #include "../cache/memory.h"
+#include "../cache/redis_pool.h"
 #include "../config/configs.h"
+#include "../db/pool.h"
 #include "../router/router.h"
 #include "../http/request.h"
 #include "../http/response.h"
@@ -39,6 +43,7 @@
 #include "../common/common.h"
 #include "../mvc/view.h"
 #include "../tool/crypto.h"
+#include "../tool/log.h"
 #include "../di/di.h"
 #include "../exception/exception.h"
 
@@ -89,6 +94,31 @@ ZEND_END_ARG_INFO()
 ZEND_BEGIN_ARG_INFO_EX(gene_application_run, 0, 0, 0)
 	ZEND_ARG_INFO(0, method)
 	ZEND_ARG_INFO(0, uri)
+ZEND_END_ARG_INFO()
+
+ZEND_BEGIN_ARG_INFO_EX(gene_application_handle_swoole, 0, 0, 2)
+	ZEND_ARG_TYPE_INFO(0, request, IS_OBJECT, 0)
+	ZEND_ARG_TYPE_INFO(0, response, IS_OBJECT, 0)
+	ZEND_ARG_ARRAY_INFO(0, options, 0)
+ZEND_END_ARG_INFO()
+
+ZEND_BEGIN_ARG_INFO_EX(gene_application_bootstrap, 0, 0, 2)
+	ZEND_ARG_TYPE_INFO(0, appRoot, IS_STRING, 0)
+	ZEND_ARG_TYPE_INFO(0, confDir, IS_STRING, 0)
+	ZEND_ARG_ARRAY_INFO(0, options, 0)
+ZEND_END_ARG_INFO()
+
+ZEND_BEGIN_ARG_INFO_EX(gene_application_pools, 0, 0, 1)
+	ZEND_ARG_ARRAY_INFO(0, decls, 0)
+ZEND_END_ARG_INFO()
+
+ZEND_BEGIN_ARG_INFO_EX(gene_application_start_pools, 0, 0, 0)
+ZEND_END_ARG_INFO()
+
+ZEND_BEGIN_ARG_INFO_EX(gene_application_stop_pool_timers, 0, 0, 0)
+ZEND_END_ARG_INFO()
+
+ZEND_BEGIN_ARG_INFO_EX(gene_application_close_pools, 0, 0, 0)
 ZEND_END_ARG_INFO()
 
 ZEND_BEGIN_ARG_INFO_EX(gene_application_webscan, 0, 0, 0)
@@ -707,12 +737,35 @@ PHP_METHOD(gene_application, getEnvironment) {
  */
 PHP_METHOD(gene_application, getEnvironmentName) {
 	switch (GENE_G(run_environment)) {
+		case 3:
+			/* [GENE_FEATURE:2026-09-12] Gray/canary env — the canonical app
+			 * mapping that previously forced every entry to re-implement the
+			 * switch locally. */
+			RETURN_STRING("gray");
 		case 2:
 			RETURN_STRING("prod");
 		case 1:
 			RETURN_STRING("test");
 		case 0:
+			RETURN_STRING("dev");
 		default:
+			/* Unknown codes used to silently fall through to "dev". Kept for
+			 * BC, but no longer silent: warn once per process. Under Swoole
+			 * this runs inside workerStart where a throwing user error
+			 * handler would respawn-loop the worker — log-only there, same
+			 * policy as the workerReady() contradiction diagnostic. */
+			if (!GENE_G(env_fallback_warned)) {
+				GENE_G(env_fallback_warned) = 1;
+				if (GENE_G(runtime_type) >= 2) {
+					gene_log_diag(E_WARNING,
+						"Gene: unknown environment id " ZEND_LONG_FMT ", getEnvironmentName() falls back to 'dev'",
+						GENE_G(run_environment));
+				} else {
+					php_error_docref(NULL, E_WARNING,
+						"Gene: unknown environment id " ZEND_LONG_FMT ", getEnvironmentName() falls back to 'dev'",
+						GENE_G(run_environment));
+				}
+			}
 			RETURN_STRING("dev");
 	}
 }
@@ -981,11 +1034,9 @@ PHP_METHOD(gene_application, destroyContext) {
  * In FPM mode: behaves identically to clearState() alone; $gc is ignored
  *              because the SAPI already frees the request arena next RSHUTDOWN.
  */
-PHP_METHOD(gene_application, cleanup) {
-	zend_bool gc = 0;
-	if (zend_parse_parameters(ZEND_NUM_ARGS(), "|b", &gc) == FAILURE) {
-		RETURN_FALSE;
-	}
+/* [GENE_FEATURE:2026-09-12] Shared body of cleanup() so handleSwoole() can
+ * reclaim the request context without a userland method round-trip. */
+static void gene_application_cleanup_ctx(zend_bool gc) {
 	if (GENE_G(runtime_type) >= 2 && GENE_G(co_contexts)) {
 		zend_long cid;
 		/* [GENE_PERF:2026-04-19 #2] Fast path: vm_stack match ⇒ same coroutine
@@ -1031,6 +1082,14 @@ maybe_gc:
 	} else {
 		gene_request_context_reset(gene_request_ctx());
 	}
+}
+
+PHP_METHOD(gene_application, cleanup) {
+	zend_bool gc = 0;
+	if (zend_parse_parameters(ZEND_NUM_ARGS(), "|b", &gc) == FAILURE) {
+		RETURN_FALSE;
+	}
+	gene_application_cleanup_ctx(gc);
 	RETURN_TRUE;
 }
 /* }}} */
@@ -1063,11 +1122,9 @@ PHP_METHOD(gene_application, prewarmCtxPool) {
 /*
  * {{{ public gene_application::setResponse($response)
  */
-PHP_METHOD(gene_application, setResponse) {
-	zval *resp;
-	if (zend_parse_parameters(ZEND_NUM_ARGS(), "z", &resp) == FAILURE) {
-		return;
-	}
+/* [GENE_FEATURE:2026-09-12] Shared body of setResponse() so handleSwoole()
+ * binds the response object without a userland method round-trip. */
+static void gene_application_bind_response(zval *resp) {
 	zval *entrys = gene_di_regs();
 	/* [GENE_FIX:2026-05-24] GENE_INTERNED_STR macro avoids the unsafe
 	 * static zend_string* + zend_string_init_interned(...,1) pattern that
@@ -1076,6 +1133,14 @@ PHP_METHOD(gene_application, setResponse) {
 	zend_string *resp_key = gene_interned_str_persistent(&resp_key_slot, "response", sizeof("response") - 1);
 	Z_TRY_ADDREF_P(resp);
 	zend_hash_update(Z_ARRVAL_P(entrys), resp_key, resp);
+}
+
+PHP_METHOD(gene_application, setResponse) {
+	zval *resp;
+	if (zend_parse_parameters(ZEND_NUM_ARGS(), "z", &resp) == FAILURE) {
+		return;
+	}
+	gene_application_bind_response(resp);
 	RETURN_TRUE;
 }
 /* }}} */
@@ -1557,7 +1622,8 @@ PHP_METHOD(gene_application, run) {
 		 * already called cleanup() (the hash delete simply misses). */
 		if (GENE_G(swoole_auto_cleanup) && GENE_G(runtime_type) >= 2
 				&& GENE_G(run_depth) == 0 && GENE_G(co_contexts)
-				&& GENE_G(swoole_defer_resolved) && !GENE_G(swoole_defer_func)) {
+				&& GENE_G(swoole_defer_resolved) && !GENE_G(swoole_defer_func)
+				&& GENE_G(swoole_handle_depth) == 0) {
 			zend_long cid = gene_get_coroutine_id();
 			if (cid >= 0) {
 				if (GENE_G(current_cid) == cid) {
@@ -1572,6 +1638,647 @@ PHP_METHOD(gene_application, run) {
 		}
 	}
 	RETURN_ZVAL(self, 1, 0);
+}
+/* }}} */
+
+/*
+ * {{{ public gene_application::handleSwoole(object $request, object $response[, array $options])
+ * [GENE_FEATURE:2026-09-12] One-call Swoole onRequest lifecycle adapter:
+ *
+ *   waitWorkerReady → Request::initSwoole → setResponse → 本层 ob buffer
+ *   → run() → Throwable 边界 → 收敛本层输出 → 未结束则 response->end(output)
+ *   → cleanup(cleanup_gc)
+ *
+ * Options: ['cleanup_gc' => false, 'catch' => null]. catch 为
+ * function (\Throwable $e, object $request, object $response): void；
+ * 未配置时框架记 Gene\Log::exception() 并在响应仍可写且未结束时补
+ * status(500) + end(buffered output)。catch 再抛异常：buffer 恢复与
+ * cleanup 照常执行，异常向外传播。不设置默认 Content-Type，不覆盖业务
+ * status/header；dispatch 内已 end/json/sendFile/redirect 的请求绝不二次
+ * end()。run() 的降级 auto-cleanup 在此被 swoole_handle_depth 抑制，
+ * 由本方法独占 cleanup 时机。 */
+PHP_METHOD(gene_application, handleSwoole) {
+	zval *request = NULL, *response = NULL, *options = NULL, *self;
+	zval *catch_cb = NULL, zout;
+	zend_bool cleanup_gc = 0, default_500 = 0, have_buffer = 0;
+	int entry_level;
+
+	if (zend_parse_parameters(ZEND_NUM_ARGS(), "oo|a", &request, &response, &options) == FAILURE) {
+		RETURN_FALSE;
+	}
+	if (options && Z_TYPE_P(options) == IS_ARRAY) {
+		zval *v = zend_hash_str_find(Z_ARRVAL_P(options), ZEND_STRL("cleanup_gc"));
+		if (v) {
+			cleanup_gc = zend_is_true(v);
+		}
+		catch_cb = zend_hash_str_find(Z_ARRVAL_P(options), ZEND_STRL("catch"));
+		if (catch_cb && !zend_is_callable(catch_cb, 0, NULL)) {
+			zend_argument_value_error(3, "catch must be a callable");
+			RETURN_THROWS();
+		}
+	}
+	self = getThis();
+	if (UNEXPECTED(!self)) {
+		zend_throw_error(NULL, "Gene\\Application::handleSwoole must be called on an instance");
+		RETURN_THROWS();
+	}
+
+	gene_application_wait_worker_ready_once();
+	if (UNEXPECTED(gene_request_init_swoole(request) == FAILURE)) {
+		/* rawContent() 缺失或抛错：请求袋未提交，cleanup 后异常向外传播。 */
+		gene_application_cleanup_ctx(cleanup_gc);
+		return;
+	}
+	gene_application_bind_response(response);
+
+	entry_level = php_output_get_level();
+	if (php_output_start_internal(ZEND_STRL("gene\\Application::handleSwoole"), NULL, 0,
+			PHP_OUTPUT_HANDLER_STDFLAGS) == SUCCESS) {
+		have_buffer = 1;
+	}
+
+	{
+		zend_function *run_fn = zend_hash_str_find_ptr(&gene_application_ce->function_table, ZEND_STRL("run"));
+		GENE_G(swoole_handle_depth)++;
+		if (EXPECTED(run_fn)) {
+			zval retval;
+			ZVAL_UNDEF(&retval);
+			zend_call_known_function(run_fn, Z_OBJ_P(self), gene_application_ce, &retval, 0, NULL, NULL);
+			zval_ptr_dtor(&retval);
+		}
+		GENE_G(swoole_handle_depth)--;
+	}
+
+	if (UNEXPECTED(EG(exception))) {
+		zval ex;
+		ZVAL_OBJ_COPY(&ex, EG(exception));
+		zend_clear_exception();
+		if (catch_cb) {
+			zval cret, cparams[3];
+			ZVAL_UNDEF(&cret);
+			cparams[0] = ex;
+			cparams[1] = *request;
+			cparams[2] = *response;
+			call_user_function(EG(function_table), NULL, catch_cb, &cret, 3, cparams);
+			zval_ptr_dtor(&cret);
+			/* catch 再抛：EG(exception) 重新挂起 → 跳过 end，照常恢复+cleanup。 */
+		} else {
+			zend_function *log_fn;
+			default_500 = 1;
+			log_fn = zend_hash_str_find_ptr(&gene_log_ce->function_table, ZEND_STRL("exception"));
+			if (log_fn) {
+				zval lret, lp;
+				ZVAL_UNDEF(&lret);
+				ZVAL_COPY(&lp, &ex);
+				zend_call_known_function(log_fn, NULL, gene_log_ce, &lret, 1, &lp, NULL);
+				zval_ptr_dtor(&lp);
+				zval_ptr_dtor(&lret);
+			}
+		}
+		zval_ptr_dtor(&ex);
+	}
+
+	/* 仅收集本层输出：dispatch 期间业务泄漏的嵌套 buffer 逐级 end 收敛进
+	 * 本层（ob_end_flush 语义），进入入口前已有的外层 buffer 不触碰；
+	 * 本层取回内容后 discard，不转发给外层。 */
+	ZVAL_EMPTY_STRING(&zout);
+	if (have_buffer) {
+		while (php_output_get_level() > entry_level + 1) {
+			if (php_output_end() == FAILURE) {
+				break;
+			}
+		}
+		if (php_output_get_level() == entry_level + 1) {
+			zval tmp;
+			if (php_output_get_contents(&tmp) == SUCCESS) {
+				zout = tmp;
+			}
+			php_output_discard();
+		}
+	}
+
+	if (!EG(exception)) {
+		/* 收口判断只看 Swoole 侧可写性，不看 ctx->response_ended：
+		 * Response::end/redirect/sendFile 直达 Swoole 后 isWritable()=false
+		 * （天然防二次 end）；而 Response::json 是 php_write 进 buffer 仅置
+		 * ended 标记，response 对象仍可写，buffered body 必须由这里发出去。 */
+		zend_bool sent = 0;
+		zval *swoole_resp = gene_response_context_obj();
+		if (swoole_resp) {
+			/* isWritable() 兼容策略与 Response::isSent() 一致：
+			 * 方法不可解析时按"未发送"处理，交给 end() 兜底。 */
+			zend_function *wf = zend_hash_str_find_ptr(&Z_OBJCE_P(swoole_resp)->function_table, ZEND_STRL("iswritable"));
+			if (wf) {
+				zval wret;
+				ZVAL_UNDEF(&wret);
+				zend_call_known_function(wf, Z_OBJ_P(swoole_resp), Z_OBJCE_P(swoole_resp), &wret, 0, NULL, NULL);
+				if (!Z_ISUNDEF(wret)) {
+					sent = !zend_is_true(&wret);
+					zval_ptr_dtor(&wret);
+				}
+			}
+		} else {
+			sent = SG(headers_sent);
+		}
+		if (!sent) {
+			if (default_500) {
+				gene_response_set_status(500);
+			}
+			gene_response_end(Z_STR(zout));
+		}
+	}
+	zval_ptr_dtor(&zout);
+	gene_application_cleanup_ctx(cleanup_gc);
+	RETURN_TRUE;
+}
+/* }}} */
+
+/* [GENE_FEATURE:2026-09-12] Internal call helper: invoke a method of this
+ * class on $obj (or statically when obj is NULL). Returns FAILURE with the
+ * exception still pending so callers bail out early. */
+static zend_always_inline int gene_app_call(const char *name, size_t name_len, zend_object *obj, zval *retval, uint32_t argc, zval *params) {
+	zend_function *fn = zend_hash_str_find_ptr(&gene_application_ce->function_table, name, name_len);
+	if (UNEXPECTED(!fn)) {
+		return FAILURE;
+	}
+	zend_call_known_function(fn, obj, gene_application_ce, retval, argc, params, NULL);
+	return EG(exception) ? FAILURE : SUCCESS;
+}
+
+/* [GENE_FEATURE:2026-09-12] Expand the "{env}" placeholder in a bootstrap
+ * file name with the current environment name. No placeholder → copy. */
+static zend_always_inline zend_string *gene_app_env_expand(zend_string *name, zend_string *env) {
+	if (!env || !strstr(ZSTR_VAL(name), "{env}")) {
+		return zend_string_copy(name);
+	}
+	return php_str_to_str(ZSTR_VAL(name), ZSTR_LEN(name), "{env}", sizeof("{env}") - 1,
+		ZSTR_VAL(env), ZSTR_LEN(env));
+}
+
+/*
+ * {{{ public gene_application::bootstrap(string $appRoot, string $confDir[, array $options])
+ * [GENE_FEATURE:2026-09-12] FPM/Swoole 共享的应用装载收口，等价于：
+ *   autoload($appRoot)
+ *   ->load($router, $confDir)            // options['router']，可含 {env}
+ *   ->load($config, $confDir)            // options['config']，{env} 展开为
+ *                                      //   getEnvironmentName()
+ *   ->setMode($mode ?? 1, $debug, $ex_callback, $error_callback)
+ *                                      // $debug = options['debug'] ?? (env ∈ options['debug_envs'])
+ *
+ * 不承载 request-id/webscan/时区/池名/业务异常信封 —— 这些由应用显式配置。
+ */
+PHP_METHOD(gene_application, bootstrap) {
+	zend_string *app_root = NULL, *conf_dir = NULL;
+	zval *options = NULL, *self = getThis();
+	zval *router_v = NULL, *config_v = NULL, *debug_envs = NULL;
+	zval *debug_v = NULL, *ex_cb = NULL, *err_cb = NULL;
+	zend_long mode = 1, debug = 0;
+	int mode_argc = 2, cb_placeholder = 0;
+	zval ret, env_ret, params[4];
+
+	if (zend_parse_parameters(ZEND_NUM_ARGS(), "SS|a", &app_root, &conf_dir, &options) == FAILURE) {
+		return;
+	}
+	if (UNEXPECTED(!self)) {
+		zend_throw_error(NULL, "Gene\\Application::bootstrap must be called on an instance");
+		RETURN_THROWS();
+	}
+	if (options) {
+		router_v = zend_hash_str_find(Z_ARRVAL_P(options), ZEND_STRL("router"));
+		if (router_v && Z_TYPE_P(router_v) != IS_STRING && Z_TYPE_P(router_v) != IS_NULL) {
+			zend_argument_value_error(3, "'router' must be a string file name");
+			RETURN_THROWS();
+		}
+		config_v = zend_hash_str_find(Z_ARRVAL_P(options), ZEND_STRL("config"));
+		if (config_v && Z_TYPE_P(config_v) != IS_STRING && Z_TYPE_P(config_v) != IS_NULL) {
+			zend_argument_value_error(3, "'config' must be a string file name");
+			RETURN_THROWS();
+		}
+		zval *mode_v = zend_hash_str_find(Z_ARRVAL_P(options), ZEND_STRL("mode"));
+		if (mode_v && Z_TYPE_P(mode_v) != IS_NULL) {
+			mode = zval_get_long(mode_v);
+		}
+		debug_envs = zend_hash_str_find(Z_ARRVAL_P(options), ZEND_STRL("debug_envs"));
+		if (debug_envs && Z_TYPE_P(debug_envs) != IS_ARRAY && Z_TYPE_P(debug_envs) != IS_NULL) {
+			zend_argument_value_error(3, "'debug_envs' must be an array of environment names");
+			RETURN_THROWS();
+		}
+		debug_v = zend_hash_str_find(Z_ARRVAL_P(options), ZEND_STRL("debug"));
+		ex_cb = zend_hash_str_find(Z_ARRVAL_P(options), ZEND_STRL("ex_callback"));
+		if (ex_cb && Z_TYPE_P(ex_cb) != IS_NULL && !zend_is_callable(ex_cb, 0, NULL)) {
+			zend_argument_value_error(3, "'ex_callback' must be a callable");
+			RETURN_THROWS();
+		}
+		err_cb = zend_hash_str_find(Z_ARRVAL_P(options), ZEND_STRL("error_callback"));
+		if (err_cb && Z_TYPE_P(err_cb) != IS_NULL && !zend_is_callable(err_cb, 0, NULL)) {
+			zend_argument_value_error(3, "'error_callback' must be a callable");
+			RETURN_THROWS();
+		}
+	}
+
+	/* 环境名仅在 {env} 展开或 debug_envs 判定时需要，惰性取一次。 */
+	ZVAL_UNDEF(&env_ret);
+	if ((router_v && Z_TYPE_P(router_v) == IS_STRING && strstr(Z_STRVAL_P(router_v), "{env}"))
+			|| (config_v && Z_TYPE_P(config_v) == IS_STRING && strstr(Z_STRVAL_P(config_v), "{env}"))
+			|| (debug_envs && Z_TYPE_P(debug_envs) == IS_ARRAY
+				&& zend_hash_num_elements(Z_ARRVAL_P(debug_envs)) > 0)) {
+		if (gene_app_call(ZEND_STRL("getenvironmentname"), Z_OBJ_P(self), &env_ret, 0, NULL) == FAILURE) {
+			return;
+		}
+		if (Z_TYPE(env_ret) != IS_STRING) {
+			zval_ptr_dtor(&env_ret);
+			ZVAL_UNDEF(&env_ret);
+		}
+	}
+	if (debug_v && Z_TYPE_P(debug_v) != IS_NULL) {
+		/* 显式 debug 优先于 debug_envs 环境匹配（等价旧式 setMode(1,1) 恒开） */
+		debug = zend_is_true(debug_v) ? 1 : 0;
+	} else if (debug_envs && Z_TYPE_P(debug_envs) == IS_ARRAY && Z_TYPE(env_ret) == IS_STRING) {
+		zval *env_name;
+		ZEND_HASH_FOREACH_VAL(Z_ARRVAL_P(debug_envs), env_name) {
+			zend_string *s = zval_get_string(env_name);
+			if (zend_string_equals(s, Z_STR(env_ret))) {
+				debug = 1;
+				zend_string_release(s);
+				break;
+			}
+			zend_string_release(s);
+		} ZEND_HASH_FOREACH_END();
+	}
+
+	ZVAL_UNDEF(&ret);
+	ZVAL_STR(&params[0], app_root);
+	if (gene_app_call(ZEND_STRL("autoload"), Z_OBJ_P(self), &ret, 1, params) == FAILURE) {
+		goto done;
+	}
+	zval_ptr_dtor(&ret); ZVAL_UNDEF(&ret);
+
+	if (router_v && Z_TYPE_P(router_v) == IS_STRING && Z_STRLEN_P(router_v)) {
+		zend_string *name = gene_app_env_expand(Z_STR_P(router_v),
+			Z_TYPE(env_ret) == IS_STRING ? Z_STR(env_ret) : NULL);
+		ZVAL_STR(&params[0], name);
+		ZVAL_STR(&params[1], conf_dir);
+		gene_app_call(ZEND_STRL("load"), Z_OBJ_P(self), &ret, 2, params);
+		zend_string_release(name);
+		if (UNEXPECTED(EG(exception))) {
+			goto done;
+		}
+		zval_ptr_dtor(&ret); ZVAL_UNDEF(&ret);
+	}
+	if (config_v && Z_TYPE_P(config_v) == IS_STRING && Z_STRLEN_P(config_v)) {
+		zend_string *name = gene_app_env_expand(Z_STR_P(config_v),
+			Z_TYPE(env_ret) == IS_STRING ? Z_STR(env_ret) : NULL);
+		ZVAL_STR(&params[0], name);
+		ZVAL_STR(&params[1], conf_dir);
+		gene_app_call(ZEND_STRL("load"), Z_OBJ_P(self), &ret, 2, params);
+		zend_string_release(name);
+		if (UNEXPECTED(EG(exception))) {
+			goto done;
+		}
+		zval_ptr_dtor(&ret); ZVAL_UNDEF(&ret);
+	}
+
+	ZVAL_LONG(&params[0], mode);
+	ZVAL_LONG(&params[1], debug);
+	if (ex_cb && Z_TYPE_P(ex_cb) != IS_NULL) {
+		params[2] = *ex_cb;
+		mode_argc = 3;
+	}
+	if (err_cb && Z_TYPE_P(err_cb) != IS_NULL) {
+		if (mode_argc == 2) {
+			/* ex_callback 缺省占位：显式传 Gene 内置异常处理器名，
+			 * 等价 setMode 第三参缺省时 gene_exception_register(NULL) 的回退，
+			 * 不能传 NULL zval（set_exception_handler(NULL) 会卸掉处理器）。 */
+			if (GENE_G(use_namespace)) {
+				ZVAL_STRING(&params[2], GENE_EXCEPTION_FUNC_NAME_NS);
+			} else {
+				ZVAL_STRING(&params[2], GENE_EXCEPTION_FUNC_NAME);
+			}
+			cb_placeholder = 1;
+		}
+		params[3] = *err_cb;
+		mode_argc = 4;
+	}
+	gene_app_call(ZEND_STRL("setmode"), Z_OBJ_P(self), &ret, mode_argc, params);
+	if (cb_placeholder) {
+		zval_ptr_dtor(&params[2]);
+	}
+
+done:
+	if (!Z_ISUNDEF(ret)) {
+		zval_ptr_dtor(&ret);
+	}
+	if (!Z_ISUNDEF(env_ret)) {
+		zval_ptr_dtor(&env_ret);
+	}
+	if (UNEXPECTED(EG(exception))) {
+		return;
+	}
+	RETURN_ZVAL(self, 1, 0);
+}
+/* }}} */
+
+/* [GENE_FEATURE:2026-09-12] Pool 声明登记表（worker 生命周期全局表）。
+ * 显式声明驱动与 config component，绝不扫描配置猜测类型。 */
+static zend_always_inline HashTable *gene_app_pool_decls(void) {
+	if (!GENE_G(pool_decls)) {
+		ALLOC_HASHTABLE(GENE_G(pool_decls));
+		zend_hash_init(GENE_G(pool_decls), 8, NULL, ZVAL_PTR_DTOR, 0);
+	}
+	return GENE_G(pool_decls);
+}
+
+static zend_always_inline zend_bool gene_app_pool_decl_started(zval *decl) {
+	zval *s = zend_hash_str_find(Z_ARRVAL_P(decl), ZEND_STRL("started"));
+	return s && zend_is_true(s);
+}
+
+/*
+ * {{{ public gene_application::pools(array $decls)
+ * [GENE_FEATURE:2026-09-12] 登记连接池声明：
+ *   ['dbPool' => ['driver' => 'db',    'component' => 'db',    'params' => [...]],
+ *    'redisPool' => ['driver' => 'redis', 'component' => 'redis']]
+ * driver 仅接受 'db'（Gene\Pool）或 'redis'（Gene\Cache\RedisPool）；
+ * component 为 config 键名；params 为可选池参数（min/max/idleTimeout/
+ * waitTimeout）。已启动的池不可重声明（ValueError）。
+ */
+PHP_METHOD(gene_application, pools) {
+	zval *decls = NULL, *self = getThis();
+	zend_string *name;
+	zval *decl;
+
+	if (zend_parse_parameters(ZEND_NUM_ARGS(), "a", &decls) == FAILURE) {
+		return;
+	}
+	ZEND_HASH_FOREACH_STR_KEY_VAL(Z_ARRVAL_P(decls), name, decl) {
+		zval *driver, *component, *params;
+		if (!name) {
+			zend_argument_value_error(1, "pool name must be a string key");
+			RETURN_THROWS();
+		}
+		if (Z_TYPE_P(decl) != IS_ARRAY) {
+			zend_argument_value_error(1, "pool '%s' declaration must be an array", ZSTR_VAL(name));
+			RETURN_THROWS();
+		}
+		driver = zend_hash_str_find(Z_ARRVAL_P(decl), ZEND_STRL("driver"));
+		if (!driver || Z_TYPE_P(driver) != IS_STRING
+				|| (strcmp(Z_STRVAL_P(driver), "db") && strcmp(Z_STRVAL_P(driver), "redis"))) {
+			zend_argument_value_error(1, "pool '%s': driver must be 'db' or 'redis'", ZSTR_VAL(name));
+			RETURN_THROWS();
+		}
+		component = zend_hash_str_find(Z_ARRVAL_P(decl), ZEND_STRL("component"));
+		if (!component || Z_TYPE_P(component) != IS_STRING || !Z_STRLEN_P(component)) {
+			zend_argument_value_error(1, "pool '%s': component must be a non-empty config key", ZSTR_VAL(name));
+			RETURN_THROWS();
+		}
+		params = zend_hash_str_find(Z_ARRVAL_P(decl), ZEND_STRL("params"));
+		if (params && Z_TYPE_P(params) != IS_ARRAY && Z_TYPE_P(params) != IS_NULL) {
+			zend_argument_value_error(1, "pool '%s': params must be an array", ZSTR_VAL(name));
+			RETURN_THROWS();
+		}
+		{
+			zval *existing = zend_hash_find(gene_app_pool_decls(), name);
+			if (existing && Z_TYPE_P(existing) == IS_ARRAY && gene_app_pool_decl_started(existing)) {
+				zend_argument_value_error(1, "pool '%s' is already started", ZSTR_VAL(name));
+				RETURN_THROWS();
+			}
+		}
+		{
+			zval entry, v;
+			array_init(&entry);
+			add_assoc_str(&entry, "driver", zend_string_copy(Z_STR_P(driver)));
+			add_assoc_str(&entry, "component", zend_string_copy(Z_STR_P(component)));
+			if (params && Z_TYPE_P(params) == IS_ARRAY) {
+				ZVAL_COPY(&v, params);
+			} else {
+				ZVAL_NULL(&v);
+			}
+			add_assoc_zval(&entry, "params", &v);
+			add_assoc_bool(&entry, "started", 0);
+			zend_hash_update(gene_app_pool_decls(), name, &entry);
+		}
+	} ZEND_HASH_FOREACH_END();
+
+	if (self) {
+		RETURN_ZVAL(self, 1, 0);
+	}
+	RETURN_TRUE;
+}
+/* }}} */
+
+/* [GENE_FEATURE:2026-09-12] Pool 创建前的配置预检 —— 与 Pool::create /
+ * RedisPool::create 相同的 "<app_key|app_root>:config" 查找。配置缺失时
+ * 显式抛异常，不让坏池带着空 params 注册（Timer 也不会启动）。 */
+static int gene_app_pool_config_exists(zend_string *component) {
+	char cache_key_buf[256];
+	char *cache_key = cache_key_buf;
+	int cache_key_heap = 0;
+	const char *prefix = NULL;
+	size_t prefix_len = 0, cache_key_len;
+	zval *config_data;
+
+	if (GENE_G(app_key) && GENE_G(app_key)[0] != '\0') {
+		prefix = GENE_G(app_key);
+		prefix_len = GENE_G(app_key_len);
+	} else if (GENE_G(app_root) && GENE_G(app_root)[0] != '\0') {
+		prefix = GENE_G(app_root);
+		prefix_len = GENE_G(app_root_len);
+	}
+	cache_key_len = prefix_len + sizeof(GENE_CONFIG_CACHE) - 1;
+	if (cache_key_len >= sizeof(cache_key_buf)) {
+		cache_key = emalloc(cache_key_len + 1);
+		cache_key_heap = 1;
+	}
+	if (prefix_len) {
+		memcpy(cache_key, prefix, prefix_len);
+	}
+	memcpy(cache_key + prefix_len, GENE_CONFIG_CACHE, sizeof(GENE_CONFIG_CACHE));
+
+	config_data = gene_memory_get_by_config(cache_key, cache_key_len, ZSTR_VAL(component));
+	if (cache_key_heap) {
+		efree(cache_key);
+	}
+	return config_data && Z_TYPE_P(config_data) == IS_ARRAY;
+}
+
+static zend_always_inline void gene_app_pool_call0(zend_class_entry *ce, const char *method, size_t method_len) {
+	zend_function *fn = zend_hash_str_find_ptr(&ce->function_table, method, method_len);
+	zval ret;
+	if (!fn) {
+		return;
+	}
+	ZVAL_UNDEF(&ret);
+	zend_call_known_function(fn, NULL, ce, &ret, 0, NULL, NULL);
+	zval_ptr_dtor(&ret);
+}
+
+/*
+ * {{{ public gene_application::startPools()
+ * [GENE_FEATURE:2026-09-12] 按声明创建全部未启动的池（workerStart 中调用）。
+ * FPM（runtime_type < 2）下明确拒绝返回 false；重复调用幂等；某个池创建
+ * 失败时异常向外传播且该声明保持未启动（可重试），不留下半初始化注册项。
+ */
+PHP_METHOD(gene_application, startPools) {
+	zend_string *name;
+	zval *decl;
+
+	if (zend_parse_parameters_none() == FAILURE) {
+		return;
+	}
+	if (GENE_G(runtime_type) < 2) {
+		RETURN_FALSE;
+	}
+	if (!GENE_G(pool_decls)) {
+		RETURN_TRUE;
+	}
+	ZEND_HASH_FOREACH_STR_KEY_VAL(GENE_G(pool_decls), name, decl) {
+		zval *driver, *component, *params, ret;
+		zend_class_entry *ce;
+		zend_function *create_fn;
+		zval args[3];
+		uint32_t argc = 2;
+
+		if (Z_TYPE_P(decl) != IS_ARRAY || gene_app_pool_decl_started(decl)) {
+			continue;
+		}
+		driver = zend_hash_str_find(Z_ARRVAL_P(decl), ZEND_STRL("driver"));
+		component = zend_hash_str_find(Z_ARRVAL_P(decl), ZEND_STRL("component"));
+		params = zend_hash_str_find(Z_ARRVAL_P(decl), ZEND_STRL("params"));
+
+		if (!gene_app_pool_config_exists(Z_STR_P(component))) {
+			char errbuf[512];
+			snprintf(errbuf, sizeof(errbuf),
+				"Gene\\Application::startPools: pool '%s' config key '%s' not found",
+				ZSTR_VAL(name), Z_STRVAL_P(component));
+			zend_throw_exception(zend_ce_exception, errbuf, 0);
+			return;
+		}
+
+		ce = (strcmp(Z_STRVAL_P(driver), "redis") == 0) ? gene_redis_pool_ce : gene_pool_ce;
+		create_fn = zend_hash_str_find_ptr(&ce->function_table, ZEND_STRL("create"));
+		if (UNEXPECTED(!create_fn)) {
+			continue;
+		}
+		ZVAL_STR(&args[0], name);
+		ZVAL_STR(&args[1], Z_STR_P(component));
+		if (params && Z_TYPE_P(params) == IS_ARRAY) {
+			ZVAL_COPY(&args[2], params);
+			argc = 3;
+		}
+		ZVAL_UNDEF(&ret);
+		zend_call_known_function(create_fn, NULL, ce, &ret, argc, args, NULL);
+		if (argc == 3) {
+			zval_ptr_dtor(&args[2]);
+		}
+		if (UNEXPECTED(EG(exception))) {
+			if (!Z_ISUNDEF(ret)) {
+				zval_ptr_dtor(&ret);
+			}
+			return;
+		}
+		if (UNEXPECTED(Z_TYPE(ret) != IS_OBJECT)) {
+			char errbuf[512];
+			zval_ptr_dtor(&ret);
+			snprintf(errbuf, sizeof(errbuf),
+				"Gene\\Application::startPools: pool '%s' creation failed", ZSTR_VAL(name));
+			zend_throw_exception(zend_ce_exception, errbuf, 0);
+			return;
+		}
+		zval_ptr_dtor(&ret);
+		{
+			zval started;
+			ZVAL_TRUE(&started);
+			zend_hash_str_update(Z_ARRVAL_P(decl), ZEND_STRL("started"), &started);
+		}
+	} ZEND_HASH_FOREACH_END();
+	RETURN_TRUE;
+}
+/* }}} */
+
+/*
+ * {{{ public gene_application::stopPoolTimers()
+ * [GENE_FEATURE:2026-09-12] workerExit 用：仅为"已通过 startPools 启动"的
+ * 驱动族调用 stopTimers()，不影响未声明/手动创建的池。幂等。
+ */
+PHP_METHOD(gene_application, stopPoolTimers) {
+	zend_bool has_db = 0, has_redis = 0;
+	zval *decl;
+
+	if (zend_parse_parameters_none() == FAILURE) {
+		return;
+	}
+	if (GENE_G(pool_decls)) {
+		ZEND_HASH_FOREACH_VAL(GENE_G(pool_decls), decl) {
+			zval *driver;
+			if (Z_TYPE_P(decl) != IS_ARRAY || !gene_app_pool_decl_started(decl)) {
+				continue;
+			}
+			driver = zend_hash_str_find(Z_ARRVAL_P(decl), ZEND_STRL("driver"));
+			if (driver && Z_TYPE_P(driver) == IS_STRING) {
+				if (strcmp(Z_STRVAL_P(driver), "redis") == 0) {
+					has_redis = 1;
+				} else {
+					has_db = 1;
+				}
+			}
+		} ZEND_HASH_FOREACH_END();
+	}
+	if (has_db) {
+		gene_app_pool_call0(gene_pool_ce, ZEND_STRL("stoptimers"));
+	}
+	if (has_redis) {
+		gene_app_pool_call0(gene_redis_pool_ce, ZEND_STRL("stoptimers"));
+	}
+	RETURN_TRUE;
+}
+/* }}} */
+
+/*
+ * {{{ public gene_application::closePools()
+ * [GENE_FEATURE:2026-09-12] workerStop 用：为已启动的驱动族调用
+ * closeAll()，随后复位 started 标记使进程可安全重入（幂等）。
+ */
+PHP_METHOD(gene_application, closePools) {
+	zend_bool has_db = 0, has_redis = 0;
+	zend_string *name;
+	zval *decl;
+
+	if (zend_parse_parameters_none() == FAILURE) {
+		return;
+	}
+	if (GENE_G(pool_decls)) {
+		ZEND_HASH_FOREACH_STR_KEY_VAL(GENE_G(pool_decls), name, decl) {
+			zval *driver;
+			if (Z_TYPE_P(decl) != IS_ARRAY || !gene_app_pool_decl_started(decl)) {
+				continue;
+			}
+			driver = zend_hash_str_find(Z_ARRVAL_P(decl), ZEND_STRL("driver"));
+			if (driver && Z_TYPE_P(driver) == IS_STRING) {
+				if (strcmp(Z_STRVAL_P(driver), "redis") == 0) {
+					has_redis = 1;
+				} else {
+					has_db = 1;
+				}
+			}
+		} ZEND_HASH_FOREACH_END();
+	}
+	if (has_db) {
+		gene_app_pool_call0(gene_pool_ce, ZEND_STRL("closeall"));
+	}
+	if (has_redis) {
+		gene_app_pool_call0(gene_redis_pool_ce, ZEND_STRL("closeall"));
+	}
+	if (GENE_G(pool_decls)) {
+		ZEND_HASH_FOREACH_VAL(GENE_G(pool_decls), decl) {
+			zval started;
+			if (Z_TYPE_P(decl) != IS_ARRAY) {
+				continue;
+			}
+			ZVAL_FALSE(&started);
+			zend_hash_str_update(Z_ARRVAL_P(decl), ZEND_STRL("started"), &started);
+		} ZEND_HASH_FOREACH_END();
+	}
+	RETURN_TRUE;
 }
 /* }}} */
 
@@ -1664,6 +2371,14 @@ const zend_function_entry gene_application_methods[] = {
 	PHP_ME(gene_application, exception, gene_application_exception, ZEND_ACC_PUBLIC)
 	PHP_ME(gene_application, webscan, gene_application_webscan, ZEND_ACC_PUBLIC)
 	PHP_ME(gene_application, run, gene_application_run, ZEND_ACC_PUBLIC)
+	/* [GENE_FEATURE:2026-09-12] Swoole onRequest 生命周期收口 —— see impl. */
+	PHP_ME(gene_application, handleSwoole, gene_application_handle_swoole, ZEND_ACC_PUBLIC)
+	/* [GENE_FEATURE:2026-09-12] FPM/Swoole 共享装载收口 + 显式 Pool 编排。 */
+	PHP_ME(gene_application, bootstrap, gene_application_bootstrap, ZEND_ACC_PUBLIC)
+	PHP_ME(gene_application, pools, gene_application_pools, ZEND_ACC_PUBLIC|ZEND_ACC_STATIC)
+	PHP_ME(gene_application, startPools, gene_application_start_pools, ZEND_ACC_PUBLIC|ZEND_ACC_STATIC)
+	PHP_ME(gene_application, stopPoolTimers, gene_application_stop_pool_timers, ZEND_ACC_PUBLIC|ZEND_ACC_STATIC)
+	PHP_ME(gene_application, closePools, gene_application_close_pools, ZEND_ACC_PUBLIC|ZEND_ACC_STATIC)
 	PHP_ME(gene_application, requestId, gene_application_request_id, ZEND_ACC_PUBLIC)
 	PHP_ME(gene_application, stop, gene_application_stop, ZEND_ACC_PUBLIC)
 	PHP_ME(gene_application, isStopped, gene_application_is_stopped, ZEND_ACC_PUBLIC|ZEND_ACC_STATIC)

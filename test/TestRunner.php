@@ -26,7 +26,8 @@ $testFiles = [
     'HookTest.php',
     'LifecycleTest.php',
     'HttpClientTest.php',
-    'RestInvokeTest.php'
+    'RestInvokeTest.php',
+    'SwooleEntryTest.php'
 ];
 
 // Test runner class
@@ -92,7 +93,8 @@ class TestRunner
             'HookTest.php',
             'LifecycleTest.php',
             'HttpClientTest.php',
-            'RestInvokeTest.php'
+            'RestInvokeTest.php',
+            'SwooleEntryTest.php'
         ];
         
         $totalTests = 0;

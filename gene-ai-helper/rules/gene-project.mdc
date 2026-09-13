@@ -46,6 +46,5 @@ return $this->data($rows, $count);
 
 - FPM：`Application::getInstance()->autoload(APP_ROOT)->load(...)->setMode(1,1)->requestId([...])->run()`
 - CLI：`->run('get', $path)`
-- Swoole：每请求 `Request::init($get, $post, $cookie, $server, null, $files, null, $header, $rawContent)` → `run()` → `Application::cleanup()`
-  - `$rawContent` 来自 `$request->rawContent()`
+- Swoole：worker 内 `bootstrap(APP_ROOT, CONF_DIR, [...])` → `pools([...])` + `startPools()` → `workerReady()`；每请求 `Application::getInstance()->handleSwoole($request, $response)` 一行收口（内建 waitWorkerReady/initSwoole/setResponse/run/cleanup）；手写入口用 `Request::initSwoole($request)` → `run()` → `cleanup()`
   - 读缓存体用 `Request::rawContent()` / `getContent()`；混合入参用 `Request::input()`

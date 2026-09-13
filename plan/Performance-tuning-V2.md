@@ -1,7 +1,7 @@
 # Gene 扩展极致并发优化 —— V2
 
 > 版本：v7（2026-09-08）
-> V1 已完成项目见 `PERFORMANCE_OPTIMIZATION_V1.md`。本文只保留尚待实现或验证的项目。
+> V1 已完成项目见 `Performance-tuning-V1.closed.md`。本文只保留尚待实现或验证的项目。
 
 ## 0. 执行原则
 

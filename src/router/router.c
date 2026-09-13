@@ -2685,7 +2685,21 @@ PHP_METHOD(gene_router, __call) {
  
 	 gene_strtolower(method);
 	 if (IS_ARRAY == Z_TYPE_P(val)) {
+		 zval path_str_zv;
+		 ZVAL_UNDEF(&path_str_zv);
 		 pathVal = zend_hash_index_find(Z_ARRVAL_P(val), 0);
+		 /* [GENE_FIX:2026-09-12] Event/hook names may arrive as scalars —
+		  * ->error(404, ...) is the documented form, but only IS_STRING was
+		  * accepted below, so the name silently became "" and the handler
+		  * registered under "error:" instead of "error:404" (dispatch looks
+		  * up "error:404" → the 404 handler never ran). Stringify scalar
+		  * names; non-scalars keep the "" fallback. */
+		 if (pathVal != NULL && Z_TYPE_P(pathVal) != IS_STRING
+				 && (Z_TYPE_P(pathVal) == IS_LONG || Z_TYPE_P(pathVal) == IS_DOUBLE
+					 || Z_TYPE_P(pathVal) == IS_TRUE || Z_TYPE_P(pathVal) == IS_FALSE)) {
+			 ZVAL_STR(&path_str_zv, zval_get_string(pathVal));
+			 pathVal = &path_str_zv;
+		 }
 		 if (pathVal != NULL && Z_TYPE_P(pathVal) == IS_STRING) {
 			 group = zend_read_property(gene_router_ce, gene_strip_obj(self),GENE_ROUTER_GROUP, strlen(GENE_ROUTER_GROUP), 1,NULL);
 			 size_t path_len = Z_STRLEN_P(group) + Z_STRLEN_P(pathVal);
@@ -2697,6 +2711,9 @@ PHP_METHOD(gene_router, __call) {
 				 path_heap = 0;
 			 }
 			 snprintf(path, path_len + 1, "%s%s", Z_STRVAL_P(group),Z_STRVAL_P(pathVal));
+		 }
+		 if (Z_TYPE(path_str_zv) != IS_UNDEF) {
+			 zval_ptr_dtor(&path_str_zv);
 		 }
 		 if (path == NULL) {
 			 path = estrdup("");

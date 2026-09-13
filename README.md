@@ -6,7 +6,7 @@
 
 [![PHP](https://img.shields.io/badge/PHP-8.0~8.5-777BB4?style=flat-square&logo=php&logoColor=white)](https://www.php.net/)
 [![Language](https://img.shields.io/badge/Language-C-00599C?style=flat-square&logo=c&logoColor=white)](https://en.wikipedia.org/wiki/C_(programming_language))
-[![Release](https://img.shields.io/badge/Release-v6.2.2-blue?style=flat-square&logo=github)](https://github.com/sasou/php-gene/releases)
+[![Release](https://img.shields.io/badge/Release-v6.2.4-blue?style=flat-square&logo=github)](https://github.com/sasou/php-gene/releases)
 [![Swoole](https://img.shields.io/badge/Swoole-Supported-brightgreen?style=flat-square&logo=swoole&logoColor=white)](https://www.swoole.com/)
 [![Platform](https://img.shields.io/badge/Platform-Linux%20|%20macOS%20|%20Windows-lightgrey?style=flat-square&logo=linux&logoColor=white)](https://github.com/sasou/php-gene)
 [![License](https://img.shields.io/badge/License-PHP%203.01-green.svg?style=flat-square)](http://www.php.net/license/3_01.txt)
@@ -28,7 +28,7 @@
   <a href="#性能与容量">📊 性能与容量</a>
 </p>
 
-> 💡 **Gene 6.2.2** — 持久缓存业务/框架分区隔离、连接池与路由预编译可靠性修复、Monitor 指标扩容，以及 PHP 8.4+ 与 Redis Lua 边界兼容。
+> 💡 **Gene 6.2.4** — `bootstrap()` 透传 `setMode` 的 `debug`/`ex_callback`/`error_callback` 全参；修复路由整数事件名（`->error(404)` 生效）、DB `history()` 快照隔离、`Validate::name()` 直调 `rule_*()` 三处缺陷。
 
 ---
 
@@ -326,42 +326,12 @@ $router->clear()
 
 $http = new swoole_http_server("0.0.0.0", 9501);
 
-$http->on("request", function ($request, $response) {
-    // 注入请求上下文快照
-    \Gene\Request::init(
-        $request->get,
-        $request->post,
-        $request->cookie,
-        $request->server,
-        null,
-        $request->files,
-        null,
-        $request->header
-    );
-    \Gene\Application::setResponse($response);
+$app = \Gene\Application::getInstance();
 
-    ob_start();
-    $error = false;
-    try {
-        \Gene\Application::getInstance()->run();
-    } catch (\Throwable $e) {
-        $error = true;
-        \Gene\Log::exception($e);
-    } finally {
-        $out = ob_get_clean();
-        // 显式清理协程请求资源与上下文
-        \Gene\Application::cleanup();
-    }
-
-    if ($error) {
-        $response->redirect('/50x.html');
-        return;
-    }
-
-    if (!$response->isWritable()) {
-        return;
-    }
-    $response->end($out);
+$http->on("request", function ($request, $response) use ($app) {
+    // 一行收口：waitWorkerReady → initSwoole → setResponse → run()
+    // → 异常边界（Log::exception + 最小 500）→ 未结束则 end(输出) → cleanup
+    $app->handleSwoole($request, $response);
 });
 
 $http->start();
