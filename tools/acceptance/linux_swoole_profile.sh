@@ -116,6 +116,10 @@ profile_case() {
     mkdir -p "$dir"
     curl -fsS --connect-timeout 5 --max-time 30 "$url" >"$dir/probe-response.txt"
     wrk -t"$WRK_THREADS" -c"$WRK_CONNECTIONS" -d"$WARMUP_DURATION" --latency "$url" >"$dir/wrk-warmup.txt" 2>&1
+    if ! grep -qE '[1-9][0-9]* requests in' "$dir/wrk-warmup.txt"; then
+        echo "profile_case($name): wrk warmup got 0 responses for $url (see $dir/wrk-warmup.txt)" >&2
+        exit 2
+    fi
     perf record -F "$PERF_FREQUENCY" -g -p "$WORKER_PID" -o "$dir/perf.data" -- sleep "$PROFILE_DURATION" >"$dir/perf-record.txt" 2>&1 &
     local perf_pid=$!
     sleep 1
@@ -128,6 +132,20 @@ profile_case() {
     head -20 "$dir/symbols-sorted.tsv" >"$dir/top-20.tsv"
     awk '/^[[:space:]]*[0-9]+\.[0-9]+%/ && /gene\.so/ { pct=$1; gsub(/%/, "", pct); sum += pct } END { printf "%.2f\n", sum + 0 }' "$dir/perf-dso.txt" >"$dir/gene-so-self-percent.txt"
     perf script -i "$dir/perf.data" >"$dir/perf.script"
+    # Guard against sampling an idle or wrong worker (e.g. a stale server still
+    # owning the pid file, or a PID that never serves $url): without samples the
+    # FlameGraph stage would fail later with cryptic "Stack count is low" errors.
+    local samples
+    samples=$(grep -cE '^[[:space:]]*[^#[:space:]].*[0-9]+\.[0-9]+:[[:space:]]+[0-9]+' "$dir/perf.script" || true)
+    if ((samples < 50)); then
+        {
+            echo "profile_case($name): only $samples perf samples captured on worker $WORKER_PID."
+            echo "The worker was probably idle or this is the wrong PID — confirm it is a leaf"
+            echo "worker of the server actually listening on $url (check $dir/wrk-profile.txt;"
+            echo "stale servers: pgrep -fa 'swoole.php')."
+        } >&2
+        exit 2
+    fi
     if [[ -n "$FLAMEGRAPH_DIR" ]]; then
         "$FLAMEGRAPH_DIR/stackcollapse-perf.pl" "$dir/perf.script" >"$dir/perf.folded"
         "$FLAMEGRAPH_DIR/flamegraph.pl" "$dir/perf.folded" >"$dir/flamegraph.svg"
