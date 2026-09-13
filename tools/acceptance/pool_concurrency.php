@@ -104,12 +104,33 @@ function pool_diagnose(object $pool): string
     return $summary;
 }
 
+/**
+ * Run one real command on a borrowed connection. A bare TCP connect proves
+ * nothing: RedisPool::get()/put() both skip PING (dead conns are left to
+ * recycleIdle), so without this a pool full of unauthenticated/unusable
+ * connections still passes vacuously. Returns true iff the command worked.
+ */
+function pool_probe_command(string $poolType, object $connection): bool
+{
+    try {
+        if ($poolType === 'redis') {
+            $pong = $connection->ping();
+            return $pong === true || $pong === 'PONG' || $pong === '+PONG';
+        }
+        return $connection->query('SELECT 1') !== false;
+    } catch (Throwable $e) {
+        return false;
+    }
+}
+
 $failures = 0;
+$commandFailures = 0;
 $stats = [];
 $passed = false;
 $blocked = null;
 Swoole\Coroutine\run(static function () use (
-    $poolType, $poolClass, $poolOptions, $coroutines, $iterations, &$failures, &$stats, &$passed, &$blocked
+    $poolType, $poolClass, $poolOptions, $coroutines, $iterations,
+    &$failures, &$commandFailures, &$stats, &$passed, &$blocked
 ): void {
     if (!$poolClass::getInstance('acceptance')) {
         $configKey = $poolType === 'db' ? 'acceptance_db' : 'acceptance_redis';
@@ -127,17 +148,32 @@ Swoole\Coroutine\run(static function () use (
         $blocked = 'failed to borrow a connection from pool: ' . pool_diagnose($pool);
         return;
     }
+    if (!pool_probe_command($poolType, $probe)) {
+        $pool->remove();
+        $blocked = 'borrowed connection failed liveness command ('
+            . ($poolType === 'redis' ? 'PING' : 'SELECT 1') . '): ' . pool_diagnose($pool);
+        return;
+    }
     $pool->put($probe);
 
     $wg = new Swoole\Coroutine\WaitGroup();
     for ($i = 0; $i < $coroutines; $i++) {
         $wg->add();
-        go(static function () use ($pool, $iterations, &$failures, $wg): void {
+        go(static function () use ($pool, $poolType, $iterations, &$failures, &$commandFailures, $wg): void {
             try {
                 for ($j = 0; $j < $iterations; $j++) {
                     $connection = $pool->get();
                     if ($connection === false || $connection === null) {
                         $failures++;
+                        continue;
+                    }
+                    /* Command-level liveness per borrow — without it the test
+                     * only proves TCP connect() works, because get()/put()
+                     * never run a command. Dead conns go to remove() (count
+                     * decremented) instead of being put back into the pool. */
+                    if (!pool_probe_command($poolType, $connection)) {
+                        $commandFailures++;
+                        $pool->remove();
                         continue;
                     }
                     $pool->put($connection);
@@ -151,6 +187,7 @@ Swoole\Coroutine\run(static function () use (
     $poolClass::stopTimers();
     $stats = $pool->stats();
     $passed = $failures === 0
+        && $commandFailures === 0
         && ($stats['using'] ?? -1) === 0
         && ($stats['idle'] ?? -1) === ($stats['total'] ?? -2);
 });
@@ -167,6 +204,7 @@ echo json_encode([
     'iterations' => $iterations,
     'poolMax' => $poolMax,
     'failures' => $failures,
+    'commandFailures' => $commandFailures,
     'stats' => $stats,
     'passed' => $passed,
 ], JSON_PRETTY_PRINT) . PHP_EOL;
