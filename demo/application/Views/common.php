@@ -13,6 +13,7 @@
   
   <link rel="stylesheet" href="/static/layui/css/layui.css"  media="all">
   <link rel="stylesheet" href="/static/web/css/global.css"  media="all">
+  <link rel="stylesheet" href="/static/web/css/beautify.css"  media="all">
   <script src="/static/layui/layui.js" charset="utf-8"></script>
   <script src="/static/js/admin.js" charset="utf-8"></script>
 </head>
@@ -22,14 +23,15 @@
     <a class="fly-logo" href="/">
       <img src="/static/web/images/logo.png" alt="layui">
     </a>
+    <?php $navUri = \Gene\Application::getRouterUri();?>
     <ul class="layui-nav fly-nav layui-hide-xs">
-      <li class="layui-nav-item">
+      <li class="layui-nav-item <?php echo $navUri === '/' ? 'layui-this' : '';?>">
         <a href="/"><i class="layui-icon layui-icon-home"></i>首页</a>
       </li>
-      <li class="layui-nav-item layui-this">
+      <li class="layui-nav-item <?php echo strpos($navUri, '/doc') === 0 ? 'layui-this' : '';?>">
         <a href="/doc.html"><i class="layui-icon layui-icon-list"></i>文档</a>
       </li>
-      <li class="layui-nav-item">
+      <li class="layui-nav-item <?php echo strpos($navUri, '/test') === 0 ? 'layui-this' : '';?>">
         <a href="/test.html"><i class="layui-icon layui-icon-engine"></i>性能测试</a>
       </li>
     </ul>

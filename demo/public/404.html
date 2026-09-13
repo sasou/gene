@@ -1,5 +1,44 @@
-<html>
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>404 - 页面不存在</title>
+<style>
+    * { margin:0; padding:0; box-sizing:border-box; }
+    body {
+        min-height:100vh; display:flex; align-items:center; justify-content:center;
+        font-family:"Inter","PingFang SC","Microsoft YaHei",Arial,sans-serif;
+        background:
+            radial-gradient(55% 80% at 15% 15%, rgba(56,189,248,.3) 0%, transparent 60%),
+            radial-gradient(50% 70% at 85% 25%, rgba(129,140,248,.35) 0%, transparent 60%),
+            linear-gradient(150deg, #171f38 0%, #22305c 55%, #16405c 100%);
+        color:#eaf0ff; -webkit-font-smoothing:antialiased;
+    }
+    .box { text-align:center; padding:40px 30px; }
+    .code {
+        font-size:110px; font-weight:800; letter-spacing:8px; line-height:1;
+        background:linear-gradient(90deg,#7dd3fc,#a5b4fc 55%,#5eead4);
+        -webkit-background-clip:text; background-clip:text; -webkit-text-fill-color:transparent;
+        filter:drop-shadow(0 6px 24px rgba(96,165,250,.35));
+    }
+    .msg { margin-top:18px; font-size:17px; color:rgba(226,232,255,.85); letter-spacing:1px; }
+    .sub { margin-top:10px; font-size:13px; color:rgba(200,210,238,.55); }
+    .home {
+        display:inline-block; margin-top:34px; padding:11px 34px; border-radius:24px;
+        font-size:14px; letter-spacing:2px; color:#fff; text-decoration:none;
+        background:linear-gradient(90deg,#4f46e5,#06b6d4);
+        box-shadow:0 8px 22px rgba(79,70,229,.4); transition:all .25s;
+    }
+    .home:hover { transform:translateY(-2px); box-shadow:0 12px 30px rgba(79,70,229,.55); }
+</style>
+</head>
 <body>
-404
+<div class="box">
+    <div class="code">404</div>
+    <div class="msg">页面不存在或已被移动</div>
+    <div class="sub">The page you requested could not be found.</div>
+    <a class="home" href="/">返回首页</a>
+</div>
 </body>
 </html>

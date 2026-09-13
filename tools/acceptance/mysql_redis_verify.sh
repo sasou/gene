@@ -7,9 +7,9 @@ fi
 set -Eeuo pipefail
 
 # ============================================================================
-# mysql_redis_verify.sh — gene_web 部署的 MySQL / Redis 专项验收
+# mysql_redis_verify.sh — MySQL / Redis 专项验收（外部服务可达性 + 池并发）
 #
-# 针对部署：gene_web 应用根目录 /data/webapp/www/gene_web/
+# 面向任意已部署的 MySQL/Redis 服务，不依赖特定应用项目。
 #
 # 覆盖 8 个阶段（全部输出 PASS/FAIL 到 status.tsv）：
 #   preflight    PHP/扩展/路径检查（gene swoole pdo_mysql redis 必装）
@@ -31,20 +31,19 @@ set -Eeuo pipefail
 #   2) bash tools/acceptance/mysql_redis_verify.sh            # 仅 DB/Redis 阶段
 #      bash tools/acceptance/mysql_redis_verify.sh --full     # 再追加完整门禁
 #                                                             # （含 TestRunner、四格矩阵、
-#                                                             #  ctx soak、gene_web wrk 压测）
+#                                                             #  ctx soak、demo wrk 压测）
 # ============================================================================
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 GENE_REPO="${GENE_REPO:-$(cd "$SCRIPT_DIR/../.." && pwd)}"
 
 # ------------------------- 部署配置（按实际修改） -------------------------
-GENE_WEB="${GENE_WEB:-/data/webapp/www/gene_web}"   # gene_web 应用根目录
 PHP_BIN="${PHP_BIN:-php}"                            # PHP CLI（须与 gene.so 同版本）
 GENE_SO="${GENE_SO:-}"                               # 留空=自动找/编译 src/modules/gene.so
 BUILD_GENE="${BUILD_GENE:-1}"
 
-export GENE_MYSQL_DSN="${GENE_MYSQL_DSN:-mysql:dbname=gene_web;host=127.0.0.1;port=3306;charset=utf8mb4}"
-export GENE_MYSQL_USER="${GENE_MYSQL_USER:-gene_web}"
+export GENE_MYSQL_DSN="${GENE_MYSQL_DSN:-mysql:dbname=gene_demo;host=127.0.0.1;port=3306;charset=utf8mb4}"
+export GENE_MYSQL_USER="${GENE_MYSQL_USER:-gene_demo}"
 export GENE_MYSQL_PASS="${GENE_MYSQL_PASS:-}"        # 必填；留空则运行时交互询问
 
 export GENE_REDIS_HOST="${GENE_REDIS_HOST:-127.0.0.1}"
@@ -52,7 +51,7 @@ export GENE_REDIS_PORT="${GENE_REDIS_PORT:-6379}"
 export GENE_REDIS_PASS="${GENE_REDIS_PASS:-}"        # 无密码留空
 export GENE_REDIS_DB="${GENE_REDIS_DB:-0}"
 
-export GENE_RUN_ENVIRONMENT="${GENE_RUN_ENVIRONMENT:-0}"  # gene_web 配置环境：0=dev（2026-08-25 验收同值）1=test
+export GENE_RUN_ENVIRONMENT="${GENE_RUN_ENVIRONMENT:-0}"  # 应用配置环境：0=dev 1=test
 # ------------------------------------------------------------------------
 
 POOL_MAX="${POOL_MAX:-32}"
@@ -67,10 +66,10 @@ usage() {
 Usage: tools/acceptance/mysql_redis_verify.sh [--full] [--output PATH]
 
   (default)   preflight + mysql/redis 直连与 Gene 层探测 + 池并发 + tx-hygiene
-  --full      上述全部跑完后，再 exec linux_swoole_verify.sh --all $GENE_WEB
-              （含隔离全测、四组 Swoole 开关矩阵、10 万协程 soak、wrk 压测）
+  --full      上述全部跑完后，再 exec linux_swoole_verify.sh --all
+              （含隔离全测、四组 Swoole 开关矩阵、10 万协程 soak、demo wrk 压测）
 
-Env overrides: GENE_WEB GENE_REPO GENE_SO PHP_BIN BUILD_GENE
+Env overrides: GENE_REPO GENE_SO PHP_BIN BUILD_GENE
                GENE_MYSQL_DSN/USER/PASS  GENE_REDIS_HOST/PORT/PASS/DB
                GENE_RUN_ENVIRONMENT  POOL_MAX POOL_COROUTINES POOL_ITERATIONS
 EOF
@@ -296,12 +295,12 @@ fi
 log "All stages passed. Results: $OUT"
 
 if ((RUN_FULL)); then
-    log "Delegating to full gate: linux_swoole_verify.sh --all $GENE_WEB"
-    exec bash "$GENE_REPO/tools/acceptance/linux_swoole_verify.sh" --all "$GENE_WEB" --output "$OUT-full"
+    log "Delegating to full gate: linux_swoole_verify.sh --all"
+    exec bash "$GENE_REPO/tools/acceptance/linux_swoole_verify.sh" --all --output "$OUT-full"
 fi
 
 echo
-echo "如需完整门禁（四格矩阵 + 10万协程 soak + gene_web wrk 压测）："
+echo "如需完整门禁（四格矩阵 + 10万协程 soak + demo wrk 压测）："
 echo "  GENE_MYSQL_PASS='***' bash tools/acceptance/linux_swoole_verify.sh \\"
-echo "      --all $GENE_WEB --output /tmp/gene-swoole-result"
+echo "      --all --output /tmp/gene-swoole-result"
 exit 0

@@ -2,46 +2,116 @@ html {
     height: 100%;
 }
 .lau-sign-body {
-    background-color: #f2f2f2;
-    padding: 150px 0;
     position: relative;
     min-height: 100%;
     box-sizing: border-box;
+    padding: 130px 0 90px;
+    overflow: hidden;
+    background:
+        radial-gradient(55% 80% at 15% 15%, rgba(56,189,248,.35) 0%, transparent 60%),
+        radial-gradient(50% 70% at 85% 25%, rgba(129,140,248,.4) 0%, transparent 60%),
+        radial-gradient(45% 65% at 50% 110%, rgba(45,212,191,.3) 0%, transparent 65%),
+        linear-gradient(150deg, #171f38 0%, #22305c 50%, #16405c 100%);
+}
+/* 网格纹理 */
+.lau-sign-body::before {
+    content: "";
+    position: absolute; inset: 0; opacity: .16; pointer-events: none;
+    background-image: linear-gradient(rgba(255,255,255,.14) 1px, transparent 1px),
+                      linear-gradient(90deg, rgba(255,255,255,.14) 1px, transparent 1px);
+    background-size: 44px 44px;
+    -webkit-mask-image: radial-gradient(75% 75% at 50% 35%, #000 0%, transparent 100%);
+            mask-image: radial-gradient(75% 75% at 50% 35%, #000 0%, transparent 100%);
 }
 .lau-sign-link {
     cursor: pointer;
-    color: #029789!important;
+    color: #4f46e5!important;
 }
 .lau-sign-link:hover {
     opacity: 0.8;
 }
 .lau-sign-form {
-    width: 380px;
+    position: relative;
+    width: 400px;
     margin: 0 auto;
     box-sizing: border-box;
-    box-shadow: 0 0 20px 0 #999;
-    background-color: #fff;
-    padding: 15px;
+    padding: 34px 32px 26px;
+    background: rgba(255,255,255,.96);
+    border: 1px solid rgba(255,255,255,.5);
+    border-radius: 16px;
+    box-shadow: 0 18px 50px rgba(9,14,38,.45), 0 2px 8px rgba(9,14,38,.2);
+    backdrop-filter: blur(10px);
+    -webkit-backdrop-filter: blur(10px);
 }
 .lau-sign-title {
+    margin: 0;
     text-align: center;
-    font-size: 28px;
-    font-weight: bold;
-    color: #666;
-    padding: 15px;
-    letter-spacing: 5px;
+    font-size: 27px;
+    font-weight: 800;
+    padding: 0 0 6px;
+    letter-spacing: 6px;
+    background: linear-gradient(90deg, #4f46e5, #06b6d4);
+    -webkit-background-clip: text;
+    background-clip: text;
+    -webkit-text-fill-color: transparent;
 }
 .lau-sign-subtitle {
     text-align: center;
-    color: #999;
-    letter-spacing: 1px;
-    margin-bottom: 15px;
+    color: #98a2c3;
+    letter-spacing: 2px;
+    font-size: 13px;
+    margin: 0 0 22px;
 }
-.layui-form-pane .layui-form-label {
+.lau-sign-form .layui-form-item {
+    margin-bottom: 18px;
+    border: 1px solid #e3e7f2;
+    border-radius: 10px;
+    overflow: hidden;
+    transition: border-color .25s, box-shadow .25s;
+}
+.lau-sign-form .layui-form-item:focus-within {
+    border-color: #4f46e5;
+    box-shadow: 0 0 0 3px rgba(79,70,229,.12);
+}
+.lau-sign-form .layui-form-item .layui-form-label {
+    border: none;
+    border-right: 1px solid #eef1f8;
+    border-radius: 0;
+}
+.lau-sign-form .layui-input {
+    border: none;
+    border-radius: 0;
+}
+.lau-sign-form .layui-input:focus {
+    border: none;
+}
+.lau-sign-form .layui-btn {
+    height: 44px;
+    line-height: 44px;
+    border: none;
+    border-radius: 10px;
+    font-size: 15px;
+    letter-spacing: 8px;
+    text-indent: 8px;
+    background: linear-gradient(90deg, #4f46e5, #06b6d4);
+    box-shadow: 0 8px 20px rgba(79,70,229,.35);
+    transition: all .25s;
+}
+.lau-sign-form .layui-btn:hover {
+    transform: translateY(-1px);
+    box-shadow: 0 12px 26px rgba(79,70,229,.45);
+    opacity: 1;
+}
+.lau-sign-form .layui-btn:active {
+    transform: translateY(0);
+}
+.lau-sign-form.layui-form-pane .layui-form-label {
     width: 90px;
     padding: 8px 0;
+    background: #f8f9fd;
+    color: #55618c;
 }
-.layui-form-pane .layui-input-block {
+.lau-sign-form.layui-form-pane .layui-input-block {
     margin-left: 90px;
 }
 .lau-sign-code input {
@@ -53,6 +123,7 @@ html {
     right: 1px;
     height: 36px;
     max-width: 120px;
+    border-radius: 0 9px 9px 0;
     cursor: pointer;
 }
 .lau-sign-form.layui-form-pane .layui-form-checkbox {
@@ -86,21 +157,22 @@ html {
     width: 100%;
     text-align: center;
     box-sizing: border-box;
-    padding: 10px;
-    color: rgba(0,0,0,0.5);
+    padding: 12px;
+    color: rgba(255,255,255,.55);
 }
 .lau-sign-footer p {
     height: 30px;
     line-height: 30px;
+    margin: 0;
 }
 .lau-sign-footer span {
     padding: 0 5px;
 }
 .lau-sign-footer a {
-    color: rgba(0,0,0,0.5);
+    color: rgba(255,255,255,.65);
 }
 .lau-sign-footer a:hover {
-    color: rgba(0,0,0,1);
+    color: #7dd3fc;
 }
 
 .lau-sign-sms {
@@ -116,4 +188,9 @@ html {
 .lau-sign-login {
     float: right;
     margin-top: 3px;
+}
+
+@media screen and (max-width: 480px) {
+    .lau-sign-body { padding: 90px 14px 80px; }
+    .lau-sign-form { width: 100%; padding: 26px 20px 20px; }
 }

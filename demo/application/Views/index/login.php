@@ -7,10 +7,10 @@
   <meta name="renderer" content="webkit">
   <meta http-equiv="X-UA-Compatible" content="IE=edge,chrome=1">
   <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1">
-  <meta name="apple-mobile-web-app-status-bar-style" content="black"> 
+  <meta name="apple-mobile-web-app-status-bar-style" content="black">
   <meta name="apple-mobile-web-app-capable" content="yes">
   <meta name="format-detection" content="telephone=no">
-  
+
   <link rel="stylesheet" href="/static/layui/css/layui.css"  media="all">
   <link rel="stylesheet" href="/static/css/sign.css"  media="all">
   <script src="/static/layui/layui.js" charset="utf-8"></script>
@@ -19,8 +19,8 @@
 <body class="layui-unselect lau-sign-body">
 
 <div class="layui-form layui-form-pane lau-sign-form">
-    <h1 class="lau-sign-title">SIGN IN SYSTEM</h1>
-    <p class="lau-sign-subtitle">Gene文档管理平台</p>
+    <h1 class="lau-sign-title">SIGN IN</h1>
+    <p class="lau-sign-subtitle">Gene 文档管理平台</p>
     <div class="layui-form-item">
         <label class="layui-form-label"><i class="layui-icon layui-icon-username"></i> 账　号</label>
         <div class="layui-input-block">
@@ -40,15 +40,15 @@
             <img src="/captcha.action" alt="图形验证码" class="lau-sign-captcha">
         </div>
     </div>
-    <div class="layui-form-item">
+    <div class="layui-form-item" style="border:none;overflow:visible;">
         <button type="button" class="layui-btn layui-btn-fluid" lay-submit lay-filter="login">登 入</button>
     </div>
-    <div class="layui-form-item lau-sign-other">
+    <div class="layui-form-item lau-sign-other" style="border:none;">
         <a class="lau-sign-forgot lau-sign-link" href="/">返回首页</a>
     </div>
 </div>
 <div class="layui-trans lau-sign-footer">
-    <p>@ 2019 <a href="http://www.php-gene.com/" target="_blank">Gene</a> V<?php echo gene_version();?></p>
+    <p>@ <?php echo date("Y", time());?> <a href="http://www.php-gene.com/" target="_blank">Gene</a> V<?php echo gene_version();?></p>
 </div>
 </body>
 </html>
