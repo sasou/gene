@@ -126,6 +126,8 @@ fi
     printf 'worker_cmdline='; tr '\0' ' ' <"/proc/$WORKER_PID/cmdline"; echo
     printf 'git_commit='; git -C "$GENE_REPO" rev-parse HEAD 2>/dev/null || echo unavailable
     printf 'route_url=%s\ndb_url=%s\n' "$ROUTE_URL" "$DB_URL"
+    printf 'perf_frequency=%s profile_duration=%ss warmup=%s wrk_t=%s wrk_c=%s flamegraph=%s\n' \
+        "$PERF_FREQUENCY" "$PROFILE_DURATION" "$WARMUP_DURATION" "$WRK_THREADS" "$WRK_CONNECTIONS" "${FLAMEGRAPH_DIR:-none}"
 } >"$OUT/environment.txt" 2>&1
 
 profile_case() {
@@ -141,6 +143,14 @@ profile_case() {
     fi
     if ! grep -qE '[1-9][0-9]* requests in' "$dir/wrk-warmup.txt"; then
         echo "profile_case($name): wrk warmup got 0 responses for $url (see $dir/wrk-warmup.txt)" >&2
+        exit 2
+    fi
+    if ! kill -0 "$WORKER_PID" 2>/dev/null; then
+        {
+            echo "profile_case($name): worker $WORKER_PID exited during warmup — Swoole max_request"
+            echo "recycling replaced it (warmup already exceeds the request limit). Restart the server"
+            echo "with recycling off (demo: GENE_SWOOLE_MAX_REQUEST=0) and pass a fresh worker pid."
+        } >&2
         exit 2
     fi
     echo "== [$name] sampling ${PROFILE_DURATION}s: perf record -F${PERF_FREQUENCY} on pid $WORKER_PID + wrk load"
@@ -178,9 +188,14 @@ profile_case() {
     if ((samples < 50)); then
         {
             echo "profile_case($name): only $samples perf samples captured on worker $WORKER_PID."
-            echo "The worker was probably idle or this is the wrong PID — confirm it is a leaf"
-            echo "worker of the server actually listening on $url (check $dir/wrk-profile.txt;"
-            echo "stale servers: pgrep -fa 'swoole.php')."
+            if ! kill -0 "$WORKER_PID" 2>/dev/null; then
+                echo "Worker $WORKER_PID no longer exists — max_request recycling replaced it mid-run."
+                echo "Restart with recycling off (demo: GENE_SWOOLE_MAX_REQUEST=0) and retry."
+            else
+                echo "The worker was probably idle or this is the wrong PID — confirm it is a leaf"
+                echo "worker of the server actually listening on $url (check $dir/wrk-profile.txt;"
+                echo "stale servers: pgrep -fa 'swoole.php')."
+            fi
         } >&2
         exit 2
     fi
@@ -191,6 +206,18 @@ profile_case() {
     fi
     echo "== [$name] done"
 }
+
+# Cheap sanity run before the first warmup+profile cycle: on systems where
+# `perf record` rejects this option set (kernel/perf version skew, wrapper
+# stubs printing usage) it exits non-zero after ~1s instead of failing
+# silently at `wait` after a whole scenario.
+if ! perf record -F "$PERF_FREQUENCY" -g -p "$WORKER_PID" -o "$OUT/.perf-smoke.data" -- sleep 1 >"$OUT/.perf-smoke.txt" 2>&1; then
+    echo "perf record smoke test failed; this invocation is not supported on this system:" >&2
+    tail -20 "$OUT/.perf-smoke.txt" >&2 || true
+    echo "Manual check: perf record -F $PERF_FREQUENCY -g -p $WORKER_PID -o /tmp/x.data -- sleep 3" >&2
+    exit 2
+fi
+rm -f "$OUT/.perf-smoke.data" "$OUT/.perf-smoke.txt"
 
 profile_case route-view "$ROUTE_URL"
 profile_case db-orm-view "$DB_URL"
