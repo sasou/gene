@@ -1,7 +1,7 @@
 <?php
 // 模拟 swoole worker：workerStart 注册路由 → 连续多次请求（Request::init + run + cleanup）
-define('APP_ROOT', 'F:/codeup/gene_web/application');
-define('CONF_DIR', 'F:/codeup/gene_web/config');
+define('APP_ROOT', dirname(__DIR__, 2) . '/demo/application');
+define('CONF_DIR', dirname(__DIR__, 2) . '/demo/config');
 
 \Gene\Application::setRuntimeType('swoole');
 $app = \Gene\Application::getInstance()
