@@ -1,6 +1,8 @@
 # Gene Framework Changelog
 
-## [Unreleased]
+## [6.2.4]
+
+> 本版为修正版：`bootstrap()` 新增 `debug`/`ex_callback`/`error_callback` 透传 `setMode` 全参；修复三处功能缺陷——路由整数事件名静默失效、DB `history()` 快照被引擎续写（COW 违例）、`Validate::name()` 未播种 FIELD 导致 `rule_*()` 直调失效。
 
 ### ✨ 新增
 
@@ -9,7 +11,17 @@
 ### 🐞 修复
 
 - **`Router->error(404, ...)` 整数事件名静默失效**：`__call` 仅在首参为 `IS_STRING` 时取作事件名，文档形式的 `->error(404, ...)`（int）被丢成空名，实际注册为 `error:`/`fcl:`，而派发查找 `error:404`/`fcl:404` → 404 处理器从未执行，未匹配路由只落得 `Gene Unknown Url` 警告。标量首参（long/double/bool）现在先字符串化再注册；非标量维持原空名兜底。`hook(503, ...)`、`runError('404')` 路径同理修复。Linux 验收 `swoole_entry_verify.php` 的 `/no/such/route` 用例（注册 `error(404)` 期望 `R:404` 响应）由 FAIL 转 PASS。
+- **DB `history()` 快照被引擎原地续写（COW 违例）**：`history()` 以 `RETURN_ZVAL` 把引擎数组返还用户态后 refcount>1，此后每条语句仍对共享 HashTable 原地 `add_next_index_zval`（到 `GENE_DB_HISTORY_MAX` 上限还会 `zend_hash_index_del` 挤掉头元素）——release 下静默污染调用方已拿到的快照，debug 构建在 `GC_REFCOUNT(ht)==1` 断言处中止进程。四个驱动（mysql/sqlite/pgsql/mssql）的 SaveHistory 写前补 `SEPARATE_ARRAY`：快照真正冻结，引擎继续独立记录。复现：`php -d gene.run_environment=0 audit\repro\db_history_cow.php`。
+- **`Validate::name()` 未播种 FIELD，`name('x')->rule_*()` 直调失效**：`name($f)` 只写 KEY，而 `rule_*()` 经 `getFieldVal()`/`required()` 读 FIELD——后者仅在 `valid()`/`groupValid()` 的逗号拆分迭代内填充，文档式"先 `name()` 再 `rule_*()`"流程恒警告 "Please call the name method" 且无真实校验结果。`name()` 现同时写 KEY+FIELD；`valid()` 仍按字段覆盖 FIELD，流式配置路径行为不变。复现：`php audit\repro\validate_name_field.php`。
 - **`swoole_entry_verify.php` `/di` 用例修正**：`Di::set` 原为 workerStart 内调用——DI 注册表是请求/协程级（`ctx->di_regs`），workerStart 协程的注册对请求协程不可见，导致 `/di` 恒返回空。改为在 `onRequest` 回调内（与派发同协程）注册 `entry_verify_svc`，三入口一致通过；DI 保持严格请求作用域，不新增 worker 级共享语义。
+
+### 🔧 修改文件一览
+
+- `src/app/application.c` — `bootstrap()` `debug`/`ex_callback`/`error_callback` 透传 `setMode`
+- `src/router/router.c` — `__call` 标量事件/钩子名字符串化
+- `src/db/{mysql,sqlite,pgsql,mssql}.c` — SaveHistory 写前 `SEPARATE_ARRAY`
+- `src/http/validate.c` — `name()` 同播 KEY+FIELD
+- `src/gene.h` — 版本号 6.2.4
 
 ## [6.2.3]
 
