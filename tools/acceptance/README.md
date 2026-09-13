@@ -189,6 +189,9 @@ bash tools/acceptance/linux_swoole_profile.sh \
   参数解析后即校验（不合法直接退出，不会白跑一个采样周期）；可省略，仅产出 `perf.script`。
 - 可用环境变量覆盖：`PHP_BIN`、`GENE_REPO`、`PERF_FREQUENCY`（默认 999Hz）、
   `WARMUP_DURATION`（默认 15s）、`PROFILE_DURATION`、`WRK_THREADS`、`WRK_CONNECTIONS`、`OUT`。
+- 运行期间脚本按阶段打印 `== [name] ...` 进度日志（总耗时约 `2×(WARMUP_DURATION+PROFILE_DURATION)`
+  加 report 时间）。中途 `^C` 或任一步骤失败会留下无 `summary.txt`/`$OUT.tar.gz` 的半成品目录；
+  ERR trap 会报出失败行号与命令，wrk/perf 自身输出见 `$dir/*.txt`。
 
 输出：`$OUT/{route-view,db-orm-view}/` 各含 `perf.data`、`perf-symbols.txt`、`top-20.tsv`、
 `gene-so-self-percent.txt`（gene.so 自身占比）、可选 `flamegraph.svg`；外加
