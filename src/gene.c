@@ -449,6 +449,7 @@ void gene_request_context_init(gene_request_context *ctx) {
 	ZVAL_UNDEF(&ctx->request_attr);
 	ZVAL_UNDEF(&ctx->di_regs);
 	ZVAL_UNDEF(&ctx->di_alias);
+	ctx->di_class_keys = 0;
 	ZVAL_UNDEF(&ctx->response_obj);
 	ZVAL_UNDEF(&ctx->view_vars);
 	ZVAL_UNDEF(&ctx->bench_marks);
@@ -669,6 +670,7 @@ static void gene_request_context_free_fields(gene_request_context *ctx, int pres
 		zval_ptr_dtor(&ctx->di_alias);
 		ZVAL_UNDEF(&ctx->di_alias);
 	}
+	ctx->di_class_keys = 0;
 	if (Z_TYPE(ctx->response_obj) != IS_UNDEF) {
 		zval_ptr_dtor(&ctx->response_obj);
 		ZVAL_UNDEF(&ctx->response_obj);
