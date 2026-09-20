@@ -24,6 +24,7 @@
 #include "Zend/zend_API.h"
 #include "zend_exceptions.h"
 #include "Zend/zend_interfaces.h"
+#include "Zend/zend_smart_str.h"
 
 #include "../gene.h"
 #include "../app/application.h"
@@ -519,29 +520,30 @@ PHP_METHOD(gene_hook, json) {
 	zval *data = NULL;
 	char *callback = NULL;
 	zend_long code = 256;
-    zval ret, json_opt;
     zend_long callback_len = 0;
+    smart_str jbuf = {0};
 
 	if (zend_parse_parameters(ZEND_NUM_ARGS(), "z|sl", &data, &callback, &callback_len, &code) == FAILURE) {
 		return;
 	}
-	ZVAL_LONG(&json_opt, code);
-	gene_json_encode(data, &json_opt, &ret);
-	if (Z_TYPE(ret) == IS_STRING) {
+	/* [GENE_PERF:2026-09-20 V3-2.7] Direct smart_str encode — see
+	 * gene_response::json / gene_json_encode_buf(). */
+	if (gene_json_encode_buf(&jbuf, data, code) == SUCCESS) {
 		if (callback_len) {
 			php_write(callback, callback_len);
 			php_write(ZEND_STRL("("));
 		}
-		php_write(Z_STRVAL(ret), Z_STRLEN(ret));
+		if (jbuf.s) {
+			php_write(ZSTR_VAL(jbuf.s), ZSTR_LEN(jbuf.s));
+		}
 		if (callback_len) {
 			php_write(ZEND_STRL(")"));
 		}
-		zval_ptr_dtor(&ret);
+		smart_str_free(&jbuf);
 		gene_request_ctx()->response_ended = 1;
 		gene_app_stop();
 		RETURN_FALSE;
 	}
-    zval_ptr_dtor(&ret);
     RETURN_FALSE;
 }
 /* }}} */

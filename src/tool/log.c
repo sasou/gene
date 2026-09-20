@@ -24,7 +24,9 @@
 #include "Zend/zend_API.h"
 #include "zend_exceptions.h"
 #include "Zend/zend_interfaces.h"
+#include "Zend/zend_smart_str.h"
 #include "ext/standard/php_string.h"
+#include "../http/json.h"
 #include "ext/date/php_date.h"
 
 #include "../gene.h"

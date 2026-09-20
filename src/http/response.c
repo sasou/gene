@@ -567,39 +567,32 @@ PHP_METHOD(gene_response, json) {
 	zval *data = NULL;
 	char *callback = NULL;
 	zend_long code = 256;
-    zval json_opt;
-    zval ret;
     zend_long callback_len = 0;
+    smart_str jbuf = {0};
 
 	if (zend_parse_parameters(ZEND_NUM_ARGS(), "z|sl", &data, &callback, &callback_len, &code) == FAILURE) {
 		return;
 	}
-	ZVAL_LONG(&json_opt, code);
-	ZVAL_UNDEF(&ret);
-	{
-		static zend_function *json_fn = NULL;
-		if (UNEXPECTED(!json_fn)) {
-			json_fn = zend_hash_str_find_ptr(CG(function_table), ZEND_STRL("json_encode"));
-		}
-		if (EXPECTED(json_fn)) {
-			zval params[] = { *data, json_opt };
-			zend_call_known_function(json_fn, NULL, NULL, &ret, 2, params, NULL);
-		}
-	}
-	if (Z_TYPE(ret) == IS_STRING) {
+	/* [GENE_PERF:2026-09-20 V3-2.7] Encode into a smart_str instead of a
+	 * zend_call_known_function("json_encode") round trip — one less VM
+	 * frame and no temporary returned zval on the hot response path.
+	 * gene_json_encode_buf() keeps json_encode()'s false/exception surface
+	 * identical (JSON_THROW_ON_ERROR still raises JsonException). */
+	if (gene_json_encode_buf(&jbuf, data, code) == SUCCESS) {
 		if (callback_len) {
 			php_write(callback, callback_len);
 			php_write(ZEND_STRL("("));
 		}
-		php_write(Z_STRVAL(ret), Z_STRLEN(ret));
+		if (jbuf.s) {
+			php_write(ZSTR_VAL(jbuf.s), ZSTR_LEN(jbuf.s));
+		}
 		if (callback_len) {
 			php_write(ZEND_STRL(")"));
 		}
-		zval_ptr_dtor(&ret);
+		smart_str_free(&jbuf);
 		gene_request_ctx()->response_ended = 1;
 		RETURN_TRUE;
 	}
-    zval_ptr_dtor(&ret);
     RETURN_FALSE;
 }
 /* }}} */

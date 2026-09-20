@@ -13,6 +13,8 @@
 #include "php.h"
 #include "Zend/zend_API.h"
 #include "zend_exceptions.h"
+#include "Zend/zend_smart_str.h"
+#include "ext/json/php_json.h"
 
 #include "../gene.h"
 #include "../common/common.h"
@@ -91,6 +93,46 @@ int gene_json_encode_throw(zval *value, zval *retval) {
 		ZVAL_UNDEF(retval);
 		zend_throw_exception_ex(NULL, 0, "json_encode failed: %s", ZSTR_VAL(msg));
 		zend_string_release(msg);
+		return FAILURE;
+	}
+	return SUCCESS;
+}
+
+int gene_json_encode_buf(smart_str *buf, zval *value, zend_long options) {
+	if (UNEXPECTED((options & PHP_JSON_THROW_ON_ERROR) != 0)) {
+		/* Throwing mode needs a JsonException built from the engine's error
+		 * text, and php_json_get_error_msg()/php_json_exception_ce are not
+		 * exported by ext/json in PHP 8.x — keep the VM call for this rare
+		 * opt-in flag so the exception surface stays identical. */
+		zval opts, ret;
+		zend_function *fn;
+		ZVAL_UNDEF(&ret);
+		ZVAL_LONG(&opts, options);
+		fn = zend_hash_str_find_ptr(CG(function_table), ZEND_STRL("json_encode"));
+		if (UNEXPECTED(!fn)) {
+			return FAILURE;
+		}
+		{
+			zval params[] = { *value, opts };
+			zend_call_known_function(fn, NULL, NULL, &ret, 2, params, NULL);
+		}
+		if (Z_TYPE(ret) == IS_STRING) {
+			smart_str_append(buf, Z_STR(ret));
+			zval_ptr_dtor(&ret);
+			return SUCCESS;
+		}
+		zval_ptr_dtor(&ret);
+		return FAILURE;
+	}
+	/* php_json_encode() records JSON_G(error_code) exactly like the
+	 * json_encode() wrapper does, and returns FAILURE iff the encoder hit
+	 * an error without PARTIAL_OUTPUT_ON_ERROR — i.e. precisely the cases
+	 * where json_encode() returns false. A JsonSerialize() callback that
+	 * throws leaves EG(exception) pending; surface that the same way the
+	 * VM call would. */
+	if (php_json_encode(buf, value, (int)options) == FAILURE
+			|| UNEXPECTED(EG(exception))) {
+		smart_str_free(buf);
 		return FAILURE;
 	}
 	return SUCCESS;
