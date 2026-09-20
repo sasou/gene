@@ -621,7 +621,7 @@ static void gene_request_context_free_fields(gene_request_context *ctx, int pres
 	ctx->child_views_len = 0;
 	if (ctx->lang) { efree(ctx->lang); ctx->lang = NULL; }
 	ctx->lang_len = 0;
-	if (ctx->log_file) { efree(ctx->log_file); ctx->log_file = NULL; }
+	if (ctx->log_file) { zend_string_release(ctx->log_file); ctx->log_file = NULL; }
 	/* Unwind Request snapshots before request_attr is recycled/freed. */
 	gene_request_stack_drain(ctx);
 	if (Z_TYPE(ctx->request_json) != IS_UNDEF) {
