@@ -367,6 +367,7 @@ PHP_METHOD(gene_factory, create)
 	if (gene_factory(ZSTR_VAL(name), ZSTR_LEN(name), params, &classObject)) {
 		if (type) {
 			Z_TRY_ADDREF_P(&classObject);
+			gene_di_note_key(name);
 			zend_hash_update(Z_ARRVAL_P(entrys), name, &classObject);
 		}
 		RETURN_ZVAL(&classObject, 0, 0);

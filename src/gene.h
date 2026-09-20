@@ -168,6 +168,14 @@ static inline uint64_t gene_hrtime(void) {
 	 size_t action_len;
 	 size_t lang_len;
 	 size_t child_views_len;
+	 /* [GENE_PERF:2026-09-20 V3-2.5] Inline storage for short
+	  * module/controller/action names written by setMca(). A ctx->module/
+	  * controller/action pointer equal to the matching mca_buf slot means the
+	  * buffer is context-owned and must NOT be efree'd; longer names still
+	  * heap-allocate. Pointer identity doubles as the ownership tag — free
+	  * sites compare against mca_buf[slot]. Router::match() probes save and
+	  * restore both the pointers and the buffer contents. */
+	 char mca_buf[3][32];
 	 /* [GENE_MEM:2026-04-24] path_params is now an inline zval (was a heap
 	  * pointer). Previously every request burned 1x emalloc(sizeof(zval)) +
 	  * 1x efree plus pointer chasing to reach the HashTable. The outer zval
@@ -522,6 +530,20 @@ void gene_request_context_pool_drain(void);
 zend_long gene_request_context_pool_prewarm(zend_long count);
 zend_long gene_closure_src_cache_items(void);
 zend_long gene_closure_src_cache_bytes(void);
+
+/* [GENE_PERF:2026-09-20 V3-2.6] di_class_keys counts '_'-containing keys
+ * inserted into the request-scope DI registry. The composed "Class_name"
+ * lookup key in gene_di_get_class() always contains '_', so a zero counter
+ * proves that lookup must miss and can be skipped. Every di_regs writer —
+ * not just gene_di_set_class() — must call this on '_' keys, otherwise a
+ * userland Di::set("Foo_bar") entry would be invisible to Foo::$bar.
+ * Deletes do not decrement: an over-count only costs the same lookup we
+ * would have done anyway. */
+static zend_always_inline void gene_di_note_key(zend_string *key) {
+	if (UNEXPECTED(memchr(ZSTR_VAL(key), '_', ZSTR_LEN(key)) != NULL)) {
+		gene_request_ctx()->di_class_keys++;
+	}
+}
 
 /* [GENE_FIX:2026-05-24] Cross-request-safe interned string helper.
  *
