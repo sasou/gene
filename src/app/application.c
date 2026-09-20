@@ -49,6 +49,22 @@
 
 zend_class_entry * gene_application_ce;
 
+#ifndef ZTS
+static zend_function *gene_app_run_fn = NULL;
+static zend_function *gene_app_log_exception_fn = NULL;
+static zend_function *gene_app_randomid_fn = NULL;
+static zend_class_entry *gene_app_iswritable_ce = NULL;
+static zend_function *gene_app_iswritable_fn = NULL;
+#define GENE_APP_METHOD(cache, ce, name) \
+	(EXPECTED(cache) ? (cache) : ((cache) = zend_hash_str_find_ptr(&(ce)->function_table, ZEND_STRL(name))))
+#define GENE_APP_RESP_METHOD(ce, name) \
+	(EXPECTED(gene_app_iswritable_ce == (ce) && gene_app_iswritable_fn) ? gene_app_iswritable_fn : \
+		(gene_app_iswritable_ce = (ce), gene_app_iswritable_fn = zend_hash_str_find_ptr(&(ce)->function_table, ZEND_STRL(name))))
+#else
+#define GENE_APP_METHOD(cache, ce, name) zend_hash_str_find_ptr(&(ce)->function_table, ZEND_STRL(name))
+#define GENE_APP_RESP_METHOD(ce, name) zend_hash_str_find_ptr(&(ce)->function_table, ZEND_STRL(name))
+#endif
+
 ZEND_BEGIN_ARG_INFO_EX(gene_application_construct, 0, 0, 0)
     ZEND_ARG_INFO(0, safe)
 ZEND_END_ARG_INFO()
@@ -1537,7 +1553,7 @@ static void gene_application_apply_request_id(void) {
 		}
 	}
 	if (!id) {
-		zend_function *fn = zend_hash_str_find_ptr(&gene_crypto_ce->function_table, ZEND_STRL("randomid"));
+		zend_function *fn = GENE_APP_METHOD(gene_app_randomid_fn, gene_crypto_ce, "randomid");
 		if (fn) {
 			zval retval, params[2];
 			ZVAL_UNDEF(&retval);
@@ -1698,7 +1714,7 @@ PHP_METHOD(gene_application, handleSwoole) {
 	}
 
 	{
-		zend_function *run_fn = zend_hash_str_find_ptr(&gene_application_ce->function_table, ZEND_STRL("run"));
+		zend_function *run_fn = GENE_APP_METHOD(gene_app_run_fn, gene_application_ce, "run");
 		GENE_G(swoole_handle_depth)++;
 		if (EXPECTED(run_fn)) {
 			zval retval;
@@ -1725,7 +1741,7 @@ PHP_METHOD(gene_application, handleSwoole) {
 		} else {
 			zend_function *log_fn;
 			default_500 = 1;
-			log_fn = zend_hash_str_find_ptr(&gene_log_ce->function_table, ZEND_STRL("exception"));
+			log_fn = GENE_APP_METHOD(gene_app_log_exception_fn, gene_log_ce, "exception");
 			if (log_fn) {
 				zval lret, lp;
 				ZVAL_UNDEF(&lret);
@@ -1767,7 +1783,7 @@ PHP_METHOD(gene_application, handleSwoole) {
 		if (swoole_resp) {
 			/* isWritable() 兼容策略与 Response::isSent() 一致：
 			 * 方法不可解析时按"未发送"处理，交给 end() 兜底。 */
-			zend_function *wf = zend_hash_str_find_ptr(&Z_OBJCE_P(swoole_resp)->function_table, ZEND_STRL("iswritable"));
+			zend_function *wf = GENE_APP_RESP_METHOD(Z_OBJCE_P(swoole_resp), "iswritable");
 			if (wf) {
 				zval wret;
 				ZVAL_UNDEF(&wret);

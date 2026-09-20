@@ -326,11 +326,15 @@ zval *gene_class_instance(zval *obj, zval *class_name, zval *params) {
  *  {{{ int gene_di_get_class(zend_string class_name, zend_string *name)
  */
 zval *gene_di_get_class(zend_string *class_name, zend_string *name) {
+	gene_request_context *ctx = gene_request_ctx();
 	zval *entrys, *ppzval = NULL;
 	char stack_buf[256];
 	char *key_buf;
 	size_t key_len;
 
+	if (EXPECTED(ctx->di_class_keys == 0)) {
+		return gene_di_get(name);
+	}
 	entrys = gene_di_regs();
 
 	key_len = ZSTR_LEN(class_name) + 1 + ZSTR_LEN(name);
@@ -370,6 +374,9 @@ int gene_di_set_class(zend_string *class_name, zend_string *name, zval *value) {
 	key_buf[key_len] = '\0';
 
 	Z_TRY_ADDREF_P(value);
+	if (!zend_hash_str_exists(Z_ARRVAL_P(entrys), key_buf, key_len)) {
+		gene_request_ctx()->di_class_keys++;
+	}
 	zend_hash_str_update(Z_ARRVAL_P(entrys), key_buf, key_len, value);
 	if (key_buf != stack_buf) efree(key_buf);
 	return 1;

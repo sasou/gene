@@ -178,11 +178,15 @@ static zend_class_entry *gene_swoole_resp_cache_end_ce = NULL;
 static zend_function    *gene_swoole_resp_cache_end_fn = NULL;
 static zend_class_entry *gene_swoole_resp_cache_write_ce = NULL;
 static zend_function    *gene_swoole_resp_cache_write_fn = NULL;
+static zend_class_entry *gene_swoole_resp_cache_status_ce = NULL;
+static zend_function    *gene_swoole_resp_cache_status_fn = NULL;
+static zend_class_entry *gene_swoole_resp_cache_iswritable_ce = NULL;
+static zend_function    *gene_swoole_resp_cache_iswritable_fn = NULL;
 
 void gene_response_set_status(zend_long code) {
 	zval *swoole_resp = gene_response_context_obj();
 	if (swoole_resp) {
-		zend_function *fn = zend_hash_str_find_ptr(&Z_OBJCE_P(swoole_resp)->function_table, ZEND_STRL("status"));
+		zend_function *fn = GENE_SWOOLE_RESP_METHOD(Z_OBJCE_P(swoole_resp), status);
 		if (fn) {
 			zval retval, zcode;
 			ZVAL_UNDEF(&retval);
@@ -714,7 +718,7 @@ PHP_METHOD(gene_response, getStatusCode) {
 PHP_METHOD(gene_response, isSent) {
 	zval *swoole_resp = gene_response_context_obj();
 	if (swoole_resp) {
-		zend_function *fn = zend_hash_str_find_ptr(&Z_OBJCE_P(swoole_resp)->function_table, ZEND_STRL("iswritable"));
+		zend_function *fn = GENE_SWOOLE_RESP_METHOD(Z_OBJCE_P(swoole_resp), iswritable);
 		if (fn) {
 			zval retval;
 			ZVAL_UNDEF(&retval);

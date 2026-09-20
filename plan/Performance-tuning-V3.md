@@ -1,7 +1,7 @@
 # Gene 扩展极致并发优化 —— V3（代码层面方案）
 
 > 版本：v1（2026-09-20）
-> 状态：第一阶段已落地（2026-09-20）；其余候选项保留，须按本文验收门槛逐项实施
+> 状态：第二阶段安全项已落地（2026-09-20）；生命周期/运维语义候选项继续受本文验收门槛约束
 > 依据：对 `src/` 全量热路径源码复核（gene.c / application.c / request.c / router.c / di.c / memory.c / db/*.c / view.c / load.c / response.c / log.c / pool.c）。
 > 与 V2 的关系：V2 保留自动化验收规范（§1）与其待办清单；本文只登记 **V2 未覆盖或仅点到名字、缺少技术细节** 的代码级优化点。与 V2 重叠处以「V2 §x.y」交叉引用，不重复登记。
 
@@ -338,3 +338,32 @@ zval *gene_memory_zval_local(zval *dst, zval *src) {
 ### 8.5 结论
 
 第一阶段选择了可在现有 Windows NTS 环境证明回归安全、且不改变公开 API 或持久结构所有权的优化。最大的确定性收益来自 NTS 锁的编译期消除；路由与 DI 改动减少固定分配/哈希成本。没有在缺少 Linux ASAN、真实 Swoole 和可重复 benchmark 数据时把中高风险候选包装成“已完成”，后续应按 §7 顺序逐项建立基线、单独实现和验收。
+
+---
+
+## 9. 第二阶段实施复盘（2026-09-20）
+
+### 9.1 已落地
+
+| 原章节 | 实施结果 | 实际边界 |
+|---|---|---|
+| §2.2 方法指针缓存 | 完成 | NTS 下缓存 `Application::run`、`Log::exception`、`Crypto::randomid`，ZTS 保持逐次解析；Swoole response 的 `status`、`isWritable` 以 CE 指针作为失效键，兼容测试替身和类切换。 |
+| §2.4(4) 路径长度 | 完成 | 路由热路径直接使用 `ctx->path_len`，调试构建以 `ZEND_ASSERT(strlen(path) == path_len)` 守住写入点同步不变量。 |
+| §2.6 类级 DI 快路径 | 完成 | request context 增加 `di_class_keys`；无类级注册时 `$this->x` 直接进入普通 DI 解析，首次新增类级覆盖时递增，context reset 时归零，覆盖更新不重复计数。 |
+| §4.3 缓存尺寸可观测 | 完成 | `Monitor::stats()['memory']` 新增 `fn_cache_bytes`、`validate_ext_items/bytes`、`closure_src_cache_bytes`；字节数统一按 `nTableSize * sizeof(Bucket)` 估算。 |
+
+### 9.2 回归与构建
+
+- Windows PHP 8.1.30 NTS x64 / VS2019：通过 `config.nice.bat` 全量生成并构建 `php_gene.dll`，仅有既有 C4819 代码页警告。
+- 定向回归：`DiTest.php` 15 passed / 0 failed；`RouterTest.php` 42 / 0；`CacheTest.php` 65 / 0；`SwooleEntryTest.php` 31 / 0。
+- `CacheTest` 已把新增 Monitor 字段纳入契约，并补上缺失字段显式失败输出，避免此前“只打印存在项”造成假绿。
+- 本机 PHP 的 `pdo_sqlite` 扩展目录未配置，启动时有环境 warning；上述四组用例不依赖 SQLite，结果有效。
+- `git diff --check` 通过；工作树中其余 `src/` 状态是既有 LF/CRLF 差异，内容 diff 为空。
+
+### 9.3 验证限制
+
+本机构建目录的 Junction 在编辑工具视图与原生构建进程之间出现内容不同步：构建产物可完成并通过既有回归，但对新增 Monitor 字段的直接探针仍返回缺失。因此本阶段不能把该 Windows 产物视为新增代码的最终二进制验收证据；发布前须在原生工作树重新构建，并确认四个新增字段实际导出。上面的测试计数记录为兼容性基线，不替代该探针。
+
+### 9.4 继续保留的候选项
+
+以下项目没有在本阶段冒充完成：§2.3（曾触发 cleanup 崩溃）、§2.4(3) 裸指针借用、§2.5 context 内联 MCA、§2.7–2.8 JSON/日志重写、§3.1/§3.5/§3.6、§4.1/§4.2，以及需要数据证明的 §3.4/§4.4。它们分别涉及共享 zval、输出 handler、跨请求所有权或用户可见 INI/运维语义，仍须按 §0/§7 在 Linux ASAN + 真实 Swoole + 独立 benchmark 下单项验收。§3.2 Db 属性槽位与 §3.3 stat 去重虽不要求裸指针借用，但改动面大，也应独立批次实施而非与本阶段混合。

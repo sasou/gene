@@ -1,4 +1,4 @@
-/*
+﻿/*
  +----------------------------------------------------------------------+
  | gene                                                                 |
  +----------------------------------------------------------------------+
@@ -181,6 +181,7 @@ static inline uint64_t gene_hrtime(void) {
 	 * target service name), consulted by gene_di_get before the registry
 	 * lookup. Lazy array, UNDEF until the first Di::alias() call. */
 	 zval di_alias;
+	 zend_ulong di_class_keys;
 	 zval response_obj;
 	 zval view_vars;
 	 /* [GENE_FEATURE:2026-08-07 Benchmark mark/lap] Named lap timestamps
@@ -520,6 +521,7 @@ void gene_request_context_pool_drain(void);
  * contexts actually added (bounded by ctx_pool_max). */
 zend_long gene_request_context_pool_prewarm(zend_long count);
 zend_long gene_closure_src_cache_items(void);
+zend_long gene_closure_src_cache_bytes(void);
 
 /* [GENE_FIX:2026-05-24] Cross-request-safe interned string helper.
  *
