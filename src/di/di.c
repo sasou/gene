@@ -159,11 +159,15 @@ zval *gene_di_get(zend_string *name) {
 	 * [GENE_FIX:2026-08-07-5 N6] Take an owned copy: a constructor invoked
 	 * below may call Di::alias() and rehash/replace the alias table, which
 	 * would dangle a borrowed pointer. */
-	zend_string *resolved_name = zend_string_copy(gene_di_resolve_alias(name));
+	zend_string *resolved_name = gene_di_resolve_alias(name);
+	zend_bool resolved_name_owned = Z_TYPE(gene_request_ctx()->di_alias) == IS_ARRAY;
+	if (resolved_name_owned) {
+		resolved_name = zend_string_copy(resolved_name);
+	}
 	name = resolved_name;
 	entrys = gene_di_regs();
 	if ((pzval = zend_hash_find(Z_ARRVAL_P(entrys), name)) != NULL) {
-		zend_string_release(resolved_name);
+		if (resolved_name_owned) zend_string_release(resolved_name);
 		return pzval;
 	}
 
@@ -207,13 +211,13 @@ zval *gene_di_get(zend_string *name) {
 
 	if (cache && Z_TYPE_P(cache) == IS_ARRAY) {
     	if ((class = zend_hash_str_find(Z_ARRVAL_P(cache), "class", 5)) == NULL) {
-    		 zend_string_release(resolved_name);
+		if (resolved_name_owned) zend_string_release(resolved_name);
     		 php_error_docref(NULL, E_ERROR, "Factory need a valid class.");
     		 return NULL;
     	}
     	if ((params = zend_hash_str_find(Z_ARRVAL_P(cache), "params", 6)) != NULL) {
     		 if (Z_TYPE_P(params) != IS_ARRAY) {
-	    		 zend_string_release(resolved_name);
+			if (resolved_name_owned) zend_string_release(resolved_name);
 	    		 php_error_docref(NULL, E_ERROR, "Factory need a array param.");
 	    		 return NULL;
     		 }
@@ -240,7 +244,7 @@ zval *gene_di_get(zend_string *name) {
 		if (type) {
 			if ((pzval = zend_hash_find(Z_ARRVAL_P(entrys), class_str)) != NULL) {
 				zval_ptr_dtor(&local_params);
-				zend_string_release(resolved_name);
+				if (resolved_name_owned) zend_string_release(resolved_name);
 				return pzval;
 			}
 		}
@@ -268,14 +272,14 @@ zval *gene_di_get(zend_string *name) {
 		    if ((pzval = zend_hash_update(Z_ARRVAL_P(entrys), name, &classObject)) != NULL ) {
 		    	ZVAL_UNDEF(&classObject);
 		    	zval_ptr_dtor(&local_params);
-		    	zend_string_release(resolved_name);
+			if (resolved_name_owned) zend_string_release(resolved_name);
 		    	return pzval;
 		    }
 		    zval_ptr_dtor(&classObject);
 		}
 		zval_ptr_dtor(&local_params);
 	}
-	zend_string_release(resolved_name);
+	if (resolved_name_owned) zend_string_release(resolved_name);
 	return NULL;
 }
 
