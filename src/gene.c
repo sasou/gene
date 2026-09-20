@@ -608,11 +608,14 @@ static void gene_request_context_free_fields(gene_request_context *ctx, int pres
 	ctx->path_len = 0;
 	if (ctx->router_path) { efree(ctx->router_path); ctx->router_path = NULL; }
 	ctx->router_path_len = 0;
-	if (ctx->module) { efree(ctx->module); ctx->module = NULL; }
+	/* [GENE_PERF:2026-09-20 V3-2.5] module/controller/action may point into
+	 * the context-owned mca_buf slots — pointer identity is the ownership
+	 * tag, so only heap pointers are efree'd. */
+	if (ctx->module) { if (ctx->module != ctx->mca_buf[0]) efree(ctx->module); ctx->module = NULL; }
 	ctx->module_len = 0;
-	if (ctx->controller) { efree(ctx->controller); ctx->controller = NULL; }
+	if (ctx->controller) { if (ctx->controller != ctx->mca_buf[1]) efree(ctx->controller); ctx->controller = NULL; }
 	ctx->controller_len = 0;
-	if (ctx->action) { efree(ctx->action); ctx->action = NULL; }
+	if (ctx->action) { if (ctx->action != ctx->mca_buf[2]) efree(ctx->action); ctx->action = NULL; }
 	ctx->action_len = 0;
 	if (ctx->child_views) { efree(ctx->child_views); ctx->child_views = NULL; }
 	ctx->child_views_len = 0;

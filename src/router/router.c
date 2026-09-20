@@ -131,7 +131,15 @@
 	 if (key->len == 1) {
 		 char c0 = key->val[0];
 		 if (c0 == 'm' || c0 == 'c' || c0 == 'a') {
-			 char *buf = emalloc(val_len + 1);
+			 /* [GENE_PERF:2026-09-20 V3-2.5] Short m/c/a names are stored in the
+			  * context's inline mca_buf slots — zero emalloc on the common
+			  * dispatch path; names >= 32 bytes still heap-allocate. Ownership
+			  * is tracked by pointer identity: a ctx field equal to its mca_buf
+			  * slot is context-owned and must NOT be efree'd. All free sites
+			  * compare the pointer against the slot address. */
+			 int slot = (c0 == 'm') ? 0 : (c0 == 'c') ? 1 : 2;
+			 char *buf = (val_len < sizeof(ctx->mca_buf[0]))
+				 ? ctx->mca_buf[slot] : (char *)emalloc(val_len + 1);
 			 if (val_len > 0) {
 				 unsigned char first = (unsigned char)val[0];
 				 /* uppercase first char only for module/controller; action stays verbatim */
@@ -145,17 +153,17 @@
 			 buf[val_len] = '\0';
 			 switch (c0) {
 			 case 'm':
-				 if (ctx->module) efree(ctx->module);
+				 if (ctx->module && ctx->module != ctx->mca_buf[0]) efree(ctx->module);
 				 ctx->module = buf;
 				 ctx->module_len = val_len;
 				 break;
 			 case 'c':
-				 if (ctx->controller) efree(ctx->controller);
+				 if (ctx->controller && ctx->controller != ctx->mca_buf[1]) efree(ctx->controller);
 				 ctx->controller = buf;
 				 ctx->controller_len = val_len;
 				 break;
 			 case 'a':
-				 if (ctx->action) efree(ctx->action);
+				 if (ctx->action && ctx->action != ctx->mca_buf[2]) efree(ctx->action);
 				 ctx->action = buf;
 				 ctx->action_len = val_len;
 				 break;
@@ -2310,6 +2318,10 @@ void get_router_content_run(char *methodin, char *pathin, const char *safe_str, 
 	 char *saved_module = NULL, *saved_controller = NULL, *saved_action = NULL, *saved_router_path = NULL;
 	 size_t saved_module_len = 0, saved_controller_len = 0, saved_action_len = 0, saved_router_path_len = 0;
 	 zval saved_path_params;
+	 /* [GENE_PERF:2026-09-20 V3-2.5] The saved pointers may reference the
+	  * inline mca_buf slots; a probe setMca() would overwrite them in place,
+	  * so the buffer contents must be snapshotted alongside the pointers. */
+	 char saved_mca[3][32];
 
 	 if (zend_parse_parameters(ZEND_NUM_ARGS(), "SS", &methodin, &pathin) == FAILURE) {
 		 RETURN_FALSE;
@@ -2323,6 +2335,7 @@ void get_router_content_run(char *methodin, char *pathin, const char *safe_str, 
 	 saved_action = ctx->action;             saved_action_len = ctx->action_len;
 	 saved_router_path = ctx->router_path;   saved_router_path_len = ctx->router_path_len;
 	 saved_path_params = ctx->path_params;
+	 memcpy(saved_mca, ctx->mca_buf, sizeof(saved_mca));
 	 ctx->module = NULL;
 	 ctx->controller = NULL;
 	 ctx->action = NULL;
@@ -2470,9 +2483,13 @@ void get_router_content_run(char *methodin, char *pathin, const char *safe_str, 
 	 /* Free the buffers the match allocated and restore the saved context.
 	  * Shared by the hit and miss paths so the two can never drift apart. */
 restore:
-	 if (ctx->module) efree(ctx->module);
-	 if (ctx->controller) efree(ctx->controller);
-	 if (ctx->action) efree(ctx->action);
+	 /* [GENE_PERF:2026-09-20 V3-2.5] Free only heap-allocated probe results;
+	  * inline mca_buf slots are context-owned. Then restore the snapshot so
+	  * saved pointers into mca_buf see their pre-probe contents again. */
+	 if (ctx->module && ctx->module != ctx->mca_buf[0]) efree(ctx->module);
+	 if (ctx->controller && ctx->controller != ctx->mca_buf[1]) efree(ctx->controller);
+	 if (ctx->action && ctx->action != ctx->mca_buf[2]) efree(ctx->action);
+	 memcpy(ctx->mca_buf, saved_mca, sizeof(saved_mca));
 	 if (Z_TYPE(ctx->path_params) == IS_ARRAY) {
 		 zval_ptr_dtor(&ctx->path_params);
 	 }
