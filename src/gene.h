@@ -246,7 +246,7 @@ static inline uint64_t gene_hrtime(void) {
 	 uint64_t bench_end;
 	 zend_long bench_memory_start;
 	 zend_long bench_memory_end;
-	 char *log_file;
+	 zend_string *log_file;
 	 zend_long log_level;
 	 zend_bool log_level_set;
  } gene_request_context;
