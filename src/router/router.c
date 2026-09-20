@@ -229,14 +229,12 @@
   * seg_len from the first tokenizer pass to set ctx->lang_len directly,
   * avoiding a downstream strlen() when lang is later read by getLang().
   */
- char *get_path_router_init(zval *conf, char *path) {
+ char *get_path_router_init(zval *conf, char *path, size_t path_len) {
 	 zval *prefix = NULL, *langs = NULL;
 	 char *seg = NULL, *ptr = NULL, *result = NULL, *search = NULL, *work = NULL;
 	 size_t seg_len = 0;
-	 zend_long path_len = 0;
-	 path_len = strlen(path);
 	 if (path_len == 0) {
-		 return str_init(path);
+		 return path;
 	 }
  
 	 result = NULL;
@@ -290,7 +288,7 @@
 		 efree(work);
 	 }
  
-	 return result ? result : str_init(path);
+	 return result ? result : path;
  }
  /* }}} */
  
@@ -306,7 +304,7 @@
 	 size_t seg_len;
 
 	if (paths[0] == '\0') {
-		leaf = zend_symtable_str_find(Z_ARRVAL_P(val), "leaf", 4);
+		leaf = zend_hash_str_find(Z_ARRVAL_P(val), ZEND_STRL("leaf"));
 		return leaf;
 	} else {
 		 /* Find first '/' to extract current segment */
@@ -319,7 +317,7 @@
 				 leaf = get_path_router_inner(ret, next_slash + 1);
 			 }
 			 if (!leaf) {
-				 ret = zend_symtable_str_find(Z_ARRVAL_P(val), "chird", 5);
+				 ret = zend_hash_str_find(Z_ARRVAL_P(val), ZEND_STRL("chird"));
 				 if (ret) {
 					 ZEND_HASH_FOREACH_KEY_VAL(Z_ARRVAL_P(ret), idx, key, tmp) {
 						 if (key) {
@@ -348,14 +346,14 @@
 			 seg = paths;
 			 ret = zend_symtable_str_find(Z_ARRVAL_P(val), seg, seg_len);
 			 if (ret && Z_TYPE_P(ret) == IS_ARRAY) {
-				 leaf = zend_symtable_str_find(Z_ARRVAL_P(ret), "leaf", 4);
+				 leaf = zend_hash_str_find(Z_ARRVAL_P(ret), ZEND_STRL("leaf"));
 			 } else {
-				 ret = zend_symtable_str_find(Z_ARRVAL_P(val), "chird", 5);
+				 ret = zend_hash_str_find(Z_ARRVAL_P(val), ZEND_STRL("chird"));
 				 if (ret) {
 					 ZEND_HASH_FOREACH_KEY_VAL(Z_ARRVAL_P(ret), idx, key, tmp) {
 						 if (key) {
 							 if (tmp != NULL) {
-							 leaf = zend_symtable_str_find(Z_ARRVAL_P(tmp), "leaf", 4);
+							 leaf = zend_hash_str_find(Z_ARRVAL_P(tmp), ZEND_STRL("leaf"));
 							 if (leaf) {
 								 setMca(key, seg, seg_len);
 								 break;
@@ -363,7 +361,7 @@
 						 }
 					 } else {
 						 if (tmp != NULL) {
-								 leaf = zend_symtable_str_find(Z_ARRVAL_P(tmp), "leaf", 4);
+								 leaf = zend_hash_str_find(Z_ARRVAL_P(tmp), ZEND_STRL("leaf"));
 								 if (leaf) {
 									 break;
 								 }
@@ -381,7 +379,7 @@
 zval *get_path_router(zval *val, char *paths) {
 	 zval *leaf;
 	if (paths[0] == '\0') {
-		return zend_symtable_str_find(Z_ARRVAL_P(val), "leaf", 4);
+		return zend_hash_str_find(Z_ARRVAL_P(val), ZEND_STRL("leaf"));
 	}
 	leaf = get_path_router_inner(val, paths);
 	return leaf;
@@ -2201,10 +2199,10 @@ void get_router_content_run(char *methodin, char *pathin, const char *safe_str, 
 			 }
 			 trim(path, '/');
 			 {
-				 char *dotted = estrdup(path);
-				 replaceAll(path, '.', '/');
+				 char *dotted = memchr(path, '.', strlen(path)) ? estrdup(path) : NULL;
+				 if (dotted) replaceAll(path, '.', '/');
 				 if (conf && Z_TYPE_P(conf) == IS_ARRAY) {
-					 path_new = get_path_router_init(conf, path);
+					 path_new = get_path_router_init(conf, path, strlen(path));
 					 if (path_new != path) {
 						 efree(path);
 					 }
@@ -2214,10 +2212,10 @@ void get_router_content_run(char *methodin, char *pathin, const char *safe_str, 
 				 lead = get_path_router(temp, path);
 				 /* Registration also maps '.' → '/'; if a tree was written
 				  * with the raw dotted segment, try that before 404. */
-				 if (!lead && dotted[0] != '\0' && strcmp(dotted, path) != 0) {
+				 if (!lead && dotted && dotted[0] != '\0' && strcmp(dotted, path) != 0) {
 					 lead = get_path_router(temp, dotted);
 				 }
-				 efree(dotted);
+				 if (dotted) efree(dotted);
 			 }
 
 			 if (lead) {
@@ -2406,7 +2404,7 @@ void get_router_content_run(char *methodin, char *pathin, const char *safe_str, 
 		 trim(path, '/');
 		 replaceAll(path, '.', '/');
 		 if (conf && Z_TYPE_P(conf) == IS_ARRAY) {
-			 path_new = get_path_router_init(conf, path);
+			 path_new = get_path_router_init(conf, path, strlen(path));
 			 if (path_new != path) {
 				 efree(path);
 			 }
