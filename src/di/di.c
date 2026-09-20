@@ -267,9 +267,11 @@ zval *gene_di_get(zend_string *name) {
 			if (type) {
 				zval classObjectCopy;
 				ZVAL_COPY(&classObjectCopy, &classObject);
+				gene_di_note_key(class_str);
 				zend_hash_update(Z_ARRVAL_P(entrys), class_str, &classObjectCopy);
 			}
-		    if ((pzval = zend_hash_update(Z_ARRVAL_P(entrys), name, &classObject)) != NULL ) {
+			gene_di_note_key(name);
+	    if ((pzval = zend_hash_update(Z_ARRVAL_P(entrys), name, &classObject)) != NULL ) {
 		    	ZVAL_UNDEF(&classObject);
 		    	zval_ptr_dtor(&local_params);
 			if (resolved_name_owned) zend_string_release(resolved_name);
@@ -312,6 +314,7 @@ zval *gene_class_instance(zval *obj, zval *class_name, zval *params) {
 			if (!Z_ISUNDEF(tmp)) zval_ptr_dtor(&tmp);
 		}
 
+		gene_di_note_key(Z_STR_P(class_name));
 		if ((ppzval = zend_hash_str_update(Z_ARRVAL_P(entrys), Z_STRVAL_P(class_name), Z_STRLEN_P(class_name), obj)) != NULL ) {
 			ZVAL_UNDEF(obj);
 			return ppzval;
@@ -454,6 +457,7 @@ PHP_METHOD(gene_di, set) {
 		RETURN_NULL();
 	}
 	entrys = gene_di_regs();
+	gene_di_note_key(name);
 	if (zend_hash_update(Z_ARRVAL_P(entrys), name, value) != NULL) {
 		Z_TRY_ADDREF_P(value);
 		RETURN_TRUE;
