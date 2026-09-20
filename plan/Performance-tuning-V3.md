@@ -1,7 +1,7 @@
 # Gene 扩展极致并发优化 —— V3（代码层面方案）
 
 > 版本：v1（2026-09-20）
-> 状态：候选（仅方案，未动代码）
+> 状态：第一阶段已落地（2026-09-20）；其余候选项保留，须按本文验收门槛逐项实施
 > 依据：对 `src/` 全量热路径源码复核（gene.c / application.c / request.c / router.c / di.c / memory.c / db/*.c / view.c / load.c / response.c / log.c / pool.c）。
 > 与 V2 的关系：V2 保留自动化验收规范（§1）与其待办清单；本文只登记 **V2 未覆盖或仅点到名字、缺少技术细节** 的代码级优化点。与 V2 重叠处以「V2 §x.y」交叉引用，不重复登记。
 
@@ -302,3 +302,39 @@ zval *gene_memory_zval_local(zval *dst, zval *src) {
 | 15 | §4.4 arena | 高 | – | ✔ | RSS（待数据） |
 
 每项按 V2 §1 提供功能回归 + 性能对比 + 判定脚本；涉及借用/生命周期的 §2.4(3)、§3.1、§3.6、§4.1、§4.2 必须附 Linux ASAN 结果。
+
+---
+
+## 8. 第一阶段实施复盘（2026-09-20）
+
+### 8.1 已落地
+
+| 原章节 | 实施结果 | 实际边界 |
+|---|---|---|
+| §2.1 NTS 锁消除 | 完成 | `GENE_CACHE_RDLOCK/RDUNLOCK/WRLOCK/WRUNLOCK` 在非 ZTS 编译为 no-op；ZTS 分支保持原锁语义，初始化与销毁不变。 |
+| §2.4(1) 路由临时分配 | 完成安全子集 | 无 prefix/langs 改写时 `get_path_router_init()` 直接返回调用方缓冲；仅当路径确实含 `.` 时创建 dotted 副本。 |
+| §2.4(2) 常量键 | 完成 | `leaf`/`chird` 改用 `zend_hash_str_find(..., ZEND_STRL(...))`；动态 segment 继续使用 `zend_symtable_str_find`，数字路由语义不变。 |
+| §2.6 alias 零拷贝 | 完成 | `di_alias` 未初始化时直接借用调用方 `zend_string`；alias 表存在时仍持有副本，覆盖构造函数重入改写 alias 表的生命周期风险。 |
+
+### 8.2 验证结果
+
+- Windows PHP 8.1.30 NTS x64 / VS2019：`php_gene.dll` 构建成功。
+- `RouterTest.php`：42 passed / 0 failed。
+- `DiTest.php`：15 passed / 0 failed。
+- `CacheTest.php`：63 passed / 0 failed，包含 5000 次业务缓存写/读/删高 churn。
+- `SwooleEntryTest.php` 可完整运行；其中既有 Hook respond/abort 两条输出级失败仍存在（进程退出码为 0），本阶段涉及的 Request/Swoole bag、异常、响应收敛用例通过。
+- `git diff --check` 作为提交前检查执行；构建仅有仓库既有 C4819 代码页警告。
+
+### 8.3 试做后撤回
+
+§2.3 的共享空数组和 `$_REQUEST` 惰性物化曾在本机实现试跑，但首轮 `SwooleEntryTest` 在清理边界出现异常退出。为遵守“零新 bug”约束，相关改动已全部撤回，保留现有急切合并与普通空数组分配。后续重做时必须先补独立的 init/cleanup 循环回归和调试构建引用计数检查，不应与其他优化同批合入。
+
+§2.6 的 `di_class_keys` 计数快路径也曾试做；由于修改 `gene_request_context` 布局会要求构建系统可靠地重编所有包含该头文件的目标，而当前 Windows 增量构建依赖未覆盖这一点，本阶段撤回该字段，仅保留不改变结构体布局的 alias 零拷贝优化。
+
+### 8.4 未纳入本阶段
+
+§2.2、§2.4(3)、§2.5、§2.7–2.8、§3、§4 和 §5 仍是候选方案，未宣称完成。其中裸指针借用、冻结表零拷贝、上下文冷热分离、Pool C 层 idle 栈及 retired 回收必须在 Linux ASAN + Swoole 验收环境单独实施；日志句柄常驻和 view stat TTL 还涉及新增 INI 与用户可见运维语义，不宜与无语义变化的热路径优化混合落地。
+
+### 8.5 结论
+
+第一阶段选择了可在现有 Windows NTS 环境证明回归安全、且不改变公开 API 或持久结构所有权的优化。最大的确定性收益来自 NTS 锁的编译期消除；路由与 DI 改动减少固定分配/哈希成本。没有在缺少 Linux ASAN、真实 Swoole 和可重复 benchmark 数据时把中高风险候选包装成“已完成”，后续应按 §7 顺序逐项建立基线、单独实现和验收。
