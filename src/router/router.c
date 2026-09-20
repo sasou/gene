@@ -1767,6 +1767,12 @@ zend_long gene_closure_src_cache_items(void) {
 		: 0;
 }
 
+zend_long gene_closure_src_cache_bytes(void) {
+	return gene_closure_src_cache
+		? (zend_long)gene_closure_src_cache->nTableSize * (zend_long)sizeof(Bucket)
+		: 0;
+}
+
 static void gene_closure_src_cache_put(const char *key, size_t key_len, zend_long mtime, const char *src, size_t len) {
 	gene_closure_src_node *node;
 	zend_long cap = GENE_G(closure_src_cache_max);
@@ -2075,10 +2081,7 @@ void get_router_content_run(char *methodin, char *pathin, const char *safe_str, 
 			  * internal strlen() since ctx->path_len is already cached by the
 			  * gene_ini_router()/request_set_server_val() path populators. */
 			 size_t plen = ctx->path_len;
-			 size_t actual = strlen(ctx->path);
-			 if (plen == 0 || plen > actual || ctx->path[plen] != '\0') {
-				 plen = actual;
-			 }
+			 ZEND_ASSERT(strlen(ctx->path) == plen);
 			 path = (char *)emalloc(plen + 1);
 			 memcpy(path, ctx->path, plen + 1);
 		 }
