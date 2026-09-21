@@ -1110,7 +1110,7 @@ static void gene_swoole_auto_cleanup_register(void) {
 /* }}} */
 
 /* {{{ gene_request_ctx */
-gene_request_context *gene_request_ctx(void) {
+gene_request_context *gene_request_ctx_slow(void) {
 	gene_request_context *ctx;
 	zend_long cid;
 	int have_ctx_lookup = 0; /* v5.5.8: set when second-chance already did the hash probe */

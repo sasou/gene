@@ -532,7 +532,16 @@ ZEND_END_MODULE_GLOBALS (gene)
  
  extern ZEND_DECLARE_MODULE_GLOBALS (gene);
  
-gene_request_context *gene_request_ctx(void);
+/* [GENE_PERF:2026-09-21 V3-5] FPM fast path inlined: under runtime_type<2 the
+ * whole call folds into one globals read (gene_globals.default_ctx) with no
+ * function-call overhead; the Swoole/coroutine machinery stays in gene.c. */
+gene_request_context *gene_request_ctx_slow(void);
+static zend_always_inline gene_request_context *gene_request_ctx(void) {
+	if (EXPECTED(GENE_G(runtime_type) < 2)) {
+		return &GENE_G(default_ctx);
+	}
+	return gene_request_ctx_slow();
+}
 /* [GENE_FIX:2026-08-07-5 N2] Per-request/per-coroutine stop latch accessors
  * (the flag lives in gene_request_context, see its declaration above). */
 static zend_always_inline zend_bool gene_app_stopped(void) {
