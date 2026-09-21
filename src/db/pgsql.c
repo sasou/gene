@@ -36,12 +36,16 @@
 
 zend_class_entry * gene_db_pgsql_ce;
 
+/* [GENE_PERF:2026-09-21 V3-3.2] Declared-property slot offsets, resolved once in
+ * MINIT and indexed by gene_db_prop_id. */
+static uint32_t gene_db_pgsql_prop[GENE_DB_PROP_N];
+
 /* [GENE_PERF:2026-04-26] See mysql.c for rationale: strpprintf returns a
  * zend_string* directly; zend_update_property_str only addrefs. Saves the
  * extra strdup that the spprintf+update_property_string pattern incurred. */
 #define GENE_DB_PGSQL_SET_PROP(KEY, ...) do { \
     zend_string *_gene_db_s_ = strpprintf(0, __VA_ARGS__); \
-    zend_update_property_str(gene_db_pgsql_ce, gene_strip_obj(self), ZEND_STRL(KEY), _gene_db_s_); \
+    gene_db_prop_set_str(gene_strip_obj(self), gene_db_pgsql_prop[KEY], _gene_db_s_); \
     zend_string_release(_gene_db_s_); \
 } while (0)
 
@@ -155,19 +159,19 @@ ZEND_END_ARG_INFO()
 
 void pgsql_reset_sql_params(zval *self)
 {
-	zend_update_property_null(gene_db_pgsql_ce, gene_strip_obj(self), ZEND_STRL(GENE_DB_PGSQL_SQL));
-	zend_update_property_null(gene_db_pgsql_ce, gene_strip_obj(self), ZEND_STRL(GENE_DB_PGSQL_JOIN));
-	zend_update_property_null(gene_db_pgsql_ce, gene_strip_obj(self), ZEND_STRL(GENE_DB_PGSQL_WHERE));
-	zend_update_property_null(gene_db_pgsql_ce, gene_strip_obj(self), ZEND_STRL(GENE_DB_PGSQL_GROUP));
-	zend_update_property_null(gene_db_pgsql_ce, gene_strip_obj(self), ZEND_STRL(GENE_DB_PGSQL_HAVING));
-	zend_update_property_null(gene_db_pgsql_ce, gene_strip_obj(self), ZEND_STRL(GENE_DB_PGSQL_UNION));
-	zend_update_property_null(gene_db_pgsql_ce, gene_strip_obj(self), ZEND_STRL(GENE_DB_PGSQL_ORDER));
-	zend_update_property_null(gene_db_pgsql_ce, gene_strip_obj(self), ZEND_STRL(GENE_DB_PGSQL_LIMIT));
+	gene_db_prop_set_null(gene_strip_obj(self), gene_db_pgsql_prop[GENE_DB_PROP_SQL]);
+	gene_db_prop_set_null(gene_strip_obj(self), gene_db_pgsql_prop[GENE_DB_PROP_JOIN]);
+	gene_db_prop_set_null(gene_strip_obj(self), gene_db_pgsql_prop[GENE_DB_PROP_WHERE]);
+	gene_db_prop_set_null(gene_strip_obj(self), gene_db_pgsql_prop[GENE_DB_PROP_GROUP]);
+	gene_db_prop_set_null(gene_strip_obj(self), gene_db_pgsql_prop[GENE_DB_PROP_HAVING]);
+	gene_db_prop_set_null(gene_strip_obj(self), gene_db_pgsql_prop[GENE_DB_PROP_UNION]);
+	gene_db_prop_set_null(gene_strip_obj(self), gene_db_pgsql_prop[GENE_DB_PROP_ORDER]);
+	gene_db_prop_set_null(gene_strip_obj(self), gene_db_pgsql_prop[GENE_DB_PROP_LIMIT]);
 	/* [GENE_FEATURE:2026-08-18 3.4] M8: the LOCK fragment must be cleared with
 	 * every other SQL part, or it leaks into the next statement built on this
 	 * handle (same-request residue). */
-	zend_update_property_null(gene_db_pgsql_ce, gene_strip_obj(self), ZEND_STRL(GENE_DB_PGSQL_LOCK));
-    zend_update_property_null(gene_db_pgsql_ce, gene_strip_obj(self), ZEND_STRL(GENE_DB_PGSQL_DATA));
+	gene_db_prop_set_null(gene_strip_obj(self), gene_db_pgsql_prop[GENE_DB_PROP_LOCK]);
+    gene_db_prop_set_null(gene_strip_obj(self), gene_db_pgsql_prop[GENE_DB_PROP_DATA]);
 }
 
 void pgsqlSaveHistory(smart_str *sql, zval *param, uint64_t *start, uint64_t *end, zend_long *mem_start, zend_long *mem_end) {
@@ -218,7 +222,7 @@ void pgsqlSaveHistory(smart_str *sql, zval *param, uint64_t *start, uint64_t *en
 
 void pgsql_init_where(zval *self, smart_str *where_str) {
 	zval *pdo_where = NULL;
-	pdo_where = zend_read_property(gene_db_pgsql_ce, gene_strip_obj(self), ZEND_STRL(GENE_DB_PGSQL_WHERE), 1, NULL);
+	pdo_where = gene_db_prop_get(gene_strip_obj(self), gene_db_pgsql_prop[GENE_DB_PROP_WHERE]);
 	if (pdo_where) {
 		if (Z_TYPE_P(pdo_where) == IS_STRING) {
 			smart_str_appends(where_str, Z_STRVAL_P(pdo_where));
@@ -233,7 +237,7 @@ bool pgsqlInitPdo (zval * self, zval *config) {
 	zval pdo_object, option;
 
 	if (config == NULL) {
-		config =  zend_read_property(gene_db_pgsql_ce, gene_strip_obj(self), ZEND_STRL(GENE_DB_PGSQL_CONFIG), 1, NULL);
+		config =  gene_db_prop_get(gene_strip_obj(self), gene_db_pgsql_prop[GENE_DB_PROP_CONFIG]);
 	}
 
 	/* Pool mode: in Swoole coroutine mode, if config has 'pool' key,
@@ -295,7 +299,7 @@ bool pgsqlInitPdo (zval * self, zval *config) {
 		zval_ptr_dtor(&pdo_object);
 		return -1;
 	}
-    zend_update_property(gene_db_pgsql_ce, gene_strip_obj(self), ZEND_STRL(GENE_DB_PGSQL_PDO), &pdo_object);
+    gene_db_prop_set(gene_strip_obj(self), gene_db_pgsql_prop[GENE_DB_PROP_PDO], &pdo_object);
     zval_ptr_dtor(&pdo_object);
 	return 0;
 }
@@ -308,16 +312,16 @@ bool gene_pgsql_pdo_execute (zval *self, zval *statement)
 	uint64_t db_start = 0, db_end = 0;
 	zend_long db_pgsql_memory_start = 0, db_pgsql_memory_end = 0;
 
-	pdo_object = zend_read_property(gene_db_pgsql_ce, gene_strip_obj(self), ZEND_STRL(GENE_DB_PGSQL_PDO), 1, NULL);
-	pdo_sql = zend_read_property(gene_db_pgsql_ce, gene_strip_obj(self), ZEND_STRL(GENE_DB_PGSQL_SQL), 1, NULL);
-	pdo_join = zend_read_property(gene_db_pgsql_ce, gene_strip_obj(self), ZEND_STRL(GENE_DB_PGSQL_JOIN), 1, NULL);
-	pdo_where = zend_read_property(gene_db_pgsql_ce, gene_strip_obj(self), ZEND_STRL(GENE_DB_PGSQL_WHERE), 1, NULL);
-	pdo_group = zend_read_property(gene_db_pgsql_ce, gene_strip_obj(self), ZEND_STRL(GENE_DB_PGSQL_GROUP), 1, NULL);
-	pdo_having = zend_read_property(gene_db_pgsql_ce, gene_strip_obj(self), ZEND_STRL(GENE_DB_PGSQL_HAVING), 1, NULL);
-	pdo_union = zend_read_property(gene_db_pgsql_ce, gene_strip_obj(self), ZEND_STRL(GENE_DB_PGSQL_UNION), 1, NULL);
-	pdo_order = zend_read_property(gene_db_pgsql_ce, gene_strip_obj(self), ZEND_STRL(GENE_DB_PGSQL_ORDER), 1, NULL);
-	pdo_limit = zend_read_property(gene_db_pgsql_ce, gene_strip_obj(self), ZEND_STRL(GENE_DB_PGSQL_LIMIT), 1, NULL);
-	pdo_lock = zend_read_property(gene_db_pgsql_ce, gene_strip_obj(self), ZEND_STRL(GENE_DB_PGSQL_LOCK), 1, NULL);
+	pdo_object = gene_db_prop_get(gene_strip_obj(self), gene_db_pgsql_prop[GENE_DB_PROP_PDO]);
+	pdo_sql = gene_db_prop_get(gene_strip_obj(self), gene_db_pgsql_prop[GENE_DB_PROP_SQL]);
+	pdo_join = gene_db_prop_get(gene_strip_obj(self), gene_db_pgsql_prop[GENE_DB_PROP_JOIN]);
+	pdo_where = gene_db_prop_get(gene_strip_obj(self), gene_db_pgsql_prop[GENE_DB_PROP_WHERE]);
+	pdo_group = gene_db_prop_get(gene_strip_obj(self), gene_db_pgsql_prop[GENE_DB_PROP_GROUP]);
+	pdo_having = gene_db_prop_get(gene_strip_obj(self), gene_db_pgsql_prop[GENE_DB_PROP_HAVING]);
+	pdo_union = gene_db_prop_get(gene_strip_obj(self), gene_db_pgsql_prop[GENE_DB_PROP_UNION]);
+	pdo_order = gene_db_prop_get(gene_strip_obj(self), gene_db_pgsql_prop[GENE_DB_PROP_ORDER]);
+	pdo_limit = gene_db_prop_get(gene_strip_obj(self), gene_db_pgsql_prop[GENE_DB_PROP_LIMIT]);
+	pdo_lock = gene_db_prop_get(gene_strip_obj(self), gene_db_pgsql_prop[GENE_DB_PROP_LOCK]);
 
 	/* [GENE_FEATURE:2026-08-06 F0-2] Assembly order: base SQL + JOIN + WHERE
 	 * + GROUP + HAVING + UNION + ORDER + LIMIT. JOIN binds to the leading
@@ -359,7 +363,7 @@ bool gene_pgsql_pdo_execute (zval *self, zval *statement)
 
 	gene_pdo_prepare(pdo_object, ZSTR_VAL(sql.s), statement);
 	if (Z_TYPE_P(statement) == IS_OBJECT) {
-		params = zend_read_property(gene_db_pgsql_ce, gene_strip_obj(self), ZEND_STRL(GENE_DB_PGSQL_DATA), 1, NULL);
+		params = gene_db_prop_get(gene_strip_obj(self), gene_db_pgsql_prop[GENE_DB_PROP_DATA]);
 		//execute
 		ZVAL_NULL(&retval);
 		gene_pdo_statement_execute(statement, params, &retval);
@@ -370,7 +374,7 @@ bool gene_pgsql_pdo_execute (zval *self, zval *statement)
     			/* If using pool, notify that the broken connection is lost */
     			gene_pool_notify_remove(gene_db_pgsql_ce, self, ZEND_STRL(GENE_DB_PGSQL_POOL));
     			pgsqlInitPdo (self, NULL);
-    			pdo_object = zend_read_property(gene_db_pgsql_ce, gene_strip_obj(self), ZEND_STRL(GENE_DB_PGSQL_PDO), 1, NULL);
+    			pdo_object = gene_db_prop_get(gene_strip_obj(self), gene_db_pgsql_prop[GENE_DB_PROP_PDO]);
     			/* Free old PDOStatement before re-prepare to prevent leak */
     			zval_ptr_dtor(statement);
     			gene_pdo_prepare(pdo_object, ZSTR_VAL(sql.s), statement);
@@ -413,7 +417,7 @@ PHP_METHOD(gene_db_pgsql, __construct)
     }
 
     if (config) {
-    	zend_update_property(gene_db_pgsql_ce, gene_strip_obj(self), ZEND_STRL(GENE_DB_PGSQL_CONFIG), config);
+    	gene_db_prop_set(gene_strip_obj(self), gene_db_pgsql_prop[GENE_DB_PROP_CONFIG], config);
     	pgsqlInitPdo (self, config);
     }
     RETURN_ZVAL(self, 1, 0);
@@ -427,7 +431,7 @@ PHP_METHOD(gene_db_pgsql, __construct)
 PHP_METHOD(gene_db_pgsql, getPdo)
 {
 	zval *self = getThis();
-	zval *pdo_object = zend_read_property(gene_db_pgsql_ce, gene_strip_obj(self), ZEND_STRL(GENE_DB_PGSQL_PDO), 1, NULL);
+	zval *pdo_object = gene_db_prop_get(gene_strip_obj(self), gene_db_pgsql_prop[GENE_DB_PROP_PDO]);
 	RETURN_ZVAL(pdo_object, 1, 0);
 }
 /* }}} */
@@ -451,7 +455,7 @@ PHP_METHOD(gene_db_pgsql, select)
     		mssql_array_to_string(fields, &select, '"', '"');
     		{
     			char *qt = gene_quote_table(table, '"', '"');
-    			GENE_DB_PGSQL_SET_PROP(GENE_DB_PGSQL_SQL, "SELECT %s FROM %s", select, qt);
+    			GENE_DB_PGSQL_SET_PROP(GENE_DB_PROP_SQL, "SELECT %s FROM %s", select, qt);
     			efree(qt);
     		}
             efree(select);
@@ -460,7 +464,7 @@ PHP_METHOD(gene_db_pgsql, select)
     		{
     			char *qt = gene_quote_table(table, '"', '"');
     			char *qf = gene_quote_columns(Z_STRVAL_P(fields), '"', '"');
-    			GENE_DB_PGSQL_SET_PROP(GENE_DB_PGSQL_SQL, "SELECT %s FROM %s", qf, qt);
+    			GENE_DB_PGSQL_SET_PROP(GENE_DB_PROP_SQL, "SELECT %s FROM %s", qf, qt);
     			efree(qf);
     			efree(qt);
     		}
@@ -472,7 +476,7 @@ PHP_METHOD(gene_db_pgsql, select)
 
     } else {
     	char *qt = gene_quote_table(table, '"', '"');
-    	GENE_DB_PGSQL_SET_PROP(GENE_DB_PGSQL_SQL, "SELECT * FROM %s", qt);
+    	GENE_DB_PGSQL_SET_PROP(GENE_DB_PROP_SQL, "SELECT * FROM %s", qt);
     	efree(qt);
     }
 	RETURN_ZVAL(self, 1, 0);
@@ -494,10 +498,10 @@ PHP_METHOD(gene_db_pgsql, count)
     	char *qt = gene_quote_table(ZSTR_VAL(table), '"', '"');
     	if (fields) {
     		char *qf = gene_quote_columns(ZSTR_VAL(fields), '"', '"');
-    		GENE_DB_PGSQL_SET_PROP(GENE_DB_PGSQL_SQL, "SELECT count(%s) AS count FROM %s", qf, qt);
+    		GENE_DB_PGSQL_SET_PROP(GENE_DB_PROP_SQL, "SELECT count(%s) AS count FROM %s", qf, qt);
     		efree(qf);
     	} else {
-    		GENE_DB_PGSQL_SET_PROP(GENE_DB_PGSQL_SQL, "SELECT count(1) AS count FROM %s", qt);
+    		GENE_DB_PGSQL_SET_PROP(GENE_DB_PROP_SQL, "SELECT count(1) AS count FROM %s", qt);
     	}
     	efree(qt);
     }
@@ -525,7 +529,7 @@ PHP_METHOD(gene_db_pgsql, insert)
 	smart_str_appends(&value_str, "");
     if (fields && Z_TYPE_P(fields) == IS_ARRAY) {
     	gene_insert_field_value (fields, &field_str, &value_str, &field_value, '"', '"');
-    	zend_update_property(gene_db_pgsql_ce, gene_strip_obj(self), ZEND_STRL(GENE_DB_PGSQL_DATA), &field_value);
+    	gene_db_prop_set(gene_strip_obj(self), gene_db_pgsql_prop[GENE_DB_PROP_DATA], &field_value);
     	zval_ptr_dtor(&field_value);
     } else {
     	php_error_docref(NULL, E_ERROR, "Data Parameter can only be array.");
@@ -534,7 +538,7 @@ PHP_METHOD(gene_db_pgsql, insert)
 	smart_str_0(&value_str);
     {
     	char *qt = gene_quote_table(table, '"', '"');
-    	GENE_DB_PGSQL_SET_PROP(GENE_DB_PGSQL_SQL, "INSERT INTO %s(%s) VALUES(%s)", qt, field_str.s->val, value_str.s->val);
+    	GENE_DB_PGSQL_SET_PROP(GENE_DB_PROP_SQL, "INSERT INTO %s(%s) VALUES(%s)", qt, field_str.s->val, value_str.s->val);
     	efree(qt);
     }
     smart_str_free(&field_str);
@@ -571,7 +575,7 @@ PHP_METHOD(gene_db_pgsql, batchInsert)
         		pre = 1;
         	}
         } ZEND_HASH_FOREACH_END();
-    	zend_update_property(gene_db_pgsql_ce, gene_strip_obj(self), ZEND_STRL(GENE_DB_PGSQL_DATA), &field_value);
+    	gene_db_prop_set(gene_strip_obj(self), gene_db_pgsql_prop[GENE_DB_PROP_DATA], &field_value);
     	zval_ptr_dtor(&field_value);
     } else {
     	php_error_docref(NULL, E_ERROR, "Data Parameter can only be array.");
@@ -580,7 +584,7 @@ PHP_METHOD(gene_db_pgsql, batchInsert)
 	smart_str_0(&value_str);
     {
     	char *qt = gene_quote_table(table, '"', '"');
-    	GENE_DB_PGSQL_SET_PROP(GENE_DB_PGSQL_SQL, "INSERT INTO %s(%s) VALUES %s", qt, field_str.s->val, value_str.s->val);
+    	GENE_DB_PGSQL_SET_PROP(GENE_DB_PROP_SQL, "INSERT INTO %s(%s) VALUES %s", qt, field_str.s->val, value_str.s->val);
     	efree(qt);
     }
     smart_str_free(&field_str);
@@ -607,7 +611,7 @@ PHP_METHOD(gene_db_pgsql, update)
 	smart_str_appends(&field_str, "");
     if (fields && Z_TYPE_P(fields) == IS_ARRAY) {
     	gene_update_field_value (fields, &field_str, &field_value, '"', '"');
-    	zend_update_property(gene_db_pgsql_ce, gene_strip_obj(self), ZEND_STRL(GENE_DB_PGSQL_DATA), &field_value);
+    	gene_db_prop_set(gene_strip_obj(self), gene_db_pgsql_prop[GENE_DB_PROP_DATA], &field_value);
     	zval_ptr_dtor(&field_value);
     } else {
     	php_error_docref(NULL, E_ERROR, "Data Parameter can only be array.");
@@ -615,7 +619,7 @@ PHP_METHOD(gene_db_pgsql, update)
 	smart_str_0(&field_str);
     {
     	char *qt = gene_quote_table(table, '"', '"');
-    	GENE_DB_PGSQL_SET_PROP(GENE_DB_PGSQL_SQL, "UPDATE %s SET %s", qt, field_str.s->val);
+    	GENE_DB_PGSQL_SET_PROP(GENE_DB_PROP_SQL, "UPDATE %s SET %s", qt, field_str.s->val);
     	efree(qt);
     }
     smart_str_free(&field_str);
@@ -638,7 +642,7 @@ PHP_METHOD(gene_db_pgsql, delete)
 	pgsql_reset_sql_params(self);
     {
     	char *qt = gene_quote_table(table, '"', '"');
-    	GENE_DB_PGSQL_SET_PROP(GENE_DB_PGSQL_SQL, "DELETE FROM %s", qt);
+    	GENE_DB_PGSQL_SET_PROP(GENE_DB_PROP_SQL, "DELETE FROM %s", qt);
     	efree(qt);
     }
 	RETURN_ZVAL(self, 1, 0);
@@ -663,13 +667,13 @@ PHP_METHOD(gene_db_pgsql, where)
 
 	switch(Z_TYPE_P(where)) {
 	case IS_ARRAY:
-        data = zend_read_property(gene_db_pgsql_ce, gene_strip_obj(self), ZEND_STRL(GENE_DB_PGSQL_DATA), 1, NULL);
+        data = gene_db_prop_get(gene_strip_obj(self), gene_db_pgsql_prop[GENE_DB_PROP_DATA]);
         if (Z_TYPE_P(data) == IS_ARRAY) {
         	makeWhere(self, &where_str, where, data);
         } else {
             array_init(&params);
             makeWhere(self, &where_str, where, &params);
-            zend_update_property(gene_db_pgsql_ce, gene_strip_obj(self), ZEND_STRL(GENE_DB_PGSQL_DATA), &params);
+            gene_db_prop_set(gene_strip_obj(self), gene_db_pgsql_prop[GENE_DB_PROP_DATA], &params);
             zval_ptr_dtor(&params);
         }
 		break;
@@ -681,7 +685,7 @@ PHP_METHOD(gene_db_pgsql, where)
 			smart_str_appends(&where_str, Z_STRVAL_P(where));
 		}
 	    if (fields) {
-	    	data = zend_read_property(gene_db_pgsql_ce, gene_strip_obj(self), ZEND_STRL(GENE_DB_PGSQL_DATA), 1, NULL);
+	    	data = gene_db_prop_get(gene_strip_obj(self), gene_db_pgsql_prop[GENE_DB_PROP_DATA]);
 	    	switch(Z_TYPE_P(fields)) {
 	    	case IS_ARRAY:
 	    		if (Z_TYPE_P(data) == IS_ARRAY) {
@@ -691,7 +695,7 @@ PHP_METHOD(gene_db_pgsql, where)
 	    			} ZEND_HASH_FOREACH_END();
 	    		} else {
 	    			gene_memory_zval_local(&params, fields);
-	    			zend_update_property(gene_db_pgsql_ce, gene_strip_obj(self), ZEND_STRL(GENE_DB_PGSQL_DATA), &params);
+	    			gene_db_prop_set(gene_strip_obj(self), gene_db_pgsql_prop[GENE_DB_PROP_DATA], &params);
 	    			zval_ptr_dtor(&params);
 	    		}
 	    		break;
@@ -708,7 +712,7 @@ PHP_METHOD(gene_db_pgsql, where)
 	            	array_init(&params);
 	            	add_next_index_zval(&params, fields);
 	            	Z_TRY_ADDREF_P(fields);
-	            	zend_update_property(gene_db_pgsql_ce, gene_strip_obj(self), ZEND_STRL(GENE_DB_PGSQL_DATA), &params);
+	            	gene_db_prop_set(gene_strip_obj(self), gene_db_pgsql_prop[GENE_DB_PROP_DATA], &params);
 	            	zval_ptr_dtor(&params);
 	    		}
 	    		break;
@@ -724,7 +728,7 @@ PHP_METHOD(gene_db_pgsql, where)
 	}
 
     smart_str_0(&where_str);
-    zend_update_property_str(gene_db_pgsql_ce, gene_strip_obj(self), ZEND_STRL(GENE_DB_PGSQL_WHERE), where_str.s);
+    gene_db_prop_set_str(gene_strip_obj(self), gene_db_pgsql_prop[GENE_DB_PROP_WHERE], where_str.s);
     smart_str_free(&where_str);
 	RETURN_ZVAL(self, 1, 0);
 }
@@ -754,7 +758,7 @@ PHP_METHOD(gene_db_pgsql, in)
 		in_tmp = estrndup(in, in_len);
 	}
     if (fields) {
-    	data = zend_read_property(gene_db_pgsql_ce, gene_strip_obj(self), ZEND_STRL(GENE_DB_PGSQL_DATA), 1, NULL);
+    	data = gene_db_prop_get(gene_strip_obj(self), gene_db_pgsql_prop[GENE_DB_PROP_DATA]);
     	switch(Z_TYPE_P(fields)) {
     	case IS_ARRAY:
     		ReplaceStr(in_tmp, in_len + 1, "in(?)", "$");
@@ -782,7 +786,7 @@ PHP_METHOD(gene_db_pgsql, in)
     					pre = 1;
     				}
     			} ZEND_HASH_FOREACH_END();
-    			zend_update_property(gene_db_pgsql_ce, gene_strip_obj(self), ZEND_STRL(GENE_DB_PGSQL_DATA), fields);
+    			gene_db_prop_set(gene_strip_obj(self), gene_db_pgsql_prop[GENE_DB_PROP_DATA], fields);
     		}
     		smart_str_appends(&value_str, ")");
     		smart_str_0(&value_str);
@@ -806,7 +810,7 @@ PHP_METHOD(gene_db_pgsql, in)
             	array_init(&params);
             	add_next_index_zval(&params, fields);
             	Z_TRY_ADDREF_P(fields);
-            	zend_update_property(gene_db_pgsql_ce, gene_strip_obj(self), ZEND_STRL(GENE_DB_PGSQL_DATA), &params);
+            	gene_db_prop_set(gene_strip_obj(self), gene_db_pgsql_prop[GENE_DB_PROP_DATA], &params);
             	zval_ptr_dtor(&params);
     		}
     		break;
@@ -820,7 +824,7 @@ PHP_METHOD(gene_db_pgsql, in)
     	efree(in_tmp);
     }
     smart_str_0(&where_str);
-    zend_update_property_str(gene_db_pgsql_ce, gene_strip_obj(self), ZEND_STRL(GENE_DB_PGSQL_WHERE), where_str.s);
+    gene_db_prop_set_str(gene_strip_obj(self), gene_db_pgsql_prop[GENE_DB_PROP_WHERE], where_str.s);
     smart_str_free(&where_str);
 	RETURN_ZVAL(self, 1, 0);
 }
@@ -840,10 +844,10 @@ PHP_METHOD(gene_db_pgsql, sql)
 	}
 	pgsql_reset_sql_params(self);
     if (sql_len) {
-        zend_update_property_stringl(gene_db_pgsql_ce, gene_strip_obj(self), ZEND_STRL(GENE_DB_PGSQL_SQL), sql, sql_len);
+        gene_db_prop_set_stringl(gene_strip_obj(self), gene_db_pgsql_prop[GENE_DB_PROP_SQL], sql, sql_len);
     }
     if (fields) {
-    	data = zend_read_property(gene_db_pgsql_ce, gene_strip_obj(self), ZEND_STRL(GENE_DB_PGSQL_DATA), 1, NULL);
+    	data = gene_db_prop_get(gene_strip_obj(self), gene_db_pgsql_prop[GENE_DB_PROP_DATA]);
     	switch(Z_TYPE_P(fields)) {
     	case IS_ARRAY:
     		if (Z_TYPE_P(data) == IS_ARRAY) {
@@ -853,7 +857,7 @@ PHP_METHOD(gene_db_pgsql, sql)
     			} ZEND_HASH_FOREACH_END();
     		} else {
     			gene_memory_zval_local(&params, fields);
-    			zend_update_property(gene_db_pgsql_ce, gene_strip_obj(self), ZEND_STRL(GENE_DB_PGSQL_DATA), &params);
+    			gene_db_prop_set(gene_strip_obj(self), gene_db_pgsql_prop[GENE_DB_PROP_DATA], &params);
     			zval_ptr_dtor(&params);
     		}
     		break;
@@ -870,7 +874,7 @@ PHP_METHOD(gene_db_pgsql, sql)
             	array_init(&params);
             	add_next_index_zval(&params, fields);
             	Z_TRY_ADDREF_P(fields);
-            	zend_update_property(gene_db_pgsql_ce, gene_strip_obj(self), ZEND_STRL(GENE_DB_PGSQL_DATA), &params);
+            	gene_db_prop_set(gene_strip_obj(self), gene_db_pgsql_prop[GENE_DB_PROP_DATA], &params);
             	zval_ptr_dtor(&params);
     		}
     		break;
@@ -1119,14 +1123,14 @@ PHP_METHOD(gene_db_pgsql, union)
 			return;
 		}
 		{
-			zval *sub_sql = zend_read_property(gene_db_pgsql_ce, gene_strip_obj(query), ZEND_STRL(GENE_DB_PGSQL_SQL), 1, NULL);
-			zval *sub_join = zend_read_property(gene_db_pgsql_ce, gene_strip_obj(query), ZEND_STRL(GENE_DB_PGSQL_JOIN), 1, NULL);
-			zval *sub_where = zend_read_property(gene_db_pgsql_ce, gene_strip_obj(query), ZEND_STRL(GENE_DB_PGSQL_WHERE), 1, NULL);
-			zval *sub_group = zend_read_property(gene_db_pgsql_ce, gene_strip_obj(query), ZEND_STRL(GENE_DB_PGSQL_GROUP), 1, NULL);
-			zval *sub_having = zend_read_property(gene_db_pgsql_ce, gene_strip_obj(query), ZEND_STRL(GENE_DB_PGSQL_HAVING), 1, NULL);
-			zval *sub_order = zend_read_property(gene_db_pgsql_ce, gene_strip_obj(query), ZEND_STRL(GENE_DB_PGSQL_ORDER), 1, NULL);
-			zval *sub_limit = zend_read_property(gene_db_pgsql_ce, gene_strip_obj(query), ZEND_STRL(GENE_DB_PGSQL_LIMIT), 1, NULL);
-			zval *sub_data = zend_read_property(gene_db_pgsql_ce, gene_strip_obj(query), ZEND_STRL(GENE_DB_PGSQL_DATA), 1, NULL);
+			zval *sub_sql = gene_db_prop_get(gene_strip_obj(query), gene_db_pgsql_prop[GENE_DB_PROP_SQL]);
+			zval *sub_join = gene_db_prop_get(gene_strip_obj(query), gene_db_pgsql_prop[GENE_DB_PROP_JOIN]);
+			zval *sub_where = gene_db_prop_get(gene_strip_obj(query), gene_db_pgsql_prop[GENE_DB_PROP_WHERE]);
+			zval *sub_group = gene_db_prop_get(gene_strip_obj(query), gene_db_pgsql_prop[GENE_DB_PROP_GROUP]);
+			zval *sub_having = gene_db_prop_get(gene_strip_obj(query), gene_db_pgsql_prop[GENE_DB_PROP_HAVING]);
+			zval *sub_order = gene_db_prop_get(gene_strip_obj(query), gene_db_pgsql_prop[GENE_DB_PROP_ORDER]);
+			zval *sub_limit = gene_db_prop_get(gene_strip_obj(query), gene_db_pgsql_prop[GENE_DB_PROP_LIMIT]);
+			zval *sub_data = gene_db_prop_get(gene_strip_obj(query), gene_db_pgsql_prop[GENE_DB_PROP_DATA]);
 			smart_str_appendc(&frag, '(');
 			if (sub_sql && Z_TYPE_P(sub_sql) == IS_STRING) smart_str_appends(&frag, Z_STRVAL_P(sub_sql));
 			if (sub_join && Z_TYPE_P(sub_join) == IS_STRING) smart_str_appends(&frag, Z_STRVAL_P(sub_join));
@@ -1137,7 +1141,7 @@ PHP_METHOD(gene_db_pgsql, union)
 			if (sub_limit && Z_TYPE_P(sub_limit) == IS_STRING) smart_str_appends(&frag, Z_STRVAL_P(sub_limit));
 			smart_str_appendc(&frag, ')');
 			if (sub_data && Z_TYPE_P(sub_data) == IS_ARRAY && zend_hash_num_elements(Z_ARRVAL_P(sub_data)) > 0) {
-				zval *data = zend_read_property(gene_db_pgsql_ce, gene_strip_obj(self), ZEND_STRL(GENE_DB_PGSQL_DATA), 1, NULL);
+				zval *data = gene_db_prop_get(gene_strip_obj(self), gene_db_pgsql_prop[GENE_DB_PROP_DATA]);
 				zval *value;
 				if (Z_TYPE_P(data) == IS_ARRAY) {
 					SEPARATE_ARRAY(data);
@@ -1148,7 +1152,7 @@ PHP_METHOD(gene_db_pgsql, union)
 				} else {
 					zval params;
 					gene_memory_zval_local(&params, sub_data);
-					zend_update_property(gene_db_pgsql_ce, gene_strip_obj(self), ZEND_STRL(GENE_DB_PGSQL_DATA), &params);
+					gene_db_prop_set(gene_strip_obj(self), gene_db_pgsql_prop[GENE_DB_PROP_DATA], &params);
 					zval_ptr_dtor(&params);
 				}
 			}
@@ -1178,7 +1182,7 @@ PHP_METHOD(gene_db_pgsql, group)
 		return;
 	}
 	if (group_len) {
-		GENE_DB_PGSQL_SET_PROP(GENE_DB_PGSQL_GROUP, " GROUP BY %s", group);
+		GENE_DB_PGSQL_SET_PROP(GENE_DB_PROP_GROUP, " GROUP BY %s", group);
 	}
 	RETURN_ZVAL(self, 1, 0);
 }
@@ -1197,7 +1201,7 @@ PHP_METHOD(gene_db_pgsql, having)
 		return;
 	}
 	if (having_len) {
-		GENE_DB_PGSQL_SET_PROP(GENE_DB_PGSQL_HAVING, " HAVING %s", having);
+		GENE_DB_PGSQL_SET_PROP(GENE_DB_PROP_HAVING, " HAVING %s", having);
 	}
 	RETURN_ZVAL(self, 1, 0);
 }
@@ -1217,7 +1221,7 @@ PHP_METHOD(gene_db_pgsql, order)
 	}
 	if (order_len) {
 		char *qo = gene_quote_order(order, '"', '"');
-		GENE_DB_PGSQL_SET_PROP(GENE_DB_PGSQL_ORDER, " ORDER BY %s", qo);
+		GENE_DB_PGSQL_SET_PROP(GENE_DB_PROP_ORDER, " ORDER BY %s", qo);
 		efree(qo);
 	}
 	RETURN_ZVAL(self, 1, 0);
@@ -1236,9 +1240,9 @@ PHP_METHOD(gene_db_pgsql, limit)
 		return;
 	}
 	if (ZEND_NUM_ARGS() > 1) {
-		GENE_DB_PGSQL_SET_PROP(GENE_DB_PGSQL_LIMIT, " limit " ZEND_LONG_FMT " offset " ZEND_LONG_FMT, num, offset);
+		GENE_DB_PGSQL_SET_PROP(GENE_DB_PROP_LIMIT, " limit " ZEND_LONG_FMT " offset " ZEND_LONG_FMT, num, offset);
 	} else {
-		GENE_DB_PGSQL_SET_PROP(GENE_DB_PGSQL_LIMIT, " limit " ZEND_LONG_FMT, num);
+		GENE_DB_PGSQL_SET_PROP(GENE_DB_PROP_LIMIT, " limit " ZEND_LONG_FMT, num);
 	}
 	RETURN_ZVAL(self, 1, 0);
 }
@@ -1250,7 +1254,7 @@ PHP_METHOD(gene_db_pgsql, limit)
  * via inTransaction() (plan: E_NOTICE, not an exception). */
 static void gene_db_pgsql_set_lock(zval *self, const char *frag)
 {
-	zval *pdo_object = zend_read_property(gene_db_pgsql_ce, gene_strip_obj(self), ZEND_STRL(GENE_DB_PGSQL_PDO), 1, NULL);
+	zval *pdo_object = gene_db_prop_get(gene_strip_obj(self), gene_db_pgsql_prop[GENE_DB_PROP_PDO]);
 	if (pdo_object && Z_TYPE_P(pdo_object) == IS_OBJECT) {
 		zval r;
 		gene_pdo_in_transaction(pdo_object, &r);
@@ -1263,7 +1267,7 @@ static void gene_db_pgsql_set_lock(zval *self, const char *frag)
 			zval_ptr_dtor(&r);
 		}
 	}
-	zend_update_property_string(gene_db_pgsql_ce, gene_strip_obj(self), ZEND_STRL(GENE_DB_PGSQL_LOCK), frag);
+	gene_db_prop_set_string(gene_strip_obj(self), gene_db_pgsql_prop[GENE_DB_PROP_LOCK], frag);
 }
 
 /*
@@ -1369,7 +1373,7 @@ PHP_METHOD(gene_db_pgsql, lastId)
 {
 	zval *self = getThis(), *pdo_object = NULL;
 	zval statement;
-	pdo_object = zend_read_property(gene_db_pgsql_ce, gene_strip_obj(self), ZEND_STRL(GENE_DB_PGSQL_PDO), 1, NULL);
+	pdo_object = gene_db_prop_get(gene_strip_obj(self), gene_db_pgsql_prop[GENE_DB_PROP_PDO]);
 	if (gene_pgsql_pdo_execute(self, &statement)) {
 		gene_pdo_last_insert_id(pdo_object, NULL, return_value);
 		zval_ptr_dtor(&statement);
@@ -1409,7 +1413,7 @@ PHP_METHOD(gene_db_pgsql, quote)
 	if (zend_parse_parameters(ZEND_NUM_ARGS(), "S|l", &str, &param_type) == FAILURE) {
 		return;
 	}
-	pdo_object = zend_read_property(gene_db_pgsql_ce, gene_strip_obj(self), ZEND_STRL(GENE_DB_PGSQL_PDO), 1, NULL);
+	pdo_object = gene_db_prop_get(gene_strip_obj(self), gene_db_pgsql_prop[GENE_DB_PROP_PDO]);
 	if (!pdo_object || Z_TYPE_P(pdo_object) != IS_OBJECT) {
 		RETURN_FALSE;
 	}
@@ -1424,17 +1428,17 @@ PHP_METHOD(gene_db_pgsql, print)
 {
 	zval *self = getThis(),*pdo_object = NULL, *pdo_sql = NULL, *pdo_join = NULL, *pdo_where = NULL, *pdo_order = NULL,*pdo_group = NULL,*pdo_having = NULL, *pdo_union = NULL, *pdo_limit = NULL, *pdo_lock = NULL, *params = NULL;
 	smart_str sql = {0};
-	pdo_object = zend_read_property(gene_db_pgsql_ce, gene_strip_obj(self), ZEND_STRL(GENE_DB_PGSQL_PDO), 1, NULL);
-	pdo_sql = zend_read_property(gene_db_pgsql_ce, gene_strip_obj(self), ZEND_STRL(GENE_DB_PGSQL_SQL), 1, NULL);
-	pdo_join = zend_read_property(gene_db_pgsql_ce, gene_strip_obj(self), ZEND_STRL(GENE_DB_PGSQL_JOIN), 1, NULL);
-	pdo_where = zend_read_property(gene_db_pgsql_ce, gene_strip_obj(self), ZEND_STRL(GENE_DB_PGSQL_WHERE), 1, NULL);
-	pdo_group = zend_read_property(gene_db_pgsql_ce, gene_strip_obj(self), ZEND_STRL(GENE_DB_PGSQL_GROUP), 1, NULL);
-	pdo_having = zend_read_property(gene_db_pgsql_ce, gene_strip_obj(self), ZEND_STRL(GENE_DB_PGSQL_HAVING), 1, NULL);
-	pdo_union = zend_read_property(gene_db_pgsql_ce, gene_strip_obj(self), ZEND_STRL(GENE_DB_PGSQL_UNION), 1, NULL);
-	pdo_order = zend_read_property(gene_db_pgsql_ce, gene_strip_obj(self), ZEND_STRL(GENE_DB_PGSQL_ORDER), 1, NULL);
-	pdo_limit = zend_read_property(gene_db_pgsql_ce, gene_strip_obj(self), ZEND_STRL(GENE_DB_PGSQL_LIMIT), 1, NULL);
-	pdo_lock = zend_read_property(gene_db_pgsql_ce, gene_strip_obj(self), ZEND_STRL(GENE_DB_PGSQL_LOCK), 1, NULL);
-	params = zend_read_property(gene_db_pgsql_ce, gene_strip_obj(self), ZEND_STRL(GENE_DB_PGSQL_DATA), 1, NULL);
+	pdo_object = gene_db_prop_get(gene_strip_obj(self), gene_db_pgsql_prop[GENE_DB_PROP_PDO]);
+	pdo_sql = gene_db_prop_get(gene_strip_obj(self), gene_db_pgsql_prop[GENE_DB_PROP_SQL]);
+	pdo_join = gene_db_prop_get(gene_strip_obj(self), gene_db_pgsql_prop[GENE_DB_PROP_JOIN]);
+	pdo_where = gene_db_prop_get(gene_strip_obj(self), gene_db_pgsql_prop[GENE_DB_PROP_WHERE]);
+	pdo_group = gene_db_prop_get(gene_strip_obj(self), gene_db_pgsql_prop[GENE_DB_PROP_GROUP]);
+	pdo_having = gene_db_prop_get(gene_strip_obj(self), gene_db_pgsql_prop[GENE_DB_PROP_HAVING]);
+	pdo_union = gene_db_prop_get(gene_strip_obj(self), gene_db_pgsql_prop[GENE_DB_PROP_UNION]);
+	pdo_order = gene_db_prop_get(gene_strip_obj(self), gene_db_pgsql_prop[GENE_DB_PROP_ORDER]);
+	pdo_limit = gene_db_prop_get(gene_strip_obj(self), gene_db_pgsql_prop[GENE_DB_PROP_LIMIT]);
+	pdo_lock = gene_db_prop_get(gene_strip_obj(self), gene_db_pgsql_prop[GENE_DB_PROP_LOCK]);
+	params = gene_db_prop_get(gene_strip_obj(self), gene_db_pgsql_prop[GENE_DB_PROP_DATA]);
 
 	if (Z_TYPE_P(pdo_sql) == IS_STRING) {
 		smart_str_appends(&sql, Z_STRVAL_P(pdo_sql));
@@ -1484,7 +1488,7 @@ PHP_METHOD(gene_db_pgsql, print)
 PHP_METHOD(gene_db_pgsql, beginTransaction)
 {
 	zval *self = getThis(), *pdo_object = NULL;
-	pdo_object = zend_read_property(gene_db_pgsql_ce, gene_strip_obj(self), ZEND_STRL(GENE_DB_PGSQL_PDO), 1, NULL);
+	pdo_object = gene_db_prop_get(gene_strip_obj(self), gene_db_pgsql_prop[GENE_DB_PROP_PDO]);
 	gene_pdo_begin_transaction(pdo_object, return_value);
 }
 /* }}} */
@@ -1495,7 +1499,7 @@ PHP_METHOD(gene_db_pgsql, beginTransaction)
 PHP_METHOD(gene_db_pgsql, inTransaction)
 {
 	zval *self = getThis(), *pdo_object = NULL;
-	pdo_object = zend_read_property(gene_db_pgsql_ce, gene_strip_obj(self), ZEND_STRL(GENE_DB_PGSQL_PDO), 1, NULL);
+	pdo_object = gene_db_prop_get(gene_strip_obj(self), gene_db_pgsql_prop[GENE_DB_PROP_PDO]);
 	gene_pdo_in_transaction(pdo_object, return_value);
 }
 /* }}} */
@@ -1506,7 +1510,7 @@ PHP_METHOD(gene_db_pgsql, inTransaction)
 PHP_METHOD(gene_db_pgsql, rollBack)
 {
 	zval *self = getThis(), *pdo_object = NULL;
-	pdo_object = zend_read_property(gene_db_pgsql_ce, gene_strip_obj(self), ZEND_STRL(GENE_DB_PGSQL_PDO), 1, NULL);
+	pdo_object = gene_db_prop_get(gene_strip_obj(self), gene_db_pgsql_prop[GENE_DB_PROP_PDO]);
 	gene_pdo_rollback(pdo_object, return_value);
 }
 /* }}} */
@@ -1518,7 +1522,7 @@ PHP_METHOD(gene_db_pgsql, rollBack)
 PHP_METHOD(gene_db_pgsql, commit)
 {
 	zval *self = getThis(), *pdo_object = NULL;
-	pdo_object = zend_read_property(gene_db_pgsql_ce, gene_strip_obj(self), ZEND_STRL(GENE_DB_PGSQL_PDO), 1, NULL);
+	pdo_object = gene_db_prop_get(gene_strip_obj(self), gene_db_pgsql_prop[GENE_DB_PROP_PDO]);
 	gene_pdo_commit(pdo_object, return_value);
 }
 /* }}} */
@@ -1535,7 +1539,7 @@ PHP_METHOD(gene_db_pgsql, transaction)
 	if (zend_parse_parameters(ZEND_NUM_ARGS(), "f", &fci, &fcc) == FAILURE) {
 		return;
 	}
-	pdo_object = zend_read_property(gene_db_pgsql_ce, gene_strip_obj(self), ZEND_STRL(GENE_DB_PGSQL_PDO), 1, NULL);
+	pdo_object = gene_db_prop_get(gene_strip_obj(self), gene_db_pgsql_prop[GENE_DB_PROP_PDO]);
 	gene_pdo_run_transaction(pdo_object, &fci, &fcc, return_value);
 }
 /* }}} */
@@ -1557,14 +1561,14 @@ PHP_METHOD(gene_db_pgsql, release)
 PHP_METHOD(gene_db_pgsql, free)
 {
 	zval *self = getThis();
-	zval *pool = zend_read_property(gene_db_pgsql_ce, gene_strip_obj(self), ZEND_STRL(GENE_DB_PGSQL_POOL), 1, NULL);
+	zval *pool = gene_db_prop_get(gene_strip_obj(self), gene_db_pgsql_prop[GENE_DB_PROP_POOL]);
 	if (pool && Z_TYPE_P(pool) == IS_OBJECT) {
 		gene_pool_return_pdo(gene_db_pgsql_ce, self, ZEND_STRL(GENE_DB_PGSQL_POOL), ZEND_STRL(GENE_DB_PGSQL_PDO));
 	} else {
 		/* [GENE_FIX:2026-08-19 N3] No-pool handle — see Db\Mysql::free(). */
-		zval *pdo = zend_read_property(gene_db_pgsql_ce, gene_strip_obj(self), ZEND_STRL(GENE_DB_PGSQL_PDO), 1, NULL);
+		zval *pdo = gene_db_prop_get(gene_strip_obj(self), gene_db_pgsql_prop[GENE_DB_PROP_PDO]);
 		gene_db_tx_hygiene(pdo, "Db\\Pgsql handle freed");
-		zend_update_property_null(gene_db_pgsql_ce, gene_strip_obj(self), ZEND_STRL(GENE_DB_PGSQL_PDO));
+		gene_db_prop_set_null(gene_strip_obj(self), gene_db_pgsql_prop[GENE_DB_PROP_PDO]);
 	}
 	RETURN_NULL();
 }
@@ -1576,11 +1580,11 @@ PHP_METHOD(gene_db_pgsql, free)
 PHP_METHOD(gene_db_pgsql, __destruct)
 {
 	zval *self = getThis();
-	zval *pool = zend_read_property(gene_db_pgsql_ce, gene_strip_obj(self), ZEND_STRL(GENE_DB_PGSQL_POOL), 1, NULL);
+	zval *pool = gene_db_prop_get(gene_strip_obj(self), gene_db_pgsql_prop[GENE_DB_PROP_POOL]);
 	if (pool && Z_TYPE_P(pool) == IS_OBJECT) {
 		gene_pool_return_pdo(gene_db_pgsql_ce, self, ZEND_STRL(GENE_DB_PGSQL_POOL), ZEND_STRL(GENE_DB_PGSQL_PDO));
 	} else {
-		zval *pdo = zend_read_property(gene_db_pgsql_ce, gene_strip_obj(self), ZEND_STRL(GENE_DB_PGSQL_PDO), 1, NULL);
+		zval *pdo = gene_db_prop_get(gene_strip_obj(self), gene_db_pgsql_prop[GENE_DB_PROP_PDO]);
 		gene_db_tx_hygiene(pdo, "Db\\Pgsql handle destructed");
 	}
 }
@@ -1683,6 +1687,8 @@ GENE_MINIT_FUNCTION(db_pgsql)
     zend_declare_property_null(gene_db_pgsql_ce, ZEND_STRL(GENE_DB_PGSQL_DATA), ZEND_ACC_PUBLIC);
 	zend_declare_property_null(gene_db_pgsql_ce, ZEND_STRL(GENE_DB_PGSQL_POOL), ZEND_ACC_PROTECTED);
 	zend_declare_property_null(gene_db_pgsql_ce, ZEND_STRL(GENE_DB_PGSQL_HISTORY), ZEND_ACC_PROTECTED | ZEND_ACC_STATIC);
+
+	gene_db_prop_offsets_init(gene_db_pgsql_ce, gene_db_pgsql_prop);
 
 	return SUCCESS;// @suppress("Symbol is not resolved")
 }

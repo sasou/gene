@@ -94,4 +94,94 @@ static zend_always_inline void gene_discard_current_exception(void)
  * "... with an open transaction". */
 void gene_db_tx_hygiene(zval *pdo_object, const char *who);
 
+/* [GENE_PERF:2026-09-21 V3-3.2] Declared-property slot access for the four Db
+ * drivers. Every driver declares the same 13 untyped properties in MINIT, so
+ * their object-slot offsets are process constants; resolving them once removes
+ * a properties_info hash lookup + visibility check from each of the ~80 reads
+ * and writes a single SQL build performs. The offsets live in a per-driver
+ * array indexed by gene_db_prop_id; ZTS is safe because every thread runs the
+ * same MINIT declaration order and therefore gets identical offsets. */
+typedef enum {
+	GENE_DB_PROP_CONFIG = 0,
+	GENE_DB_PROP_PDO,
+	GENE_DB_PROP_SQL,
+	GENE_DB_PROP_JOIN,
+	GENE_DB_PROP_WHERE,
+	GENE_DB_PROP_GROUP,
+	GENE_DB_PROP_HAVING,
+	GENE_DB_PROP_UNION,
+	GENE_DB_PROP_ORDER,
+	GENE_DB_PROP_LIMIT,
+	GENE_DB_PROP_LOCK,
+	GENE_DB_PROP_DATA,
+	GENE_DB_PROP_POOL,
+	GENE_DB_PROP_N
+} gene_db_prop_id;
+
+/* Fills offsets[GENE_DB_PROP_N] from ce->properties_info. Must be called at the
+ * end of each driver MINIT, after zend_declare_property_null(). */
+void gene_db_prop_offsets_init(zend_class_entry *ce, uint32_t *offsets);
+
+/* Reads a declared slot. An unset() leaves IS_UNDEF behind; mirror
+ * zend_read_property(silent=1) by reporting NULL for it. References are
+ * dereferenced exactly like the by-name read did. */
+static zend_always_inline zval *gene_db_prop_get(zend_object *obj, uint32_t offset)
+{
+	zval *slot = OBJ_PROP(obj, offset);
+	if (UNEXPECTED(Z_TYPE_P(slot) == IS_UNDEF)) {
+		return &EG(uninitialized_zval);
+	}
+	ZVAL_DEREF(slot);
+	return slot;
+}
+
+/* Writes a declared slot with zend_update_property() semantics: assign through
+ * an existing reference, addref the value, and drop the previous value only
+ * after the new one is installed (self-assignment safe). */
+static zend_always_inline void gene_db_prop_assign(zend_object *obj, uint32_t offset, zval *value)
+{
+	zval *slot = OBJ_PROP(obj, offset);
+	zval garbage;
+	if (UNEXPECTED(Z_ISREF_P(slot))) {
+		slot = Z_REFVAL_P(slot);
+	}
+	ZVAL_COPY_VALUE(&garbage, slot);
+	ZVAL_COPY(slot, value);
+	if (Z_TYPE(garbage) != IS_UNDEF) {
+		zval_ptr_dtor(&garbage);
+	}
+}
+
+static zend_always_inline void gene_db_prop_set(zend_object *obj, uint32_t offset, zval *value)
+{
+	gene_db_prop_assign(obj, offset, value);
+}
+
+static zend_always_inline void gene_db_prop_set_null(zend_object *obj, uint32_t offset)
+{
+	zval tmp;
+	ZVAL_NULL(&tmp);
+	gene_db_prop_assign(obj, offset, &tmp);
+}
+
+static zend_always_inline void gene_db_prop_set_str(zend_object *obj, uint32_t offset, zend_string *value)
+{
+	zval tmp;
+	ZVAL_STR(&tmp, value);
+	gene_db_prop_assign(obj, offset, &tmp);
+}
+
+static zend_always_inline void gene_db_prop_set_stringl(zend_object *obj, uint32_t offset, const char *value, size_t len)
+{
+	zval tmp;
+	ZVAL_STRINGL(&tmp, value, len);
+	gene_db_prop_assign(obj, offset, &tmp);
+	zval_ptr_dtor_str(&tmp);
+}
+
+static zend_always_inline void gene_db_prop_set_string(zend_object *obj, uint32_t offset, const char *value)
+{
+	gene_db_prop_set_stringl(obj, offset, value, strlen(value));
+}
+
 #endif
