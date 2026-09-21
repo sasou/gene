@@ -23,7 +23,10 @@
 
 extern zend_class_entry *gene_load_ce;
 
-int gene_load_import(char *path, zval *obj, zend_array *symbol_table);
+/* [GENE_PERF:2026-09-21 V3-3.3] probe=1 keeps the legacy existence stat; probe=0
+ * skips it for callers that already know the file exists (e.g. a compiled view
+ * path that was just stat'ed or written). */
+int gene_load_import(char *path, zval *obj, zend_array *symbol_table, int probe);
 void gene_load_file_by_class_name (char *className);
 zval *gene_load_instance(zval *this_ptr);
 int gene_loader_register();

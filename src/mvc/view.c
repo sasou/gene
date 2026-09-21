@@ -55,23 +55,46 @@ static int parser_templates(php_stream **stream, char *compile_path);
  * existing compiled file is up to date. When the INI flag is off, always
  * returns 1 to preserve the legacy every-request recompile behavior. */
 static int view_compile_needs_rebuild(const char *src_path, const char *compile_path) {
-	php_stream_statbuf src_ssb, dst_ssb;
+	zend_stat_t src_sb, dst_sb;
 
 	if (!GENE_G(view_compile_check_mtime)) {
 		return 1;
 	}
-	/* Compiled file missing -> must compile. */
-	if (php_stream_stat_path((char *) compile_path, &dst_ssb) != SUCCESS) {
+	/* [GENE_PERF:2026-09-21 V3-3.3] gene.view_stat_ttl>0 memoizes a verified
+	 * up-to-date compile_path for TTL seconds so hot templates skip both stats.
+	 * 0 keeps byte-for-byte legacy behavior (stat every call). */
+	if (GENE_G(view_stat_ttl) > 0) {
+		time_t now = time(NULL);
+		if (GENE_G(view_fresh)) {
+			zval *seen = zend_hash_str_find(GENE_G(view_fresh), compile_path, strlen(compile_path));
+			if (seen && Z_TYPE_P(seen) == IS_LONG && now - Z_LVAL_P(seen) < (time_t)GENE_G(view_stat_ttl)) {
+				return 0;
+			}
+		}
+	}
+	/* Compiled file missing -> must compile. VCWD_STAT instead of
+	 * php_stream_stat_path: view paths are always local files, so wrapper
+	 * resolution is dead cost. */
+	if (VCWD_STAT(compile_path, &dst_sb) == -1) {
 		return 1;
 	}
 	/* Source missing/unstattable -> fall back to recompile (source open will
 	 * surface the real error downstream). */
-	if (php_stream_stat_path((char *) src_path, &src_ssb) != SUCCESS) {
+	if (VCWD_STAT(src_path, &src_sb) == -1) {
 		return 1;
 	}
 	/* Recompile only when the source is strictly newer than the compiled file. */
-	if (src_ssb.sb.st_mtime > dst_ssb.sb.st_mtime) {
+	if (src_sb.st_mtime > dst_sb.st_mtime) {
 		return 1;
+	}
+	if (GENE_G(view_stat_ttl) > 0) {
+		zval ts;
+		if (!GENE_G(view_fresh)) {
+			ALLOC_HASHTABLE(GENE_G(view_fresh));
+			zend_hash_init(GENE_G(view_fresh), 8, NULL, ZVAL_PTR_DTOR, 0);
+		}
+		ZVAL_LONG(&ts, (zend_long)time(NULL));
+		zend_hash_str_update(GENE_G(view_fresh), compile_path, strlen(compile_path), &ts);
 	}
 	return 0;
 }
@@ -394,7 +417,7 @@ int gene_view_display(char *file, zval *obj, zend_array *symbol_table) {
 		}
 		snprintf(path, path_len + 1, "app/%s/%s%s", GENE_VIEW_VIEW, file, GENE_VIEW_EXT);
 	}
-	if(!gene_load_import(path, obj, symbol_table)) {
+	if(!gene_load_import(path, obj, symbol_table, 1)) {
 		php_error_docref(NULL, E_WARNING, "Unable to load view file %s", path);
 	}
 	if (path_heap) {
@@ -499,7 +522,11 @@ int gene_view_display_ext(char *file, bool isCompile, zval *obj, zend_array *sym
 			efree(path);
 		}
 	}
-	if(!gene_load_import(compile_path, obj, symbol_table)) {
+	/* [GENE_PERF:2026-09-21 V3-3.3] probe=0 when the compile branch ran:
+	 * compile_path existence was just established by view_compile_needs_rebuild
+	 * or parser_templates. With compile off nothing stat'ed it — keep the probe
+	 * so a missing file stays a silent 0 instead of a stream warning. */
+	if(!gene_load_import(compile_path, obj, symbol_table, !(isCompile || GENE_G(view_compile)))) {
 		php_error_docref(NULL, E_WARNING, "Unable to load view file %s", compile_path);
 	}
 	if (compile_path_heap) {
