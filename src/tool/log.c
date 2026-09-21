@@ -116,21 +116,22 @@ static const char *gene_log_level_name(zend_long level) {
 /* {{{ gene_log_get_effective_level */
 static zend_long gene_log_get_effective_level(void) {
 	gene_request_context *ctx = gene_request_ctx();
-	if (ctx && ctx->log_level_set) {
-		return ctx->log_level;
+	/* [V3-4.1] probe ctx->cold without materializing the cold block. */
+	if (ctx && ctx->cold && ctx->cold->log_level_set) {
+		return ctx->cold->log_level;
 	}
 	return GENE_LOG_LEVEL_DEBUG;
 }
 /* }}} */
 
 /* {{{ gene_log_get_effective_file */
-/* [GENE_PERF:2026-09-20 V3-2.8] ctx->log_file is a zend_string* now �� the
+/* [GENE_PERF:2026-09-20 V3-2.8] GENE_CTX_COLD(ctx)->log_file is a zend_string* now �� the
  * error_log "file" parameter can borrow it directly (ZVAL_STR), removing
  * the per-call ZVAL_STRING copy. */
 static zend_string *gene_log_get_effective_file(void) {
 	gene_request_context *ctx = gene_request_ctx();
-	if (ctx && ctx->log_file) {
-		return ctx->log_file;
+	if (ctx && ctx->cold && ctx->cold->log_file) {
+		return ctx->cold->log_file;
 	}
 	return NULL;
 }
@@ -359,8 +360,8 @@ static void gene_log_write_message(zend_long level, const char *msg, zval *conte
 		zval merged;
 		zval *ctx_use = context;
 		ZVAL_UNDEF(&merged);
-		if (rctx && Z_TYPE(rctx->user_bag) == IS_ARRAY) {
-			rid = zend_hash_str_find(Z_ARRVAL(rctx->user_bag), ZEND_STRL("request_id"));
+		if (rctx && rctx->cold && Z_TYPE(rctx->cold->user_bag) == IS_ARRAY) {
+			rid = zend_hash_str_find(Z_ARRVAL(rctx->cold->user_bag), ZEND_STRL("request_id"));
 		}
 		if (rid) {
 			array_init(&merged);
@@ -608,10 +609,10 @@ PHP_METHOD(gene_log, setFile) {
 	}
 	ctx = gene_request_ctx();
 	if (ctx) {
-		if (ctx->log_file) {
-			zend_string_release(ctx->log_file);
+		if (GENE_CTX_COLD(ctx)->log_file) {
+			zend_string_release(GENE_CTX_COLD(ctx)->log_file);
 		}
-		ctx->log_file = zend_string_copy(file);
+		GENE_CTX_COLD(ctx)->log_file = zend_string_copy(file);
 	}
 }
 /* }}} */
@@ -639,8 +640,8 @@ PHP_METHOD(gene_log, setLevel) {
 	}
 	ctx = gene_request_ctx();
 	if (ctx) {
-		ctx->log_level = level;
-		ctx->log_level_set = 1;
+		GENE_CTX_COLD(ctx)->log_level = level;
+		GENE_CTX_COLD(ctx)->log_level_set = 1;
 	}
 }
 /* }}} */

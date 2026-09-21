@@ -1,4 +1,4 @@
-﻿/*
+/*
  +----------------------------------------------------------------------+
  | gene                                                                 |
  +----------------------------------------------------------------------+
@@ -49,7 +49,7 @@ static char *gene_view_app_base_path() {
 static int check_folder_exists(char *fullpath);
 static int parser_templates(php_stream **stream, char *compile_path);
 
-/* [GENE_PERF:2026-05-29 §3.1] When gene.view_compile_check_mtime is enabled,
+/* [GENE_PERF:2026-05-29 ��3.1] When gene.view_compile_check_mtime is enabled,
  * skip recompilation if the compiled output already exists and is at least as
  * new as the source template. Returns 1 if a (re)compile is required, 0 if the
  * existing compiled file is up to date. When the INI flag is off, always
@@ -100,15 +100,15 @@ static int view_compile_needs_rebuild(const char *src_path, const char *compile_
 }
 
 /*
- * NOTE(audit 2026-05-04 #9 "视图变量浅拷贝"):
- *   本函数已经是浅拷贝实现。ZVAL_COPY 对 refcounted 类型（数组/对象/字符串）
- *   仅递增引用计数、对标量直接复制值，不会克隆数组或对象内容。模板在执行过程中
- *   对视图变量的写操作依赖 Zend 的 COW（refcount > 1 时自动分离）保持隔离。
+ * NOTE(audit 2026-05-04 #9 "��ͼ����ǳ����"):
+ *   �������Ѿ���ǳ����ʵ�֡�ZVAL_COPY �� refcounted ���ͣ�����/����/�ַ�����
+ *   ���������ü������Ա���ֱ�Ӹ���ֵ�������¡�����������ݡ�ģ����ִ�й�����
+ *   ����ͼ������д�������� Zend �� COW��refcount > 1 ʱ�Զ����룩���ָ��롣
  *
- *   不可进一步"共享 HashTable + GC_ADDREF"：Zend 执行器会原地修改 symbol_table
- *   （新建变量、unset、标量重绑定等），HashTable 无 COW，会污染调用方 vars。
+ *   ���ɽ�һ��"���� HashTable + GC_ADDREF"��Zend ִ������ԭ���޸� symbol_table
+ *   ���½�������unset�������ذ󶨵ȣ���HashTable �� COW������Ⱦ���÷� vars��
  *
- *   因此此处不存在"深拷贝"优化空间。请勿将此函数重复列入拷贝开销审计项。
+ *   ��˴˴�������"���"�Ż��ռ䡣���𽫴˺����ظ����뿽����������
  */
 zend_array *gene_view_build_symbol_table(zval *vars) {
 	zend_array *table;
@@ -121,8 +121,8 @@ zend_array *gene_view_build_symbol_table(zval *vars) {
 		return NULL;
 	}
 
-	/* 空 vars 快速路径：省去 ALLOC_HASHTABLE + zend_hash_init 的零元素分配。
-	 * 调用方 gene_load_import 对 NULL symbol_table 已有合法处理。 */
+	/* �� vars ����·����ʡȥ ALLOC_HASHTABLE + zend_hash_init ����Ԫ�ط��䡣
+	 * ���÷� gene_load_import �� NULL symbol_table ���кϷ������� */
 	n = zend_hash_num_elements(Z_ARRVAL_P(vars));
 	if (n == 0) {
 		return NULL;
@@ -133,7 +133,7 @@ zend_array *gene_view_build_symbol_table(zval *vars) {
 
 	ZEND_HASH_FOREACH_KEY_VAL(Z_ARRVAL_P(vars), idx, key, val) {
 		zval tmp;
-		ZVAL_COPY(&tmp, val);  /* 浅拷贝：refcount++ / 标量值拷贝 */
+		ZVAL_COPY(&tmp, val);  /* ǳ������refcount++ / ����ֵ���� */
 		if (key) {
 			zend_hash_update(table, key, &tmp);
 		} else {
@@ -524,7 +524,7 @@ int gene_view_display_ext(char *file, bool isCompile, zval *obj, zend_array *sym
 	}
 	/* [GENE_PERF:2026-09-21 V3-3.3] probe=0 when the compile branch ran:
 	 * compile_path existence was just established by view_compile_needs_rebuild
-	 * or parser_templates. With compile off nothing stat'ed it — keep the probe
+	 * or parser_templates. With compile off nothing stat'ed it �� keep the probe
 	 * so a missing file stays a silent 0 instead of a stream warning. */
 	if(!gene_load_import(compile_path, obj, symbol_table, !(isCompile || GENE_G(view_compile)))) {
 		php_error_docref(NULL, E_WARNING, "Unable to load view file %s", compile_path);
@@ -562,7 +562,7 @@ static int parser_templates(php_stream **stream, char *compile_path) {
 	zend_string *result = NULL;
 
 	/* [GENE_PERF:2026-05] Cache regex/replace zend_strings as process-lifetime
-	 * statics. Eliminates 56× zend_string_init + 56× zend_string_release per
+	 * statics. Eliminates 56�� zend_string_init + 56�� zend_string_release per
 	 * template compile. [GENE_FIX:2026-05-24] gene_interned_str_persistent avoids
 	 * the unsafe zend_string_init_interned(...,1) pattern that dangles across
 	 * requests under opcache.file_cache_only=1. */
@@ -575,7 +575,7 @@ static int parser_templates(php_stream **stream, char *compile_path) {
 	 * string and leaves the slot NULL on purpose. The previous code assigned that
 	 * return value back into the static array (regex_strs[i] = ...), so the
 	 * statics ended up holding request-scoped pointers that dangle on the next
-	 * request — the `if (!regex_strs[0])` guard then skipped re-init and fed freed
+	 * request �� the `if (!regex_strs[0])` guard then skipped re-init and fed freed
 	 * zend_strings to php_pcre_replace (use-after-free). We keep the statics for
 	 * the permanent fast path only and drive php_pcre_replace from these locals,
 	 * which are always valid for the current request. */
@@ -634,8 +634,8 @@ static int parser_templates(php_stream **stream, char *compile_path) {
 		memcpy(replace_use, replace_strs, sizeof(replace_use));
 	}
 
-	/* [GENE_PERF:2026-05] Track result as zend_string* directly — eliminates
-	 * 28× estrndup + 28× efree per compile. php_pcre_replace already returns
+	/* [GENE_PERF:2026-05] Track result as zend_string* directly �� eliminates
+	 * 28�� estrndup + 28�� efree per compile. php_pcre_replace already returns
 	 * a zend_string, so we just swap pointers. */
 	{
 		zend_string *file_content = php_stream_copy_to_mem(*stream, PHP_STREAM_COPY_ALL, 0);
@@ -676,9 +676,9 @@ static int parser_templates(php_stream **stream, char *compile_path) {
  */
 void gene_view_clear_vars() {
 	gene_request_context *ctx = gene_request_ctx();
-	zval *vars = &ctx->view_vars;
+	zval *vars = &GENE_CTX_COLD(ctx)->view_vars;
 	if (Z_TYPE_P(vars) == IS_ARRAY) {
-		zend_hash_index_del(Z_ARRVAL_P(vars), ctx->view_scope_no);
+		zend_hash_index_del(Z_ARRVAL_P(vars), GENE_CTX_COLD(ctx)->view_scope_no);
 	}
 }
 /* }}} */
@@ -688,11 +688,11 @@ void gene_view_clear_vars() {
  */
 void gene_view_reset_vars() {
 	gene_request_context *ctx = gene_request_ctx();
-	if (Z_TYPE(ctx->view_vars) != IS_UNDEF) {
-		zval_ptr_dtor(&ctx->view_vars);
+	if (Z_TYPE(GENE_CTX_COLD(ctx)->view_vars) != IS_UNDEF) {
+		zval_ptr_dtor(&GENE_CTX_COLD(ctx)->view_vars);
 	}
-	ZVAL_UNDEF(&ctx->view_vars);
-	ctx->view_scope_no = 0;
+	ZVAL_UNDEF(&GENE_CTX_COLD(ctx)->view_vars);
+	GENE_CTX_COLD(ctx)->view_scope_no = 0;
 }
 /* }}} */
 
@@ -701,11 +701,11 @@ void gene_view_reset_vars() {
  */
 zval *gene_view_get_vars() {
 	gene_request_context *ctx = gene_request_ctx();
-	zval *vars = &ctx->view_vars, *nodata = NULL;
+	zval *vars = &GENE_CTX_COLD(ctx)->view_vars, *nodata = NULL;
 	if (Z_TYPE_P(vars) != IS_ARRAY) {
 		return NULL;
 	}
-	nodata = zend_hash_index_find(Z_ARRVAL_P(vars), ctx->view_scope_no);
+	nodata = zend_hash_index_find(Z_ARRVAL_P(vars), GENE_CTX_COLD(ctx)->view_scope_no);
 	return (nodata && Z_TYPE_P(nodata) == IS_ARRAY) ? nodata : NULL;
 }
 /* }}} */
@@ -718,8 +718,8 @@ zval *gene_view_get_vars() {
  */
 int gene_view_set_vars(zend_string *name, zval *value) {
 	gene_request_context *ctx = gene_request_ctx();
-	zval *vars = &ctx->view_vars, *nodata = NULL;
-	zend_long num = ctx->view_scope_no;
+	zval *vars = &GENE_CTX_COLD(ctx)->view_vars, *nodata = NULL;
+	zend_long num = GENE_CTX_COLD(ctx)->view_scope_no;
 
 	if (Z_TYPE_P(vars) != IS_ARRAY) {
 		zval params, nodata_tmp;
@@ -773,13 +773,13 @@ PHP_METHOD(gene_view, display) {
 
 	if (parent_file && ZSTR_LEN(parent_file) > 0) {
 		gene_request_context *ctx = gene_request_ctx();
-		if (ctx->child_views) {
-			efree(ctx->child_views);
-			ctx->child_views = NULL;
+		if (GENE_CTX_COLD(ctx)->child_views) {
+			efree(GENE_CTX_COLD(ctx)->child_views);
+			GENE_CTX_COLD(ctx)->child_views = NULL;
 		}
 		/* [GENE_PERF:2026-04-20] Cache child_views_len alongside child_views. */
-		ctx->child_views = estrndup(ZSTR_VAL(file), ZSTR_LEN(file));
-		ctx->child_views_len = ZSTR_LEN(file);
+		GENE_CTX_COLD(ctx)->child_views = estrndup(ZSTR_VAL(file), ZSTR_LEN(file));
+		GENE_CTX_COLD(ctx)->child_views_len = ZSTR_LEN(file);
 		gene_view_display(ZSTR_VAL(parent_file), self, table);
 	} else {
 		gene_view_display(ZSTR_VAL(file), self, table);
@@ -808,12 +808,12 @@ PHP_METHOD(gene_view, displayExt) {
 
 	if (parent_file && ZSTR_LEN(parent_file)) {
 		gene_request_context *ctx = gene_request_ctx();
-		if (ctx->child_views) {
-			efree(ctx->child_views);
-			ctx->child_views = NULL;
+		if (GENE_CTX_COLD(ctx)->child_views) {
+			efree(GENE_CTX_COLD(ctx)->child_views);
+			GENE_CTX_COLD(ctx)->child_views = NULL;
 		}
-		ctx->child_views = estrndup(ZSTR_VAL(file), ZSTR_LEN(file));
-		ctx->child_views_len = ZSTR_LEN(file);
+		GENE_CTX_COLD(ctx)->child_views = estrndup(ZSTR_VAL(file), ZSTR_LEN(file));
+		GENE_CTX_COLD(ctx)->child_views_len = ZSTR_LEN(file);
 		gene_view_display_ext(ZSTR_VAL(parent_file), isCompile , self, table);
 	} else {
 		gene_view_display_ext(ZSTR_VAL(file), isCompile, self, table);
@@ -840,7 +840,7 @@ PHP_METHOD(gene_view, assign) {
 /** {{{ public gene_view::render(string $file [, string $parent_file]): string
  * [GENE_FEATURE:2026-08-07] Same template resolution as display(), but the
  * output is captured into an output buffer and returned as a string instead
- * of being sent to the client — for API responses / email bodies / tests.
+ * of being sent to the client �� for API responses / email bodies / tests.
  * Unlike display(), render() does NOT clear the current scope's assigned
  * vars, so one assign set can feed several renders. */
 PHP_METHOD(gene_view, render) {
@@ -865,12 +865,12 @@ PHP_METHOD(gene_view, render) {
 	}
 	if (parent_file && ZSTR_LEN(parent_file) > 0) {
 		gene_request_context *ctx = gene_request_ctx();
-		if (ctx->child_views) {
-			efree(ctx->child_views);
-			ctx->child_views = NULL;
+		if (GENE_CTX_COLD(ctx)->child_views) {
+			efree(GENE_CTX_COLD(ctx)->child_views);
+			GENE_CTX_COLD(ctx)->child_views = NULL;
 		}
-		ctx->child_views = estrndup(ZSTR_VAL(file), ZSTR_LEN(file));
-		ctx->child_views_len = ZSTR_LEN(file);
+		GENE_CTX_COLD(ctx)->child_views = estrndup(ZSTR_VAL(file), ZSTR_LEN(file));
+		GENE_CTX_COLD(ctx)->child_views_len = ZSTR_LEN(file);
 		gene_view_display(ZSTR_VAL(parent_file), self, table);
 	} else {
 		gene_view_display(ZSTR_VAL(file), self, table);
@@ -882,7 +882,7 @@ PHP_METHOD(gene_view, render) {
 	php_output_get_contents(return_value);
 	/* [GENE_FIX:2026-08-08] php_output_discard_default() is not an exported
 	 * PHPAPI symbol in PHP 8.1; use php_output_discard() which discards the
-	 * active handler — exactly the default handler we started above. */
+	 * active handler �� exactly the default handler we started above. */
 	php_output_discard();
 }
 /* }}} */
@@ -900,7 +900,9 @@ PHP_METHOD(gene_view, clearAssign) {
  */
 PHP_METHOD(gene_view, contains) {
 	zval child;
-	gene_view_contains(GENE_REQ(child_views), &child);
+	gene_request_context *ctx = gene_request_ctx();
+	/* [V3-4.1] child_views lives in the cold block; NULL when unallocated. */
+	gene_view_contains((ctx && ctx->cold) ? ctx->cold->child_views : NULL, &child);
 	RETURN_ZVAL(&child, 1, 1);
 }
 /* }}} */
@@ -909,13 +911,14 @@ PHP_METHOD(gene_view, contains) {
  */
 PHP_METHOD(gene_view, containsExt) {
 	zval child;
-	gene_view_contains_ext(GENE_REQ(child_views), 0, &child);
+	gene_request_context *ctx = gene_request_ctx();
+	gene_view_contains_ext((ctx && ctx->cold) ? ctx->cold->child_views : NULL, 0, &child);
 	RETURN_ZVAL(&child, 1, 1);
 }
 /* }}} */
 
 /** {{{ public gene_view::getPath([bool $withoutLang = false])
- *  返回当前请求路径。$withoutLang=true 时去除语言前缀。
+ *  ���ص�ǰ����·����$withoutLang=true ʱȥ������ǰ׺��
  */
 PHP_METHOD(gene_view, getPath) {
 	zend_bool without_lang = 0;
@@ -927,7 +930,7 @@ PHP_METHOD(gene_view, getPath) {
 /* }}} */
 
 /** {{{ public gene_view::getRouterUri()
- *  返回当前路由 URI（:m/:c/:a 替换后，小写）。
+ *  ���ص�ǰ·�� URI��:m/:c/:a �滻��Сд����
  */
 PHP_METHOD(gene_view, getRouterUri) {
 	gene_get_router_uri(return_value);
@@ -935,7 +938,7 @@ PHP_METHOD(gene_view, getRouterUri) {
 /* }}} */
 
 /** {{{ public gene_view::url(string $path [, string $lang])
- *  返回带语言前缀的 URL。$lang 未传时使用当前请求语言；传空串则不加语言前缀。
+ *  ���ش�����ǰ׺�� URL��$lang δ��ʱʹ�õ�ǰ�������ԣ����մ��򲻼�����ǰ׺��
  */
 PHP_METHOD(gene_view, url) {
 	zend_string *path_str = NULL, *lang_str = NULL;
@@ -982,9 +985,9 @@ PHP_METHOD(gene_view, scope)
 		return;
 	}
 	if (num == 0) {
-		num = ctx->view_scope_no + 1;
+		num = GENE_CTX_COLD(ctx)->view_scope_no + 1;
 	}
-	ctx->view_scope_no = num;
+	GENE_CTX_COLD(ctx)->view_scope_no = num;
 	RETURN_TRUE;
 }
 /* }}} */

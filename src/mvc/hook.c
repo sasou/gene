@@ -1,4 +1,4 @@
-ï»¿/*
+/*
  +----------------------------------------------------------------------+
  | gene                                                                 |
  +----------------------------------------------------------------------+
@@ -231,7 +231,7 @@ GENE_REQUEST_IS_METHOD(gene_hook, Cli);
  */
 PHP_METHOD(gene_hook, isAjax) {
 	zval *header = request_query(TRACK_VARS_SERVER, ZEND_STRL("HTTP_X_REQUESTED_WITH"));
-	/* [GENE_FIX:2026-04-27] See gene_request::isAjax â€” require exact length
+	/* [GENE_FIX:2026-04-27] See gene_request::isAjax ¡ª require exact length
 	 * match to reject prefix false-positives like "XML". */
 	if (header && Z_TYPE_P(header) == IS_STRING
 		&& Z_STRLEN_P(header) == sizeof("XMLHttpRequest") - 1
@@ -258,8 +258,8 @@ PHP_METHOD(gene_hook, getMethod) {
  */
 PHP_METHOD(gene_hook, getLang) {
 	gene_request_context *ctx = gene_request_ctx();
-	if (ctx->lang) {
-		RETURN_STRINGL(ctx->lang, ctx->lang_len);
+	if (GENE_CTX_COLD(ctx)->lang) {
+		RETURN_STRINGL(GENE_CTX_COLD(ctx)->lang, GENE_CTX_COLD(ctx)->lang_len);
 	}
 	RETURN_NULL();
 }
@@ -345,13 +345,13 @@ PHP_METHOD(gene_hook, display) {
 
 	if (parent_file && ZSTR_LEN(parent_file) > 0) {
 		gene_request_context *ctx = gene_request_ctx();
-		if (ctx->child_views) {
-			efree(ctx->child_views);
-			ctx->child_views = NULL;
+		if (GENE_CTX_COLD(ctx)->child_views) {
+			efree(GENE_CTX_COLD(ctx)->child_views);
+			GENE_CTX_COLD(ctx)->child_views = NULL;
 		}
 		/* [GENE_PERF:2026-04-20] Cache child_views_len alongside child_views. */
-		ctx->child_views = estrndup(ZSTR_VAL(file), ZSTR_LEN(file));
-		ctx->child_views_len = ZSTR_LEN(file);
+		GENE_CTX_COLD(ctx)->child_views = estrndup(ZSTR_VAL(file), ZSTR_LEN(file));
+		GENE_CTX_COLD(ctx)->child_views_len = ZSTR_LEN(file);
 		gene_view_display(ZSTR_VAL(parent_file), self, table);
 	} else {
 		gene_view_display(ZSTR_VAL(file), self, table);
@@ -380,12 +380,12 @@ PHP_METHOD(gene_hook, displayExt) {
 
 	if (parent_file && ZSTR_LEN(parent_file) > 0) {
 		gene_request_context *ctx = gene_request_ctx();
-		if (ctx->child_views) {
-			efree(ctx->child_views);
-			ctx->child_views = NULL;
+		if (GENE_CTX_COLD(ctx)->child_views) {
+			efree(GENE_CTX_COLD(ctx)->child_views);
+			GENE_CTX_COLD(ctx)->child_views = NULL;
 		}
-		ctx->child_views = estrndup(ZSTR_VAL(file), ZSTR_LEN(file));
-		ctx->child_views_len = ZSTR_LEN(file);
+		GENE_CTX_COLD(ctx)->child_views = estrndup(ZSTR_VAL(file), ZSTR_LEN(file));
+		GENE_CTX_COLD(ctx)->child_views_len = ZSTR_LEN(file);
 		gene_view_display_ext(ZSTR_VAL(parent_file), isCompile, self, table);
 	} else {
 		gene_view_display_ext(ZSTR_VAL(file), isCompile, self, table);
@@ -402,10 +402,10 @@ PHP_METHOD(gene_hook, displayExt) {
  */
 PHP_METHOD(gene_hook, contains) {
 	gene_request_context *ctx = gene_request_ctx();
-	if (!ctx->child_views || ctx->child_views[0] == '\0') {
+	if (!GENE_CTX_COLD(ctx)->child_views || GENE_CTX_COLD(ctx)->child_views[0] == '\0') {
 		RETURN_FALSE;
 	}
-	gene_view_contains(ctx->child_views, return_value);
+	gene_view_contains(GENE_CTX_COLD(ctx)->child_views, return_value);
 }
 /* }}} */
 
@@ -413,15 +413,15 @@ PHP_METHOD(gene_hook, contains) {
  */
 PHP_METHOD(gene_hook, containsExt) {
 	gene_request_context *ctx = gene_request_ctx();
-	if (!ctx->child_views || ctx->child_views[0] == '\0') {
+	if (!GENE_CTX_COLD(ctx)->child_views || GENE_CTX_COLD(ctx)->child_views[0] == '\0') {
 		RETURN_FALSE;
 	}
-	gene_view_contains_ext(ctx->child_views, 0, return_value);
+	gene_view_contains_ext(GENE_CTX_COLD(ctx)->child_views, 0, return_value);
 }
 /* }}} */
 
 /** {{{ public gene_hook::getPath([bool $withoutLang = false])
- *  è¿”å›å½“å‰è¯·æ±‚è·¯å¾„ã€‚$withoutLang=true æ—¶å»é™¤è¯­è¨€å‰ç¼€ã€‚
+ *  ·µ»Øµ±Ç°ÇëÇóÂ·¾¶¡£$withoutLang=true Ê±È¥³ıÓïÑÔÇ°×º¡£
  */
 PHP_METHOD(gene_hook, getPath) {
 	zend_bool without_lang = 0;
@@ -433,7 +433,7 @@ PHP_METHOD(gene_hook, getPath) {
 /* }}} */
 
 /** {{{ public gene_hook::getRouterUri()
- *  è¿”å›å½“å‰è·¯ç”± URIï¼ˆ:m/:c/:a æ›¿æ¢åï¼Œå°å†™ï¼‰ã€‚
+ *  ·µ»Øµ±Ç°Â·ÓÉ URI£¨:m/:c/:a Ìæ»»ºó£¬Ğ¡Ğ´£©¡£
  */
 PHP_METHOD(gene_hook, getRouterUri) {
 	gene_get_router_uri(return_value);
@@ -441,7 +441,7 @@ PHP_METHOD(gene_hook, getRouterUri) {
 /* }}} */
 
 /** {{{ public gene_hook::url(string $path [, string $lang])
- *  è¿”å›å¸¦è¯­è¨€å‰ç¼€çš„ URLã€‚$lang æœªä¼ æ—¶ä½¿ç”¨å½“å‰è¯·æ±‚è¯­è¨€ï¼›ä¼ ç©ºä¸²åˆ™ä¸åŠ è¯­è¨€å‰ç¼€ã€‚
+ *  ·µ»Ø´øÓïÑÔÇ°×ºµÄ URL¡£$lang Î´´«Ê±Ê¹ÓÃµ±Ç°ÇëÇóÓïÑÔ£»´«¿Õ´®Ôò²»¼ÓÓïÑÔÇ°×º¡£
  */
 PHP_METHOD(gene_hook, url) {
 	zend_string *path_str = NULL, *lang_str = NULL;
@@ -526,7 +526,7 @@ PHP_METHOD(gene_hook, json) {
 	if (zend_parse_parameters(ZEND_NUM_ARGS(), "z|sl", &data, &callback, &callback_len, &code) == FAILURE) {
 		return;
 	}
-	/* [GENE_PERF:2026-09-20 V3-2.7] Direct smart_str encode â€” see
+	/* [GENE_PERF:2026-09-20 V3-2.7] Direct smart_str encode ¡ª see
 	 * gene_response::json / gene_json_encode_buf(). */
 	if (gene_json_encode_buf(&jbuf, data, code) == SUCCESS) {
 		if (callback_len) {

@@ -1,4 +1,4 @@
-ï»¿/*
+/*
  +----------------------------------------------------------------------+
  | gene                                                                 |
  +----------------------------------------------------------------------+
@@ -364,7 +364,7 @@ static zend_always_inline char *gene_ini_copy_method_lower(const char *src, size
 
 /** {{{ int gene_ini_router()
  * Returns 1 on success (method + path all available), 0 on failure.
- * [GENE_PERF:2026-04-19 #2] Cache gene_request_ctx() once at entry â€” the previous
+ * [GENE_PERF:2026-04-19 #2] Cache gene_request_ctx() once at entry ¡ª the previous
  * code issued ~16 GENE_REQ() expansions per request (each expands to a function call
  * or, in Swoole mode, at least several globals loads + branches). With one local
  * load, the whole routine becomes tight field accesses on ctx->.... Safe because
@@ -640,7 +640,7 @@ PHP_METHOD(gene_application, load) {
 /*
  * {{{ public gene_application::getMethod()
  * [GENE_PERF:2026-04-20] RETURN_STRINGL with cached length avoids the strlen()
- * call inside RETURN_STRING â€” same optimization applies to all context getters below.
+ * call inside RETURN_STRING ¡ª same optimization applies to all context getters below.
  */
 PHP_METHOD(gene_application, getMethod) {
 	gene_request_context *ctx = gene_request_ctx();
@@ -653,7 +653,7 @@ PHP_METHOD(gene_application, getMethod) {
 
 /*
  * {{{ public gene_application::getPath([bool $withoutLang = false])
- *  è¿”å›å½“å‰è¯·æ±‚è·¯å¾„ã€‚$withoutLang=true æ—¶å»é™¤è¯­è¨€å‰ç¼€ã€‚
+ *  ·µ»Øµ±Ç°ÇëÇóÂ·¾¶¡£$withoutLang=true Ê±È¥³ıÓïÑÔÇ°×º¡£
  */
 PHP_METHOD(gene_application, getPath) {
 	zend_bool without_lang = 0;
@@ -705,8 +705,8 @@ PHP_METHOD(gene_application, getAction) {
  */
 PHP_METHOD(gene_application, getLang) {
 	gene_request_context *ctx = gene_request_ctx();
-	if (ctx->lang) {
-		RETURN_STRINGL(ctx->lang, ctx->lang_len);
+	if (GENE_CTX_COLD(ctx)->lang) {
+		RETURN_STRINGL(GENE_CTX_COLD(ctx)->lang, GENE_CTX_COLD(ctx)->lang_len);
 	}
 	RETURN_NULL();
 }
@@ -714,7 +714,7 @@ PHP_METHOD(gene_application, getLang) {
 
 /*
  * {{{ public gene_application::getRouterUri()
- *  è¿”å›å½“å‰è·¯ç”± URIï¼ˆ:m/:c/:a æ›¿æ¢åï¼Œå°å†™ï¼‰ã€‚
+ *  ·µ»Øµ±Ç°Â·ÓÉ URI£¨:m/:c/:a Ìæ»»ºó£¬Ğ¡Ğ´£©¡£
  */
 PHP_METHOD(gene_application, getRouterUri) {
 	gene_get_router_uri(return_value);
@@ -723,7 +723,7 @@ PHP_METHOD(gene_application, getRouterUri) {
 
 /*
  * {{{ public gene_application::url(string $path [, string $lang])
- *  è¿”å›å¸¦è¯­è¨€å‰ç¼€çš„ URLã€‚$lang æœªä¼ æ—¶ä½¿ç”¨å½“å‰è¯·æ±‚è¯­è¨€ï¼›ä¼ ç©ºä¸²åˆ™ä¸åŠ è¯­è¨€å‰ç¼€ã€‚
+ *  ·µ»Ø´øÓïÑÔÇ°×ºµÄ URL¡£$lang Î´´«Ê±Ê¹ÓÃµ±Ç°ÇëÇóÓïÑÔ£»´«¿Õ´®Ôò²»¼ÓÓïÑÔÇ°×º¡£
  */
 PHP_METHOD(gene_application, url) {
 	zend_string *path_str = NULL, *lang_str = NULL;
@@ -754,7 +754,7 @@ PHP_METHOD(gene_application, getEnvironment) {
 PHP_METHOD(gene_application, getEnvironmentName) {
 	switch (GENE_G(run_environment)) {
 		case 3:
-			/* [GENE_FEATURE:2026-09-12] Gray/canary env â€” the canonical app
+			/* [GENE_FEATURE:2026-09-12] Gray/canary env ¡ª the canonical app
 			 * mapping that previously forced every entry to re-implement the
 			 * switch locally. */
 			RETURN_STRING("gray");
@@ -768,7 +768,7 @@ PHP_METHOD(gene_application, getEnvironmentName) {
 			/* Unknown codes used to silently fall through to "dev". Kept for
 			 * BC, but no longer silent: warn once per process. Under Swoole
 			 * this runs inside workerStart where a throwing user error
-			 * handler would respawn-loop the worker â€” log-only there, same
+			 * handler would respawn-loop the worker ¡ª log-only there, same
 			 * policy as the workerReady() contradiction diagnostic. */
 			if (!GENE_G(env_fallback_warned)) {
 				GENE_G(env_fallback_warned) = 1;
@@ -908,7 +908,7 @@ PHP_METHOD(gene_application, setRuntimeType) {
 /*
  * {{{ void gene_clear_request_state()
  * [GENE_PERF:2026-04-19 #2] Fast path: when the current vm_stack still matches
- * the cached snapshot, we're in the same coroutine as current_ctx â€” use it
+ * the cached snapshot, we're in the same coroutine as current_ctx ¡ª use it
  * directly and skip the expensive Swoole getcid() PHP call plus the hash lookup.
  * This is the common case in a normal Swoole request flow where clearState() is
  * invoked at end of request handler (no yield between dispatch and clear).
@@ -989,7 +989,7 @@ PHP_METHOD(gene_application, waitWorkerReady) {
 /*
  * {{{ public gene_application::destroyContext()
  * [GENE_PERF:2026-04-19 #2] Fast path: when vm_stack still matches the cached
- * snapshot, we know current_cid is valid for the active coroutine â€” skip the
+ * snapshot, we know current_cid is valid for the active coroutine ¡ª skip the
  * Swoole getcid() PHP call entirely.
  */
 PHP_METHOD(gene_application, destroyContext) {
@@ -1038,14 +1038,14 @@ PHP_METHOD(gene_application, destroyContext) {
  * Phase 2: remove the now-empty context from co_contexts. The dtor
  *          [GENE_PERF:2026-04-24] now recycles the struct through the
  *          bounded struct pool (gene_request_context_pool_release) instead
- *          of efree'ing â€” so the next coroutine spawn skips ecalloc entirely.
+ *          of efree'ing ¡ª so the next coroutine spawn skips ecalloc entirely.
  * Phase 3 ([GENE_PERF:2026-04-24 #2]): if $gc truthy AND runtime_type >= 2,
  *          trigger gc_collect_cycles() so that cyclic graphs built by the
- *          handler (DI â†’ Service â†’ Model â†’ DI back-refs; ORM lazy loaders)
+ *          handler (DI ¡ú Service ¡ú Model ¡ú DI back-refs; ORM lazy loaders)
  *          are reclaimed at the request boundary instead of waiting for the
  *          GC threshold to trip mid-next-request. Defaults to false (caller
- *          opts in): the collector walks all live zvals and costs Î¼s-ms
- *          depending on live-heap size â€” only worth it for handlers that
+ *          opts in): the collector walks all live zvals and costs ¦Ìs-ms
+ *          depending on live-heap size ¡ª only worth it for handlers that
  *          demonstrably leak RSS without it.
  * In FPM mode: behaves identically to clearState() alone; $gc is ignored
  *              because the SAPI already frees the request arena next RSHUTDOWN.
@@ -1055,7 +1055,7 @@ PHP_METHOD(gene_application, destroyContext) {
 static void gene_application_cleanup_ctx(zend_bool gc) {
 	if (GENE_G(runtime_type) >= 2 && GENE_G(co_contexts)) {
 		zend_long cid;
-		/* [GENE_PERF:2026-04-19 #2] Fast path: vm_stack match â‡’ same coroutine
+		/* [GENE_PERF:2026-04-19 #2] Fast path: vm_stack match ? same coroutine
 		 * as current_ctx; skip getcid() and hash lookup, invalidate + delete. */
 		if (EXPECTED(GENE_G(current_ctx) != NULL
 				&& GENE_G(current_cid) >= 0
@@ -1092,7 +1092,7 @@ maybe_gc:
 			/* [GENE_PERF:2026-04-24 #2] Opt-in cycle collector after all
 			 * handler-scoped zvals have been released above. GC is disabled
 			 * by default (gc_enabled()==1 by default, but gc_collect_cycles()
-			 * is safe to call unconditionally â€” it respects gc_disabled()). */
+			 * is safe to call unconditionally ¡ª it respects gc_disabled()). */
 			gc_collect_cycles();
 		}
 	} else {
@@ -1425,7 +1425,7 @@ PHP_METHOD(gene_application, workerReady) {
 	/* [GENE_FIX:2026-08-23 IDEMPOTENT] workerReady is a once-per-worker
 	 * bootstrap hook: the freeze flag, bucket-array reserve and ctx-pool
 	 * prewarm are one-shot by nature. Absorb per-request misuse (calling it
-	 * from onRequest) with an early return â€” otherwise every call re-takes
+	 * from onRequest) with an early return ¡ª otherwise every call re-takes
 	 * the write lock and re-runs zend_hash_extend(), which, once the table
 	 * has filled past nTableSize-reserve, does a full pemalloc+memcpy+rehash
 	 * per request AND moves arData post-freeze, invalidating every borrowed
@@ -1450,7 +1450,7 @@ PHP_METHOD(gene_application, workerReady) {
 	 * [GENE_FIX:2026-08-23 SW-LOG] In Swoole mode (runtime_type >= 2) this
 	 * runs inside the workerStart callback where an uncaught exception from
 	 * the Gene\Exception error handler kills the worker and the master
-	 * respawns it â€” an endless crash loop. Log-only via gene_log_diag() so
+	 * respawns it ¡ª an endless crash loop. Log-only via gene_log_diag() so
 	 * the service keeps running; FPM keeps the loud user-handler path. */
 	if (GENE_G(cache_max_items) > 0
 			&& GENE_G(cache_reserve) <= GENE_G(cache_max_items)) {
@@ -1477,7 +1477,7 @@ PHP_METHOD(gene_application, workerReady) {
 	/* [GENE_FIX:2026-08-24 NOTICE-1] Removed the one-time "cache_max_items=0
 	 * leaves entries unbounded" advisory: 0 (unbounded) is the documented
 	 * default and a perfectly ordinary, often intentional choice, not a
-	 * misconfiguration â€” unlike the reserve<=max_items case above, there is
+	 * misconfiguration ¡ª unlike the reserve<=max_items case above, there is
 	 * no contradictory state to warn about here, so logging on every worker
 	 * boot was pure noise for the common case. cache_unlimited_noticed stays
 	 * a no-op field for now rather than removing the ini/global wholesale. */
@@ -1633,7 +1633,7 @@ PHP_METHOD(gene_application, run) {
 		/* [GENE_FEATURE:2026-07-30 F1] Degraded auto-cleanup path: when
 		 * Swoole\Coroutine::defer is unavailable (old Swoole / non-coroutine
 		 * context), reclaim the current coroutine's ctx after dispatch.
-		 * Outermost run() only â€” a nested run() must not clear state the
+		 * Outermost run() only ¡ª a nested run() must not clear state the
 		 * outer dispatch still relies on. O(1) no-op when the business
 		 * already called cleanup() (the hash delete simply misses). */
 		if (GENE_G(swoole_auto_cleanup) && GENE_G(runtime_type) >= 2
@@ -1661,18 +1661,18 @@ PHP_METHOD(gene_application, run) {
  * {{{ public gene_application::handleSwoole(object $request, object $response[, array $options])
  * [GENE_FEATURE:2026-09-12] One-call Swoole onRequest lifecycle adapter:
  *
- *   waitWorkerReady â†’ Request::initSwoole â†’ setResponse â†’ æœ¬å±‚ ob buffer
- *   â†’ run() â†’ Throwable è¾¹ç•Œ â†’ æ”¶æ•›æœ¬å±‚è¾“å‡º â†’ æœªç»“æŸåˆ™ response->end(output)
- *   â†’ cleanup(cleanup_gc)
+ *   waitWorkerReady ¡ú Request::initSwoole ¡ú setResponse ¡ú ±¾²ã ob buffer
+ *   ¡ú run() ¡ú Throwable ±ß½ç ¡ú ÊÕÁ²±¾²ãÊä³ö ¡ú Î´½áÊøÔò response->end(output)
+ *   ¡ú cleanup(cleanup_gc)
  *
- * Options: ['cleanup_gc' => false, 'catch' => null]. catch ä¸º
- * function (\Throwable $e, object $request, object $response): voidï¼›
- * æœªé…ç½®æ—¶æ¡†æ¶è®° Gene\Log::exception() å¹¶åœ¨å“åº”ä»å¯å†™ä¸”æœªç»“æŸæ—¶è¡¥
- * status(500) + end(buffered output)ã€‚catch å†æŠ›å¼‚å¸¸ï¼šbuffer æ¢å¤ä¸
- * cleanup ç…§å¸¸æ‰§è¡Œï¼Œå¼‚å¸¸å‘å¤–ä¼ æ’­ã€‚ä¸è®¾ç½®é»˜è®¤ Content-Typeï¼Œä¸è¦†ç›–ä¸šåŠ¡
- * status/headerï¼›dispatch å†…å·² end/json/sendFile/redirect çš„è¯·æ±‚ç»ä¸äºŒæ¬¡
- * end()ã€‚run() çš„é™çº§ auto-cleanup åœ¨æ­¤è¢« swoole_handle_depth æŠ‘åˆ¶ï¼Œ
- * ç”±æœ¬æ–¹æ³•ç‹¬å  cleanup æ—¶æœºã€‚ */
+ * Options: ['cleanup_gc' => false, 'catch' => null]. catch Îª
+ * function (\Throwable $e, object $request, object $response): void£»
+ * Î´ÅäÖÃÊ±¿ò¼Ü¼Ç Gene\Log::exception() ²¢ÔÚÏìÓ¦ÈÔ¿ÉĞ´ÇÒÎ´½áÊøÊ±²¹
+ * status(500) + end(buffered output)¡£catch ÔÙÅ×Òì³££ºbuffer »Ö¸´Óë
+ * cleanup ÕÕ³£Ö´ĞĞ£¬Òì³£ÏòÍâ´«²¥¡£²»ÉèÖÃÄ¬ÈÏ Content-Type£¬²»¸²¸ÇÒµÎñ
+ * status/header£»dispatch ÄÚÒÑ end/json/sendFile/redirect µÄÇëÇó¾ø²»¶ş´Î
+ * end()¡£run() µÄ½µ¼¶ auto-cleanup ÔÚ´Ë±» swoole_handle_depth ÒÖÖÆ£¬
+ * ÓÉ±¾·½·¨¶ÀÕ¼ cleanup Ê±»ú¡£ */
 PHP_METHOD(gene_application, handleSwoole) {
 	zval *request = NULL, *response = NULL, *options = NULL, *self;
 	zval *catch_cb = NULL, zout;
@@ -1701,7 +1701,7 @@ PHP_METHOD(gene_application, handleSwoole) {
 
 	gene_application_wait_worker_ready_once();
 	if (UNEXPECTED(gene_request_init_swoole(request) == FAILURE)) {
-		/* rawContent() ç¼ºå¤±æˆ–æŠ›é”™ï¼šè¯·æ±‚è¢‹æœªæäº¤ï¼Œcleanup åå¼‚å¸¸å‘å¤–ä¼ æ’­ã€‚ */
+		/* rawContent() È±Ê§»òÅ×´í£ºÇëÇó´üÎ´Ìá½»£¬cleanup ºóÒì³£ÏòÍâ´«²¥¡£ */
 		gene_application_cleanup_ctx(cleanup_gc);
 		return;
 	}
@@ -1737,7 +1737,7 @@ PHP_METHOD(gene_application, handleSwoole) {
 			cparams[2] = *response;
 			call_user_function(EG(function_table), NULL, catch_cb, &cret, 3, cparams);
 			zval_ptr_dtor(&cret);
-			/* catch å†æŠ›ï¼šEG(exception) é‡æ–°æŒ‚èµ· â†’ è·³è¿‡ endï¼Œç…§å¸¸æ¢å¤+cleanupã€‚ */
+			/* catch ÔÙÅ×£ºEG(exception) ÖØĞÂ¹ÒÆğ ¡ú Ìø¹ı end£¬ÕÕ³£»Ö¸´+cleanup¡£ */
 		} else {
 			zend_function *log_fn;
 			default_500 = 1;
@@ -1756,20 +1756,20 @@ PHP_METHOD(gene_application, handleSwoole) {
 
 	/* [GENE_PERF:2026-09-21 V3-3.5] Decide writability BEFORE collecting the
 	 * buffer: when Response::end/write/sendFile already reached Swoole the
-	 * buffered copy is dead weight â€” php_output_get_contents would copy it
+	 * buffered copy is dead weight ¡ª php_output_get_contents would copy it
 	 * only for us to discard it. A FINAL-stage output handler cannot avoid
 	 * the copy either (Swoole end() requires a zend_string), so reordering
 	 * is the whole available win on the already-sent path. */
 	zend_bool sent = 0;
 	if (!EG(exception)) {
-		/* æ”¶å£åˆ¤æ–­åªçœ‹ Swoole ä¾§å¯å†™æ€§ï¼Œä¸çœ‹ ctx->response_endedï¼š
-		 * Response::end/redirect/sendFile ç›´è¾¾ Swoole å isWritable()=false
-		 * ï¼ˆå¤©ç„¶é˜²äºŒæ¬¡ endï¼‰ï¼›è€Œ Response::json æ˜¯ php_write è¿› buffer ä»…ç½®
-		 * ended æ ‡è®°ï¼Œresponse å¯¹è±¡ä»å¯å†™ï¼Œbuffered body å¿…é¡»ç”±è¿™é‡Œå‘å‡ºå»ã€‚ */
+		/* ÊÕ¿ÚÅĞ¶ÏÖ»¿´ Swoole ²à¿ÉĞ´ĞÔ£¬²»¿´ ctx->response_ended£º
+		 * Response::end/redirect/sendFile Ö±´ï Swoole ºó isWritable()=false
+		 * £¨ÌìÈ»·À¶ş´Î end£©£»¶ø Response::json ÊÇ php_write ½ø buffer ½öÖÃ
+		 * ended ±ê¼Ç£¬response ¶ÔÏóÈÔ¿ÉĞ´£¬buffered body ±ØĞëÓÉÕâÀï·¢³öÈ¥¡£ */
 		zval *swoole_resp = gene_response_context_obj();
 		if (swoole_resp) {
-			/* isWritable() å…¼å®¹ç­–ç•¥ä¸ Response::isSent() ä¸€è‡´ï¼š
-			 * æ–¹æ³•ä¸å¯è§£ææ—¶æŒ‰"æœªå‘é€"å¤„ç†ï¼Œäº¤ç»™ end() å…œåº•ã€‚ */
+			/* isWritable() ¼æÈİ²ßÂÔÓë Response::isSent() Ò»ÖÂ£º
+			 * ·½·¨²»¿É½âÎöÊ±°´"Î´·¢ËÍ"´¦Àí£¬½»¸ø end() ¶µµ×¡£ */
 			zend_function *wf = GENE_APP_RESP_METHOD(Z_OBJCE_P(swoole_resp), "iswritable");
 			if (wf) {
 				zval wret;
@@ -1785,9 +1785,9 @@ PHP_METHOD(gene_application, handleSwoole) {
 		}
 	}
 
-	/* ä»…æ”¶é›†æœ¬å±‚è¾“å‡ºï¼šdispatch æœŸé—´ä¸šåŠ¡æ³„æ¼çš„åµŒå¥— buffer é€çº§ end æ”¶æ•›è¿›
-	 * æœ¬å±‚ï¼ˆob_end_flush è¯­ä¹‰ï¼‰ï¼Œè¿›å…¥å…¥å£å‰å·²æœ‰çš„å¤–å±‚ buffer ä¸è§¦ç¢°ï¼›
-	 * æœ¬å±‚å–å›å†…å®¹å discardï¼Œä¸è½¬å‘ç»™å¤–å±‚ã€‚ */
+	/* ½öÊÕ¼¯±¾²ãÊä³ö£ºdispatch ÆÚ¼äÒµÎñĞ¹Â©µÄÇ¶Ì× buffer Öğ¼¶ end ÊÕÁ²½ø
+	 * ±¾²ã£¨ob_end_flush ÓïÒå£©£¬½øÈëÈë¿ÚÇ°ÒÑÓĞµÄÍâ²ã buffer ²»´¥Åö£»
+	 * ±¾²ãÈ¡»ØÄÚÈİºó discard£¬²»×ª·¢¸øÍâ²ã¡£ */
 	ZVAL_EMPTY_STRING(&zout);
 	if (have_buffer) {
 		while (php_output_get_level() > entry_level + 1) {
@@ -1831,7 +1831,7 @@ static zend_always_inline int gene_app_call(const char *name, size_t name_len, z
 }
 
 /* [GENE_FEATURE:2026-09-12] Expand the "{env}" placeholder in a bootstrap
- * file name with the current environment name. No placeholder â†’ copy. */
+ * file name with the current environment name. No placeholder ¡ú copy. */
 static zend_always_inline zend_string *gene_app_env_expand(zend_string *name, zend_string *env) {
 	if (!env || !strstr(ZSTR_VAL(name), "{env}")) {
 		return zend_string_copy(name);
@@ -1842,15 +1842,15 @@ static zend_always_inline zend_string *gene_app_env_expand(zend_string *name, ze
 
 /*
  * {{{ public gene_application::bootstrap(string $appRoot, string $confDir[, array $options])
- * [GENE_FEATURE:2026-09-12] FPM/Swoole å…±äº«çš„åº”ç”¨è£…è½½æ”¶å£ï¼Œç­‰ä»·äºï¼š
+ * [GENE_FEATURE:2026-09-12] FPM/Swoole ¹²ÏíµÄÓ¦ÓÃ×°ÔØÊÕ¿Ú£¬µÈ¼ÛÓÚ£º
  *   autoload($appRoot)
- *   ->load($router, $confDir)            // options['router']ï¼Œå¯å« {env}
- *   ->load($config, $confDir)            // options['config']ï¼Œ{env} å±•å¼€ä¸º
+ *   ->load($router, $confDir)            // options['router']£¬¿Éº¬ {env}
+ *   ->load($config, $confDir)            // options['config']£¬{env} Õ¹¿ªÎª
  *                                      //   getEnvironmentName()
  *   ->setMode($mode ?? 1, $debug, $ex_callback, $error_callback)
- *                                      // $debug = options['debug'] ?? (env âˆˆ options['debug_envs'])
+ *                                      // $debug = options['debug'] ?? (env ¡Ê options['debug_envs'])
  *
- * ä¸æ‰¿è½½ request-id/webscan/æ—¶åŒº/æ± å/ä¸šåŠ¡å¼‚å¸¸ä¿¡å° â€”â€” è¿™äº›ç”±åº”ç”¨æ˜¾å¼é…ç½®ã€‚
+ * ²»³ĞÔØ request-id/webscan/Ê±Çø/³ØÃû/ÒµÎñÒì³£ĞÅ·â ¡ª¡ª ÕâĞ©ÓÉÓ¦ÓÃÏÔÊ½ÅäÖÃ¡£
  */
 PHP_METHOD(gene_application, bootstrap) {
 	zend_string *app_root = NULL, *conf_dir = NULL;
@@ -1901,7 +1901,7 @@ PHP_METHOD(gene_application, bootstrap) {
 		}
 	}
 
-	/* ç¯å¢ƒåä»…åœ¨ {env} å±•å¼€æˆ– debug_envs åˆ¤å®šæ—¶éœ€è¦ï¼Œæƒ°æ€§å–ä¸€æ¬¡ã€‚ */
+	/* »·¾³Ãû½öÔÚ {env} Õ¹¿ª»ò debug_envs ÅĞ¶¨Ê±ĞèÒª£¬¶èĞÔÈ¡Ò»´Î¡£ */
 	ZVAL_UNDEF(&env_ret);
 	if ((router_v && Z_TYPE_P(router_v) == IS_STRING && strstr(Z_STRVAL_P(router_v), "{env}"))
 			|| (config_v && Z_TYPE_P(config_v) == IS_STRING && strstr(Z_STRVAL_P(config_v), "{env}"))
@@ -1916,7 +1916,7 @@ PHP_METHOD(gene_application, bootstrap) {
 		}
 	}
 	if (debug_v && Z_TYPE_P(debug_v) != IS_NULL) {
-		/* æ˜¾å¼ debug ä¼˜å…ˆäº debug_envs ç¯å¢ƒåŒ¹é…ï¼ˆç­‰ä»·æ—§å¼ setMode(1,1) æ’å¼€ï¼‰ */
+		/* ÏÔÊ½ debug ÓÅÏÈÓÚ debug_envs »·¾³Æ¥Åä£¨µÈ¼Û¾ÉÊ½ setMode(1,1) ºã¿ª£© */
 		debug = zend_is_true(debug_v) ? 1 : 0;
 	} else if (debug_envs && Z_TYPE_P(debug_envs) == IS_ARRAY && Z_TYPE(env_ret) == IS_STRING) {
 		zval *env_name;
@@ -1971,9 +1971,9 @@ PHP_METHOD(gene_application, bootstrap) {
 	}
 	if (err_cb && Z_TYPE_P(err_cb) != IS_NULL) {
 		if (mode_argc == 2) {
-			/* ex_callback ç¼ºçœå ä½ï¼šæ˜¾å¼ä¼  Gene å†…ç½®å¼‚å¸¸å¤„ç†å™¨åï¼Œ
-			 * ç­‰ä»· setMode ç¬¬ä¸‰å‚ç¼ºçœæ—¶ gene_exception_register(NULL) çš„å›é€€ï¼Œ
-			 * ä¸èƒ½ä¼  NULL zvalï¼ˆset_exception_handler(NULL) ä¼šå¸æ‰å¤„ç†å™¨ï¼‰ã€‚ */
+			/* ex_callback È±Ê¡Õ¼Î»£ºÏÔÊ½´« Gene ÄÚÖÃÒì³£´¦ÀíÆ÷Ãû£¬
+			 * µÈ¼Û setMode µÚÈı²ÎÈ±Ê¡Ê± gene_exception_register(NULL) µÄ»ØÍË£¬
+			 * ²»ÄÜ´« NULL zval£¨set_exception_handler(NULL) »áĞ¶µô´¦ÀíÆ÷£©¡£ */
 			if (GENE_G(use_namespace)) {
 				ZVAL_STRING(&params[2], GENE_EXCEPTION_FUNC_NAME_NS);
 			} else {
@@ -2003,8 +2003,8 @@ done:
 }
 /* }}} */
 
-/* [GENE_FEATURE:2026-09-12] Pool å£°æ˜ç™»è®°è¡¨ï¼ˆworker ç”Ÿå‘½å‘¨æœŸå…¨å±€è¡¨ï¼‰ã€‚
- * æ˜¾å¼å£°æ˜é©±åŠ¨ä¸ config componentï¼Œç»ä¸æ‰«æé…ç½®çŒœæµ‹ç±»å‹ã€‚ */
+/* [GENE_FEATURE:2026-09-12] Pool ÉùÃ÷µÇ¼Ç±í£¨worker ÉúÃüÖÜÆÚÈ«¾Ö±í£©¡£
+ * ÏÔÊ½ÉùÃ÷Çı¶¯Óë config component£¬¾ø²»É¨ÃèÅäÖÃ²Â²âÀàĞÍ¡£ */
 static zend_always_inline HashTable *gene_app_pool_decls(void) {
 	if (!GENE_G(pool_decls)) {
 		ALLOC_HASHTABLE(GENE_G(pool_decls));
@@ -2020,12 +2020,12 @@ static zend_always_inline zend_bool gene_app_pool_decl_started(zval *decl) {
 
 /*
  * {{{ public gene_application::pools(array $decls)
- * [GENE_FEATURE:2026-09-12] ç™»è®°è¿æ¥æ± å£°æ˜ï¼š
+ * [GENE_FEATURE:2026-09-12] µÇ¼ÇÁ¬½Ó³ØÉùÃ÷£º
  *   ['dbPool' => ['driver' => 'db',    'component' => 'db',    'params' => [...]],
  *    'redisPool' => ['driver' => 'redis', 'component' => 'redis']]
- * driver ä»…æ¥å— 'db'ï¼ˆGene\Poolï¼‰æˆ– 'redis'ï¼ˆGene\Cache\RedisPoolï¼‰ï¼›
- * component ä¸º config é”®åï¼›params ä¸ºå¯é€‰æ± å‚æ•°ï¼ˆmin/max/idleTimeout/
- * waitTimeoutï¼‰ã€‚å·²å¯åŠ¨çš„æ± ä¸å¯é‡å£°æ˜ï¼ˆValueErrorï¼‰ã€‚
+ * driver ½ö½ÓÊÜ 'db'£¨Gene\Pool£©»ò 'redis'£¨Gene\Cache\RedisPool£©£»
+ * component Îª config ¼üÃû£»params Îª¿ÉÑ¡³Ø²ÎÊı£¨min/max/idleTimeout/
+ * waitTimeout£©¡£ÒÑÆô¶¯µÄ³Ø²»¿ÉÖØÉùÃ÷£¨ValueError£©¡£
  */
 PHP_METHOD(gene_application, pools) {
 	zval *decls = NULL, *self = getThis();
@@ -2091,9 +2091,9 @@ PHP_METHOD(gene_application, pools) {
 }
 /* }}} */
 
-/* [GENE_FEATURE:2026-09-12] Pool åˆ›å»ºå‰çš„é…ç½®é¢„æ£€ â€”â€” ä¸ Pool::create /
- * RedisPool::create ç›¸åŒçš„ "<app_key|app_root>:config" æŸ¥æ‰¾ã€‚é…ç½®ç¼ºå¤±æ—¶
- * æ˜¾å¼æŠ›å¼‚å¸¸ï¼Œä¸è®©åæ± å¸¦ç€ç©º params æ³¨å†Œï¼ˆTimer ä¹Ÿä¸ä¼šå¯åŠ¨ï¼‰ã€‚ */
+/* [GENE_FEATURE:2026-09-12] Pool ´´½¨Ç°µÄÅäÖÃÔ¤¼ì ¡ª¡ª Óë Pool::create /
+ * RedisPool::create ÏàÍ¬µÄ "<app_key|app_root>:config" ²éÕÒ¡£ÅäÖÃÈ±Ê§Ê±
+ * ÏÔÊ½Å×Òì³££¬²»ÈÃ»µ³Ø´ø×Å¿Õ params ×¢²á£¨Timer Ò²²»»áÆô¶¯£©¡£ */
 static int gene_app_pool_config_exists(zend_string *component) {
 	char cache_key_buf[256];
 	char *cache_key = cache_key_buf;
@@ -2139,9 +2139,9 @@ static zend_always_inline void gene_app_pool_call0(zend_class_entry *ce, const c
 
 /*
  * {{{ public gene_application::startPools()
- * [GENE_FEATURE:2026-09-12] æŒ‰å£°æ˜åˆ›å»ºå…¨éƒ¨æœªå¯åŠ¨çš„æ± ï¼ˆworkerStart ä¸­è°ƒç”¨ï¼‰ã€‚
- * FPMï¼ˆruntime_type < 2ï¼‰ä¸‹æ˜ç¡®æ‹’ç»è¿”å› falseï¼›é‡å¤è°ƒç”¨å¹‚ç­‰ï¼›æŸä¸ªæ± åˆ›å»º
- * å¤±è´¥æ—¶å¼‚å¸¸å‘å¤–ä¼ æ’­ä¸”è¯¥å£°æ˜ä¿æŒæœªå¯åŠ¨ï¼ˆå¯é‡è¯•ï¼‰ï¼Œä¸ç•™ä¸‹åŠåˆå§‹åŒ–æ³¨å†Œé¡¹ã€‚
+ * [GENE_FEATURE:2026-09-12] °´ÉùÃ÷´´½¨È«²¿Î´Æô¶¯µÄ³Ø£¨workerStart ÖĞµ÷ÓÃ£©¡£
+ * FPM£¨runtime_type < 2£©ÏÂÃ÷È·¾Ü¾ø·µ»Ø false£»ÖØ¸´µ÷ÓÃÃİµÈ£»Ä³¸ö³Ø´´½¨
+ * Ê§°ÜÊ±Òì³£ÏòÍâ´«²¥ÇÒ¸ÃÉùÃ÷±£³ÖÎ´Æô¶¯£¨¿ÉÖØÊÔ£©£¬²»ÁôÏÂ°ë³õÊ¼»¯×¢²áÏî¡£
  */
 PHP_METHOD(gene_application, startPools) {
 	zend_string *name;
@@ -2222,8 +2222,8 @@ PHP_METHOD(gene_application, startPools) {
 
 /*
  * {{{ public gene_application::stopPoolTimers()
- * [GENE_FEATURE:2026-09-12] workerExit ç”¨ï¼šä»…ä¸º"å·²é€šè¿‡ startPools å¯åŠ¨"çš„
- * é©±åŠ¨æ—è°ƒç”¨ stopTimers()ï¼Œä¸å½±å“æœªå£°æ˜/æ‰‹åŠ¨åˆ›å»ºçš„æ± ã€‚å¹‚ç­‰ã€‚
+ * [GENE_FEATURE:2026-09-12] workerExit ÓÃ£º½öÎª"ÒÑÍ¨¹ı startPools Æô¶¯"µÄ
+ * Çı¶¯×åµ÷ÓÃ stopTimers()£¬²»Ó°ÏìÎ´ÉùÃ÷/ÊÖ¶¯´´½¨µÄ³Ø¡£ÃİµÈ¡£
  */
 PHP_METHOD(gene_application, stopPoolTimers) {
 	zend_bool has_db = 0, has_redis = 0;
@@ -2260,8 +2260,8 @@ PHP_METHOD(gene_application, stopPoolTimers) {
 
 /*
  * {{{ public gene_application::closePools()
- * [GENE_FEATURE:2026-09-12] workerStop ç”¨ï¼šä¸ºå·²å¯åŠ¨çš„é©±åŠ¨æ—è°ƒç”¨
- * closeAll()ï¼Œéšåå¤ä½ started æ ‡è®°ä½¿è¿›ç¨‹å¯å®‰å…¨é‡å…¥ï¼ˆå¹‚ç­‰ï¼‰ã€‚
+ * [GENE_FEATURE:2026-09-12] workerStop ÓÃ£ºÎªÒÑÆô¶¯µÄÇı¶¯×åµ÷ÓÃ
+ * closeAll()£¬Ëæºó¸´Î» started ±ê¼ÇÊ¹½ø³Ì¿É°²È«ÖØÈë£¨ÃİµÈ£©¡£
  */
 PHP_METHOD(gene_application, closePools) {
 	zend_bool has_db = 0, has_redis = 0;
@@ -2396,9 +2396,9 @@ const zend_function_entry gene_application_methods[] = {
 	PHP_ME(gene_application, exception, gene_application_exception, ZEND_ACC_PUBLIC)
 	PHP_ME(gene_application, webscan, gene_application_webscan, ZEND_ACC_PUBLIC)
 	PHP_ME(gene_application, run, gene_application_run, ZEND_ACC_PUBLIC)
-	/* [GENE_FEATURE:2026-09-12] Swoole onRequest ç”Ÿå‘½å‘¨æœŸæ”¶å£ â€”â€” see impl. */
+	/* [GENE_FEATURE:2026-09-12] Swoole onRequest ÉúÃüÖÜÆÚÊÕ¿Ú ¡ª¡ª see impl. */
 	PHP_ME(gene_application, handleSwoole, gene_application_handle_swoole, ZEND_ACC_PUBLIC)
-	/* [GENE_FEATURE:2026-09-12] FPM/Swoole å…±äº«è£…è½½æ”¶å£ + æ˜¾å¼ Pool ç¼–æ’ã€‚ */
+	/* [GENE_FEATURE:2026-09-12] FPM/Swoole ¹²Ïí×°ÔØÊÕ¿Ú + ÏÔÊ½ Pool ±àÅÅ¡£ */
 	PHP_ME(gene_application, bootstrap, gene_application_bootstrap, ZEND_ACC_PUBLIC)
 	PHP_ME(gene_application, pools, gene_application_pools, ZEND_ACC_PUBLIC|ZEND_ACC_STATIC)
 	PHP_ME(gene_application, startPools, gene_application_start_pools, ZEND_ACC_PUBLIC|ZEND_ACC_STATIC)

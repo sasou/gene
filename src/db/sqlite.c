@@ -1,4 +1,4 @@
-ï»¿/*
+/*
  +----------------------------------------------------------------------+
  | gene                                                                 |
  +----------------------------------------------------------------------+
@@ -180,14 +180,14 @@ void sqlite_reset_sql_params(zval *self)
 	gene_db_prop_set_null(gene_strip_obj(self), gene_db_sqlite_prop[GENE_DB_PROP_ORDER]);
 	gene_db_prop_set_null(gene_strip_obj(self), gene_db_sqlite_prop[GENE_DB_PROP_LIMIT]);
 	/* [GENE_FEATURE:2026-08-18 3.4] M8: clear the LOCK fragment with every
-	 * other SQL part (unused on sqlite â€” no-op lock methods â€” but kept for
+	 * other SQL part (unused on sqlite ¡ª no-op lock methods ¡ª but kept for
 	 * cross-driver symmetry). */
 	gene_db_prop_set_null(gene_strip_obj(self), gene_db_sqlite_prop[GENE_DB_PROP_LOCK]);
     gene_db_prop_set_null(gene_strip_obj(self), gene_db_sqlite_prop[GENE_DB_PROP_DATA]);
 }
 
 void sqliteSaveHistory(smart_str *sql, zval *param, uint64_t *start, uint64_t *end, zend_long *mem_start, zend_long *mem_end) {
-	zval *history = &GENE_REQ(db_sqlite_history);
+	zval *history = gene_db_history_slot(gene_request_ctx(), ZEND_STRL("sqlite"));
 	zval params, z_row, z_sql, z_data, z_time, z_memory;
 	char *char_t,*char_m;
 
@@ -414,10 +414,7 @@ PHP_METHOD(gene_db_sqlite, __construct)
 
     {
     	gene_request_context *ctx = gene_request_ctx();
-    	if (Z_TYPE(ctx->db_sqlite_history) != IS_UNDEF) {
-    		zval_ptr_dtor(&ctx->db_sqlite_history);
-    	}
-    	ZVAL_UNDEF(&ctx->db_sqlite_history);
+    	gene_db_history_reset(ctx, ZEND_STRL("sqlite"));
     }
 
     if (config) {
@@ -514,7 +511,7 @@ PHP_METHOD(gene_db_sqlite, count)
 /* }}} */
 
 
-/* Shared INSERT builder. ignore=1 â†’ INSERT OR IGNORE (sqlite idempotent
+/* Shared INSERT builder. ignore=1 ¡ú INSERT OR IGNORE (sqlite idempotent
  * write, equivalent to MySQL INSERT IGNORE). */
 static void gene_db_sqlite_do_insert(zval *self, char *table, zval *fields, zend_bool ignore)
 {
@@ -564,7 +561,7 @@ PHP_METHOD(gene_db_sqlite, insert)
 
 /*
  * {{{ public gene_db_sqlite::insertIgnore($table, $fields)
- * [GENE_FEATURE:2026-08-18 3.3] INSERT OR IGNORE â€” sqlite equivalent of
+ * [GENE_FEATURE:2026-08-18 3.3] INSERT OR IGNORE ¡ª sqlite equivalent of
  * MySQL INSERT IGNORE. Lazy like insert(): execute via lastId()/affectedRows(). */
 PHP_METHOD(gene_db_sqlite, insertIgnore)
 {
@@ -944,7 +941,7 @@ PHP_METHOD(gene_db_sqlite, execute)
 }
 /* }}} */
 
-/* [GENE_FEATURE:2026-08-06 F0-2] JOIN type whitelist â€” anything outside this
+/* [GENE_FEATURE:2026-08-06 F0-2] JOIN type whitelist ¡ª anything outside this
  * set is rejected instead of interpolated into the SQL. */
 static zend_bool gene_db_sqlite_join_type(const char *type, size_t type_len, char *out, size_t out_size) {
 	static const char *allowed[] = {
@@ -970,7 +967,7 @@ static zend_bool gene_db_sqlite_join_type(const char *type, size_t type_len, cha
 
 /* [GENE_FEATURE:2026-08-06 F0-2] Build the ON clause from a structured
  * assoc array (leftColumn => rightColumn); both sides go through the
- * identifier quoting path. Raw strings are deliberately NOT accepted â€” a
+ * identifier quoting path. Raw strings are deliberately NOT accepted ¡ª a
  * free-form ON string would open a new injection surface around the
  * "?" placeholder binding used for data values. */
 static zend_bool gene_db_sqlite_build_on(zval *on, smart_str *out) {
@@ -1302,7 +1299,7 @@ PHP_METHOD(gene_db_sqlite, lockForUpdate)
 {
 	zval *self = getThis();
 	php_error_docref(NULL, E_NOTICE,
-		"Gene\\Db\\Sqlite::lockForUpdate() is a no-op â€” SQLite has no FOR UPDATE syntax");
+		"Gene\\Db\\Sqlite::lockForUpdate() is a no-op ¡ª SQLite has no FOR UPDATE syntax");
 	RETURN_ZVAL(self, 1, 0);
 }
 
@@ -1310,7 +1307,7 @@ PHP_METHOD(gene_db_sqlite, sharedLock)
 {
 	zval *self = getThis();
 	php_error_docref(NULL, E_NOTICE,
-		"Gene\\Db\\Sqlite::sharedLock() is a no-op â€” SQLite has no shared-lock syntax");
+		"Gene\\Db\\Sqlite::sharedLock() is a no-op ¡ª SQLite has no shared-lock syntax");
 	RETURN_ZVAL(self, 1, 0);
 }
 
@@ -1470,7 +1467,7 @@ PHP_METHOD(gene_db_sqlite, print)
 	smart_str_0(&sql);
 	zval z_row, z_sql;
 	/* [GENE_FIX:2026-08-19] sql.s stays NULL when no statement was built
-	 * (fresh handle / right after reset) â€” ZSTR_VAL(NULL) segfaults. */
+	 * (fresh handle / right after reset) ¡ª ZSTR_VAL(NULL) segfaults. */
 	ZVAL_STRING(&z_sql, sql.s ? ZSTR_VAL(sql.s) : "");
 	smart_str_free(&sql);
 
@@ -1565,7 +1562,7 @@ PHP_METHOD(gene_db_sqlite, free)
 	if (pool && Z_TYPE_P(pool) == IS_OBJECT) {
 		gene_pool_return_pdo(gene_db_sqlite_ce, self, ZEND_STRL(GENE_DB_SQLITE_POOL), ZEND_STRL(GENE_DB_SQLITE_PDO));
 	} else {
-		/* [GENE_FIX:2026-08-19 N3] No-pool handle â€” see Db\Mysql::free(). */
+		/* [GENE_FIX:2026-08-19 N3] No-pool handle ¡ª see Db\Mysql::free(). */
 		zval *pdo = gene_db_prop_get(gene_strip_obj(self), gene_db_sqlite_prop[GENE_DB_PROP_PDO]);
 		gene_db_tx_hygiene(pdo, "Db\\Sqlite handle freed");
 		gene_db_prop_set_null(gene_strip_obj(self), gene_db_sqlite_prop[GENE_DB_PROP_PDO]);
@@ -1716,10 +1713,11 @@ PHP_METHOD(gene_db_sqlite, detach)
 PHP_METHOD(gene_db_sqlite, history)
 {
 	gene_request_context *ctx = gene_request_ctx();
-	if (Z_TYPE(ctx->db_sqlite_history) == IS_UNDEF) {
+	zval *hist = gene_db_history_find(ctx, ZEND_STRL("sqlite"));
+	if (!hist) {
 		RETURN_NULL();
 	}
-	RETURN_ZVAL(&ctx->db_sqlite_history, 1, 0);
+	RETURN_ZVAL(hist, 1, 0);
 }
 /* }}} */
 
