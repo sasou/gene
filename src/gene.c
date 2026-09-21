@@ -474,6 +474,7 @@ void gene_request_context_init(gene_request_context *ctx) {
 	ZVAL_UNDEF(&ctx->request_json);
 	ctx->request_json_error = NULL;
 	ctx->request_json_state = 0;
+	ctx->request_bags_inited = 0;
 	ctx->invoke_depth = 0;
 	ctx->view_scope_no = 0;
 	ctx->log_file = NULL;
@@ -607,7 +608,8 @@ static void gene_request_context_free_fields(gene_request_context *ctx, int pres
 	ctx->method_len = 0;
 	if (ctx->path) { efree(ctx->path); ctx->path = NULL; }
 	ctx->path_len = 0;
-	if (ctx->router_path) { efree(ctx->router_path); ctx->router_path = NULL; }
+	if (ctx->router_path) { if (ctx->router_path_owned) efree(ctx->router_path); ctx->router_path = NULL; }
+	ctx->router_path_owned = 0;
 	ctx->router_path_len = 0;
 	/* [GENE_PERF:2026-09-20 V3-2.5] module/controller/action may point into
 	 * the context-owned mca_buf slots — pointer identity is the ownership
@@ -634,6 +636,7 @@ static void gene_request_context_free_fields(gene_request_context *ctx, int pres
 		ctx->request_json_error = NULL;
 	}
 	ctx->request_json_state = 0;
+	ctx->request_bags_inited = 0;
 	ctx->invoke_depth = 0;
 	ctx->http_busy = 0;
 	if (!preserve_for_reuse) {

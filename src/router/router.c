@@ -215,15 +215,29 @@
 	 gene_request_context *ctx = gene_request_ctx();
 	 key = zend_hash_str_find(Z_ARRVAL_P(*leaf), "key", 3);
 	 if (key) {
-		 if (ctx->router_path) {
+		 if (ctx->router_path && ctx->router_path_owned) {
 			 efree(ctx->router_path);
 		 }
-		 if (Z_STRLEN_P(key)) {
-			 ctx->router_path = estrndup(Z_STRVAL_P(key), Z_STRLEN_P(key));
+		 /* [GENE_PERF:2026-09-21 V3-2.4(3)] In the frozen Swoole phase the leaf
+		  * "key" is a permanent string of the write-once route tree, so the
+		  * context may borrow it instead of estrndup'ing one copy per request.
+		  * A route-tree rebuild (Router::clear/delTree) is forbidden inside
+		  * onRequest (audit-backlog §七), so the borrow cannot dangle. */
+		 if (GENE_G(runtime_type) >= 2 && GENE_G(worker_ready)
+				 && Z_TYPE_P(key) == IS_STRING
+				 && (GC_FLAGS(Z_STR_P(key)) & IS_STR_PERMANENT)) {
+			 ctx->router_path = Z_STRVAL_P(key);
 			 ctx->router_path_len = Z_STRLEN_P(key);
+			 ctx->router_path_owned = 0;
 		 } else {
-			 ctx->router_path = estrndup("", 0);
-			 ctx->router_path_len = 0;
+			 if (Z_STRLEN_P(key)) {
+				 ctx->router_path = estrndup(Z_STRVAL_P(key), Z_STRLEN_P(key));
+				 ctx->router_path_len = Z_STRLEN_P(key);
+			 } else {
+				 ctx->router_path = estrndup("", 0);
+				 ctx->router_path_len = 0;
+			 }
+			 ctx->router_path_owned = 1;
 		 }
 	 }
  }
@@ -801,6 +815,10 @@ static void gene_fn_cache_store(zval *closure, zval *fid_zv) {
 	  * fn_cache wiped since (Router::clear()/delTree()/delEvent()), so
 	  * every borrowed pointer above is dangling and the descriptor must not run. */
 	 zend_ulong generation;
+	 /* [GENE_PERF:2026-09-21 V3-4.2] In-flight executions of this descriptor.
+	  * gene_route_pc_execute() brackets its body with ++/--; a retired node is
+	  * only freed once no coroutine can still be suspended inside it. */
+	 uint32_t borrowers;
 	 /* Retire-list link, see GENE_G(route_pc_retired). */
 	 struct _gene_route_pc *retired_next;
  } gene_route_pc;
@@ -845,7 +863,26 @@ static void gene_fn_cache_store(zval *closure, zval *fid_zv) {
   * descriptors keep their now-stale generation and are unlinked lazily on their
   * next lookup -- the only point where we know no caller is borrowing them. */
  void gene_router_pc_invalidate(void) {
+	 gene_route_pc **link;
 	 GENE_G(route_pc_generation)++;
+	 /* [GENE_PERF:2026-09-21 V3-4.2] Reclaim retired nodes whose last borrower
+	  * has left gene_route_pc_execute(). A coroutine suspended inside execute
+	  * keeps borrowers>0 and its node stays on the list until the next
+	  * invalidate (or MSHUTDOWN), so reclamation is bounded without being
+	  * unsafe. Single-threaded per worker: the count needs no atomics. */
+	 link = (gene_route_pc **)&GENE_G(route_pc_retired);
+	 while (*link) {
+		 gene_route_pc *pc = *link;
+		 if (pc->borrowers == 0) {
+			 *link = pc->retired_next;
+			 gene_route_pc_free(pc);
+			 if (GENE_G(route_pc_retired_count) > 0) {
+				 GENE_G(route_pc_retired_count)--;
+			 }
+		 } else {
+			 link = &pc->retired_next;
+		 }
+	 }
  }
 
  /* Resolve (leaf, cacheHook) into a descriptor. Mirrors get_router_info_slow()'s
@@ -1085,7 +1122,7 @@ static void gene_fn_cache_store(zval *closure, zval *fid_zv) {
   * branch of get_router_info_slow(). Returns 1 on success, or -1 when the
   * descriptor could not be executed at all (closure gone) and the caller must
   * fall back to get_router_info_slow() -- in that case nothing has run yet. */
- static int gene_route_pc_execute(const gene_route_pc *pc) {
+ static int gene_route_pc_execute_inner(const gene_route_pc *pc) {
 	 zval dispatch_result;
 	 zval *route_cl = NULL, *before_cl = NULL, *after_cl = NULL, *hook_cl = NULL;
 
@@ -1166,6 +1203,19 @@ static void gene_fn_cache_store(zval *closure, zval *fid_zv) {
  pc_cleanup:
 	 zval_ptr_dtor(&dispatch_result);
 	 return 1;
+ }
+
+ /* [GENE_PERF:2026-09-21 V3-4.2] Borrower bracket around the dispatch body. The
+  * inner body runs PHP code that may suspend the coroutine; while it does, a
+  * Router::clear() on the resume path must not free this descriptor. If PHP
+  * bailouts unwind through us the count simply stays elevated — the node is
+  * then reclaimed at the next invalidate where borrowers==0, or MSHUTDOWN. */
+ static int gene_route_pc_execute(gene_route_pc *pc) {
+	 int rc;
+	 pc->borrowers++;
+	 rc = gene_route_pc_execute_inner(pc);
+	 pc->borrowers--;
+	 return rc;
  }
  /* }}} */
 
@@ -1502,6 +1552,7 @@ static void gene_fn_cache_store(zval *closure, zval *fid_zv) {
 		 pc = (gene_route_pc *)pemalloc(sizeof(gene_route_pc), 1);
 		 gene_route_pc_resolve(leaf, cacheHook, pc);
 		 pc->generation = GENE_G(route_pc_generation);
+		 pc->borrowers = 0;
 		 pc->retired_next = NULL;
 		 zend_hash_index_add_new_ptr(GENE_G(route_pc), key, pc);
 	 }
@@ -2317,6 +2368,7 @@ void get_router_content_run(char *methodin, char *pathin, const char *safe_str, 
 	  * after matching. Only pointer/len swap — no data copies. */
 	 char *saved_module = NULL, *saved_controller = NULL, *saved_action = NULL, *saved_router_path = NULL;
 	 size_t saved_module_len = 0, saved_controller_len = 0, saved_action_len = 0, saved_router_path_len = 0;
+	 zend_bool saved_router_path_owned = 0;
 	 zval saved_path_params;
 	 /* [GENE_PERF:2026-09-20 V3-2.5] The saved pointers may reference the
 	  * inline mca_buf slots; a probe setMca() would overwrite them in place,
@@ -2334,6 +2386,7 @@ void get_router_content_run(char *methodin, char *pathin, const char *safe_str, 
 	 saved_controller = ctx->controller;     saved_controller_len = ctx->controller_len;
 	 saved_action = ctx->action;             saved_action_len = ctx->action_len;
 	 saved_router_path = ctx->router_path;   saved_router_path_len = ctx->router_path_len;
+	 saved_router_path_owned = ctx->router_path_owned;
 	 saved_path_params = ctx->path_params;
 	 memcpy(saved_mca, ctx->mca_buf, sizeof(saved_mca));
 	 ctx->module = NULL;
@@ -2493,10 +2546,17 @@ restore:
 	 if (Z_TYPE(ctx->path_params) == IS_ARRAY) {
 		 zval_ptr_dtor(&ctx->path_params);
 	 }
+	 /* [GENE_PERF:2026-09-21 V3-2.4(3)] If a probe set an owned router_path it
+	  * is released here (borrowed ones must not be efree'd), then the saved
+	  * pointer and its ownership flag are restored together. */
+	 if (ctx->router_path && ctx->router_path_owned) {
+		 efree(ctx->router_path);
+	 }
 	 ctx->module = saved_module;             ctx->module_len = saved_module_len;
 	 ctx->controller = saved_controller;     ctx->controller_len = saved_controller_len;
 	 ctx->action = saved_action;             ctx->action_len = saved_action_len;
 	 ctx->router_path = saved_router_path;   ctx->router_path_len = saved_router_path_len;
+	 ctx->router_path_owned = saved_router_path_owned;
 	 ctx->path_params = saved_path_params;
  }
  /* }}} */
