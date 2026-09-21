@@ -288,6 +288,11 @@ static inline uint64_t gene_hrtime(void) {
  zend_long view_stat_ttl;
  /* path -> last-verified unix ts; request-scoped like fn_cache. */
  HashTable *view_fresh;
+ /* [GENE_PERF:2026-09-21 V3-3.4] gene.log_keep_open (0=off, default) keeps a
+  * process-persistent append stream per log path; gene.log_reopen_interval
+  * (seconds, default 5) is the stat cadence for logrotate-style reopen. */
+ bool log_keep_open;
+ zend_long log_reopen_interval;
  HashTable *cache;
  HashTable *business_cache;
  HashTable *cache_easy;
