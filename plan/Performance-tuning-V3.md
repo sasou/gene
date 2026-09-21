@@ -662,3 +662,75 @@ Channel 满后 `pool_channel_push` 失败 → `pool_decrement_count` → **连�
 3. 常驻资源优化首先要明确唯一所有者。将 persistent-list 所有权与模块自管关闭混用，比省掉 open/close 更危险；本次选择 Swoole worker 单一所有权，FPM 保守回退。
 4. “全量 passed”只说明已执行断言通过，不说明目标路径被覆盖。后续发布记录必须并列给出 passed、skipped/uncovered、目标环境和 ASAN 四列，禁止再用总通过数替代真实 Swoole 覆盖。
 5. 新性能开关不能以 opt-in 为由跳过生命周期证明。FPM 冻结点会改变第二请求 bootstrap 语义，故正确处理是明确否决，而非为了清单闭环加入危险开关。
+
+---
+
+## 13. 审计修复的独立复核（2026-09-21，第二次代码级审计）
+
+> 方法：对 §12.1 的每一条声明回读实现代码并核对"改法—不变量—释放路径"，
+> 然后在本机从 HEAD（`95665ff`）**重新全量构建**并跑全量回归独立复现结论，
+> 不采信 §12.3 已记录的数字。
+
+### 13.1 §12.1 逐项核对结果（全部成立）
+
+| 审计项 | 代码证据 | 核对结论 |
+|---|---|---|
+| 11.1 P0 idle 栈 | `pool.c:104-173`（`zval *idle / zend_long *idle_ts / idle_n / idle_cap`，`pool_idle_push` erealloc 翻倍 + `ZVAL_COPY`，`pool_idle_pop` 转移所有权并 `ZVAL_UNDEF` 旧槽）；`redis_pool.c:141-175` 同构 | **成立**。`idle_n` 是唯一栈顶，已完全脱离 `HashTable::nNextFreeElement`。`get()`（`pool.c:822-837`）、`put()`（`:983-997`）、`recycleIdle`（`:735-790`）三处的 pop-转移/push-addref 与 `zval_ptr_dtor` 配对逐分支闭合，无双释放、无泄漏分支 |
+| 11.4 P1-3 waiters | `pool.c:877-884` / `redis_pool.c:1289-1296` `zend_try/zend_catch{ waiters--; zend_bailout(); }`；`close()` 归零（`pool.c:1018`、`redis_pool.c:1436`）；`pool_idle_clear`/`rpool_idle_clear` 归零；push 失败回退 idle（`pool.c:990-993`） | **成立**。bailout 路径已配平；连接不再被静默丢弃 |
+| 11.3 P1-2 scope | 新增 `gene_request_bags_commit()`（`request.c:348-356`）并在 `gene_request_scope` 调用（`:368`）；`LifecycleTest.php:154-160` 新增"先读外层 → scope → 再读"回归 | **成立** |
+| 11.2 P1-1 日志流 | `log.c:279-284` 改为**非** `STREAM_OPEN_PERSISTENT` 的普通流 + 立即 `PHP_STREAM_OPTION_WRITE_BUFFER = PHP_STREAM_BUFFER_NONE`；`:315` 快路径限定 `runtime_type >= 2`，FPM 回落 `error_log(type=3)` | **成立**。persistent_list 双关风险随"不入 persistent_list"消失；每行一次 `write` 恢复 `O_APPEND` 原子性 |
+| 11.5 P2-1 框架表 dirty | `gene.h:340`、`memory.c:268-274` 置位、`memory.c:419-422` 借用分支追加 `!framework_cache_dirty`、`monitor.c:143` 导出、`gene.c:1316` 归零 | **成立**。且早返回分支（`cache_layer_memory_write_depth > 0`）不置位是**正确**的：该分支按 `GENE_MEMORY_IS_BUSINESS()`（`memory.h:27`）定义必然写业务表，与借用条件 `!GENE_MEMORY_IS_BUSINESS()` 互斥 |
+| 11.5 P2-2 recycler yield | `pool.c:757-758`、`redis_pool.c:694-695` 在活性探测返回后 `count_cached = pool_get_count(self)` 重读权威 Atomic | **成立** |
+| 11.5 P2-3 view_fresh 上限 | `gene.c:156/1478` 新 INI `gene.view_fresh_max=512`；`view.c:95-99` 达上限且为新 key 时 `zend_hash_clean`；`monitor.c:144-148` 导出 items/bytes/max；`docs/CONFIGURATION.md:18` 已登记 | **成立** |
+| 11.5 P2-4 GC 可见性 | `pool.c:144-149/1735-1736`（`get_gc` 暴露 `idle[0..idle_n)`，`clone_obj = NULL`）、`redis_pool.c` 同构 | **成立** |
+| 11.5 P2-6 兜底 500 | `application.c:1728-1774` 两段异常收敛（catch 回调再抛也被记录并清除、`default_500 = 1`），`:1828-1832` 统一 `set_status(500)` + `end()` | **成立** |
+| 11.7 文档/覆盖 | §10.1 已补登 §2.5；`DatabaseTest.php:450` 输出 `UNCOVERED: pool lifecycle`；`test/README.md:160` 区分 passed 与 covered；`tools/acceptance/preflight.php:19` + `config/swoole.example.json:6` 使缺 `swoole` 时 preflight 判 `BLOCKED`、`run_acceptance.php:33-36` 直接 `exit(2)` 不签发结论 | **成立** |
+| 12.2 P2-5 否决 | —— | **同意否决**。FPM 每请求重跑 bootstrap 注册，首个 `run()` 后冻结会拒绝第二请求的正常注册；允许覆盖又会破坏借用所有权。结论正确，非"为清单闭环"的规避 |
+
+### 13.2 本次独立复现的构建与回归
+
+| 项 | 结果 |
+|---|---|
+| 构建 | `F:\php-sdk-2.3.0\phpsdk-vs16-x64.bat -t`（本机实际 SDK 为 2.3.0，非 AGENTS.md 所载 2.6.0）→ `config.nice.bat` → `nmake php_gene.dll`，全部 `src/` 目标重新编译成功，仅有仓库既有 C4819 代码页警告 |
+| 全量回归 | `GENE_TEST_PHP_ARGS` 与父进程同参（`-n` + `pdo_sqlite` + `openssl` + 新 DLL）：**927 passed / 0 failed / 100%**，与 §12.3 记录一致（Cache 73/73、Log 62/62、Database 39/39、Lifecycle 23/23、SwooleEntry 31/31） |
+| 覆盖标记 | 输出中确认 `SKIP: UNCOVERED: pool lifecycle requires the Swoole CI job` |
+
+**环境陷阱（新增记录）**：复核开始时 `x64\Release\php_gene.dll` 的时间戳（09-20 23:34）**早于**修复提交
+`95665ff`（09-21 17:17），即 §12.3 声称的 clean build 产物在工作树中已不存在，必须重建才能取得证据。
+另外若运行 `TestRunner.php` 时**漏设 `GENE_TEST_PHP_ARGS`**，子进程会加载 php.ini 中已部署的旧
+扩展，本次首轮即因此得到 916/926（含 8 个 Monitor 新字段"missing"与 1 个 SwooleEntry 致命错误）
+的假性失败——与 §9.3 当时误判为"Junction 不同步"的现象同源。**结论：任何回归数字必须与
+`git rev-parse HEAD` + DLL 时间戳 + `GENE_TEST_PHP_ARGS` 一并记录，否则不可采信。**
+
+### 13.3 本轮新提出的残留问题（均为 P3，不阻断）
+
+| 编号 | 问题 | 证据 | 技术细节与建议 |
+|---|---|---|---|
+| P3-1 | §11.3 要求"把置位+驱逐抽成一个函数供两个调用点共用"，实际只有 `scope` 走了新 helper；`gene_request_init_bags` 仍内联同一段驱逐逻辑 | `request.c:348-356`（helper）vs `:759-773`（内联副本） | 当前两处行为等价，无缺陷；但这正是该缺陷最初的成因（两条同语义路径各自演进）。建议 `init_bags` 改调 `gene_request_bags_commit(request)`，删除内联副本，使"袋提交"只有一个实现 |
+| P3-2 | `put()` 在 Channel push 失败时 `waiters = 0` 会**清掉真实等待者的计数** | `pool.c:990-993`、`redis_pool.c:1398-1401` | 这是审计建议的"计数不可信即重置"，方向正确（不丢连接优先于不丢唤醒）。副作用：若此刻确有协程阻塞在 `pop()`，它将一直等到 `waitTimeout` 超时再走 overflow 分支，而不是被立即唤醒。属可接受的降级，但应在代码注释与 `tools/acceptance` 的"满池排队"用例里写明期望，避免后续把该延迟当成新 bug |
+| P3-3 | `close()` 的非协程分支（workerStop）不排空 C 层 idle 栈，仅依赖 `free_obj` | `pool.c:1028-1052`（排空在 `pool_in_coroutine()` 内）；`redis_pool.c` 同构 | 不泄漏（`gene_pool_free_object` → `pool_idle_clear`），但 `close()` 返回后 `stats()['idle']` 仍报旧值，且 currentCount 与 idle 的关系在该窗口内不自洽。建议把 `pool_idle_clear()` 提到协程判断之外（它是纯 C 操作，不需要协程上下文） |
+| P3-4 | `handleSwoole` 末段的 `!EG(exception)` 守卫现已是死条件，却是"必回一次响应"的唯一实现方式 | `application.c:1783`、`:1818`、`:1828` | 两段收敛后 `EG(exception)` 必为 NULL，该守卫恒真；但它在字面上仍保留"有挂起异常就不 `end()`"的语义——即 P2-6 修复的正确性依赖上游收敛完备，而非由此处强制。建议把 `:1828` 的守卫改为 `ZEND_ASSERT(!EG(exception))` + 无条件 `end()`，把不变量从"约定"变成"断言"（与 P2-1 的处理思路一致） |
+| P3-5 | `get_gc` 直接把 `o->idle` 裸缓冲交给 GC，而 `pool_idle_push` 的 `erealloc` 会移动该缓冲 | `pool.c:144-149` vs `:155-163` | 当前安全，因为引擎只在 `get_gc` 返回后的同一次遍历内使用该指针，期间不会执行用户代码去 push。但这是一条未写下来的不变量，建议补注释，防止将来把 `get_gc` 结果缓存化 |
+
+### 13.4 稳定性与关闭评估
+
+**不建议现在关闭本文档。** 理由是准入条件而非代码缺陷：
+
+1. **代码侧**：§12.1 的 P0/P1/P2 修复全部真实落地、逐条自洽，本轮未发现任何 P0/P1/P2 级新问题；
+   新提出的 P3-1…P3-5 都是"可读性/可观测性/不变量表达"层面的收敛项，可并入后续常规提交。
+2. **验收侧**：§12.3 "发布准入仍未完成"依旧有效，且**这正是本文档必须保持开启的唯一原因**。
+   仍缺：Linux + 真实 Swoole 下 200 协程 × 1000 借还、满池排队、`recycleIdle`/`close` 交错四项，
+   ASAN 下 `test/TestRunner.php` 与 `tools/acceptance/linux_swoole_verify.sh`，
+   以及常驻日志流的 rename / copytruncate / `kill -9` 三组探针。
+   §3.1 冻结表借用、§2.4(3) `router_path` 借用、§4.2 `borrowers`、§3.6 idle 栈、§4.1 冷块
+   这五项的核心风险（裸指针 + 协程生命周期）在无 Swoole 的 Windows 上**结构性不可验证**——
+   927/927 对它们的证明力为零，这一点已被 P0 用最直接的方式证明过一次。
+3. **关闭条件（建议写入准入清单）**：
+   - Linux NTS + ext-swoole 真实环境 `TestRunner.php` 全绿，且 `DatabaseTest` 池生命周期段**实际执行**（输出中不得出现 `UNCOVERED`）；
+   - ASAN/LSAN 构建下上述全量 + `pool_concurrency.php` 四场景零报告；
+   - `tools/acceptance/run_acceptance.php --profile=swoole` 产出 `acceptance.json` 状态为 `pass`（preflight 非 `BLOCKED`）；
+   - `gene.log_keep_open=1` 的三组日志探针通过；
+   - P3-1…P3-5 收敛或明确记为"知情保留"。
+
+满足以上五条后本文档可改名为 `Performance-tuning-V3.closed.md` 归档；在此之前，
+对外表述应为"代码层面优化已完成并通过 Windows 全量回归，Swoole/ASAN 发布准入未完成"。
