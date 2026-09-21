@@ -1,7 +1,7 @@
 # Gene 扩展极致并发优化 —— V3（代码层面方案）
 
 > 版本：v1（2026-09-20）
-> 状态：第二阶段安全项已落地（2026-09-20）；生命周期/运维语义候选项继续受本文验收门槛约束
+> 状态：代码级审计问题已修复（P2-5 经生命周期评估否决）；Linux ASAN + 真实 Swoole 发布验收待完成（2026-09-21）
 > 依据：对 `src/` 全量热路径源码复核（gene.c / application.c / request.c / router.c / di.c / memory.c / db/*.c / view.c / load.c / response.c / log.c / pool.c）。
 > 与 V2 的关系：V2 保留自动化验收规范（§1）与其待办清单；本文只登记 **V2 未覆盖或仅点到名字、缺少技术细节** 的代码级优化点。与 V2 重叠处以「V2 §x.y」交叉引用，不重复登记。
 
@@ -379,6 +379,7 @@ zval *gene_memory_zval_local(zval *dst, zval *src) {
 | 原章节 | 提交 | 实施结果 | 实际边界 |
 |---|---|---|---|
 | §3.2 Db 属性槽位 | `976d03a` | 完成 | `pdo.h/pdo.c` 新增声明属性偏移表，Mysql/Sqlite/Pgsql/Mssql 四个驱动的属性读写改走 slot 直访，省去每次按名哈希；惰性执行与 `history()` 快照语义不变。 |
+| §2.5 MCA 内联缓冲 | 第三阶段批次 | 完成 | `gene_request_context::mca_buf[3][32]` 承载短 module/controller/action，长名称回落堆分配；释放及 `Router::match()` 保存/恢复按指针身份区分所有权。 |
 | §3.3 stat 去重 | `d455be2` | 完成 | 新增 `gene.view_stat_ttl`（默认沿用既有行为，0=不去重）；请求内 view/autoload 的重复 `stat` 经 `view_fresh` 表去重，RSHUTDOWN 清空。`probe=0` 只在编译分支真实执行后生效。 |
 | §3.1 冻结表零拷贝 | `0b4c17f` | 完成（**未验收**） | `gene_memory_zval_local` 在 `runtime_type>=2 && worker_ready && !business` 时借用冻结框架表的 PERMANENT 串/IMMUTABLE 数组；业务读仍走 `gene_memory_zval_local_copy`。不变量：框架表 post-freeze 写被 `gene_memory_write_allowed` 拒绝。 |
 | §2.3 惰性袋 | `2cb9fdd` + 修复 `6adab47` | 完成 | 空袋共享 `ZVAL_EMPTY_ARRAY`；`$_REQUEST` 在 `getVal(TRACK_VARS_REQUEST)` 首次未命中时才由已存 GET/POST 合并物化；`init_bags()` 在无显式 request 参数时驱逐 index 6 旧合并袋（修复回归）。`rawContent()` 恢复无条件调用——按 method 跳过会丢"无 Content-Length 但有 body"的边界（SwooleEntryTest 捕获）。 |
@@ -620,3 +621,44 @@ Channel 满后 `pool_channel_push` 失败 → `pool_decrement_count` → **连�
 在 1–4 全部修复并在 **Linux + 真实 Swoole + ASAN** 下重跑
 `test/TestRunner.php` 与 `tools/acceptance/linux_swoole_verify.sh` 之前，
 §10.6 的"剩余优化点已全部落地"不应对外表述为可发布状态。
+
+---
+
+## 12. 审计修复复盘（2026-09-21）
+
+### 12.1 修复结果
+
+| 审计项 | 状态 | 修复与边界 |
+|---|---|---|
+| 11.1 P0 idle 栈索引失效 | 已修复 | `Pool` / `RedisPool` 均改为自管 `zval* + zend_long*` 裸 C LIFO 栈；`idle_n` 是唯一栈顶，pop 转移 zval 所有权，不再依赖 `HashTable::nNextFreeElement`。 |
+| 11.4 P1-3 waiters 异常安全 | 已修复 | Channel `pop()` 以 `zend_try/zend_catch` 保证 bailout 时递减；close/free 强制归零；Channel push 失败时清除不可信 waiter 计数并把连接退回 idle，不再静默减池。 |
+| 11.3 P1-2 scope 残留 REQUEST | 已修复 | `Request::scope()` 无显式 request 袋时驱逐已物化 index 6，后续读取从新 GET/POST 惰性重建；新增先读外层、再 scope 的回归。 |
+| 11.2 P1-1 日志缓冲/所有权 | 已修复 | 常驻流改为 Swoole worker 自持的**非 persistent-list**普通流，打开即关闭写缓冲，每行一次 write；FPM 回落原 `error_log(type=3)`，避免跨请求持有请求堆 stream。轮转与 shutdown 由 Gene 单一所有者关闭。 |
+| 11.5 P2-1 框架表 dirty 回退 | 已修复 | post-freeze 框架写尝试（即便被拒绝）置 `framework_cache_dirty=1`；零拷贝读立即永久回退深拷贝；Monitor 导出标志。 |
+| 11.5 P2-2 recycler yield 计数 | 已修复 | PDO/Redis 活性探测 yield 返回后重新读取权威 Atomic count，再决定淘汰/回填，不再相信 yield 前快照。 |
+| 11.5 P2-3 view_fresh 无界 | 已修复 | 新增 `gene.view_fresh_max`（默认 512）；新 key 达上限时整表清空，下一次重新 stat；Monitor 导出 items/bytes/max。 |
+| 11.5 P2-4 idle 对 GC 不可见 | 已修复 | 两个自定义池对象均实现 `get_gc` 暴露连续 idle zval 区，并显式 `clone_obj=NULL`；free_obj 销毁全部 idle 引用。 |
+| 11.5 P2-6 挂起异常不响应 | 已修复 | custom catch 再抛等残留异常统一记录、清除并置 500，随后沿统一 buffer 收敛与 `end()` 路径保证终止响应；SwooleEntry 回归改为断言 500 + cleanup。 |
+| 11.7 文档/覆盖 | 已修复 | §10.1 补登 §2.5；无 Swoole 的 Pool 生命周期输出 `UNCOVERED`，不再把降级分支的 pass 当作真实池覆盖；本节按实现/本机覆盖/目标环境验收分层记录。 |
+
+### 12.2 P2-5 FPM 冻结点评估结论
+
+**否决按审计建议直接实现。** 典型 FPM 每个请求都会重新执行入口 bootstrap、配置和路由注册；若在首个 `Application::run()` 后冻结持久框架表，第二个请求的正常注册会被拒绝。若为兼容重复注册继续允许覆盖，又会在前一请求借用持久值时破坏零拷贝所有权不变量。即使做成 opt-in，也会把常见部署变成隐蔽的跨请求语义陷阱。因此该项不是可安全闭环的“缺陷修复”，不得通过复用 `worker_ready` 冒充完成。未来只有在引入可证明的一次性 preload/bootstrap 生命周期（与普通 FPM 请求入口分离）后才可重新立项。
+
+### 12.3 验证分层
+
+| 层级 | 结果 |
+|---|---|
+| 实现与静态复核 | P0、P1、P2-1/2/3/4/6 已落地；P2-5 经生命周期分析否决。`git diff --check` 通过。 |
+| Windows clean build | PHP 8.1.30 NTS x64 / VS2019：`nmake clean` → `config.nice.bat` → `nmake php_gene.dll` 成功，仅有既有 C4819 警告。 |
+| Windows 全量回归 | 使用新 DLL、`pdo_sqlite`、`openssl` 免部署运行：**927 passed / 0 failed**；Database 39/39、SwooleEntry 31/31、Lifecycle 23/23、Cache 73/73。 |
+| 本机真实路径覆盖 | Request scope、Monitor 字段、Swoole adapter 异常兜底已覆盖。ext-swoole 未安装，真实 Channel idle/waiter/recycler 路径明确标记 `UNCOVERED`，不能以 927/927 代替。 |
+| 发布准入 | **仍未完成**：需 Linux + 真实 Swoole 下执行 200 协程 × 1000 借还、满池排队、recycle/close 交错，并在 ASAN 下跑 `test/TestRunner.php` 与 `tools/acceptance/linux_swoole_verify.sh`；日志还需真实 worker 的 rename/copytruncate 与异常退出探针。 |
+
+### 12.4 复盘
+
+1. P0 根因是把“packed 数组尾删”误等同于“下一次 append 复用尾索引”；热路径容器必须以 Zend 的 `nNextFreeElement` 真实语义审查，不能靠 PHP 数组表象推断。
+2. 对会 yield 或 bailout 的 PHP 方法调用，任何前后配对的 C 状态（waiters、borrowers、计数快照）都必须分别审查“异常跳过”和“协程切走”两种边界。
+3. 常驻资源优化首先要明确唯一所有者。将 persistent-list 所有权与模块自管关闭混用，比省掉 open/close 更危险；本次选择 Swoole worker 单一所有权，FPM 保守回退。
+4. “全量 passed”只说明已执行断言通过，不说明目标路径被覆盖。后续发布记录必须并列给出 passed、skipped/uncovered、目标环境和 ASAN 四列，禁止再用总通过数替代真实 Swoole 覆盖。
+5. 新性能开关不能以 opt-in 为由跳过生命周期证明。FPM 冻结点会改变第二请求 bootstrap 语义，故正确处理是明确否决，而非为了清单闭环加入危险开关。

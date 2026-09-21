@@ -447,7 +447,7 @@ class DatabaseTest
                 echo "✓ Pool recycleIdle() runs without error\n";
             } else {
                 if ($this->pool->get() === null && $this->pool->healthCheck() === false) {
-                    $this->skip('Swoole not loaded — get()/healthCheck() degrade to null/false (verified)');
+                    $this->skip('UNCOVERED: pool lifecycle requires the Swoole CI job; non-Swoole degradation verified');
                 } else {
                     $this->fail('Pool non-Swoole degradation contract broken');
                 }

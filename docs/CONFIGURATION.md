@@ -14,6 +14,8 @@
 | `gene.use_namespace` | `1` | bool | 命名空间风格加载 / 回调解析 |
 | `gene.view_compile` | `0` | bool | 模板编译缓存 |
 | `gene.view_compile_check_mtime` | `1` | bool | 编译模板按 mtime 失效校验（默认开启，生产建议显式设为 `0`） |
+| `gene.view_stat_ttl` | `0` | 秒，`0`=关闭 | mtime 检查结果缓存时间；开启后源模板更新最多延迟该时长生效 |
+| `gene.view_fresh_max` | `512` | long，`<=0`=不限 | view stat 缓存条目上限；新 key 达上限时整表清空，防 worker 常驻增长 |
 | `gene.use_library` | `0` | bool | 启用 library 自动加载回退 |
 | `gene.library_root` | `""` | path | library 根目录（配合 `use_library`） |
 | `gene.co_contexts_max` | `1024` | long | 协程上下文软上限，超过触发 sweep |
@@ -27,6 +29,8 @@
 | `gene.swoole_auto_cleanup` | `0` | bool | 协程 ctx 随协程结束自动归还（仅 Swoole，opt-in） |
 | `gene.cache_easy_ttl` | `0` | long | cache_easy 文件表 TTL 兜底秒数（0=禁用，惰性过期） |
 | `gene.slow_query_ms` | `0` | long | 慢查询阈值（毫秒，0=禁用）；超限 SQL 计入 `Monitor::stats()` 的 `db_slow_query_count` |
+| `gene.log_keep_open` | `0` | bool | Swoole 下复用 worker 自持的无缓冲日志流；FPM 保持逐条 `error_log(type=3)` |
+| `gene.log_reopen_interval` | `5` | 秒 | 常驻日志流检查 rename/copytruncate 并重开的间隔 |
 
 > **`Gene\Memory` TTL 语义说明**：`Memory::set($k, $v, $ttl)` 的 `$ttl` 以秒计，`0` 表示永久。两种运行模式下行为不同——**FPM**：过期键由读路径惰性删除 + 每 32 次 TTL 写入抽样主动清扫，内存可回收；**Swoole**：`workerReady()` 后进程级缓存冻结不可写，过期键仅在读路径被「掩蔽」（返回 miss），内存占用不回收。因此 Swoole 下请勿用带 TTL 的 Memory 键做高频轮转写入（如 `rate:$ip`），需要过期回收请用 `Gene\Cache`（Redis/Memcached）层。
 

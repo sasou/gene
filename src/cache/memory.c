@@ -266,6 +266,7 @@ int gene_memory_write_allowed(const char *op) {
 		return 1;
 	}
 	if (UNEXPECTED(GENE_G(runtime_type) >= 2 && GENE_G(worker_ready))) {
+		GENE_G(framework_cache_dirty) = 1;
 		php_error_docref(NULL, E_WARNING,
 			"Gene memory cache is frozen after workerReady(); %s is not allowed in Swoole request runtime",
 			op ? op : "write");
@@ -417,6 +418,7 @@ zval *gene_memory_zval_local(zval *dst, zval *source) /* {{{ */
 	 * Business reads still go through gene_memory_zval_local_copy. */
 	if (EXPECTED(GENE_G(runtime_type) >= 2)
 			&& EXPECTED(GENE_G(worker_ready))
+			&& EXPECTED(!GENE_G(framework_cache_dirty))
 			&& !GENE_MEMORY_IS_BUSINESS()) {
 		switch (Z_TYPE_P(source)) {
 		case IS_STRING:

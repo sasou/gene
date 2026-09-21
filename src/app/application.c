@@ -1754,6 +1754,25 @@ PHP_METHOD(gene_application, handleSwoole) {
 		zval_ptr_dtor(&ex);
 	}
 
+	if (UNEXPECTED(EG(exception))) {
+		zval ex;
+		zend_function *log_fn;
+		ZVAL_OBJ_COPY(&ex, EG(exception));
+		zend_clear_exception();
+		log_fn = GENE_APP_METHOD(gene_app_log_exception_fn, gene_log_ce, "exception");
+		if (log_fn) {
+			zval lret, lp;
+			ZVAL_UNDEF(&lret);
+			ZVAL_COPY(&lp, &ex);
+			zend_call_known_function(log_fn, NULL, gene_log_ce, &lret, 1, &lp, NULL);
+			zval_ptr_dtor(&lp);
+			if (!Z_ISUNDEF(lret)) zval_ptr_dtor(&lret);
+			if (EG(exception)) zend_clear_exception();
+		}
+		zval_ptr_dtor(&ex);
+		default_500 = 1;
+	}
+
 	/* [GENE_PERF:2026-09-21 V3-3.5] Decide writability BEFORE collecting the
 	 * buffer: when Response::end/write/sendFile already reached Swoole the
 	 * buffered copy is dead weight ¡ª php_output_get_contents would copy it

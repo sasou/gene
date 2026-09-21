@@ -102,8 +102,10 @@ static HashTable *gene_pool_named_cache = NULL;
  * Channel::pop() (tracked by `waiters`). Entries are [conn zval] in `idle`
  * with the parallel packed IS_LONG `idle_ts` carrying lastUsed. */
 typedef struct _gene_pool_object {
-	HashTable *idle;
-	HashTable *idle_ts;
+	zval *idle;
+	zend_long *idle_ts;
+	zend_long idle_n;
+	zend_long idle_cap;
 	zend_long waiters;
 	zend_object std;
 } gene_pool_object;
@@ -124,51 +126,49 @@ static zend_object *gene_pool_create_object(zend_class_entry *ce) {
 	return &o->std;
 }
 
+static void pool_idle_clear(gene_pool_object *o) {
+	while (o->idle_n > 0) {
+		zval_ptr_dtor(&o->idle[--o->idle_n]);
+	}
+	o->waiters = 0;
+}
+
 static void gene_pool_free_object(zend_object *object) {
 	gene_pool_object *o = gene_pool_from_obj(object);
-	if (o->idle) {
-		zend_hash_destroy(o->idle);
-		efree(o->idle);
-	}
-	if (o->idle_ts) {
-		zend_hash_destroy(o->idle_ts);
-		efree(o->idle_ts);
-	}
+	pool_idle_clear(o);
+	if (o->idle) efree(o->idle);
+	if (o->idle_ts) efree(o->idle_ts);
 	zend_object_std_dtor(object);
 }
 
+static HashTable *gene_pool_get_gc(zend_object *object, zval **table, int *n) {
+	gene_pool_object *o = gene_pool_from_obj(object);
+	*table = o->idle;
+	*n = (int)o->idle_n;
+	return zend_std_get_properties(object);
+}
+
 static zend_always_inline zend_long pool_idle_count(gene_pool_object *o) {
-	return o->idle ? (zend_long)zend_hash_num_elements(o->idle) : 0;
+	return o->idle_n;
 }
 
 static void pool_idle_push(gene_pool_object *o, zval *conn, zend_long ts) {
-	zval tsz;
-	if (!o->idle) {
-		ALLOC_HASHTABLE(o->idle);
-		zend_hash_init(o->idle, 8, NULL, ZVAL_PTR_DTOR, 0);
-		ALLOC_HASHTABLE(o->idle_ts);
-		zend_hash_init(o->idle_ts, 8, NULL, NULL, 0);
+	if (o->idle_n == o->idle_cap) {
+		zend_long new_cap = o->idle_cap ? o->idle_cap * 2 : 8;
+		o->idle = (zval *)erealloc(o->idle, (size_t)new_cap * sizeof(zval));
+		o->idle_ts = (zend_long *)erealloc(o->idle_ts, (size_t)new_cap * sizeof(zend_long));
+		o->idle_cap = new_cap;
 	}
-	Z_TRY_ADDREF_P(conn);
-	zend_hash_next_index_insert(o->idle, conn);
-	ZVAL_LONG(&tsz, ts);
-	zend_hash_next_index_insert(o->idle_ts, &tsz);
+	ZVAL_COPY(&o->idle[o->idle_n], conn);
+	o->idle_ts[o->idle_n++] = ts;
 }
 
-/* Tail-pop the parallel stacks. Deletes only ever happen at the tail, so the
- * packed layout is preserved and index n-1 is always the last element. */
 static bool pool_idle_pop(gene_pool_object *o, zval *conn_out, zend_long *ts_out) {
-	zend_long n = pool_idle_count(o);
-	zval *cv, *tv;
-	if (n == 0) {
-		return 0;
-	}
-	cv = zend_hash_index_find(o->idle, n - 1);
-	tv = zend_hash_index_find(o->idle_ts, n - 1);
-	ZVAL_COPY(conn_out, cv);
-	*ts_out = (tv && Z_TYPE_P(tv) == IS_LONG) ? Z_LVAL_P(tv) : 0;
-	zend_hash_index_del(o->idle, n - 1);
-	zend_hash_index_del(o->idle_ts, n - 1);
+	if (o->idle_n == 0) return 0;
+	o->idle_n--;
+	ZVAL_COPY_VALUE(conn_out, &o->idle[o->idle_n]);
+	ZVAL_UNDEF(&o->idle[o->idle_n]);
+	*ts_out = o->idle_ts[o->idle_n];
 	return 1;
 }
 
@@ -726,9 +726,8 @@ static zend_long pool_increment_count_get(zval *self) {
      idle_timeout = pool_get_idle_time(self);
      /* [GENE_PERF:2026-05-04] Cache current count once and track drops locally
       * to avoid re-reading the atomic via zend_read_property + Atomic::get() on
-      * every loop iteration. Recycler runs under the timer, so no concurrent
-      * put() can observe the stale local view - decrement_count still publishes
-      * the authoritative value back to the atomic. */
+      * every loop iteration. Liveness checks may yield to another coroutine, so count_cached is
+      * refreshed from the authoritative Atomic immediately after each check. */
      zend_long count_cached = pool_get_count(self);
  
      /* Pop-check-push one at a time to avoid draining the idle stack.
@@ -756,6 +755,7 @@ static zend_long pool_increment_count_get(zval *self) {
          /* Connection is still needed - check alive and push back immediately */
          if (Z_TYPE(conn) == IS_OBJECT) {
              bool alive = pool_is_alive(&conn);
+             count_cached = pool_get_count(self);
              if (pool_is_closed(self)) {
                  zval_ptr_dtor(&conn);
                  return;
@@ -873,8 +873,14 @@ PHP_METHOD(gene_pool, get)
         {
             zval item;
             gene_pool_object *po = GENE_POOL_OBJ(self);
+            bool got_item = 0;
             po->waiters++;
-            bool got_item = pool_channel_pop(channel, pool_get_wait_timeout(self), &item);
+            zend_try {
+                got_item = pool_channel_pop(channel, pool_get_wait_timeout(self), &item);
+            } zend_catch {
+                po->waiters--;
+                zend_bailout();
+            } zend_end_try();
             po->waiters--;
             if (got_item) {
                 if (pool_is_closed(self)) {
@@ -981,7 +987,10 @@ PHP_METHOD(gene_pool, get)
              * over through the channel so it wakes immediately. */
             bool pushed = pool_channel_push(channel, pdo);
             if (pool_is_closed(self)) return;
-            if (!pushed) pool_decrement_count(self);
+            if (!pushed) {
+                po->waiters = 0;
+                pool_idle_push(po, pdo, (zend_long)time(NULL));
+            }
         } else {
             pool_idle_push(po, pdo, (zend_long)time(NULL));
         }
@@ -1006,6 +1015,7 @@ PHP_METHOD(gene_pool, get)
      zval *self = getThis();
 
      if (!pool_pid_valid(self)) return;
+     GENE_POOL_OBJ(self)->waiters = 0;
  
      /* Mark as closed and stop timer (idempotent �� safe to call multiple times).
       * closeAll() marks pools closed before calling close(), so we must NOT
@@ -1722,6 +1732,8 @@ PHP_METHOD(gene_pool, get)
     memcpy(&gene_pool_handlers, zend_get_std_object_handlers(), sizeof(zend_object_handlers));
     gene_pool_handlers.offset = XtOffsetOf(gene_pool_object, std);
     gene_pool_handlers.free_obj = gene_pool_free_object;
+    gene_pool_handlers.get_gc = gene_pool_get_gc;
+    gene_pool_handlers.clone_obj = NULL;
     gene_pool_ce->ce_flags |= ZEND_ACC_FINAL | ZEND_ACC_NOT_SERIALIZABLE;
  #if PHP_VERSION_ID >= 80200
      gene_pool_ce->ce_flags |= ZEND_ACC_ALLOW_DYNAMIC_PROPERTIES;
