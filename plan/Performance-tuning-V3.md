@@ -367,3 +367,55 @@ zval *gene_memory_zval_local(zval *dst, zval *src) {
 ### 9.4 继续保留的候选项
 
 以下项目没有在本阶段冒充完成：§2.3（曾触发 cleanup 崩溃）、§2.4(3) 裸指针借用、§2.5 context 内联 MCA、§2.7–2.8 JSON/日志重写、§3.1/§3.5/§3.6、§4.1/§4.2，以及需要数据证明的 §3.4/§4.4。它们分别涉及共享 zval、输出 handler、跨请求所有权或用户可见 INI/运维语义，仍须按 §0/§7 在 Linux ASAN + 真实 Swoole + 独立 benchmark 下单项验收。§3.2 Db 属性槽位与 §3.3 stat 去重虽不要求裸指针借用，但改动面大，也应独立批次实施而非与本阶段混合。
+
+---
+
+## 10. 第三阶段实施复盘（2026-09-21）
+
+本阶段落地 §3、§4、§5 的剩余优化点，按"一项一提交"拆分。涉及裸指针借用、跨请求/协程生命周期、C 层对象存储的条目均已实现，但**在 Linux ASAN + 真实 Swoole 环境验收前一律标记为"未验收"**。
+
+### 10.1 已落地
+
+| 原章节 | 提交 | 实施结果 | 实际边界 |
+|---|---|---|---|
+| §3.2 Db 属性槽位 | `976d03a` | 完成 | `pdo.h/pdo.c` 新增声明属性偏移表，Mysql/Sqlite/Pgsql/Mssql 四个驱动的属性读写改走 slot 直访，省去每次按名哈希；惰性执行与 `history()` 快照语义不变。 |
+| §3.3 stat 去重 | `d455be2` | 完成 | 新增 `gene.view_stat_ttl`（默认沿用既有行为，0=不去重）；请求内 view/autoload 的重复 `stat` 经 `view_fresh` 表去重，RSHUTDOWN 清空。`probe=0` 只在编译分支真实执行后生效。 |
+| §3.1 冻结表零拷贝 | `0b4c17f` | 完成（**未验收**） | `gene_memory_zval_local` 在 `runtime_type>=2 && worker_ready && !business` 时借用冻结框架表的 PERMANENT 串/IMMUTABLE 数组；业务读仍走 `gene_memory_zval_local_copy`。不变量：框架表 post-freeze 写被 `gene_memory_write_allowed` 拒绝。 |
+| §2.3 惰性袋 | `2cb9fdd` + 修复 `6adab47` | 完成 | 空袋共享 `ZVAL_EMPTY_ARRAY`；`$_REQUEST` 在 `getVal(TRACK_VARS_REQUEST)` 首次未命中时才由已存 GET/POST 合并物化；`init_bags()` 在无显式 request 参数时驱逐 index 6 旧合并袋（修复回归）。`rawContent()` 恢复无条件调用——按 method 跳过会丢"无 Content-Length 但有 body"的边界（SwooleEntryTest 捕获）。 |
+| §2.4(3) router_path 借用 | `2cb9fdd` | 完成（**未验收**） | `gene_request_context` 增加 `router_path_owned` 所有权标志；Swoole post-workerReady 下借用冻结路由树持久串，cleanup 只 `efree` 自有路径；`Router::match()` 探测的保存/恢复同时保留指针与所有权位。 |
+| §4.2 retired 回收 | `2cb9fdd` | 完成（**未验收**） | 退役 route descriptor 增加 `borrowers` 引用计数；执行路径借用期间 ++/--，`route_pc_invalidate` 在 `borrowers==0` 时立即回收，不再全部滞留到 MSHUTDOWN。 |
+| §3.5 输出零拷贝 | `34906c4` | **按等价方案落地** | Swoole `end()` 必须收 `zend_string`，PHP/C 边界的一次拷贝不可免，故未做 output-handler 直递；改为先判 `sent/writable`，已发响应直接 `php_output_discard()` 跳过 `php_output_get_contents()` 的 body 物化，可写时才收 buffer 走 `gene_response_end()`。`Response::end/write/redirect/sendFile` 语义不变。 |
+| §3.6 Pool C 层 idle 栈 | `9d50ba4` + `55fe6d2` | 完成（**未验收**） | `Gene\Pool` 与 `Gene\Cache\RedisPool` 均改为自定义对象存储：C 层 LIFO idle 栈（连同时戳），`Channel` 只保留唤醒阻塞 waiter；`get()` 先弹栈零 PHP 调用，`put()` 有 waiter 才入 channel；`recycleIdle/close/stats` 全走 C 层。非 Swoole 下 `healthCheck()` 保持返回 `false`（修复过一次回归）。`newInstanceWithoutConstructor` 对 final internal 类失效属预期，测试探针已改为真实构造。 |
+| §3.4 日志句柄常驻 | `5616b1e` | 完成（opt-in，**未验收**） | 新增 `gene.log_keep_open`（默认关）：开启后按请求路径持有 persistent `php_stream`，带 reopen 间隔与 inode/size 身份检查支持 logrotate，shutdown 正常关闭；关闭时行为与旧版逐条 `error_log` 完全一致。 |
+| §4.1 ctx 冷热分离 | `5f13310` | 完成（**未验收**） | `gene_request_context` 收缩为热字段；其余请求态（view_vars、bench、di_alias、user_bag、http 客户端态、request 快照栈、json 缓存、log_file/level、lang/child_views）迁入 `gene_ctx_cold`，由 `GENE_CTX_COLD()` 首次访问时 `ecalloc` 物化；只读探测走 `ctx->cold` 判空不分配。四个驱动的 `db_*_history` 合并为 `cold->db_history`（`{driver=>rows}`，经 `gene_db_history_slot/find/reset` 访问）。生命周期：`init()` 不分配；`reset()` 清字段保留块供池化复用；`destroy()` 释放。 |
+| §5 代码形态 | `c43d013` | 完成 | `gene_request_ctx()` 的 FPM 快路径（`runtime_type<2` → `&default_ctx`）内联到头文件，协程路径收敛为 `gene_request_ctx_slow()`；router.c/di.c 字面量键改 `ZEND_STRL`；DI config 回落与 router eval 回退加 `UNEXPECTED`。 |
+
+### 10.2 本阶段修复的实现期回归
+
+- §2.3 惰性 `$_REQUEST` 使 re-init 后 index 6 残留旧合并袋（LifecycleTest `input ignores non-JSON body` 与 SwooleEntryTest re-init 用例双双捕获），修复为无显式 request 参数时驱逐旧袋。
+- §2.3 曾尝试按 `request_method` 跳过 `rawContent()`：GET 可无 Content-Length 携带 body（chunked），语义不安全，已回滚为无条件调用。
+- §3.6 `healthCheck()` 在无 Swoole Channel 时误返回空数组而非 `false`，恢复 channel 前置守卫（DatabaseTest 契约捕获）。
+- `gene_request_context` 布局两次变化均触发 Windows 增量构建漏编 → `zend_mm_heap corrupted` / 链接缺符号；均需**强制 clean rebuild** 后验证，记为已知环境陷阱。
+
+### 10.3 验证结果（Windows）
+
+- PHP 8.1.30 NTS x64 / VS2019 clean build，`php_gene.dll` 仅有仓库既有 C4819 代码页警告。
+- `TestRunner.php` 全量（`pdo_sqlite`+`openssl`+新 dll 免部署加载）：**922 passed / 0 failed**，含 DatabaseTest 39/0、SwooleEntryTest 31/0、CacheTest 69/0、LogTest 62/0、LifecycleTest 22/0。唯一环境失败（openssl 未加载时 `Crypto::encrypt`）加载 openssl 后通过。
+- `Gene\Log` 的 `log_keep_open=1` 探针：两次写入同一路径复用持久流，shutdown 无泄漏输出。
+
+### 10.4 明确未验收项（需 Linux ASAN + 真实 Swoole）
+
+- §3.1 冻结表借用：依赖"框架表 post-freeze 写被全部拦截"的不变量，需在真实 Swoole 多协程 + ASAN 下验证无悬垂读。
+- §2.4(3) `router_path` 借用、§4.2 `borrowers` 回收：裸指针与跨协程生命周期，须 ASAN + 并发压测。
+- §3.6 C 层 idle 栈（两个池）：自定义对象存储 + Channel 唤醒语义在真实 Channel 阻塞/超时/协程取消路径下未验证。
+- §4.1 冷块懒分配：池化 ctx 复用、`co_contexts` 清扫、`resident_ctx` 路径下 `cold` 的分配/释放时机须在 ASAN + 长 worker 下验证无泄漏/无 NULL 解引用。
+- §3.4 常驻日志流：logrotate（inode/size 变化）、FPM 多进程同文件写、Swoole worker 重启语义未在真实环境验证。
+
+### 10.5 未实施项
+
+- §4.4 持久缓存 arena 归并：方案自身要求先以 §4.3 导出的尺寸数据证明配置树规模达到万级；本阶段未采集到该证据，按计划保留为候选，未实施。
+- §5 的 GENE_CACHE_* 宏内 `GENE_G` 多读收敛：这些锁宏在 NTS 下已编译为 no-op，ZTS 路径本环境无法构建验证，未改动以免引入不可验证差异。
+
+### 10.6 结论
+
+除 §4.4（缺前置数据）外，方案剩余优化点已全部落地并通过 Windows 全量回归（922/922）。§2.3/§4.1 期间出现的两处回归均由既有测试契约当场捕获并修复。所有涉及借用/生命周期/协程的条目均为"实现完成、验收未做"，发布准入前须在 Linux ASAN + 真实 Swoole 环境按 §0/§7 逐项验收。
