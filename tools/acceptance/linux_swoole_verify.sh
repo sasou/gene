@@ -25,6 +25,9 @@ POOL_MAX="${POOL_MAX:-32}"
 POOL_COROUTINES="${POOL_COROUTINES:-200}"
 POOL_ITERATIONS="${POOL_ITERATIONS:-1000}"
 POOL_TIMEOUT="${POOL_TIMEOUT:-600}"
+POOL_LIFECYCLE_WORKERS="${POOL_LIFECYCLE_WORKERS:-32}"
+POOL_LIFECYCLE_ITERATIONS="${POOL_LIFECYCLE_ITERATIONS:-100}"
+RUN_LOG_ROTATION="${RUN_LOG_ROTATION:-1}"
 WRK_THREADS="${WRK_THREADS:-8}"
 WRK_CONNECTIONS="${WRK_CONNECTIONS:-500}"
 WRK_WARMUP_DURATION="${WRK_WARMUP_DURATION:-30s}"
@@ -117,6 +120,8 @@ MySQL environment:
 Useful tuning:
   CONTEXT_COROUTINES=100000 CONTEXT_CONCURRENCY=500
   POOL_MAX=32 POOL_COROUTINES=200 POOL_ITERATIONS=1000 POOL_TIMEOUT=600
+  POOL_LIFECYCLE_WORKERS=32 POOL_LIFECYCLE_ITERATIONS=100
+  RUN_LOG_ROTATION=0       Skip keep-open rename/copytruncate/abnormal-exit probes
   WRK_DURATION=10m WRK_CONNECTIONS=500 GENE_SWOOLE_WORKERS=4
   MATRIX_TIMEOUT=180 ENTRY_SOAK_TIMEOUT=900
   RUN_ENTRY_BENCH=0        Skip the manual/init/handle entry benchmark
@@ -307,6 +312,13 @@ export GENE_TEST_PHP_ARGS
 
 {
     uname -a
+    printf 'git_head='
+    git -C "$GENE_REPO" rev-parse HEAD 2>/dev/null || echo unavailable
+    printf 'git_status='
+    if [[ -z "$(git -C "$GENE_REPO" status --porcelain --untracked-files=normal 2>/dev/null)" ]]; then echo clean; else echo dirty; fi
+    printf 'gene_so_sha256='
+    if command -v sha256sum >/dev/null 2>&1; then sha256sum "$GENE_SO" | awk '{print $1}'; else shasum -a 256 "$GENE_SO" | awk '{print $1}'; fi
+    printf 'gene_test_php_args=%s\n' "$GENE_TEST_PHP_ARGS"
     "$PHP_BIN" -v
     "${PHP_CMD[@]}" -v
     "${PHP_CMD[@]}" -m
@@ -475,14 +487,30 @@ run_logged context-auto "$OUT/context-auto.json" \
     --concurrency="$CONTEXT_CONCURRENCY" \
     --omit-cleanup-rate=1
 
+if ((RUN_LOG_ROTATION)); then
+    run_logged log-rotation "$OUT/log-rotation.json" \
+        run_timeout "$POOL_TIMEOUT" "${PHP_CMD[@]}" \
+        -d gene.runtime_type=2 -d gene.log_keep_open=1 -d gene.log_reopen_interval=1 \
+        "$GENE_REPO/tools/acceptance/log_rotation_verify.php" \
+        --output="$OUT/log-rotation-artifacts"
+else
+    record log-rotation SKIP 0
+fi
+
 if ((RUN_REDIS_POOL)); then
     run_logged redis-pool "$OUT/redis-pool.json" \
         run_timeout "$POOL_TIMEOUT" "${PHP_CMD[@]}" -d gene.runtime_type=2 \
         "$GENE_REPO/tools/acceptance/pool_concurrency.php" \
         --pool=redis --pool-max="$POOL_MAX" \
         --coroutines="$POOL_COROUTINES" --iterations="$POOL_ITERATIONS"
+    run_logged redis-pool-lifecycle "$OUT/redis-pool-lifecycle.json" \
+        run_timeout "$POOL_TIMEOUT" "${PHP_CMD[@]}" -d gene.runtime_type=2 \
+        "$GENE_REPO/tools/acceptance/pool_lifecycle_verify.php" \
+        --pool=redis --pool-max="$POOL_MAX" \
+        --workers="$POOL_LIFECYCLE_WORKERS" --iterations="$POOL_LIFECYCLE_ITERATIONS"
 else
     record redis-pool SKIP 0
+    record redis-pool-lifecycle SKIP 0
 fi
 
 if ((RUN_MYSQL_POOL)); then
@@ -491,11 +519,17 @@ if ((RUN_MYSQL_POOL)); then
         "$GENE_REPO/tools/acceptance/pool_concurrency.php" \
         --pool=db --pool-max="$POOL_MAX" \
         --coroutines="$POOL_COROUTINES" --iterations="$POOL_ITERATIONS"
+    run_logged mysql-pool-lifecycle "$OUT/mysql-pool-lifecycle.json" \
+        run_timeout "$POOL_TIMEOUT" "${PHP_CMD[@]}" -d gene.runtime_type=2 \
+        "$GENE_REPO/tools/acceptance/pool_lifecycle_verify.php" \
+        --pool=db --pool-max="$POOL_MAX" \
+        --workers="$POOL_LIFECYCLE_WORKERS" --iterations="$POOL_LIFECYCLE_ITERATIONS"
     run_logged tx-hygiene "$OUT/tx-leak-pool.log" \
         run_timeout "$POOL_TIMEOUT" "${PHP_CMD[@]}" -d gene.runtime_type=2 \
         "$GENE_REPO/audit/repro/tx_leak_pool.php"
 else
     record mysql-pool SKIP 0
+    record mysql-pool-lifecycle SKIP 0
     record tx-hygiene SKIP 0
 fi
 
