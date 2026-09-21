@@ -212,20 +212,22 @@ zval *gene_di_get(zend_string *name) {
 	cache = gene_memory_get_by_config((char *)cache_key, cache_key_len, ZSTR_VAL(name));
 	if (cache_key_heap) efree((char *)cache_key);
 
-	if (cache && Z_TYPE_P(cache) == IS_ARRAY) {
-    	if ((class = zend_hash_str_find(Z_ARRVAL_P(cache), "class", 5)) == NULL) {
+	/* [GENE_PERF:2026-09-21 V3-5] Registry miss → config fallback is the cold
+	 * path; registry hits return above. */
+	if (UNEXPECTED(cache && Z_TYPE_P(cache) == IS_ARRAY)) {
+    	if ((class = zend_hash_str_find(Z_ARRVAL_P(cache), ZEND_STRL("class"))) == NULL) {
 		if (resolved_name_owned) zend_string_release(resolved_name);
     		 php_error_docref(NULL, E_ERROR, "Factory need a valid class.");
     		 return NULL;
     	}
-    	if ((params = zend_hash_str_find(Z_ARRVAL_P(cache), "params", 6)) != NULL) {
+    	if ((params = zend_hash_str_find(Z_ARRVAL_P(cache), ZEND_STRL("params"))) != NULL) {
     		 if (Z_TYPE_P(params) != IS_ARRAY) {
 			if (resolved_name_owned) zend_string_release(resolved_name);
 	    		 php_error_docref(NULL, E_ERROR, "Factory need a array param.");
 	    		 return NULL;
     		 }
     	}
-    	instance = zend_hash_str_find(Z_ARRVAL_P(cache), "instance", 8);
+    	instance = zend_hash_str_find(Z_ARRVAL_P(cache), ZEND_STRL("instance"));
 
     	if (instance && Z_TYPE_P(instance) == IS_TRUE) {
     		type = 1;
