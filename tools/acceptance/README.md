@@ -57,6 +57,27 @@ bash tools/acceptance/mysql_redis_verify.sh --full   # 追加 exec linux_swoole_
 失败计入 `commandFailures` 并走 `remove()` 弃连接而非放回池）→ `tx-hygiene`
 （`audit/repro/tx_leak_pool.php`）。各阶段输出落 `$OUT/status.tsv` 与 `summary.txt`。
 
+## V3 生命周期与日志探针
+
+`linux_swoole_verify.sh --all` 还会执行以下线上门禁：
+
+- `pool_lifecycle_verify.php`：分别对 DB/Redis 池构造满池排队、`recycleIdle()` 与借还交错、`close()` 与借还交错；输出 `*-pool-lifecycle.json`，三场景必须全部 `passed=true`。
+- `log_rotation_verify.php`：以 `gene.log_keep_open=1` 验证 rename、copytruncate、`SIGKILL` 异常退出；输出 `log-rotation.json` 与 `log-rotation-artifacts/`，异常退出前写入的行数必须完整。
+- `environment.txt`：记录 `git_head`、工作树状态、Gene 模块 SHA-256 与 `GENE_TEST_PHP_ARGS`，用于回填二进制和源码指纹。
+
+单独执行：
+
+```bash
+php -d gene.runtime_type=2 tools/acceptance/pool_lifecycle_verify.php \
+  --pool=db --pool-max=4 --workers=32 --iterations=100
+php -d gene.runtime_type=2 tools/acceptance/pool_lifecycle_verify.php \
+  --pool=redis --pool-max=4 --workers=32 --iterations=100
+php -d gene.runtime_type=2 -d gene.log_keep_open=1 -d gene.log_reopen_interval=1 \
+  tools/acceptance/log_rotation_verify.php --output=/tmp/gene-log-rotation
+```
+
+池探针沿用 `GENE_MYSQL_*` / `GENE_REDIS_*` 环境变量。`RUN_LOG_ROTATION=0` 可跳过日志探针；关闭 V3 计划时不得跳过。
+
 ## Linux Swoole 一键验证
 
 在 **Linux** 上构建并跑隔离全测、四组 Swoole 开关矩阵、手动/自动 Context cleanup soak、入口适配验证。发布验收以 Linux 为准。
