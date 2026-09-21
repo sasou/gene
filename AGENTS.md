@@ -81,6 +81,10 @@ nmake php_gene.dll
 F:\php-sdk-2.6.0\phpsdk-vs16-x64.bat -t <task.bat>
 ```
 
+- **`Unsupported OS arch` / `'wmic' 不是内部或外部命令`**：php-sdk 2.3.0 的 `bin\phpsdk_setshell.bat`
+  用 `wmic cpu get Architecture` 探测架构，新版 Windows 已移除 wmic。解决：调用前预设环境变量
+  `PHP_SDK_OS_ARCH_NUM=9`（9 = x64）——探测失败时该变量保留继承值，starter 即可正常进入 vs16-x64 环境。
+
 - **注意**：Makefile 必须在 x64 环境下生成（`BUILD_DIR=x64\Release`，不含 `_USE_32BIT_TIME_T`）。
   若 Makefile 被误在 x86 环境下重新 configure，需在 phpsdk-vs16-x64 环境中重跑 `config.nice.bat`。
   新版 Windows SDK (10.0.26100.0) 的 `corecrt.h` 会对 x64 构建中出现的 `_USE_32BIT_TIME_T` 报 `#error`。
