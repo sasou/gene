@@ -462,7 +462,15 @@ class CacheTest
             }
             if (class_exists('Gene\\Cache\\RedisPool')) {
                 $ref = new \ReflectionClass('Gene\\Cache\\RedisPool');
-                $pool = $ref->newInstanceWithoutConstructor();
+                /* [V3-3.6] custom create_object (C-layer idle stack) makes
+                 * newInstanceWithoutConstructor() throw on final classes —
+                 * construct a real pool instead (min=0, idleTimeout=0 keeps it
+                 * fully lazy in non-Swoole mode). */
+                try {
+                    $pool = $ref->newInstanceWithoutConstructor();
+                } catch (\Throwable $e) {
+                    $pool = @new \Gene\Cache\RedisPool(['min' => 0, 'idleTimeout' => 0]);
+                }
                 $ref->getProperty('creatorPid')->setValue($pool, getmypid());
                 $ref->getProperty('closed')->setValue($pool, true);
                 try {
