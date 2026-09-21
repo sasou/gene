@@ -1,4 +1,4 @@
-ï»¿/*
+/*
  +----------------------------------------------------------------------+
  | gene                                                                 |
  +----------------------------------------------------------------------+
@@ -40,7 +40,7 @@ zend_class_entry * gene_db_mysql_ce;
  * MINIT and indexed by gene_db_prop_id. */
 static uint32_t gene_db_mysql_prop[GENE_DB_PROP_N];
 
-/* [GENE_PERF:2026-04-26] Build a propertyâ€™s SQL fragment via strpprintf (which
+/* [GENE_PERF:2026-04-26] Build a property¡¯s SQL fragment via strpprintf (which
  * returns a zend_string* directly) and write it to the property with
  * zend_update_property_str (which only addrefs). Saves the extra strdup that
  * the previous spprintf + zend_update_property_string + efree pattern incurred
@@ -177,7 +177,7 @@ void mysql_reset_sql_params(zval *self)
 }
 
 void mysqlSaveHistory(smart_str *sql, zval *param, uint64_t *start, uint64_t *end, zend_long *mem_start, zend_long *mem_end) {
-	zval *history = &GENE_REQ(db_mysql_history);
+	zval *history = gene_db_history_slot(gene_request_ctx(), ZEND_STRL("mysql"));
 	zval params, z_row, z_sql, z_data, z_time, z_memory;
 	char *char_t,*char_m;
 
@@ -280,7 +280,7 @@ bool mysqlInitPdo (zval * self, zval *config) {
 	/* In Swoole/coroutine mode, do NOT use PDO::ATTR_PERSISTENT.
 	 * PHP persistent connections live in the process-global EG(persistent_list);
 	 * when two coroutines create PDO with the same DSN + ATTR_PERSISTENT, PHP
-	 * returns the SAME underlying TCP socket â€” Swoole then throws
+	 * returns the SAME underlying TCP socket ¡ª Swoole then throws
 	 * "Socket has already been bound to another coroutine".
 	 * Each coroutine already gets its own Gene\Db\Mysql via per-coroutine di_regs,
 	 * so each creates a private non-persistent connection that is fully isolated.
@@ -419,10 +419,7 @@ PHP_METHOD(gene_db_mysql, __construct)
 
     {
     	gene_request_context *ctx = gene_request_ctx();
-    	if (Z_TYPE(ctx->db_mysql_history) != IS_UNDEF) {
-    		zval_ptr_dtor(&ctx->db_mysql_history);
-    	}
-    	ZVAL_UNDEF(&ctx->db_mysql_history);
+    	gene_db_history_reset(ctx, ZEND_STRL("mysql"));
     }
 
     if (config) {
@@ -1006,7 +1003,7 @@ PHP_METHOD(gene_db_mysql, execute)
 }
 /* }}} */
 
-/* [GENE_FEATURE:2026-08-06 F0-2] JOIN type whitelist â€” anything outside this
+/* [GENE_FEATURE:2026-08-06 F0-2] JOIN type whitelist ¡ª anything outside this
  * set is rejected instead of interpolated into the SQL. */
 static zend_bool gene_db_mysql_join_type(const char *type, size_t type_len, char *out, size_t out_size) {
 	static const char *allowed[] = {
@@ -1032,7 +1029,7 @@ static zend_bool gene_db_mysql_join_type(const char *type, size_t type_len, char
 
 /* [GENE_FEATURE:2026-08-06 F0-2] Build the ON clause from a structured
  * assoc array (leftColumn => rightColumn); both sides go through the
- * identifier quoting path. Raw strings are deliberately NOT accepted â€” a
+ * identifier quoting path. Raw strings are deliberately NOT accepted ¡ª a
  * free-form ON string would open a new injection surface around the
  * "?" placeholder binding used for data values. */
 static zend_bool gene_db_mysql_build_on(zval *on, smart_str *out) {
@@ -1252,7 +1249,7 @@ PHP_METHOD(gene_db_mysql, union)
 				if (Z_TYPE_P(data) == IS_ARRAY) {
 					/* [GENE_FIX:2026-08-07] Separate before mutating: the data
 					 * array may be shared (refcount>1) with userland, and
-					 * add_next_index_zval takes ownership before we addref â€”
+					 * add_next_index_zval takes ownership before we addref ¡ª
 					 * addref first so a failed insert cannot leave a dangling ref. */
 					SEPARATE_ARRAY(data);
 					ZEND_HASH_FOREACH_VAL(Z_ARRVAL_P(sub_data), value) {
@@ -1360,7 +1357,7 @@ PHP_METHOD(gene_db_mysql, limit)
 
 /* [GENE_FEATURE:2026-08-18 3.4] Row locks are statement suffixes appended
  * after LIMIT. They only hold until the surrounding transaction ends, so
- * calling outside a transaction is almost always a mistake â€” warn cheaply
+ * calling outside a transaction is almost always a mistake ¡ª warn cheaply
  * via inTransaction() (plan: E_NOTICE, not an exception). */
 static void gene_db_mysql_set_lock(zval *self, const char *frag)
 {
@@ -1370,7 +1367,7 @@ static void gene_db_mysql_set_lock(zval *self, const char *frag)
 		gene_pdo_in_transaction(pdo_object, &r);
 		if (!zend_is_true(&r)) {
 			php_error_docref(NULL, E_NOTICE,
-				"%s outside a transaction â€” the lock is released when the statement ends",
+				"%s outside a transaction ¡ª the lock is released when the statement ends",
 				strstr(frag, "SHARE") ? "sharedLock()" : "lockForUpdate()");
 		}
 		if (!Z_ISUNDEF(r)) {
@@ -1558,7 +1555,7 @@ PHP_METHOD(gene_db_mysql, print)
 	smart_str_0(&sql);
 	zval z_row, z_sql;
 	/* [GENE_FIX:2026-08-19] sql.s stays NULL when no statement was built
-	 * (fresh handle / right after reset) â€” ZSTR_VAL(NULL) segfaults. */
+	 * (fresh handle / right after reset) ¡ª ZSTR_VAL(NULL) segfaults. */
 	ZVAL_STRING(&z_sql, sql.s ? ZSTR_VAL(sql.s) : "");
 	smart_str_free(&sql);
 
@@ -1655,7 +1652,7 @@ PHP_METHOD(gene_db_mysql, free)
 	} else {
 		/* [GENE_FIX:2026-08-19 N3] No-pool handles (e.g. a direct
 		 * new \Gene\Db\Mysql with ATTR_PERSISTENT) are covered by neither
-		 * the DI scan nor the pool chokepoint â€” check the transaction here. */
+		 * the DI scan nor the pool chokepoint ¡ª check the transaction here. */
 		zval *pdo = gene_db_prop_get(gene_strip_obj(self), gene_db_mysql_prop[GENE_DB_PROP_PDO]);
 		gene_db_tx_hygiene(pdo, "Db\\Mysql handle freed");
 		gene_db_prop_set_null(gene_strip_obj(self), gene_db_mysql_prop[GENE_DB_PROP_PDO]);
@@ -1686,10 +1683,11 @@ PHP_METHOD(gene_db_mysql, __destruct)
 PHP_METHOD(gene_db_mysql, history)
 {
 	gene_request_context *ctx = gene_request_ctx();
-	if (Z_TYPE(ctx->db_mysql_history) == IS_UNDEF) {
+	zval *hist = gene_db_history_find(ctx, ZEND_STRL("mysql"));
+	if (!hist) {
 		RETURN_NULL();
 	}
-	RETURN_ZVAL(&ctx->db_mysql_history, 1, 0);
+	RETURN_ZVAL(hist, 1, 0);
 }
 /* }}} */
 

@@ -46,17 +46,17 @@ ZEND_BEGIN_ARG_INFO_EX(gene_http_write_fn_arginfo, 0, 0, 2)
 ZEND_END_ARG_INFO()
 
 static int gene_http_has_sse(gene_request_context *ctx) {
-	return ctx && (ctx->http_sse_leftover != NULL);
+	return ctx && (GENE_CTX_COLD(ctx)->http_sse_leftover != NULL);
 }
 
 static void gene_http_sse_emit(gene_request_context *ctx, zend_string *event, zval *data) {
 	zval retval, args[2];
 	zend_function *fn;
 
-	if (!ctx || ctx->http_sse_done) {
+	if (!ctx || GENE_CTX_COLD(ctx)->http_sse_done) {
 		return;
 	}
-	if (ctx->http_sse_forward) {
+	if (GENE_CTX_COLD(ctx)->http_sse_forward) {
 		fn = zend_hash_str_find_ptr(&gene_response_ce->function_table, ZEND_STRL("sseevent"));
 		if (fn) {
 			ZVAL_STR(&args[0], event);
@@ -66,10 +66,10 @@ static void gene_http_sse_emit(gene_request_context *ctx, zend_string *event, zv
 			zval_ptr_dtor(&retval);
 		}
 	}
-	if (Z_TYPE(ctx->http_sse_cb) != IS_UNDEF) {
+	if (Z_TYPE(GENE_CTX_COLD(ctx)->http_sse_cb) != IS_UNDEF) {
 		ZVAL_STR(&args[0], event);
 		ZVAL_COPY(&args[1], data);
-		if (call_user_function(NULL, NULL, &ctx->http_sse_cb, &retval, 2, args) != SUCCESS) {
+		if (call_user_function(NULL, NULL, &GENE_CTX_COLD(ctx)->http_sse_cb, &retval, 2, args) != SUCCESS) {
 			if (EG(exception)) {
 				/* leave pending */
 			}
@@ -83,7 +83,7 @@ static void gene_http_sse_dispatch(gene_request_context *ctx, zend_string *event
 	zval payload, null_zv;
 	zend_string *data_s, *ev;
 
-	if (!ctx || ctx->http_sse_done || !data_buf) {
+	if (!ctx || GENE_CTX_COLD(ctx)->http_sse_done || !data_buf) {
 		return;
 	}
 	smart_str_0(data_buf);
@@ -96,7 +96,7 @@ static void gene_http_sse_dispatch(gene_request_context *ctx, zend_string *event
 		ev = zend_string_init("done", sizeof("done") - 1, 0);
 		gene_http_sse_emit(ctx, ev, &null_zv);
 		zend_string_release(ev);
-		ctx->http_sse_done = 1;
+		GENE_CTX_COLD(ctx)->http_sse_done = 1;
 		return;
 	}
 	if (gene_json_decode_throw(data_s, &payload) == SUCCESS) {
@@ -166,10 +166,10 @@ static void gene_http_sse_feed(gene_request_context *ctx, const char *data, size
 	const char *p, *end, *sep;
 	size_t total;
 
-	if (!ctx || !ctx->http_sse_leftover || ctx->http_sse_done || !data || len == 0) {
+	if (!ctx || !GENE_CTX_COLD(ctx)->http_sse_leftover || GENE_CTX_COLD(ctx)->http_sse_done || !data || len == 0) {
 		return;
 	}
-	leftover = (smart_str *)ctx->http_sse_leftover;
+	leftover = (smart_str *)GENE_CTX_COLD(ctx)->http_sse_leftover;
 	total = (leftover->s ? ZSTR_LEN(leftover->s) : 0) + len;
 	if (total > GENE_HTTP_SSE_MAX_BUF) {
 		zend_throw_exception_ex(NULL, 0, "Gene\\Http SSE buffer exceeded 1MB");
@@ -182,7 +182,7 @@ static void gene_http_sse_feed(gene_request_context *ctx, const char *data, size
 	}
 	p = ZSTR_VAL(leftover->s);
 	end = p + ZSTR_LEN(leftover->s);
-	while (!ctx->http_sse_done && p < end) {
+	while (!GENE_CTX_COLD(ctx)->http_sse_done && p < end) {
 		sep = NULL;
 		{
 			const char *q = p;
@@ -207,7 +207,7 @@ static void gene_http_sse_feed(gene_request_context *ctx, const char *data, size
 		gene_http_sse_parse_frame(ctx, p, (size_t)(sep - p));
 		p = sep + 2;
 	}
-	if (p < end && !ctx->http_sse_done) {
+	if (p < end && !GENE_CTX_COLD(ctx)->http_sse_done) {
 		size_t rest_len = (size_t)(end - p);
 		char *tmp = estrndup(p, rest_len);
 		smart_str_free(leftover);
@@ -226,7 +226,7 @@ static void gene_http_feed_body_chunk(gene_request_context *ctx, zend_string *ch
 		gene_http_sse_feed(ctx, ZSTR_VAL(chunk), ZSTR_LEN(chunk));
 		return;
 	}
-	if (Z_TYPE(ctx->http_stream_cb) != IS_UNDEF) {
+	if (Z_TYPE(GENE_CTX_COLD(ctx)->http_stream_cb) != IS_UNDEF) {
 		gene_http_invoke_stream(chunk);
 	}
 }
@@ -237,18 +237,18 @@ static void gene_http_restore_state(gene_request_context *ctx, zval *saved_strea
 		return;
 	}
 	if (had_stream) {
-		zval_ptr_dtor(&ctx->http_stream_cb);
-		ZVAL_COPY_VALUE(&ctx->http_stream_cb, saved_stream);
+		zval_ptr_dtor(&GENE_CTX_COLD(ctx)->http_stream_cb);
+		ZVAL_COPY_VALUE(&GENE_CTX_COLD(ctx)->http_stream_cb, saved_stream);
 	}
 	if (had_sse) {
-		zval_ptr_dtor(&ctx->http_sse_cb);
-		ZVAL_COPY_VALUE(&ctx->http_sse_cb, saved_sse);
+		zval_ptr_dtor(&GENE_CTX_COLD(ctx)->http_sse_cb);
+		ZVAL_COPY_VALUE(&GENE_CTX_COLD(ctx)->http_sse_cb, saved_sse);
 	}
-	ctx->http_sse_leftover = NULL;
-	ctx->http_sse_forward = 0;
-	ctx->http_sse_done = 0;
-	ctx->http_discard_body = 0;
-	ctx->http_busy = 0;
+	GENE_CTX_COLD(ctx)->http_sse_leftover = NULL;
+	GENE_CTX_COLD(ctx)->http_sse_forward = 0;
+	GENE_CTX_COLD(ctx)->http_sse_done = 0;
+	GENE_CTX_COLD(ctx)->http_discard_body = 0;
+	GENE_CTX_COLD(ctx)->http_busy = 0;
 }
 
 /* {{{ gene_php_call */
@@ -292,11 +292,11 @@ static int gene_http_curl_setopt(zval *ch, const char *cname, size_t clen, zval 
 static void gene_http_invoke_stream(zend_string *chunk) {
 	gene_request_context *ctx = gene_request_ctx();
 	zval retval, arg;
-	if (!ctx || Z_TYPE(ctx->http_stream_cb) == IS_UNDEF) {
+	if (!ctx || Z_TYPE(GENE_CTX_COLD(ctx)->http_stream_cb) == IS_UNDEF) {
 		return;
 	}
 	ZVAL_STR(&arg, chunk); /* borrow */
-	if (call_user_function(NULL, NULL, &ctx->http_stream_cb, &retval, 1, &arg) != SUCCESS) {
+	if (call_user_function(NULL, NULL, &GENE_CTX_COLD(ctx)->http_stream_cb, &retval, 1, &arg) != SUCCESS) {
 		if (EG(exception)) {
 			/* leave pending; curl write still returns length */
 		}
@@ -340,8 +340,8 @@ PHP_METHOD(gene_http, _writeFn) {
 		RETURN_LONG(0);
 	}
 	ctx = gene_request_ctx();
-	if (ctx && ctx->http_body_buf && !ctx->http_discard_body) {
-		smart_str_appendl((smart_str *)ctx->http_body_buf, Z_STRVAL_P(data), Z_STRLEN_P(data));
+	if (ctx && GENE_CTX_COLD(ctx)->http_body_buf && !GENE_CTX_COLD(ctx)->http_discard_body) {
+		smart_str_appendl((smart_str *)GENE_CTX_COLD(ctx)->http_body_buf, Z_STRVAL_P(data), Z_STRLEN_P(data));
 	}
 	if (ctx) {
 		gene_http_feed_body_chunk(ctx, Z_STR_P(data));
@@ -359,8 +359,8 @@ PHP_METHOD(gene_http, _headerFn) {
 		RETURN_LONG(0);
 	}
 	ctx = gene_request_ctx();
-	if (ctx && ctx->http_header_buf) {
-		smart_str_appendl((smart_str *)ctx->http_header_buf, Z_STRVAL_P(data), Z_STRLEN_P(data));
+	if (ctx && GENE_CTX_COLD(ctx)->http_header_buf) {
+		smart_str_appendl((smart_str *)GENE_CTX_COLD(ctx)->http_header_buf, Z_STRVAL_P(data), Z_STRLEN_P(data));
 	}
 	RETURN_LONG((zend_long)Z_STRLEN_P(data));
 }
@@ -659,8 +659,8 @@ static void gene_http_build_curl_headers(zval *headers_in, zval *headers_out, co
 static int gene_http_ensure_curl(zval *ch_out) {
 	gene_request_context *ctx = gene_request_ctx();
 	zval ret;
-	if (ctx && (Z_TYPE(ctx->http_curl) == IS_OBJECT || Z_TYPE(ctx->http_curl) == IS_RESOURCE)) {
-		ZVAL_COPY(ch_out, &ctx->http_curl);
+	if (ctx && (Z_TYPE(GENE_CTX_COLD(ctx)->http_curl) == IS_OBJECT || Z_TYPE(GENE_CTX_COLD(ctx)->http_curl) == IS_RESOURCE)) {
+		ZVAL_COPY(ch_out, &GENE_CTX_COLD(ctx)->http_curl);
 		if (gene_http_php_call("curl_reset", sizeof("curl_reset") - 1, 1, ch_out, &ret) == SUCCESS) {
 			zval_ptr_dtor(&ret);
 		} else if (EG(exception)) {
@@ -676,7 +676,7 @@ static int gene_http_ensure_curl(zval *ch_out) {
 		return FAILURE;
 	}
 	if (ctx) {
-		ZVAL_COPY(&ctx->http_curl, ch_out);
+		ZVAL_COPY(&GENE_CTX_COLD(ctx)->http_curl, ch_out);
 	}
 	return SUCCESS;
 }
@@ -696,8 +696,8 @@ static int gene_http_curl_exec_once(zval *ch, zend_long *status, zval *headers_o
 	ZVAL_UNDEF(headers_out);
 
 	if (ctx) {
-		ctx->http_body_buf = &body_buf;
-		ctx->http_header_buf = &header_buf;
+		GENE_CTX_COLD(ctx)->http_body_buf = &body_buf;
+		GENE_CTX_COLD(ctx)->http_header_buf = &header_buf;
 	}
 
 	ZVAL_STRING(&write_cb, GENE_G(use_namespace) ? "Gene\\Http::_writeFn" : "Gene_Http::_writeFn");
@@ -713,8 +713,8 @@ static int gene_http_curl_exec_once(zval *ch, zend_long *status, zval *headers_o
 	zval_ptr_dtor(&exec_ret);
 
 	if (ctx) {
-		ctx->http_body_buf = NULL;
-		ctx->http_header_buf = NULL;
+		GENE_CTX_COLD(ctx)->http_body_buf = NULL;
+		GENE_CTX_COLD(ctx)->http_header_buf = NULL;
 	}
 
 	header_code = gene_http_const(ZEND_STRL("CURLINFO_RESPONSE_CODE"));
@@ -928,8 +928,8 @@ static int gene_http_swoole_once(const char *method, zend_string *url, zval *hea
 	if (files && Z_TYPE_P(files) == IS_ARRAY && zend_hash_num_elements(Z_ARRVAL_P(files)) > 0) {
 		keep_alive = 0;
 	}
-	if (keep_alive && hctx && Z_TYPE(hctx->http_curl) == IS_ARRAY) {
-		zval *slot = zend_hash_str_find(Z_ARRVAL(hctx->http_curl), peer_key, peer_key_len);
+	if (keep_alive && hctx && Z_TYPE(GENE_CTX_COLD(hctx)->http_curl) == IS_ARRAY) {
+		zval *slot = zend_hash_str_find(Z_ARRVAL(GENE_CTX_COLD(hctx)->http_curl), peer_key, peer_key_len);
 		if (slot && Z_TYPE_P(slot) == IS_OBJECT) {
 			ZVAL_COPY(&cli, slot);
 		}
@@ -950,14 +950,14 @@ static int gene_http_swoole_once(const char *method, zend_string *url, zval *hea
 		}
 		zval_ptr_dtor(&ctor_params);
 		if (keep_alive && hctx) {
-			if (Z_TYPE(hctx->http_curl) != IS_ARRAY) {
-				if (Z_TYPE(hctx->http_curl) != IS_UNDEF) {
-					zval_ptr_dtor(&hctx->http_curl);
+			if (Z_TYPE(GENE_CTX_COLD(hctx)->http_curl) != IS_ARRAY) {
+				if (Z_TYPE(GENE_CTX_COLD(hctx)->http_curl) != IS_UNDEF) {
+					zval_ptr_dtor(&GENE_CTX_COLD(hctx)->http_curl);
 				}
-				array_init(&hctx->http_curl);
+				array_init(&GENE_CTX_COLD(hctx)->http_curl);
 			}
 			Z_TRY_ADDREF(cli);
-			zend_hash_str_update(Z_ARRVAL(hctx->http_curl), peer_key, peer_key_len, &cli);
+			zend_hash_str_update(Z_ARRVAL(GENE_CTX_COLD(hctx)->http_curl), peer_key, peer_key_len, &cli);
 		}
 	}
 
@@ -1104,8 +1104,8 @@ static int gene_http_swoole_once(const char *method, zend_string *url, zval *hea
 		zval dummy;
 		gene_factory_call(&cli, "close", sizeof("close") - 1, NULL, &dummy);
 		zval_ptr_dtor(&dummy);
-		if (keep_alive && hctx && Z_TYPE(hctx->http_curl) == IS_ARRAY) {
-			zend_hash_str_del(Z_ARRVAL(hctx->http_curl), peer_key, peer_key_len);
+		if (keep_alive && hctx && Z_TYPE(GENE_CTX_COLD(hctx)->http_curl) == IS_ARRAY) {
+			zend_hash_str_del(Z_ARRVAL(GENE_CTX_COLD(hctx)->http_curl), peer_key, peer_key_len);
 		}
 	}
 	zval_ptr_dtor(&cli);
@@ -1289,7 +1289,7 @@ PHP_METHOD(gene_http, request) {
 	}
 
 	ctx = gene_request_ctx();
-	if (ctx && (ctx->http_busy || ctx->http_body_buf)) {
+	if (ctx && (GENE_CTX_COLD(ctx)->http_busy || GENE_CTX_COLD(ctx)->http_body_buf)) {
 		zend_throw_exception_ex(NULL, 0, "Nested Gene\\Http::request is not supported");
 		if (have_multipart_form) zval_ptr_dtor(&multipart_form);
 		if (own_body && body) zend_string_release(body);
@@ -1297,33 +1297,33 @@ PHP_METHOD(gene_http, request) {
 		RETURN_THROWS();
 	}
 	if (ctx) {
-		ctx->http_busy = 1;
+		GENE_CTX_COLD(ctx)->http_busy = 1;
 	}
 	ZVAL_UNDEF(&saved_stream);
 	ZVAL_UNDEF(&saved_sse);
 	if (zstream && Z_TYPE_P(zstream) != IS_NULL && Z_TYPE_P(zstream) != IS_UNDEF && ctx) {
 		had_stream = 1;
-		ZVAL_COPY_VALUE(&saved_stream, &ctx->http_stream_cb);
-		ZVAL_UNDEF(&ctx->http_stream_cb);
-		ZVAL_COPY(&ctx->http_stream_cb, zstream);
+		ZVAL_COPY_VALUE(&saved_stream, &GENE_CTX_COLD(ctx)->http_stream_cb);
+		ZVAL_UNDEF(&GENE_CTX_COLD(ctx)->http_stream_cb);
+		ZVAL_COPY(&GENE_CTX_COLD(ctx)->http_stream_cb, zstream);
 	}
 	if (zsse && Z_TYPE_P(zsse) != IS_NULL && Z_TYPE_P(zsse) != IS_UNDEF && ctx) {
 		had_sse = 1;
-		ZVAL_COPY_VALUE(&saved_sse, &ctx->http_sse_cb);
-		ZVAL_UNDEF(&ctx->http_sse_cb);
-		ZVAL_COPY(&ctx->http_sse_cb, zsse);
+		ZVAL_COPY_VALUE(&saved_sse, &GENE_CTX_COLD(ctx)->http_sse_cb);
+		ZVAL_UNDEF(&GENE_CTX_COLD(ctx)->http_sse_cb);
+		ZVAL_COPY(&GENE_CTX_COLD(ctx)->http_sse_cb, zsse);
 		sse_active = 1;
 	}
 	if (zsse_forward && zend_is_true(zsse_forward) && ctx) {
-		ctx->http_sse_forward = 1;
+		GENE_CTX_COLD(ctx)->http_sse_forward = 1;
 		sse_active = 1;
 	}
 	if (zdiscard && zend_is_true(zdiscard) && ctx) {
-		ctx->http_discard_body = 1;
+		GENE_CTX_COLD(ctx)->http_discard_body = 1;
 	}
 	if (sse_active && ctx) {
-		ctx->http_sse_leftover = &sse_leftover;
-		ctx->http_sse_done = 0;
+		GENE_CTX_COLD(ctx)->http_sse_leftover = &sse_leftover;
+		GENE_CTX_COLD(ctx)->http_sse_done = 0;
 	}
 
 	use_swoole = (GENE_G(runtime_type) >= 2);
@@ -1351,7 +1351,7 @@ PHP_METHOD(gene_http, request) {
 				ssl_verify, keep_alive, &status, &headers_out, &resp_body, &err);
 			zval_ptr_dtor(&hdrs_assoc);
 			if (rc == SUCCESS && resp_body && ctx && ZSTR_LEN(resp_body) > 0
-				&& (gene_http_has_sse(ctx) || Z_TYPE(ctx->http_stream_cb) != IS_UNDEF)) {
+				&& (gene_http_has_sse(ctx) || Z_TYPE(GENE_CTX_COLD(ctx)->http_stream_cb) != IS_UNDEF)) {
 				gene_http_invoke_stream_body(ctx, resp_body);
 			}
 		} else {
@@ -1430,16 +1430,16 @@ PHP_METHOD(gene_http, request) {
 	}
 
 	if (had_stream && ctx) {
-		zval_ptr_dtor(&ctx->http_stream_cb);
-		ZVAL_COPY_VALUE(&ctx->http_stream_cb, &saved_stream);
+		zval_ptr_dtor(&GENE_CTX_COLD(ctx)->http_stream_cb);
+		ZVAL_COPY_VALUE(&GENE_CTX_COLD(ctx)->http_stream_cb, &saved_stream);
 	}
 	if (had_sse && ctx) {
-		zval_ptr_dtor(&ctx->http_sse_cb);
-		ZVAL_COPY_VALUE(&ctx->http_sse_cb, &saved_sse);
+		zval_ptr_dtor(&GENE_CTX_COLD(ctx)->http_sse_cb);
+		ZVAL_COPY_VALUE(&GENE_CTX_COLD(ctx)->http_sse_cb, &saved_sse);
 	}
 	if (ctx) {
-		ctx->http_sse_leftover = NULL;
-		ctx->http_sse_forward = 0;
+		GENE_CTX_COLD(ctx)->http_sse_leftover = NULL;
+		GENE_CTX_COLD(ctx)->http_sse_forward = 0;
 	}
 	smart_str_free(&sse_leftover);
 
@@ -1459,9 +1459,9 @@ PHP_METHOD(gene_http, request) {
 		if (resp_body) zend_string_release(resp_body);
 		if (Z_TYPE(headers_out) != IS_UNDEF) zval_ptr_dtor(&headers_out);
 		if (ctx) {
-			ctx->http_sse_done = 0;
-			ctx->http_discard_body = 0;
-			ctx->http_busy = 0;
+			GENE_CTX_COLD(ctx)->http_sse_done = 0;
+			GENE_CTX_COLD(ctx)->http_discard_body = 0;
+			GENE_CTX_COLD(ctx)->http_busy = 0;
 		}
 		RETURN_THROWS();
 	}
@@ -1476,9 +1476,9 @@ PHP_METHOD(gene_http, request) {
 		zend_string_release(resp_body);
 	}
 	if (ctx) {
-		ctx->http_sse_done = 0;
-		ctx->http_discard_body = 0;
-		ctx->http_busy = 0;
+		GENE_CTX_COLD(ctx)->http_sse_done = 0;
+		GENE_CTX_COLD(ctx)->http_discard_body = 0;
+		GENE_CTX_COLD(ctx)->http_busy = 0;
 	}
 }
 /* }}} */
@@ -2071,15 +2071,15 @@ PHP_METHOD(gene_http, multi) {
 		RETURN_THROWS();
 	}
 	ctx = gene_request_ctx();
-	if (ctx && ctx->http_busy) {
+	if (ctx && GENE_CTX_COLD(ctx)->http_busy) {
 		zend_throw_exception_ex(NULL, 0, "Nested Gene\\Http::multi is not supported");
 		RETURN_THROWS();
 	}
-	if (ctx) ctx->http_busy = 1;
+	if (ctx) GENE_CTX_COLD(ctx)->http_busy = 1;
 
 	array_init(return_value);
 	if (n == 0) {
-		if (ctx) ctx->http_busy = 0;
+		if (ctx) GENE_CTX_COLD(ctx)->http_busy = 0;
 		return;
 	}
 
@@ -2087,7 +2087,7 @@ PHP_METHOD(gene_http, multi) {
 		if (gene_http_multi_curl(requests, return_value, concurrency) != SUCCESS) {
 			zval_ptr_dtor(return_value);
 			ZVAL_UNDEF(return_value);
-			if (ctx) ctx->http_busy = 0;
+			if (ctx) GENE_CTX_COLD(ctx)->http_busy = 0;
 			RETURN_THROWS();
 		}
 	} else if (GENE_G(runtime_type) >= 2) {
@@ -2104,7 +2104,7 @@ PHP_METHOD(gene_http, multi) {
 				}
 				zval_ptr_dtor(return_value);
 				ZVAL_UNDEF(return_value);
-				if (ctx) ctx->http_busy = 0;
+				if (ctx) GENE_CTX_COLD(ctx)->http_busy = 0;
 				RETURN_THROWS();
 			}
 			add_next_index_zval(return_value, &one);
@@ -2112,12 +2112,12 @@ PHP_METHOD(gene_http, multi) {
 	} else {
 		zval_ptr_dtor(return_value);
 		ZVAL_UNDEF(return_value);
-		if (ctx) ctx->http_busy = 0;
+		if (ctx) GENE_CTX_COLD(ctx)->http_busy = 0;
 		zend_throw_exception_ex(NULL, 0,
 			"Gene\\Http::multi requires the curl extension (curl_multi_init)");
 		RETURN_THROWS();
 	}
-	if (ctx) ctx->http_busy = 0;
+	if (ctx) GENE_CTX_COLD(ctx)->http_busy = 0;
 }
 /* }}} */
 
@@ -2154,7 +2154,7 @@ PHP_METHOD(gene_http, multi) {
 			if (gene_http_opt(Z_ARRVAL_P(item), ZEND_STRL("stream"))
 				|| gene_http_opt(Z_ARRVAL_P(item), ZEND_STRL("sse"))) {
 				zend_throw_exception_ex(NULL, 0, "Gene\\Http::multi does not support stream or sse options");
-				if (ctx) ctx->http_busy = 0;
+				if (ctx) GENE_CTX_COLD(ctx)->http_busy = 0;
 				RETURN_THROWS();
 			}
 			zurl = gene_http_opt(Z_ARRVAL_P(item), ZEND_STRL("url"));
@@ -2188,7 +2188,7 @@ PHP_METHOD(gene_http, multi) {
 			if (zjson) {
 				zval encoded;
 				if (gene_json_encode_throw(zjson, &encoded) != SUCCESS) {
-					if (ctx) ctx->http_busy = 0;
+					if (ctx) GENE_CTX_COLD(ctx)->http_busy = 0;
 					RETURN_THROWS();
 				}
 				body = Z_STR(encoded);
@@ -2239,7 +2239,7 @@ PHP_METHOD(gene_http, multi) {
 		} else {
 			if (gene_http_multi_one_fpm(item, &one) != SUCCESS) {
 				if (EG(exception)) {
-					if (ctx) ctx->http_busy = 0;
+					if (ctx) GENE_CTX_COLD(ctx)->http_busy = 0;
 					RETURN_THROWS();
 				}
 				array_init(&one);
@@ -2255,7 +2255,7 @@ PHP_METHOD(gene_http, multi) {
 			add_next_index_zval(return_value, &one);
 		}
 	} ZEND_HASH_FOREACH_END();
-	if (ctx) ctx->http_busy = 0;
+	if (ctx) GENE_CTX_COLD(ctx)->http_busy = 0;
 }
 /* }}} */
 #endif

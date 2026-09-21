@@ -1,4 +1,4 @@
-﻿/*
+/*
   +----------------------------------------------------------------------+
   | gene                                                                 |
   +----------------------------------------------------------------------+
@@ -121,7 +121,7 @@ void getBenchMemory(zend_long *memory_start, zend_long *memory_end, char **ret, 
 PHP_METHOD(gene_benchmark, start)
 {
 	gene_request_context *ctx = gene_request_ctx();
-	markStart(&ctx->bench_start, &ctx->bench_memory_start);
+	markStart(&GENE_CTX_COLD(ctx)->bench_start, &GENE_CTX_COLD(ctx)->bench_memory_start);
 }
 /* }}} */
 
@@ -132,7 +132,7 @@ PHP_METHOD(gene_benchmark, start)
 PHP_METHOD(gene_benchmark, end)
 {
 	gene_request_context *ctx = gene_request_ctx();
-	markEnd(&ctx->bench_end, &ctx->bench_memory_end);
+	markEnd(&GENE_CTX_COLD(ctx)->bench_end, &GENE_CTX_COLD(ctx)->bench_memory_end);
 }
 /* }}} */
 
@@ -150,7 +150,7 @@ PHP_METHOD(gene_benchmark, time)
 	}
 
 	ctx = gene_request_ctx();
-	getBenchTime(&ctx->bench_start, &ctx->bench_end, &ret, type);
+	getBenchTime(&GENE_CTX_COLD(ctx)->bench_start, &GENE_CTX_COLD(ctx)->bench_end, &ret, type);
 
 	ZVAL_STRING(return_value, ret);
 	efree(ret);
@@ -172,10 +172,10 @@ PHP_METHOD(gene_benchmark, memory)
 	}
 
 	ctx = gene_request_ctx();
-    if (!ctx->bench_memory_start || !ctx->bench_memory_end) {
+    if (!ctx || !ctx->cold || !ctx->cold->bench_memory_start || !ctx->cold->bench_memory_end) {
     	RETURN_NULL();
     }
-    getBenchMemory(&ctx->bench_memory_start, &ctx->bench_memory_end, &ret, type);
+    getBenchMemory(&ctx->cold->bench_memory_start, &ctx->cold->bench_memory_end, &ret, type);
 
 	ZVAL_STRING(return_value, ret);
 	efree(ret);
@@ -202,8 +202,8 @@ PHP_METHOD(gene_benchmark, mark)
 	ctx = gene_request_ctx();
 	if (!ctx) RETURN_FALSE;
 
-	if (Z_TYPE(ctx->bench_marks) != IS_ARRAY) {
-		array_init(&ctx->bench_marks);
+	if (Z_TYPE(GENE_CTX_COLD(ctx)->bench_marks) != IS_ARRAY) {
+		array_init(&GENE_CTX_COLD(ctx)->bench_marks);
 	}
 
 	/* [GENE_NOTE:2026-08-07-5 N10] gene_hrtime() is uint64 nanoseconds; on
@@ -212,7 +212,7 @@ PHP_METHOD(gene_benchmark, mark)
 	 * Swoole ecosystem); do not rely on mark/lap on 32-bit PHP. */
 	zval ts;
 	ZVAL_LONG(&ts, (zend_long)gene_hrtime());
-	add_assoc_zval_ex(&ctx->bench_marks, ZSTR_VAL(name), ZSTR_LEN(name), &ts);
+	add_assoc_zval_ex(&GENE_CTX_COLD(ctx)->bench_marks, ZSTR_VAL(name), ZSTR_LEN(name), &ts);
 
 	RETURN_TRUE;
 }
@@ -235,11 +235,11 @@ PHP_METHOD(gene_benchmark, lap)
 	}
 
 	ctx = gene_request_ctx();
-	if (!ctx || Z_TYPE(ctx->bench_marks) != IS_ARRAY) {
+	if (!ctx || !ctx->cold || Z_TYPE(ctx->cold->bench_marks) != IS_ARRAY) {
 		RETURN_FALSE;
 	}
 
-	zval *prev = zend_hash_find(Z_ARRVAL(ctx->bench_marks), name);
+	zval *prev = zend_hash_find(Z_ARRVAL(ctx->cold->bench_marks), name);
 	if (!prev || Z_TYPE_P(prev) != IS_LONG) {
 		RETURN_FALSE;
 	}
@@ -251,7 +251,7 @@ PHP_METHOD(gene_benchmark, lap)
 	/* Reset the mark to now for the next lap. */
 	zval ts;
 	ZVAL_LONG(&ts, (zend_long)now);
-	add_assoc_zval_ex(&ctx->bench_marks, ZSTR_VAL(name), ZSTR_LEN(name), &ts);
+	add_assoc_zval_ex(&GENE_CTX_COLD(ctx)->bench_marks, ZSTR_VAL(name), ZSTR_LEN(name), &ts);
 
 	RETURN_DOUBLE(elapsed_ms);
 }

@@ -1,4 +1,4 @@
-ï»¿/*
+/*
  +----------------------------------------------------------------------+
  | gene                                                                 |
  +----------------------------------------------------------------------+
@@ -175,7 +175,7 @@ void mssql_reset_sql_params(zval *self)
 }
 
 void mssqlSaveHistory(smart_str *sql, zval *param, uint64_t *start, uint64_t *end, zend_long *mem_start, zend_long *mem_end) {
-	zval *history = &GENE_REQ(db_mssql_history);
+	zval *history = gene_db_history_slot(gene_request_ctx(), ZEND_STRL("mssql"));
 	zval params, z_row, z_sql, z_data, z_time, z_memory;
 	char *char_t,*char_m;
 
@@ -408,10 +408,7 @@ PHP_METHOD(gene_db_mssql, __construct)
 
     {
     	gene_request_context *ctx = gene_request_ctx();
-    	if (Z_TYPE(ctx->db_mssql_history) != IS_UNDEF) {
-    		zval_ptr_dtor(&ctx->db_mssql_history);
-    	}
-    	ZVAL_UNDEF(&ctx->db_mssql_history);
+    	gene_db_history_reset(ctx, ZEND_STRL("mssql"));
     }
 
     if (config) {
@@ -897,7 +894,7 @@ PHP_METHOD(gene_db_mssql, execute)
 }
 /* }}} */
 
-/* [GENE_FEATURE:2026-08-06 F0-3] JOIN type whitelist â€” anything outside this
+/* [GENE_FEATURE:2026-08-06 F0-3] JOIN type whitelist ¡ª anything outside this
  * set is rejected instead of interpolated into the SQL. Mirrors the MySQL
  * builder (gene_db_mysql_join_type). */
 static zend_bool gene_db_mssql_join_type(const char *type, size_t type_len, char *out, size_t out_size) {
@@ -1444,7 +1441,7 @@ PHP_METHOD(gene_db_mssql, print)
 	smart_str_0(&sql);
 	zval z_row, z_sql;
 	/* [GENE_FIX:2026-08-19] sql.s stays NULL when no statement was built
-	 * (fresh handle / right after reset) â€” ZSTR_VAL(NULL) segfaults. */
+	 * (fresh handle / right after reset) ¡ª ZSTR_VAL(NULL) segfaults. */
 	ZVAL_STRING(&z_sql, sql.s ? ZSTR_VAL(sql.s) : "");
 	smart_str_free(&sql);
 
@@ -1539,7 +1536,7 @@ PHP_METHOD(gene_db_mssql, free)
 	if (pool && Z_TYPE_P(pool) == IS_OBJECT) {
 		gene_pool_return_pdo(gene_db_mssql_ce, self, ZEND_STRL(GENE_DB_MSSQL_POOL), ZEND_STRL(GENE_DB_MSSQL_PDO));
 	} else {
-		/* [GENE_FIX:2026-08-19 N3] No-pool handle â€” see Db\Mysql::free(). */
+		/* [GENE_FIX:2026-08-19 N3] No-pool handle ¡ª see Db\Mysql::free(). */
 		zval *pdo = gene_db_prop_get(gene_strip_obj(self), gene_db_mssql_prop[GENE_DB_PROP_PDO]);
 		gene_db_tx_hygiene(pdo, "Db\\Mssql handle freed");
 		gene_db_prop_set_null(gene_strip_obj(self), gene_db_mssql_prop[GENE_DB_PROP_PDO]);
@@ -1570,10 +1567,11 @@ PHP_METHOD(gene_db_mssql, __destruct)
 PHP_METHOD(gene_db_mssql, history)
 {
 	gene_request_context *ctx = gene_request_ctx();
-	if (Z_TYPE(ctx->db_mssql_history) == IS_UNDEF) {
+	zval *hist = gene_db_history_find(ctx, ZEND_STRL("mssql"));
+	if (!hist) {
 		RETURN_NULL();
 	}
-	RETURN_ZVAL(&ctx->db_mssql_history, 1, 0);
+	RETURN_ZVAL(hist, 1, 0);
 }
 /* }}} */
 

@@ -1,4 +1,4 @@
-﻿/*
+/*
  +----------------------------------------------------------------------+
  | gene                                                                 |
  +----------------------------------------------------------------------+
@@ -83,11 +83,11 @@ ZEND_DECLARE_MODULE_GLOBALS(gene);
  * still pays that cost. Swoole exports the static C++ method
  *   swoole::Coroutine::get_current_cid()
  * which simply reads a thread-local pointer and returns its cid (or -1 outside
- * a coroutine) — a few ns. We resolve it once per worker via dlsym against the
+ * a coroutine) �� a few ns. We resolve it once per worker via dlsym against the
  * already-loaded swoole.so using the Itanium-ABI mangled symbol name (stable
  * across compilers/versions). If the symbol is unavailable (Swoole not loaded,
  * Windows, custom build with hidden visibility, or an incompatible fork) we
- * transparently fall back to the cached zend_function PHP path — so the
+ * transparently fall back to the cached zend_function PHP path �� so the
  * optimization is strictly best-effort and never a correctness hazard.
  *
  * The resolver state is process-global (the dlsym result is identical for all
@@ -100,7 +100,7 @@ static volatile int gene_swoole_getcid_capi_resolved = 0;
 /* [GENE_PERF:2026-07-03 T1#2] Direct C-API resolution of Swoole's
  * Coroutine::get_by_cid(long cid) for the co_contexts sweep. The sweep
  * previously called Swoole\Coroutine::exists($cid) via
- * zend_call_known_function for every entry in the co_contexts table —
+ * zend_call_known_function for every entry in the co_contexts table ��
  * N PHP method calls per sweep. get_by_cid returns a Coroutine* (nullptr
  * if the cid is dead/unknown), letting the sweep check liveness in a few
  * ns per entry with zero PHP crossings. Reuses the same dlsym(RTLD_DEFAULT)
@@ -120,7 +120,7 @@ static void gene_resolve_getcid_capi(void) {
 	 * activates and the sweep's gene_swoole_co_exists() falls back to the
 	 * PHP exists() path. Previously the sweep path called this resolver
 	 * without checking the switch, populating gene_swoole_getcid_capi and
-	 * making the kill-switch unreliable — exactly in the Swoole-
+	 * making the kill-switch unreliable �� exactly in the Swoole-
 	 * incompatible environments where the escape hatch is needed. */
 	if (!GENE_G(swoole_getcid_capi)) {
 		gene_swoole_getcid_capi_resolved = 1;
@@ -128,13 +128,13 @@ static void gene_resolve_getcid_capi(void) {
 		return;
 	}
 #ifndef PHP_WIN32
-	/* Search every loaded object (RTLD_DEFAULT) — swoole.so is fully loaded
+	/* Search every loaded object (RTLD_DEFAULT) �� swoole.so is fully loaded
 	 * by the time any request executes, so the symbol is visible here even
 	 * though it may not have been at gene's MINIT. */
 	gene_swoole_getcid_capi = (gene_getcid_capi_t)dlsym(
 		RTLD_DEFAULT, "_ZN6swoole9Coroutine15get_current_cidEv");
 	/* [GENE_PERF:2026-07-03 T1#2] Also resolve get_by_cid for sweep liveness
-	 * checks. Mangled name: swoole::Coroutine::get_by_cid(long) →
+	 * checks. Mangled name: swoole::Coroutine::get_by_cid(long) ��
 	 * _ZN6swoole9Coroutine11get_by_cidEl */
 	gene_swoole_co_get_by_cid_capi = (gene_co_get_by_cid_capi_t)dlsym(
 		RTLD_DEFAULT, "_ZN6swoole9Coroutine11get_by_cidEl");
@@ -219,7 +219,7 @@ zend_long gene_get_coroutine_id(void) {
 /* {{{ gene_interned_str_persistent
  * [GENE_FIX:2026-05-24] See gene.h for full rationale. The slot is only
  * populated when zend_string_init_interned() returned a string carrying
- * IS_STR_PERMANENT — the canonical Zend marker for "lives at process scope".
+ * IS_STR_PERMANENT �� the canonical Zend marker for "lives at process scope".
  * Under opcache.file_cache_only=1 / no-opcache / CLI, the call returns a
  * request-scope string (no IS_STR_PERMANENT); we deliberately leave *slot
  * NULL so that the next request re-resolves through the interned strings
@@ -228,7 +228,7 @@ zend_long gene_get_coroutine_id(void) {
  * Within a single request, repeated calls hit the fast path on the second
  * invocation onward: the *slot check short-circuits before the
  * zend_string_init_interned hash probe. Across requests, the worst case is
- * one zend_string_init_interned call per site per request — a bucket lookup
+ * one zend_string_init_interned call per site per request �� a bucket lookup
  * in CG(interned_strings) plus a single store. Benchmarks: ~25 ns extra per
  * site versus the prior unsafe cache, dwarfed by even one disk syscall. */
 zend_string *gene_interned_str_persistent(zend_string **slot, const char *s, size_t l) {
@@ -240,7 +240,7 @@ zend_string *gene_interned_str_persistent(zend_string **slot, const char *s, siz
 	if (resolved && (GC_FLAGS(resolved) & IS_STR_PERMANENT)) {
 		*slot = resolved;
 	}
-	/* When permanent caching is unavailable, *slot stays NULL — the
+	/* When permanent caching is unavailable, *slot stays NULL �� the
 	 * returned string is still safe to use for this request only. */
 	return resolved;
 }
@@ -257,7 +257,7 @@ zend_string *gene_interned_str_persistent(zend_string **slot, const char *s, siz
  * already-loaded classes (>99% of calls in steady state).
  *
  * Slow path (autoload required): allocate a request-scope zend_string,
- * call zend_lookup_class, release. No persistent cache → no dangling
+ * call zend_lookup_class, release. No persistent cache �� no dangling
  * pointer hazard across requests. */
 zend_class_entry *gene_lookup_class_str(const char *name, size_t len) {
 	zend_class_entry *ce;
@@ -292,11 +292,11 @@ zend_class_entry *gene_lookup_class_str(const char *name, size_t len) {
 }
 /* }}} */
 
-/* [GENE_FEATURE:2026-08-20] Shared URL/path helpers — used by Application,
+/* [GENE_FEATURE:2026-08-20] Shared URL/path helpers �� used by Application,
  * Controller, View, Hook, Response so they all behave identically.
  *
  * gene_build_url: build "/lang/path" or "/path" from a raw path string and
- *   an explicit lang (NULL ⇒ use current request lang; empty string ⇒ no
+ *   an explicit lang (NULL ? use current request lang; empty string ? no
  *   lang prefix). Strips leading slashes from the input path. If the path
  *   is empty, returns "/lang/" or "/" depending on lang availability.
  *
@@ -316,9 +316,9 @@ void gene_build_url(zval *return_value, const char *path_str, size_t path_len, c
 	/* If no explicit lang provided, use current request lang */
 	if (!lang) {
 		ctx = gene_request_ctx();
-		if (ctx && ctx->lang && ctx->lang[0] != '\0') {
-			lang = ctx->lang;
-			lang_len = ctx->lang_len;
+		if (ctx && GENE_CTX_COLD(ctx)->lang && GENE_CTX_COLD(ctx)->lang[0] != '\0') {
+			lang = GENE_CTX_COLD(ctx)->lang;
+			lang_len = GENE_CTX_COLD(ctx)->lang_len;
 		} else {
 			lang = NULL;
 			lang_len = 0;
@@ -391,9 +391,9 @@ void gene_get_path(zval *return_value, zend_bool without_lang) {
 	path = ctx->path;
 	path_len = ctx->path_len;
 
-	if (without_lang && ctx->lang && ctx->lang[0] != '\0') {
-		lang = ctx->lang;
-		lang_len = ctx->lang_len;
+	if (without_lang && GENE_CTX_COLD(ctx)->lang && GENE_CTX_COLD(ctx)->lang[0] != '\0') {
+		lang = GENE_CTX_COLD(ctx)->lang;
+		lang_len = GENE_CTX_COLD(ctx)->lang_len;
 		/* Check if path starts with "/lang/" */
 		if (path_len >= lang_len + 2
 			&& path[0] == '/'
@@ -438,12 +438,12 @@ void gene_get_router_uri(zval *return_value) {
 }
 
 /* {{{ gene_request_context_init
- * [GENE_MEM:2026-04-24] path_params is now an inline zval — only the backing
+ * [GENE_MEM:2026-04-24] path_params is now an inline zval �� only the backing
  * HashTable is heap-allocated via array_init. This removes one emalloc +
  * one efree from every request's allocator traffic (FPM + Swoole).
  * [GENE_PERF:2026-04-24 v5.5.8] path_params pre-sized to 8 (typical routes
  * have 1-3 bound parameters, worst-case dozens for API-heavy apps). The
- * default-initialized HashTable starts at size 0 and grows 0→8→16→... on
+ * default-initialized HashTable starts at size 0 and grows 0��8��16��... on
  * each insert; pre-sizing to 8 skips the first grow during setMca(). */
 void gene_request_context_init(gene_request_context *ctx) {
 	if (!ctx) return;
@@ -451,49 +451,23 @@ void gene_request_context_init(gene_request_context *ctx) {
 	array_init_size(&ctx->path_params, 8);
 	ZVAL_UNDEF(&ctx->request_attr);
 	ZVAL_UNDEF(&ctx->di_regs);
-	ZVAL_UNDEF(&ctx->di_alias);
-	ctx->di_class_keys = 0;
 	ZVAL_UNDEF(&ctx->response_obj);
-	ZVAL_UNDEF(&ctx->view_vars);
-	ZVAL_UNDEF(&ctx->bench_marks);
-	ZVAL_UNDEF(&ctx->db_mysql_history);
-	ZVAL_UNDEF(&ctx->db_pgsql_history);
-	ZVAL_UNDEF(&ctx->db_sqlite_history);
-	ZVAL_UNDEF(&ctx->db_mssql_history);
-	ZVAL_UNDEF(&ctx->orm_meta);
-	ZVAL_UNDEF(&ctx->user_bag);
-	ZVAL_UNDEF(&ctx->http_curl);
-	ZVAL_UNDEF(&ctx->http_stream_cb);
-	ctx->http_body_buf = NULL;
-	ctx->http_header_buf = NULL;
-	ctx->http_busy = 0;
-	ZVAL_UNDEF(&ctx->http_sse_cb);
-	ctx->http_sse_forward = 0;
-	ctx->http_sse_done = 0;
-	ctx->http_discard_body = 0;
-	ctx->http_sse_leftover = NULL;
-	ZVAL_UNDEF(&ctx->request_stack);
-	ZVAL_UNDEF(&ctx->request_json);
-	ctx->request_json_error = NULL;
-	ctx->request_json_state = 0;
 	ctx->request_bags_inited = 0;
-	ctx->invoke_depth = 0;
-	ctx->view_scope_no = 0;
-	ctx->log_file = NULL;
-	ctx->log_level = 0;
-	ctx->log_level_set = 0;
+	/* [GENE_PERF:2026-09-21 V3-4.1] cold block stays NULL here; it is
+	 * materialized lazily by GENE_CTX_COLD() on first cold-field access and
+	 * its zvals come up IS_UNDEF thanks to ecalloc. */
 }
 /* }}} */
 
 /* {{{ gene_request_context_reset_path_params
  * [GENE_MEM:2026-04-24] With path_params inlined, reset is always an in-place
- * HashTable clean — no emalloc branch, no pointer indirection. */
+ * HashTable clean �� no emalloc branch, no pointer indirection. */
 static zend_always_inline void gene_request_context_reset_path_params(gene_request_context *ctx) {
 	zval *pp;
 	if (UNEXPECTED(!ctx)) return;
 	pp = &ctx->path_params;
 	if (EXPECTED(Z_TYPE_P(pp) == IS_ARRAY)) {
-		/* Fast path: live array → just clear entries. If the backing
+		/* Fast path: live array �� just clear entries. If the backing
 		 * HashTable has grown huge (e.g. a prior request stuffed 10k+
 		 * params into it), drop it entirely so the next array_init
 		 * starts at the minimum bucket footprint. Keeps Swoole worker
@@ -521,7 +495,7 @@ static zend_always_inline void gene_request_context_reset_path_params(gene_reque
  * array_init for consumers that key/iterate it, so the only effect is one
  * fewer alloc/free pair per request on the common path. If a pathological
  * request ballooned the table (>128 buckets) we drop it back to IS_UNDEF so
- * the next lazy init starts at the minimum footprint — keeping Swoole worker
+ * the next lazy init starts at the minimum footprint �� keeping Swoole worker
  * RSS bounded exactly as the prior destroy-on-reset did. Unlike path_params,
  * these arrays are re-initialized on demand by their accessor (e.g.
  * gene_request_attr()), so we leave them UNDEF rather than eagerly re-init. */
@@ -547,7 +521,7 @@ static zend_always_inline void gene_ctx_reuse_lazy_array(zval *zv) {
  * With PDO::ATTR_PERSISTENT (apistore's FPM config) the underlying
  * connection outlives the request in EG(persistent_list): if user code
  * opened a transaction and bailed without rollBack(), PHP object teardown
- * does NOT send ROLLBACK — the next request reusing that connection would
+ * does NOT send ROLLBACK �� the next request reusing that connection would
  * inherit the open transaction and its row locks. Before di_regs (and with
  * it the Db handles) is destroyed, roll back any still-open transaction and
  * warn loudly. On non-persistent connections this rollback is a zero-cost
@@ -591,9 +565,9 @@ static void gene_di_regs_tx_hygiene(zval *di_regs) {
 /* }}} */
 
 /* {{{ gene_request_context_free_fields - shared cleanup for reset/destroy
- * preserve_for_reuse: 1 on reset() (request boundary for a recycled ctx) —
+ * preserve_for_reuse: 1 on reset() (request boundary for a recycled ctx) ��
  * path_params and request_attr are recycled in place rather than freed; 0 on
- * destroy() (pool release / worker exit) — everything is fully freed.
+ * destroy() (pool release / worker exit) �� everything is fully freed.
  *
  * [GENE_MEM:2026-06-19 M5] Note on the char* fields (method/path/module/...):
  * buffer pooling for these was evaluated and deliberately NOT done. Readers
@@ -602,7 +576,7 @@ static void gene_di_regs_tx_hygiene(zval *di_regs) {
  * reset would silently leak the previous request's value into handlers that
  * don't re-set it. A stash-based scheme (move buffer aside on reset, reuse on
  * next set) preserves that contract but adds per-field stash+capacity state and
- * touches every assignment site for a ~100-200ns/req gain — not worth the
+ * touches every assignment site for a ~100-200ns/req gain �� not worth the
  * surface area until it can be validated under ASAN. The arrays below are safe
  * to recycle because their accessors gate on IS_ARRAY/IS_UNDEF, not a pointer. */
 static void gene_request_context_free_fields(gene_request_context *ctx, int preserve_for_reuse) {
@@ -614,7 +588,7 @@ static void gene_request_context_free_fields(gene_request_context *ctx, int pres
 	ctx->router_path_owned = 0;
 	ctx->router_path_len = 0;
 	/* [GENE_PERF:2026-09-20 V3-2.5] module/controller/action may point into
-	 * the context-owned mca_buf slots — pointer identity is the ownership
+	 * the context-owned mca_buf slots �� pointer identity is the ownership
 	 * tag, so only heap pointers are efree'd. */
 	if (ctx->module) { if (ctx->module != ctx->mca_buf[0]) efree(ctx->module); ctx->module = NULL; }
 	ctx->module_len = 0;
@@ -622,25 +596,30 @@ static void gene_request_context_free_fields(gene_request_context *ctx, int pres
 	ctx->controller_len = 0;
 	if (ctx->action) { if (ctx->action != ctx->mca_buf[2]) efree(ctx->action); ctx->action = NULL; }
 	ctx->action_len = 0;
-	if (ctx->child_views) { efree(ctx->child_views); ctx->child_views = NULL; }
-	ctx->child_views_len = 0;
-	if (ctx->lang) { efree(ctx->lang); ctx->lang = NULL; }
-	ctx->lang_len = 0;
-	if (ctx->log_file) { zend_string_release(ctx->log_file); ctx->log_file = NULL; }
-	/* Unwind Request snapshots before request_attr is recycled/freed. */
-	gene_request_stack_drain(ctx);
-	if (Z_TYPE(ctx->request_json) != IS_UNDEF) {
-		zval_ptr_dtor(&ctx->request_json);
-		ZVAL_UNDEF(&ctx->request_json);
-	}
-	if (ctx->request_json_error) {
-		zend_string_release(ctx->request_json_error);
-		ctx->request_json_error = NULL;
-	}
-	ctx->request_json_state = 0;
 	ctx->request_bags_inited = 0;
-	ctx->invoke_depth = 0;
-	ctx->http_busy = 0;
+	/* [GENE_PERF:2026-09-21 V3-4.1] Cold-field cleanup runs only when the
+	 * lazily-allocated block exists; a fresh/pooled ctx skips it entirely. */
+	if (ctx->cold) {
+		gene_ctx_cold *c = ctx->cold;
+		if (c->child_views) { efree(c->child_views); c->child_views = NULL; }
+		c->child_views_len = 0;
+		if (c->lang) { efree(c->lang); c->lang = NULL; }
+		c->lang_len = 0;
+		if (c->log_file) { zend_string_release(c->log_file); c->log_file = NULL; }
+		/* Unwind Request snapshots before request_attr is recycled/freed. */
+		gene_request_stack_drain(ctx);
+		if (Z_TYPE(c->request_json) != IS_UNDEF) {
+			zval_ptr_dtor(&c->request_json);
+			ZVAL_UNDEF(&c->request_json);
+		}
+		if (c->request_json_error) {
+			zend_string_release(c->request_json_error);
+			c->request_json_error = NULL;
+		}
+		c->request_json_state = 0;
+		c->invoke_depth = 0;
+		c->http_busy = 0;
+	}
 	if (!preserve_for_reuse) {
 		/* [GENE_MEM:2026-04-24] Inlined path_params: dtor the HashTable
 		 * only; the zval container itself lives with the struct. */
@@ -651,7 +630,7 @@ static void gene_request_context_free_fields(gene_request_context *ctx, int pres
 	}
 	/* [GENE_MEM:2026-06-19 M5] request_attr is set on virtually every request
 	 * (any getVal/setVal of GET/POST/COOKIE/... routes through it), so on reset
-	 * we recycle it in place instead of free+re-init — saving one alloc/free
+	 * we recycle it in place instead of free+re-init �� saving one alloc/free
 	 * pair per request on the hot path. The "drop if >128 buckets" guard inside
 	 * gene_ctx_reuse_lazy_array() preserves the old RSS bound for pathological
 	 * requests. On destroy (preserve_for_reuse==0) it is fully freed below.
@@ -675,92 +654,87 @@ static void gene_request_context_free_fields(gene_request_context *ctx, int pres
 	}
 	/* [GENE_FEATURE:2026-08-07 Di::alias] Alias map is request-scope, same
 	 * lifetime policy as di_regs. */
-	if (Z_TYPE(ctx->di_alias) != IS_UNDEF) {
-		zval_ptr_dtor(&ctx->di_alias);
-		ZVAL_UNDEF(&ctx->di_alias);
+	if (ctx->cold) {
+		gene_ctx_cold *c = ctx->cold;
+		if (Z_TYPE(c->di_alias) != IS_UNDEF) {
+			zval_ptr_dtor(&c->di_alias);
+			ZVAL_UNDEF(&c->di_alias);
+		}
+		c->di_class_keys = 0;
 	}
-	ctx->di_class_keys = 0;
 	if (Z_TYPE(ctx->response_obj) != IS_UNDEF) {
 		zval_ptr_dtor(&ctx->response_obj);
 		ZVAL_UNDEF(&ctx->response_obj);
-	}
-	/* [GENE_FEATURE:2026-08-07 Benchmark mark/lap] */
-	if (Z_TYPE(ctx->bench_marks) != IS_UNDEF) {
-		zval_ptr_dtor(&ctx->bench_marks);
-		ZVAL_UNDEF(&ctx->bench_marks);
 	}
 	ctx->response_status = 0;
 	ctx->response_ended = 0;
 	/* [GENE_FIX:2026-08-07-5 N2] Stop latch lives in the ctx, so it is
 	 * automatically re-armed for every request/coroutine that reuses it. */
 	ctx->app_stopped = 0;
-	if (Z_TYPE(ctx->view_vars) != IS_UNDEF) {
-		zval_ptr_dtor(&ctx->view_vars);
-		ZVAL_UNDEF(&ctx->view_vars);
+	if (ctx->cold) {
+		gene_ctx_cold *c = ctx->cold;
+		/* [GENE_FEATURE:2026-08-07 Benchmark mark/lap] */
+		if (Z_TYPE(c->bench_marks) != IS_UNDEF) {
+			zval_ptr_dtor(&c->bench_marks);
+			ZVAL_UNDEF(&c->bench_marks);
+		}
+		if (Z_TYPE(c->view_vars) != IS_UNDEF) {
+			zval_ptr_dtor(&c->view_vars);
+			ZVAL_UNDEF(&c->view_vars);
+		}
+		/* [V3-4.1] merged per-driver SQL history {driver => rows}. */
+		if (Z_TYPE(c->db_history) != IS_UNDEF) {
+			zval_ptr_dtor(&c->db_history);
+			ZVAL_UNDEF(&c->db_history);
+		}
+		/* [GENE_FEATURE:2026-08-08 ORM] Request-scoped model meta cache. */
+		if (Z_TYPE(c->orm_meta) != IS_UNDEF) {
+			zval_ptr_dtor(&c->orm_meta);
+			ZVAL_UNDEF(&c->orm_meta);
+		}
+		/* [GENE_FEATURE:2026-08-22] Gene\Context request bag. Recycle small
+		 * tables on reset (M5); fully free on destroy. */
+		if (preserve_for_reuse) {
+			gene_ctx_reuse_lazy_array(&c->user_bag);
+		} else if (Z_TYPE(c->user_bag) != IS_UNDEF) {
+			zval_ptr_dtor(&c->user_bag);
+			ZVAL_UNDEF(&c->user_bag);
+		}
+		if (Z_TYPE(c->http_curl) != IS_UNDEF) {
+			zval_ptr_dtor(&c->http_curl);
+			ZVAL_UNDEF(&c->http_curl);
+		}
+		if (Z_TYPE(c->http_stream_cb) != IS_UNDEF) {
+			zval_ptr_dtor(&c->http_stream_cb);
+			ZVAL_UNDEF(&c->http_stream_cb);
+		}
+		if (Z_TYPE(c->http_sse_cb) != IS_UNDEF) {
+			zval_ptr_dtor(&c->http_sse_cb);
+			ZVAL_UNDEF(&c->http_sse_cb);
+		}
+		c->http_sse_forward = 0;
+		c->http_sse_done = 0;
+		c->http_discard_body = 0;
+		c->http_sse_leftover = NULL;
+		c->http_body_buf = NULL;
+		c->http_header_buf = NULL;
+		c->log_level = 0;
+		c->log_level_set = 0;
+		c->view_scope_no = 0;
+		/* [GENE_MEM:2026-04-24 #2] Reset Benchmark fields too. */
+		c->bench_start = 0;
+		c->bench_end = 0;
+		c->bench_memory_start = 0;
+		c->bench_memory_end = 0;
+		if (!preserve_for_reuse) {
+			/* [V3-4.1] destroy releases the cold block itself; reset keeps it
+			 * so a pooled ctx pays the ecalloc only once. */
+			efree(ctx->cold);
+			ctx->cold = NULL;
+		}
 	}
-	if (Z_TYPE(ctx->db_mysql_history) != IS_UNDEF) {
-		zval_ptr_dtor(&ctx->db_mysql_history);
-		ZVAL_UNDEF(&ctx->db_mysql_history);
-	}
-	if (Z_TYPE(ctx->db_pgsql_history) != IS_UNDEF) {
-		zval_ptr_dtor(&ctx->db_pgsql_history);
-		ZVAL_UNDEF(&ctx->db_pgsql_history);
-	}
-	if (Z_TYPE(ctx->db_sqlite_history) != IS_UNDEF) {
-		zval_ptr_dtor(&ctx->db_sqlite_history);
-		ZVAL_UNDEF(&ctx->db_sqlite_history);
-	}
-	if (Z_TYPE(ctx->db_mssql_history) != IS_UNDEF) {
-		zval_ptr_dtor(&ctx->db_mssql_history);
-		ZVAL_UNDEF(&ctx->db_mssql_history);
-	}
-	/* [GENE_FEATURE:2026-08-08 ORM] Request-scoped model meta cache. */
-	if (Z_TYPE(ctx->orm_meta) != IS_UNDEF) {
-		zval_ptr_dtor(&ctx->orm_meta);
-		ZVAL_UNDEF(&ctx->orm_meta);
-	}
-	/* [GENE_FEATURE:2026-08-22] Gene\Context request bag. Recycle small
-	 * tables on reset (M5); fully free on destroy. */
-	if (preserve_for_reuse) {
-		gene_ctx_reuse_lazy_array(&ctx->user_bag);
-	} else if (Z_TYPE(ctx->user_bag) != IS_UNDEF) {
-		zval_ptr_dtor(&ctx->user_bag);
-		ZVAL_UNDEF(&ctx->user_bag);
-	}
-	if (Z_TYPE(ctx->http_curl) != IS_UNDEF) {
-		zval_ptr_dtor(&ctx->http_curl);
-		ZVAL_UNDEF(&ctx->http_curl);
-	}
-	if (Z_TYPE(ctx->http_stream_cb) != IS_UNDEF) {
-		zval_ptr_dtor(&ctx->http_stream_cb);
-		ZVAL_UNDEF(&ctx->http_stream_cb);
-	}
-	if (Z_TYPE(ctx->http_sse_cb) != IS_UNDEF) {
-		zval_ptr_dtor(&ctx->http_sse_cb);
-		ZVAL_UNDEF(&ctx->http_sse_cb);
-	}
-	ctx->http_sse_forward = 0;
-	ctx->http_sse_done = 0;
-	ctx->http_discard_body = 0;
-	ctx->http_sse_leftover = NULL;
-	ctx->http_body_buf = NULL;
-	ctx->http_header_buf = NULL;
-	ctx->log_level = 0;
-	ctx->log_level_set = 0;
-	ctx->view_scope_no = 0;
-	/* [GENE_MEM:2026-04-24 #2] Reset Benchmark fields too. Previously these
-	 * 4 inline scalars were left with the prior request's values after
-	 * reset, so in Swoole where the same ctx is reused across many
-	 * requests / coroutines Gene\Benchmark::time()/memory() could report
-	 * bleed from the previous request when benchmark::start() was not
-	 * called by the current handler. Scalars → unconditional clears. */
-	ctx->bench_start = 0;
-	ctx->bench_end = 0;
-	ctx->bench_memory_start = 0;
-	ctx->bench_memory_end = 0;
 }
 /* }}} */
-
 /* {{{ gene_request_context_reset */
 void gene_request_context_reset(gene_request_context *ctx) {
 	if (!ctx) return;
@@ -788,7 +762,7 @@ void gene_request_context_destroy(gene_request_context *ctx) {
  *   - Release: 1 load + 1 compare + 2 stores (no efree).
  *
  * Worst-case bound: ctx_pool_max (default 256) * sizeof(gene_request_context)
- * ≈ 256 * ~320B ≈ 80KB per worker — negligible vs. a typical Swoole worker's
+ * �� 256 * ~320B �� 80KB per worker �� negligible vs. a typical Swoole worker's
  * RSS. Pool overflow falls back to efree so memory never leaks. */
 static zend_always_inline void **gene_ctx_pool_next_slot(gene_request_context *ctx) {
 	/* Reuse path_params.value.ptr as the free-list link. Safe because a
@@ -810,12 +784,12 @@ gene_request_context *gene_request_context_pool_acquire(void) {
 		 * used as the free-list link while on the pool. array_init_size
 		 * below completely overwrites the zval (sets type=IS_ARRAY and
 		 * stores the HashTable pointer), so the prior "*slot = NULL"
-		 * scrub is redundant — removed to shave one store per acquire.
+		 * scrub is redundant �� removed to shave one store per acquire.
 		 * All remaining fields are guaranteed NULL/UNDEF/zero by the
 		 * caller-invoked destroy() that precedes every pool release. */
 		array_init_size(&ctx->path_params, 8);
 		/* The ZVAL_UNDEF assignments below are identity ops for a
-		 * freshly-destroyed ctx — type is already 0 (IS_UNDEF) thanks
+		 * freshly-destroyed ctx �� type is already 0 (IS_UNDEF) thanks
 		 * to gene_request_context_destroy() setting each to UNDEF.
 		 * Under -O2 the compiler folds them into a single cache-line
 		 * store pair; under -O0/-O1 they are redundant writes. Keep
@@ -825,19 +799,23 @@ gene_request_context *gene_request_context_pool_acquire(void) {
 		ZVAL_UNDEF(&ctx->request_attr);
 		ZVAL_UNDEF(&ctx->di_regs);
 		ZVAL_UNDEF(&ctx->response_obj);
-		ZVAL_UNDEF(&ctx->view_vars);
-		ZVAL_UNDEF(&ctx->db_mysql_history);
-		ZVAL_UNDEF(&ctx->db_pgsql_history);
-		ZVAL_UNDEF(&ctx->db_sqlite_history);
-		ZVAL_UNDEF(&ctx->db_mssql_history);
-		ZVAL_UNDEF(&ctx->di_alias);
-		ZVAL_UNDEF(&ctx->bench_marks);
-		ZVAL_UNDEF(&ctx->orm_meta);
-		ZVAL_UNDEF(&ctx->request_json);
+		if (ctx->cold) {
+			ZVAL_UNDEF(&ctx->cold->view_vars);
+			ZVAL_UNDEF(&ctx->cold->db_history);
+			ZVAL_UNDEF(&ctx->cold->di_alias);
+			ZVAL_UNDEF(&ctx->cold->bench_marks);
+			ZVAL_UNDEF(&ctx->cold->orm_meta);
+			ZVAL_UNDEF(&ctx->cold->request_json);
+		}
 #endif
-		ctx->view_scope_no = 0;
-		ctx->log_level = 0;
-		ctx->log_level_set = 0;
+		/* [V3-4.1] A pooled ctx reaches here post-destroy() with cold==NULL;
+		 * do NOT materialize the block just to zero scalars. If a future path
+		 * ever recycles a ctx carrying cold, reset lazily only then. */
+		if (ctx->cold) {
+			ctx->cold->view_scope_no = 0;
+			ctx->cold->log_level = 0;
+			ctx->cold->log_level_set = 0;
+		}
 		return ctx;
 	}
 	GENE_G(ctx_pool_miss)++;
@@ -878,7 +856,7 @@ void gene_request_context_pool_drain(void) {
 /* {{{ gene_request_context_pool_prewarm
  * [GENE_PERF:2026-04-24 #2] Populate the context pool up to count entries
  * (bounded by ctx_pool_max). Contexts are built in the "already-destroyed"
- * steady state — all zvals UNDEF, all string pointers NULL — so the next
+ * steady state �� all zvals UNDEF, all string pointers NULL �� so the next
  * acquire skips zero-init and only pays for path_params' array_init.
  *
  * Idempotent: safe to call repeatedly; only tops up the delta.
@@ -904,7 +882,7 @@ zend_long gene_request_context_pool_prewarm(zend_long count) {
 	while (GENE_G(ctx_pool_size) < count) {
 		ctx = (gene_request_context *)ecalloc(1, sizeof(gene_request_context));
 		/* The struct is zero-memset by ecalloc; all zvals are IS_UNDEF
-		 * (type=0), all string pointers NULL, all scalars 0 — exactly
+		 * (type=0), all string pointers NULL, all scalars 0 �� exactly
 		 * the post-destroy() invariant the acquire path expects. */
 		slot = gene_ctx_pool_next_slot(ctx);
 		*slot = GENE_G(ctx_pool_head);
@@ -938,14 +916,14 @@ static void gene_co_context_dtor(zval *zv) {
 void gene_init_co_contexts(void) {
 	if (!GENE_G(co_contexts)) {
 		ALLOC_HASHTABLE(GENE_G(co_contexts));
-		/* [GENE_PERF:2026-04-24 #2] 8 → 32 to skip rehashes on the first
+		/* [GENE_PERF:2026-04-24 #2] 8 �� 32 to skip rehashes on the first
 		 * wave of Swoole coroutines. See RINIT for detailed rationale. */
 		zend_hash_init(GENE_G(co_contexts), 32, NULL, gene_co_context_dtor, 0);
 	}
 }
 /* }}} */
 
-/* {{{ gene_swoole_co_exists_resolve — one-shot lazy resolve of exists()
+/* {{{ gene_swoole_co_exists_resolve �� one-shot lazy resolve of exists()
  * Populates GENE_G(swoole_co_exists_func) and/or the dlsym C-API for
  * get_by_cid. Returns non-zero if either liveness-check path is available.
  * [GENE_AUDIT:2026-07-03 T1#2] Also triggers dlsym resolution for the
@@ -970,7 +948,7 @@ static int gene_swoole_co_exists_resolve(void) {
 /* {{{ gene_swoole_co_exists
  * Returns 1 if coroutine cid is still alive, 0 if known-dead, -1 if unknown
  * (Swoole not loaded / no exists() API). Assumes the resolver has been
- * warmed up by gene_swoole_co_exists_resolve() — cheap inner loop.
+ * warmed up by gene_swoole_co_exists_resolve() �� cheap inner loop.
  */
 static int gene_swoole_co_exists(zend_long cid) {
 	/* [GENE_PERF:2026-07-03 T1#2] Prefer the dlsym C-API: get_by_cid returns
@@ -1080,7 +1058,7 @@ void gene_co_contexts_sweep(void) {
 }
 /* }}} */
 
-/* {{{ gene_swoole_defer_resolve — one-shot lazy resolve of Swoole\Coroutine::defer
+/* {{{ gene_swoole_defer_resolve �� one-shot lazy resolve of Swoole\Coroutine::defer
  * [GENE_FEATURE:2026-07-30 F1] Swoole\Coroutine is an internal class with
  * process-lifetime function entries, so caching defer's zend_function* in
  * per-thread globals is safe (same argument as swoole_getcid_func). */
@@ -1100,7 +1078,7 @@ static int gene_swoole_defer_resolve(void) {
 /* {{{ gene_swoole_auto_cleanup_register
  * [GENE_FEATURE:2026-07-30 F1] Register a one-shot Swoole\Coroutine::defer
  * that returns this coroutine's ctx when the coroutine ends. Called once
- * per ctx allocation (gene.swoole_auto_cleanup=1 only) — not per request
+ * per ctx allocation (gene.swoole_auto_cleanup=1 only) �� not per request
  * and not per ctx access. The callable is the name of the internal
  * function gene_auto_cleanup_defer: process-lifetime, no closure
  * allocation, no cross-request pointer hazards. */
@@ -1109,7 +1087,7 @@ static void gene_swoole_auto_cleanup_register(void) {
 	if (!gene_swoole_defer_resolve()) {
 		/* [GENE_AUDIT:2026-07-30 D4] Defer unavailable (old Swoole): the
 		 * auto-cleanup backstop then only covers the Application::run()
-		 * fallback — coroutines that never pass through run() (Timer tick,
+		 * fallback �� coroutines that never pass through run() (Timer tick,
 		 * task workers, user-spawned) still require manual cleanup(true).
 		 * Surface this once per worker instead of silently degrading. */
 		if (!GENE_G(swoole_defer_notice_sent)) {
@@ -1137,11 +1115,11 @@ gene_request_context *gene_request_ctx(void) {
 	zend_long cid;
 	int have_ctx_lookup = 0; /* v5.5.8: set when second-chance already did the hash probe */
 
-	/* Fast path: FPM mode — no coroutine overhead */
+	/* Fast path: FPM mode �� no coroutine overhead */
 	if (EXPECTED(GENE_G(runtime_type) < 2)) {
 		return &GENE_G(default_ctx);
 	}
-	/* [GENE_PERF:2026-04-17] Ultra-fast path: same vm_stack pointer ⇒ same coroutine.
+	/* [GENE_PERF:2026-04-17] Ultra-fast path: same vm_stack pointer ? same coroutine.
 	 * Swoole saves/restores EG(vm_stack) on every coroutine switch, so identity holds
 	 * as long as we haven't yielded. This skips the Swoole getcid() PHP call entirely
 	 * for every GENE_REQ() access inside a non-yielding C call chain (the common case). */
@@ -1151,12 +1129,12 @@ gene_request_context *gene_request_ctx(void) {
 	/* Slow path: resolve coroutine id via Swoole */
 	cid = gene_get_coroutine_id();
 	ctx = NULL;
-	/* [GENE_FIX:2026-04-24 v5.5.8] Second-chance fast path — cid matches cached one.
+	/* [GENE_FIX:2026-04-24 v5.5.8] Second-chance fast path �� cid matches cached one.
 	 * CRITICAL: When a coroutine dies without cleanup() and Swoole reuses its cid,
 	 * blindly trusting current_cid would return the previous coroutine's ctx. We
 	 * must verify the cached ctx is still the authoritative binding for this cid
 	 * by consulting co_contexts. This turns a sub-nanosecond compare-only check
-	 * into compare + single O(1) hash probe — still far cheaper than getcid()
+	 * into compare + single O(1) hash probe �� still far cheaper than getcid()
 	 * (which already ran above) and absolutely required for correctness.
 	 *
 	 * When second-chance hits, we reuse the freshly-fetched ctx pointer below
@@ -1172,7 +1150,7 @@ gene_request_context *gene_request_ctx(void) {
 			return ctx;
 		}
 		/* Identity mismatch: cid reused, or ctx silently evicted by sweep.
-		 * Invalidate the stale cache and fall through — ctx now holds the
+		 * Invalidate the stale cache and fall through �� ctx now holds the
 		 * new live binding (or NULL if none exists, in which case we
 		 * allocate below). */
 		GENE_G(current_ctx) = NULL;
@@ -1199,7 +1177,7 @@ gene_request_context *gene_request_ctx(void) {
 		 * the sweep only when the cap is hit, so the steady-state cost
 		 * is zero for well-behaved apps.
 		 * [GENE_AUDIT:2026-07-03 P3] co_contexts_max=0 previously meant
-		 * "unlimited" — sweep never fired, leading to unbounded growth on
+		 * "unlimited" �� sweep never fired, leading to unbounded growth on
 		 * misconfiguration. Now 0 is treated as "use default 1024", matching
 		 * gene_co_contexts_sweep()'s own fallback. */
 		zend_long eff_cap = (GENE_G(co_contexts_max) > 0) ? GENE_G(co_contexts_max) : 1024;
@@ -1209,7 +1187,7 @@ gene_request_context *gene_request_ctx(void) {
 			 * when active coroutines persistently outnumber the cap (undersized
 			 * co_contexts_max, or leaked cleanup with long-lived coroutines)
 			 * nothing is reclaimed and the NEXT allocation re-triggers the
-			 * scan — O(N^2) amplification and p99 spikes under coroutine
+			 * scan �� O(N^2) amplification and p99 spikes under coroutine
 			 * storms. Now a sweep runs only when cap/4 new ctx allocations
 			 * happened since the last sweep, or the table grew by cap/4 past
 			 * the level recorded at the last sweep; blocked triggers are
@@ -1247,7 +1225,7 @@ gene_request_context *gene_request_ctx(void) {
 		/* [GENE_FEATURE:2026-07-30 F1] Bind ctx lifetime to coroutine lifetime:
 		 * register a one-shot defer per ctx allocation so the ctx is returned
 		 * even when userland forgets cleanup(). Stale defers from earlier ctx
-		 * generations of the same coroutine are harmless — the delete in the
+		 * generations of the same coroutine are harmless �� the delete in the
 		 * defer callback is idempotent. */
 		if (GENE_G(swoole_auto_cleanup)) {
 			gene_swoole_auto_cleanup_register();
@@ -1299,7 +1277,7 @@ static void php_gene_init_globals() {
 	GENE_G(co_contexts_sweep_mark) = 0;
 	GENE_G(co_contexts_sweep_skipped) = 0;
 	/* [GENE_FEATURE:2026-07-30 F1] swoole_auto_cleanup itself comes from
-	 * php.ini — do NOT zero it here (same rule as ctx_pool_prewarm). */
+	 * php.ini �� do NOT zero it here (same rule as ctx_pool_prewarm). */
 	GENE_G(swoole_defer_func) = NULL;
 	GENE_G(swoole_defer_resolved) = 0;
 	/* [GENE_AUDIT:2026-07-30 D4] */
@@ -1330,7 +1308,7 @@ static void php_gene_init_globals() {
 	GENE_G(memory_cache_miss) = 0;
 	/* [GENE_FIX:2026-08-07-5 N3] */
 	GENE_G(memory_expiry_sweep_ctr) = 0;
-	/* [GENE_FIX:2026-08-23 UAF-1] cache_reserve comes from php.ini — do NOT
+	/* [GENE_FIX:2026-08-23 UAF-1] cache_reserve comes from php.ini �� do NOT
 	 * zero it here (same rule as ctx_pool_prewarm / cache_easy_ttl). */
 	GENE_G(cache_insert_refused) = 0;
 	GENE_G(cache_business_dirty) = 0;
@@ -1341,21 +1319,21 @@ static void php_gene_init_globals() {
 	 * gene_request_context (see gene.h), no module-global state to init. */
 	/* [GENE_FEATURE:2026-07-30 F5] */
 	GENE_G(validate_ext) = NULL;
-	/* [GENE_FEATURE:2026-07-30 F6] cache_easy_ttl comes from php.ini —
+	/* [GENE_FEATURE:2026-07-30 F6] cache_easy_ttl comes from php.ini ��
 	 * do NOT zero it here (same rule as ctx_pool_prewarm). */
 	GENE_G(cache_easy_expired) = 0;
-	/* [GENE_FEATURE:2026-08-07 F1-7b] slow_query_ms comes from php.ini —
+	/* [GENE_FEATURE:2026-08-07 F1-7b] slow_query_ms comes from php.ini ��
 	 * do NOT zero it here (same rule as cache_easy_ttl). */
 	GENE_G(db_slow_query_count) = 0;
 	/* ctx_pool_prewarm is populated by PHP_INI loader before MINIT, so do
-	 * NOT zero it here — doing so would clobber the user's php.ini value.
+	 * NOT zero it here �� doing so would clobber the user's php.ini value.
 	 * (Leaving the field alone is safe: globals are zeroed by GINIT.) */
 	GENE_G(autoload_registered) = 0;
 	GENE_G(worker_ready) = 0;
 	GENE_G(fn_cache) = NULL;
 	/* [GENE_PERF:2026-06-19 P3] Precompiled-dispatch cache is lazily allocated
 	 * on first dispatch (Swoole, post-workerReady). route_precompile comes from
-	 * php.ini, so — like ctx_pool_prewarm — it must NOT be zeroed here. */
+	 * php.ini, so �� like ctx_pool_prewarm �� it must NOT be zeroed here. */
 	GENE_G(route_pc) = NULL;
 	GENE_G(route_pc_generation) = 0;
 	GENE_G(route_pc_retired) = NULL;
@@ -1380,7 +1358,7 @@ static void php_gene_init_globals() {
 static void php_gene_close_request_globals() {
 	/* fn_cache / validate_ext are ALLOC_HASHTABLE (request allocator).
 	 * Swoole worker exit still runs PHP RSHUTDOWN *before* the emalloc arena
-	 * is torn down — destroy here even in runtime_type>=2. Leaving them for
+	 * is torn down �� destroy here even in runtime_type>=2. Leaving them for
 	 * MSHUTDOWN UAF's zend_hash_destroy after request memory is gone. */
 	if (GENE_G(fn_cache)) {
 		zend_hash_destroy(GENE_G(fn_cache));
@@ -1452,7 +1430,7 @@ static void php_gene_close_request_globals() {
 		gene_request_context *tmp = GENE_G(resident_ctx);
 		GENE_G(resident_ctx) = NULL;
 		gene_request_context_destroy(tmp);
-		/* [GENE_PERF:2026-04-24] Route through pool too — resident_ctx may
+		/* [GENE_PERF:2026-04-24] Route through pool too �� resident_ctx may
 		 * live across many lightweight calls in Swoole/Coroutine mode. */
 		gene_request_context_pool_release(tmp);
 	}
@@ -1462,7 +1440,7 @@ static void php_gene_close_request_globals() {
 		GENE_G(co_contexts) = NULL;
 	}
 	/* [GENE_FEATURE:2026-09-12] Pool declarations live on worker lifetime
-	 * like co_contexts — release them on the same RSHUTDOWN boundary. */
+	 * like co_contexts �� release them on the same RSHUTDOWN boundary. */
 	if (GENE_G(pool_decls)) {
 		zend_hash_destroy(GENE_G(pool_decls));
 		FREE_HASHTABLE(GENE_G(pool_decls));
@@ -1470,7 +1448,7 @@ static void php_gene_close_request_globals() {
 	}
 	/* [GENE_PERF:2026-04-24] Drain the struct pool on RSHUTDOWN for FPM so
 	 * request-scoped memory is fully reclaimed. In Swoole mode RSHUTDOWN
-	 * fires once at worker exit — same semantic. */
+	 * fires once at worker exit �� same semantic. */
 	gene_request_context_pool_drain();
 }
 /* }}} */
@@ -1589,7 +1567,7 @@ PHP_MSHUTDOWN_FUNCTION(gene) {
 	}
 	/* [GENE_FIX:2026-08-07] Expiry table uses plain zend_hash string keys
 	 * (duplicated via pemalloc by the table itself), so zend_hash_destroy
-	 * frees the keys — no manual key dance like gene_hash_destroy. */
+	 * frees the keys �� no manual key dance like gene_hash_destroy. */
 	if (GENE_G(cache_expiry)) {
 		zend_hash_destroy(GENE_G(cache_expiry));
 		pefree(GENE_G(cache_expiry), 1);
@@ -1657,9 +1635,9 @@ PHP_RINIT_FUNCTION(gene) {
 	if (GENE_G(runtime_type) >= 2) {
 		if (!GENE_G(co_contexts)) {
 			ALLOC_HASHTABLE(GENE_G(co_contexts));
-			/* [GENE_PERF:2026-04-24 #2] Increased from 8 → 32. Early-phase
+			/* [GENE_PERF:2026-04-24 #2] Increased from 8 �� 32. Early-phase
 			 * Swoole workers immediately hit multiple coroutines; pre-sizing
-			 * at 32 skips 2 rehashes on the first wave (8→16→32) for typical
+			 * at 32 skips 2 rehashes on the first wave (8��16��32) for typical
 			 * HTTP services, at a one-time cost of a few hundred extra bytes
 			 * of HT bucket storage per worker. */
 			zend_hash_init(GENE_G(co_contexts), 32, NULL, gene_co_context_dtor, 0);
@@ -1722,7 +1700,7 @@ PHP_FUNCTION(gene_version) {
  * [GENE_FEATURE:2026-07-30 F1] Swoole\Coroutine::defer callback invoked when
  * a coroutine ends (gene.swoole_auto_cleanup=1). Returns the coroutine's ctx
  * to the struct pool. Deliberately operates on co_contexts directly instead
- * of gene_request_ctx() — the latter would allocate and re-register a fresh
+ * of gene_request_ctx() �� the latter would allocate and re-register a fresh
  * ctx for the dying coroutine. Idempotent against manual cleanup(): the hash
  * delete is a no-op when the entry is already gone. Internal plumbing, not
  * part of the public API contract.
@@ -1784,12 +1762,12 @@ const zend_module_dep gene_deps[] = {
 	// Audit [2026-03-25] cannot add comma separation, window compilation fails
 	ZEND_MOD_REQUIRED("spl")
 	/* [GENE_FIX:2026-08-19 P1-4] Transaction hygiene (request boundary) and
-	 * pool return both call PDO methods during RSHUTDOWN/destructors — pin
+	 * pool return both call PDO methods during RSHUTDOWN/destructors �� pin
 	 * the module shutdown order so pdo is still loaded when gene tears down. */
 	ZEND_MOD_REQUIRED("pdo")
 	/* [GENE_FEATURE:2026-08-22] Gene\Http uses PHP curl_* in FPM/CLI;
 	 * Gene\Crypto uses openssl_*; json is used by Gene\Json. Optional so
-	 * the extension still loads when a given SAPIs omits them — APIs throw
+	 * the extension still loads when a given SAPIs omits them �� APIs throw
 	 * a clear exception at call time instead. */
 	ZEND_MOD_OPTIONAL("curl")
 	ZEND_MOD_OPTIONAL("openssl")
