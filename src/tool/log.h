@@ -30,5 +30,7 @@
 extern zend_class_entry *gene_log_ce;
 
 GENE_MINIT_FUNCTION(log);
+/* [GENE_PERF:2026-09-21 V3-3.4] close persistent log streams at MSHUTDOWN. */
+void gene_log_shutdown_streams(void);
 
 #endif
