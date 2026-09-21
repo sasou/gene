@@ -1,7 +1,7 @@
 # Gene 扩展极致并发优化 —— V3（代码层面方案）
 
 > 版本：v1（2026-09-20）
-> 状态：代码级审计问题已修复（P2-5 经生命周期评估否决）；Linux + 真实 Swoole 发布验收待线上回填，ASAN/LSAN 为补充验证（2026-09-21）
+> 状态：代码级审计问题已修复（P2-5 经生命周期评估否决）；Linux + 真实 Swoole 主门禁已线上回填（`linux_swoole_verify.sh --all` 17/17 PASS，归档 `gene-v3-20260921-212542`），满池排队 / recycle·close 借还交错 / 日志探针与 HEAD 指纹待补；ASAN/LSAN 为补充验证（2026-09-21）
 > 依据：对 `src/` 全量热路径源码复核（gene.c / application.c / request.c / router.c / di.c / memory.c / db/*.c / view.c / load.c / response.c / log.c / pool.c）。
 > 与 V2 的关系：V2 保留自动化验收规范（§1）与其待办清单；本文只登记 **V2 未覆盖或仅点到名字、缺少技术细节** 的代码级优化点。与 V2 重叠处以「V2 §x.y」交叉引用，不重复登记。
 
@@ -758,16 +758,16 @@ WRK_DURATION=10m bash tools/acceptance/linux_swoole_verify.sh \
 
 | 项 | 结果 | 证据 |
 |---|---|---|
-| 环境指纹与 HEAD | 待执行 | 待回填 |
-| TestRunner（含真实 pool lifecycle，无 UNCOVERED） | 待执行 | 待回填 |
-| Swoole/entry 矩阵与 digest | 待执行 | 待回填 |
-| entry/context soak | 待执行 | 待回填 |
-| DB/Redis 200 × 1000 稳定态借还 | 待执行 | 待回填 |
-| 满池排队 | 待执行 | 待回填 |
-| recycle/借还交错 | 待执行 | 待回填 |
-| close/借还交错 | 待执行 | 待回填 |
-| 日志 rename/copytruncate/异常退出 | 待执行 | 待回填 |
-| demo health/metrics/wrk/RSS | 待执行 | 待回填 |
-| ASAN/LSAN（补充） | 可选未执行 | 待回填（如执行） |
+| 环境指纹与 HEAD | **已回填（HEAD 未随归档采集，待线上补记）** | `environment.txt`：Linux 192.168.27.101（3.10.0-1160 el7 x86_64）、PHP 8.1.34 NTS DEBUG（`/data/app/php-debug`）、gene 6.2.4、swoole 6.1.9；gene.so=`/data/src/gene/src/modules/gene.so`；运行参数为 `php -n -d extension=<ext_dir>/*.so -d extension=gene.so`（含 pdo*/curl/openssl/igbinary/msgpack/redis/swoole）。metrics 导出 `framework_cache_dirty`/`view_fresh_*`/`co_contexts_sweep_*` 字段可证构建 ≥`95665ff`（V3-11 修复）；脚本未采集 `git rev-parse`（§13.4 脚本缺口），归档目录 `gene-v3-20260921-212542` |
+| TestRunner（含真实 pool lifecycle，无 UNCOVERED） | **PASS 939/939，0 failed，无 UNCOVERED** | `test-runner.log`；DatabaseTest 44/44，Pool get/put/healthCheck/recycleIdle/close 真实路径已执行；外部服务依赖项环境 SKIP=7（MySQL/PgSQL/PDO 连接拒绝）+ Redis NOAUTH SKIP=1，均非覆盖缺口 |
+| Swoole/entry 矩阵与 digest | **PASS** | `status.tsv` 全 17 阶段 PASS 无 SKIP；swoole-matrix 四格（capi×precompile）digest 均 `856ba31839fa8675`；entry 矩阵四格 digest 均 `fd1425a4658c643a`；manual/init/handle 三入口 bench digest 一致=`fd1425a4658c643a`（entry-bench-equiv PASS） |
+| entry/context soak | **PASS** | `entry-soak.log`：10 万请求 25501 req/s、bad=0、`co_contexts_items=0`、ctx_pool_size=512 未超限；`context-manual.json`/`context-auto.json` 各 10 万协程 ×500 并发：isolationFailures=0、cleanupCountersPassed=true，auto 模式 deferred/reclaimed 各 +100000、收尾 `co_contexts_items=0` |
+| DB/Redis 200 × 1000 稳定态借还 | **PASS** | `mysql-pool.json`/`redis-pool.json`：200 协程 ×1000 迭代、poolMax=32，`failures=0`、`commandFailures=0`、收尾 `using=0`、`idle=32=total`；`tx-leak-pool.log` → `POOL TX HYGIENE OK`（开事务连接归还自动回滚告警生效）。另有线上手动补充运行：`--pool=db --pool-max=4 --coroutines=200 --iterations=200` → `passed=true`（failures=0） |
+| 满池排队 | 待执行 | —（§13.4 缺口 1：一键脚本未构造该场景，需单独脚本/手动用例；不得以稳定态结果勾选） |
+| recycle/借还交错 | 待执行 | —（同上） |
+| close/借还交错 | 待执行 | —（同上） |
+| 日志 rename/copytruncate/异常退出 | 待执行 | —（§13.4 缺口 2；本次运行 `gene.log_keep_open=Off`，探针未启用） |
+| demo health/metrics/wrk/RSS | **PASS** | `demo-web` PASS：`health-*.json` ok；wrk 2m：**2,416,544 请求 @ 20120 req/s、0 错误**（p50 23.5ms/p99 100ms）；`metrics-*.txt` 前后 `requests.errors=0`、`co_contexts_items=1` 持平、ctx_pool_hit 3→10054；`process-rss.txt` worker RSS ~15.3MB 全程平稳无单调增长 |
+| ASAN/LSAN（补充） | 未执行（非关闭门禁） | — |
 
-在 A 层全部通过并回填证据后，即可将本文档改名为 `Performance-tuning-V3.closed.md`；无需等待 ASAN。当前对外表述为“代码侧残留已收敛，等待 Linux + 真实 Swoole 普通生产 ABI 验收回填”。
+在 A 层全部通过并回填证据后，即可将本文档改名为 `Performance-tuning-V3.closed.md`；无需等待 ASAN。当前对外表述为“代码侧残留已收敛，Linux + 真实 Swoole 主门禁已线上回填（17/17 PASS，归档 `gene-v3-20260921-212542`）；待补满池排队、recycle/close 借还交错、日志 rename/copytruncate/异常退出探针与 HEAD 指纹后关闭”。
