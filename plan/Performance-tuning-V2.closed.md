@@ -2,7 +2,7 @@
 
 > 版本：v1（2026-09-20）；2026-09-21 由 `Performance-tuning-V3.md` 更名并关闭
 > 谱系：前身《Performance-tuning-V2》（自动化验收规范稿，v7）经评估计划不合理，2026-09-21 废弃删除；本文曾用名 `Performance-tuning-V3.md`。文内所有「V2 §x.y」均指该已废弃前身的章节号，仅作溯源引用，不再对应现存文件；代码与提交记录中的 `V3-x.y` 标记沿用曾用名。
-> 状态：**已关闭（归档存证）**。代码级审计问题已修复（P2-5 经生命周期评估否决）；Linux + 真实 Swoole 门禁已两轮线上回填：首轮 `linux_swoole_verify.sh --all` 17/17 PASS（归档 `gene-v3-20260921-212542`）、第二轮 20/20 PASS（归档 `gene-v3-20260921-224917`，补齐满池排队 / recycle·close 借还交错 / 日志 rename·copytruncate·异常退出探针）。遗留项移交 `audit-backlog.md` §四：`git rev-parse HEAD` 指纹两轮均未采集（线上目录非 git 工作树，归档以 gene.so SHA-256 为二进制指纹）、`87e4750` 是否含于被测构建未经归档自证、ASAN/LSAN 未执行（非关闭门禁）。
+> 状态：**已关闭（归档存证）**。代码级审计问题已修复（P2-5 经生命周期评估否决）；Linux + 真实 Swoole 门禁已两轮线上回填：首轮 `linux_swoole_verify.sh --all` 17/17 PASS（归档 `gene-v3-20260921-212542`）、第二轮 20/20 PASS（归档 `gene-v3-20260921-224917`，补齐满池排队 / recycle·close 借还交错 / 日志 rename·copytruncate·异常退出探针）。遗留项保留于本文 §13.5 末段：`git rev-parse HEAD` 指纹两轮均未采集（线上目录非 git 工作树，归档以 gene.so SHA-256 为二进制指纹）、`87e4750` 是否含于被测构建未经归档自证、ASAN/LSAN 未执行（非关闭门禁）。
 > 依据：对 `src/` 全量热路径源码复核（gene.c / application.c / request.c / router.c / di.c / memory.c / db/*.c / view.c / load.c / response.c / log.c / pool.c）。
 
 ## 0. 范围与硬性约束
@@ -771,4 +771,4 @@ WRK_DURATION=10m bash tools/acceptance/linux_swoole_verify.sh \
 | demo health/metrics/wrk/RSS | **PASS** | 第二轮 `demo-web`：`health-*.json` ok；wrk 30s 预热 591,518 请求 @19,656 req/s + 1m 正式 **1,169,109 请求 @19,456 req/s、0 错误**（p50 24.3ms / p99 99.9ms）；`metrics-*.txt` 前后 `requests.errors=0`、`co_contexts_items=1` 持平、ctx_pool_hit 3→3290；`process-rss.txt` worker RSS ~15.3MB 全程平稳无单调增长（首轮 2m wrk 2,416,544 请求 @20,120 req/s 同口径 PASS） |
 | ASAN/LSAN（补充） | 未执行（非关闭门禁） | — |
 
-A 层功能性门禁已全部通过并完成两轮回填；唯一未满足的关闭条件是 `git rev-parse HEAD` 指纹——线上 `/data/src/gene` 为同步目录而非 git checkout，两轮 `git_head` 均 `unavailable`。经维护者决定，本文档于 2026-09-21 以 `Performance-tuning-V2.closed.md` 归档关闭（曾用名 `Performance-tuning-V3.md`）。遗留跟踪项移交 `audit-backlog.md` §四：① 补记被测构建的 HEAD（或将线上源码改为 git checkout 后复跑任一阶段自动采集）；② 确认归档是否已含 22:48:26 提交的 `87e4750`（pool close-drain 计数修复），若未含则对该提交单独复跑 `mysql-pool-lifecycle`/`redis-pool-lifecycle` 两个阶段；③ ASAN/LSAN 补充验证（非阻断项）。
+A 层功能性门禁已全部通过并完成两轮回填；唯一未满足的关闭条件是 `git rev-parse HEAD` 指纹——线上 `/data/src/gene` 为同步目录而非 git checkout，两轮 `git_head` 均 `unavailable`。经维护者决定，本文档于 2026-09-21 以 `Performance-tuning-V2.closed.md` 归档关闭（曾用名 `Performance-tuning-V3.md`）。遗留跟踪项（保留于本节，原拟移交的 `audit-backlog.md` 同日废弃）：① 补记被测构建的 HEAD（或将线上源码改为 git checkout 后复跑任一阶段自动采集）；② 确认归档是否已含 22:48:26 提交的 `87e4750`（pool close-drain 计数修复），若未含则对该提交单独复跑 `mysql-pool-lifecycle`/`redis-pool-lifecycle` 两个阶段；③ ASAN/LSAN 补充验证（非阻断项）。

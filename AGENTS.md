@@ -8,7 +8,7 @@
 | `test/` | 回归测试套件（`TestRunner.php` 驱动），用法与免部署参数见 `test/README.md` |
 | `tools/` | 构建脚本（索引见 `tools/README.md`）；`tools/acceptance/` 为 FPM/Swoole 验收工具 |
 | `audit/` | 审计档案：时点报告、`repro/` 复现脚本，见 `audit/README.md` |
-| `plan/` | 演进计划与审计驱动待办（`audit-backlog.md`）；`.closed.md` 后缀 = 已关闭只读，详见 `plan/README.md` 索引 |
+| `plan/` | 演进计划文档；`.closed.md` 后缀 = 已关闭只读，详见 `plan/README.md` 索引 |
 | `docs/` | 用户文档（INI 配置参考等） |
 | `demo/` | 示例应用（FPM / CLI / Swoole 入口） |
 | `gene-ai-helper/` / `gene-ide-helper/` | AI 协作规则与 skill / IDE stub |

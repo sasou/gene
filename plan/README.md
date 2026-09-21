@@ -1,16 +1,15 @@
 # Gene 演进计划
 
-本目录存放 Gene 扩展的立项/实施文档，供后续立项与实现参考。按立项依据分两类：
+本目录存放 Gene 扩展的立项/实施文档，供后续立项与实现参考（原审计驱动待办 `audit-backlog.md` 已于 2026-09-21 废弃删除，不再集中维护）。
 
 | 文档 | 内容 | 立项依据 |
 |------|------|----------|
-| [audit-backlog.md](audit-backlog.md) | 审计遗留项、profile 准入项、已 revert 功能重设计 | 源码审计、压测、ASAN |
-| 其余各篇 | 产品驱动的 API 缺口与优先级 | 重复模式、热路径、生命周期覆盖 |
+| 各篇计划 | 产品驱动的 API 缺口与优先级 | 重复模式、热路径、生命周期覆盖、源码审计与压测证据 |
 
 **维护约定**
 
 - 新需求须附**代码证据**（本仓库缺口或可复现的重复模式 + 热路径说明）
-- 审计来源的待办统一记入 `audit-backlog.md`；其余文档不重复登记审计项，交叉引用即可
+- 审计来源的待办不再集中登记（`audit-backlog.md` 已废弃），随各 `audit/AUDIT_REPORT_*.md` 归档留存
 - 实现约束：C 层只加「重复 ≥3 处或热路径」的 API；Db 惰性写语义不变；对应 `test/*.php` 加用例；ide-helper + `gene-ai-helper/skills/gene-framework/reference.md` 同步
 - 本目录文档**只写 Gene 扩展**，不写业务仓库迁移清单
 
@@ -26,12 +25,11 @@
 | [typical-usage-gaps.closed.md](typical-usage-gaps.closed.md) | 6.1 全面采用后的残留缺口（union、JOIN ON、increment、Context __get、Request::input、Http max_bytes、cachedHotVersion） | 关闭（里程碑 A 随 6.2.0 落地；§10.2 条件触发项另行立项） |
 | [hook-runtime.closed.md](hook-runtime.closed.md) | Hook 使用驱动的请求策略、终止语义、组级组合与 request-id 收口 | 关闭（2026-09-07 全部落地，见文内 §九） |
 | [application-entry-runtime.closed.md](application-entry-runtime.closed.md) | FPM/Swoole 入口收口（请求适配、派发清理、环境装载与 Pool 边界） | 关闭（6.2.3 全部落地，见文内实施记录） |
-| [gene_swoole_uaf_fix.closed.md](gene_swoole_uaf_fix.closed.md) | Swoole worker signal 11 的 UAF 根因与最小改动修复 | 关闭（修复已落地；3 项观察项移交 `audit-backlog.md` §七） |
+| [gene_swoole_uaf_fix.closed.md](gene_swoole_uaf_fix.closed.md) | Swoole worker signal 11 的 UAF 根因与最小改动修复 | 关闭（修复已落地；3 项观察项曾移交 `audit-backlog.md` §七，该文件 2026-09-21 废弃） |
 | [Performance-tuning-V1.closed.md](Performance-tuning-V1.closed.md) | 极致并发优化 V1：已完成项目的实现与验收结果 | 关闭（归档存证，后续由 V2 承接） |
-| [Performance-tuning-V2.closed.md](Performance-tuning-V2.closed.md) | 极致并发优化 V2（原 V3 更名）：源码复核得出的代码级优化点（NTS 锁消除、请求装载零分配、路由/DI 分配削减、Db 属性槽位、冻结表零拷贝、ctx 冷热分离、Pool 去 PHP 调用等），附不变量与两轮线上验收回填 | 关闭（2026-09-21；两轮线上回填 17/17 + 20/20 PASS；前身验收规范稿同日废弃删除；HEAD 指纹等遗留项见 `audit-backlog.md` §四） |
-| [audit-backlog.md](audit-backlog.md) | 审计驱动待办（F3/F4、模块缺口、性能观测项、O6/O7 Linux 验证、文档/测试缺口） | 进行中（持续维护） |
+| [Performance-tuning-V2.closed.md](Performance-tuning-V2.closed.md) | 极致并发优化 V2（原 V3 更名）：源码复核得出的代码级优化点（NTS 锁消除、请求装载零分配、路由/DI 分配削减、Db 属性槽位、冻结表零拷贝、ctx 冷热分离、Pool 去 PHP 调用等），附不变量与两轮线上验收回填 | 关闭（2026-09-21；两轮线上回填 17/17 + 20/20 PASS；前身验收规范稿同日废弃删除；HEAD 指纹等遗留项见文内 §13.5） |
 
-状态约定：`候选`/`进行中` → 有待办项，文件名保持 `*.md`；`关闭` → 方案已落地或归档存证，不再维护待办，文件名加 `.closed.md` 后缀（遗留待验证项移交 `audit-backlog.md`）。
+状态约定：`候选`/`进行中` → 有待办项，文件名保持 `*.md`；`关闭` → 方案已落地或归档存证，不再维护待办，文件名加 `.closed.md` 后缀（遗留待验证项记录于文内）。
 
 ---
 
