@@ -316,7 +316,7 @@ void load_file(char *key, size_t key_len, char *php_script, int validity) {
 			}
 		}
 		if (import) {
-			if(!gene_load_import(php_script, NULL, NULL)) {
+			if(!gene_load_import(php_script, NULL, NULL, 1)) {
 				php_error_docref(NULL, E_WARNING, "Unable to load config file %s", php_script);
 			}
 			if (val) {
