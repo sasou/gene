@@ -878,10 +878,12 @@ PHP_METHOD(gene_pool, get)
             zend_try {
                 got_item = pool_channel_pop(channel, pool_get_wait_timeout(self), &item);
             } zend_catch {
-                po->waiters--;
+                /* close() resets waiters to 0 while we are parked, so the
+                 * paired decrement must not underflow into negatives. */
+                if (po->waiters > 0) po->waiters--;
                 zend_bailout();
             } zend_end_try();
-            po->waiters--;
+            if (po->waiters > 0) po->waiters--;
             if (got_item) {
                 if (pool_is_closed(self)) {
                     zval_ptr_dtor(&item);
@@ -961,6 +963,17 @@ PHP_METHOD(gene_pool, get)
      }
 
      if (pool_is_closed(self)) {
+         /* [GENE_FIX:2026-09-21] A connection handed back while close() is
+          * still draining must release its slot. Returning without the
+          * decrement left currentCount pinned at max, so close()'s phase-2
+          * loop burned the whole waitTimeout budget and stats() kept
+          * reporting the connection as in-use. The live-channel guard keeps
+          * a put() that lands *after* close() finished (channel nulled,
+          * count force-reset to 0) from driving the counter negative. */
+         zval *live_channel = zend_read_property(gene_pool_ce, gene_strip_obj(self), ZEND_STRL(GENE_POOL_PROPERTY_CHANNEL), 1, NULL);
+         if (live_channel && Z_TYPE_P(live_channel) == IS_OBJECT) {
+             pool_decrement_count(self);
+         }
          return;
      }
   
@@ -1003,8 +1016,18 @@ PHP_METHOD(gene_pool, get)
   */
  PHP_METHOD(gene_pool, remove)
  {
-     if (!pool_pid_valid(getThis()) || pool_is_closed(getThis())) return;
-     pool_decrement_count(getThis());
+     zval *self = getThis();
+     if (!pool_pid_valid(self)) return;
+     if (pool_is_closed(self)) {
+         /* Same accounting rule as put(): release the slot while close() is
+          * draining, but stay a no-op once the channel has been nulled. */
+         zval *live_channel = zend_read_property(gene_pool_ce, gene_strip_obj(self), ZEND_STRL(GENE_POOL_PROPERTY_CHANNEL), 1, NULL);
+         if (live_channel && Z_TYPE_P(live_channel) == IS_OBJECT) {
+             pool_decrement_count(self);
+         }
+         return;
+     }
+     pool_decrement_count(self);
  }
  /* }}} */
  /*
