@@ -50,7 +50,7 @@
 ## 三、性能 / 压测量化后待立项的优化
 
 > **准入约束**：本节所有项必须先通过 `tools/acceptance` 的 profile 准入脚本拿到证据，否则不得进入主线。
-> 性能优化的自动化验收规范与后续待实现项见 [Performance-tuning-V2.md](Performance-tuning-V2.md)；本节保留审计原始观测点与出处，两者口径不同（本节沿用 profile 准入纪律）。
+> 性能优化方案与线上验收回填见 [Performance-tuning-V2.closed.md](Performance-tuning-V2.closed.md)（原 `Performance-tuning-V3.md` 更名；前身验收规范稿 2026-09-21 废弃删除）；本节保留审计原始观测点与出处，两者口径不同（本节沿用 profile 准入纪律）。
 
 ### route_pc 全树预热
 
@@ -178,6 +178,14 @@
 
 - **来源**：`AUDIT_REPORT_2026_07_12.md` WP-04
 - **待办**：整理 Swoole C-API 调用点（`get_by_cid`、`exists` 等）的版本兼容矩阵，并补充回退路径。
+
+### Performance-tuning-V2（原 V3）关闭遗留
+
+- **来源**：`Performance-tuning-V2.closed.md` §13.5（2026-09-21 归档关闭）
+- **待办**：
+  - 线上验证两轮归档 `git_head=unavailable`（`/data/src/gene` 为同步目录而非 git checkout）：人工补记被测构建 HEAD，或将线上源码改为 git checkout 后复跑任一阶段自动采集。
+  - 确认归档 `gene-v3-20260921-224917` 是否已含 `87e4750`（pool close-drain 计数修复，提交时间距归档起始仅 51 秒）；若未含，对该提交单独复跑 `mysql-pool-lifecycle`/`redis-pool-lifecycle` 两个阶段即可闭环。
+  - ASAN/LSAN 补充验证（非阻断）：在 ABI 匹配的 sanitizer PHP + Swoole 环境重跑全量与池场景；发现 UAF/OOB/泄漏则升级为阻断问题。
 
 ---
 
