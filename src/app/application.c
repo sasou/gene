@@ -1754,31 +1754,18 @@ PHP_METHOD(gene_application, handleSwoole) {
 		zval_ptr_dtor(&ex);
 	}
 
-	/* 仅收集本层输出：dispatch 期间业务泄漏的嵌套 buffer 逐级 end 收敛进
-	 * 本层（ob_end_flush 语义），进入入口前已有的外层 buffer 不触碰；
-	 * 本层取回内容后 discard，不转发给外层。 */
-	ZVAL_EMPTY_STRING(&zout);
-	if (have_buffer) {
-		while (php_output_get_level() > entry_level + 1) {
-			if (php_output_end() == FAILURE) {
-				break;
-			}
-		}
-		if (php_output_get_level() == entry_level + 1) {
-			zval tmp;
-			if (php_output_get_contents(&tmp) == SUCCESS) {
-				zout = tmp;
-			}
-			php_output_discard();
-		}
-	}
-
+	/* [GENE_PERF:2026-09-21 V3-3.5] Decide writability BEFORE collecting the
+	 * buffer: when Response::end/write/sendFile already reached Swoole the
+	 * buffered copy is dead weight — php_output_get_contents would copy it
+	 * only for us to discard it. A FINAL-stage output handler cannot avoid
+	 * the copy either (Swoole end() requires a zend_string), so reordering
+	 * is the whole available win on the already-sent path. */
+	zend_bool sent = 0;
 	if (!EG(exception)) {
 		/* 收口判断只看 Swoole 侧可写性，不看 ctx->response_ended：
 		 * Response::end/redirect/sendFile 直达 Swoole 后 isWritable()=false
 		 * （天然防二次 end）；而 Response::json 是 php_write 进 buffer 仅置
 		 * ended 标记，response 对象仍可写，buffered body 必须由这里发出去。 */
-		zend_bool sent = 0;
 		zval *swoole_resp = gene_response_context_obj();
 		if (swoole_resp) {
 			/* isWritable() 兼容策略与 Response::isSent() 一致：
@@ -1796,12 +1783,34 @@ PHP_METHOD(gene_application, handleSwoole) {
 		} else {
 			sent = SG(headers_sent);
 		}
-		if (!sent) {
-			if (default_500) {
-				gene_response_set_status(500);
+	}
+
+	/* 仅收集本层输出：dispatch 期间业务泄漏的嵌套 buffer 逐级 end 收敛进
+	 * 本层（ob_end_flush 语义），进入入口前已有的外层 buffer 不触碰；
+	 * 本层取回内容后 discard，不转发给外层。 */
+	ZVAL_EMPTY_STRING(&zout);
+	if (have_buffer) {
+		while (php_output_get_level() > entry_level + 1) {
+			if (php_output_end() == FAILURE) {
+				break;
 			}
-			gene_response_end(Z_STR(zout));
 		}
+		if (php_output_get_level() == entry_level + 1) {
+			if (!sent && !EG(exception)) {
+				zval tmp;
+				if (php_output_get_contents(&tmp) == SUCCESS) {
+					zout = tmp;
+				}
+			}
+			php_output_discard();
+		}
+	}
+
+	if (!sent && !EG(exception)) {
+		if (default_500) {
+			gene_response_set_status(500);
+		}
+		gene_response_end(Z_STR(zout));
 	}
 	zval_ptr_dtor(&zout);
 	gene_application_cleanup_ctx(cleanup_gc);
