@@ -1,7 +1,7 @@
 # Gene 扩展极致并发优化 —— V3（代码层面方案）
 
 > 版本：v1（2026-09-20）
-> 状态：代码级审计问题已修复（P2-5 经生命周期评估否决）；Linux + 真实 Swoole 主门禁已线上回填（`linux_swoole_verify.sh --all` 17/17 PASS，归档 `gene-v3-20260921-212542`），满池排队 / recycle·close 借还交错 / 日志探针与 HEAD 指纹待补；ASAN/LSAN 为补充验证（2026-09-21）
+> 状态：代码级审计问题已修复（P2-5 经生命周期评估否决）；Linux + 真实 Swoole 门禁已两轮线上回填：首轮 `linux_swoole_verify.sh --all` 17/17 PASS（归档 `gene-v3-20260921-212542`）、第二轮 20/20 PASS（归档 `gene-v3-20260921-224917`，补齐满池排队 / recycle·close 借还交错 / 日志 rename·copytruncate·异常退出探针）；残留唯一缺口为 `git rev-parse HEAD` 未采集（线上目录非 git 工作树，两轮均 `unavailable`，以 gene.so SHA-256 为二进制指纹）；ASAN/LSAN 为补充验证（2026-09-21）
 > 依据：对 `src/` 全量热路径源码复核（gene.c / application.c / request.c / router.c / di.c / memory.c / db/*.c / view.c / load.c / response.c / log.c / pool.c）。
 > 与 V2 的关系：V2 保留自动化验收规范（§1）与其待办清单；本文只登记 **V2 未覆盖或仅点到名字、缺少技术细节** 的代码级优化点。与 V2 重叠处以「V2 §x.y」交叉引用，不重复登记。
 
@@ -720,12 +720,12 @@ Channel 满后 `pool_channel_push` 失败 → `pool_decrement_count` → **连�
 
 仍有以下门禁缺口：
 
-1. `pool_concurrency.php` 只覆盖稳定态借还；已新增 `pool_lifecycle_verify.php` 并接入 `--all`，显式构造满池排队、`recycleIdle()` 与借还交错、`close()` 与借还交错三种场景。脚本已就绪，仍需线上执行回填后才能勾选。
-2. 已新增 `log_rotation_verify.php` 并接入主脚本，以 `gene.log_keep_open=1` 执行 rename、copytruncate、`SIGKILL` 异常退出三组探针；仍需线上执行回填。
+1. `pool_concurrency.php` 只覆盖稳定态借还；已新增 `pool_lifecycle_verify.php` 并接入 `--all`，显式构造满池排队、`recycleIdle()` 与借还交错、`close()` 与借还交错三种场景。**已于第二轮线上执行回填（归档 `gene-v3-20260921-224917`），两池三场景全部 PASS，见 §13.5 C。**
+2. 已新增 `log_rotation_verify.php` 并接入主脚本，以 `gene.log_keep_open=1` 执行 rename、copytruncate、`SIGKILL` 异常退出三组探针；**已于第二轮线上执行回填，三组探针全部 PASS，见 §13.5 C。**
 3. 脚本没有调用 `run_acceptance.php --profile=swoole`，因此不会产出该框架的 `acceptance.json`；`status.tsv` 是另一套结果格式。
 4. 默认运行会把 Redis/MySQL/demo 记为 `SKIP` 后仍以 0 退出；只有明确启用所需阶段且 `status.tsv` 无 `SKIP/FAIL`，结果才可用于关闭。
 5. 脚本支持通过 `CFLAGS` 做 sanitizer 构建，但未自动确认 PHP、Swoole 与 Gene 的 sanitizer ABI/运行参数；ASAN/LSAN 应作为补充验证单独记录，不能冒充普通生产 ABI 验收。
-6. `environment.txt` 已补采 `git_head`、工作树状态、Gene 模块 SHA-256 与 `GENE_TEST_PHP_ARGS`；旧归档仍需人工补记 HEAD，新执行无需再手工采集。
+6. `environment.txt` 已补采 `git_head`、工作树状态、Gene 模块 SHA-256 与 `GENE_TEST_PHP_ARGS`；旧归档仍需人工补记 HEAD。**注意：采集依赖 `GENE_REPO` 为 git 工作树——线上 `/data/src/gene` 为同步目录而非 checkout，第二轮执行（归档 `gene-v3-20260921-224917`）`git_head` 仍返回 `unavailable`（且 `git_status=clean` 是命令失败后的默认输出，不代表干净工作树）；改为 git checkout 部署后自动生效，否则需人工补记。**
 
 因此线上执行应分成“必须验收”和“补充验证”两层。ASAN **不是关闭的必要条件**。
 
@@ -755,20 +755,20 @@ WRK_DURATION=10m bash tools/acceptance/linux_swoole_verify.sh \
 
 在 ABI 匹配的 ASAN/LSAN PHP + Swoole 环境重跑全量与池场景，记录 sanitizer 报告。未执行时明确填“未执行（非关闭门禁）”；发现 UAF/OOB/泄漏则升级为阻断问题，不得关闭。
 
-#### C. 待线上回填
+#### C. 线上回填台账
 
 | 项 | 结果 | 证据 |
 |---|---|---|
-| 环境指纹与 HEAD | **已回填（HEAD 未随归档采集，待线上补记）** | `environment.txt`：Linux 192.168.27.101（3.10.0-1160 el7 x86_64）、PHP 8.1.34 NTS DEBUG（`/data/app/php-debug`）、gene 6.2.4、swoole 6.1.9；gene.so=`/data/src/gene/src/modules/gene.so`；运行参数为 `php -n -d extension=<ext_dir>/*.so -d extension=gene.so`（含 pdo*/curl/openssl/igbinary/msgpack/redis/swoole）。metrics 导出 `framework_cache_dirty`/`view_fresh_*`/`co_contexts_sweep_*` 字段可证构建 ≥`95665ff`（V3-11 修复）；脚本未采集 `git rev-parse`（§13.4 脚本缺口），归档目录 `gene-v3-20260921-212542` |
-| TestRunner（含真实 pool lifecycle，无 UNCOVERED） | **PASS 939/939，0 failed，无 UNCOVERED** | `test-runner.log`；DatabaseTest 44/44，Pool get/put/healthCheck/recycleIdle/close 真实路径已执行；外部服务依赖项环境 SKIP=7（MySQL/PgSQL/PDO 连接拒绝）+ Redis NOAUTH SKIP=1，均非覆盖缺口 |
-| Swoole/entry 矩阵与 digest | **PASS** | `status.tsv` 全 17 阶段 PASS 无 SKIP；swoole-matrix 四格（capi×precompile）digest 均 `856ba31839fa8675`；entry 矩阵四格 digest 均 `fd1425a4658c643a`；manual/init/handle 三入口 bench digest 一致=`fd1425a4658c643a`（entry-bench-equiv PASS） |
-| entry/context soak | **PASS** | `entry-soak.log`：10 万请求 25501 req/s、bad=0、`co_contexts_items=0`、ctx_pool_size=512 未超限；`context-manual.json`/`context-auto.json` 各 10 万协程 ×500 并发：isolationFailures=0、cleanupCountersPassed=true，auto 模式 deferred/reclaimed 各 +100000、收尾 `co_contexts_items=0` |
-| DB/Redis 200 × 1000 稳定态借还 | **PASS** | `mysql-pool.json`/`redis-pool.json`：200 协程 ×1000 迭代、poolMax=32，`failures=0`、`commandFailures=0`、收尾 `using=0`、`idle=32=total`；`tx-leak-pool.log` → `POOL TX HYGIENE OK`（开事务连接归还自动回滚告警生效）。另有线上手动补充运行：`--pool=db --pool-max=4 --coroutines=200 --iterations=200` → `passed=true`（failures=0） |
-| 满池排队 | 待执行 | `pool_lifecycle_verify.php` 已接入 `mysql-pool-lifecycle` / `redis-pool-lifecycle`，回填对应 JSON 的 `fullQueue` |
-| recycle/借还交错 | 待执行 | 同上，回填 `recycleInterleave` |
-| close/借还交错 | 待执行 | 同上，回填 `closeInterleave` |
-| 日志 rename/copytruncate/异常退出 | 待执行 | `log_rotation_verify.php` 已接入 `log-rotation`，回填 `log-rotation.json` 与 artifacts |
-| demo health/metrics/wrk/RSS | **PASS** | `demo-web` PASS：`health-*.json` ok；wrk 2m：**2,416,544 请求 @ 20120 req/s、0 错误**（p50 23.5ms/p99 100ms）；`metrics-*.txt` 前后 `requests.errors=0`、`co_contexts_items=1` 持平、ctx_pool_hit 3→10054；`process-rss.txt` worker RSS ~15.3MB 全程平稳无单调增长 |
+| 环境指纹与 HEAD | **已回填；HEAD 两轮均未采集（线上目录非 git 工作树，唯一残留缺口）** | 第二轮 `environment.txt`（归档 `gene-v3-20260921-224917`）：Linux 192.168.27.101（3.10.0-1160 el7 x86_64）、PHP 8.1.34 NTS DEBUG（`/data/app/php-debug`）、gene 6.2.5、swoole 6.1.9；gene.so=`/data/src/gene/src/modules/gene.so`、`gene_so_sha256=c08aa8c4f273a4b789b189190c74198611e6ef41dcd8abfaf272b0fae0c79e0b`；运行参数 `php -n -d extension=<ext_dir>/*.so -d extension=gene.so`（含 pdo*/curl/openssl/igbinary/msgpack/redis/swoole）。metrics 导出 `framework_cache_dirty`/`view_fresh_*`/`co_contexts_sweep_*` 可证构建 ≥`95665ff`；本轮执行了 `3993449` 新增的 pool-lifecycle/log-rotation 探针，可证 ≥`3993449`；本地 HEAD `87e4750`（22:48:26 提交，pool close-drain 计数修复）与归档起始（22:49:17）相隔 51 秒，按时间线应已包含但归档无法自证（见 §13.4 缺口 6 订正）。归档 tar.gz SHA-256=`3e3ff8b040dda3c8d752f6a4f1da002bcfc3324466b10e3fe1fbd8cef78552a0` |
+| TestRunner（含真实 pool lifecycle，无 UNCOVERED） | **两轮均 PASS 939/939、0 failed、无 UNCOVERED** | 第二轮 `test-runner.log`：DatabaseTest 44/44（Pool get/put/healthCheck/recycleIdle/close 真实路径已执行）、SwooleEntry 31/31、Lifecycle 23/23、Cache 73/73；外部服务依赖项环境 SKIP=7（MySQL socket / PgSQL / PDO 连接拒绝）+ Redis NOAUTH SKIP=1，均非覆盖缺口 |
+| Swoole/entry 矩阵与 digest | **PASS（两轮 digest 逐位一致）** | 第二轮 `status.tsv` 全 20 阶段 PASS 无 SKIP；swoole-matrix 四格（capi×precompile）digest 均 `856ba31839fa8675`；entry 矩阵四格 digest 均 `fd1425a4658c643a`；manual/init/handle 三入口 bench digest 一致=`fd1425a4658c643a`（entry-bench-equiv PASS）——与首轮 `212542` 归档完全相同，证明两次构建/运行的行为确定性 |
+| entry/context soak | **PASS** | 第二轮 `entry-soak.log`：10 万请求 25546 req/s、bad=0、`co_contexts_items=0`、ctx_pool_size=512 未超限；`context-manual.json`/`context-auto.json` 各 10 万协程 ×500 并发：isolationFailures=0、cleanupCountersPassed=true，auto 模式 deferred/reclaimed 各 +100000、收尾 `co_contexts_items=0`（与首轮同口径） |
+| DB/Redis 200 × 1000 稳定态借还 | **PASS** | 第二轮 `mysql-pool.json`/`redis-pool.json`：200 协程 ×1000 迭代、poolMax=32，`failures=0`、`commandFailures=0`、收尾 `using=0`、`idle=32=total`；`tx-leak-pool.log` → `POOL TX HYGIENE OK`（开事务连接归还自动回滚告警生效）。首轮另有线上手动补充运行 `--pool=db --pool-max=4 --coroutines=200 --iterations=200` → `passed=true` |
+| 满池排队 | **PASS** | 第二轮 `mysql-pool-lifecycle.json`/`redis-pool-lifecycle.json` `fullQueue.passed=true`：poolMax=32 全量持有时新 waiter 经 Channel 排队，`put()` 后 ~0.201s（两池均）被唤醒取得真实连接并通过 `SELECT 1`/`PING` 探活（非 waitTimeout=1.0s 超时返回，满足 P3-2 对超时/失败数记录的要求）；`overflow=0`，收尾 `total=idle=32`、`using=0` |
+| recycle/借还交错 | **PASS** | 两池 `recycleInterleave.passed=true`：32 协程 ×100 迭代 get/探活/put 与 `recycleIdle()`×100（间隔 1ms）并发交错，`failures=0`，收尾 `total=idle=32`、`using=0`、`closed=false` |
+| close/借还交错 | **PASS** | 两池 `closeInterleave.passed=true`：满池 + 阻塞 waiter 期间并发 `close()`，waiter 收 `null`（`waiterResult="null"`，Channel 关闭语义正确）；drain 期间归还 32 条后 `closed=true`、`total=0`、`using=0` |
+| 日志 rename/copytruncate/异常退出 | **PASS** | 第二轮 `log-rotation.json`（`gene.log_keep_open=1`）：rename 探针旧文件落入 `keep-open.log.1`、新写落到新 `keep-open.log`，passed=true；copytruncate 截断后继续写入 passed=true；`abnormalExit` 探针 SIGKILL 异常退出前写 100 条，`actualLines=100=expectedLines`（无缓冲逐行 write 生效、崩溃零丢失），artifacts 三文件随归档 |
+| demo health/metrics/wrk/RSS | **PASS** | 第二轮 `demo-web`：`health-*.json` ok；wrk 30s 预热 591,518 请求 @19,656 req/s + 1m 正式 **1,169,109 请求 @19,456 req/s、0 错误**（p50 24.3ms / p99 99.9ms）；`metrics-*.txt` 前后 `requests.errors=0`、`co_contexts_items=1` 持平、ctx_pool_hit 3→3290；`process-rss.txt` worker RSS ~15.3MB 全程平稳无单调增长（首轮 2m wrk 2,416,544 请求 @20,120 req/s 同口径 PASS） |
 | ASAN/LSAN（补充） | 未执行（非关闭门禁） | — |
 
-在 A 层全部通过并回填证据后，即可将本文档改名为 `Performance-tuning-V3.closed.md`；无需等待 ASAN。当前对外表述为“代码侧残留已收敛，Linux + 真实 Swoole 主门禁已线上回填（17/17 PASS，归档 `gene-v3-20260921-212542`）；待补满池排队、recycle/close 借还交错、日志 rename/copytruncate/异常退出探针与 HEAD 指纹后关闭”。
+在 A 层全部通过并回填证据后，即可将本文档改名为 `Performance-tuning-V3.closed.md`；无需等待 ASAN。当前对外表述为“代码侧残留已收敛，Linux + 真实 Swoole 全部功能门禁已线上回填：首轮 17/17 PASS（归档 `gene-v3-20260921-212542`）+ 第二轮 20/20 PASS（归档 `gene-v3-20260921-224917`，含满池排队、recycle/close 借还交错、日志 rename/copytruncate/异常退出三组探针）。**唯一未满足的关闭条件是 `git rev-parse HEAD` 指纹**：线上 `/data/src/gene` 为同步目录而非 git checkout，两轮 `git_head` 均 `unavailable`。关闭前需人工补记被测构建的 HEAD（或改为 git checkout 部署后复跑任一阶段），并确认归档是否已含 22:48:26 提交的 `87e4750`（pool close-drain 计数修复）——若未含，对该提交单独复跑 `mysql-pool-lifecycle`/`redis-pool-lifecycle` 两个阶段即可闭环”。
