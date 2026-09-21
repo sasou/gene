@@ -419,3 +419,204 @@ zval *gene_memory_zval_local(zval *dst, zval *src) {
 ### 10.6 结论
 
 除 §4.4（缺前置数据）外，方案剩余优化点已全部落地并通过 Windows 全量回归（922/922）。§2.3/§4.1 期间出现的两处回归均由既有测试契约当场捕获并修复。所有涉及借用/生命周期/协程的条目均为"实现完成、验收未做"，发布准入前须在 Linux ASAN + 真实 Swoole 环境按 §0/§7 逐项验收。
+
+---
+
+## 11. 落地情况复核（2026-09-21，代码级审计）
+
+> 方法：对 §10 声明的每一项逐条回读实现代码（gene.c / gene.h / router.c / request.c /
+> memory.c / pool.c / redis_pool.c / log.c / view.c / pdo.{c,h} / application.c），
+> 核对"改法—不变量—释放路径"三者是否闭合；对可在本机证伪的语义用 PHP 侧最小复现验证。
+> 结论：**§10.6 的"已全部落地并通过回归"不成立**——存在 1 项 P0 崩溃、3 项 P1 语义/资源缺陷，
+> 且 P0 恰好落在 Windows 环境因缺 Swoole 而整段跳过的代码路径上（见 11.1 测试盲区分析）。
+
+### 11.1 P0：Pool / RedisPool 的 C 层 idle 栈索引失效（会崩溃）
+
+**证据**
+
+- `src/db/pool.c:144-173`（`pool_idle_push` / `pool_idle_pop`）、
+  `src/cache/redis_pool.c:156-185`（同构实现）。
+- 压栈用 `zend_hash_next_index_insert()`，弹栈用
+  `n = zend_hash_num_elements(); zend_hash_index_find(ht, n-1); zend_hash_index_del(ht, n-1)`。
+- 注释断言"删除只发生在尾部，故 packed 布局保持，索引 `n-1` 恒为最后一个元素"——
+  **该断言错误**：`zend_hash_index_del()` 不回退 `ht->nNextFreeElement`，
+  所以下一次 `next_index_insert` 会插到被删位置之后，留下空洞，
+  `num_elements` 与"最大索引+1"从此永久错位。
+- 本机最小复现（`php -n`，PHP 8.1.30，语义与 C 层同一套 `zend_hash` API）：
+
+  ```php
+  $a = []; $a[] = 'x'; unset($a[0]); $a[] = 'y';
+  // count($a) === 1，但 array_key_exists(0, $a) === false，实际键是 1
+  ```
+
+**后果**：`pool_idle_pop()` 的 `cv = zend_hash_index_find(o->idle, n-1)` 返回 `NULL`，
+紧随其后的 `ZVAL_COPY(conn_out, cv)` **对空指针解引用 → worker 段错误**。
+触发序列极短：`min` 预填 2 条 → 第一次 `get()`（弹 idx1）→ `put()`（插 idx2）→
+第二次 `get()`（`n=2`，find(1)=NULL）→ 崩溃。即"Swoole 下开池的应用第二次借还即崩"。
+在崩溃之前，空洞位置的连接还会被 `stats()['idle']` 计数但永远取不出来（连接泄漏 + 计数漂移）。
+
+**测试盲区**：`test/DatabaseTest.php:423-432` 本来正好覆盖 get→put→get，
+但整段被 `class_exists('Swoole\Coroutine\Channel')` 守卫（`:416`），
+本机未加载 Swoole 时走 `:449` 的降级分支并 `skip()`。
+因此 §10.3 的 922/922 **完全没有执行过 idle 栈的任何一行**，
+不能作为 §3.6 的回归证据——§10.1 把 §3.6 标为"完成（未验收）"低估了风险等级。
+
+**技术解决思路（按推荐度排序）**
+
+1. **改用裸 C 栈（推荐）**：`zval *idle; zend_long idle_n, idle_cap;`（`idle_ts` 同型 `zend_long *`）。
+   `push` = 容量不足时 `erealloc` 翻倍 + `ZVAL_COPY` 到 `idle[idle_n++]`；
+   `pop` = `ZVAL_COPY_VALUE(out, &idle[--idle_n])`（转移所有权，不再 addref/release 一轮）。
+   彻底脱离 `zend_hash` 的 `nNextFreeElement` 语义，O(1) 且零哈希开销，
+   与 §3.6"零 PHP 调用"的初衷更契合；`free_obj` 里 `while (idle_n) zval_ptr_dtor(&idle[--idle_n]); efree(idle);`。
+2. **维持 HashTable 但自管栈顶**：对象里加 `zend_long idle_top`，
+   `push` 用 `zend_hash_index_update(ht, o->idle_top++, ...)`，
+   `pop` 用 `zend_hash_index_find(ht, --o->idle_top)` + `zend_hash_index_del`。
+   改动最小，但 `num_elements` 与 `idle_top` 仍需在 `close()`/`free_obj` 后同步归零。
+3. **最小热修**：`pop` 删除后补 `o->idle->nNextFreeElement = n - 1;`（`idle_ts` 同样）。
+   能立刻止血，但依赖直写 `zend_hash` 内部字段，不作为最终形态。
+
+**验收要求**：Linux + 真实 Swoole 下 200 协程 × 1000 次借还、满池排队、
+`recycleIdle()` 与借还交错、`close()` 交错，四项全部在 ASAN 下跑；
+并把 `DatabaseTest` 的池生命周期段从"无 Swoole 即 skip"改为
+**无 Swoole 时显式标记为未覆盖并在 CI 的 Swoole 作业中强制执行**，否则同类缺陷仍会漏网。
+
+### 11.2 P1-1：`gene.log_keep_open` 的持久流是**带缓冲**写，且未处理 persistent_list 双关
+
+**证据**：`src/tool/log.c:278-303`。`php_stream_open_wrapper_ex(..., "a", REPORT_ERRORS | STREAM_OPEN_PERSISTENT, ...)`
+打开后直接 `php_stream_write()`，**没有 `php_stream_flush()`，也没有把流置为无缓冲**。
+
+**后果**（与 §3.4 声明的"关闭时行为与旧版逐条 error_log 完全一致"相悖）：
+
+1. 日志行滞留在 stream 的 chunk buffer 里，进程崩溃/`kill -9` 时**丢失最近若干条**——
+   而日志的首要用途恰是崩溃前的现场。
+2. 多进程（FPM 多 worker / Swoole 多 worker）追加同一文件时，
+   `O_APPEND` 的"单次 write 原子定位"保证只对**每行一次 write** 成立；
+   缓冲会把多行合并成一次 write 或在缓冲边界切断某一行 → **跨进程串行化被破坏**，
+   §3.4 的不变量"交错概率与现状相同"不再成立。
+3. `STREAM_OPEN_PERSISTENT` 的流会被注册进 `EG(persistent_list)`；
+   `gene_log_shutdown_streams()`（`:196-207`）在 MSHUTDOWN 再 `php_stream_close()` 一次，
+   存在**与 persistent_list 释放顺序相关的双关/双释放风险**，当前无任何注释或断言覆盖。
+
+**技术解决思路**
+
+- 开流后立即 `php_stream_set_option(h->stream, PHP_STREAM_OPTION_WRITE_BUFFER, PHP_STREAM_BUFFER_NONE, NULL)`，
+  使每条日志落为一次 `write(2)`，恢复 `O_APPEND` 原子性；或保留缓冲但每条 `php_stream_flush()`
+  （后者仍有 2 次 syscall，收益只剩省掉 open/close，仍优于现状的 3 次）。
+- 所有权二选一：**要么**不用 `STREAM_OPEN_PERSISTENT`（自行持有非持久流并在 RSHUTDOWN 前不关闭，
+  FPM 下每请求重开——退化为收益较小但语义干净），**要么**改为
+  `php_stream_from_persistent_id()` 查表复用、并把关闭职责完全交给 persistent_list，
+  `gene_log_shutdown_streams()` 只丢弃自己的索引不再 `close`。二者都需在 Linux 上以
+  `logrotate`（rename + copytruncate 两种）与 `kill -9` 丢日志两组场景验收。
+- 补一条回归：写 N 行后**不经过正常 shutdown**（子进程 `_exit`）读取文件，
+  行数必须等于 N——这是本项唯一能证伪缓冲问题的探针，当前 §10.3 的探针只验证了"复用同一流"。
+
+### 11.3 P1-2：`Request::scope()` 未驱逐已物化的 `$_REQUEST`（与 6adab47 的修复不对称）
+
+**证据**：`src/http/request.c:348-363`（`gene_request_scope`）只在显式传入 `request` 时
+`setVal(TRACK_VARS_REQUEST, ...)`，其余情况直接 `request_bags_inited = 1`；
+而同一语义的 `gene_request_init_bags`（`:753-767`）在缺省 `request` 时
+**显式 `zend_hash_index_del(attr, TRACK_VARS_REQUEST)`** 后再置位。
+
+**后果**：`Invoke::local()` / `Request::scope($get, $post)` 之前若已读过一次
+`Request::request()`/`input()`（触发 `gene_request_materialize_request`），
+进入新 scope 后 `$_REQUEST` 仍是**旧 GET/POST 的合并结果**，
+即 §10.2 已在 `init_bags` 修掉的那条回归，在 `scope` 路径上原样存在。
+`LifecycleTest`/`SwooleEntryTest` 覆盖的是 re-init 路径，因此未捕获。
+
+**技术解决思路**：把"置位 + 驱逐"抽成一个 `gene_request_bags_commit(zval *request)` 内联函数，
+两个调用点共用；并补 `scope` 侧回归：`request()` → `scope(新 get)` → `request()` 必须看到新值，
+以及 `Invoke::local` 返回后外层 `$_REQUEST` 恢复为快照值（`:241-251` 的快照已先物化，这部分是对的）。
+
+### 11.4 P1-3：Pool `waiters` 计数不是异常/协程取消安全的
+
+**证据**：`src/db/pool.c:874-878`、`src/cache/redis_pool.c` 同构：
+
+```c
+po->waiters++;
+bool got = pool_channel_pop(channel, timeout, &item);   /* 会 yield，内部调用 PHP */
+po->waiters--;
+```
+
+**后果**：`pool_channel_pop()` 内部是 PHP 方法调用，一旦发生 bailout
+（`zend_bailout`：致命错误、`exit()`、Swoole worker reload/协程取消路径）
+`--` 被跳过，`waiters` **单调上涨且永不归零**。此后 `put()`（`:978-990`）永远走
+"有等待者 → 推 Channel"分支，而真实等待者为 0：
+Channel 满后 `pool_channel_push` 失败 → `pool_decrement_count` → **连接被静默丢弃**，
+池在高压下持续缩容直至只能新建连接，彻底抵消 §3.6 的收益。
+这是"零 PHP 调用"改造引入的新状态，V3 §0 要求的"生命周期边界"未覆盖它。
+
+**技术解决思路**
+
+- 用 `zend_try { ... } zend_catch { po->waiters--; zend_bailout(); } zend_end_try;`
+  或把 `waiters` 的增减包进 RAII 风格的小结构（进入时 ++，在所有退出路径含
+  `EG(exception)` 分支统一 --），并在 `close()` / `free_obj` 时无条件归零。
+- 加一条自校验：`put()` 在 `waiters > 0` 时若 `pool_channel_push` 失败，
+  应把连接压回 idle 栈（而不是丢弃）并把 `waiters` 视为不可信而重置为 0，
+  这样即使计数漂移也只损失一次唤醒、不损失连接。
+- 可选更稳方案：`waiters` 不自管，改为按需读 `Channel::stats()['consumer_num']`，
+  只在"idle 栈为空且刚创建失败"的冷路径上读（每请求 0 次 PHP 调用的收益仍在）。
+
+### 11.5 P2 级：需要收敛但当前不致命
+
+| 编号 | 问题 | 证据 | 技术思路 |
+|---|---|---|---|
+| P2-1 | §3.1 冻结表借用**没有防御性回退开关**：安全性 100% 依赖"框架表 post-freeze 零写入"这一口头不变量，代码里没有任何标志或断言。`cache_business_dirty` 为业务表提供了这种回退，框架表却没有对称机制。 | `memory.c:418-439` 只查 `runtime_type>=2 && worker_ready && !GENE_MEMORY_IS_BUSINESS()` | 新增 `framework_cache_dirty`：`gene_memory_set/del` 在 `worker_ready` 且非 business 分支上被调用时置 1（即便该写入最终被 `gene_memory_write_allowed` 拒绝也置 1，宁可退化不可悬垂），借用分支追加 `&& !framework_cache_dirty`。`Monitor::stats()` 导出该标志便于线上归因。 |
+| P2-2 | `pool_recycle_idle()` 的"无并发 put"注释在协程下不成立：`pool_is_alive()`（`pool.c:758`）会执行 SQL → **yield**，其间其他协程可 get/put，`size` 快照与 `count_cached` 局部视图都会漂移。 | `pool.c:724-771` 注释 vs `:758` | 要么在 yield 点之后重新读取权威计数（`pool_get_count`），要么给回收器加一个 `recycling` 重入/并发标志并只在标志内允许尾部操作；同时把注释改成"存在 yield，计数仅为启发式"以免后续改动继续依赖错误前提。 |
+| P2-3 | `view_fresh`（§3.3）无容量上限，key 为完整编译路径。Swoole 下 RSHUTDOWN 每 worker 只跑一次，表在整个 worker 生命周期内只增不减；若视图名含用户可控片段，则为**可被外部驱动的持续增长**。 | `view.c:66-98`、`gene.c:1373-1377` | 加 `gene.view_fresh_max`（默认如 512）+ 插入时按插入序淘汰；或把值从时间戳改为"时间戳 + 命中计数"并在超限时整表 clean（模板集有限，全清代价只是一轮 stat）。同时在 `Monitor::stats()` 导出 items/bytes（与 §4.3 口径一致）。 |
+| P2-4 | 两个池的自定义对象存储**未提供 `get_gc`**，idle 栈里的 PDO/Redis 对象对 `gc_collect_cycles()` 与调试期泄漏报告完全不可见（不构成泄漏，但会掩盖真实环时的诊断）。同时 `dtor_obj` 未定制，`close()` 的时机完全依赖用户或 `closeAll()`。 | `pool.c:1717-1728`、`redis_pool.c` 同构 | 实现 `get_gc` 返回 `o->idle`（配合 `zend_get_gc_buffer`），`clone_obj = NULL` 显式禁用（现在靠 `ZEND_ACC_FINAL` + 方法层拦截）。 |
+| P2-5 | §3.1 / §2.4(3) / §4.2 / §3.6 全部以 `runtime_type>=2 && worker_ready` 为前提，**FPM 一项都吃不到**；而 §1 基线表把 FPM 的"每请求固定成本"列为两条账之一。 | 各处条件 | 为 FPM 引入显式冻结点：新增 `gene.freeze_framework_cache=1`，在第一次 `Application::run()` 结束（或 `autoload()` 完成）后对框架表置 `worker_ready` 等价标志，使 FPM 也进入"框架表只读 → 借用 + 免锁"。FPM 的框架表同样是每进程 warm-once，语义风险低于 Swoole（无协程交错），可作为下一阶段收益最大的单项。 |
+| P2-6 | `handleSwoole()` 在 `EG(exception)` 仍挂起时既不取 body 也不 `end()`（`application.c:1763-1814`），若上游异常收敛遗漏一条路径，客户端将**等到超时**而非收到 500。 | `application.c:1799/1809` | 在 `end()` 之前对"仍有挂起异常"的情况补一条兜底：记录日志 + `gene_response_set_status(500)` + `end("")`，确保任何退出路径都恰好回一次响应；并补一条 SwooleEntry 回归（hook 内抛出且不被捕获）。 |
+
+### 11.6 复核通过（本轮未发现缺陷）
+
+- **§4.1 冷热分离的释放闭环**：`gene_request_context_free_fields()`（`gene.c:582-736`）对
+  `cold` 的三段处理（`preserve_for_reuse` 保留块、`destroy` 释放块、池化 acquire 不物化）
+  与 `GENE_CTX_COLD()` 的惰性分配一致；`request_stack` 在 `request_attr` 回收**之前** drain，
+  顺序正确；`http_sse_leftover` / `http_body_buf` / `http_header_buf` 是栈上 `smart_str` 借用指针，
+  只置 NULL 不释放是对的（真实释放在 `http.c:1444`）。**未发现泄漏**。
+- **§2.5 mca_buf 内联**：`router.c:128-171` 的"指针身份即所有权"在三处释放点
+  （`gene.c:593-598`）与 `Router::match()` 探测的保存/恢复（`router.c:2370-2392`、`:2550-2561`，
+  含 `memcpy` 备份缓冲内容）均闭合；长名回落 `emalloc` 的分支也正确释放。
+  **但本项在 §9.4 被列为"未做"、§10.1 又未登记，属文档漏记**（见 11.7）。
+- **§2.4(3) router_path 借用**：借用条件同时校验 `IS_STR_PERMANENT`，
+  释放点按 `router_path_owned` 分流（`gene.c:587`、`router.c:218`、`:2553`），
+  探测路径连同所有权位一起保存恢复，逻辑自洽。风险仅剩"onRequest 内重建路由树"这一被禁止的用法，
+  建议按 P2-1 的同一思路加 generation 校验而非仅靠约定。
+- **§2.6 DI 快路径**：`di.c:139/166/344` 全部用 `ctx->cold &&` 只读探测，
+  不会为了读一个计数而 `ecalloc` 冷块；`gene_di_set_class` 只在真正新增键时 `++`（`:386-388`）。
+- **§3.2 Db 属性槽位**：`pdo.c:38-53` 在 MINIT 末尾解析并对缺失属性
+  `zend_error_noreturn` 失败快照，`gene_db_prop_get` 显式把 `IS_UNDEF`（`unset` 后）
+  归一为 NULL（`pdo.h:128-135`），子类继承不改父类槽位偏移，语义与按名读一致。
+- **§4.2 retired 回收**：`borrowers` 的 ++/-- 包在 `gene_route_pc_execute()`
+  （`router.c:1213-1219`）内，bailout 时计数只会偏高 → 退化为延迟回收而非提前释放，
+  方向是安全的（与 P1-3 的 `waiters` 相反：那里偏高会改变行为，这里偏高只影响回收时机）。
+
+### 11.7 文档与流程问题
+
+1. **§10.1 表格漏登 §2.5**：代码里 `mca_buf`（`gene.h:232`、`router.c:134`）已落地并带
+   `V3-2.5` 标记，但 §9.4 称其"没有冒充完成"、§10 未登记 → 实现与文档不同步，
+   后续审计容易把它当"未改动"而错误假设 m/c/a 一定是堆指针。需在 §10.1 补一行。
+2. **"922 passed / 0 failed"被当作 §3.6 的回归证据不成立**：该环境无 Swoole，
+   池的 idle 栈、Channel 唤醒、协程借还整段未执行（`DatabaseTest.php:416/449`）。
+   建议在 `test/README.md` 与验收脚本中区分 **"passed"与"covered"**：
+   跳过 Swoole 段时输出显式的 `UNCOVERED: pool lifecycle`，
+   并让 `tools/acceptance/*` 在缺 Swoole 时拒绝签发准入结论。
+3. **§10 的"完成（未验收）"标签粒度不足**：P0 表明"实现完成"本身也需要至少一次
+   真实路径执行才能宣称。建议把状态细分为
+   `实现/本机覆盖/目标环境覆盖/ASAN 验收` 四级，并在表格中逐列标注。
+
+### 11.8 建议的处理顺序
+
+| 序 | 项 | 理由 |
+|---|---|---|
+| 1 | 11.1 P0 idle 栈（两个池） | Swoole + 池 = 必崩，阻断发布 |
+| 2 | 11.4 P1-3 waiters 异常安全 | 与 P0 同文件，一并修复并共用新回归 |
+| 3 | 11.3 P1-2 scope 驱逐 `$_REQUEST` | 一行级修复，语义正确性 |
+| 4 | 11.2 P1-1 日志缓冲/所有权 | opt-in 默认关，但一旦开启即丢日志 |
+| 5 | 11.5 P2-1 框架表 dirty 回退 | 把 §3.1 从"依赖约定"变为"依赖代码" |
+| 6 | 11.5 P2-6 / P2-2 / P2-3 / P2-4 | 兜底响应、回收器注释与计数、表上限、GC 可见性 |
+| 7 | 11.5 P2-5 FPM 冻结点 | 下一阶段收益最大的新增项（FPM 侧首次吃到 §2.1/§3.1） |
+
+在 1–4 全部修复并在 **Linux + 真实 Swoole + ASAN** 下重跑
+`test/TestRunner.php` 与 `tools/acceptance/linux_swoole_verify.sh` 之前，
+§10.6 的"剩余优化点已全部落地"不应对外表述为可发布状态。
