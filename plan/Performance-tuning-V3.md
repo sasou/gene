@@ -720,11 +720,12 @@ Channel 满后 `pool_channel_push` 失败 → `pool_decrement_count` → **连�
 
 仍有以下门禁缺口：
 
-1. `pool_concurrency.php` 只覆盖稳定态借还，**没有显式构造**满池排队、`recycleIdle()` 与借还交错、`close()` 与借还交错三种场景；因此不能把 `--all` 的 pool PASS 等同于四场景已验收。
-2. 脚本没有执行 `gene.log_keep_open=1` 的 rename、copytruncate、异常退出三组日志探针。
+1. `pool_concurrency.php` 只覆盖稳定态借还；已新增 `pool_lifecycle_verify.php` 并接入 `--all`，显式构造满池排队、`recycleIdle()` 与借还交错、`close()` 与借还交错三种场景。脚本已就绪，仍需线上执行回填后才能勾选。
+2. 已新增 `log_rotation_verify.php` 并接入主脚本，以 `gene.log_keep_open=1` 执行 rename、copytruncate、`SIGKILL` 异常退出三组探针；仍需线上执行回填。
 3. 脚本没有调用 `run_acceptance.php --profile=swoole`，因此不会产出该框架的 `acceptance.json`；`status.tsv` 是另一套结果格式。
 4. 默认运行会把 Redis/MySQL/demo 记为 `SKIP` 后仍以 0 退出；只有明确启用所需阶段且 `status.tsv` 无 `SKIP/FAIL`，结果才可用于关闭。
 5. 脚本支持通过 `CFLAGS` 做 sanitizer 构建，但未自动确认 PHP、Swoole 与 Gene 的 sanitizer ABI/运行参数；ASAN/LSAN 应作为补充验证单独记录，不能冒充普通生产 ABI 验收。
+6. `environment.txt` 已补采 `git_head`、工作树状态、Gene 模块 SHA-256 与 `GENE_TEST_PHP_ARGS`；旧归档仍需人工补记 HEAD，新执行无需再手工采集。
 
 因此线上执行应分成“必须验收”和“补充验证”两层。ASAN **不是关闭的必要条件**。
 
@@ -745,8 +746,8 @@ WRK_DURATION=10m bash tools/acceptance/linux_swoole_verify.sh \
 
 - `status.tsv` 所有**启用阶段**均为 PASS，`full-tests` 输出无 FAIL，且不得出现 `UNCOVERED: pool lifecycle`；
 - 两个 pool 均完成 200 协程 × 1000 次真实命令借还，`failures=0`、`commandFailures=0`、`using=0`、`idle=total`；
-- 另行执行并回填满池排队、recycle/借还交错、close/借还交错结果；在它们尚未并入一键脚本前，不得只凭 `pool_concurrency.php` 的稳定态结果勾选；
-- `gene.log_keep_open=1` 的 rename、copytruncate、异常退出探针通过；
+- `mysql-pool-lifecycle` 与 `redis-pool-lifecycle` 均 PASS，输出中满池排队、recycle/借还交错、close/借还交错三场景全部 `passed=true`；
+- `log-rotation` PASS，`gene.log_keep_open=1` 的 rename、copytruncate、异常退出三组探针全部 `passed=true`；
 - Swoole 矩阵、entry 矩阵和三入口 digest 各自在组内一致，entry-soak 后 `co_contexts_items=0`，demo wrk 无错误且 RSS 无持续单调增长；
 - 回填环境与证据：`git rev-parse HEAD`、PHP/Gene/Swoole 版本、编译参数、`GENE_TEST_PHP_ARGS`、输出目录及 tar.gz 校验值。
 
@@ -763,10 +764,10 @@ WRK_DURATION=10m bash tools/acceptance/linux_swoole_verify.sh \
 | Swoole/entry 矩阵与 digest | **PASS** | `status.tsv` 全 17 阶段 PASS 无 SKIP；swoole-matrix 四格（capi×precompile）digest 均 `856ba31839fa8675`；entry 矩阵四格 digest 均 `fd1425a4658c643a`；manual/init/handle 三入口 bench digest 一致=`fd1425a4658c643a`（entry-bench-equiv PASS） |
 | entry/context soak | **PASS** | `entry-soak.log`：10 万请求 25501 req/s、bad=0、`co_contexts_items=0`、ctx_pool_size=512 未超限；`context-manual.json`/`context-auto.json` 各 10 万协程 ×500 并发：isolationFailures=0、cleanupCountersPassed=true，auto 模式 deferred/reclaimed 各 +100000、收尾 `co_contexts_items=0` |
 | DB/Redis 200 × 1000 稳定态借还 | **PASS** | `mysql-pool.json`/`redis-pool.json`：200 协程 ×1000 迭代、poolMax=32，`failures=0`、`commandFailures=0`、收尾 `using=0`、`idle=32=total`；`tx-leak-pool.log` → `POOL TX HYGIENE OK`（开事务连接归还自动回滚告警生效）。另有线上手动补充运行：`--pool=db --pool-max=4 --coroutines=200 --iterations=200` → `passed=true`（failures=0） |
-| 满池排队 | 待执行 | —（§13.4 缺口 1：一键脚本未构造该场景，需单独脚本/手动用例；不得以稳定态结果勾选） |
-| recycle/借还交错 | 待执行 | —（同上） |
-| close/借还交错 | 待执行 | —（同上） |
-| 日志 rename/copytruncate/异常退出 | 待执行 | —（§13.4 缺口 2；本次运行 `gene.log_keep_open=Off`，探针未启用） |
+| 满池排队 | 待执行 | `pool_lifecycle_verify.php` 已接入 `mysql-pool-lifecycle` / `redis-pool-lifecycle`，回填对应 JSON 的 `fullQueue` |
+| recycle/借还交错 | 待执行 | 同上，回填 `recycleInterleave` |
+| close/借还交错 | 待执行 | 同上，回填 `closeInterleave` |
+| 日志 rename/copytruncate/异常退出 | 待执行 | `log_rotation_verify.php` 已接入 `log-rotation`，回填 `log-rotation.json` 与 artifacts |
 | demo health/metrics/wrk/RSS | **PASS** | `demo-web` PASS：`health-*.json` ok；wrk 2m：**2,416,544 请求 @ 20120 req/s、0 错误**（p50 23.5ms/p99 100ms）；`metrics-*.txt` 前后 `requests.errors=0`、`co_contexts_items=1` 持平、ctx_pool_hit 3→10054；`process-rss.txt` worker RSS ~15.3MB 全程平稳无单调增长 |
 | ASAN/LSAN（补充） | 未执行（非关闭门禁） | — |
 
