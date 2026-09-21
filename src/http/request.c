@@ -34,6 +34,8 @@
 
 zend_class_entry * gene_request_ce;
 
+static zval *gene_request_materialize_request(zval *attr);
+
 static zval *gene_request_attr(void) {
 	gene_request_context *ctx = gene_request_ctx();
 	if (UNEXPECTED(Z_TYPE(ctx->request_attr) == IS_UNDEF || Z_TYPE(ctx->request_attr) == IS_NULL)) {
@@ -236,6 +238,13 @@ int gene_request_snapshot_ctx(gene_request_context *ctx, zend_long *depth_out) {
 		array_init_size(&ctx->request_attr, 9);
 	}
 	attr = &ctx->request_attr;
+	/* [GENE_PERF:2026-09-21 V3-2.3] Snapshot index list contains
+	 * TRACK_VARS_REQUEST: materialize the lazy merged bag first so the
+	 * snapshot/restore pair keeps the exact pre-scope bag contents. */
+	if (ctx->request_bags_inited
+			&& !zend_hash_index_exists(Z_ARRVAL_P(attr), TRACK_VARS_REQUEST)) {
+		gene_request_materialize_request(attr);
+	}
 	array_init_size(&snap, 6);
 	for (i = 0; i < sizeof(gene_request_stack_idxs) / sizeof(gene_request_stack_idxs[0]); i++) {
 		gene_request_snap_copy_index(Z_ARRVAL_P(attr), Z_ARRVAL(snap), gene_request_stack_idxs[i]);
@@ -314,6 +323,28 @@ static void gene_request_set_dup(zend_ulong type, zval *value) {
 	zval_ptr_dtor(&copy);
 }
 
+/* [GENE_PERF:2026-09-21 V3-2.3] Materialize the merged $_REQUEST bag (GET
+ * first, POST overrides — the historical order) on first touch instead of at
+ * init() time. Only used once request_bags_inited marks the bags as
+ * gene-managed; returns the stored zval or NULL. */
+static zval *gene_request_materialize_request(zval *attr) {
+	zval merged;
+	zval *get = zend_hash_index_find(Z_ARRVAL_P(attr), TRACK_VARS_GET);
+	zval *post = zend_hash_index_find(Z_ARRVAL_P(attr), TRACK_VARS_POST);
+	zend_long get_count = (get && Z_TYPE_P(get) == IS_ARRAY) ? zend_hash_num_elements(Z_ARRVAL_P(get)) : 0;
+	zend_long post_count = (post && Z_TYPE_P(post) == IS_ARRAY) ? zend_hash_num_elements(Z_ARRVAL_P(post)) : 0;
+
+	array_init_size(&merged, get_count + post_count);
+	if (get && Z_TYPE_P(get) == IS_ARRAY) {
+		zend_hash_copy(Z_ARRVAL(merged), Z_ARRVAL_P(get), (copy_ctor_func_t) zval_add_ref);
+	}
+	if (post && Z_TYPE_P(post) == IS_ARRAY) {
+		zend_hash_copy(Z_ARRVAL(merged), Z_ARRVAL_P(post), (copy_ctor_func_t) zval_add_ref);
+	}
+	/* zend_hash_index_update takes ownership of merged — no dtor here. */
+	return zend_hash_index_update(Z_ARRVAL_P(attr), TRACK_VARS_REQUEST, &merged);
+}
+
 void gene_request_scope(zval *get, zval *post, zval *files, zval *request) {
 	if (get && Z_TYPE_P(get) == IS_ARRAY) {
 		gene_request_set_dup(TRACK_VARS_GET, get);
@@ -326,20 +357,9 @@ void gene_request_scope(zval *get, zval *post, zval *files, zval *request) {
 	}
 	if (request && Z_TYPE_P(request) == IS_ARRAY) {
 		gene_request_set_dup(TRACK_VARS_REQUEST, request);
-	} else {
-		zval merged;
-		zend_long get_count = (get && Z_TYPE_P(get) == IS_ARRAY) ? zend_hash_num_elements(Z_ARRVAL_P(get)) : 0;
-		zend_long post_count = (post && Z_TYPE_P(post) == IS_ARRAY) ? zend_hash_num_elements(Z_ARRVAL_P(post)) : 0;
-		array_init_size(&merged, get_count + post_count);
-		if (get && Z_TYPE_P(get) == IS_ARRAY) {
-			zend_hash_copy(Z_ARRVAL(merged), Z_ARRVAL_P(get), (copy_ctor_func_t) zval_add_ref);
-		}
-		if (post && Z_TYPE_P(post) == IS_ARRAY) {
-			zend_hash_copy(Z_ARRVAL(merged), Z_ARRVAL_P(post), (copy_ctor_func_t) zval_add_ref);
-		}
-		setVal(TRACK_VARS_REQUEST, &merged);
-		zval_ptr_dtor(&merged);
 	}
+	/* Bags are gene-managed now; an absent REQUEST merges lazily in getVal(). */
+	gene_request_ctx()->request_bags_inited = 1;
 }
 
 zval * request_query(zend_ulong type, char * name, size_t len) {
@@ -465,14 +485,22 @@ zval *getVal(zend_ulong type, char *name, size_t len) {
 	if (EXPECTED(Z_TYPE_P(attr) == IS_ARRAY)) {
 		val = zend_hash_index_find(Z_ARRVAL_P(attr), type);
 		if (UNEXPECTED(val == NULL)) {
-			/* [GENE_PERF:2026-04-24 v5.5.8] Slow path (first touch of this
-			 * track-var per request). Use the zend_hash_index_update return
-			 * value directly instead of re-querying, shaving one hash probe
-			 * off every initial GET/POST/... access. */
-			zval *source = request_query(type, NULL, 0);
-			if (source) {
-				Z_TRY_ADDREF_P(source);
-				val = zend_hash_index_update(Z_ARRVAL_P(attr), type, source);
+			/* [GENE_PERF:2026-09-21 V3-2.3] The merged $_REQUEST bag is built
+			 * lazily here instead of eagerly in init_bags()/scope(); the
+			 * request_bags_inited flag keeps an FPM request that never ran
+			 * init() on the real $_REQUEST superglobal path below. */
+			if (type == TRACK_VARS_REQUEST && gene_request_ctx()->request_bags_inited) {
+				val = gene_request_materialize_request(attr);
+			} else {
+				/* [GENE_PERF:2026-04-24 v5.5.8] Slow path (first touch of this
+				 * track-var per request). Use the zend_hash_index_update return
+				 * value directly instead of re-querying, shaving one hash probe
+				 * off every initial GET/POST/... access. */
+				zval *source = request_query(type, NULL, 0);
+				if (source) {
+					Z_TRY_ADDREF_P(source);
+					val = zend_hash_index_update(Z_ARRVAL_P(attr), type, source);
+				}
 			}
 		}
 		if (len == 0 || name == NULL) {
@@ -724,24 +752,11 @@ static void gene_request_init_bags(zval *get, zval *post, zval *cookie, zval *se
 	}
 	if (request && Z_TYPE_P(request) == IS_ARRAY) {
 		setVal(6, request);
-	} else {
-		zval merged;
-		zend_long get_count = (get && Z_TYPE_P(get) == IS_ARRAY) ? zend_hash_num_elements(Z_ARRVAL_P(get)) : 0;
-		zend_long post_count = (post && Z_TYPE_P(post) == IS_ARRAY) ? zend_hash_num_elements(Z_ARRVAL_P(post)) : 0;
-		zend_long total_count = get_count + post_count;
-
-		/* [GENE_PERF] Pre-allocate array size to avoid reallocation */
-		array_init_size(&merged, total_count);
-
-		if (get && Z_TYPE_P(get) == IS_ARRAY) {
-			zend_hash_copy(Z_ARRVAL(merged), Z_ARRVAL_P(get), (copy_ctor_func_t) zval_add_ref);
-		}
-		if (post && Z_TYPE_P(post) == IS_ARRAY) {
-			zend_hash_copy(Z_ARRVAL(merged), Z_ARRVAL_P(post), (copy_ctor_func_t) zval_add_ref);
-		}
-		setVal(6, &merged);
-		zval_ptr_dtor(&merged);
 	}
+	/* [GENE_PERF:2026-09-21 V3-2.3] $_REQUEST is no longer merged eagerly: most
+	 * requests never read it, so the two zend_hash_copy runs were pure cost.
+	 * getVal(TRACK_VARS_REQUEST) materializes it on first miss. */
+	gene_request_ctx()->request_bags_inited = 1;
 	if (header && Z_TYPE_P(header) == IS_ARRAY) {
 		gene_request_set_header_val(header);
 	}
@@ -801,7 +816,10 @@ int gene_request_init_swoole(zval *request_obj) {
 			 * mutate the object and invalidate property-slot pointers. */
 			ZVAL_COPY(&vals[i], prop);
 		} else {
-			array_init(&vals[i]);
+			/* [GENE_PERF:2026-09-21 V3-2.3] Shared immutable empty array: no
+			 * HashTable allocation for absent bags; COW separates on any
+			 * userland write, so behavior is identical to array_init. */
+			ZVAL_EMPTY_ARRAY(&vals[i]);
 		}
 	}
 	if (UNEXPECTED(EG(exception))) {
@@ -822,15 +840,44 @@ int gene_request_init_swoole(zval *request_obj) {
 		return FAILURE;
 	}
 	ZVAL_UNDEF(&raw_ret);
-	zend_call_known_function(raw_fn, Z_OBJ_P(request_obj), Z_OBJCE_P(request_obj), &raw_ret, 0, NULL, NULL);
-	if (UNEXPECTED(EG(exception))) {
-		for (i = 0; i < 6; i++) {
-			zval_ptr_dtor(&vals[i]);
+	/* [GENE_PERF:2026-09-21 V3-2.3] Skip the rawContent() call for bodyless
+	 * requests: GET/HEAD/OPTIONS without a Content-Length cannot carry a body
+	 * in Swoole, so the call would only allocate an empty zend_string. The
+	 * method lookup above still runs, so a missing rawContent() keeps
+	 * throwing Error. Any raw bag stays absent, which rawValue() reports as
+	 * "" — identical to Swoole's empty-body return. */
+	{
+		zval *rm = zend_hash_str_find(Z_ARRVAL(vals[3]), ZEND_STRL("request_method"));
+		zend_bool bodyless = 0;
+		if (rm && Z_TYPE_P(rm) == IS_STRING) {
+			size_t mlen = Z_STRLEN_P(rm);
+			const char *m = Z_STRVAL_P(rm);
+			bodyless = (mlen == 3 && strncasecmp(m, "get", 3) == 0)
+				|| (mlen == 4 && strncasecmp(m, "head", 4) == 0)
+				|| (mlen == 7 && strncasecmp(m, "options", 7) == 0);
 		}
-		if (!Z_ISUNDEF(raw_ret)) {
-			zval_ptr_dtor(&raw_ret);
+		if (bodyless) {
+			/* Any present Content-Length other than "0"/"" means a body may
+			 * exist; a non-string value also fails safe (keep the call). */
+			zval *cl = zend_hash_str_find(Z_ARRVAL(vals[5]), ZEND_STRL("content-length"));
+			if (cl && !(Z_TYPE_P(cl) == IS_STRING
+					&& (Z_STRLEN_P(cl) == 0
+						|| (Z_STRLEN_P(cl) == 1 && Z_STRVAL_P(cl)[0] == '0')))) {
+				bodyless = 0;
+			}
 		}
-		return FAILURE;
+		if (!bodyless) {
+			zend_call_known_function(raw_fn, Z_OBJ_P(request_obj), Z_OBJCE_P(request_obj), &raw_ret, 0, NULL, NULL);
+			if (UNEXPECTED(EG(exception))) {
+				for (i = 0; i < 6; i++) {
+					zval_ptr_dtor(&vals[i]);
+				}
+				if (!Z_ISUNDEF(raw_ret)) {
+					zval_ptr_dtor(&raw_ret);
+				}
+				return FAILURE;
+			}
+		}
 	}
 	gene_request_init_bags(&vals[0], &vals[1], &vals[2], &vals[3], NULL, &vals[4], NULL, &vals[5],
 		(Z_TYPE(raw_ret) == IS_STRING) ? &raw_ret : NULL);

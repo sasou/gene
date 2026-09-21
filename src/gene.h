@@ -150,6 +150,10 @@ static inline uint64_t gene_hrtime(void) {
 	 char *method;
 	 char *path;
 	 char *router_path;
+	 /* [GENE_PERF:2026-09-21 V3-2.4(3)] 1 = router_path is an estrndup owned by
+	  * this context; 0 = it borrows a frozen persistent route-tree key string
+	  * (Swoole post-workerReady only) and must not be efree'd. */
+	 zend_bool router_path_owned;
 	 char *module;
 	 char *controller;
 	 char *action;
@@ -238,6 +242,10 @@ static inline uint64_t gene_hrtime(void) {
 	 void *http_sse_leftover;
 	 /* Request bag snapshot stack (get/post/files/request/header/raw). */
 	 zval request_stack;
+	 /* [GENE_PERF:2026-09-21 V3-2.3] 1 once init()/initSwoole()/scope() has
+	  * populated the track-var bags; gates lazy $_REQUEST materialization so
+	  * an untouched FPM request still falls through to the real superglobal. */
+	 zend_bool request_bags_inited;
 	 zval request_json;
 	 zend_string *request_json_error;
 	 zend_uchar request_json_state;
