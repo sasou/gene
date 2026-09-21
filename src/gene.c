@@ -153,6 +153,7 @@ STD_PHP_INI_BOOLEAN("gene.use_namespace", "1", PHP_INI_SYSTEM, OnUpdateBool, use
 STD_PHP_INI_BOOLEAN("gene.view_compile", "0", PHP_INI_SYSTEM, OnUpdateBool, view_compile, zend_gene_globals, gene_globals) // @suppress("Symbol is not resolved")
 STD_PHP_INI_BOOLEAN("gene.view_compile_check_mtime", "1", PHP_INI_SYSTEM, OnUpdateBool, view_compile_check_mtime, zend_gene_globals, gene_globals) // @suppress("Symbol is not resolved")
 STD_PHP_INI_ENTRY("gene.view_stat_ttl", "0", PHP_INI_SYSTEM, OnUpdateLong, view_stat_ttl, zend_gene_globals, gene_globals) // @suppress("Symbol is not resolved")
+STD_PHP_INI_ENTRY("gene.view_fresh_max", "512", PHP_INI_SYSTEM, OnUpdateLong, view_fresh_max, zend_gene_globals, gene_globals) // @suppress("Symbol is not resolved")
 STD_PHP_INI_BOOLEAN("gene.use_library", "0", PHP_INI_SYSTEM, OnUpdateBool, use_library, zend_gene_globals, gene_globals) // @suppress("Symbol is not resolved")
 STD_PHP_INI_ENTRY("gene.library_root", "", PHP_INI_SYSTEM, OnUpdateString, library_root, zend_gene_globals, gene_globals) // @suppress("Symbol is not resolved")
 STD_PHP_INI_ENTRY("gene.co_contexts_max", "1024", PHP_INI_SYSTEM, OnUpdateLong, co_contexts_max, zend_gene_globals, gene_globals) // @suppress("Symbol is not resolved")
@@ -1312,6 +1313,7 @@ static void php_gene_init_globals() {
 	 * zero it here (same rule as ctx_pool_prewarm / cache_easy_ttl). */
 	GENE_G(cache_insert_refused) = 0;
 	GENE_G(cache_business_dirty) = 0;
+	GENE_G(framework_cache_dirty) = 0;
 	/* [GENE_FEATURE:2026-07-30 F2] */
 	GENE_G(request_count) = 0;
 	GENE_G(request_error_count) = 0;
@@ -1473,6 +1475,7 @@ PHP_GINIT_FUNCTION(gene) {
 	gene_globals->view_compile = 0;
 	gene_globals->view_compile_check_mtime = 1;
 	gene_globals->view_stat_ttl = 0;
+	gene_globals->view_fresh_max = 512;
 	gene_globals->view_fresh = NULL;
 	gene_globals->use_library = 0;
 	gene_globals->slow_query_ms = 0;

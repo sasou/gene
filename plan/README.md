@@ -29,7 +29,7 @@
 | [gene_swoole_uaf_fix.closed.md](gene_swoole_uaf_fix.closed.md) | Swoole worker signal 11 的 UAF 根因与最小改动修复 | 关闭（修复已落地；3 项观察项移交 `audit-backlog.md` §七） |
 | [Performance-tuning-V1.closed.md](Performance-tuning-V1.closed.md) | 极致并发优化 V1：已完成项目的实现与验收结果 | 关闭（归档存证，后续由 V2 承接） |
 | [Performance-tuning-V2.md](Performance-tuning-V2.md) | 极致并发优化 V2：自动化验收规范与尚待实现项 | 进行中 |
-| [Performance-tuning-V3.md](Performance-tuning-V3.md) | 极致并发优化 V3：源码复核得出的代码级优化点（NTS 锁消除、请求装载零分配、路由/DI 分配削减、Db 属性槽位、冻结表零拷贝、ctx 冷热分离、Pool 去 PHP 调用等），附不变量与验证要点 | 候选（仅方案） |
+| [Performance-tuning-V3.md](Performance-tuning-V3.md) | 极致并发优化 V3：源码复核得出的代码级优化点（NTS 锁消除、请求装载零分配、路由/DI 分配削减、Db 属性槽位、冻结表零拷贝、ctx 冷热分离、Pool 去 PHP 调用等），附不变量与验证要点 | 进行中（审计修复完成；Linux ASAN + 真实 Swoole 发布验收待完成） |
 | [audit-backlog.md](audit-backlog.md) | 审计驱动待办（F3/F4、模块缺口、性能观测项、O6/O7 Linux 验证、文档/测试缺口） | 进行中（持续维护） |
 
 状态约定：`候选`/`进行中` → 有待办项，文件名保持 `*.md`；`关闭` → 方案已落地或归档存证，不再维护待办，文件名加 `.closed.md` 后缀（遗留待验证项移交 `audit-backlog.md`）。

@@ -157,9 +157,9 @@ static inline zend_function *gene_log_get_error_log_fn(void) {
 /* }}} */
 
 /* {{{ [GENE_PERF:2026-09-21 V3-3.4] gene.log_keep_open (opt-in, default off).
- * When enabled, file-target log lines are written through a process-persistent
- * php_stream (STREAM_OPEN_PERSISTENT) instead of error_log($line,3,$file)'s
- * per-call open/write/close (3 syscalls per line). Every
+ * In Swoole mode, file-target log lines are written through an unbuffered,
+ * worker-owned php_stream instead of error_log($line,3,$file)'s per-call
+ * open/write/close (3 syscalls per line). FPM keeps the legacy path. Every
  * gene.log_reopen_interval seconds (default 5) the path is stat'ed:
  * POSIX compares st_ino/st_dev (logrotate rename -> reopen), Windows compares
  * size shrinkage (copytruncate -> reopen). Entries carry creator_pid like
@@ -188,7 +188,7 @@ static zend_long gene_log_current_pid(void) {
 
 static void gene_log_handle_close(gene_log_handle *h) {
 	if (h->stream) {
-		php_stream_free(h->stream, PHP_STREAM_FREE_CLOSE | PHP_STREAM_FREE_PERSISTENT);
+		php_stream_close(h->stream);
 		h->stream = NULL;
 	}
 }
@@ -276,11 +276,12 @@ static int gene_log_write_persistent(zend_string *path, zend_string *line) {
 	}
 
 	if (!h->stream) {
-		h->stream = php_stream_open_wrapper_ex(ZSTR_VAL(path), "a",
-				REPORT_ERRORS | STREAM_OPEN_PERSISTENT, NULL, NULL);
+		h->stream = php_stream_open_wrapper_ex(ZSTR_VAL(path), "a", REPORT_ERRORS, NULL, NULL);
 		if (!h->stream) {
 			return 0;
 		}
+		php_stream_set_option(h->stream, PHP_STREAM_OPTION_WRITE_BUFFER,
+			PHP_STREAM_BUFFER_NONE, NULL);
 		{
 			zend_stat_t sb;
 			h->last_check = now;
@@ -311,7 +312,7 @@ static void gene_log_call_error_log(zend_string *log_line, zend_string *effectiv
 	zend_function *fn;
 	zval retval, params[3];
 	/* [GENE_PERF:2026-09-21 V3-3.4] opt-in persistent handle path. */
-	if (effective_file && GENE_G(log_keep_open) &&
+	if (effective_file && GENE_G(log_keep_open) && GENE_G(runtime_type) >= 2 &&
 		gene_log_write_persistent(effective_file, log_line)) {
 		if (log_line) zend_string_release(log_line);
 		return;

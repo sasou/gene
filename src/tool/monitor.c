@@ -140,6 +140,12 @@ PHP_METHOD(gene_monitor, stats) {
 		GENE_G(cache_easy) ? (zend_long)zend_hash_num_elements(GENE_G(cache_easy)) : 0);
 	gene_rwlock_rdunlock(&GENE_G(business_cache_lock));
 	add_assoc_long(&mem, "cache_insert_refused", (zend_long)GENE_G(cache_insert_refused));
+	add_assoc_bool(&mem, "framework_cache_dirty", GENE_G(framework_cache_dirty));
+	add_assoc_long(&mem, "view_fresh_items",
+		GENE_G(view_fresh) ? (zend_long)zend_hash_num_elements(GENE_G(view_fresh)) : 0);
+	add_assoc_long(&mem, "view_fresh_bytes",
+		GENE_G(view_fresh) ? (zend_long)GENE_G(view_fresh)->nTableSize * (zend_long)sizeof(Bucket) : 0);
+	add_assoc_long(&mem, "view_fresh_max", GENE_G(view_fresh_max));
 	add_assoc_long(&mem, "fn_cache_items",
 		GENE_G(fn_cache) ? (zend_long)zend_hash_num_elements(GENE_G(fn_cache)) : 0);
 	add_assoc_long(&mem, "fn_cache_bytes",

@@ -345,6 +345,16 @@ static zval *gene_request_materialize_request(zval *attr) {
 	return zend_hash_index_update(Z_ARRVAL_P(attr), TRACK_VARS_REQUEST, &merged);
 }
 
+static void gene_request_bags_commit(zval *request) {
+	gene_request_context *ctx = gene_request_ctx();
+	if (request && Z_TYPE_P(request) == IS_ARRAY) {
+		gene_request_set_dup(TRACK_VARS_REQUEST, request);
+	} else if (Z_TYPE(ctx->request_attr) == IS_ARRAY) {
+		zend_hash_index_del(Z_ARRVAL(ctx->request_attr), TRACK_VARS_REQUEST);
+	}
+	ctx->request_bags_inited = 1;
+}
+
 void gene_request_scope(zval *get, zval *post, zval *files, zval *request) {
 	if (get && Z_TYPE_P(get) == IS_ARRAY) {
 		gene_request_set_dup(TRACK_VARS_GET, get);
@@ -355,11 +365,7 @@ void gene_request_scope(zval *get, zval *post, zval *files, zval *request) {
 	if (files && Z_TYPE_P(files) == IS_ARRAY) {
 		gene_request_set_dup(TRACK_VARS_FILES, files);
 	}
-	if (request && Z_TYPE_P(request) == IS_ARRAY) {
-		gene_request_set_dup(TRACK_VARS_REQUEST, request);
-	}
-	/* Bags are gene-managed now; an absent REQUEST merges lazily in getVal(). */
-	gene_request_ctx()->request_bags_inited = 1;
+	gene_request_bags_commit(request);
 }
 
 zval * request_query(zend_ulong type, char * name, size_t len) {
