@@ -1,4 +1,4 @@
-/*
+﻿/*
  +----------------------------------------------------------------------+
  | gene                                                                 |
  +----------------------------------------------------------------------+
@@ -20,7 +20,7 @@
  extern zend_module_entry gene_module_entry;
  #define phpext_gene_ptr &gene_module_entry
  
- #define PHP_GENE_VERSION "6.2.4"
+ #define PHP_GENE_VERSION "6.2.5"
  
  #ifdef PHP_WIN32
  #	define PHP_GENE_API __declspec(dllexport)
@@ -146,82 +146,37 @@ static inline uint64_t gene_hrtime(void) {
  
  #define GENE_DB_HISTORY_MAX 200
  
- typedef struct _gene_request_context {
-	 char *method;
-	 char *path;
-	 char *router_path;
-	 char *module;
-	 char *controller;
-	 char *action;
+ /* [GENE_PERF:2026-09-21 V3-4.1] Cold fields split out of the request context.
+ * A typical request touches only method/path/mca/path_params/request_attr/
+ * di_regs/response_obj; the fields below sit in a lazily ecalloc'd cold block
+ * so the ~560B hot struct shrinks to ~230B and pooled ctx entries / the 1024
+ * coroutine ctx array stop paying the cold footprint.
+ * The 4 per-driver db_*_history zvals merge into one `db_history` array
+ * (driver name => row list) — history() returns the same per-driver array. */
+typedef struct _gene_ctx_cold {
 	 char *child_views;
 	 char *lang;
-	 /* [GENE_PERF:2026-04-20] Cached string lengths populated at set-time so that
-	  * hot-path code (router dispatch, getters, strreplace_fast) can skip the
-	  * per-request strlen() calls on short strings like module/controller/action
-	  * (typically ~10-20 chars each, ~15-25 cycles per strlen). Saves ~6-10
-	  * strlen()s per request across dispatch + view + getter paths. */
-	 size_t method_len;
-	 size_t path_len;
-	 size_t router_path_len;
-	 size_t module_len;
-	 size_t controller_len;
-	 size_t action_len;
 	 size_t lang_len;
 	 size_t child_views_len;
-	 /* [GENE_MEM:2026-04-24] path_params is now an inline zval (was a heap
-	  * pointer). Previously every request burned 1x emalloc(sizeof(zval)) +
-	  * 1x efree plus pointer chasing to reach the HashTable. The outer zval
-	  * now lives with the context struct; only the backing HashTable is
-	  * heap-allocated (via array_init). Consumers must use &ctx->path_params
-	  * everywhere a zval* is needed. */
-	 zval path_params;
-	 zval request_attr;
-	 zval di_regs;
-	 /* [GENE_FEATURE:2026-08-07 Di::alias] Per-request alias map (alias =>
-	 * target service name), consulted by gene_di_get before the registry
-	 * lookup. Lazy array, UNDEF until the first Di::alias() call. */
-	 zval di_alias;
-	 zval response_obj;
 	 zval view_vars;
-	 /* [GENE_FEATURE:2026-08-07 Benchmark mark/lap] Named lap timestamps
-	 * (name => last mark time in nanoseconds, IS_LONG). Lazy array. */
+	 /* Benchmark mark/lap named timestamps (name => last mark ns, IS_LONG). */
 	 zval bench_marks;
-	 /* [GENE_FEATURE:2026-08-07 Response::getStatusCode] Last status code set
-	  * through Gene\Response in Swoole mode (redirect/status); 0 = unset.
-	  * FPM reads SG(sapi_headers).http_response_code instead. */
-	 zend_long response_status;
-	 zend_bool response_ended;
-	 /* [GENE_FIX:2026-08-07-5 N2] Application::stop() latch, moved here from
-	  * module globals: per-request state (reset by ctx reset), per-coroutine
-	  * isolated in Swoole mode. The old module-global latch was reset only in
-	  * RSHUTDOWN, which fires once per worker in Swoole mode — a single stop()
-	  * would have silenced dispatch for the worker's entire lifetime. */
-	 zend_bool app_stopped;
 	 zend_long view_scope_no;
-	 zval db_mysql_history;
-	 zval db_pgsql_history;
-	 zval db_sqlite_history;
-	 zval db_mssql_history;
-	 /* [GENE_FEATURE:2026-08-08 ORM] Per-request / per-coroutine cache of
-	  * Gene\Orm\Model subclass metadata (class name => array). Must not be
-	  * process-persistent — mirrors di_regs lifetime. */
+	 /* Merged driver history: {"mysql": [...], "pgsql": [...], ...}. */
+	 zval db_history;
 	 zval orm_meta;
-	 /* [GENE_FEATURE:2026-08-22] Userland request bag (Gene\Context). Lazy
-	  * array, UNDEF until first set(); must be freed in free_fields (M6/M7). */
+	 /* Userland request bag (Gene\Context). Lazy array. */
 	 zval user_bag;
-	 /* [GENE_FEATURE:2026-08-22] Gene\Http request-scoped handle:
-	  * FPM/CLI → CurlHandle object; Swoole keep_alive → array of
-	  * Coroutine\Http\Client keyed by host:port:ssl. Destroyed on ctx reset. */
+	 /* Gene\Http request-scoped handle: CurlHandle obj or array of
+	  * Coroutine\Http\Client keyed by host:port:ssl. */
 	 zval http_curl;
 	 /* Stream callback + body/header accumulators valid only during
-	  * Gene\Http::request(). http_body_buf / http_header_buf point at
-	  * stack smart_str; must be NULL outside the call. */
+	  * Gene\Http::request(); the *_buf pointers reference stack smart_str. */
 	 zval http_stream_cb;
 	 void *http_body_buf;
 	 void *http_header_buf;
 	 zend_bool http_busy;
-	 /* [GENE_FEATURE:2026-08-23] Gene\Http SSE + discard_body — valid only
-	  * during request()/multi(); http_sse_leftover points at stack smart_str. */
+	 /* SSE + discard_body state — valid only during request()/multi(). */
 	 zval http_sse_cb;
 	 zend_bool http_sse_forward;
 	 zend_bool http_sse_done;
@@ -233,14 +188,87 @@ static inline uint64_t gene_hrtime(void) {
 	 zend_string *request_json_error;
 	 zend_uchar request_json_state;
 	 zend_long invoke_depth;
+	 /* Per-request Di::alias map (alias => target service name). */
+	 zval di_alias;
+	 zend_ulong di_class_keys;
 	 uint64_t bench_start;
 	 uint64_t bench_end;
 	 zend_long bench_memory_start;
 	 zend_long bench_memory_end;
-	 char *log_file;
+	 zend_string *log_file;
 	 zend_long log_level;
 	 zend_bool log_level_set;
+} gene_ctx_cold;
+
+typedef struct _gene_request_context {
+	 char *method;
+	 char *path;
+	 char *router_path;
+	 /* [GENE_PERF:2026-09-21 V3-2.4(3)] 1 = router_path is an estrndup owned by
+	  * this context; 0 = it borrows a frozen persistent route-tree key string
+	  * (Swoole post-workerReady only) and must not be efree'd. */
+	 zend_bool router_path_owned;
+	 char *module;
+	 char *controller;
+	 char *action;
+	 /* [GENE_PERF:2026-04-20] Cached string lengths populated at set-time so that
+	  * hot-path code (router dispatch, getters, strreplace_fast) can skip the
+	  * per-request strlen() calls on short strings like module/controller/action
+	  * (typically ~10-20 chars each, ~15-25 cycles per strlen). Saves ~6-10
+	  * strlen()s per request across dispatch + view + getter paths. */
+	 size_t method_len;
+	 size_t path_len;
+	 size_t router_path_len;
+	 size_t module_len;
+	 size_t controller_len;
+	 size_t action_len;
+	 /* [GENE_PERF:2026-09-20 V3-2.5] Inline storage for short
+	  * module/controller/action names written by setMca(). A ctx->module/
+	  * controller/action pointer equal to the matching mca_buf slot means the
+	  * buffer is context-owned and must NOT be efree'd; longer names still
+	  * heap-allocate. Pointer identity doubles as the ownership tag — free
+	  * sites compare against mca_buf[slot]. Router::match() probes save and
+	  * restore both the pointers and the buffer contents. */
+	 char mca_buf[3][32];
+	 /* [GENE_MEM:2026-04-24] path_params is now an inline zval (was a heap
+	  * pointer). Previously every request burned 1x emalloc(sizeof(zval)) +
+	  * 1x efree plus pointer chasing to reach the HashTable. The outer zval
+	  * now lives with the context struct; only the backing HashTable is
+	  * heap-allocated (via array_init). Consumers must use &ctx->path_params
+	  * everywhere a zval* is needed. */
+	 zval path_params;
+	 zval request_attr;
+	 zval di_regs;
+	 zval response_obj;
+	 /* [GENE_FEATURE:2026-08-07 Response::getStatusCode] Last status code set
+	  * through Gene\Response in Swoole mode (redirect/status); 0 = unset.
+	  * FPM reads SG(sapi_headers).http_response_code instead. */
+	 zend_long response_status;
+	 zend_bool response_ended;
+	 /* [GENE_FIX:2026-08-07-5 N2] Application::stop() latch, moved here from
+	  * module globals: per-request state (reset by ctx reset), per-coroutine
+	  * isolated in Swoole mode. The old module-global latch was reset only in
+	  * RSHUTDOWN, which fires once per worker in Swoole mode — a single stop()
+	  * would have silenced dispatch for the worker's entire lifetime. */
+	 zend_bool app_stopped;
+	 /* [GENE_PERF:2026-09-21 V3-2.3] 1 once init()/initSwoole()/scope() has
+	  * populated the track-var bags; gates lazy $_REQUEST materialization so
+	  * an untouched FPM request still falls through to the real superglobal. */
+	 zend_bool request_bags_inited;
+	 /* [GENE_PERF:2026-09-21 V3-4.1] Lazily-allocated cold field block.
+	  * NULL on a fresh/pooled context; GENE_CTX_COLD() materializes it.
+	  * reset() clears the field values but keeps the block; destroy() frees. */
+	 gene_ctx_cold *cold;
  } gene_request_context;
+
+/* Materialize (once) and return the cold block of a request context. */
+static zend_always_inline gene_ctx_cold *gene_ctx_cold_get(gene_request_context *ctx) {
+	if (UNEXPECTED(!ctx->cold)) {
+		ctx->cold = (gene_ctx_cold *)ecalloc(1, sizeof(gene_ctx_cold));
+	}
+	return ctx->cold;
+}
+#define GENE_CTX_COLD(ctx) (gene_ctx_cold_get((ctx)))
  
  ZEND_BEGIN_MODULE_GLOBALS (gene)
  char *app_root;
@@ -265,6 +293,18 @@ static inline uint64_t gene_hrtime(void) {
  bool use_namespace;
  bool view_compile;
  bool view_compile_check_mtime;
+ /* [GENE_PERF:2026-09-21 V3-3.3] gene.view_stat_ttl (seconds, 0=off). When >0,
+  * a compiled view path verified up-to-date is remembered in view_fresh and
+  * the mtime stat pair is skipped until the TTL lapses. */
+ zend_long view_stat_ttl;
+ zend_long view_fresh_max;
+ /* path -> last-verified unix ts; request-scoped like fn_cache. */
+ HashTable *view_fresh;
+ /* [GENE_PERF:2026-09-21 V3-3.4] gene.log_keep_open (0=off, default) keeps a
+  * process-persistent append stream per log path; gene.log_reopen_interval
+  * (seconds, default 5) is the stat cadence for logrotate-style reopen. */
+ bool log_keep_open;
+ zend_long log_reopen_interval;
  HashTable *cache;
  HashTable *business_cache;
  HashTable *cache_easy;
@@ -297,6 +337,7 @@ zend_ulong cache_insert_refused;
  * the rwlock even when worker_ready is 1 — the lock-free fast path is only
  * sound while the table is truly write-once. */
 zend_bool cache_business_dirty;
+zend_bool framework_cache_dirty;
 gene_rwlock_t cache_lock;
 gene_rwlock_t business_cache_lock;
  gene_request_context default_ctx;
@@ -493,7 +534,16 @@ ZEND_END_MODULE_GLOBALS (gene)
  
  extern ZEND_DECLARE_MODULE_GLOBALS (gene);
  
-gene_request_context *gene_request_ctx(void);
+/* [GENE_PERF:2026-09-21 V3-5] FPM fast path inlined: under runtime_type<2 the
+ * whole call folds into one globals read (gene_globals.default_ctx) with no
+ * function-call overhead; the Swoole/coroutine machinery stays in gene.c. */
+gene_request_context *gene_request_ctx_slow(void);
+static zend_always_inline gene_request_context *gene_request_ctx(void) {
+	if (EXPECTED(GENE_G(runtime_type) < 2)) {
+		return &GENE_G(default_ctx);
+	}
+	return gene_request_ctx_slow();
+}
 /* [GENE_FIX:2026-08-07-5 N2] Per-request/per-coroutine stop latch accessors
  * (the flag lives in gene_request_context, see its declaration above). */
 static zend_always_inline zend_bool gene_app_stopped(void) {
@@ -520,6 +570,55 @@ void gene_request_context_pool_drain(void);
  * contexts actually added (bounded by ctx_pool_max). */
 zend_long gene_request_context_pool_prewarm(zend_long count);
 zend_long gene_closure_src_cache_items(void);
+zend_long gene_closure_src_cache_bytes(void);
+
+/* [GENE_PERF:2026-09-20 V3-2.6] di_class_keys counts '_'-containing keys
+ * inserted into the request-scope DI registry. The composed "Class_name"
+ * lookup key in gene_di_get_class() always contains '_', so a zero counter
+ * proves that lookup must miss and can be skipped. Every di_regs writer —
+ * not just gene_di_set_class() — must call this on '_' keys, otherwise a
+ * userland Di::set("Foo_bar") entry would be invisible to Foo::$bar.
+ * Deletes do not decrement: an over-count only costs the same lookup we
+ * would have done anyway. */
+static zend_always_inline void gene_di_note_key(zend_string *key) {
+	if (UNEXPECTED(memchr(ZSTR_VAL(key), '_', ZSTR_LEN(key)) != NULL)) {
+		GENE_CTX_COLD(gene_request_ctx())->di_class_keys++;
+	}
+}
+
+/* [GENE_PERF:2026-09-21 V3-4.1] Merged per-driver SQL history.
+ * ctx->cold->db_history is a lazy array {driver => rows}. history() returns
+ * the same per-driver array shape as before; the slot helpers below keep the
+ * old UNDEF/IS_ARRAY semantics without exposing the merged container. */
+static zend_always_inline zval *gene_db_history_find(gene_request_context *ctx, const char *driver, size_t driver_len) {
+	if (!ctx || !ctx->cold || Z_TYPE(ctx->cold->db_history) != IS_ARRAY) {
+		return NULL;
+	}
+	return zend_hash_str_find(Z_ARRVAL(ctx->cold->db_history), driver, driver_len);
+}
+
+/* Get-or-create the driver's history slot (always an IS_ARRAY zval). */
+static zend_always_inline zval *gene_db_history_slot(gene_request_context *ctx, const char *driver, size_t driver_len) {
+	gene_ctx_cold *cold = GENE_CTX_COLD(ctx);
+	zval *slot;
+	if (Z_TYPE(cold->db_history) != IS_ARRAY) {
+		array_init(&cold->db_history);
+	}
+	slot = zend_hash_str_find(Z_ARRVAL(cold->db_history), driver, driver_len);
+	if (!slot) {
+		zval tmp;
+		array_init(&tmp);
+		slot = zend_hash_str_update(Z_ARRVAL(cold->db_history), driver, driver_len, &tmp);
+	}
+	return slot;
+}
+
+/* Drop the driver's history slot (init/reset boundary). */
+static zend_always_inline void gene_db_history_reset(gene_request_context *ctx, const char *driver, size_t driver_len) {
+	if (ctx && ctx->cold && Z_TYPE(ctx->cold->db_history) == IS_ARRAY) {
+		zend_hash_str_del(Z_ARRVAL(ctx->cold->db_history), driver, driver_len);
+	}
+}
 
 /* [GENE_FIX:2026-05-24] Cross-request-safe interned string helper.
  *
@@ -560,6 +659,7 @@ zend_class_entry *gene_lookup_class_str(const char *name, size_t len);
     zend_string *name = gene_interned_str_persistent(&name##__slot, "" str_lit "", sizeof(str_lit) - 1)
 
  #define GENE_REQ(v) (gene_request_ctx()->v)
+ #define GENE_REQ_COLD(v) (GENE_CTX_COLD(gene_request_ctx())->v)
 
 /* [GENE_FEATURE:2026-08-20] Shared URL/path helpers used by Application,
  * Controller, View, Hook, Response to guarantee consistent behaviour.

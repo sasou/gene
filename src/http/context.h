@@ -11,7 +11,7 @@
 
 extern zend_class_entry *gene_context_ce;
 
-/* Lazy request-bag accessor. Returns &ctx->user_bag (IS_ARRAY). */
+/* Lazy request-bag accessor. Returns &GENE_CTX_COLD(ctx)->user_bag (IS_ARRAY). */
 zval *gene_context_bag(void);
 
 GENE_MINIT_FUNCTION(context);

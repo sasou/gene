@@ -60,6 +60,21 @@ class LogTest
             Log::error("Payment failed", ['order_id' => 'ORD-123', 'amount' => 99.50]);
             echo "✓ error() with context array works\n";
 
+            $tmp = tempnam(sys_get_temp_dir(), 'gene_log_');
+            Log::setFile($tmp);
+            Log::info('Structured context', ['key' => 'value']);
+            Log::info('Invalid context', ['bad' => chr(177) . chr(49)]);
+            $contents = file_get_contents($tmp);
+            $structured = preg_match('/Structured context (\{[^}]*\})/', $contents, $matches)
+                && json_decode($matches[1], true) === ['key' => 'value'];
+            $fallback = str_ends_with($contents, 'Invalid context');
+            if ($structured && $fallback) {
+                echo "✓ context JSON and encoding fallback work\n";
+            } else {
+                echo "✗ context JSON or encoding fallback failed\n";
+            }
+            @unlink($tmp);
+
         } catch (Exception $e) {
             echo "✗ Error: " . $e->getMessage() . "\n";
         }
