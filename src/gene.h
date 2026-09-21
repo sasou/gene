@@ -297,6 +297,7 @@ static zend_always_inline gene_ctx_cold *gene_ctx_cold_get(gene_request_context 
   * a compiled view path verified up-to-date is remembered in view_fresh and
   * the mtime stat pair is skipped until the TTL lapses. */
  zend_long view_stat_ttl;
+ zend_long view_fresh_max;
  /* path -> last-verified unix ts; request-scoped like fn_cache. */
  HashTable *view_fresh;
  /* [GENE_PERF:2026-09-21 V3-3.4] gene.log_keep_open (0=off, default) keeps a
@@ -336,6 +337,7 @@ zend_ulong cache_insert_refused;
  * the rwlock even when worker_ready is 1 — the lock-free fast path is only
  * sound while the table is truly write-once. */
 zend_bool cache_business_dirty;
+zend_bool framework_cache_dirty;
 gene_rwlock_t cache_lock;
 gene_rwlock_t business_cache_lock;
  gene_request_context default_ctx;

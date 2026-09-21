@@ -92,6 +92,10 @@ static int view_compile_needs_rebuild(const char *src_path, const char *compile_
 		if (!GENE_G(view_fresh)) {
 			ALLOC_HASHTABLE(GENE_G(view_fresh));
 			zend_hash_init(GENE_G(view_fresh), 8, NULL, ZVAL_PTR_DTOR, 0);
+		} else if (GENE_G(view_fresh_max) > 0
+				&& zend_hash_num_elements(GENE_G(view_fresh)) >= (uint32_t)GENE_G(view_fresh_max)
+				&& !zend_hash_str_exists(GENE_G(view_fresh), compile_path, strlen(compile_path))) {
+			zend_hash_clean(GENE_G(view_fresh));
 		}
 		ZVAL_LONG(&ts, (zend_long)time(NULL));
 		zend_hash_str_update(GENE_G(view_fresh), compile_path, strlen(compile_path), &ts);
