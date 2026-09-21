@@ -140,8 +140,20 @@ PHP_METHOD(gene_monitor, stats) {
 		GENE_G(cache_easy) ? (zend_long)zend_hash_num_elements(GENE_G(cache_easy)) : 0);
 	gene_rwlock_rdunlock(&GENE_G(business_cache_lock));
 	add_assoc_long(&mem, "cache_insert_refused", (zend_long)GENE_G(cache_insert_refused));
+	add_assoc_bool(&mem, "framework_cache_dirty", GENE_G(framework_cache_dirty));
+	add_assoc_long(&mem, "view_fresh_items",
+		GENE_G(view_fresh) ? (zend_long)zend_hash_num_elements(GENE_G(view_fresh)) : 0);
+	add_assoc_long(&mem, "view_fresh_bytes",
+		GENE_G(view_fresh) ? (zend_long)GENE_G(view_fresh)->nTableSize * (zend_long)sizeof(Bucket) : 0);
+	add_assoc_long(&mem, "view_fresh_max", GENE_G(view_fresh_max));
 	add_assoc_long(&mem, "fn_cache_items",
 		GENE_G(fn_cache) ? (zend_long)zend_hash_num_elements(GENE_G(fn_cache)) : 0);
+	add_assoc_long(&mem, "fn_cache_bytes",
+		GENE_G(fn_cache) ? (zend_long)GENE_G(fn_cache)->nTableSize * (zend_long)sizeof(Bucket) : 0);
+	add_assoc_long(&mem, "validate_ext_items",
+		GENE_G(validate_ext) ? (zend_long)zend_hash_num_elements(GENE_G(validate_ext)) : 0);
+	add_assoc_long(&mem, "validate_ext_bytes",
+		GENE_G(validate_ext) ? (zend_long)GENE_G(validate_ext)->nTableSize * (zend_long)sizeof(Bucket) : 0);
 	add_assoc_long(&mem, "co_contexts_items",
 		GENE_G(co_contexts) ? (zend_long)zend_hash_num_elements(GENE_G(co_contexts)) : 0);
 	add_assoc_long(&mem, "co_contexts_max", GENE_G(co_contexts_max));
@@ -164,6 +176,7 @@ PHP_METHOD(gene_monitor, stats) {
 	add_assoc_long(&mem, "route_pc_generation", (zend_long)GENE_G(route_pc_generation));
 	add_assoc_long(&mem, "route_pc_retired", (zend_long)GENE_G(route_pc_retired_count));
 	add_assoc_long(&mem, "closure_src_cache_items", gene_closure_src_cache_items());
+	add_assoc_long(&mem, "closure_src_cache_bytes", gene_closure_src_cache_bytes());
 	add_assoc_long(&mem, "closure_src_cache_flushes", (zend_long)GENE_G(closure_src_cache_flushes));
 	/* [GENE_FEATURE:2026-07-30 F6] cache_easy TTL governance telemetry. */
 	add_assoc_long(&mem, "cache_easy_ttl", GENE_G(cache_easy_ttl));

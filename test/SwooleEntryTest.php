@@ -401,22 +401,17 @@ class SwooleEntryTest
             echo "✗ catch path failed: " . json_encode([$seen, $resp->endCount, $resp->body]) . "\n";
         }
 
-        /* catch throwing → exception propagates, cleanup still ran */
+        /* catch throwing → adapter logs and guarantees a terminal 500 */
         $resp = new FakeSwooleResponse();
-        $propagated = false;
-        try {
-            $this->app->handleSwoole($this->swooleRequest('/boom'), $resp, [
-                'catch' => function (\Throwable $e) {
-                    throw new \LogicException('catch-fail');
-                },
-            ]);
-        } catch (\Throwable $e) {
-            $propagated = $e->getMessage() === 'catch-fail';
-        }
-        if ($propagated && $resp->endCount === 0 && Request::get('x') === null) {
-            echo "✓ re-thrown catch propagates; cleanup ran, no end\n";
+        $this->app->handleSwoole($this->swooleRequest('/boom'), $resp, [
+            'catch' => function (\Throwable $e) {
+                throw new \LogicException('catch-fail');
+            },
+        ]);
+        if ($resp->endCount === 1 && $resp->status === 500 && Request::get('x') === null) {
+            echo "✓ catch failure falls back to terminal 500; cleanup ran\n";
         } else {
-            echo "✗ catch rethrow semantics failed\n";
+            echo "✗ catch failure fallback semantics failed\n";
         }
 
         /* leaked nested ob_start converges into entry buffer */

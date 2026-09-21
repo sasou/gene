@@ -449,9 +449,13 @@ class CacheTest
             foreach (['cache_items', 'cache_num_used', 'cache_num_elements', 'cache_table_size', 'cache_insert_refused',
                       'framework_cache_items', 'business_cache_items', 'business_cache_num_used', 'business_cache_table_size',
                       'co_contexts_items', 'co_contexts_sweep_count', 'co_contexts_sweep_skipped',
-                      'ctx_pool_size', 'cache_easy_ttl'] as $key) {
+                      'ctx_pool_size', 'cache_easy_ttl', 'framework_cache_dirty', 'view_fresh_items', 'view_fresh_bytes',
+                      'view_fresh_max', 'fn_cache_items', 'fn_cache_bytes', 'validate_ext_items', 'validate_ext_bytes',
+                      'closure_src_cache_items', 'closure_src_cache_bytes'] as $key) {
                 if (isset($stats['memory']) && array_key_exists($key, $stats['memory'])) {
                     echo "✓ memory key '$key' present\n";
+                } else {
+                    echo "✗ memory key '$key' missing\n";
                 }
             }
             if (isset($stats['requests']['count'], $stats['requests']['errors'])) {
@@ -459,7 +463,15 @@ class CacheTest
             }
             if (class_exists('Gene\\Cache\\RedisPool')) {
                 $ref = new \ReflectionClass('Gene\\Cache\\RedisPool');
-                $pool = $ref->newInstanceWithoutConstructor();
+                /* [V3-3.6] custom create_object (C-layer idle stack) makes
+                 * newInstanceWithoutConstructor() throw on final classes —
+                 * construct a real pool instead (min=0, idleTimeout=0 keeps it
+                 * fully lazy in non-Swoole mode). */
+                try {
+                    $pool = $ref->newInstanceWithoutConstructor();
+                } catch (\Throwable $e) {
+                    $pool = @new \Gene\Cache\RedisPool(['min' => 0, 'idleTimeout' => 0]);
+                }
                 $ref->getProperty('creatorPid')->setValue($pool, getmypid());
                 $ref->getProperty('closed')->setValue($pool, true);
                 try {

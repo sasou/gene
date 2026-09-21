@@ -39,10 +39,10 @@ zval *gene_context_bag(void) {
 	if (UNEXPECTED(!ctx)) {
 		return NULL;
 	}
-	if (UNEXPECTED(Z_TYPE(ctx->user_bag) != IS_ARRAY)) {
-		array_init(&ctx->user_bag);
+	if (UNEXPECTED(Z_TYPE(GENE_CTX_COLD(ctx)->user_bag) != IS_ARRAY)) {
+		array_init(&GENE_CTX_COLD(ctx)->user_bag);
 	}
-	return &ctx->user_bag;
+	return &GENE_CTX_COLD(ctx)->user_bag;
 }
 /* }}} */
 
@@ -74,13 +74,13 @@ PHP_METHOD(gene_context, get) {
 		return;
 	}
 	ctx = gene_request_ctx();
-	if (!ctx || Z_TYPE(ctx->user_bag) != IS_ARRAY) {
+	if (!ctx || !ctx->cold || Z_TYPE(ctx->cold->user_bag) != IS_ARRAY) {
 		if (def) {
 			RETURN_ZVAL(def, 1, 0);
 		}
 		RETURN_NULL();
 	}
-	bag = &ctx->user_bag;
+	bag = &ctx->cold->user_bag;
 	found = zend_symtable_find(Z_ARRVAL_P(bag), key);
 	if (found) {
 		RETURN_ZVAL(found, 1, 0);
@@ -99,18 +99,18 @@ PHP_METHOD(gene_context, has) {
 		return;
 	}
 	ctx = gene_request_ctx();
-	RETURN_BOOL(ctx && Z_TYPE(ctx->user_bag) == IS_ARRAY
-		&& zend_symtable_exists(Z_ARRVAL(ctx->user_bag), key));
+	RETURN_BOOL(ctx && ctx->cold && Z_TYPE(ctx->cold->user_bag) == IS_ARRAY
+		&& zend_symtable_exists(Z_ARRVAL(ctx->cold->user_bag), key));
 }
 
 /* {{{ proto static array Gene\Context::all() */
 PHP_METHOD(gene_context, all) {
 	gene_request_context *ctx = gene_request_ctx();
-	if (!ctx || Z_TYPE(ctx->user_bag) != IS_ARRAY) {
+	if (!ctx || !ctx->cold || Z_TYPE(ctx->cold->user_bag) != IS_ARRAY) {
 		array_init(return_value);
 		return;
 	}
-	RETURN_ZVAL(&ctx->user_bag, 1, 0);
+	RETURN_ZVAL(&ctx->cold->user_bag, 1, 0);
 }
 /* }}} */
 

@@ -163,8 +163,8 @@ static void gene_rest_pass_request_id(zval *headers, zend_bool pass) {
 		return;
 	}
 	ctx = gene_request_ctx();
-	if (ctx && Z_TYPE(ctx->user_bag) == IS_ARRAY) {
-		rid = zend_hash_str_find(Z_ARRVAL(ctx->user_bag), ZEND_STRL("request_id"));
+	if (ctx && Z_TYPE(GENE_CTX_COLD(ctx)->user_bag) == IS_ARRAY) {
+		rid = zend_hash_str_find(Z_ARRVAL(GENE_CTX_COLD(ctx)->user_bag), ZEND_STRL("request_id"));
 	}
 	if (!rid || (Z_TYPE_P(rid) != IS_STRING && Z_TYPE_P(rid) != IS_LONG)) {
 		rid = getVal(7, ZEND_STRL("X-Request-Id"));

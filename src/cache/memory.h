@@ -27,10 +27,17 @@
 #define GENE_MEMORY_IS_BUSINESS() (GENE_G(cache_layer_memory_write_depth) > 0)
 #define GENE_MEMORY_TABLE() (GENE_MEMORY_IS_BUSINESS() ? GENE_G(business_cache) : GENE_G(cache))
 #define GENE_MEMORY_EXPIRY_TABLE() (GENE_MEMORY_IS_BUSINESS() ? GENE_G(business_cache_expiry) : GENE_G(cache_expiry))
+#ifdef ZTS
 #define GENE_CACHE_RDLOCK() do { if (GENE_MEMORY_IS_BUSINESS()) gene_rwlock_rdlock(&GENE_G(business_cache_lock)); else if (!GENE_G(worker_ready)) gene_rwlock_rdlock(&GENE_G(cache_lock)); } while (0)
 #define GENE_CACHE_RDUNLOCK() do { if (GENE_MEMORY_IS_BUSINESS()) gene_rwlock_rdunlock(&GENE_G(business_cache_lock)); else if (!GENE_G(worker_ready)) gene_rwlock_rdunlock(&GENE_G(cache_lock)); } while (0)
 #define GENE_CACHE_WRLOCK() do { if (GENE_MEMORY_IS_BUSINESS()) gene_rwlock_wrlock(&GENE_G(business_cache_lock)); else gene_rwlock_wrlock(&GENE_G(cache_lock)); } while (0)
 #define GENE_CACHE_WRUNLOCK() do { if (GENE_MEMORY_IS_BUSINESS()) gene_rwlock_wrunlock(&GENE_G(business_cache_lock)); else gene_rwlock_wrunlock(&GENE_G(cache_lock)); } while (0)
+#else
+#define GENE_CACHE_RDLOCK() do {} while (0)
+#define GENE_CACHE_RDUNLOCK() do {} while (0)
+#define GENE_CACHE_WRLOCK() do {} while (0)
+#define GENE_CACHE_WRUNLOCK() do {} while (0)
+#endif
 
 /* Bracket each direct gene_memory_set()/gene_memory_del()/gene_memory_adjust()
  * call from Gene\Cache's own methods (cache.c) AND from Gene\Memory's own

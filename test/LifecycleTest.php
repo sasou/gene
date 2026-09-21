@@ -149,6 +149,16 @@ class LifecycleTest
         \Gene\Request::init([], [], [], [], null, [], null, ['AuThOrIzAtIoN' => 'Bearer mixed'], '');
         $bearerOk = $bearerOk && \Gene\Request::bearer() === 'mixed';
         if ($bearerOk) echo "✓ bearer accepts only strict Bearer scheme\n"; else echo "✗ bearer scheme matrix failed\n";
+        \Gene\Request::init(['outer' => 1], ['shared' => 'outer'], [], [], null, [], null, [], '');
+        $outer = \Gene\Request::request();
+        \Gene\Request::scope(['inner' => 2], ['shared' => 'inner']);
+        $inner = \Gene\Request::request();
+        if ($outer === ['outer' => 1, 'shared' => 'outer']
+            && $inner === ['inner' => 2, 'shared' => 'inner']) {
+            echo "✓ scope evicts and lazily rebuilds materialized REQUEST\n";
+        } else {
+            echo "✗ scope retained stale REQUEST: " . json_encode([$outer, $inner]) . "\n";
+        }
         echo "\n";
     }
 
