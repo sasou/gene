@@ -1,4 +1,4 @@
-ï»¿/*
+/*
  +----------------------------------------------------------------------+
  | gene                                                                 |
  +----------------------------------------------------------------------+
@@ -132,7 +132,7 @@
 		 char c0 = key->val[0];
 		 if (c0 == 'm' || c0 == 'c' || c0 == 'a') {
 			 /* [GENE_PERF:2026-09-20 V3-2.5] Short m/c/a names are stored in the
-			  * context's inline mca_buf slots â€” zero emalloc on the common
+			  * context's inline mca_buf slots ¡ª zero emalloc on the common
 			  * dispatch path; names >= 32 bytes still heap-allocate. Ownership
 			  * is tracked by pointer identity: a ctx field equal to its mca_buf
 			  * slot is context-owned and must NOT be efree'd. All free sites
@@ -183,7 +183,7 @@
  /** {{{ void gene_router_reset_path_params()
   * [GENE_MEM:2026-04-24] path_params is inlined in gene_request_context; the
   * outer zval is always present, only its array backing store is heap-backed.
-  * Fast path is a pure HashTable clean â€” no emalloc branch. If a prior request
+  * Fast path is a pure HashTable clean ¡ª no emalloc branch. If a prior request
   * ballooned the table, drop+re-init to keep worker RSS bounded.
   */
  static zend_always_inline void gene_router_reset_path_params() {
@@ -222,7 +222,7 @@
 		  * "key" is a permanent string of the write-once route tree, so the
 		  * context may borrow it instead of estrndup'ing one copy per request.
 		  * A route-tree rebuild (Router::clear/delTree) is forbidden inside
-		  * onRequest (audit-backlog Â§ä¸ƒ), so the borrow cannot dangle. */
+		  * onRequest (audit-backlog ¡ìÆß), so the borrow cannot dangle. */
 		 if (GENE_G(runtime_type) >= 2 && GENE_G(worker_ready)
 				 && Z_TYPE_P(key) == IS_STRING
 				 && (GC_FLAGS(Z_STR_P(key)) & IS_STR_PERMANENT)) {
@@ -244,11 +244,11 @@
  /* }}} */
  
  /** {{{ static void get_path_router(char *keyString, int keyString_len)
-  * [GENE_PERF:2026-04-19 #2] Cache gene_request_ctx() once â€” prior code invoked
+  * [GENE_PERF:2026-04-19 #2] Cache gene_request_ctx() once ¡ª prior code invoked
   * GENE_REQ(lang) up to 4 times per request when a language prefix matched.
   * [GENE_PERF:2026-04-20] Replaced str_sub+strcmp pair (one emalloc+efree per
   * request when prefix matched) with a direct memcmp against path. Also capture
-  * seg_len from the first tokenizer pass to set ctx->lang_len directly,
+  * seg_len from the first tokenizer pass to set GENE_CTX_COLD(ctx)->lang_len directly,
   * avoiding a downstream strlen() when lang is later read by getLang().
   */
  char *get_path_router_init(zval *conf, char *path, size_t path_len) {
@@ -292,12 +292,12 @@
 			 }
 			 if (search != NULL) {
 				 gene_request_context *ctx = gene_request_ctx();
-				 if (ctx->lang) {
-					 efree(ctx->lang);
-					 ctx->lang = NULL;
+				 if (GENE_CTX_COLD(ctx)->lang) {
+					 efree(GENE_CTX_COLD(ctx)->lang);
+					 GENE_CTX_COLD(ctx)->lang = NULL;
 				 }
-				 ctx->lang = estrndup(seg, seg_len);
-				 ctx->lang_len = seg_len;
+				 GENE_CTX_COLD(ctx)->lang = estrndup(seg, seg_len);
+				 GENE_CTX_COLD(ctx)->lang_len = seg_len;
 				 if (result) {
 					 efree(result);
 				 }
@@ -363,7 +363,7 @@
 				 }
 			 }
 		 } else {
-			 /* No more '/' â€” this is the last segment */
+			 /* No more '/' ¡ª this is the last segment */
 			 seg_len = strlen(paths);
 			 seg = paths;
 			 ret = zend_symtable_str_find(Z_ARRVAL_P(val), seg, seg_len);
@@ -671,7 +671,7 @@ static int gene_router_exec_error_direct(const char *class_method) {
  }
  /* }}} */
 
-/* {{{ gene_fn_cache_store â€” store closure in fn_cache, set fid_zv to the ID string
+/* {{{ gene_fn_cache_store ¡ª store closure in fn_cache, set fid_zv to the ID string
  * [GENE_PERF:2026-04-23] Stable key by closure object handle instead of
  * monotonic fn_cache_id. Re-registering the same closure hits the same key
  * so fn_cache size is bounded by the number of distinct live closures,
@@ -699,7 +699,7 @@ static void gene_fn_cache_store(zval *closure, zval *fid_zv) {
 }
  /* }}} */
 
- /* {{{ gene_router_exec_closure_hook â€” execute closure as hook, returns 1=continue, 0=abort */
+ /* {{{ gene_router_exec_closure_hook ¡ª execute closure as hook, returns 1=continue, 0=abort */
  static int gene_router_exec_closure_hook(zval *closure, zval *param, int is_before) {
 	 zval retval;
 	 zend_function *func = NULL;
@@ -732,7 +732,7 @@ static void gene_fn_cache_store(zval *closure, zval *fid_zv) {
  }
  /* }}} */
 
- /* {{{ gene_router_dispatch_closure â€” execute closure as route action with path_params */
+ /* {{{ gene_router_dispatch_closure ¡ª execute closure as route action with path_params */
  static int gene_router_dispatch_closure(zval *closure, zval *retval) {
 	 zend_function *func = NULL;
 	 zend_object *this_obj = NULL;
@@ -752,10 +752,10 @@ static void gene_fn_cache_store(zval *closure, zval *fid_zv) {
  }
  /* }}} */
  
- /* {{{ P3 â€” precompiled route dispatch descriptor + cache.
+ /* {{{ P3 ¡ª precompiled route dispatch descriptor + cache.
   *
   * get_router_info_slow() resolves a route leaf into a dispatch plan on EVERY
-  * request via 6â€“10 zend_hash_str_find()s against the leaf and the app-global
+  * request via 6¨C10 zend_hash_str_find()s against the leaf and the app-global
   * event/hook array, plus strtok/snprintf. After workerReady() in Swoole the
   * route tree and fn_cache are frozen and a given leaf HashTable* always maps to
   * the same route, so that resolution is a pure function of (leaf, cacheHook)
@@ -766,7 +766,7 @@ static void gene_fn_cache_store(zval *closure, zval *fid_zv) {
   * Safety:
   *  - Swoole-only, post-workerReady only: in FPM the tree is rebuilt and
   *    fn_cache is per-request, so leaf pointers / closure pointers are not
-  *    stable â€” the cache is never populated there (the wrapper falls through to
+  *    stable ¡ª the cache is never populated there (the wrapper falls through to
   *    the slow path).
   *  - Per-thread: GENE_G is per-thread under ZTS, and the descriptor borrows
   *    pointers from the same thread's GENE_G(cache)/fn_cache, so there is no
@@ -1208,7 +1208,7 @@ static void gene_fn_cache_store(zval *closure, zval *fid_zv) {
  /* [GENE_PERF:2026-09-21 V3-4.2] Borrower bracket around the dispatch body. The
   * inner body runs PHP code that may suspend the coroutine; while it does, a
   * Router::clear() on the resume path must not free this descriptor. If PHP
-  * bailouts unwind through us the count simply stays elevated â€” the node is
+  * bailouts unwind through us the count simply stays elevated ¡ª the node is
   * then reclaimed at the next invalidate where borrowers==0, or MSHUTDOWN. */
  static int gene_route_pc_execute(gene_route_pc *pc) {
 	 int rc;
@@ -2113,7 +2113,7 @@ char* get_router_content(zval **content, char *method, char *path) {
 void get_router_content_run(char *methodin, char *pathin, const char *safe_str, size_t safe_len) {
 	 /* [GENE_PERF:2026-04-19] Hot request dispatch path. Two optimizations:
 	  *  1. When methodin==NULL (internal dispatch from Application::run), ctx->method is
-	  *     already lowercased by gene_ini_router() â€” use it directly, no emalloc+copy.
+	  *     already lowercased by gene_ini_router() ¡ª use it directly, no emalloc+copy.
 	  *  2. Cache method_len once instead of calling strlen() at every hash lookup.
 	  * When methodin!=NULL (explicit method in user Router::run), use a 32-byte stack
 	  * buffer for the lowercased copy to skip heap alloc for typical HTTP verbs. */
@@ -2132,7 +2132,7 @@ void get_router_content_run(char *methodin, char *pathin, const char *safe_str, 
 		 if (ctx->method) {
 			 method = ctx->method; /* already lowercased by gene_ini_router() */
 			 /* [GENE_PERF:2026-04-20] Use cached method_len set by gene_ini_router()
-			  * â€” avoids an strlen() scan of a 3-10 byte method string per request. */
+			  * ¡ª avoids an strlen() scan of a 3-10 byte method string per request. */
 			 method_len = ctx->method_len;
 		 }
 		 if (ctx->path) {
@@ -2190,10 +2190,10 @@ void get_router_content_run(char *methodin, char *pathin, const char *safe_str, 
 	  * each, format-string parsing) with 3 x memcpy(3) operations (~3 cycles each).
 	  * The three suffixes ":rt", ":re", ":cf" are all exactly 3 bytes.
 	  * [GENE_PERF:2026-04-24 v5.5.8] All three keys now resolve under a SINGLE
-	  * cache RDLOCK via gene_memory_get_triple() â€” prior versions took/released
+	  * cache RDLOCK via gene_memory_get_triple() ¡ª prior versions took/released
 	  * the rwlock three separate times. Under ZTS (or non-ZTS with workerReady
 	  * not yet signalled) the contended-atomic cost of the dispatcher hot path
-	  * drops from 3Ã— to 1Ã—. Under workerReady==1 non-ZTS the lock is already a
+	  * drops from 3¡Á to 1¡Á. Under workerReady==1 non-ZTS the lock is already a
 	  * no-op, so the merge is neutral there. */
 	 {
 		 size_t prefix_len;
@@ -2272,7 +2272,7 @@ void get_router_content_run(char *methodin, char *pathin, const char *safe_str, 
 				 }
 
 				 lead = get_path_router(temp, path);
-				 /* Registration also maps '.' â†’ '/'; if a tree was written
+				 /* Registration also maps '.' ¡ú '/'; if a tree was written
 				  * with the raw dotted segment, try that before 404. */
 				 if (!lead && dotted && dotted[0] != '\0' && strcmp(dotted, path) != 0) {
 					 lead = get_path_router(temp, dotted);
@@ -2341,7 +2341,7 @@ void get_router_content_run(char *methodin, char *pathin, const char *safe_str, 
   * handler. Reuses the same lookup path as get_router_content_run()
   * (safe-prefixed tree key, method bucket, prefix/lang conf rewrite,
   * get_path_router walk with setMca param capture) but stops before
-  * get_router_info()/dispatch â€” no hooks fire, no controller runs, and the
+  * get_router_info()/dispatch ¡ª no hooks fire, no controller runs, and the
   * query string is stripped WITHOUT being merged into $_GET. Returns
   *   ['module'=>?, 'controller'=>?, 'action'=>?, 'params'=>[...], 'route'=>leaf]
   * or false when nothing matches. Unlocks route unit tests without dispatch
@@ -2365,7 +2365,7 @@ void get_router_content_run(char *methodin, char *pathin, const char *safe_str, 
 	  * runs setMca()/gene_router_set_uri(), which mutate the live request context.
 	  * A probe called mid-request must not leak module/controller/action/path_params/
 	  * router_path into the real dispatch, so we save them here and restore them
-	  * after matching. Only pointer/len swap â€” no data copies. */
+	  * after matching. Only pointer/len swap ¡ª no data copies. */
 	 char *saved_module = NULL, *saved_controller = NULL, *saved_action = NULL, *saved_router_path = NULL;
 	 size_t saved_module_len = 0, saved_controller_len = 0, saved_action_len = 0, saved_router_path_len = 0;
 	 zend_bool saved_router_path_owned = 0;
@@ -2398,7 +2398,7 @@ void get_router_content_run(char *methodin, char *pathin, const char *safe_str, 
 	 /* [GENE_FIX:2026-08-07] Mirror dispatch's safe-prefix resolution: fall back
 	  * to app_key / app_root when the instance has no explicit safe value. Without
 	  * this, a Router built without an explicit safe prefix queries a different
-	  * cache key than dispatch and match() disagrees with what run() would do â€”
+	  * cache key than dispatch and match() disagrees with what run() would do ¡ª
 	  * defeating match()'s purpose as a dispatch-equivalent for unit tests. */
 	 safe = zend_read_property(gene_router_ce, gene_strip_obj(self), GENE_ROUTER_SAFE, strlen(GENE_ROUTER_SAFE), 1, NULL);
 	 if (safe && Z_TYPE_P(safe) == IS_STRING && Z_STRLEN_P(safe) > 0) {
@@ -2488,9 +2488,9 @@ void get_router_content_run(char *methodin, char *pathin, const char *safe_str, 
 	 efree(path);
 
 	 if (!lead || Z_TYPE_P(lead) != IS_ARRAY) {
-		 /* No match â€” nothing was captured; restore the request context untouched.
+		 /* No match ¡ª nothing was captured; restore the request context untouched.
 		  * [GENE_FIX:2026-08-09 H2] Must still free the array that
-		  * gene_router_reset_path_params() allocated above â€” the miss branch used
+		  * gene_router_reset_path_params() allocated above ¡ª the miss branch used
 		  * to skip the dtor and leak one zend_array (56 B) per call. */
 		 RETVAL_FALSE;
 		 goto restore;
@@ -2766,11 +2766,11 @@ PHP_METHOD(gene_router, __call) {
 		 zval path_str_zv;
 		 ZVAL_UNDEF(&path_str_zv);
 		 pathVal = zend_hash_index_find(Z_ARRVAL_P(val), 0);
-		 /* [GENE_FIX:2026-09-12] Event/hook names may arrive as scalars â€”
+		 /* [GENE_FIX:2026-09-12] Event/hook names may arrive as scalars ¡ª
 		  * ->error(404, ...) is the documented form, but only IS_STRING was
 		  * accepted below, so the name silently became "" and the handler
 		  * registered under "error:" instead of "error:404" (dispatch looks
-		  * up "error:404" â†’ the 404 handler never ran). Stringify scalar
+		  * up "error:404" ¡ú the 404 handler never ran). Stringify scalar
 		  * names; non-scalars keep the "" fallback. */
 		 if (pathVal != NULL && Z_TYPE_P(pathVal) != IS_STRING
 				 && (Z_TYPE_P(pathVal) == IS_LONG || Z_TYPE_P(pathVal) == IS_DOUBLE
@@ -3552,13 +3552,13 @@ PHP_METHOD(gene_router, __call) {
  
 	 if (parent_file && ZSTR_LEN(parent_file) > 0) {
 		 gene_request_context *ctx = gene_request_ctx();
-		 if (ctx->child_views) {
-			 efree(ctx->child_views);
-			 ctx->child_views = NULL;
+		 if (GENE_CTX_COLD(ctx)->child_views) {
+			 efree(GENE_CTX_COLD(ctx)->child_views);
+			 GENE_CTX_COLD(ctx)->child_views = NULL;
 		 }
 		 /* [GENE_PERF:2026-04-20] Cache child_views_len alongside child_views. */
-		 ctx->child_views = estrndup(ZSTR_VAL(file), ZSTR_LEN(file));
-		 ctx->child_views_len = ZSTR_LEN(file);
+		 GENE_CTX_COLD(ctx)->child_views = estrndup(ZSTR_VAL(file), ZSTR_LEN(file));
+		 GENE_CTX_COLD(ctx)->child_views_len = ZSTR_LEN(file);
 		 gene_view_display(ZSTR_VAL(parent_file), self, table);
 	 } else {
 		 gene_view_display(ZSTR_VAL(file), self, table);
@@ -3587,12 +3587,12 @@ PHP_METHOD(gene_router, __call) {
  
 	 if (parent_file && ZSTR_LEN(parent_file)) {
 		 gene_request_context *ctx = gene_request_ctx();
-		 if (ctx->child_views) {
-			 efree(ctx->child_views);
-			 ctx->child_views = NULL;
+		 if (GENE_CTX_COLD(ctx)->child_views) {
+			 efree(GENE_CTX_COLD(ctx)->child_views);
+			 GENE_CTX_COLD(ctx)->child_views = NULL;
 		 }
-		 ctx->child_views = estrndup(ZSTR_VAL(file), ZSTR_LEN(file));
-		 ctx->child_views_len = ZSTR_LEN(file);
+		 GENE_CTX_COLD(ctx)->child_views = estrndup(ZSTR_VAL(file), ZSTR_LEN(file));
+		 GENE_CTX_COLD(ctx)->child_views_len = ZSTR_LEN(file);
 		 gene_view_display_ext(ZSTR_VAL(parent_file), isCompile, self, table);
 	 } else {
 		 gene_view_display_ext(ZSTR_VAL(file), isCompile, self, table);
@@ -3916,8 +3916,8 @@ PHP_METHOD(gene_router, __call) {
   */
  PHP_METHOD(gene_router, getLang) {
 	 gene_request_context *ctx = gene_request_ctx();
-	 if (ctx->lang) {
-		 RETURN_STRINGL(ctx->lang, ctx->lang_len);
+	 if (GENE_CTX_COLD(ctx)->lang) {
+		 RETURN_STRINGL(GENE_CTX_COLD(ctx)->lang, GENE_CTX_COLD(ctx)->lang_len);
 	 }
 	 RETURN_NULL();
  }

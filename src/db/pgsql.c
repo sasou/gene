@@ -1,4 +1,4 @@
-ï»¿/*
+/*
  +----------------------------------------------------------------------+
  | gene                                                                 |
  +----------------------------------------------------------------------+
@@ -175,7 +175,7 @@ void pgsql_reset_sql_params(zval *self)
 }
 
 void pgsqlSaveHistory(smart_str *sql, zval *param, uint64_t *start, uint64_t *end, zend_long *mem_start, zend_long *mem_end) {
-	zval *history = &GENE_REQ(db_pgsql_history);
+	zval *history = gene_db_history_slot(gene_request_ctx(), ZEND_STRL("pgsql"));
 	zval params, z_row, z_sql, z_data, z_time, z_memory;
 	char *char_t,*char_m;
 
@@ -410,10 +410,7 @@ PHP_METHOD(gene_db_pgsql, __construct)
 
     {
     	gene_request_context *ctx = gene_request_ctx();
-    	if (Z_TYPE(ctx->db_pgsql_history) != IS_UNDEF) {
-    		zval_ptr_dtor(&ctx->db_pgsql_history);
-    	}
-    	ZVAL_UNDEF(&ctx->db_pgsql_history);
+    	gene_db_history_reset(ctx, ZEND_STRL("pgsql"));
     }
 
     if (config) {
@@ -900,7 +897,7 @@ PHP_METHOD(gene_db_pgsql, execute)
 }
 /* }}} */
 
-/* [GENE_FEATURE:2026-08-06 F0-2] JOIN type whitelist â€” anything outside this
+/* [GENE_FEATURE:2026-08-06 F0-2] JOIN type whitelist ¡ª anything outside this
  * set is rejected instead of interpolated into the SQL. */
 static zend_bool gene_db_pgsql_join_type(const char *type, size_t type_len, char *out, size_t out_size) {
 	static const char *allowed[] = {
@@ -926,7 +923,7 @@ static zend_bool gene_db_pgsql_join_type(const char *type, size_t type_len, char
 
 /* [GENE_FEATURE:2026-08-06 F0-2] Build the ON clause from a structured
  * assoc array (leftColumn => rightColumn); both sides go through the
- * identifier quoting path. Raw strings are deliberately NOT accepted â€” a
+ * identifier quoting path. Raw strings are deliberately NOT accepted ¡ª a
  * free-form ON string would open a new injection surface around the
  * "?" placeholder binding used for data values. */
 static zend_bool gene_db_pgsql_build_on(zval *on, smart_str *out) {
@@ -1250,7 +1247,7 @@ PHP_METHOD(gene_db_pgsql, limit)
 
 /* [GENE_FEATURE:2026-08-18 3.4] Row locks are statement suffixes appended
  * after LIMIT. They only hold until the surrounding transaction ends, so
- * calling outside a transaction is almost always a mistake â€” warn cheaply
+ * calling outside a transaction is almost always a mistake ¡ª warn cheaply
  * via inTransaction() (plan: E_NOTICE, not an exception). */
 static void gene_db_pgsql_set_lock(zval *self, const char *frag)
 {
@@ -1260,7 +1257,7 @@ static void gene_db_pgsql_set_lock(zval *self, const char *frag)
 		gene_pdo_in_transaction(pdo_object, &r);
 		if (!zend_is_true(&r)) {
 			php_error_docref(NULL, E_NOTICE,
-				"%s outside a transaction â€” the lock is released when the statement ends",
+				"%s outside a transaction ¡ª the lock is released when the statement ends",
 				strstr(frag, "SHARE") ? "sharedLock()" : "lockForUpdate()");
 		}
 		if (!Z_ISUNDEF(r)) {
@@ -1470,7 +1467,7 @@ PHP_METHOD(gene_db_pgsql, print)
 	smart_str_0(&sql);
 	zval z_row, z_sql;
 	/* [GENE_FIX:2026-08-19] sql.s stays NULL when no statement was built
-	 * (fresh handle / right after reset) â€” ZSTR_VAL(NULL) segfaults. */
+	 * (fresh handle / right after reset) ¡ª ZSTR_VAL(NULL) segfaults. */
 	ZVAL_STRING(&z_sql, sql.s ? ZSTR_VAL(sql.s) : "");
 	smart_str_free(&sql);
 
@@ -1565,7 +1562,7 @@ PHP_METHOD(gene_db_pgsql, free)
 	if (pool && Z_TYPE_P(pool) == IS_OBJECT) {
 		gene_pool_return_pdo(gene_db_pgsql_ce, self, ZEND_STRL(GENE_DB_PGSQL_POOL), ZEND_STRL(GENE_DB_PGSQL_PDO));
 	} else {
-		/* [GENE_FIX:2026-08-19 N3] No-pool handle â€” see Db\Mysql::free(). */
+		/* [GENE_FIX:2026-08-19 N3] No-pool handle ¡ª see Db\Mysql::free(). */
 		zval *pdo = gene_db_prop_get(gene_strip_obj(self), gene_db_pgsql_prop[GENE_DB_PROP_PDO]);
 		gene_db_tx_hygiene(pdo, "Db\\Pgsql handle freed");
 		gene_db_prop_set_null(gene_strip_obj(self), gene_db_pgsql_prop[GENE_DB_PROP_PDO]);
@@ -1596,10 +1593,11 @@ PHP_METHOD(gene_db_pgsql, __destruct)
 PHP_METHOD(gene_db_pgsql, history)
 {
 	gene_request_context *ctx = gene_request_ctx();
-	if (Z_TYPE(ctx->db_pgsql_history) == IS_UNDEF) {
+	zval *hist = gene_db_history_find(ctx, ZEND_STRL("pgsql"));
+	if (!hist) {
 		RETURN_NULL();
 	}
-	RETURN_ZVAL(&ctx->db_pgsql_history, 1, 0);
+	RETURN_ZVAL(hist, 1, 0);
 }
 /* }}} */
 

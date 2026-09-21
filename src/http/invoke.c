@@ -41,14 +41,14 @@ int gene_invoke_local(const char *class_name, size_t class_len,
 	}
 
 	ctx = gene_request_ctx();
-	if (ctx->invoke_depth >= GENE_INVOKE_DEPTH_MAX) {
+	if (GENE_CTX_COLD(ctx)->invoke_depth >= GENE_INVOKE_DEPTH_MAX) {
 		zend_throw_exception_ex(NULL, 0, "Gene\\Invoke nesting exceeds %d", GENE_INVOKE_DEPTH_MAX);
 		return FAILURE;
 	}
-	ctx->invoke_depth++;
+	GENE_CTX_COLD(ctx)->invoke_depth++;
 
 	if (gene_request_snapshot_ctx(ctx, NULL) != SUCCESS) {
-		ctx->invoke_depth--;
+		GENE_CTX_COLD(ctx)->invoke_depth--;
 		return FAILURE;
 	}
 	snapped = 1;
@@ -97,7 +97,7 @@ int gene_invoke_local(const char *class_name, size_t class_len,
 	if (snapped) {
 		gene_request_restore_ctx(ctx);
 	}
-	ctx->invoke_depth--;
+	GENE_CTX_COLD(ctx)->invoke_depth--;
 
 	if (EG(exception)) {
 		zval_ptr_dtor(&call_ret);

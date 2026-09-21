@@ -1,4 +1,4 @@
-﻿/*
+/*
  +----------------------------------------------------------------------+
  | gene                                                                 |
  +----------------------------------------------------------------------+
@@ -45,7 +45,7 @@ zval *gene_di_regs() {
 		 * services per request (db, redis, memcache, session, view, language,
 		 * validate, response, memory, plus class-qualified per-object keys).
 		 * Pre-size at 16 to skip the default-8 initial bucket grow that hits
-		 * on the 9th insert — a minor cache-hot rehash we can trivially avoid. */
+		 * on the 9th insert �� a minor cache-hot rehash we can trivially avoid. */
 		array_init_size(&ctx->di_regs, 16);
 	}
 	return &ctx->di_regs;
@@ -118,29 +118,29 @@ ZEND_END_ARG_INFO()
  * request/context boundaries. */
 static zval *gene_di_aliases(void) {
 	gene_request_context *ctx = gene_request_ctx();
-	if (UNEXPECTED(Z_TYPE(ctx->di_alias) == IS_UNDEF || Z_TYPE(ctx->di_alias) == IS_NULL)) {
-		if (Z_TYPE(ctx->di_alias) == IS_NULL) {
-			zval_ptr_dtor(&ctx->di_alias);
+	if (UNEXPECTED(Z_TYPE(GENE_CTX_COLD(ctx)->di_alias) == IS_UNDEF || Z_TYPE(GENE_CTX_COLD(ctx)->di_alias) == IS_NULL)) {
+		if (Z_TYPE(GENE_CTX_COLD(ctx)->di_alias) == IS_NULL) {
+			zval_ptr_dtor(&GENE_CTX_COLD(ctx)->di_alias);
 		}
-		array_init_size(&ctx->di_alias, 4);
+		array_init_size(&GENE_CTX_COLD(ctx)->di_alias, 4);
 	}
-	return &ctx->di_alias;
+	return &GENE_CTX_COLD(ctx)->di_alias;
 }
 
 /* Resolve an alias chain to the final service name. Bounded at 8 hops: a
  * cyclic alias (a=>b, b=>a) simply stops at whichever name the 8th hop lands
  * on (a valid name on the cycle), it does NOT become a forced miss.
- * Returns a BORROWED pointer — valid only until the next write to the alias
+ * Returns a BORROWED pointer �� valid only until the next write to the alias
  * table; callers that run user code (constructors) before using the result
  * must zend_string_copy() it (see gene_di_get / gene_di::instance). */
 static zend_string *gene_di_resolve_alias(zend_string *name) {
 	gene_request_context *ctx = gene_request_ctx();
 	int hops = 0;
-	if (Z_TYPE(ctx->di_alias) != IS_ARRAY) {
+	if (!ctx || !ctx->cold || Z_TYPE(ctx->cold->di_alias) != IS_ARRAY) {
 		return name;
 	}
 	while (hops < 8) {
-		zval *target = zend_hash_find(Z_ARRVAL(ctx->di_alias), name);
+		zval *target = zend_hash_find(Z_ARRVAL(ctx->cold->di_alias), name);
 		if (!target || Z_TYPE_P(target) != IS_STRING) {
 			break;
 		}
@@ -160,7 +160,10 @@ zval *gene_di_get(zend_string *name) {
 	 * below may call Di::alias() and rehash/replace the alias table, which
 	 * would dangle a borrowed pointer. */
 	zend_string *resolved_name = gene_di_resolve_alias(name);
-	zend_bool resolved_name_owned = Z_TYPE(gene_request_ctx()->di_alias) == IS_ARRAY;
+	/* [V3-4.1] di_alias moved into the lazily-allocated cold block; probe
+	 * without materializing it. */
+	gene_request_context *rctx = gene_request_ctx();
+	zend_bool resolved_name_owned = rctx && rctx->cold && Z_TYPE(rctx->cold->di_alias) == IS_ARRAY;
 	if (resolved_name_owned) {
 		resolved_name = zend_string_copy(resolved_name);
 	}
@@ -335,7 +338,8 @@ zval *gene_di_get_class(zend_string *class_name, zend_string *name) {
 	char *key_buf;
 	size_t key_len;
 
-	if (EXPECTED(ctx->di_class_keys == 0)) {
+	/* [V3-4.1] read probe: no cold block means no class-qualified keys. */
+	if (EXPECTED(!ctx || !ctx->cold || ctx->cold->di_class_keys == 0)) {
 		return gene_di_get(name);
 	}
 	entrys = gene_di_regs();
@@ -378,7 +382,7 @@ int gene_di_set_class(zend_string *class_name, zend_string *name, zval *value) {
 
 	Z_TRY_ADDREF_P(value);
 	if (!zend_hash_str_exists(Z_ARRVAL_P(entrys), key_buf, key_len)) {
-		gene_request_ctx()->di_class_keys++;
+		GENE_CTX_COLD(gene_request_ctx())->di_class_keys++;
 	}
 	zend_hash_str_update(Z_ARRVAL_P(entrys), key_buf, key_len, value);
 	if (key_buf != stack_buf) efree(key_buf);
@@ -540,7 +544,7 @@ PHP_METHOD(gene_di, getInstance) {
  *  {{{ public static gene_di::instance(string $class, array $params = []): object|null
  * [GENE_FEATURE:2026-08-06 F1-5] Explicit instantiation via the factory
  * (gene_factory_load_class + constructor params) WITHOUT registering the
- * object in the container — unlike gene_class_instance(), nothing is cached,
+ * object in the container �� unlike gene_class_instance(), nothing is cached,
  * every call produces a fresh object. Useful for transient/value objects
  * that should not occupy the request-scope registry. */
 PHP_METHOD(gene_di, instance) {
