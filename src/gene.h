@@ -274,6 +274,12 @@ static inline uint64_t gene_hrtime(void) {
  bool use_namespace;
  bool view_compile;
  bool view_compile_check_mtime;
+ /* [GENE_PERF:2026-09-21 V3-3.3] gene.view_stat_ttl (seconds, 0=off). When >0,
+  * a compiled view path verified up-to-date is remembered in view_fresh and
+  * the mtime stat pair is skipped until the TTL lapses. */
+ zend_long view_stat_ttl;
+ /* path -> last-verified unix ts; request-scoped like fn_cache. */
+ HashTable *view_fresh;
  HashTable *cache;
  HashTable *business_cache;
  HashTable *cache_easy;

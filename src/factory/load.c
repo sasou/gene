@@ -75,12 +75,12 @@ int exec_by_symbol_table(zval *obj, zend_op_array *op_array, zend_array *symbol_
 
 /** {{{ int gene_load_import(char *path)
  */
-int gene_load_import(char *path , zval *obj, zend_array *symbol_table) {
+int gene_load_import(char *path , zval *obj, zend_array *symbol_table, int probe) {
 	zend_file_handle file_handle;
 	zend_op_array *op_array;
 	zend_stat_t sb;
 
-	if (UNEXPECTED(VCWD_STAT(path, &sb) == -1)) {
+	if (probe && UNEXPECTED(VCWD_STAT(path, &sb) == -1)) {
 		return 0;
 	}
 
@@ -129,45 +129,45 @@ int gene_load_import(char *path , zval *obj, zend_array *symbol_table) {
 /* }}} */
 
 void gene_load_file_by_class_name (char *className) {
-	char *fileNmae = NULL, *filePath = NULL, *class_lowercase = NULL;
-	zend_class_entry *ce 	= NULL;
+	char *fileNmae = NULL, *filePath = NULL;
+	size_t class_len = strlen(className);
+	char sep = GENE_G(use_namespace) ? '\\' : '_';
+	char *p;
 
-	fileNmae = estrdup(className);
-
-	if (GENE_G(use_namespace)) {
-		replaceAll(fileNmae, '\\', '/');
-	} else {
-		replaceAll(fileNmae, '_', '/');
-	}
-
+	/* [GENE_PERF:2026-09-21 V3-3.3] One pass: copy the class name into the path
+	 * tail while folding the separator, instead of estrdup + replaceAll +
+	 * snprintf. */
 	size_t file_path_len = 0;
 	char file_path_buf[512];
 	int file_path_heap = 0;
+	const char *root = NULL;
+	size_t root_len = 0;
 	if (GENE_G(app_root)) {
-		file_path_len = strlen(GENE_G(app_root)) + strlen(fileNmae) + 6;
-		if (file_path_len >= sizeof(file_path_buf)) {
-			filePath = emalloc(file_path_len + 1);
-			file_path_heap = 1;
-		} else {
-			filePath = file_path_buf;
-		}
-		snprintf(filePath, file_path_len + 1, "%s/%s.php", GENE_G(app_root), fileNmae);
-	} else {
-		file_path_len = strlen(fileNmae) + 5;
-		if (file_path_len >= sizeof(file_path_buf)) {
-			filePath = emalloc(file_path_len + 1);
-			file_path_heap = 1;
-		} else {
-			filePath = file_path_buf;
-		}
-		snprintf(filePath, file_path_len + 1, "%s.php", fileNmae);
+		root = GENE_G(app_root);
+		root_len = strlen(root);
 	}
-	if (!gene_load_import(filePath, NULL, NULL)) {
+	file_path_len = root_len + (root_len ? 1 : 0) + class_len + 4;
+	if (file_path_len >= sizeof(file_path_buf)) {
+		filePath = emalloc(file_path_len + 1);
+		file_path_heap = 1;
+	} else {
+		filePath = file_path_buf;
+	}
+	p = filePath;
+	if (root_len) {
+		memcpy(p, root, root_len);
+		p += root_len;
+		*p++ = '/';
+	}
+	for (size_t i = 0; i < class_len; i++) {
+		char c = className[i];
+		*p++ = (c == sep) ? '/' : c;
+	}
+	memcpy(p, ".php", 5);
+
+	if (!gene_load_import(filePath, NULL, NULL, 1)) {
 		if (GENE_G(use_library)) {
-			if (file_path_heap) {
-				efree(filePath);
-			}
-			file_path_len = strlen(GENE_G(library_root)) + strlen(fileNmae) + 6;
+			file_path_len = strlen(GENE_G(library_root)) + 1 + class_len + 4;
 			if (file_path_len >= sizeof(file_path_buf)) {
 				filePath = emalloc(file_path_len + 1);
 				file_path_heap = 1;
@@ -175,14 +175,22 @@ void gene_load_file_by_class_name (char *className) {
 				filePath = file_path_buf;
 				file_path_heap = 0;
 			}
-			snprintf(filePath, file_path_len + 1, "%s/%s.php", GENE_G(library_root), fileNmae);
-			gene_load_import(filePath, NULL, NULL);
+			p = filePath;
+			root_len = strlen(GENE_G(library_root));
+			memcpy(p, GENE_G(library_root), root_len);
+			p += root_len;
+			*p++ = '/';
+			for (size_t i = 0; i < class_len; i++) {
+				char c = className[i];
+				*p++ = (c == sep) ? '/' : c;
+			}
+			memcpy(p, ".php", 5);
+			gene_load_import(filePath, NULL, NULL, 1);
 		}
 	}
 	if (file_path_heap) {
 		efree(filePath);
 	}
-	efree(fileNmae);
 }
 
 /*
@@ -314,7 +322,7 @@ PHP_METHOD(gene_load, import) {
 		return;
 	}
 	if (php_script && ZSTR_LEN(php_script)) {
-		if(!gene_load_import(ZSTR_VAL(php_script), NULL, NULL)) {
+		if(!gene_load_import(ZSTR_VAL(php_script), NULL, NULL, 1)) {
 			php_error_docref(NULL, E_WARNING, "Unable to load file %s", ZSTR_VAL(php_script));
 		}
 	}

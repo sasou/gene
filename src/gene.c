@@ -152,6 +152,7 @@ STD_PHP_INI_ENTRY("gene.runtime_type", "1", PHP_INI_SYSTEM, OnUpdateLong, runtim
 STD_PHP_INI_BOOLEAN("gene.use_namespace", "1", PHP_INI_SYSTEM, OnUpdateBool, use_namespace, zend_gene_globals, gene_globals) // @suppress("Symbol is not resolved")
 STD_PHP_INI_BOOLEAN("gene.view_compile", "0", PHP_INI_SYSTEM, OnUpdateBool, view_compile, zend_gene_globals, gene_globals) // @suppress("Symbol is not resolved")
 STD_PHP_INI_BOOLEAN("gene.view_compile_check_mtime", "1", PHP_INI_SYSTEM, OnUpdateBool, view_compile_check_mtime, zend_gene_globals, gene_globals) // @suppress("Symbol is not resolved")
+STD_PHP_INI_ENTRY("gene.view_stat_ttl", "0", PHP_INI_SYSTEM, OnUpdateLong, view_stat_ttl, zend_gene_globals, gene_globals) // @suppress("Symbol is not resolved")
 STD_PHP_INI_BOOLEAN("gene.use_library", "0", PHP_INI_SYSTEM, OnUpdateBool, use_library, zend_gene_globals, gene_globals) // @suppress("Symbol is not resolved")
 STD_PHP_INI_ENTRY("gene.library_root", "", PHP_INI_SYSTEM, OnUpdateString, library_root, zend_gene_globals, gene_globals) // @suppress("Symbol is not resolved")
 STD_PHP_INI_ENTRY("gene.co_contexts_max", "1024", PHP_INI_SYSTEM, OnUpdateLong, co_contexts_max, zend_gene_globals, gene_globals) // @suppress("Symbol is not resolved")
@@ -1386,6 +1387,11 @@ static void php_gene_close_request_globals() {
 		FREE_HASHTABLE(GENE_G(validate_ext));
 		GENE_G(validate_ext) = NULL;
 	}
+	if (GENE_G(view_fresh)) {
+		zend_hash_destroy(GENE_G(view_fresh));
+		FREE_HASHTABLE(GENE_G(view_fresh));
+		GENE_G(view_fresh) = NULL;
+	}
 	gene_request_context_destroy(&GENE_G(default_ctx));
 	if (GENE_G(app_root)) {
 		efree(GENE_G(app_root));
@@ -1483,6 +1489,8 @@ PHP_GINIT_FUNCTION(gene) {
 	gene_globals->use_namespace = 1;
 	gene_globals->view_compile = 0;
 	gene_globals->view_compile_check_mtime = 1;
+	gene_globals->view_stat_ttl = 0;
+	gene_globals->view_fresh = NULL;
 	gene_globals->use_library = 0;
 	gene_globals->slow_query_ms = 0;
 }
@@ -1612,6 +1620,11 @@ PHP_MSHUTDOWN_FUNCTION(gene) {
 		zend_hash_destroy(GENE_G(validate_ext));
 		FREE_HASHTABLE(GENE_G(validate_ext));
 		GENE_G(validate_ext) = NULL;
+	}
+	if (GENE_G(view_fresh)) {
+		zend_hash_destroy(GENE_G(view_fresh));
+		FREE_HASHTABLE(GENE_G(view_fresh));
+		GENE_G(view_fresh) = NULL;
 	}
 	gene_rwlock_destroy(&GENE_G(cache_lock));
 	gene_rwlock_destroy(&GENE_G(business_cache_lock));
