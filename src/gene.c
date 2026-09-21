@@ -166,6 +166,8 @@ STD_PHP_INI_ENTRY("gene.closure_src_cache_max", "1024", PHP_INI_SYSTEM, OnUpdate
 STD_PHP_INI_BOOLEAN("gene.swoole_auto_cleanup", "0", PHP_INI_SYSTEM, OnUpdateBool, swoole_auto_cleanup, zend_gene_globals, gene_globals) // @suppress("Symbol is not resolved")
 STD_PHP_INI_ENTRY("gene.cache_easy_ttl", "0", PHP_INI_SYSTEM, OnUpdateLong, cache_easy_ttl, zend_gene_globals, gene_globals) // @suppress("Symbol is not resolved")
 STD_PHP_INI_ENTRY("gene.slow_query_ms", "0", PHP_INI_SYSTEM, OnUpdateLong, slow_query_ms, zend_gene_globals, gene_globals) // @suppress("Symbol is not resolved")
+STD_PHP_INI_BOOLEAN("gene.log_keep_open", "0", PHP_INI_SYSTEM, OnUpdateBool, log_keep_open, zend_gene_globals, gene_globals) // @suppress("Symbol is not resolved")
+STD_PHP_INI_ENTRY("gene.log_reopen_interval", "5", PHP_INI_SYSTEM, OnUpdateLong, log_reopen_interval, zend_gene_globals, gene_globals) // @suppress("Symbol is not resolved")
 PHP_INI_END();
 /* }}} */
 
@@ -1496,6 +1498,8 @@ PHP_GINIT_FUNCTION(gene) {
 	gene_globals->view_fresh = NULL;
 	gene_globals->use_library = 0;
 	gene_globals->slow_query_ms = 0;
+	gene_globals->log_keep_open = 0;
+	gene_globals->log_reopen_interval = 5;
 }
 /* }}} */
 
@@ -1576,6 +1580,8 @@ PHP_MSHUTDOWN_FUNCTION(gene) {
 	 * cleanliness on abnormal shutdown. */
 	GENE_SHUTDOWN(pool);
 	GENE_SHUTDOWN(redis_pool);
+	/* [GENE_PERF:2026-09-21 V3-3.4] close opt-in persistent log streams. */
+	gene_log_shutdown_streams();
 
 	if (GENE_G(cache)) {
 		gene_hash_destroy(GENE_G(cache));
