@@ -157,6 +157,7 @@ The test suite covers:
 - Some tests may require actual database connections to fully test functionality
 - Tests are designed to be run in isolation but can also be run as a complete suite
 - Performance tests provide relative measurements and may vary based on system resources
+- `passed` means only that executed assertions succeeded; `SKIP: UNCOVERED` marks target-environment paths (notably real Swoole Pool/Channel lifecycle) that were not executed and must not be counted as release coverage
 - Error handling tests verify graceful degradation rather than complete failure
 
 ## Contributing

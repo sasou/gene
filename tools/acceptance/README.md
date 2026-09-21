@@ -57,6 +57,27 @@ bash tools/acceptance/mysql_redis_verify.sh --full   # 追加 exec linux_swoole_
 失败计入 `commandFailures` 并走 `remove()` 弃连接而非放回池）→ `tx-hygiene`
 （`audit/repro/tx_leak_pool.php`）。各阶段输出落 `$OUT/status.tsv` 与 `summary.txt`。
 
+## V3 生命周期与日志探针
+
+`linux_swoole_verify.sh --all` 还会执行以下线上门禁：
+
+- `pool_lifecycle_verify.php`：分别对 DB/Redis 池构造满池排队、`recycleIdle()` 与借还交错、`close()` 与借还交错；输出 `*-pool-lifecycle.json`，三场景必须全部 `passed=true`。
+- `log_rotation_verify.php`：以 `gene.log_keep_open=1` 验证 rename、copytruncate、`SIGKILL` 异常退出；输出 `log-rotation.json` 与 `log-rotation-artifacts/`，异常退出前写入的行数必须完整。
+- `environment.txt`：记录 `git_head`、工作树状态、Gene 模块 SHA-256 与 `GENE_TEST_PHP_ARGS`，用于回填二进制和源码指纹。
+
+单独执行：
+
+```bash
+php -d gene.runtime_type=2 tools/acceptance/pool_lifecycle_verify.php \
+  --pool=db --pool-max=4 --workers=32 --iterations=100
+php -d gene.runtime_type=2 tools/acceptance/pool_lifecycle_verify.php \
+  --pool=redis --pool-max=4 --workers=32 --iterations=100
+php -d gene.runtime_type=2 -d gene.log_keep_open=1 -d gene.log_reopen_interval=1 \
+  tools/acceptance/log_rotation_verify.php --output=/tmp/gene-log-rotation
+```
+
+池探针沿用 `GENE_MYSQL_*` / `GENE_REDIS_*` 环境变量。`RUN_LOG_ROTATION=0` 可跳过日志探针；关闭 V3 计划时不得跳过。
+
 ## Linux Swoole 一键验证
 
 在 **Linux** 上构建并跑隔离全测、四组 Swoole 开关矩阵、手动/自动 Context cleanup soak、入口适配验证。发布验收以 Linux 为准。
@@ -213,3 +234,5 @@ bash tools/acceptance/linux_swoole_profile.sh \
 |------|------|------|------|
 | 2026-08-25 | Linux 192.168.27.101，PHP 8.1.34，MySQL + Redis + gene_web | **12/12 PASS** | `gene-swoole-verify-20260825-195941`；`RESULT-DIGEST=b887e533c417447e`；`tx-hygiene` → `POOL TX HYGIENE OK`；gene-web wrk 5816 req/s、0 错误。计划文档回写见 `plan/orm-v2.closed.md` §十六。 |
 | 2026-09-13 | 同上，PHP 8.1.34 NTS DEBUG，gene 6.2.3 + swoole 6.1.9，MariaDB 10.5.9 | **17/17 PASS** | `gene-swoole-result-20260913`；`swoole-matrix` digest `856ba31839fa8675`（9/12 起 404 修复改响应，与旧值不同属预期）；entry 三入口 digest `fd1425a4658c643a` 一致；entry-soak 10 万请求 24895 req/s、`co_contexts_items=0`；gene-web wrk **19849 req/s**（238 万请求，0 错误，p50 23ms/p99 121ms），RSS 平稳无泄漏。 |
+| 2026-09-21 | 同上，PHP 8.1.34 NTS DEBUG，gene 6.2.4 + swoole 6.1.9，MySQL + Redis + demo | **17/17 PASS** | `gene-v3-20260921-212542`；TestRunner **939/939** 且无 `UNCOVERED`（pool lifecycle 真实覆盖）；swoole-matrix digest `856ba31839fa8675`、entry digest `fd1425a4658c643a` 各自组内一致；DB/Redis 池 200×1000 `failures=0`、tx-hygiene `POOL TX HYGIENE OK`；entry-soak 10 万请求 25501 req/s、`co_contexts_items=0`；demo wrk 2m **20120 req/s**（241.7 万请求，0 错误，p50 23.5ms/p99 100ms），worker RSS 平稳。V3 回填见 `plan/Performance-tuning-V2.closed.md` §13.5（原名 `Performance-tuning-V3.md`）。 |
+| 2026-09-21 | 同上，PHP 8.1.34 NTS DEBUG，gene 6.2.5 + swoole 6.1.9，MySQL + Redis + demo | **20/20 PASS** | `gene-v3-20260921-224917`；TestRunner **939/939** 无 `UNCOVERED`；矩阵/entry digest 与上轮逐位一致；两池 `fullQueue`/`recycleInterleave`/`closeInterleave` 生命周期探针全过（满池 waiter ~0.2s 唤醒、close 交错 waiter 收 null、`total=0`）；`log_keep_open=1` rename/copytruncate/SIGKILL 三探针全过（异常退出 100/100 行落盘零丢失）；entry-soak 25546 req/s、`co_contexts_items=0`；demo wrk 1m **19456 req/s**（116.9 万请求，0 错误，p50 24.3ms/p99 99.9ms），RSS ~15.3MB 平稳。两轮 `git_head=unavailable`（线上目录非 git checkout），gene.so SHA-256 `c08aa8c4…`。 |

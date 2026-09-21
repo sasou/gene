@@ -1,4 +1,4 @@
-ï»¿/*
+/*
  +----------------------------------------------------------------------+
  | gene                                                                 |
  +----------------------------------------------------------------------+
@@ -38,10 +38,10 @@ static zval *gene_orm_meta_cache(void)
 	if (!ctx) {
 		return NULL;
 	}
-	if (Z_TYPE(ctx->orm_meta) == IS_UNDEF) {
-		array_init(&ctx->orm_meta);
+	if (Z_TYPE(GENE_CTX_COLD(ctx)->orm_meta) == IS_UNDEF) {
+		array_init(&GENE_CTX_COLD(ctx)->orm_meta);
 	}
-	return &ctx->orm_meta;
+	return &GENE_CTX_COLD(ctx)->orm_meta;
 }
 
 static void gene_orm_meta_from_array(zval *arr, gene_orm_meta_t *meta)
@@ -74,7 +74,7 @@ static void gene_orm_meta_from_array(zval *arr, gene_orm_meta_t *meta)
 		meta->connection = zend_string_init("db", sizeof("db") - 1, 0);
 	}
 	/* [GENE_FEATURE:2026-08-18 3.2] createdAt/updatedAt/timestampFormat ride
-	 * the same request cache â€” to_array always writes the keys, so here a
+	 * the same request cache ¡ª to_array always writes the keys, so here a
 	 * NULL zval means "column disabled", a missing key means default. */
 	zv = zend_hash_str_find(Z_ARRVAL_P(arr), ZEND_STRL("createdAt"));
 	if (zv && Z_TYPE_P(zv) == IS_STRING && Z_STRLEN_P(zv) > 0) {
@@ -254,7 +254,7 @@ void gene_orm_meta_release(gene_orm_meta_t *meta)
 	}
 	/* [GENE_FEATURE:2026-08-18 3.2] M3: every new zend_string* in the meta
 	 * struct must be released here AND round-tripped through
-	 * to_array/from_array â€” missing either leaks or loses config per request. */
+	 * to_array/from_array ¡ª missing either leaks or loses config per request. */
 	if (meta->created_at) {
 		zend_string_release(meta->created_at);
 		meta->created_at = NULL;
@@ -289,7 +289,7 @@ int gene_orm_get_db(zend_string *connection, zval *out)
 	 * DI registry hashtable *slot*. The 2026-08-09 M5 fix only ADDREF'd the
 	 * object but kept handing out the slot pointer: callers hold it across
 	 * several call_user_function round-trips during which user code (getters,
-	 * error handlers, __destruct) could Di::del()/Di::set() the service â€”
+	 * error handlers, __destruct) could Di::del()/Di::set() the service ¡ª
 	 * deleting/replacing the slot so the later gene_orm_db_reset()/dtor acted
 	 * on the replacement object or freed memory (UAF + leak). Copy the zval
 	 * itself so the caller owns an independent handle; no user code runs
@@ -316,7 +316,7 @@ void gene_orm_db_reset(zval *db)
 	} else if (ce == gene_db_mssql_ce) {
 		mssql_reset_sql_params(db);
 	} else {
-		/* Unknown driver â€” fall back to public reset(). [GENE_FIX:2026-08-19 N4]
+		/* Unknown driver ¡ª fall back to public reset(). [GENE_FIX:2026-08-19 N4]
 		 * Even with a pending exception we MUST clean: a guard exception
 		 * (e.g. P0-2/N1) leaves a built but unexecuted WHERE-less UPDATE on
 		 * the handle, and skipping reset would let a later read terminal
@@ -371,7 +371,7 @@ int gene_orm_db_call(zval *db, const char *method, uint32_t argc, zval *argv, zv
 }
 
 /* [GENE_FEATURE:2026-08-18] Driver identification by class entry (same
- * approach as gene_orm_db_reset â€” name substring matching misidentifies
+ * approach as gene_orm_db_reset ¡ª name substring matching misidentifies
  * subclasses/pool wrappers). Used for driver-aware SQL fragments. */
 int gene_orm_db_kind(zval *db)
 {
@@ -399,7 +399,7 @@ int gene_orm_db_kind(zval *db)
 /* [GENE_FEATURE:2026-08-18 3.1/3.5] Identifier whitelist for API surfaces
  * that splice a column name into a SQL fragment (where 3-arg, in column
  * form, whereLike, selectSub alias). Anything outside [A-Za-z0-9_.] (with a
- * non-digit, non-dot first char) is rejected â€” these APIs must not become a
+ * non-digit, non-dot first char) is rejected ¡ª these APIs must not become a
  * new injection surface around the raw string-where path. */
 zend_bool gene_orm_valid_ident(zend_string *s)
 {
@@ -425,7 +425,7 @@ zend_bool gene_orm_valid_ident(zend_string *s)
  * " FROM " occurrence (a subquery appended earlier would introduce its own,
  * so we anchor at the end; a quoted identifier literally containing
  * " FROM " is pathological and out of scope). $sql is developer-written,
- * same trust level as Db::sql() â€” deliberately NOT escaped. */
+ * same trust level as Db::sql() ¡ª deliberately NOT escaped. */
 int gene_orm_db_select_sub(zval *db, zend_string *sub, zend_string *alias)
 {
 	zval *sql_zv;
@@ -504,7 +504,7 @@ int gene_orm_db_select(zval *db, zend_string *table, zval *fields)
 				 * zend_read_property() without a copy) with refcount != 1.
 				 * zend_hash_internal_pointer_reset()/_get_current_data()
 				 * write through ht->nInternalPointer, mutating the shared
-				 * array in place â€” undefined under concurrent readers
+				 * array in place ¡ª undefined under concurrent readers
 				 * (Swoole coroutines) and fatal in debug builds
 				 * (zend_hash_internal_pointer_reset_ex() assertion). Use a
 				 * local HashPosition instead so we never touch the array's
@@ -537,7 +537,7 @@ int gene_orm_db_select(zval *db, zend_string *table, zval *fields)
 
 /* [GENE_FIX:2026-08-09 M2] PDO lastInsertId() is always a string, which made
  * create()/save() return a string id and store a string pk into attributes
- * while find() returns int â€” the same field with two types. Normalize numeric
+ * while find() returns int ¡ª the same field with two types. Normalize numeric
  * strings to long, mirroring Query::count()'s 2026-08-08 hardening. */
 void gene_orm_normalize_id(zval *id)
 {
@@ -566,7 +566,7 @@ void gene_orm_apply_timestamps(zval *data, zend_bool is_insert, gene_orm_meta_t 
 		return;
 	}
 	/* [GENE_FIX:2026-08-09 H3] sapi_get_request_time() is constant for the whole
-	 * SAPI request â€” under CLI/Swoole that spans the process/worker lifetime, so
+	 * SAPI request ¡ª under CLI/Swoole that spans the process/worker lifetime, so
 	 * created_at/updated_at froze at worker start. Use wall clock like the rest
 	 * of the codebase (memory.c, pool.c, session.c, ...). */
 	t = time(NULL);
@@ -596,8 +596,8 @@ void gene_orm_apply_timestamps(zval *data, zend_bool is_insert, gene_orm_meta_t 
 }
 
 /* Paginate-friendly limit: ORM API is always (offset, limit).
- * MySQL Db::limit($a,$b) â†’ LIMIT a,b (offset,count).
- * Sqlite/Pgsql/Mssql Db::limit($a,$b) â†’ LIMIT a OFFSET b (count,offset). */
+ * MySQL Db::limit($a,$b) ¡ú LIMIT a,b (offset,count).
+ * Sqlite/Pgsql/Mssql Db::limit($a,$b) ¡ú LIMIT a OFFSET b (count,offset). */
 void gene_orm_db_limit(zval *db, zend_long offset, zend_long limit)
 {
 	zval args[2], retval;

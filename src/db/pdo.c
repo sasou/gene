@@ -31,6 +31,27 @@
 #include "../common/common.h"
 #include "pdo.h"
 
+/* [GENE_PERF:2026-09-21 V3-3.2] Resolve the driver property slots once per
+ * MINIT. The order must match gene_db_prop_id. A missing entry is a build-time
+ * mistake (property renamed without updating this table), so assert loudly in
+ * debug builds and keep offset 0 out of the picture by failing fast. */
+void gene_db_prop_offsets_init(zend_class_entry *ce, uint32_t *offsets)
+{
+	static const char * const names[GENE_DB_PROP_N] = {
+		"config", "pdo", "sql", "join", "where", "group",
+		"having", "union", "order", "limit", "lock", "data", "pool"
+	};
+	int i;
+	for (i = 0; i < GENE_DB_PROP_N; i++) {
+		zend_property_info *info = zend_hash_str_find_ptr(&ce->properties_info, names[i], strlen(names[i]));
+		ZEND_ASSERT(info != NULL && (info->flags & ZEND_ACC_STATIC) == 0);
+		if (UNEXPECTED(info == NULL || (info->flags & ZEND_ACC_STATIC))) {
+			zend_error_noreturn(E_CORE_ERROR, "Gene: Db property '%s' is not a declared instance property", names[i]);
+		}
+		offsets[i] = info->offset;
+	}
+}
+
 zend_bool gene_db_valid_identifier(zend_string *name)
 {
     size_t i;

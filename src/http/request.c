@@ -1,4 +1,4 @@
-﻿/*
+/*
  +----------------------------------------------------------------------+
  | gene                                                                 |
  +----------------------------------------------------------------------+
@@ -34,6 +34,8 @@
 
 zend_class_entry * gene_request_ce;
 
+static zval *gene_request_materialize_request(zval *attr);
+
 static zval *gene_request_attr(void) {
 	gene_request_context *ctx = gene_request_ctx();
 	if (UNEXPECTED(Z_TYPE(ctx->request_attr) == IS_UNDEF || Z_TYPE(ctx->request_attr) == IS_NULL)) {
@@ -43,7 +45,7 @@ static zval *gene_request_attr(void) {
 		/* [GENE_PERF:2026-04-24 v5.5.8] request_attr stores at most 8 track
 		 * vars (POST/GET/COOKIE/SERVER/ENV/FILES/REQUEST/HEADER, indices 0-7).
 		 * Pre-size the HashTable to 8 so the first burst of getVal()/setVal()
-		 * calls don't trigger rehashes (prior default init grew 0→8→... on
+		 * calls don't trigger rehashes (prior default init grew 0��8��... on
 		 * first insert). One-time cost: a handful of extra bucket slots. */
 		array_init_size(&ctx->request_attr, 9);
 	}
@@ -53,7 +55,7 @@ static zval *gene_request_attr(void) {
 /* [GENE_PERF:2026-04-23] In the previous implementation we rebuilt a brand-
  * new HashTable by iterating $server and adding every item refcounted into
  * a fresh array. With the move away from case-normalization that's become
- * a pure shallow clone — setVal() already bumps the outer array refcount,
+ * a pure shallow clone �� setVal() already bumps the outer array refcount,
  * so we can simply share Swoole's original server HashTable. This removes
  * O(N) hash inserts + array allocation from every Swoole request. Behavior
  * is preserved because no write path mutates the stored array after init(). */
@@ -111,15 +113,15 @@ static void gene_request_set_header_val(zval *header) {
 
 void gene_request_input_invalidate(gene_request_context *ctx) {
 	if (!ctx) return;
-	if (Z_TYPE(ctx->request_json) != IS_UNDEF) {
-		zval_ptr_dtor(&ctx->request_json);
-		ZVAL_UNDEF(&ctx->request_json);
+	if (Z_TYPE(GENE_CTX_COLD(ctx)->request_json) != IS_UNDEF) {
+		zval_ptr_dtor(&GENE_CTX_COLD(ctx)->request_json);
+		ZVAL_UNDEF(&GENE_CTX_COLD(ctx)->request_json);
 	}
-	if (ctx->request_json_error) {
-		zend_string_release(ctx->request_json_error);
-		ctx->request_json_error = NULL;
+	if (GENE_CTX_COLD(ctx)->request_json_error) {
+		zend_string_release(GENE_CTX_COLD(ctx)->request_json_error);
+		GENE_CTX_COLD(ctx)->request_json_error = NULL;
 	}
-	ctx->request_json_state = 0;
+	GENE_CTX_COLD(ctx)->request_json_state = 0;
 }
 
 /** {{{ ARG_INFO
@@ -224,10 +226,10 @@ int gene_request_snapshot_ctx(gene_request_context *ctx, zend_long *depth_out) {
 	if (depth_out) {
 		*depth_out = 0;
 	}
-	if (Z_TYPE(ctx->request_stack) != IS_ARRAY) {
-		array_init(&ctx->request_stack);
+	if (Z_TYPE(GENE_CTX_COLD(ctx)->request_stack) != IS_ARRAY) {
+		array_init(&GENE_CTX_COLD(ctx)->request_stack);
 	}
-	n = zend_hash_num_elements(Z_ARRVAL(ctx->request_stack));
+	n = zend_hash_num_elements(Z_ARRVAL(GENE_CTX_COLD(ctx)->request_stack));
 	if (n >= GENE_REQUEST_STACK_MAX) {
 		zend_throw_exception_ex(NULL, 0, "Gene\\Request snapshot stack overflow (max %d)", GENE_REQUEST_STACK_MAX);
 		return FAILURE;
@@ -236,11 +238,18 @@ int gene_request_snapshot_ctx(gene_request_context *ctx, zend_long *depth_out) {
 		array_init_size(&ctx->request_attr, 9);
 	}
 	attr = &ctx->request_attr;
+	/* [GENE_PERF:2026-09-21 V3-2.3] Snapshot index list contains
+	 * TRACK_VARS_REQUEST: materialize the lazy merged bag first so the
+	 * snapshot/restore pair keeps the exact pre-scope bag contents. */
+	if (ctx->request_bags_inited
+			&& !zend_hash_index_exists(Z_ARRVAL_P(attr), TRACK_VARS_REQUEST)) {
+		gene_request_materialize_request(attr);
+	}
 	array_init_size(&snap, 6);
 	for (i = 0; i < sizeof(gene_request_stack_idxs) / sizeof(gene_request_stack_idxs[0]); i++) {
 		gene_request_snap_copy_index(Z_ARRVAL_P(attr), Z_ARRVAL(snap), gene_request_stack_idxs[i]);
 	}
-	add_next_index_zval(&ctx->request_stack, &snap);
+	add_next_index_zval(&GENE_CTX_COLD(ctx)->request_stack, &snap);
 	if (depth_out) {
 		*depth_out = n + 1;
 	}
@@ -258,20 +267,20 @@ int gene_request_restore_ctx(gene_request_context *ctx) {
 	int found = 0;
 	size_t i;
 
-	if (!ctx || Z_TYPE(ctx->request_stack) != IS_ARRAY) {
+	if (!ctx || Z_TYPE(GENE_CTX_COLD(ctx)->request_stack) != IS_ARRAY) {
 		return 0;
 	}
-	if (zend_hash_num_elements(Z_ARRVAL(ctx->request_stack)) <= 0) {
+	if (zend_hash_num_elements(Z_ARRVAL(GENE_CTX_COLD(ctx)->request_stack)) <= 0) {
 		return 0;
 	}
-	ZEND_HASH_REVERSE_FOREACH_KEY_VAL(Z_ARRVAL(ctx->request_stack), last_idx, str_key, last) {
+	ZEND_HASH_REVERSE_FOREACH_KEY_VAL(Z_ARRVAL(GENE_CTX_COLD(ctx)->request_stack), last_idx, str_key, last) {
 		(void)str_key;
 		found = 1;
 		break;
 	} ZEND_HASH_FOREACH_END();
 	if (!found || !last || Z_TYPE_P(last) != IS_ARRAY) {
 		if (found && !str_key) {
-			zend_hash_index_del(Z_ARRVAL(ctx->request_stack), last_idx);
+			zend_hash_index_del(Z_ARRVAL(GENE_CTX_COLD(ctx)->request_stack), last_idx);
 		}
 		return 0;
 	}
@@ -282,9 +291,9 @@ int gene_request_restore_ctx(gene_request_context *ctx) {
 		gene_request_restore_index(Z_ARRVAL(ctx->request_attr), Z_ARRVAL_P(last), gene_request_stack_idxs[i]);
 	}
 	gene_request_input_invalidate(ctx);
-	zend_hash_index_del(Z_ARRVAL(ctx->request_stack), last_idx);
-	if (zend_hash_num_elements(Z_ARRVAL(ctx->request_stack)) == 0) {
-		zend_hash_clean(Z_ARRVAL(ctx->request_stack));
+	zend_hash_index_del(Z_ARRVAL(GENE_CTX_COLD(ctx)->request_stack), last_idx);
+	if (zend_hash_num_elements(Z_ARRVAL(GENE_CTX_COLD(ctx)->request_stack)) == 0) {
+		zend_hash_clean(Z_ARRVAL(GENE_CTX_COLD(ctx)->request_stack));
 	}
 	return 1;
 }
@@ -294,17 +303,17 @@ int gene_request_restore(void) {
 }
 
 void gene_request_stack_drain(gene_request_context *ctx) {
-	if (!ctx) {
+	if (!ctx || !ctx->cold) {
 		return;
 	}
-	if (Z_TYPE(ctx->request_stack) == IS_ARRAY) {
+	if (Z_TYPE(GENE_CTX_COLD(ctx)->request_stack) == IS_ARRAY) {
 		while (gene_request_restore_ctx(ctx)) {
 		}
-		zval_ptr_dtor(&ctx->request_stack);
-	} else if (Z_TYPE(ctx->request_stack) != IS_UNDEF) {
-		zval_ptr_dtor(&ctx->request_stack);
+		zval_ptr_dtor(&GENE_CTX_COLD(ctx)->request_stack);
+	} else if (Z_TYPE(GENE_CTX_COLD(ctx)->request_stack) != IS_UNDEF) {
+		zval_ptr_dtor(&GENE_CTX_COLD(ctx)->request_stack);
 	}
-	ZVAL_UNDEF(&ctx->request_stack);
+	ZVAL_UNDEF(&GENE_CTX_COLD(ctx)->request_stack);
 }
 
 static void gene_request_set_dup(zend_ulong type, zval *value) {
@@ -312,6 +321,38 @@ static void gene_request_set_dup(zend_ulong type, zval *value) {
 	gene_request_dup_zval(&copy, value);
 	setVal(type, &copy);
 	zval_ptr_dtor(&copy);
+}
+
+/* [GENE_PERF:2026-09-21 V3-2.3] Materialize the merged $_REQUEST bag (GET
+ * first, POST overrides �� the historical order) on first touch instead of at
+ * init() time. Only used once request_bags_inited marks the bags as
+ * gene-managed; returns the stored zval or NULL. */
+static zval *gene_request_materialize_request(zval *attr) {
+	zval merged;
+	zval *get = zend_hash_index_find(Z_ARRVAL_P(attr), TRACK_VARS_GET);
+	zval *post = zend_hash_index_find(Z_ARRVAL_P(attr), TRACK_VARS_POST);
+	zend_long get_count = (get && Z_TYPE_P(get) == IS_ARRAY) ? zend_hash_num_elements(Z_ARRVAL_P(get)) : 0;
+	zend_long post_count = (post && Z_TYPE_P(post) == IS_ARRAY) ? zend_hash_num_elements(Z_ARRVAL_P(post)) : 0;
+
+	array_init_size(&merged, get_count + post_count);
+	if (get && Z_TYPE_P(get) == IS_ARRAY) {
+		zend_hash_copy(Z_ARRVAL(merged), Z_ARRVAL_P(get), (copy_ctor_func_t) zval_add_ref);
+	}
+	if (post && Z_TYPE_P(post) == IS_ARRAY) {
+		zend_hash_copy(Z_ARRVAL(merged), Z_ARRVAL_P(post), (copy_ctor_func_t) zval_add_ref);
+	}
+	/* zend_hash_index_update takes ownership of merged �� no dtor here. */
+	return zend_hash_index_update(Z_ARRVAL_P(attr), TRACK_VARS_REQUEST, &merged);
+}
+
+static void gene_request_bags_commit(zval *request) {
+	gene_request_context *ctx = gene_request_ctx();
+	if (request && Z_TYPE_P(request) == IS_ARRAY) {
+		gene_request_set_dup(TRACK_VARS_REQUEST, request);
+	} else if (Z_TYPE(ctx->request_attr) == IS_ARRAY) {
+		zend_hash_index_del(Z_ARRVAL(ctx->request_attr), TRACK_VARS_REQUEST);
+	}
+	ctx->request_bags_inited = 1;
 }
 
 void gene_request_scope(zval *get, zval *post, zval *files, zval *request) {
@@ -324,22 +365,7 @@ void gene_request_scope(zval *get, zval *post, zval *files, zval *request) {
 	if (files && Z_TYPE_P(files) == IS_ARRAY) {
 		gene_request_set_dup(TRACK_VARS_FILES, files);
 	}
-	if (request && Z_TYPE_P(request) == IS_ARRAY) {
-		gene_request_set_dup(TRACK_VARS_REQUEST, request);
-	} else {
-		zval merged;
-		zend_long get_count = (get && Z_TYPE_P(get) == IS_ARRAY) ? zend_hash_num_elements(Z_ARRVAL_P(get)) : 0;
-		zend_long post_count = (post && Z_TYPE_P(post) == IS_ARRAY) ? zend_hash_num_elements(Z_ARRVAL_P(post)) : 0;
-		array_init_size(&merged, get_count + post_count);
-		if (get && Z_TYPE_P(get) == IS_ARRAY) {
-			zend_hash_copy(Z_ARRVAL(merged), Z_ARRVAL_P(get), (copy_ctor_func_t) zval_add_ref);
-		}
-		if (post && Z_TYPE_P(post) == IS_ARRAY) {
-			zend_hash_copy(Z_ARRVAL(merged), Z_ARRVAL_P(post), (copy_ctor_func_t) zval_add_ref);
-		}
-		setVal(TRACK_VARS_REQUEST, &merged);
-		zval_ptr_dtor(&merged);
-	}
+	gene_request_bags_commit(request);
 }
 
 zval * request_query(zend_ulong type, char * name, size_t len) {
@@ -399,7 +425,7 @@ zval * request_query(zend_ulong type, char * name, size_t len) {
 	 * binding via output array, foreach &$v on a global, etc.). Without
 	 * deref'ing here, the strict IS_ARRAY gate added in F1 would incorrectly
 	 * reject a perfectly valid reference-to-array carrier and request_query()
-	 * would return NULL — breaking $_REQUEST reads.  Cheap (UNEXPECTED branch),
+	 * would return NULL �� breaking $_REQUEST reads.  Cheap (UNEXPECTED branch),
 	 * applied to all carriers because PG(http_globals) slots are never
 	 * IS_REFERENCE in practice and the macro is a no-op in that case. */
 	if (carrier) {
@@ -465,14 +491,22 @@ zval *getVal(zend_ulong type, char *name, size_t len) {
 	if (EXPECTED(Z_TYPE_P(attr) == IS_ARRAY)) {
 		val = zend_hash_index_find(Z_ARRVAL_P(attr), type);
 		if (UNEXPECTED(val == NULL)) {
-			/* [GENE_PERF:2026-04-24 v5.5.8] Slow path (first touch of this
-			 * track-var per request). Use the zend_hash_index_update return
-			 * value directly instead of re-querying, shaving one hash probe
-			 * off every initial GET/POST/... access. */
-			zval *source = request_query(type, NULL, 0);
-			if (source) {
-				Z_TRY_ADDREF_P(source);
-				val = zend_hash_index_update(Z_ARRVAL_P(attr), type, source);
+			/* [GENE_PERF:2026-09-21 V3-2.3] The merged $_REQUEST bag is built
+			 * lazily here instead of eagerly in init_bags()/scope(); the
+			 * request_bags_inited flag keeps an FPM request that never ran
+			 * init() on the real $_REQUEST superglobal path below. */
+			if (type == TRACK_VARS_REQUEST && gene_request_ctx()->request_bags_inited) {
+				val = gene_request_materialize_request(attr);
+			} else {
+				/* [GENE_PERF:2026-04-24 v5.5.8] Slow path (first touch of this
+				 * track-var per request). Use the zend_hash_index_update return
+				 * value directly instead of re-querying, shaving one hash probe
+				 * off every initial GET/POST/... access. */
+				zval *source = request_query(type, NULL, 0);
+				if (source) {
+					Z_TRY_ADDREF_P(source);
+					val = zend_hash_index_update(Z_ARRVAL_P(attr), type, source);
+				}
 			}
 		}
 		if (len == 0 || name == NULL) {
@@ -484,7 +518,7 @@ zval *getVal(zend_ulong type, char *name, size_t len) {
 				return result;
 			}
 			/* [GENE_PERF:2026-05-21 F6] Lowercase fallback for SERVER (3) and
-			 * HEADER (7) carriers — Swoole/PSR populate these with lowercase
+			 * HEADER (7) carriers �� Swoole/PSR populate these with lowercase
 			 * keys, while userland often queries with the canonical uppercase
 			 * form (e.g. "HTTP_X_REQUESTED_WITH"). Single fused copy+lowercase
 			 * pass into a 256-byte stack buffer; merged from two identical
@@ -593,7 +627,7 @@ GENE_REQUEST_IS_METHOD(gene_request, Cli);
 
 /** {{{ public gene_request::isSecure(void)
  * [GENE_FEATURE:2026-08-07] HTTPS detection. Checks, in order:
- *  1. $_SERVER['HTTPS'] — non-empty and not "off" (the de-facto standard);
+ *  1. $_SERVER['HTTPS'] �� non-empty and not "off" (the de-facto standard);
  *  2. X-Forwarded-Proto: https (reverse-proxy deployments);
  *  3. SERVER_PORT == 443 (fallback for SAPIs that omit HTTPS).
  * Under Swoole these keys come from Request::init()'s server array.
@@ -692,7 +726,7 @@ PHP_METHOD(gene_request, params) {
  * and initSwoole(). Runs the JSON/raw invalidation prologue, then stores
  * only arguments carrying the expected type (array bags / string raw body).
  * init() semantics: absent args leave that bag untouched; initSwoole()
- * passes explicit empty arrays to honour its "missing property → []" rule. */
+ * passes explicit empty arrays to honour its "missing property �� []" rule. */
 static void gene_request_init_bags(zval *get, zval *post, zval *cookie, zval *server, zval *env, zval *files, zval *request, zval *header, zval *raw_content) {
 	{
 		gene_request_context *ctx = gene_request_ctx();
@@ -722,26 +756,10 @@ static void gene_request_init_bags(zval *get, zval *post, zval *cookie, zval *se
 	if (files && Z_TYPE_P(files) == IS_ARRAY) {
 		setVal(5, files);
 	}
-	if (request && Z_TYPE_P(request) == IS_ARRAY) {
-		setVal(6, request);
-	} else {
-		zval merged;
-		zend_long get_count = (get && Z_TYPE_P(get) == IS_ARRAY) ? zend_hash_num_elements(Z_ARRVAL_P(get)) : 0;
-		zend_long post_count = (post && Z_TYPE_P(post) == IS_ARRAY) ? zend_hash_num_elements(Z_ARRVAL_P(post)) : 0;
-		zend_long total_count = get_count + post_count;
-
-		/* [GENE_PERF] Pre-allocate array size to avoid reallocation */
-		array_init_size(&merged, total_count);
-
-		if (get && Z_TYPE_P(get) == IS_ARRAY) {
-			zend_hash_copy(Z_ARRVAL(merged), Z_ARRVAL_P(get), (copy_ctor_func_t) zval_add_ref);
-		}
-		if (post && Z_TYPE_P(post) == IS_ARRAY) {
-			zend_hash_copy(Z_ARRVAL(merged), Z_ARRVAL_P(post), (copy_ctor_func_t) zval_add_ref);
-		}
-		setVal(6, &merged);
-		zval_ptr_dtor(&merged);
-	}
+	/* [GENE_PERF:2026-09-21 V3-2.3] $_REQUEST is no longer merged eagerly: most
+	 * requests never read it, so the two zend_hash_copy runs were pure cost.
+	 * getVal(TRACK_VARS_REQUEST) materializes it on first miss. */
+	gene_request_bags_commit(request);
 	if (header && Z_TYPE_P(header) == IS_ARRAY) {
 		gene_request_set_header_val(header);
 	}
@@ -778,7 +796,7 @@ static zval *gene_request_swoole_prop(zval *obj, const char *name, size_t name_l
 /* {{{ int gene_request_init_swoole(zval *request_obj)
  * [GENE_FEATURE:2026-09-12] Populate the request bags from a duck-typed
  * Swoole\Http\Request-like object. Bag sources: $request->get/post/cookie/
- * server/files/header (missing or non-array → explicit empty array); ENV is
+ * server/files/header (missing or non-array �� explicit empty array); ENV is
  * never injected; REQUEST follows init() semantics (auto GET+POST merge).
  * RAW comes from a single $request->rawContent() call; a missing method or
  * a throwing __get/rawContent surfaces a catchable Error, and a
@@ -801,7 +819,10 @@ int gene_request_init_swoole(zval *request_obj) {
 			 * mutate the object and invalidate property-slot pointers. */
 			ZVAL_COPY(&vals[i], prop);
 		} else {
-			array_init(&vals[i]);
+			/* [GENE_PERF:2026-09-21 V3-2.3] Shared immutable empty array: no
+			 * HashTable allocation for absent bags; COW separates on any
+			 * userland write, so behavior is identical to array_init. */
+			ZVAL_EMPTY_ARRAY(&vals[i]);
 		}
 	}
 	if (UNEXPECTED(EG(exception))) {
@@ -853,7 +874,7 @@ PHP_METHOD(gene_request, initSwoole) {
 		RETURN_FALSE;
 	}
 	if (gene_request_init_swoole(request_obj) == FAILURE) {
-		/* Exception still pending — propagate to the caller. */
+		/* Exception still pending �� propagate to the caller. */
 		return;
 	}
 	RETURN_TRUE;
@@ -944,19 +965,19 @@ static void gene_request_raw_value(zval *return_value) {
 
 static int gene_request_json_value(gene_request_context *ctx, zval *return_value) {
 	zval raw, decoded;
-	if (ctx->request_json_state == 2) {
-		zend_throw_exception_ex(NULL, 0, "%s", ctx->request_json_error ? ZSTR_VAL(ctx->request_json_error) : "Gene\\Request JSON decode failed");
+	if (GENE_CTX_COLD(ctx)->request_json_state == 2) {
+		zend_throw_exception_ex(NULL, 0, "%s", GENE_CTX_COLD(ctx)->request_json_error ? ZSTR_VAL(GENE_CTX_COLD(ctx)->request_json_error) : "Gene\\Request JSON decode failed");
 		return FAILURE;
 	}
-	if (ctx->request_json_state == 1 || ctx->request_json_state == 3) {
-		ZVAL_COPY(return_value, &ctx->request_json);
+	if (GENE_CTX_COLD(ctx)->request_json_state == 1 || GENE_CTX_COLD(ctx)->request_json_state == 3) {
+		ZVAL_COPY(return_value, &GENE_CTX_COLD(ctx)->request_json);
 		return SUCCESS;
 	}
 	gene_request_raw_value(&raw);
 	if (Z_TYPE(raw) != IS_STRING || Z_STRLEN(raw) == 0) {
 		zval_ptr_dtor(&raw);
-		ZVAL_NULL(&ctx->request_json);
-		ctx->request_json_state = 3;
+		ZVAL_NULL(&GENE_CTX_COLD(ctx)->request_json);
+		GENE_CTX_COLD(ctx)->request_json_state = 3;
 		ZVAL_NULL(return_value);
 		return SUCCESS;
 	}
@@ -964,16 +985,16 @@ static int gene_request_json_value(gene_request_context *ctx, zval *return_value
 	if (gene_json_decode_throw(Z_STR(raw), &decoded) != SUCCESS) {
 		zval *message = EG(exception) ? zend_read_property(EG(exception)->ce, EG(exception), ZEND_STRL("message"), 1, NULL) : NULL;
 		zval_ptr_dtor(&raw);
-		ctx->request_json_error = message && Z_TYPE_P(message) == IS_STRING
+		GENE_CTX_COLD(ctx)->request_json_error = message && Z_TYPE_P(message) == IS_STRING
 			? zend_string_copy(Z_STR_P(message))
 			: zend_string_init("Gene\\Request JSON decode failed", sizeof("Gene\\Request JSON decode failed") - 1, 0);
-		ctx->request_json_state = 2;
+		GENE_CTX_COLD(ctx)->request_json_state = 2;
 		return FAILURE;
 	}
 	zval_ptr_dtor(&raw);
-	ZVAL_COPY_VALUE(&ctx->request_json, &decoded);
-	ctx->request_json_state = 1;
-	ZVAL_COPY(return_value, &ctx->request_json);
+	ZVAL_COPY_VALUE(&GENE_CTX_COLD(ctx)->request_json, &decoded);
+	GENE_CTX_COLD(ctx)->request_json_state = 1;
+	ZVAL_COPY(return_value, &GENE_CTX_COLD(ctx)->request_json);
 	return SUCCESS;
 }
 
@@ -1058,13 +1079,13 @@ PHP_METHOD(gene_request, rawContent) {
 
 /*
  * {{{ public gene_request::json(): ?array
- * Decode rawContent as JSON object/array. Empty body → null.
+ * Decode rawContent as JSON object/array. Empty body �� null.
  * Invalid JSON, JSON null, or non-object/array scalars throw.
  */
 PHP_METHOD(gene_request, json) {
 	gene_request_context *ctx = gene_request_ctx();
 	if (gene_request_json_value(ctx, return_value) != SUCCESS) RETURN_THROWS();
-	if (ctx->request_json_state != 3 && Z_TYPE_P(return_value) != IS_ARRAY) {
+	if (GENE_CTX_COLD(ctx)->request_json_state != 3 && Z_TYPE_P(return_value) != IS_ARRAY) {
 		zval_ptr_dtor(return_value);
 		ZVAL_UNDEF(return_value);
 		zend_throw_exception_ex(NULL, 0, "Gene\\Request::json() expects a JSON object or array");
@@ -1190,7 +1211,7 @@ const zend_function_entry gene_request_methods[] = {
 	PHP_ME(gene_request, isPut, geme_request_void_arginfo, ZEND_ACC_PUBLIC|ZEND_ACC_STATIC)
 	PHP_ME(gene_request, isHead, geme_request_void_arginfo, ZEND_ACC_PUBLIC|ZEND_ACC_STATIC)
 	PHP_ME(gene_request, isOptions, geme_request_void_arginfo, ZEND_ACC_PUBLIC|ZEND_ACC_STATIC)
-	/* [GENE_FEATURE:2026-08-06 F1-1] Mirror Gene\Controller/Gene\Hook — the
+	/* [GENE_FEATURE:2026-08-06 F1-1] Mirror Gene\Controller/Gene\Hook �� the
 	 * isDelete implementation already exists via GENE_REQUEST_IS_METHOD above;
 	 * it was simply missing from the method table. */
 	PHP_ME(gene_request, isDelete, geme_request_void_arginfo, ZEND_ACC_PUBLIC|ZEND_ACC_STATIC)
@@ -1198,7 +1219,7 @@ const zend_function_entry gene_request_methods[] = {
 	/* [GENE_FEATURE:2026-08-07] HTTPS detection (see isSecure impl). */
 	PHP_ME(gene_request, isSecure, geme_request_void_arginfo, ZEND_ACC_PUBLIC|ZEND_ACC_STATIC)
 	PHP_ME(gene_request, init, gene_request_init_arginfo, ZEND_ACC_PUBLIC|ZEND_ACC_STATIC)
-	/* [GENE_FEATURE:2026-09-12] Swoole request adapter — see initSwoole. */
+	/* [GENE_FEATURE:2026-09-12] Swoole request adapter �� see initSwoole. */
 	PHP_ME(gene_request, initSwoole, gene_request_init_swoole_arginfo, ZEND_ACC_PUBLIC|ZEND_ACC_STATIC)
 	PHP_ME(gene_request, clear, geme_request_void_arginfo, ZEND_ACC_PUBLIC|ZEND_ACC_STATIC)
 	PHP_ME(gene_request, rawContent, geme_request_void_arginfo, ZEND_ACC_PUBLIC|ZEND_ACC_STATIC)

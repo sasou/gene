@@ -8,7 +8,7 @@
 | `test/` | 回归测试套件（`TestRunner.php` 驱动），用法与免部署参数见 `test/README.md` |
 | `tools/` | 构建脚本（索引见 `tools/README.md`）；`tools/acceptance/` 为 FPM/Swoole 验收工具 |
 | `audit/` | 审计档案：时点报告、`repro/` 复现脚本，见 `audit/README.md` |
-| `plan/` | 演进计划与审计驱动待办（`audit-backlog.md`）；`.closed.md` 后缀 = 已关闭只读，详见 `plan/README.md` 索引 |
+| `plan/` | 演进计划文档；`.closed.md` 后缀 = 已关闭只读，详见 `plan/README.md` 索引 |
 | `docs/` | 用户文档（INI 配置参考等） |
 | `demo/` | 示例应用（FPM / CLI / Swoole 入口） |
 | `gene-ai-helper/` / `gene-ide-helper/` | AI 协作规则与 skill / IDE stub |
@@ -80,6 +80,10 @@ call config.nice.bat
 nmake php_gene.dll
 F:\php-sdk-2.6.0\phpsdk-vs16-x64.bat -t <task.bat>
 ```
+
+- **`Unsupported OS arch` / `'wmic' 不是内部或外部命令`**：php-sdk 2.3.0 的 `bin\phpsdk_setshell.bat`
+  用 `wmic cpu get Architecture` 探测架构，新版 Windows 已移除 wmic。解决：调用前预设环境变量
+  `PHP_SDK_OS_ARCH_NUM=9`（9 = x64）——探测失败时该变量保留继承值，starter 即可正常进入 vs16-x64 环境。
 
 - **注意**：Makefile 必须在 x64 环境下生成（`BUILD_DIR=x64\Release`，不含 `_USE_32BIT_TIME_T`）。
   若 Makefile 被误在 x86 环境下重新 configure，需在 phpsdk-vs16-x64 环境中重跑 `config.nice.bat`。

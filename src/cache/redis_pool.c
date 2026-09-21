@@ -1,4 +1,4 @@
-﻿/*
+/*
  +----------------------------------------------------------------------+
  | gene                                                                 |
  +----------------------------------------------------------------------+
@@ -54,7 +54,7 @@ zend_class_entry *gene_redis_pool_ce;
  * be left dangling across requests on a multi-request SAPI. See the
  * matching fix in db/pool.c.
  * [GENE_FIX:2026-08-08] Only populated under runtime_type >= 2, and the key
- * is copied onto the persistent heap — a persistent table holding
+ * is copied onto the persistent heap �� a persistent table holding
  * request-lifetime objects/keys would hand out freed pointers on the next
  * request. Same rationale as db/pool.c. */
 static HashTable *gene_redis_pool_named_cache = NULL;
@@ -107,9 +107,84 @@ static inline zend_function *rpool_method(zend_function **slot, const char *name
 }
 
 /* Forward declaration */
+/* [GENE_PERF:2026-09-21 V3-3.6] C-layer idle stack, mirroring db/pool.c.
+ * The Swoole Channel stays as the wakeup pipe only: get() pops the packed
+ * `idle` array with zero PHP calls, and put() pushes onto it unless a
+ * coroutine is blocked in Channel::pop() (tracked by `waiters`). Entries are
+ * [conn zval] in `idle` with the parallel packed IS_LONG `idle_ts` carrying
+ * lastUsed. */
+typedef struct _gene_redis_pool_object {
+	zval *idle;
+	zend_long *idle_ts;
+	zend_long idle_n;
+	zend_long idle_cap;
+	zend_long waiters;
+	zend_object std;
+} gene_redis_pool_object;
+
+static zend_object_handlers gene_redis_pool_handlers;
+
+static zend_always_inline gene_redis_pool_object *gene_rpool_from_obj(zend_object *obj) {
+	return (gene_redis_pool_object *)((char *)obj - XtOffsetOf(gene_redis_pool_object, std));
+}
+#define GENE_RPOOL_OBJ(zv) gene_rpool_from_obj(Z_OBJ_P(zv))
+
+static zend_object *gene_rpool_create_object(zend_class_entry *ce) {
+	gene_redis_pool_object *o = (gene_redis_pool_object *)ecalloc(1,
+		sizeof(gene_redis_pool_object) + zend_object_properties_size(ce));
+	zend_object_std_init(&o->std, ce);
+	object_properties_init(&o->std, ce);
+	o->std.handlers = &gene_redis_pool_handlers;
+	return &o->std;
+}
+
+static void rpool_idle_clear(gene_redis_pool_object *o) {
+	while (o->idle_n > 0) {
+		zval_ptr_dtor(&o->idle[--o->idle_n]);
+	}
+	o->waiters = 0;
+}
+
+static void gene_rpool_free_object(zend_object *object) {
+	gene_redis_pool_object *o = gene_rpool_from_obj(object);
+	rpool_idle_clear(o);
+	if (o->idle) efree(o->idle);
+	if (o->idle_ts) efree(o->idle_ts);
+	zend_object_std_dtor(object);
+}
+
+static HashTable *gene_rpool_get_gc(zend_object *object, zval **table, int *n) {
+	gene_redis_pool_object *o = gene_rpool_from_obj(object);
+	*table = o->idle;
+	*n = (int)o->idle_n;
+	return zend_std_get_properties(object);
+}
+
+static zend_always_inline zend_long rpool_idle_count(gene_redis_pool_object *o) {
+	return o->idle_n;
+}
+
+static void rpool_idle_push(gene_redis_pool_object *o, zval *conn, zend_long ts) {
+	if (o->idle_n == o->idle_cap) {
+		zend_long new_cap = o->idle_cap ? o->idle_cap * 2 : 8;
+		o->idle = (zval *)erealloc(o->idle, (size_t)new_cap * sizeof(zval));
+		o->idle_ts = (zend_long *)erealloc(o->idle_ts, (size_t)new_cap * sizeof(zend_long));
+		o->idle_cap = new_cap;
+	}
+	ZVAL_COPY(&o->idle[o->idle_n], conn);
+	o->idle_ts[o->idle_n++] = ts;
+}
+
+static bool rpool_idle_pop(gene_redis_pool_object *o, zval *conn_out, zend_long *ts_out) {
+	if (o->idle_n == 0) return 0;
+	o->idle_n--;
+	ZVAL_COPY_VALUE(conn_out, &o->idle[o->idle_n]);
+	ZVAL_UNDEF(&o->idle[o->idle_n]);
+	*ts_out = o->idle_ts[o->idle_n];
+	return 1;
+}
 static void rpool_stop_timer(zval *self);
 
-/* {{{ ARG_INFO */
 ZEND_BEGIN_ARG_INFO_EX(gene_redis_pool_void_arginfo, 0, 0, 0)
 ZEND_END_ARG_INFO()
 
@@ -140,7 +215,7 @@ ZEND_END_ARG_INFO()
 
 /*
  * Create a new phpredis Redis object and connect using the pool config.
- * Always uses connect() — pconnect() is incompatible with Swoole coroutines
+ * Always uses connect() �� pconnect() is incompatible with Swoole coroutines
  * because persistent connections share a single TCP socket across coroutines.
  * On success *retval holds the Redis object (refcount=1).
  * On failure *retval is set to IS_NULL.
@@ -167,7 +242,7 @@ static void rpool_create_connection(zval *self, zval *retval)
         return;
     }
 
-    /* Resolve host/port — direct config first, then servers[] (random pick) */
+    /* Resolve host/port �� direct config first, then servers[] (random pick) */
     zval *host    = zend_hash_str_find(Z_ARRVAL_P(config), ZEND_STRL("host"));
     zval *port    = zend_hash_str_find(Z_ARRVAL_P(config), ZEND_STRL("port"));
     zval *timeout = zend_hash_str_find(Z_ARRVAL_P(config), ZEND_STRL("timeout"));
@@ -197,7 +272,7 @@ static void rpool_create_connection(zval *self, zval *retval)
     zval redis_obj;
     object_init_ex(&redis_obj, redis_cls);
 
-    /* connect() — never pconnect() in pool / Swoole mode */
+    /* connect() �� never pconnect() in pool / Swoole mode */
     {
         zval rv;
         zval params[3];
@@ -227,7 +302,7 @@ static void rpool_create_connection(zval *self, zval *retval)
         }
     }
 
-    /* Auth — supports string password and array [user, pass] (Redis 6 ACL) */
+    /* Auth �� supports string password and array [user, pass] (Redis 6 ACL) */
     zval *password = zend_hash_str_find(Z_ARRVAL_P(config), ZEND_STRL("password"));
     if (password && Z_TYPE_P(password) != IS_NULL && Z_TYPE_P(password) != IS_FALSE) {
         zval rv;
@@ -249,7 +324,7 @@ static void rpool_create_connection(zval *self, zval *retval)
         }
     }
 
-    /* Set options: numeric-keyed array — Redis::OPT_* => value */
+    /* Set options: numeric-keyed array �� Redis::OPT_* => value */
     zval *options = zend_hash_str_find(Z_ARRVAL_P(config), ZEND_STRL("options"));
     if (options && Z_TYPE_P(options) == IS_ARRAY) {
         zend_long    opt_id;
@@ -267,7 +342,7 @@ static void rpool_create_connection(zval *self, zval *retval)
                 if (EXPECTED(setopt_fn)) {
                     zend_call_known_function(setopt_fn, Z_OBJ(redis_obj), Z_OBJCE(redis_obj), &rv, 2, params, NULL);
                 }
-                /* params[0] is IS_LONG — no dtor needed */
+                /* params[0] is IS_LONG �� no dtor needed */
                 zval_ptr_dtor(&params[1]);
                 if (!Z_ISUNDEF(rv)) zval_ptr_dtor(&rv);
             }
@@ -322,7 +397,7 @@ static bool rpool_channel_push(zval *channel, zval *redis_obj)
 {
     zval rv, item;
     /* [GENE_PERF:2026-04-27] packed indexed array {0:conn, 1:lastUsed}
-     * — faster than associative "conn"/"lastUsed" lookup on the consumer side. */
+     * �� faster than associative "conn"/"lastUsed" lookup on the consumer side. */
     array_init_size(&item, 2);
     Z_TRY_ADDREF_P(redis_obj);
     add_index_zval(&item, 0, redis_obj);
@@ -352,7 +427,7 @@ static bool rpool_channel_pop(zval *channel, double timeout, zval *result)
     if (EXPECTED(pop_fn)) {
         zend_call_known_function(pop_fn, Z_OBJ_P(channel), Z_OBJCE_P(channel), &rv, 1, &param, NULL);
     }
-    /* param is IS_DOUBLE — no dtor needed */
+    /* param is IS_DOUBLE �� no dtor needed */
 
     if (Z_ISUNDEF(rv) || Z_TYPE(rv) == IS_FALSE || Z_TYPE(rv) == IS_NULL) {
         if (!Z_ISUNDEF(rv)) zval_ptr_dtor(&rv);
@@ -376,36 +451,12 @@ static bool rpool_channel_is_empty(zval *channel)
     return empty;
 }
 
-static bool rpool_channel_is_full(zval *channel)
-{
-    static zend_function *fn_isfull = NULL;
-    zend_function *fn = RPOOL_OBJ_METHOD_CACHED(channel, fn_isfull, "isfull");
-    if (!fn) return 1;
-    zval rv;
-    ZVAL_UNDEF(&rv);
-    zend_call_known_function(fn, Z_OBJ_P(channel), Z_OBJCE_P(channel), &rv, 0, NULL, NULL);
-    bool full = (Z_TYPE(rv) == IS_TRUE);
-    if (!Z_ISUNDEF(rv)) zval_ptr_dtor(&rv);
-    return full;
-}
 
-static zend_long rpool_channel_length(zval *channel)
-{
-    static zend_function *fn_length = NULL;
-    zend_function *fn = RPOOL_OBJ_METHOD_CACHED(channel, fn_length, "length");
-    if (!fn) return 0;
-    zval rv;
-    ZVAL_UNDEF(&rv);
-    zend_call_known_function(fn, Z_OBJ_P(channel), Z_OBJCE_P(channel), &rv, 0, NULL, NULL);
-    zend_long len = (Z_TYPE(rv) == IS_LONG) ? Z_LVAL(rv) : 0;
-    if (!Z_ISUNDEF(rv)) zval_ptr_dtor(&rv);
-    return len;
-}
 
 /* ---- Swoole\Atomic wrappers ---- */
 
 /* [GENE_PERF:2026-04-27] Caller passes pre-cached zend_function* (one-shot lookup)
- * — avoids strlen(method) + hash lookup on every atomic op. Internal classes never
+ * �� avoids strlen(method) + hash lookup on every atomic op. Internal classes never
  * reload, so a one-shot lazy cache is safe. */
 static void rpool_atomic_call_fn(zval *atomic, zend_function *fn, zend_long arg, zval *retval)
 {
@@ -414,7 +465,7 @@ static void rpool_atomic_call_fn(zval *atomic, zend_function *fn, zend_long arg,
     ZVAL_UNDEF(retval);
     if (EXPECTED(fn)) {
         /* Swoole\Atomic::get() is 0-arg (Swoole 6 uses ZEND_PARSE_PARAMETERS_NONE).
-         * Passing a dummy long is an arginfo/zpp mismatch → Fatal in rshutdown. */
+         * Passing a dummy long is an arginfo/zpp mismatch �� Fatal in rshutdown. */
         if (fn->common.num_args == 0) {
             zend_call_known_function(fn, Z_OBJ_P(atomic), Z_OBJCE_P(atomic), retval, 0, NULL, NULL);
         } else {
@@ -445,7 +496,7 @@ static void rpool_decrement_count(zval *self)
 }
 /* }}} */
 
-/* [GENE_PERF:2026-04-27] Unchecked decrement — caller already knows it just
+/* [GENE_PERF:2026-04-27] Unchecked decrement �� caller already knows it just
  * incremented the counter (rollback path), so the floor check + extra atomic
  * get() is redundant. Saves one zend_call_known_function per failed reserve. */
 static inline void rpool_decrement_count_unchecked(zval *self) {
@@ -562,6 +613,7 @@ static void rpool_set_count(zval *self, zend_long val)
 }
 
 /* Pre-fill the channel with min connections */
+/* Pre-fill the C-layer idle stack with min connections */
 static void rpool_fill(zval *self)
 {
     zval *channel = zend_read_property(gene_redis_pool_ce, gene_strip_obj(self),
@@ -569,27 +621,24 @@ static void rpool_fill(zval *self)
     zend_long min = rpool_get_min(self);
     zend_long i;
 
+    /* Swoole classes absent: get() bails on the null channel anyway, so do
+     * not eagerly open connections that can never be borrowed. */
     if (!channel || Z_TYPE_P(channel) != IS_OBJECT) return;
 
     for (i = 0; i < min; i++) {
         zval conn;
         rpool_create_connection(self, &conn);
         if (Z_TYPE(conn) == IS_OBJECT) {
-            /* [GENE_FIX:2026-04-09] Only increment count AFTER successful push.
-             * If push fails (channel full), we must NOT increment count, otherwise
-             * the count will drift from the actual number of connections in the pool. */
-            if (rpool_channel_push(channel, &conn)) {
-                rpool_increment_count(self);
-            }
+            rpool_idle_push(GENE_RPOOL_OBJ(self), &conn, (zend_long)time(NULL));
+            rpool_increment_count(self);
             zval_ptr_dtor(&conn);
         } else {
-            break; /* server unavailable — pool fills lazily on first get() */
+            break; /* server unavailable - pool fills lazily on first get() */
         }
     }
 }
-
 /*
- * Idle recycler — runs inside a Swoole timer coroutine.
+ * Idle recycler �� runs inside a Swoole timer coroutine.
  * Discards connections idle longer than idleTimeout (above min),
  * verifies liveness of kept connections via PING, refills to min.
  */
@@ -601,85 +650,67 @@ static void rpool_recycle_idle(zval *self)
         return;
     }
 
-    zval *channel = zend_read_property(gene_redis_pool_ce, gene_strip_obj(self),
-                                        ZEND_STRL(GENE_REDIS_POOL_PROPERTY_CHANNEL), 1, NULL);
+    gene_redis_pool_object *po = GENE_RPOOL_OBJ(self);
+    zend_long now  = (zend_long)time(NULL);
+    zend_long size = rpool_idle_count(po);
+    zend_long i;
+    /* [GENE_PERF:2026-04-27] Cache min outside loop - cannot change while we iterate. */
+    zend_long min_cached = rpool_get_min(self);
+    /* [GENE_PERF:2026-05-04 #13] Cache count once, then track local delta -
+     * mirrors pool_recycle_idle. Avoids zend_read_property + atomic get() on
+     * every iteration. Liveness checks may yield to another coroutine, so count_cached is
+     * refreshed from the authoritative Atomic immediately after each check. */
+    zend_long count_cached = rpool_get_count(self);
+
     zval *idle_zv  = zend_read_property(gene_redis_pool_ce, gene_strip_obj(self),
                                          ZEND_STRL(GENE_REDIS_POOL_PROPERTY_IDLE_TIME), 1, NULL);
     zend_long idle_timeout = (idle_zv && Z_TYPE_P(idle_zv) == IS_LONG)
                               ? Z_LVAL_P(idle_zv) : 60;
 
-    if (!channel || Z_TYPE_P(channel) != IS_OBJECT) return;
-
-    zend_long now  = (zend_long)time(NULL);
-    zend_long size = rpool_channel_length(channel);
-    zend_long i;
-    /* [GENE_PERF:2026-04-27] Cache min outside loop — cannot change while we iterate. */
-    zend_long min_cached = rpool_get_min(self);
-    /* [GENE_PERF:2026-05-04 #13] Cache count once, then track local delta —
-     * mirrors pool_recycle_idle. Avoids zend_read_property + atomic get() on
-     * every iteration. The recycler runs under the timer; no concurrent put()
-     * can observe the stale local view because decrement_count still publishes
-     * the authoritative value back to the atomic. */
-    zend_long count_cached = rpool_get_count(self);
-
     /* Pop-check-push pattern avoids starving concurrent get() callers */
     for (i = 0; i < size; i++) {
-        zval item;
-        ZVAL_UNDEF(&item);
-        if (!rpool_channel_pop(channel, 0.001, &item)) break;
+        zval conn;
+        zend_long last_used;
+        if (!rpool_idle_pop(po, &conn, &last_used)) break;
         if (rpool_is_closed(self)) {
-            zval_ptr_dtor(&item);
+            zval_ptr_dtor(&conn);
             return;
         }
-
-        if (Z_TYPE(item) != IS_ARRAY) {
-            zval_ptr_dtor(&item);
-            continue;
+        if (last_used == 0) {
+            last_used = now;
         }
-
-        /* [GENE_PERF:2026-04-27] packed indexed array: idx 0 = conn, idx 1 = lastUsed. */
-        zval *conn_zv      = zend_hash_index_find(Z_ARRVAL(item), 0);
-        zval *last_used_zv = zend_hash_index_find(Z_ARRVAL(item), 1);
-        zend_long last_used = (last_used_zv && Z_TYPE_P(last_used_zv) == IS_LONG)
-                               ? Z_LVAL_P(last_used_zv) : now;
 
         if (count_cached > min_cached &&
             (now - last_used) > idle_timeout) {
-            /* Idle beyond threshold — discard */
+            /* Idle beyond threshold - discard */
             rpool_decrement_count_unchecked(self);
             count_cached--;
-            zval_ptr_dtor(&item);
+            zval_ptr_dtor(&conn);
             continue;
         }
 
-        /* Keep — verify liveness then push back */
-        if (conn_zv && Z_TYPE_P(conn_zv) == IS_OBJECT) {
-            bool alive = rpool_is_alive(conn_zv);
+        /* Keep - verify liveness then push back */
+        if (Z_TYPE(conn) == IS_OBJECT) {
+            bool alive = rpool_is_alive(&conn);
+            count_cached = rpool_get_count(self);
             if (rpool_is_closed(self)) {
-                zval_ptr_dtor(&item);
+                zval_ptr_dtor(&conn);
                 return;
             }
             if (alive) {
-                bool pushed = rpool_channel_push(channel, conn_zv);
-                if (rpool_is_closed(self)) {
-                    zval_ptr_dtor(&item);
-                    return;
-                }
-                if (!pushed) {
-                    rpool_decrement_count_unchecked(self);
-                    count_cached--;
-                }
+                rpool_idle_push(po, &conn, last_used);
             } else {
                 rpool_decrement_count_unchecked(self);
                 count_cached--;
             }
         }
-        zval_ptr_dtor(&item);
+        zval_ptr_dtor(&conn);
     }
 
-    /* Refill to minimum */
+    /* Refill to minimum. The C-layer idle stack has no channel capacity cap,
+     * so the refill bound is the configured max. */
     while (!rpool_is_closed(self) && count_cached < min_cached &&
-           !rpool_channel_is_full(channel)) {
+           rpool_idle_count(po) < rpool_get_max(self)) {
         zval conn;
         rpool_create_connection(self, &conn);
         if (rpool_is_closed(self)) {
@@ -687,22 +718,15 @@ static void rpool_recycle_idle(zval *self)
             return;
         }
         if (Z_TYPE(conn) == IS_OBJECT) {
-            bool pushed = rpool_channel_push(channel, &conn);
-            if (rpool_is_closed(self)) {
-                zval_ptr_dtor(&conn);
-                return;
-            }
-            if (pushed) {
-                rpool_increment_count(self);
-                count_cached++;
-            }
+            rpool_idle_push(po, &conn, (zend_long)time(NULL));
+            rpool_increment_count(self);
+            count_cached++;
             zval_ptr_dtor(&conn);
         } else {
             break;
         }
     }
 }
-
 /* Register Swoole\Timer::tick to call recycleIdle periodically */
 static void rpool_start_idle_recycler(zval *self)
 {
@@ -1150,7 +1174,7 @@ PHP_METHOD(gene_redis_pool, getInstance)
     if (zend_parse_parameters(ZEND_NUM_ARGS(), "S", &name) == FAILURE) {
         RETURN_NULL();
     }
-    /* [GENE_PERF:2026-04-27] fast path — C-layer cache hit returns the
+    /* [GENE_PERF:2026-04-27] fast path �� C-layer cache hit returns the
      * borrowed object directly (one hash find, no PHP property read). */
     {
         zend_object *cached = gene_redis_pool_named_cache_get(name);
@@ -1175,10 +1199,10 @@ PHP_METHOD(gene_redis_pool, getInstance)
  * {{{ public Gene\Cache\RedisPool::get(): ?Redis
  *
  * Borrow a Redis connection:
- *   1. Non-blocking pop from idle channel — PING verify.
- *   2. currentCount < max  → atomically reserve slot, create new connection.
- *   3. At max              → block up to waitTimeout for a return.
- *   4. Timeout             → create overflow connection (count > max).
+ *   1. Non-blocking pop from idle channel �� PING verify.
+ *   2. currentCount < max  �� atomically reserve slot, create new connection.
+ *   3. At max              �� block up to waitTimeout for a return.
+ *   4. Timeout             �� create overflow connection (count > max).
  *      Overflow connections are auto-discarded in put(), shrinking back to max.
  * Returns null only when overflow creation itself fails.
  */
@@ -1206,32 +1230,26 @@ PHP_METHOD(gene_redis_pool, get)
 
         /* 1. Non-blocking pop from idle queue */
         {
-            zval item;
-            bool idle_empty = rpool_channel_is_empty(channel);
-            if (idle_empty) GENE_G(redis_pool_idle_miss)++;
-            if (!idle_empty && rpool_channel_pop(channel, 0.001, &item)) {
+            zval conn;
+            zend_long last_used;
+            if (rpool_idle_pop(GENE_RPOOL_OBJ(self), &conn, &last_used)) {
                 if (rpool_is_closed(self)) {
-                    zval_ptr_dtor(&item);
+                    zval_ptr_dtor(&conn);
                     RETURN_NULL();
                 }
-                if (Z_TYPE(item) == IS_ARRAY) {
-                    /* [GENE_PERF:2026-04-27] packed indexed array: idx 0 = conn */
-                    zval *conn = zend_hash_index_find(Z_ARRVAL(item), 0);
-                    if (conn && Z_TYPE_P(conn) == IS_OBJECT) {
-                        /* Skip liveness check — dead connections are handled
-                         * by the caller (catch → remove → re-get) and by
-                         * the periodic recycleIdle() timer. */
-                        RETVAL_ZVAL(conn, 1, 0);
-                        zval_ptr_dtor(&item);
-                        return;
-                    }
+                if (Z_TYPE(conn) == IS_OBJECT) {
+                    /* Skip liveness check - dead connections are handled
+                     * by the caller (catch - remove - re-get) and by
+                     * the periodic recycleIdle() timer. */
+                    RETVAL_ZVAL(&conn, 0, 0);
+                    return;
                 }
-                zval_ptr_dtor(&item);
+                zval_ptr_dtor(&conn);
                 retries++;
                 continue;
             }
+            GENE_G(redis_pool_idle_miss)++;
         }
-
         /* 2. Below max: atomically reserve a slot then create */
         {
             zend_long new_count;
@@ -1259,14 +1277,26 @@ PHP_METHOD(gene_redis_pool, get)
                 retries++;
                 continue;
             }
-            /* Over max — roll back the reservation */
+            /* Over max �� roll back the reservation */
             rpool_decrement_count_unchecked(self);
         }
 
         /* 3. At max: block until a connection is returned or timeout */
         {
             zval item;
-            if (rpool_channel_pop(channel, rpool_get_wait_timeout(self), &item)) {
+            gene_redis_pool_object *po = GENE_RPOOL_OBJ(self);
+            bool got_item = 0;
+            po->waiters++;
+            zend_try {
+                got_item = rpool_channel_pop(channel, rpool_get_wait_timeout(self), &item);
+            } zend_catch {
+                /* close() resets waiters to 0 while we are parked, so the
+                 * paired decrement must not underflow into negatives. */
+                if (po->waiters > 0) po->waiters--;
+                zend_bailout();
+            } zend_end_try();
+            if (po->waiters > 0) po->waiters--;
+            if (got_item) {
                 if (rpool_is_closed(self)) {
                     zval_ptr_dtor(&item);
                     RETURN_NULL();
@@ -1288,7 +1318,7 @@ PHP_METHOD(gene_redis_pool, get)
             if (rpool_is_closed(self)) {
                 RETURN_NULL();
             }
-            /* Timeout — create overflow connection to prevent caller exception */
+            /* Timeout �� create overflow connection to prevent caller exception */
             GENE_G(redis_pool_get_timeout)++;
             if (rpool_is_closed(self)) {
                 RETURN_NULL();
@@ -1341,6 +1371,17 @@ PHP_METHOD(gene_redis_pool, put)
 
     if (!rpool_pid_valid(self)) return;
     if (rpool_is_closed(self)) {
+        /* [GENE_FIX:2026-09-21] Mirrors db/pool.c: a connection handed back
+         * while close() is still draining must release its slot, otherwise
+         * currentCount stays pinned at max, close()'s wait loop burns the
+         * whole waitTimeout and stats() keeps reporting it in-use. The
+         * live-channel guard prevents a post-close put() (channel nulled,
+         * count force-reset to 0) from going negative. */
+        zval *live_channel = zend_read_property(gene_redis_pool_ce, gene_strip_obj(self),
+                                                 ZEND_STRL(GENE_REDIS_POOL_PROPERTY_CHANNEL), 1, NULL);
+        if (live_channel && Z_TYPE_P(live_channel) == IS_OBJECT) {
+            rpool_decrement_count(self);
+        }
         return;
     }
 
@@ -1351,7 +1392,7 @@ PHP_METHOD(gene_redis_pool, put)
         return;
     }
 
-    /* Skip liveness check — dead connections are caught by recycleIdle().
+    /* Skip liveness check �� dead connections are caught by recycleIdle().
      * Avoiding Redis::ping() saves one network RT per put(). */
 
     /* Auto-shrink overflow with the decrement symmetric to the successful
@@ -1360,10 +1401,20 @@ PHP_METHOD(gene_redis_pool, put)
         rpool_decrement_count(self);
         return;
     }
-    {
-        bool pushed = rpool_channel_push(channel, redis);
-        if (rpool_is_closed(self)) return;
-        if (!pushed) rpool_decrement_count(self);
+        {
+        gene_redis_pool_object *po = GENE_RPOOL_OBJ(self);
+        if (po->waiters > 0) {
+            /* A coroutine is blocked in Channel::pop() - hand the connection
+             * over through the channel so it wakes immediately. */
+            bool pushed = rpool_channel_push(channel, redis);
+            if (rpool_is_closed(self)) return;
+            if (!pushed) {
+                po->waiters = 0;
+                rpool_idle_push(po, redis, (zend_long)time(NULL));
+            }
+        } else {
+            rpool_idle_push(po, redis, (zend_long)time(NULL));
+        }
     }
 }
 /* }}} */
@@ -1371,12 +1422,23 @@ PHP_METHOD(gene_redis_pool, put)
 /*
  * {{{ public Gene\Cache\RedisPool::remove(): void
  * Caller discarded a borrowed connection (e.g. it died mid-use).
- * Decrements the pool count without a PING — the caller already knows it's dead.
+ * Decrements the pool count without a PING �� the caller already knows it's dead.
  */
 PHP_METHOD(gene_redis_pool, remove)
 {
-    if (!rpool_pid_valid(getThis()) || rpool_is_closed(getThis())) return;
-    rpool_decrement_count(getThis());
+    zval *self = getThis();
+    if (!rpool_pid_valid(self)) return;
+    if (rpool_is_closed(self)) {
+        /* Same accounting rule as put(): release the slot while close() is
+         * draining, but stay a no-op once the channel has been nulled. */
+        zval *live_channel = zend_read_property(gene_redis_pool_ce, gene_strip_obj(self),
+                                                 ZEND_STRL(GENE_REDIS_POOL_PROPERTY_CHANNEL), 1, NULL);
+        if (live_channel && Z_TYPE_P(live_channel) == IS_OBJECT) {
+            rpool_decrement_count(self);
+        }
+        return;
+    }
+    rpool_decrement_count(self);
 }
 /* }}} */
 
@@ -1388,13 +1450,14 @@ PHP_METHOD(gene_redis_pool, remove)
  *   (Coroutine only)
  *     a) drain idle connections;
  *     b) wait briefly for in-flight connections;
- *     c) Channel::close() — wakes blocked get() coroutines with false;
+ *     c) Channel::close() �� wakes blocked get() coroutines with false;
  *     d) force-reset count.
  */
 PHP_METHOD(gene_redis_pool, close)
 {
     zval *self = getThis();
     if (!rpool_pid_valid(self)) return;
+    GENE_RPOOL_OBJ(self)->waiters = 0;
 
     if (!rpool_is_closed(self)) {
         zend_update_property_bool(gene_redis_pool_ce, gene_strip_obj(self),
@@ -1406,7 +1469,17 @@ PHP_METHOD(gene_redis_pool, close)
                                         ZEND_STRL(GENE_REDIS_POOL_PROPERTY_CHANNEL), 1, NULL);
     if (channel && Z_TYPE_P(channel) == IS_OBJECT) {
         if (rpool_in_coroutine()) {
-            /* a) drain idle connections */
+                        /* a1) drain the C-layer idle stack */
+            {
+                zval conn;
+                zend_long ts;
+                gene_redis_pool_object *po = GENE_RPOOL_OBJ(self);
+                while (rpool_idle_pop(po, &conn, &ts)) {
+                    rpool_decrement_count(self);
+                    zval_ptr_dtor(&conn);
+                }
+            }
+            /* a2) drain any stragglers pushed to the channel for woken waiters */
             while (!rpool_channel_is_empty(channel)) {
                 zval item;
                 if (!rpool_channel_pop(channel, 0.001, &item)) break;
@@ -1434,7 +1507,7 @@ PHP_METHOD(gene_redis_pool, close)
                 }
             }
 
-            /* c) close channel — wakes any remaining blocked get() coroutines */
+            /* c) close channel �� wakes any remaining blocked get() coroutines */
             zval close_rv;
             static zend_function *fn_ch_close = NULL;
             zend_function *close_func = RPOOL_OBJ_METHOD_CACHED(channel, fn_ch_close, "close");
@@ -1541,7 +1614,7 @@ PHP_METHOD(gene_redis_pool, stopTimers)
 
 /*
  * {{{ public Gene\Cache\RedisPool::recycleIdle(): void
- * Timer callback — runs inside a Swoole coroutine.
+ * Timer callback �� runs inside a Swoole coroutine.
  */
 PHP_METHOD(gene_redis_pool, recycleIdle)
 {
@@ -1562,11 +1635,8 @@ PHP_METHOD(gene_redis_pool, stats)
 {
     zval *self    = getThis();
     if (!rpool_pid_valid(self)) RETURN_FALSE;
-    zval *channel = zend_read_property(gene_redis_pool_ce, gene_strip_obj(self),
-                                        ZEND_STRL(GENE_REDIS_POOL_PROPERTY_CHANNEL), 1, NULL);
     zend_long count = rpool_get_count(self);
-    zend_long idle  = (channel && Z_TYPE_P(channel) == IS_OBJECT)
-                      ? rpool_channel_length(channel) : 0;
+    zend_long idle  = rpool_idle_count(GENE_RPOOL_OBJ(self));
     zend_long max      = rpool_get_max(self);
     zend_long overflow = (count > max) ? (count - max) : 0;
 
@@ -1602,8 +1672,8 @@ PHP_METHOD(gene_redis_pool, __destruct)
  * then pool->get().  On success stores pool ref in $self->$pool_key and the
  * borrowed Redis object in $self->$obj_key.
  *
- * Returns true  → pool mode active, connection stored on self.
- * Returns false → not pool mode (config key absent / not Swoole) or pool not found.
+ * Returns true  �� pool mode active, connection stored on self.
+ * Returns false �� not pool mode (config key absent / not Swoole) or pool not found.
  */
 bool gene_redis_pool_get(zend_class_entry *redis_ce, zval *self, zval *config,
     const char *pool_key, size_t pool_key_len,
@@ -1616,7 +1686,7 @@ bool gene_redis_pool_get(zend_class_entry *redis_ce, zval *self, zval *config,
         return 0;
     }
 
-    /* [GENE_PERF:2026-04-27] Fast path — direct C-layer cache lookup skips
+    /* [GENE_PERF:2026-04-27] Fast path �� direct C-layer cache lookup skips
      * RedisPool::getInstance() entirely (no PHP frame, no static-property read,
      * no call_user_function). */
     zval pool_obj;
@@ -1684,7 +1754,7 @@ void gene_redis_pool_return(zend_class_entry *redis_ce, zval *self,
         if (redis_obj && Z_TYPE_P(redis_obj) == IS_OBJECT) {
             zval obj_copy;
             ZVAL_COPY(&obj_copy, redis_obj);
-            /* Null BEFORE put() — prevents re-use during coroutine yield */
+            /* Null BEFORE put() �� prevents re-use during coroutine yield */
             zend_update_property_null(redis_ce, gene_strip_obj(self),
                                        obj_key, obj_key_len);
 
@@ -1699,7 +1769,7 @@ void gene_redis_pool_return(zend_class_entry *redis_ce, zval *self,
             zval_ptr_dtor(&obj_copy);
             if (!Z_ISUNDEF(retval)) zval_ptr_dtor(&retval);
         } else {
-            /* Already returned — just ensure property is null */
+            /* Already returned �� just ensure property is null */
             zend_update_property_null(redis_ce, gene_strip_obj(self),
                                        obj_key, obj_key_len);
         }
@@ -1709,7 +1779,7 @@ void gene_redis_pool_return(zend_class_entry *redis_ce, zval *self,
 /*
  * Notify the pool that a dead connection is being discarded (no PING check).
  * Decrements the pool count so a new connection slot becomes available.
- * Does NOT clear the pool reference property — caller clears obj_key separately.
+ * Does NOT clear the pool reference property �� caller clears obj_key separately.
  */
 void gene_redis_pool_notify_remove(zend_class_entry *redis_ce, zval *self,
     const char *pool_key, size_t pool_key_len)
@@ -1759,6 +1829,12 @@ GENE_MINIT_FUNCTION(redis_pool)
                            "Gene\\Cache\\RedisPool",
                            gene_redis_pool_methods);
     gene_redis_pool_ce = zend_register_internal_class_ex(&redis_pool_ce, NULL);
+    gene_redis_pool_ce->create_object = gene_rpool_create_object;
+    memcpy(&gene_redis_pool_handlers, zend_get_std_object_handlers(), sizeof(zend_object_handlers));
+    gene_redis_pool_handlers.offset = XtOffsetOf(gene_redis_pool_object, std);
+    gene_redis_pool_handlers.free_obj = gene_rpool_free_object;
+    gene_redis_pool_handlers.get_gc = gene_rpool_get_gc;
+    gene_redis_pool_handlers.clone_obj = NULL;
     gene_redis_pool_ce->ce_flags |= ZEND_ACC_FINAL | ZEND_ACC_NOT_SERIALIZABLE;
 #if PHP_VERSION_ID >= 80200
     gene_redis_pool_ce->ce_flags |= ZEND_ACC_ALLOW_DYNAMIC_PROPERTIES;
@@ -1797,7 +1873,7 @@ GENE_MINIT_FUNCTION(redis_pool)
  * cache. RedisPool::closeAll() already clears it during normal worker shutdown,
  * but if the user forgets (or process aborts before then), the static HashTable
  * would leak at process exit (visible in valgrind). Internal pointers borrowed
- * from the static instances array — no per-entry destruction needed. */
+ * from the static instances array �� no per-entry destruction needed. */
 GENE_MSHUTDOWN_FUNCTION(redis_pool)
 {
     gene_redis_pool_named_cache_clear();

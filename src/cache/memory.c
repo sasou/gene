@@ -266,6 +266,7 @@ int gene_memory_write_allowed(const char *op) {
 		return 1;
 	}
 	if (UNEXPECTED(GENE_G(runtime_type) >= 2 && GENE_G(worker_ready))) {
+		GENE_G(framework_cache_dirty) = 1;
 		php_error_docref(NULL, E_WARNING,
 			"Gene memory cache is frozen after workerReady(); %s is not allowed in Swoole request runtime",
 			op ? op : "write");
@@ -408,6 +409,37 @@ zval *gene_memory_zval_local(zval *dst, zval *source) /* {{{ */
 	 * reference-typed persistent entry cannot fall through leaving dst
 	 * uninitialized (same stack-garbage hazard as gene_memory_zval_persistent). */
 	ZVAL_DEREF(source);
+	/* [GENE_PERF:2026-09-21 V3-3.1] Frozen-framework-table zero copy. After
+	 * workerReady() in Swoole, GENE_G(cache) is write-once (post-freeze writes
+	 * are rejected by gene_memory_write_allowed and business data lives in a
+	 * separate table). Its strings are IS_STR_INTERNED|IS_STR_PERMANENT and its
+	 * arrays are IS_ARRAY_IMMUTABLE (refcount 2) — the exact opcache shared
+	 * shape — so the request may borrow them: userland writes COW on the
+	 * IMMUTABLE flag, and the non-refcounted zval makes our dtor a no-op.
+	 * Business reads still go through gene_memory_zval_local_copy. */
+	if (EXPECTED(GENE_G(runtime_type) >= 2)
+			&& EXPECTED(GENE_G(worker_ready))
+			&& EXPECTED(!GENE_G(framework_cache_dirty))
+			&& !GENE_MEMORY_IS_BUSINESS()) {
+		switch (Z_TYPE_P(source)) {
+		case IS_STRING:
+			ZVAL_INTERNED_STR(dst, Z_STR_P(source));
+			return dst;
+		case IS_ARRAY:
+			ZVAL_ARR(dst, Z_ARRVAL_P(source));
+			Z_TYPE_INFO_P(dst) = IS_ARRAY;
+			return dst;
+		case IS_TRUE:
+		case IS_FALSE:
+		case IS_DOUBLE:
+		case IS_LONG:
+		case IS_NULL:
+			ZVAL_COPY_VALUE(dst, source);
+			return dst;
+		default:
+			break;
+		}
+	}
 	switch (Z_TYPE_P(source)) {
 	case IS_STRING:
 		/* [GENE_FIX:2026-08-23 UAF-2] Always deep-copy. The previous

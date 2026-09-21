@@ -1,4 +1,4 @@
-﻿/*
+/*
  +----------------------------------------------------------------------+
  | gene                                                                 |
  +----------------------------------------------------------------------+
@@ -45,7 +45,7 @@ zval *gene_di_regs() {
 		 * services per request (db, redis, memcache, session, view, language,
 		 * validate, response, memory, plus class-qualified per-object keys).
 		 * Pre-size at 16 to skip the default-8 initial bucket grow that hits
-		 * on the 9th insert — a minor cache-hot rehash we can trivially avoid. */
+		 * on the 9th insert �� a minor cache-hot rehash we can trivially avoid. */
 		array_init_size(&ctx->di_regs, 16);
 	}
 	return &ctx->di_regs;
@@ -118,29 +118,29 @@ ZEND_END_ARG_INFO()
  * request/context boundaries. */
 static zval *gene_di_aliases(void) {
 	gene_request_context *ctx = gene_request_ctx();
-	if (UNEXPECTED(Z_TYPE(ctx->di_alias) == IS_UNDEF || Z_TYPE(ctx->di_alias) == IS_NULL)) {
-		if (Z_TYPE(ctx->di_alias) == IS_NULL) {
-			zval_ptr_dtor(&ctx->di_alias);
+	if (UNEXPECTED(Z_TYPE(GENE_CTX_COLD(ctx)->di_alias) == IS_UNDEF || Z_TYPE(GENE_CTX_COLD(ctx)->di_alias) == IS_NULL)) {
+		if (Z_TYPE(GENE_CTX_COLD(ctx)->di_alias) == IS_NULL) {
+			zval_ptr_dtor(&GENE_CTX_COLD(ctx)->di_alias);
 		}
-		array_init_size(&ctx->di_alias, 4);
+		array_init_size(&GENE_CTX_COLD(ctx)->di_alias, 4);
 	}
-	return &ctx->di_alias;
+	return &GENE_CTX_COLD(ctx)->di_alias;
 }
 
 /* Resolve an alias chain to the final service name. Bounded at 8 hops: a
  * cyclic alias (a=>b, b=>a) simply stops at whichever name the 8th hop lands
  * on (a valid name on the cycle), it does NOT become a forced miss.
- * Returns a BORROWED pointer — valid only until the next write to the alias
+ * Returns a BORROWED pointer �� valid only until the next write to the alias
  * table; callers that run user code (constructors) before using the result
  * must zend_string_copy() it (see gene_di_get / gene_di::instance). */
 static zend_string *gene_di_resolve_alias(zend_string *name) {
 	gene_request_context *ctx = gene_request_ctx();
 	int hops = 0;
-	if (Z_TYPE(ctx->di_alias) != IS_ARRAY) {
+	if (!ctx || !ctx->cold || Z_TYPE(ctx->cold->di_alias) != IS_ARRAY) {
 		return name;
 	}
 	while (hops < 8) {
-		zval *target = zend_hash_find(Z_ARRVAL(ctx->di_alias), name);
+		zval *target = zend_hash_find(Z_ARRVAL(ctx->cold->di_alias), name);
 		if (!target || Z_TYPE_P(target) != IS_STRING) {
 			break;
 		}
@@ -159,11 +159,18 @@ zval *gene_di_get(zend_string *name) {
 	 * [GENE_FIX:2026-08-07-5 N6] Take an owned copy: a constructor invoked
 	 * below may call Di::alias() and rehash/replace the alias table, which
 	 * would dangle a borrowed pointer. */
-	zend_string *resolved_name = zend_string_copy(gene_di_resolve_alias(name));
+	zend_string *resolved_name = gene_di_resolve_alias(name);
+	/* [V3-4.1] di_alias moved into the lazily-allocated cold block; probe
+	 * without materializing it. */
+	gene_request_context *rctx = gene_request_ctx();
+	zend_bool resolved_name_owned = rctx && rctx->cold && Z_TYPE(rctx->cold->di_alias) == IS_ARRAY;
+	if (resolved_name_owned) {
+		resolved_name = zend_string_copy(resolved_name);
+	}
 	name = resolved_name;
 	entrys = gene_di_regs();
 	if ((pzval = zend_hash_find(Z_ARRVAL_P(entrys), name)) != NULL) {
-		zend_string_release(resolved_name);
+		if (resolved_name_owned) zend_string_release(resolved_name);
 		return pzval;
 	}
 
@@ -205,20 +212,22 @@ zval *gene_di_get(zend_string *name) {
 	cache = gene_memory_get_by_config((char *)cache_key, cache_key_len, ZSTR_VAL(name));
 	if (cache_key_heap) efree((char *)cache_key);
 
-	if (cache && Z_TYPE_P(cache) == IS_ARRAY) {
-    	if ((class = zend_hash_str_find(Z_ARRVAL_P(cache), "class", 5)) == NULL) {
-    		 zend_string_release(resolved_name);
+	/* [GENE_PERF:2026-09-21 V3-5] Registry miss → config fallback is the cold
+	 * path; registry hits return above. */
+	if (UNEXPECTED(cache && Z_TYPE_P(cache) == IS_ARRAY)) {
+    	if ((class = zend_hash_str_find(Z_ARRVAL_P(cache), ZEND_STRL("class"))) == NULL) {
+		if (resolved_name_owned) zend_string_release(resolved_name);
     		 php_error_docref(NULL, E_ERROR, "Factory need a valid class.");
     		 return NULL;
     	}
-    	if ((params = zend_hash_str_find(Z_ARRVAL_P(cache), "params", 6)) != NULL) {
+    	if ((params = zend_hash_str_find(Z_ARRVAL_P(cache), ZEND_STRL("params"))) != NULL) {
     		 if (Z_TYPE_P(params) != IS_ARRAY) {
-	    		 zend_string_release(resolved_name);
+			if (resolved_name_owned) zend_string_release(resolved_name);
 	    		 php_error_docref(NULL, E_ERROR, "Factory need a array param.");
 	    		 return NULL;
     		 }
     	}
-    	instance = zend_hash_str_find(Z_ARRVAL_P(cache), "instance", 8);
+    	instance = zend_hash_str_find(Z_ARRVAL_P(cache), ZEND_STRL("instance"));
 
     	if (instance && Z_TYPE_P(instance) == IS_TRUE) {
     		type = 1;
@@ -240,7 +249,7 @@ zval *gene_di_get(zend_string *name) {
 		if (type) {
 			if ((pzval = zend_hash_find(Z_ARRVAL_P(entrys), class_str)) != NULL) {
 				zval_ptr_dtor(&local_params);
-				zend_string_release(resolved_name);
+				if (resolved_name_owned) zend_string_release(resolved_name);
 				return pzval;
 			}
 		}
@@ -263,19 +272,21 @@ zval *gene_di_get(zend_string *name) {
 			if (type) {
 				zval classObjectCopy;
 				ZVAL_COPY(&classObjectCopy, &classObject);
+				gene_di_note_key(class_str);
 				zend_hash_update(Z_ARRVAL_P(entrys), class_str, &classObjectCopy);
 			}
-		    if ((pzval = zend_hash_update(Z_ARRVAL_P(entrys), name, &classObject)) != NULL ) {
+			gene_di_note_key(name);
+	    if ((pzval = zend_hash_update(Z_ARRVAL_P(entrys), name, &classObject)) != NULL ) {
 		    	ZVAL_UNDEF(&classObject);
 		    	zval_ptr_dtor(&local_params);
-		    	zend_string_release(resolved_name);
+			if (resolved_name_owned) zend_string_release(resolved_name);
 		    	return pzval;
 		    }
 		    zval_ptr_dtor(&classObject);
 		}
 		zval_ptr_dtor(&local_params);
 	}
-	zend_string_release(resolved_name);
+	if (resolved_name_owned) zend_string_release(resolved_name);
 	return NULL;
 }
 
@@ -308,6 +319,7 @@ zval *gene_class_instance(zval *obj, zval *class_name, zval *params) {
 			if (!Z_ISUNDEF(tmp)) zval_ptr_dtor(&tmp);
 		}
 
+		gene_di_note_key(Z_STR_P(class_name));
 		if ((ppzval = zend_hash_str_update(Z_ARRVAL_P(entrys), Z_STRVAL_P(class_name), Z_STRLEN_P(class_name), obj)) != NULL ) {
 			ZVAL_UNDEF(obj);
 			return ppzval;
@@ -322,11 +334,16 @@ zval *gene_class_instance(zval *obj, zval *class_name, zval *params) {
  *  {{{ int gene_di_get_class(zend_string class_name, zend_string *name)
  */
 zval *gene_di_get_class(zend_string *class_name, zend_string *name) {
+	gene_request_context *ctx = gene_request_ctx();
 	zval *entrys, *ppzval = NULL;
 	char stack_buf[256];
 	char *key_buf;
 	size_t key_len;
 
+	/* [V3-4.1] read probe: no cold block means no class-qualified keys. */
+	if (EXPECTED(!ctx || !ctx->cold || ctx->cold->di_class_keys == 0)) {
+		return gene_di_get(name);
+	}
 	entrys = gene_di_regs();
 
 	key_len = ZSTR_LEN(class_name) + 1 + ZSTR_LEN(name);
@@ -366,6 +383,9 @@ int gene_di_set_class(zend_string *class_name, zend_string *name, zval *value) {
 	key_buf[key_len] = '\0';
 
 	Z_TRY_ADDREF_P(value);
+	if (!zend_hash_str_exists(Z_ARRVAL_P(entrys), key_buf, key_len)) {
+		GENE_CTX_COLD(gene_request_ctx())->di_class_keys++;
+	}
 	zend_hash_str_update(Z_ARRVAL_P(entrys), key_buf, key_len, value);
 	if (key_buf != stack_buf) efree(key_buf);
 	return 1;
@@ -443,6 +463,7 @@ PHP_METHOD(gene_di, set) {
 		RETURN_NULL();
 	}
 	entrys = gene_di_regs();
+	gene_di_note_key(name);
 	if (zend_hash_update(Z_ARRVAL_P(entrys), name, value) != NULL) {
 		Z_TRY_ADDREF_P(value);
 		RETURN_TRUE;
@@ -525,7 +546,7 @@ PHP_METHOD(gene_di, getInstance) {
  *  {{{ public static gene_di::instance(string $class, array $params = []): object|null
  * [GENE_FEATURE:2026-08-06 F1-5] Explicit instantiation via the factory
  * (gene_factory_load_class + constructor params) WITHOUT registering the
- * object in the container — unlike gene_class_instance(), nothing is cached,
+ * object in the container �� unlike gene_class_instance(), nothing is cached,
  * every call produces a fresh object. Useful for transient/value objects
  * that should not occupy the request-scope registry. */
 PHP_METHOD(gene_di, instance) {
