@@ -756,21 +756,10 @@ static void gene_request_init_bags(zval *get, zval *post, zval *cookie, zval *se
 	if (files && Z_TYPE_P(files) == IS_ARRAY) {
 		setVal(5, files);
 	}
-	if (request && Z_TYPE_P(request) == IS_ARRAY) {
-		setVal(6, request);
-	} else {
-		/* [GENE_PERF:2026-09-21 V3-2.3] Evict a previously materialized
-		 * merged bag: getVal() rebuilds it lazily from the fresh GET/POST.
-		 * Without this a re-init would keep serving the prior merge. */
-		zval *attr = gene_request_attr();
-		if (Z_TYPE_P(attr) == IS_ARRAY) {
-			zend_hash_index_del(Z_ARRVAL_P(attr), TRACK_VARS_REQUEST);
-		}
-	}
 	/* [GENE_PERF:2026-09-21 V3-2.3] $_REQUEST is no longer merged eagerly: most
 	 * requests never read it, so the two zend_hash_copy runs were pure cost.
 	 * getVal(TRACK_VARS_REQUEST) materializes it on first miss. */
-	gene_request_ctx()->request_bags_inited = 1;
+	gene_request_bags_commit(request);
 	if (header && Z_TYPE_P(header) == IS_ARRAY) {
 		gene_request_set_header_val(header);
 	}

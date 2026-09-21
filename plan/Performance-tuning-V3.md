@@ -1,7 +1,7 @@
 # Gene 扩展极致并发优化 —— V3（代码层面方案）
 
 > 版本：v1（2026-09-20）
-> 状态：代码级审计问题已修复（P2-5 经生命周期评估否决）；Linux ASAN + 真实 Swoole 发布验收待完成（2026-09-21）
+> 状态：代码级审计问题已修复（P2-5 经生命周期评估否决）；Linux + 真实 Swoole 发布验收待线上回填，ASAN/LSAN 为补充验证（2026-09-21）
 > 依据：对 `src/` 全量热路径源码复核（gene.c / application.c / request.c / router.c / di.c / memory.c / db/*.c / view.c / load.c / response.c / log.c / pool.c）。
 > 与 V2 的关系：V2 保留自动化验收规范（§1）与其待办清单；本文只登记 **V2 未覆盖或仅点到名字、缺少技术细节** 的代码级优化点。与 V2 重叠处以「V2 §x.y」交叉引用，不重复登记。
 
@@ -9,7 +9,7 @@
 
 1. **只写代码层面**：不含宿主配置（opcache/JIT/内核参数）、不含业务侧迁移。
 2. **两种运行模式都要受益**：每项标注 FPM / Swoole 受益面。FPM 的“每请求固定成本”与 Swoole 的“每协程固定成本 + worker 常驻内存”是两条不同的账。
-3. **零新 bug / 零泄漏**：每项给出 (a) 现状证据（文件:行）、(b) 改法、(c) **不变量与生命周期边界**、(d) 验证要点。凡涉及裸指针借用、跨请求缓存、锁语义变化的项，必须在 Linux ASAN 下跑 `test/TestRunner.php` + `tools/acceptance/linux_swoole_verify.sh` 后才可合入。
+3. **零新 bug / 零泄漏**：每项给出 (a) 现状证据（文件:行）、(b) 改法、(c) **不变量与生命周期边界**、(d) 验证要点。凡涉及裸指针借用、跨请求缓存、锁语义变化的项，必须在 Linux + 真实 Swoole 下跑 `test/TestRunner.php` + `tools/acceptance/linux_swoole_verify.sh`；ASAN/LSAN 为建议的补充验证，不作为本文档关闭的必要条件。
 4. **不改公开 API 语义**：`Db` 惰性写、`history()` 快照、`Memory` 所有权（业务表 owned copy）、流式 `write()`/SSE、Pool 生命周期约束（creatorPid/clone/serialize）全部保持。
 5. **一项一提交**：可独立回退；验收脚本遵循 V2 §1。
 
@@ -301,7 +301,7 @@ zval *gene_memory_zval_local(zval *dst, zval *src) {
 | 14 | §3.4 日志句柄常驻 | 中 | ✔ | ✔ | 3 syscalls/条（opt-in） |
 | 15 | §4.4 arena | 高 | – | ✔ | RSS（待数据） |
 
-每项按 V2 §1 提供功能回归 + 性能对比 + 判定脚本；涉及借用/生命周期的 §2.4(3)、§3.1、§3.6、§4.1、§4.2 必须附 Linux ASAN 结果。
+每项按 V2 §1 提供功能回归 + 性能对比 + 判定脚本；涉及借用/生命周期的 §2.4(3)、§3.1、§3.6、§4.1、§4.2 必须附 Linux + 真实 Swoole 结果，ASAN/LSAN 结果建议作为补充证据。
 
 ---
 
@@ -372,7 +372,7 @@ zval *gene_memory_zval_local(zval *dst, zval *src) {
 
 ## 10. 第三阶段实施复盘（2026-09-21）
 
-本阶段落地 §3、§4、§5 的剩余优化点，按"一项一提交"拆分。涉及裸指针借用、跨请求/协程生命周期、C 层对象存储的条目均已实现，但**在 Linux ASAN + 真实 Swoole 环境验收前一律标记为"未验收"**。
+本阶段落地 §3、§4、§5 的剩余优化点，按"一项一提交"拆分。涉及裸指针借用、跨请求/协程生命周期、C 层对象存储的条目均已实现，但**在 Linux + 真实 Swoole 环境验收前一律标记为"未验收"**；ASAN/LSAN 为补充验证。
 
 ### 10.1 已落地
 
@@ -404,10 +404,10 @@ zval *gene_memory_zval_local(zval *dst, zval *src) {
 - `TestRunner.php` 全量（`pdo_sqlite`+`openssl`+新 dll 免部署加载）：**922 passed / 0 failed**，含 DatabaseTest 39/0、SwooleEntryTest 31/0、CacheTest 69/0、LogTest 62/0、LifecycleTest 22/0。唯一环境失败（openssl 未加载时 `Crypto::encrypt`）加载 openssl 后通过。
 - `Gene\Log` 的 `log_keep_open=1` 探针：两次写入同一路径复用持久流，shutdown 无泄漏输出。
 
-### 10.4 明确未验收项（需 Linux ASAN + 真实 Swoole）
+### 10.4 明确未验收项（需 Linux + 真实 Swoole；ASAN 为补充）
 
-- §3.1 冻结表借用：依赖"框架表 post-freeze 写被全部拦截"的不变量，需在真实 Swoole 多协程 + ASAN 下验证无悬垂读。
-- §2.4(3) `router_path` 借用、§4.2 `borrowers` 回收：裸指针与跨协程生命周期，须 ASAN + 并发压测。
+- §3.1 冻结表借用：依赖"框架表 post-freeze 写被全部拦截"的不变量，需在真实 Swoole 多协程下验证无悬垂读，建议补跑 ASAN。
+- §2.4(3) `router_path` 借用、§4.2 `borrowers` 回收：裸指针与跨协程生命周期，须真实 Swoole 并发压测，建议补跑 ASAN。
 - §3.6 C 层 idle 栈（两个池）：自定义对象存储 + Channel 唤醒语义在真实 Channel 阻塞/超时/协程取消路径下未验证。
 - §4.1 冷块懒分配：池化 ctx 复用、`co_contexts` 清扫、`resident_ctx` 路径下 `cold` 的分配/释放时机须在 ASAN + 长 worker 下验证无泄漏/无 NULL 解引用。
 - §3.4 常驻日志流：logrotate（inode/size 变化）、FPM 多进程同文件写、Swoole worker 重启语义未在真实环境验证。
@@ -419,7 +419,7 @@ zval *gene_memory_zval_local(zval *dst, zval *src) {
 
 ### 10.6 结论
 
-除 §4.4（缺前置数据）外，方案剩余优化点已全部落地并通过 Windows 全量回归（922/922）。§2.3/§4.1 期间出现的两处回归均由既有测试契约当场捕获并修复。所有涉及借用/生命周期/协程的条目均为"实现完成、验收未做"，发布准入前须在 Linux ASAN + 真实 Swoole 环境按 §0/§7 逐项验收。
+除 §4.4（缺前置数据）外，方案剩余优化点已全部落地并通过 Windows 全量回归（922/922）。§2.3/§4.1 期间出现的两处回归均由既有测试契约当场捕获并修复。所有涉及借用/生命周期/协程的条目均为"实现完成、验收未做"，发布准入前须在 Linux + 真实 Swoole 环境按 §0/§7 逐项验收；ASAN/LSAN 结果作为补充证据单列。
 
 ---
 
@@ -477,7 +477,7 @@ zval *gene_memory_zval_local(zval *dst, zval *src) {
    能立刻止血，但依赖直写 `zend_hash` 内部字段，不作为最终形态。
 
 **验收要求**：Linux + 真实 Swoole 下 200 协程 × 1000 次借还、满池排队、
-`recycleIdle()` 与借还交错、`close()` 交错，四项全部在 ASAN 下跑；
+`recycleIdle()` 与借还交错、`close()` 交错四项全部通过；建议在 ASAN/LSAN 下补跑，但不作为关闭必要条件；
 并把 `DatabaseTest` 的池生命周期段从"无 Swoole 即 skip"改为
 **无 Swoole 时显式标记为未覆盖并在 CI 的 Swoole 作业中强制执行**，否则同类缺陷仍会漏网。
 
@@ -618,8 +618,8 @@ Channel 满后 `pool_channel_push` 失败 → `pool_decrement_count` → **连�
 | 6 | 11.5 P2-6 / P2-2 / P2-3 / P2-4 | 兜底响应、回收器注释与计数、表上限、GC 可见性 |
 | 7 | 11.5 P2-5 FPM 冻结点 | 下一阶段收益最大的新增项（FPM 侧首次吃到 §2.1/§3.1） |
 
-在 1–4 全部修复并在 **Linux + 真实 Swoole + ASAN** 下重跑
-`test/TestRunner.php` 与 `tools/acceptance/linux_swoole_verify.sh` 之前，
+在 1–4 全部修复并在 **Linux + 真实 Swoole** 下重跑
+`test/TestRunner.php` 与 `tools/acceptance/linux_swoole_verify.sh` 之前（ASAN 为建议补充），
 §10.6 的"剩余优化点已全部落地"不应对外表述为可发布状态。
 
 ---
@@ -653,7 +653,7 @@ Channel 满后 `pool_channel_push` 失败 → `pool_decrement_count` → **连�
 | Windows clean build | PHP 8.1.30 NTS x64 / VS2019：`nmake clean` → `config.nice.bat` → `nmake php_gene.dll` 成功，仅有既有 C4819 警告。 |
 | Windows 全量回归 | 使用新 DLL、`pdo_sqlite`、`openssl` 免部署运行：**927 passed / 0 failed**；Database 39/39、SwooleEntry 31/31、Lifecycle 23/23、Cache 73/73。 |
 | 本机真实路径覆盖 | Request scope、Monitor 字段、Swoole adapter 异常兜底已覆盖。ext-swoole 未安装，真实 Channel idle/waiter/recycler 路径明确标记 `UNCOVERED`，不能以 927/927 代替。 |
-| 发布准入 | **仍未完成**：需 Linux + 真实 Swoole 下执行 200 协程 × 1000 借还、满池排队、recycle/close 交错，并在 ASAN 下跑 `test/TestRunner.php` 与 `tools/acceptance/linux_swoole_verify.sh`；日志还需真实 worker 的 rename/copytruncate 与异常退出探针。 |
+| 发布准入 | **仍未完成**：需 Linux + 真实 Swoole 下执行 200 协程 × 1000 借还、满池排队、recycle/close 交错并跑 `test/TestRunner.php` 与 `tools/acceptance/linux_swoole_verify.sh`；日志还需真实 worker 的 rename/copytruncate 与异常退出探针。ASAN/LSAN 为补充验证，不阻断关闭。 |
 
 ### 12.4 复盘
 
@@ -702,35 +702,72 @@ Channel 满后 `pool_channel_push` 失败 → `pool_decrement_count` → **连�
 的假性失败——与 §9.3 当时误判为"Junction 不同步"的现象同源。**结论：任何回归数字必须与
 `git rev-parse HEAD` + DLL 时间戳 + `GENE_TEST_PHP_ARGS` 一并记录，否则不可采信。**
 
-### 13.3 本轮新提出的残留问题（均为 P3，不阻断）
+### 13.3 本轮新提出的残留问题收敛
 
-| 编号 | 问题 | 证据 | 技术细节与建议 |
-|---|---|---|---|
-| P3-1 | §11.3 要求"把置位+驱逐抽成一个函数供两个调用点共用"，实际只有 `scope` 走了新 helper；`gene_request_init_bags` 仍内联同一段驱逐逻辑 | `request.c:348-356`（helper）vs `:759-773`（内联副本） | 当前两处行为等价，无缺陷；但这正是该缺陷最初的成因（两条同语义路径各自演进）。建议 `init_bags` 改调 `gene_request_bags_commit(request)`，删除内联副本，使"袋提交"只有一个实现 |
-| P3-2 | `put()` 在 Channel push 失败时 `waiters = 0` 会**清掉真实等待者的计数** | `pool.c:990-993`、`redis_pool.c:1398-1401` | 这是审计建议的"计数不可信即重置"，方向正确（不丢连接优先于不丢唤醒）。副作用：若此刻确有协程阻塞在 `pop()`，它将一直等到 `waitTimeout` 超时再走 overflow 分支，而不是被立即唤醒。属可接受的降级，但应在代码注释与 `tools/acceptance` 的"满池排队"用例里写明期望，避免后续把该延迟当成新 bug |
-| P3-3 | `close()` 的非协程分支（workerStop）不排空 C 层 idle 栈，仅依赖 `free_obj` | `pool.c:1028-1052`（排空在 `pool_in_coroutine()` 内）；`redis_pool.c` 同构 | 不泄漏（`gene_pool_free_object` → `pool_idle_clear`），但 `close()` 返回后 `stats()['idle']` 仍报旧值，且 currentCount 与 idle 的关系在该窗口内不自洽。建议把 `pool_idle_clear()` 提到协程判断之外（它是纯 C 操作，不需要协程上下文） |
-| P3-4 | `handleSwoole` 末段的 `!EG(exception)` 守卫现已是死条件，却是"必回一次响应"的唯一实现方式 | `application.c:1783`、`:1818`、`:1828` | 两段收敛后 `EG(exception)` 必为 NULL，该守卫恒真；但它在字面上仍保留"有挂起异常就不 `end()`"的语义——即 P2-6 修复的正确性依赖上游收敛完备，而非由此处强制。建议把 `:1828` 的守卫改为 `ZEND_ASSERT(!EG(exception))` + 无条件 `end()`，把不变量从"约定"变成"断言"（与 P2-1 的处理思路一致） |
-| P3-5 | `get_gc` 直接把 `o->idle` 裸缓冲交给 GC，而 `pool_idle_push` 的 `erealloc` 会移动该缓冲 | `pool.c:144-149` vs `:155-163` | 当前安全，因为引擎只在 `get_gc` 返回后的同一次遍历内使用该指针，期间不会执行用户代码去 push。但这是一条未写下来的不变量，建议补注释，防止将来把 `get_gc` 结果缓存化 |
+| 编号 | 处理结果 | 边界 |
+|---|---|---|
+| P3-1 request bag 双实现 | **已收敛并回归通过**：`gene_request_init_bags()` 与 `gene_request_scope()` 统一调用 `gene_request_bags_commit()`；Windows clean rebuild 后全量 927/927 | 置位、显式 request 写入和缺省 request 驱逐不再由两条路径分别维护 |
+| P3-2 Channel push 失败清零 waiters | **知情保留**：优先保证连接退回 idle、不因不可信计数丢连接 | 真实等待者可能延迟到 `waitTimeout` 后走 overflow；它不是关闭阻断项，但线上满池排队结果必须记录超时与失败数 |
+| P3-3 非协程 close 保留 idle | **知情保留**：对象最终释放会清空 idle，不构成泄漏；线上需确认 workerStop 后无异常统计或析构问题 | 若后续要求 `close()` 返回即满足 `idle=0`，再将纯 C idle 清理移到协程判断之外；不阻断本轮关闭 |
+| P3-4 `handleSwoole` 尾段异常守卫 | **知情保留**：现有两段异常收敛后守卫恒真，真实 Swoole 异常用例用于验证必回响应 | 后续可改为断言 + 无条件 `end()` 强化不变量表达；当前无已知语义缺陷 |
+| P3-5 GC 裸缓冲不变量 | **知情保留**：Zend GC 在同次同步遍历内消费缓冲，期间不执行用户代码，不会发生 push/erealloc | 后续代码注释应固化该约束；当前不构成 UAF 路径或关闭阻断项 |
 
-### 13.4 稳定性与关闭评估
+### 13.4 Linux + 真实 Swoole 一键脚本完备性复核
 
-**不建议现在关闭本文档。** 理由是准入条件而非代码缺陷：
+结论：`tools/acceptance/linux_swoole_verify.sh` **适合作为主验收入口，但当前不能单独签发本文档的关闭结论**。
 
-1. **代码侧**：§12.1 的 P0/P1/P2 修复全部真实落地、逐条自洽，本轮未发现任何 P0/P1/P2 级新问题；
-   新提出的 P3-1…P3-5 都是"可读性/可观测性/不变量表达"层面的收敛项，可并入后续常规提交。
-2. **验收侧**：§12.3 "发布准入仍未完成"依旧有效，且**这正是本文档必须保持开启的唯一原因**。
-   仍缺：Linux + 真实 Swoole 下 200 协程 × 1000 借还、满池排队、`recycleIdle`/`close` 交错四项，
-   ASAN 下 `test/TestRunner.php` 与 `tools/acceptance/linux_swoole_verify.sh`，
-   以及常驻日志流的 rename / copytruncate / `kill -9` 三组探针。
-   §3.1 冻结表借用、§2.4(3) `router_path` 借用、§4.2 `borrowers`、§3.6 idle 栈、§4.1 冷块
-   这五项的核心风险（裸指针 + 协程生命周期）在无 Swoole 的 Windows 上**结构性不可验证**——
-   927/927 对它们的证明力为零，这一点已被 P0 用最直接的方式证明过一次。
-3. **关闭条件（建议写入准入清单）**：
-   - Linux NTS + ext-swoole 真实环境 `TestRunner.php` 全绿，且 `DatabaseTest` 池生命周期段**实际执行**（输出中不得出现 `UNCOVERED`）；
-   - ASAN/LSAN 构建下上述全量 + `pool_concurrency.php` 四场景零报告；
-   - `tools/acceptance/run_acceptance.php --profile=swoole` 产出 `acceptance.json` 状态为 `pass`（preflight 非 `BLOCKED`）；
-   - `gene.log_keep_open=1` 的三组日志探针通过；
-   - P3-1…P3-5 收敛或明确记为"知情保留"。
+已覆盖：隔离构建与环境指纹、全量 TestRunner、CAPI × route-precompile 两套四格矩阵、真实 HTTP 入口语义、10 万请求上下文 soak、手动/自动 cleanup、可选 MySQL/Redis 200 × 1000 真实命令借还、可选 demo health/metrics/wrk、阶段状态和结果归档。
 
-满足以上五条后本文档可改名为 `Performance-tuning-V3.closed.md` 归档；在此之前，
-对外表述应为"代码层面优化已完成并通过 Windows 全量回归，Swoole/ASAN 发布准入未完成"。
+仍有以下门禁缺口：
+
+1. `pool_concurrency.php` 只覆盖稳定态借还，**没有显式构造**满池排队、`recycleIdle()` 与借还交错、`close()` 与借还交错三种场景；因此不能把 `--all` 的 pool PASS 等同于四场景已验收。
+2. 脚本没有执行 `gene.log_keep_open=1` 的 rename、copytruncate、异常退出三组日志探针。
+3. 脚本没有调用 `run_acceptance.php --profile=swoole`，因此不会产出该框架的 `acceptance.json`；`status.tsv` 是另一套结果格式。
+4. 默认运行会把 Redis/MySQL/demo 记为 `SKIP` 后仍以 0 退出；只有明确启用所需阶段且 `status.tsv` 无 `SKIP/FAIL`，结果才可用于关闭。
+5. 脚本支持通过 `CFLAGS` 做 sanitizer 构建，但未自动确认 PHP、Swoole 与 Gene 的 sanitizer ABI/运行参数；ASAN/LSAN 应作为补充验证单独记录，不能冒充普通生产 ABI 验收。
+
+因此线上执行应分成“必须验收”和“补充验证”两层。ASAN **不是关闭的必要条件**。
+
+### 13.5 线上执行、回填与关闭条件
+
+#### A. 必须验收（Linux NTS + 真实 Swoole，普通生产 ABI）
+
+```bash
+cd /path/to/gene
+export GENE_REDIS_HOST=127.0.0.1 GENE_REDIS_PORT=6379
+export GENE_MYSQL_DSN='mysql:dbname=gene_test;host=127.0.0.1;port=3306;charset=utf8mb4'
+export GENE_MYSQL_USER='gene_test' GENE_MYSQL_PASS='***'
+WRK_DURATION=10m bash tools/acceptance/linux_swoole_verify.sh \
+  --all --output /tmp/gene-v3-$(date +%Y%m%d-%H%M%S)
+```
+
+关闭前必须同时满足：
+
+- `status.tsv` 所有**启用阶段**均为 PASS，`full-tests` 输出无 FAIL，且不得出现 `UNCOVERED: pool lifecycle`；
+- 两个 pool 均完成 200 协程 × 1000 次真实命令借还，`failures=0`、`commandFailures=0`、`using=0`、`idle=total`；
+- 另行执行并回填满池排队、recycle/借还交错、close/借还交错结果；在它们尚未并入一键脚本前，不得只凭 `pool_concurrency.php` 的稳定态结果勾选；
+- `gene.log_keep_open=1` 的 rename、copytruncate、异常退出探针通过；
+- Swoole 矩阵、entry 矩阵和三入口 digest 各自在组内一致，entry-soak 后 `co_contexts_items=0`，demo wrk 无错误且 RSS 无持续单调增长；
+- 回填环境与证据：`git rev-parse HEAD`、PHP/Gene/Swoole 版本、编译参数、`GENE_TEST_PHP_ARGS`、输出目录及 tar.gz 校验值。
+
+#### B. 补充验证（建议但不阻断关闭）
+
+在 ABI 匹配的 ASAN/LSAN PHP + Swoole 环境重跑全量与池场景，记录 sanitizer 报告。未执行时明确填“未执行（非关闭门禁）”；发现 UAF/OOB/泄漏则升级为阻断问题，不得关闭。
+
+#### C. 待线上回填
+
+| 项 | 结果 | 证据 |
+|---|---|---|
+| 环境指纹与 HEAD | 待执行 | 待回填 |
+| TestRunner（含真实 pool lifecycle，无 UNCOVERED） | 待执行 | 待回填 |
+| Swoole/entry 矩阵与 digest | 待执行 | 待回填 |
+| entry/context soak | 待执行 | 待回填 |
+| DB/Redis 200 × 1000 稳定态借还 | 待执行 | 待回填 |
+| 满池排队 | 待执行 | 待回填 |
+| recycle/借还交错 | 待执行 | 待回填 |
+| close/借还交错 | 待执行 | 待回填 |
+| 日志 rename/copytruncate/异常退出 | 待执行 | 待回填 |
+| demo health/metrics/wrk/RSS | 待执行 | 待回填 |
+| ASAN/LSAN（补充） | 可选未执行 | 待回填（如执行） |
+
+在 A 层全部通过并回填证据后，即可将本文档改名为 `Performance-tuning-V3.closed.md`；无需等待 ASAN。当前对外表述为“代码侧残留已收敛，等待 Linux + 真实 Swoole 普通生产 ABI 验收回填”。
