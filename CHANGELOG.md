@@ -1,5 +1,66 @@
 # Gene Framework Changelog
 
+## [6.2.5]
+
+> 本版落地 `plan/Performance-tuning-V3.md` 全部三阶段代码级优化（NTS 锁编译期消除、路由/DI/Db/日志热路径去分配、冻结框架表零拷贝、ctx 冷热分离、双连接池 C 层 idle 栈），并收敛第二轮独立代码审计的全部残留（P0 池 idle 栈索引缺陷、waiters bailout 配平、日志流所有权、框架表 dirty 回退、`view_fresh` 上限、`handleSwoole` 兜底 500）；新增 4 项 INI 与一批 Monitor 可观测字段。Linux + 真实 Swoole 主门禁已线上回填（`linux_swoole_verify.sh --all` 17/17 PASS，归档 `gene-v3-20260921-212542`），满池排队/recycle·close 交错/日志探针场景待补（见 plan 文 §13.5）。
+
+### ✨ 新增
+
+- **4 项新 INI**：`gene.view_stat_ttl`（默认 0=不去重；开启后请求内 view/autoload 的重复 `stat` 经 `view_fresh` 表去重，RSHUTDOWN 清空）、`gene.view_fresh_max`（默认 512，`view_fresh` 表上限，达上限且遇新 key 时清空重建）、`gene.log_keep_open`（默认关；开启后 `Gene\Log` 按路径持有**非持久**无缓冲 `php_stream`，带 inode/size 身份检查支持 logrotate，shutdown 正常关闭；关闭时行为与旧版逐条 `error_log` 一致）、`gene.log_reopen_interval`（默认 5s，常驻日志流重开间隔）。
+- **`Monitor::stats()` 新字段**：`framework_cache_dirty`（框架表 post-freeze 写尝试标志，置位后冻结表零拷贝读自动停用）、`view_fresh_items`/`view_fresh_bytes`/`view_fresh_max`、`fn_cache_bytes`、`validate_ext_items`/`validate_ext_bytes`、`closure_src_cache_bytes`（字节数按 `nTableSize * sizeof(Bucket)` 估算）。
+- **`Gene\Memory::delete()`**：`del()` 的别名，补齐 Session 存储句柄 get/set/delete 契约，可作 `session.driver` 的零依赖本地实现。
+- **demo 自包含验收模式**：`GENE_DEMO_LOCAL=1` 时 `config.ini.php` 将 db 切到 `demo/database/gene_demo.db`（`demo/database/init_sqlite.php` 幂等初始化）、session driver 与 cache hook 切到新增的 `Ext\LocalStore`（包 `Gene\Memory`），swoole 入口只建 `dbPool`；`linux_swoole_verify.sh --demo` 全程不依赖外部应用。
+
+### 🐞 修复
+
+- **P0 连接池 idle 栈索引缺陷**：`Gene\Pool`/`Gene\Cache\RedisPool` 的 idle 队列原复用 `HashTable` 尾删，但 `nNextFreeElement` 真实语义与"尾索引复用"假设不符，特定借还序列下连接可被覆盖丢失；两个池改为裸 C LIFO 栈（`zval *idle` + `idle_ts` 时间戳，`erealloc` 倍增），`get/put/recycleIdle/close/stats` 全走 C 层，`Channel` 只保留阻塞 waiter 唤醒。
+- **waiters 计数 bailout 配平**：池 `get()` 内对会 bailout 的 PHP 方法调用包 `zend_try/zend_catch`，异常穿过时 `waiters--` 不丢；Channel push 失败回退 idle，连接不再被静默丢弃。
+- **`handleSwoole` 挂起异常兜底 500**：dispatch 或 catch 回调再抛留下的残留异常统一记录、清除并补 `status(500)`，沿统一 buffer 收敛与 `end()` 保证终止响应，不再出现请求悬挂。
+- **`Gene\Log` 常驻流双关所有权**：原实现把流同时挂 `persistent_list` 与模块自管关闭构成双关释放风险；改为普通非持久流 + `PHP_STREAM_OPTION_WRITE_BUFFER = PHP_STREAM_BUFFER_NONE`，每行一次 `write` 恢复 `O_APPEND` 原子性，FPM 回落 `error_log(type=3)`。
+- **框架表 post-freeze 写防御回退**：新增 `framework_cache_dirty` 标志，`gene_memory_set/del` 在 `worker_ready` 后命中框架表（即便写入被拒）即置位，借用分支追加 `!framework_cache_dirty`——宁可退化拷贝，不可悬垂读。
+- **scope/re-init 残留 REQUEST 袋**：`gene_request_scope()` 与 `init_bags()` 统一走 `gene_request_bags_commit()`；无显式 request 参数时驱逐旧合并袋，修复 re-init 后残留旧 `$_REQUEST` 物化值的回归。
+- **池对象 GC 可见性**：两个池自定义对象实现 `get_gc` 暴露连续 idle zval 区并显式 `clone_obj = NULL`，`free_obj` 销毁全部 idle 引用，杜绝 GC 漏扫。
+- **DI `_` 键漏计**：`di_class_keys` 计数覆盖所有 `di_regs` 写入者，修复漏计导致 `$this->x` 类级覆盖失效。
+- **`log.c` 头文件顺序**：`json.h` 移到 `gene.h` 之后包含，修复 `GENE_MINIT_FUNCTION` 未定义的构建错误。
+
+### ⚡ 性能（V3 全案落地）
+
+- **NTS 锁编译期消除**：缓存/业务分区读写锁在 NTS 构建下整体编译为 no-op，热路径零原子操作。
+- **路由热路径**：短 `m/c/a` 名内联 `ctx->mca_buf[3][32]`（长名回落堆分配）；直接使用 `ctx->path_len`；常量键 `ZEND_STRL` 查找；无 prefix/langs 改写时零路径拷贝；Swoole post-workerReady 借用冻结路由树持久串（`router_path_owned` 所有权位）；退役 route descriptor 增加 `borrowers` 计数，无人借用即回收，不再滞留到 MSHUTDOWN。
+- **请求袋惰性化**：空袋共享 `ZVAL_EMPTY_ARRAY`；`$_REQUEST` 在首次未命中时才由已存 GET/POST 合并物化。
+- **DI/调用缓存**：alias 表为空时借用调用方 `zend_string`；`di_class_keys` 快路径（无类级注册时 `$this->x` 直进普通解析）；NTS 下缓存 `Application::run`/`Log::exception`/`Crypto::randomid` 方法指针，Swoole response `status`/`isWritable` 以 CE 指针作失效键。
+- **Db 属性槽位**：`pdo.h/pdo.c` 新增声明属性偏移表，四驱动属性读写走 slot 直访；惰性执行与 `history()` 快照语义不变。
+- **冻结框架表零拷贝**：`runtime_type>=2 && worker_ready && !business && !framework_cache_dirty` 时借用 PERMANENT 串/IMMUTABLE 数组（同 opcache 共享形态），用户写靠 COW；业务读仍走 owned copy。
+- **输出零拷贝**：Swoole 已 `end` 的响应跳过 `php_output_get_contents()` body 物化；JSON 响应直接编码进 `smart_str`；日志路径分配与拷贝削减。
+- **ctx 冷热分离**：`gene_request_context` 收缩为热字段，其余请求态迁入 `gene_ctx_cold` 懒分配块（首次访问物化），四驱动 `db_*_history` 合并为 `cold->db_history`；`reset()` 清字段保留块供池化复用。
+- **代码形态**：`gene_request_ctx()` FPM 快路径内联（`runtime_type<2` → `&default_ctx`），协程路径收敛 `gene_request_ctx_slow()`；回退分支加 `UNEXPECTED`。
+
+### ✅ 测试与验收
+
+- 真实 Swoole 下 pool lifecycle 用例由 `UNCOVERED` 标记转为真实执行（无 Swoole 时明确 `UNCOVERED`，不再以降级分支冒充覆盖）；Windows 927/927、Linux 939/939 全量回归。
+- `linux_swoole_verify.sh --all` 17 阶段线上 PASS：entry 三入口 digest 一致、10 万请求 soak（`co_contexts_items=0`）、DB/Redis 池 200×1000 `failures=0`、demo wrk 2m 20120 req/s 0 错误、worker RSS 平稳。
+- `mysql_redis_verify.sh`、`linux_swoole_profile.sh` 健壮性增强；demo 自包含验收接入一键脚本 `--demo`。
+
+### 📝 文档与计划
+
+- `plan/Performance-tuning-V3.md` 全案与两轮代码审计记录（§13.5 线上回填表）；`docs/CONFIGURATION.md` 登记新 INI；`AGENTS.md` 补 php-sdk 2.3.0 `wmic` 缺失绕过（`PHP_SDK_OS_ARCH_NUM=9`）及池惰性写/Monitor 语义约定。
+
+### 🔧 修改文件一览
+
+- `src/gene.c` / `src/gene.h` — 4 项新 INI、`framework_cache_dirty`/`view_fresh` 全局、ctx 冷热分离结构、版本号 6.2.5
+- `src/db/pool.c` / `src/cache/redis_pool.c` — C 层 idle 栈、bailout-safe waiters、`get_gc`/`clone_obj`
+- `src/db/pdo.{c,h}` + `src/db/{mysql,sqlite,pgsql,mssql}.c` — 声明属性槽位
+- `src/router/router.c` — `mca_buf`、`path_len`、`ZEND_STRL`、`router_path` 借用、retired `borrowers`
+- `src/http/request.c` / `src/http/context.{c,h}` — 惰性袋、`bags_commit`、REQUEST 驱逐
+- `src/http/json.{c,h}` — 响应直编码 `smart_str`
+- `src/http/response.c` — 已 `end` 跳过 body 物化
+- `src/di/di.c` — alias 借用、`di_class_keys`、`_` 计数修复
+- `src/cache/memory.{c,h}` — 冻结表零拷贝、`framework_cache_dirty`、`delete` 别名
+- `src/tool/log.c` — 非持久无缓冲流、`log_keep_open`/`log_reopen_interval`、分配削减
+- `src/mvc/view.c` / `src/factory/load.c` — `stat` 去重、`view_fresh` 表
+- `src/tool/monitor.c` — 新字段导出；`src/app/application.c` — 方法缓存、兜底 500、输出收敛
+- `demo/` — `GENE_DEMO_LOCAL`、`Ext\LocalStore`、sqlite 初始化、UI 刷新；`test/`、`tools/acceptance/` — 回归与验收脚本
+
 ## [6.2.4]
 
 > 本版为修正版：`bootstrap()` 新增 `debug`/`ex_callback`/`error_callback` 透传 `setMode` 全参；修复三处功能缺陷——路由整数事件名静默失效、DB `history()` 快照被引擎续写（COW 违例）、`Validate::name()` 未播种 FIELD 导致 `rule_*()` 直调失效。
