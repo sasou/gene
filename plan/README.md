@@ -28,8 +28,7 @@
 | [application-entry-runtime.closed.md](application-entry-runtime.closed.md) | FPM/Swoole 入口收口（请求适配、派发清理、环境装载与 Pool 边界） | 关闭（6.2.3 全部落地，见文内实施记录） |
 | [gene_swoole_uaf_fix.closed.md](gene_swoole_uaf_fix.closed.md) | Swoole worker signal 11 的 UAF 根因与最小改动修复 | 关闭（修复已落地；3 项观察项移交 `audit-backlog.md` §七） |
 | [Performance-tuning-V1.closed.md](Performance-tuning-V1.closed.md) | 极致并发优化 V1：已完成项目的实现与验收结果 | 关闭（归档存证，后续由 V2 承接） |
-| [Performance-tuning-V2.md](Performance-tuning-V2.md) | 极致并发优化 V2：自动化验收规范与尚待实现项 | 进行中 |
-| [Performance-tuning-V3.md](Performance-tuning-V3.md) | 极致并发优化 V3：源码复核得出的代码级优化点（NTS 锁消除、请求装载零分配、路由/DI 分配削减、Db 属性槽位、冻结表零拷贝、ctx 冷热分离、Pool 去 PHP 调用等），附不变量与验证要点 | 进行中（审计修复完成；线上主门禁 17/17 PASS 已回填 §13.5，余满池排队/交错/日志探针/HEAD 指纹待补） |
+| [Performance-tuning-V2.closed.md](Performance-tuning-V2.closed.md) | 极致并发优化 V2（原 V3 更名）：源码复核得出的代码级优化点（NTS 锁消除、请求装载零分配、路由/DI 分配削减、Db 属性槽位、冻结表零拷贝、ctx 冷热分离、Pool 去 PHP 调用等），附不变量与两轮线上验收回填 | 关闭（2026-09-21；两轮线上回填 17/17 + 20/20 PASS；前身验收规范稿同日废弃删除；HEAD 指纹等遗留项见 `audit-backlog.md` §四） |
 | [audit-backlog.md](audit-backlog.md) | 审计驱动待办（F3/F4、模块缺口、性能观测项、O6/O7 Linux 验证、文档/测试缺口） | 进行中（持续维护） |
 
 状态约定：`候选`/`进行中` → 有待办项，文件名保持 `*.md`；`关闭` → 方案已落地或归档存证，不再维护待办，文件名加 `.closed.md` 后缀（遗留待验证项移交 `audit-backlog.md`）。

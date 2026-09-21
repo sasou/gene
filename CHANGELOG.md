@@ -2,7 +2,7 @@
 
 ## [6.2.5]
 
-> 本版落地 `plan/Performance-tuning-V3.md` 全部三阶段代码级优化（NTS 锁编译期消除、路由/DI/Db/日志热路径去分配、冻结框架表零拷贝、ctx 冷热分离、双连接池 C 层 idle 栈），并收敛第二轮独立代码审计的全部残留（P0 池 idle 栈索引缺陷、waiters bailout 配平、日志流所有权、框架表 dirty 回退、`view_fresh` 上限、`handleSwoole` 兜底 500）；新增 4 项 INI 与一批 Monitor 可观测字段。Linux + 真实 Swoole 主门禁已线上回填（`linux_swoole_verify.sh --all` 17/17 PASS，归档 `gene-v3-20260921-212542`），满池排队/recycle·close 交错/日志探针场景待补（见 plan 文 §13.5）。
+> 本版落地 `plan/Performance-tuning-V2.closed.md`（原名 `Performance-tuning-V3.md`）全部三阶段代码级优化（NTS 锁编译期消除、路由/DI/Db/日志热路径去分配、冻结框架表零拷贝、ctx 冷热分离、双连接池 C 层 idle 栈），并收敛第二轮独立代码审计的全部残留（P0 池 idle 栈索引缺陷、waiters bailout 配平、日志流所有权、框架表 dirty 回退、`view_fresh` 上限、`handleSwoole` 兜底 500）；新增 4 项 INI 与一批 Monitor 可观测字段。Linux + 真实 Swoole 门禁已两轮线上回填：首轮 17/17 PASS（归档 `gene-v3-20260921-212542`）、第二轮 20/20 PASS（归档 `gene-v3-20260921-224917`，含满池排队/recycle·close 交错/日志 rename·copytruncate·异常退出探针），见 plan 文 §13.5。
 
 ### ✨ 新增
 
@@ -43,7 +43,7 @@
 
 ### 📝 文档与计划
 
-- `plan/Performance-tuning-V3.md` 全案与两轮代码审计记录（§13.5 线上回填表）；`docs/CONFIGURATION.md` 登记新 INI；`AGENTS.md` 补 php-sdk 2.3.0 `wmic` 缺失绕过（`PHP_SDK_OS_ARCH_NUM=9`）及池惰性写/Monitor 语义约定。
+- `plan/Performance-tuning-V2.closed.md`（原 `Performance-tuning-V3.md`）全案与两轮代码审计记录（§13.5 线上回填表）；`docs/CONFIGURATION.md` 登记新 INI；`AGENTS.md` 补 php-sdk 2.3.0 `wmic` 缺失绕过（`PHP_SDK_OS_ARCH_NUM=9`）及池惰性写/Monitor 语义约定。
 
 ### 🔧 修改文件一览
 
