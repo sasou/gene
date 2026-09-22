@@ -1069,6 +1069,49 @@ class DatabaseTest
     }
 
     /**
+     * [GENE_FIX:2026-09-22] Swoole + workerReady used to borrow every array in
+     * gene_memory_zval_local, including the temporary bind list of
+     * ->sql($sql, [$a, $b])->all(). The temporary dies before all(), and PDO
+     * then reads a freed bucket. Must run last: workerReady() freezes the
+     * process cache for the rest of this process.
+     */
+    public function testSwooleTemporaryBindSurvivesExecute()
+    {
+        echo "Testing Swoole temporary bind lifetime:\n";
+
+        $prev = \Gene\Application::getRuntimeType();
+        try {
+            \Gene\Application::setRuntimeType('swoole');
+            \Gene\Application::workerReady();
+
+            $db = new \Gene\Db\Sqlite(['dsn' => 'sqlite::memory:']);
+            $db->sql('CREATE TABLE t (id INTEGER PRIMARY KEY, name TEXT)')->execute();
+            $db->sql('INSERT INTO t (id, name) VALUES (?, ?)', [1, 'alice'])->execute();
+
+            $rows = $db->sql('SELECT name FROM t WHERE id=? AND name=?', [1, 'alice'])->all();
+            if (is_array($rows) && ($rows[0]['name'] ?? null) === 'alice') {
+                echo "✓ sql(\$sql, [temp, temp])->all() after workerReady keeps both binds\n";
+            } else {
+                $this->fail('temporary sql() binds lost: ' . json_encode($rows));
+            }
+
+            $id = 1;
+            $rows = $db->select('t')->where('id=?', [$id])->all();
+            if (is_array($rows) && count($rows) === 1 && ($rows[0]['name'] ?? null) === 'alice') {
+                echo "✓ where('id=?', [temp])->all() after workerReady keeps the bind\n";
+            } else {
+                $this->fail('temporary where() bind lost: ' . json_encode($rows));
+            }
+        } catch (Throwable $e) {
+            $this->reportCaught($e);
+        } finally {
+            \Gene\Application::setRuntimeType($prev);
+        }
+
+        echo "\n";
+    }
+
+    /**
      * Run all tests
      */
     public function runAllTests()
@@ -1086,6 +1129,7 @@ class DatabaseTest
         $this->testSqliteV2WriteApis();
         $this->testTransactionCallback();
         $this->testTxHygiene();
+        $this->testSwooleTemporaryBindSurvivesExecute();
 
         echo "=== Database Classes Test Suite Complete ===\n";
         echo "Summary: failed={$this->failed}, skipped={$this->skipped}\n";
