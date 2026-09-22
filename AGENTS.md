@@ -109,6 +109,7 @@ F:\php-sdk-2.6.0\phpsdk-vs16-x64.bat -t task.bat
 - 遇到 `Unsupported OS arch` 或 `'wmic' 不是内部或外部命令`：新版 Windows 已移除 php-sdk 2.3.0 用于探测架构的 `wmic`。调用 SDK 前设置 `PHP_SDK_OS_ARCH_NUM=9`（9 表示 x64）。
 - Makefile 必须在 x64 环境生成：`BUILD_DIR=x64\Release`，且不得包含 `_USE_32BIT_TIME_T`。若曾在 x86 环境重新 configure，须在 `phpsdk-vs16-x64` 环境重跑 `config.nice.bat`。
 - Windows SDK 10.0.26100.0 的 `corecrt.h` 会对 x64 构建中出现的 `_USE_32BIT_TIME_T` 报 `#error`。
+- Windwos下需要保持src/*.c,*.h 为 UTF-8 with BOM编码，不然会出现warnings。
 - 部署前确认 WampServer 的 httpd/php-cgi 未锁定旧 DLL，再执行覆盖。
 
 ## 验证与测试
