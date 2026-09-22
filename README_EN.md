@@ -1,419 +1,289 @@
 <div align="center">
-  <img src="images/logo.png" width="160" alt="Gene Framework Logo">
+  <img src="images/logo.png" width="152" alt="Gene Framework Logo">
   <h1>Gene Framework</h1>
-  <p><strong>A fast, flexible, and production-oriented high-performance PHP C extension framework</strong></p>
-  <p>⚡ Pure C core execution paths · 🚀 Native PHP-FPM and Swoole resident coroutine support</p>
+  <p><strong>Move PHP's critical framework paths into the C extension layer.</strong></p>
+  <p>A high-performance full-stack framework for concurrent APIs, enterprise web applications, and resident Swoole services</p>
 
-[![PHP](https://img.shields.io/badge/PHP-8.0~8.5-777BB4?style=flat-square&logo=php&logoColor=white)](https://www.php.net/)
-[![Language](https://img.shields.io/badge/Language-C-00599C?style=flat-square&logo=c&logoColor=white)](https://en.wikipedia.org/wiki/C_(programming_language))
-[![Release](https://img.shields.io/badge/Release-v6.2.5-blue?style=flat-square&logo=github)](https://github.com/sasou/php-gene/releases)
-[![Swoole](https://img.shields.io/badge/Swoole-Supported-brightgreen?style=flat-square&logo=swoole&logoColor=white)](https://www.swoole.com/)
-[![Platform](https://img.shields.io/badge/Platform-Linux%20|%20macOS%20|%20Windows-lightgrey?style=flat-square&logo=linux&logoColor=white)](https://github.com/sasou/php-gene)
-[![License](https://img.shields.io/badge/License-PHP%203.01-green.svg?style=flat-square)](http://www.php.net/license/3_01.txt)
-[![Website](https://img.shields.io/badge/Website-1xm.net-orange.svg?style=flat-square)](https://www.1xm.net/)
+[![PHP](https://img.shields.io/badge/PHP-8.0--8.5-777BB4?style=for-the-badge&logo=php&logoColor=white)](https://www.php.net/)
+[![Release](https://img.shields.io/badge/Release-6.2.5-2563EB?style=for-the-badge&logo=github&logoColor=white)](https://github.com/sasou/php-gene/releases)
+[![Swoole](https://img.shields.io/badge/Swoole-Ready-16A34A?style=for-the-badge)](https://www.swoole.com/)
+[![License](https://img.shields.io/badge/License-PHP_3.01-0F766E?style=for-the-badge)](http://www.php.net/license/3_01.txt)
 
-[🇨🇳 简体中文](README.md) &nbsp;·&nbsp; [🇬🇧 English](README_EN.md)
+[简体中文](README.md) · [English](README_EN.md) · [Configuration](docs/CONFIGURATION.md) · [Website](https://www.1xm.net/)
 </div>
 
 ---
 
-<p align="center">
-  <a href="#framework-introduction">📖 Introduction</a> &nbsp;|&nbsp;
-  <a href="#architecture">🏛️ Architecture</a> &nbsp;|&nbsp;
-  <a href="#620-highlights">✨ Highlights</a> &nbsp;|&nbsp;
-  <a href="#core-capabilities">🧩 Capabilities</a> &nbsp;|&nbsp;
-  <a href="#system-requirements">💻 Requirements</a> &nbsp;|&nbsp;
-  <a href="#quick-start">🚀 Quick Start</a> &nbsp;|&nbsp;
-  <a href="#runtime-modes">🔄 Runtime Modes</a> &nbsp;|&nbsp;
-  <a href="#performance-and-capacity">📊 Performance</a>
-</p>
+## Engineered for performance. Designed for production.
 
-> 💡 **Gene 6.2.5** — V3 code-level optimizations fully landed (compile-time NTS lock elimination, allocation cuts on router/DI/Db/log hot paths, frozen framework-table zero-copy reads, hot/cold request-context split, C-layer idle stacks for both connection pools) plus second-round audit fixes; four new INI entries (`view_stat_ttl`/`view_fresh_max`/`log_keep_open`/`log_reopen_interval`) and new `Monitor::stats()` telemetry; Linux + real Swoole gate 17/17 PASS.
+Gene is a web application framework delivered as a **PHP extension**, with its core capabilities implemented in **C**. Routing, dependency injection, database access, ORM, caching, request context, and common web primitives run at the extension layer—preserving PHP's development experience while shortening the framework's internal execution path.
 
----
+Gene supports the proven **PHP-FPM** request model and provides first-class architecture for **resident Swoole workers and coroutine concurrency**, including context isolation, connection pools, lifecycle orchestration, and observability. The same application architecture can evolve from a conventional web service into a high-concurrency resident service.
 
-<a id="framework-introduction"></a>
-## 📖 Framework Introduction
+<table>
+<tr>
+<td width="33%" valign="top">
+<strong>C-Level Critical Paths</strong><br><br>
+Routing, component dispatch, DI, and query construction execute in the extension layer, reducing bootstrap, file loading, and userland dispatch overhead.
+</td>
+<td width="33%" valign="top">
+<strong>Dual-Runtime Architecture</strong><br><br>
+Native PHP-FPM and Swoole support, with coroutine-local Context, request snapshots, explicit cleanup, and resource reuse for resident workers.
+</td>
+<td width="33%" valign="top">
+<strong>Production-Ready Stack</strong><br><br>
+MVC, ORM, caching, pools, HTTP, sessions, security, and monitoring cover the complete service lifecycle in one coherent framework.
+</td>
+</tr>
+</table>
 
-Gene is a Web application framework written in C and distributed as a high-performance PHP extension. It implements routing lookup, dependency injection, ORM, caching management, HTTP client, request context, and common Web primitives directly at the extension layer while natively supporting both the traditional PHP-FPM request model and Swoole resident coroutine workers.
+> **Gene 6.2.5** delivers optimized router, DI, database, and logging hot paths; zero-copy reads for frozen framework tables; hot/cold Context separation; C-level idle stacks for both database and Redis pools; and expanded view, logging, and Monitor telemetry. The Linux + real Swoole release gate passes 17/17 checks.
 
-**🌟 Core Advantages:**
+## Why Gene
 
-- ⚡ **Extension-Level Execution Paths**: Core components run in pure C, substantially reducing framework bootstrap, file-loading, and userland dispatch overhead.
-- 🔄 **Native Dual-Runtime Models**: The same application codebase seamlessly runs on PHP-FPM or Swoole, providing complete coroutine-local context isolation and explicit cleanup for resident workers.
-- 🧰 **Complete Out-of-the-Box Stack**: Built-in routing, IoC/DI container, four mainstream PDO drivers, advanced ORM, caching abstractions, connection pools, outbound HTTP client, sessions, validation, logging, view engine, and CLI tooling.
-- 🛡️ **Safe & Structured Query Construction**: Structured conditions, automatic identifier quoting, and strict parameter binding are applied throughout JOIN, WHERE, IN, UNION, and atomic updates.
-- 📈 **Deep Observability & Governance**: Worker-local cache and pool statistics, request counters, capacity watermarks, idle connection recycling, and automated diagnostics.
+### Speed without sacrificing clarity
 
----
+Gene does not merely place a conventional PHP framework inside a resident process. It redesigns critical execution paths around C-level routing and dispatch, in-process configuration and route caches, batch and atomic data operations, and coroutine-aware connection reuse. Application code remains familiar, expressive PHP.
 
-<a id="architecture"></a>
-## 🏛️ Architecture
+### One codebase, two runtime models
 
-### 🪶 Lightweight Composition
-
-- 🧩 **Composable Components**: Use components independently or combine Application, Router, Controller, Hook, and DI into a complete enterprise-grade application.
-- 🔒 **Strict Request Isolation**: FPM adheres to the standard request lifecycle; Swoole leverages coroutine-local context and request snapshots to eliminate cross-request data leaks.
-- 🗄️ **Multi-Database Support**: MySQL, SQL Server, PostgreSQL, and SQLite share unified query-building APIs while preserving driver-specific identifier syntax and dialect features.
-- 🎯 **Explicit Behavior & Zero Magic**: Compound queries, Context injection, internal dispatch, and caching operations utilize clear, explicit APIs to minimize hidden side effects.
-
-### ⚡ Performance Design
-
-- ⚡ **C-Level Routing & Fast Dispatch**: Route tree lookups, Controller invocations, and Hook dispatches stay inside the C extension layer, bypassing userland middleware overhead.
-- 💾 **High-Performance In-Process Cache**: Global configurations, compiled routes, and hot business data can reside in worker memory with capacity limits, approximate LRU eviction, and TTL governance.
-- 🏊 **Automated Connection Pooling**: Swoole mode features built-in database and Redis connection pools with capacity autoscaling, wait timeout protection, idle connection recycling, and health checks.
-- 🚀 **Coroutine Hot-Path Optimization**: Context pooling/reuse, coroutine-ID fast paths, and optional automatic cleanup are tailored for high-concurrency microservices and resident workers.
-- 📦 **Batch & Atomic Operations**: Batch cache/write APIs, upsert (conflict updates), atomic counters, and single-statement arithmetic updates reduce round trips and race windows.
-- 🌐 **Adaptive Outbound HTTP**: Uses fast libcurl under FPM/CLI and automatically switches to non-blocking coroutine clients under Swoole, preventing blocking curl operations in coroutines.
-
-### 🛡️ Stability Design
-
-- 🔄 **Symmetric Lifecycles**: Strict lifecycle management across extension initialization/shutdown (MINIT/MSHUTDOWN), request startup/shutdown (RINIT/RSHUTDOWN), and Swoole context lifecycles.
-- 🧬 **Coroutine-Level Context Boundaries**: Context, Request, Response, and runtime state are strictly scoped to the active coroutine, offering both explicit and automatic cleanup paths.
-- 🧼 **Resource Hygiene Safeguards**: Connection pools include automatic transaction rollback on leak, stale connection pruning, proactive health checks, and diagnostic statistics.
-- 📊 **Fine-Grained Memory Governance**: In-memory caches enforce hard memory thresholds and proactive TTL purging; context tables provide overflow limits, sweep recycling, and telemetry.
-- 🚫 **Fail-Fast Error Boundaries**: Malformed queries, invalid JSON inputs, and conflicting HTTP payloads fail fast prior to execution, preventing ambiguous or partial requests.
-- 🧪 **Multi-Platform Regression Matrix**: Built-in unit test suite, audit reproduction scripts, and automated acceptance toolchains for Windows, macOS, and Linux/Swoole.
-
----
-
-<a id="620-highlights"></a>
-## ✨ 6.2.0 Highlights
-
-| Area | New in 6.2.0 | Core Benefit |
-|:---|:---|:---|
-| 🗄️ **ORM Queries** | `joinOn()`, `union()`, `unionAll()`, `paginateResult()` | Safely build complex JOINs and UNION queries, and paginate final composite result sets |
-| ✍️ **ORM Writes** | `increment()`, `decrement()` | Perform atomic row-level arithmetic updates in a single SQL statement, eliminating race windows |
-| 🌐 **HTTP Client** | `query`, `form`, multipart fields, strict payload validation | Consistent and validated encoding semantics across curl and Swoole coroutine backends |
-| 📥 **Request Processing** | Unified `Request::input()` merging GET → POST → JSON | Single entry point for input parameters with a shared per-request JSON parsing cache |
-| 🧬 **Context** | `Context::has()` | Strictly distinguish missing keys from explicitly assigned `null` values |
-| 💻 **Platform Support** | PHP 8.0–8.5, Windows x64/x86, macOS build tooling | Comprehensive support across modern development environments, CI/CD, and production platforms |
-
----
-
-<a id="core-capabilities"></a>
-## 🧩 Core Capabilities
-
-| Domain | Capability Matrix |
+| PHP-FPM | Swoole / Coroutine |
 |:---|:---|
-| 🌐 **Routing & Dispatch** | RESTful routing, route groups, dynamic URI parameters, regex matching, Controller forwarding, Hook lifecycle |
-| 💉 **Dependencies & Calls** | IoC/DI container, explicit service instantiation, Controller/Service/Hook injection, fast in-process `Invoke`, local/remote `Rest` |
-| 🗄️ **Database & ORM** | MySQL / SQL Server / PostgreSQL / SQLite full coverage, transactions, connection pools, structured JOIN, UNION, complex pagination, batch inserts, upsert, row locks, atomic math |
-| ⚡ **Cache & Concurrency** | In-process Memory, Redis, Memcached drivers, versioned caching, batch operations, TTL & LRU eviction, rate limiting, distributed locks, atomic counters |
-| 📡 **HTTP & I/O** | Adaptive curl / Swoole coroutine engines, query / form / json / multipart serialization, `Request::input()`, JSON responses, SSE streaming, file downloads |
-| 🧬 **Request Context** | Coroutine Context isolation, Request snapshot/restore/scope stack, end-to-end request cleanup, optional automatic cleanup |
-| 🔒 **Security & Auth** | Strict validator, Bearer token parsing, multi-driver Session, secure session ID regeneration, HMAC signing, AES-256-GCM encryption |
-| 🛠️ **DevOps & Diagnostics** | Structured Log, Monitor metrics, Benchmark suite, CLI runner, IDE Helper stubs, audit verification scripts |
+| Standard request lifecycle and process-level fault isolation | Resident workers, coroutine concurrency, and minimal initialization overhead |
+| Ideal for conventional web apps, containers, and mature hosting stacks | Ideal for concurrent APIs, microservices, and gateways |
+| Zend reclaims request resources at the end of each request | Context isolation, connection pools, and a unified cleanup lifecycle |
 
----
+### More than components—a production runtime foundation
 
-<a id="system-requirements"></a>
-## 💻 System Requirements
+- **Explicit lifecycles** across MINIT/MSHUTDOWN, RINIT/RSHUTDOWN, and Swoole request contexts.
+- **Reliable data boundaries** through coroutine-local Context, Request snapshot/restore, and explicit scopes.
+- **Built-in resource governance** with pool capacity limits, wait timeouts, idle recycling, health checks, and automatic transaction rollback on leaks.
+- **Controlled memory growth** through cache limits, TTL, approximate LRU, Context watermarks, and resident-process diagnostics.
+- **Fail-fast boundaries** that reject malformed query structures, invalid JSON, and conflicting HTTP payloads before execution.
+- **End-to-end verification** across Windows, macOS, Linux, FPM, and real Swoole environments, including regression, audit reproduction, and soak testing.
 
-### 📦 Required Dependencies
+## Capability Map
 
-- 🐘 **PHP 8.0–8.5** — Requires PHP 8.0 or later; fully tested and verified on PHP 8.1.30, 8.2.33, 8.3.33, 8.4.25, and 8.5.10
-- 🗄️ **PDO Extension** — Required for database operations, supports MySQL, PostgreSQL, SQLite, SQL Server, etc.
+| Domain | Core Capabilities |
+|:---|:---|
+| **Application & Routing** | RESTful routes, groups, dynamic parameters, regex matching, error routes, Controller dispatch, Hook lifecycle |
+| **IoC / DI** | Request-scoped services, configuration fallback, Controller / Service / Hook injection, fast in-process `Invoke` |
+| **Database & ORM** | MySQL, PostgreSQL, SQLite, SQL Server; transactions, structured JOIN, UNION, pagination, batch inserts, upsert, row locks, atomic arithmetic |
+| **Cache & Concurrency** | In-process Memory, Redis, Memcached, versioned cache, batch operations, TTL, approximate LRU, rate limits, distributed locks, atomic counters |
+| **HTTP & I/O** | Adaptive curl / Swoole coroutine client, query, form, JSON, multipart, SSE, JSON responses, and large-file downloads |
+| **Coroutine Runtime** | Context isolation, Request snapshot stack, automatic/manual cleanup, database and Redis pools, Worker bootstrap |
+| **Security & State** | Strict validation, Bearer tokens, multi-backend Session, session ID regeneration, HMAC, AES-256-GCM |
+| **Engineering** | Structured logs, `Monitor::stats()`, Benchmark, CLI, IDE Helper, acceptance harnesses, and audit reproduction tools |
 
-### 🔌 Optional Dependencies
+## 6.2 Series Highlights
 
-**Cache Systems**
-- 🔴 **Redis Extension** — Required for Redis cache and connection pooling: `extension=redis`
-- 🟢 **Memcached Extension** — Required for Memcached cache: `extension=memcached`
+| Capability | Representative API / Mechanism | Value |
+|:---|:---|:---|
+| Complex query composition | `joinOn()`, `union()`, `unionAll()`, `paginateResult()` | Safely compose advanced queries and paginate the final result set |
+| Atomic data updates | `increment()`, `decrement()` | Perform arithmetic updates in one SQL statement and narrow race windows |
+| Unified input model | `Request::input()` | Merge GET → POST → JSON with a shared request-level JSON parse cache |
+| Adaptive HTTP | query, form, JSON, multipart | Preserve payload semantics across curl and Swoole coroutine backends |
+| Precise context checks | `Context::has()` | Distinguish a missing key from an explicit `null` value |
+| Runtime observability | `Monitor::stats()`, slow-query counters, pool metrics | Measure and govern throughput, cache, Context, and pool health |
 
-**High-Performance Resident Mode**
-- 🚀 **Swoole Extension** — Required for resident process mode, coroutine context, and connection pools: `extension=swoole`
+## Architecture at a Glance
 
-**Database Drivers**
-- 🐬 **MySQL PDO Driver** — `extension=pdo_mysql`
-- 🐘 **PostgreSQL PDO Driver** — `extension=pdo_pgsql`
-- 🪶 **SQLite PDO Driver** — `extension=pdo_sqlite`
-- 🪟 **SQL Server PDO Driver** — `extension=pdo_sqlsrv`
+```text
+┌─────────────────────────────────────────────────────────────────────┐
+│                         PHP Application                             │
+│      Controller · Service · Model · Hook · View · Domain Logic     │
+├─────────────────────────────────────────────────────────────────────┤
+│                         Gene C Extension                            │
+│  Router · DI · ORM · Cache · Context · HTTP · Session · Security  │
+├──────────────────────────────┬──────────────────────────────────────┤
+│           PHP-FPM            │        Swoole Resident Worker        │
+│  Standard request lifecycle  │ Coroutine isolation · Pools · Reuse │
+├──────────────────────────────┴──────────────────────────────────────┤
+│ MySQL · PostgreSQL · SQLite · SQL Server · Redis · Memcached       │
+└─────────────────────────────────────────────────────────────────────┘
+```
 
----
+## Quick Start
 
-<a id="quick-start"></a>
-## 🚀 Quick Start
-
-### 1️⃣ Install Framework
+### 1. Build and enable the extension
 
 ```bash
-# Compile and install extension
+cd src
 phpize
-./configure --enable-gene=shared
-make
+./configure --enable-gene=shared --with-php-config="$(command -v php-config)"
+make -j"$(getconf _NPROCESSORS_ONLN 2>/dev/null || echo 2)"
 make install
+```
 
-# Enable extension in php.ini
+Enable Gene in `php.ini`:
+
+```ini
 extension=gene.so
 ```
 
-> 📖 See [Configuration Guide](docs/CONFIGURATION.md) for full INI directive explanations and production recommendations for FPM & Swoole.
+Verify the installation:
 
-### 2️⃣ Create Application Entry
+```bash
+php --ri gene
+```
+
+> On macOS, use `tools/mac_build.sh`. Windows build instructions are available in [AGENTS.md](AGENTS.md). See the [configuration reference](docs/CONFIGURATION.md) for production settings.
+
+### 2. Create the application entry point
 
 ```php
 <?php
-// index.php
+
 $app = \Gene\Application::getInstance();
 $app
-    ->load("router.ini.php")
-    ->load("config.ini.php")
+    ->load('router.ini.php')
+    ->load('config.ini.php')
     ->run();
 ```
 
-### 3️⃣ Configure Routing
+### 3. Register routes
 
 ```php
 <?php
-// router.ini.php
+
 $router = new \Gene\Router();
 $router->clear()
-    ->get("/", "\Controllers\Index@run")
-    ->get("/test", "\Controllers\Index@test", "@clearAll")
-    ->post("/", function() {
-        echo "index post";
-    })
-    ->group("/admin")
-        ->get("/:name/", function($params) {
-            var_dump($params);
-        })
+    ->get('/', '\Controllers\Home@index')
+    ->get('/users/:id', '\Controllers\User@show', '@Auth')
+    ->post('/users', '\Controllers\User@create', '@Auth')
+    ->group('/admin')
+        ->get('/*', '\Controllers\Admin@index', '@AdminAuth')
     ->group()
-    ->error(404, function() {
-        echo "404 Not Found";
+    ->error(404, function () {
+        http_response_code(404);
+        \Gene\Http\Response::json(['error' => 'Not Found']);
     });
 ```
 
-### 4️⃣ Configure Services & Connections
+### 4. Configure services
 
 ```php
 <?php
-// config.ini.php
+
 $config = new \Gene\Config();
 $config->clear();
-
-// Database configuration
-$config->set("db", [
+$config->set('db', [
     'class' => '\Gene\Db\Mysql',
     'params' => [[
-        'dsn' => 'mysql:dbname=gene_demo;host=127.0.0.1;port=3306;charset=utf8',
+        'dsn' => 'mysql:host=127.0.0.1;dbname=gene_demo;charset=utf8mb4',
         'username' => 'root',
         'password' => '',
-        'options' => [PDO::ATTR_PERSISTENT => true]
     ]],
-    'instance' => true
-]);
-
-// Cache configuration
-$config->set("memcache", [
-    'class' => '\Gene\Cache\Memcached',
-    'params' => [[
-        'servers' => [['host' => '127.0.0.1', 'port' => 11211]],
-        'persistent' => true,
-    ]],
-    'instance' => true
+    'instance' => true,
 ]);
 ```
 
-### 5️⃣ Create Controller
+### 5. Write a controller
 
 ```php
 <?php
-// Controllers/Index.php
+
 namespace Controllers;
 
-class Index extends \Gene\Controller
+class Home extends \Gene\Controller
 {
-    public function run()
+    public function index()
     {
-        echo 'Hello World!';
-    }
-    
-    public function test()
-    {
-        $this->view->title = "Gene Documentation";
-        $this->view->display('index', 'common');
+        return \Gene\Http\Response::json([
+            'framework' => 'Gene',
+            'version' => '6.2.5',
+        ]);
     }
 }
 ```
 
-### 6️⃣ Using the Aspect Hook System
-
-Gene Framework provides a native Hook system for Aspect-Oriented Programming (AOP) and lifecycle event interception:
+## Swoole: One Entry Point for the Entire Lifecycle
 
 ```php
 <?php
-// application/Hooks/AdminAuth.php
-namespace Hooks;
 
-class AdminAuth extends \Gene\Hook
-{
-    public function before()
-    {
-        // Admin authorization check
-        if (!$this->checkAdminAuth()) {
-            $this->redirect('/login');
-        }
-    }
-    
-    private function checkAdminAuth()
-    {
-        $token = $this->cookie->get('admin_token');
-        return $token && $this->validateToken($token);
-    }
-}
-
-// application/Hooks/BeforeHook.php
-namespace Hooks;
-
-class BeforeHook extends \Gene\Hook
-{
-    public function before()
-    {
-        // Global before hook: request logging and metrics
-        $this->log->info('Request started: ' . $this->request->uri());
-    }
-}
-
-// application/Hooks/AfterHook.php
-namespace Hooks;
-
-class AfterHook extends \Gene\Hook
-{
-    public function after()
-    {
-        // Global after hook: cleanup, telemetry, etc.
-        $this->log->info('Request finished');
-    }
-}
-```
-
-**Attach Hooks to Routes (router_hook.ini.php):**
-```php
-<?php
-$router = new \Gene\Router();
-$router->clear()
-    ->get("/", "\Controllers\Index@run", "@BeforeHook,AdminAuth")
-    ->post("/api/data", "\Controllers\Api@data", "@AdminAuth")
-    ->group("/admin")
-        ->get("/*", "\Controllers\Admin@dashboard", "@AdminAuth")
-    ->group();
-```
-
-**Hook Features:**
-- ⚙️ **Pure C Extension Dispatch**: Loaded and dispatched directly by the C engine, eliminating deep userland call stacks
-- 🔄 **Full Lifecycle Interception**: Native support for `before`, `after`, and `handle` hook stages
-- 💉 **Built-In Dependency Injection**: Easily inject `request`, `response`, `view`, `session`, and other services
-- 🛡️ **Strict Type Validation**: Enforced at the engine layer via `gene_hook_ce` instance checks
-
----
-
-<a id="runtime-modes"></a>
-## 🔄 Runtime Modes
-
-### 🌐 PHP-FPM Traditional Mode
-
-Ideal for traditional web hosting environments prioritizing process-level isolation and maximum reliability: each request operates in an independent context, and Zend engine reclaims all memory and handles upon request completion.
-
-### ⚡ Swoole Coroutine Resident Mode
-
-Ideal for high-concurrency microservices and resident API gateways, unlocking full coroutine concurrency and resident performance:
-
-```php
-<?php
-// Set Swoole runtime mode
 \Gene\Application::setRuntimeType('swoole');
 
-$http = new swoole_http_server("0.0.0.0", 9501);
-
+$server = new Swoole\Http\Server('0.0.0.0', 9501);
 $app = \Gene\Application::getInstance();
 
-$http->on("request", function ($request, $response) use ($app) {
-    // One-call lifecycle: waitWorkerReady → initSwoole → setResponse → run()
-    // → Throwable boundary (Log::exception + minimal 500) → end(output) → cleanup
+$server->on('WorkerStart', static function () use ($app) {
+    $app->workerReady();
+});
+
+$server->on('Request', static function ($request, $response) use ($app) {
     $app->handleSwoole($request, $response);
 });
 
-$http->start();
+$server->start();
 ```
 
----
+`handleSwoole()` orchestrates Worker readiness, request initialization, Response binding, application execution, the exception boundary, response completion, and Context cleanup—reducing the risk of incomplete hand-written lifecycle code.
 
-<a id="performance-and-capacity"></a>
-## 📊 Performance and Capacity
+## Performance by Design
 
-Gene's performance philosophy is to **minimize internal framework paths, maximize reuse of in-process state, and reduce unnecessary external I/O round trips**:
+Gene avoids context-free benchmark claims. Instead, it provides optimization mechanisms that are explainable and verifiable:
 
-| Critical Scenario | Optimization Mechanisms |
+| Hot Path | Design |
 |:---|:---|
-| 🌐 **Routing & Dispatch** | Pure C hash & tree lookups, optional precompiled cache, direct Controller/Hook dispatch |
-| 💾 **Configuration & Cache** | Worker-local configuration/route caching, memory capacity limits, approximate LRU eviction, TTL, and batch APIs |
-| 🗄️ **Data Access Layer** | Fast PDO query builder, batch writes, upsert, persistent connection reuse, single-statement atomic arithmetic updates |
-| ⚡ **Swoole Resident Mode** | Lightweight coroutine context reuse, automated database & Redis connection pools, non-blocking coroutine HTTP client |
-| 📈 **Global Observability** | `Gene\Monitor::stats()` aggregates real-time request throughput, cache hit rate, context count, and connection pool metrics |
+| Routing & dispatch | C-level hash/tree matching, optional route precompilation, direct Controller and Hook dispatch |
+| Configuration & cache | Worker-local sharing, hard capacity limits, approximate LRU, TTL, and batch APIs |
+| Data access | PDO query builder, batch writes, upsert, atomic updates, and connection reuse |
+| Swoole runtime | Context pool, fast coroutine-ID path, database/Redis pools, and non-blocking HTTP |
+| Observability | Request, cache, Context, slow-query, and pool metrics through `Monitor::stats()` |
 
-> 📌 **Production Benchmark Note**: Actual throughput depends on hardware, PHP/Swoole versions, kernel tuning, network topology, and application logic. We recommend benchmarking with realistic routes and dependencies in your target environment while monitoring latency percentiles, error rates, RSS memory usage, and connection pool wait queues.
+Actual throughput depends on hardware, PHP/Swoole versions, kernel tuning, databases, and application logic. Benchmark realistic routes and dependency graphs in the target environment while tracking p95/p99 latency, error rates, RSS, and pool wait times.
 
----
+## Requirements
 
-<a id="stability-and-production-operations"></a>
-## 🛡️ Stability and Production Operations
+| Type | Requirement |
+|:---|:---|
+| PHP | PHP 8.0–8.5; current matrix covers 8.1.30, 8.2.33, 8.3.33, 8.4.25, and 8.5.10 |
+| Platforms | Linux, macOS, Windows |
+| Required extension | PDO when using database capabilities |
+| Optional extensions | Swoole, Redis, Memcached, and the relevant PDO database drivers |
 
-### 🌐 PHP-FPM
-- ⏱️ **Standard Lifecycle**: Adheres strictly to the PHP request model, allowing Zend engine to reclaim request-scoped resources reliably.
-- 📦 **Simple & Resilient**: Inherent process-level fault isolation, well-suited for traditional deployments and stateless containers.
-- 🔄 **Resource Reuse**: Combine persistent connections (Persistent PDO) and in-process configuration caching to minimize repeated initialization costs.
+## Verification and Production Gates
 
-### ⚡ Swoole
-- 🧬 **Context Isolation & Recycling**: Request data is strictly scoped by coroutine context, backed by `Application::cleanup()` with optional automatic cleanup.
-- 🏊 **Robust Connection Pool Governance**: Database and Redis pools provide capacity limits, queue timeouts, idle recycling, and transaction leak safeguards.
-- 📊 **Proactive Monitoring**: Resident workers should continuously track RSS memory usage, concurrent context counts, pool wait times, and request error rates.
-- 🧪 **Pre-Release Verification**: Run the repository test suites and long-duration soak tests on the target PHP/Swoole runtime before production rollout.
+```bash
+# Regression suite
+php test/TestRunner.php
 
----
+# One-command Linux + Swoole verification
+bash tools/acceptance/linux_swoole_verify.sh
 
-<a id="production-cases"></a>
-## 🏢 Production Cases
+# Self-contained demo without external MySQL or Redis
+bash tools/acceptance/linux_swoole_verify.sh --demo
+```
 
-Proven stability in demanding, large-scale enterprise environments:
+See [test/README.md](test/README.md) for test usage. FPM/Swoole acceptance, pool concurrency, soak tests, and log-rotation gates are documented in [tools/acceptance/README.md](tools/acceptance/README.md).
 
-- 🎓 **Hubei Province Education User Authentication Center**: Core login portal and identity authentication service for millions of students and educators
-- 🛒 **Shangdong E-Commerce Platform**: High-performance e-commerce platform and transaction processing middle-office
-- 🏗️ **Material Network (生材网)**: Leading B2B digital supply chain and engineering materials trading platform
+## Production Experience
 
----
+Gene has powered long-running systems in education identity, e-commerce, and B2B supply-chain scenarios:
 
-<a id="technical-support"></a>
-## 💬 Technical Support
+- **Hubei Province Education User Authentication Center** — a unified identity entry point for students, educators, and institutions across the province.
+- **Shangdong E-Commerce Platform** — concurrent commerce workloads and transaction middle-office services.
+- **Material Network (生材网)** — a digital B2B marketplace for engineering materials and supply chains.
 
-- 📖 **Official Documentation**: [https://www.1xm.net/](https://www.1xm.net/)
-- 🐛 **Issue Tracker**: [GitHub Issues](https://github.com/sasou/php-gene/issues)
-- ✉️ **Technical Support Email**: [zaipd@qq.com](mailto:zaipd@qq.com)
+## Documentation and Community
 
----
-
-<a id="links"></a>
-## 🔗 Links
-
-- 🌐 **Official Website**: [https://www.1xm.net/](https://www.1xm.net/)
-- 📦 **PHP 5 Legacy Version**: [php-gene v2.1.0 (PHP 5.x)](https://github.com/sasou/php-gene)
-- 🪟 **Windows Version**: [php-gene-for-windows](https://github.com/sasou/php-gene-for-windows)
-- 📘 **Configuration Guide**: [CONFIGURATION.md](docs/CONFIGURATION.md)
+- [Official documentation](https://www.1xm.net/)
+- [Configuration reference](docs/CONFIGURATION.md)
+- [GitHub Issues](https://github.com/sasou/php-gene/issues)
+- [Windows releases](https://github.com/sasou/php-gene-for-windows)
+- [PHP 5 legacy version](https://github.com/sasou/php-gene)
+- Technical contact: <zaipd@qq.com>
 
 ---
 
 <div align="center">
+  <h3>Gene Framework</h3>
+  <p><strong>Shorter execution paths. A more complete production stack.</strong></p>
+  <p><em>Simple Coding, Elegant Life.</em></p>
 
-<h3>Gene Framework</h3>
-<p><em>Simple Coding, Elegant Life!</em></p>
+[![GitHub stars](https://img.shields.io/github/stars/sasou/php-gene?style=social)](https://github.com/sasou/php-gene/stargazers)
+[![GitHub forks](https://img.shields.io/github/forks/sasou/php-gene?style=social)](https://github.com/sasou/php-gene/network)
 
-[![License](https://img.shields.io/badge/License-PHP%203.01-green.svg?style=flat-square)](http://www.php.net/license/3_01.txt)
-[![Author](https://img.shields.io/badge/Author-Sasou-blue.svg?style=flat-square)](mailto:zaipd@qq.com)
-[![GitHub stars](https://img.shields.io/github/stars/sasou/php-gene?style=flat-square&logo=github)](https://github.com/sasou/php-gene/stargazers)
-[![GitHub forks](https://img.shields.io/github/forks/sasou/php-gene?style=flat-square&logo=github)](https://github.com/sasou/php-gene/network)
-
-<br><br>
-
-<a href="https://info.flagcounter.com/AEYx"><img src="https://s11.flagcounter.com/count2/AEYx/bg_FFFFFF/txt_000000/border_CCCCCC/columns_2/maxflags_10/viewers_0/labels_1/pageviews_1/flags_0/percent_0/" alt="Flag Counter" border="0"></a>
-
+<sub>Released under the <a href="http://www.php.net/license/3_01.txt">PHP License 3.01</a>.</sub>
 </div>
