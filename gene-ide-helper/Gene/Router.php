@@ -223,6 +223,19 @@ class Router
     }
 
     /**
+     * dispatchHooks
+     *
+     * 执行扩展内部缓存的编译 Hook 链。通常由 Router 调度流程调用，
+     * 业务代码应优先使用 hook()/through() 声明钩子。
+     *
+     * @param string $key Hook 链缓存键
+     * @return bool
+     */
+    public static function dispatchHooks($key) {
+
+    }
+
+    /**
      * params
      * 
      * @return mixed
