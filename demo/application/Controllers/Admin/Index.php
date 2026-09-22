@@ -44,7 +44,7 @@ class Index extends \Gene\Controller
      */
     function loginPost()
     {
-        $data = $this->request->post;
+        $data = $this->request->post();
         $this->validate->init($data)
              ->name('username')->required()->msg("请输入用户名")
              ->name('password')->required()->msg("请输入密码")
