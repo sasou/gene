@@ -545,6 +545,49 @@ class RouterTest
         echo "\n";
     }
 
+    /**
+     * Closing an inner group must not make the next sibling's pop read a
+     * packed hole (nNumOfElements-1). That used to pass NULL into
+     * zend_update_property() and segfault.
+     */
+    public function testGroupStackSibling()
+    {
+        echo "Testing group stack sibling after inner pop:\n";
+
+        try {
+            $router = new Router('group-stack-sibling');
+            $router->clear()
+                ->group('/about')
+                ->get('/page.html', 'Help@about')
+                ->group('/agreement')
+                ->get('/:a.html', 'Agreement@a')
+                ->group()
+                ->group('/news')
+                ->get('/list.html', 'News@list')
+                ->group()
+                ->get('/stay.html', 'Help@stay')
+                ->group()
+                ->group('/rest')
+                ->get('/ping', 'Rest@ping')
+                ->group();
+            $about = $router->match('GET', '/about/page.html');
+            $agree = $router->match('GET', '/about/agreement/terms.html');
+            $news = $router->match('GET', '/about/news/list.html');
+            $bareNews = $router->match('GET', '/news/list.html');
+            $stay = $router->match('GET', '/about/stay.html');
+            $rest = $router->match('GET', '/rest/ping');
+            if ($about !== false) echo "✓ parent route kept\n"; else echo "✗ parent route missed\n";
+            if ($agree !== false) echo "✓ inner group joined onto parent\n"; else echo "✗ inner group missed\n";
+            if ($news !== false && $bareNews === false) echo "✓ sibling group joined onto still-open parent\n"; else echo "✗ sibling group prefix wrong\n";
+            if ($stay !== false) echo "✓ parent prefix restored after sibling close\n"; else echo "✗ parent prefix lost after sibling close\n";
+            if ($rest !== false) echo "✓ next group starts clean after parent close\n"; else echo "✗ group after parent close missed\n";
+        } catch (Exception $e) {
+            echo "✗ Error: " . $e->getMessage() . "\n";
+        }
+
+        echo "\n";
+    }
+
     public function testRequestIdPolicy()
     {
         echo "Testing Request-id Policy:\n";
@@ -588,6 +631,7 @@ class RouterTest
         $this->testPerformance();
         $this->testHeadOptionsRoot();
         $this->testComposableGroupHooks();
+        $this->testGroupStackSibling();
         $this->testRequestIdPolicy();
         
         echo "=== Router Test Suite Complete ===\n";
