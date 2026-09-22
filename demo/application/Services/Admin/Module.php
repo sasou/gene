@@ -107,9 +107,11 @@ class Module extends \Gene\Service
         $data['status'] = isset($data['status']) && $data['status'] == 'on' ? 1 : 0;
         $data['module_path'] = $this->getPidPath($data['module_pid']);
         $data['addtime'] = time();
-        // 方法级实时缓存版本key更新
-        $this->cache->updateVersion(['db.sys_module' => null]);
-        return \Models\Admin\Module::getInstance()->add($data);
+        $id = \Models\Admin\Module::getInstance()->add($data);
+        if ($id) {
+            $this->cache->updateVersion(['db.sys_module' => null]);
+        }
+        return $id;
     }
 
     /**
@@ -124,9 +126,11 @@ class Module extends \Gene\Service
         $data['status'] = isset($data['status']) && $data['status'] == 'on' ? 1 : 0;
         $data['module_path'] = $this->getPidPath($data['module_pid']);
         $data['updatetime'] = time();
-        // 方法级实时缓存版本key更新
-        $this->cache->updateVersion(['db.sys_module' => null]);
-        return \Models\Admin\Module::getInstance()->edit($id, $data);
+        $count = \Models\Admin\Module::getInstance()->edit($id, $data);
+        if ($count) {
+            $this->cache->updateVersion(['db.sys_module' => null]);
+        }
+        return $count;
     }
 
     /**
@@ -137,9 +141,11 @@ class Module extends \Gene\Service
      */
     function status($id)
     {
-        // 方法级实时缓存版本key更新
-        $this->cache->updateVersion(['db.sys_module' => null]);
-        return \Models\Admin\Module::getInstance()->status($id);
+        $count = \Models\Admin\Module::getInstance()->status($id);
+        if ($count) {
+            $this->cache->updateVersion(['db.sys_module' => null]);
+        }
+        return $count;
     }
     
     /**
@@ -150,9 +156,11 @@ class Module extends \Gene\Service
      */
     function del($id)
     {
-        // 方法级实时缓存版本key更新
-        $this->cache->updateVersion(['db.sys_module' => null]);
-        return \Models\Admin\Module::getInstance()->del($id);
+        $count = \Models\Admin\Module::getInstance()->del($id);
+        if ($count) {
+            $this->cache->updateVersion(['db.sys_module' => null]);
+        }
+        return $count;
     }
 
     /**
@@ -163,9 +171,11 @@ class Module extends \Gene\Service
      */
     function delAll($id_arr)
     {
-        // 方法级实时缓存版本key更新
-        $this->cache->updateVersion(['db.sys_module' => null]);
-        return \Models\Admin\Module::getInstance()->delAll($id_arr);
+        $count = \Models\Admin\Module::getInstance()->delAll($id_arr);
+        if ($count) {
+            $this->cache->updateVersion(['db.sys_module' => null]);
+        }
+        return $count;
     }
 
     /**
