@@ -2,8 +2,8 @@
 namespace Hooks;
 
 /**
- * Global Error hook - extends Gene\Hook base class.
- * Executed before every route dispatch (unless cleared).
+ * Router error hook - extends Gene\Hook base class.
+ * Registered for the 404 error route.
  */
 class ErrorHook extends \Gene\Hook
 {
@@ -13,6 +13,6 @@ class ErrorHook extends \Gene\Hook
      */
     public function handle()
     {
-        $this->redirect('/404.html');
+        return $this->respond(['code' => 404, 'msg' => 'Not Found'], 404);
     }
 }

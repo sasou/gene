@@ -63,9 +63,11 @@ class Mark extends \Gene\Service
         $data['user_id'] = isset($this->session->get('admin')['user_id']) ? $this->session->get('admin')['user_id'] : 0;
         $data['addtime'] = time();
         $data['status'] = isset($data['status']) && $data['status'] == 'on' ? 1 : 0;
-        // 方法级实时缓存版本key更新
-        $this->cache->updateVersion(['db.app_mark' => null]);
-        return \Models\Doc\Mark::getInstance()->add($data);
+        $id = \Models\Doc\Mark::getInstance()->add($data);
+        if ($id) {
+            $this->cache->updateVersion(['db.app_mark' => null]);
+        }
+        return $id;
     }
 
     /**
@@ -79,9 +81,11 @@ class Mark extends \Gene\Service
     {
         $data['updatetime'] = time();
         $data['status'] = isset($data['status']) && $data['status'] == 'on' ? 1 : 0;
-        // 方法级实时缓存版本key更新
-        $this->cache->updateVersion(['db.app_mark' => null]);
-        return \Models\Doc\Mark::getInstance()->edit($id, $data);
+        $count = \Models\Doc\Mark::getInstance()->edit($id, $data);
+        if ($count) {
+            $this->cache->updateVersion(['db.app_mark' => null]);
+        }
+        return $count;
     }
 
     /**
@@ -92,9 +96,11 @@ class Mark extends \Gene\Service
      */
     function status($id)
     {
-        // 方法级实时缓存版本key更新
-        $this->cache->updateVersion(['db.app_mark' => null]);
-        return \Models\Doc\Mark::getInstance()->status($id);
+        $count = \Models\Doc\Mark::getInstance()->status($id);
+        if ($count) {
+            $this->cache->updateVersion(['db.app_mark' => null]);
+        }
+        return $count;
     }
     
     /**
@@ -105,9 +111,11 @@ class Mark extends \Gene\Service
      */
     function del($id)
     {
-        // 方法级实时缓存版本key更新
-        $this->cache->updateVersion(['db.app_mark' => null]);
-        return \Models\Doc\Mark::getInstance()->del($id);
+        $count = \Models\Doc\Mark::getInstance()->del($id);
+        if ($count) {
+            $this->cache->updateVersion(['db.app_mark' => null]);
+        }
+        return $count;
     }
 
     /**
@@ -118,9 +126,11 @@ class Mark extends \Gene\Service
      */
     function delAll($id_arr)
     {
-        // 方法级实时缓存版本key更新
-        $this->cache->updateVersion(['db.app_mark' => null]);
-        return \Models\Doc\Mark::getInstance()->delAll($id_arr);
+        $count = \Models\Doc\Mark::getInstance()->delAll($id_arr);
+        if ($count) {
+            $this->cache->updateVersion(['db.app_mark' => null]);
+        }
+        return $count;
     }
     
 }

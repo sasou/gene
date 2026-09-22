@@ -2,12 +2,10 @@
 namespace Hooks;
 
 /**
- * Request-id hook — write Gene\Context + X-Request-Id response header.
+ * Legacy request-id hook retained for older applications.
  *
- * Incoming X-Request-Id is reused; otherwise bin2hex(random_bytes(8)).
- * Gene\Log automatically merges Context.request_id into $context.
- *
- *   ->hook('requestId', 'Hooks\RequestId@handle')
+ * New FPM/Swoole entrypoints should use Application::requestId(), which applies
+ * trust and length policies and writes both Gene\Context and the response header.
  */
 class RequestId extends \Gene\Hook
 {
