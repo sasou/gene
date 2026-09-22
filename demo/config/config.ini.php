@@ -65,11 +65,9 @@ $config->set("redis", [
 ]);
 
 //数据库类注入配置
-// instance:true — 每个协程通过 per-coroutine di_regs 缓存独立的 Gene\Db\Mysql 对象，
-// 同一协程内多次 Di::get('db') 复用同一对象；不同协程各自持有独立的 PDO 连接，
-// 避免 Swoole 下 "Socket has already been bound to another coroutine" 冲突。
-// 注意：不要在 Swoole 协程模式下使用 PDO::ATTR_PERSISTENT，持久连接是进程级共享的，
-// 多协程并发会争用同一个 socket。
+// instance:true — 请求/协程内按类名单例；同一上下文复用 Db 对象，不跨请求或协程共享。
+// 配置 pool 后 Db 自动按需借还 PDO，业务代码仍使用普通链式 API。
+// PDO::ATTR_PERSISTENT 可保留用于 FPM；Swoole/coroutine 模式下扩展会自动改为 false。
 // pool: 连接池名称（可选），在Swoole协程模式下启用连接池。需在workerStart中通过
 //   Gene\Pool::create('dbPool', 'db') 预先创建，自动读取此处的dsn/username/password。
 //   FPM模式下此参数被忽略，行为不变。
@@ -92,8 +90,7 @@ $config->set("db", $demoLocal ? [
 ]);
 
 //缓存类注入配置
-// instance:true — Memcached 操作单次完整调用、无链式状态，Swoole 协程 Hook
-// 保证底层 socket 按协程隔离，worker 级单例可安全共享，避免重复 pconnect 开销。
+// instance:true — 请求/协程内按类名单例；生命周期仍由当前请求上下文管理，不跨请求共享。
 $config->set("memcache", [
     'class' => '\Gene\Cache\Memcached',
     'params' => [[
@@ -104,10 +101,9 @@ $config->set("memcache", [
     'instance' => true
 ]);
 
-//缓存类注入配置
-// instance:true — Redis 操作单次完整调用、无链式状态，Swoole 协程 Hook
-// 保证底层 socket 按协程隔离，worker 级单例可安全共享，避免重复 pconnect 开销。
-$config->set("redis", [
+//直连 Redis 示例；主业务使用上方带 redisPool 的 redis 组件。
+// instance:true — 请求/协程内按类名单例；生命周期仍由当前请求上下文管理，不跨请求共享。
+$config->set("redisDirect", [
     'class' => '\Gene\Cache\Redis',
     'params' => [[
     'persistent' => true,
@@ -172,7 +168,7 @@ $config->set('rest', [
     'params' => [[
         'timeout' => 5,
         'connect_timeout' => 2,
-        'ssl_verify' => false,
+        'ssl_verify' => true,
         'keep_alive' => true,
         'headers' => ['Accept' => 'application/json'],
         'pass_request_id' => true,

@@ -64,9 +64,11 @@ class Purview extends \Gene\Service
                 $data[] = $row;
             }
         }
-        // 方法级实时缓存版本key更新
-        $this->cache->updateVersion(['db.sys_purview' => null]);
-        return \Models\Admin\Purview::getInstance()->batchInsert($data);
+        $count = \Models\Admin\Purview::getInstance()->batchInsert($data);
+        if ($count) {
+            $this->cache->updateVersion(['db.sys_purview' => null]);
+        }
+        return $count;
     }
 
     /**
@@ -78,10 +80,17 @@ class Purview extends \Gene\Service
      */
     function update($group_id, $purview)
     {
-        \Models\Admin\Purview::getInstance()->delAll($group_id);
-        // 方法级实时缓存版本key更新
+        $count = $this->db->transaction(function () use ($group_id, $purview) {
+            $model = \Models\Admin\Purview::getInstance();
+            $model->delAll($group_id);
+            $data = [];
+            foreach ((array)$purview as $objId) {
+                $data[] = ['group_id' => $group_id, 'obj_id' => $objId, 'addtime' => time()];
+            }
+            return $model->batchInsert($data);
+        });
         $this->cache->updateVersion(['db.sys_purview' => null]);
-        return $this->add($group_id, $purview);
+        return $count;
     }
 
 }
