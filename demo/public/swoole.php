@@ -49,7 +49,14 @@ $http->on("workerStart", function ($server, $workerId) use ($app) {
         'config'     => 'config.ini.php',
         'mode'       => 1,
         'debug_envs' => ['dev', 'test', 'gray'],
-    ]);
+    ])
+        ->requestId(['header' => 'X-Request-Id', 'bytes' => 8, 'trust' => true, 'max_length' => 128])
+        ->webscan(1, 'admin', function () {
+            if (\Gene\Request::isAjax()) {
+                return json_encode(\Gene\Response::error("Illegal access"));
+            }
+            return "Illegal access";
+        });
 
     // 显式声明连接池（driver 仅 db/redis；component 为 config.ini.php
     // 中 $config->set(...) 的键名；params 可选池参数 min/max/idleTimeout/

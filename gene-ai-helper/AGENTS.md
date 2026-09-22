@@ -8,8 +8,8 @@
 ## 1. 框架认知
 
 - Gene 是 **PHP 扩展**（`extension=gene`），版本线 **6.2.x**（当前 6.2.5），要求 **PHP 8.0–8.5**
-- 权威 API 来源：`gene-ide-helper/Gene/**/*.php`、`demo/` 示例
-- **禁止**编造类名、方法名或配置键；不确定时 grep 仓库或读 reference
+- API 最终权威来源：`src/` 中的类注册、方法表与 arginfo；`gene-ide-helper/Gene/**/*.php` 用于 IDE 签名，`demo/` 用于推荐用法
+- **禁止**编造类名、方法名或配置键；不确定时先查 `gene-ide-helper` / reference，维护 helper 时必须回查 `src/`
 
 ---
 
@@ -172,4 +172,4 @@ Swoole 细则：**必读** `skills/gene-framework/swoole.md`。
 | `skills/gene-framework/swoole.md` | Swoole / 连接池 |
 | `rules/gene-project.mdc` | 编辑 `**/*.php` 时的规则 |
 
-**原则**：沿用仓库已有写法；API 以 ide-helper 为准，不扩展框架能力边界。
+**原则**：沿用仓库已有写法；业务开发以 ide-helper 提示、reference 语义和 demo 范式为准，三者冲突时以 `src/` 的扩展实现为最终依据，不扩展框架能力边界。

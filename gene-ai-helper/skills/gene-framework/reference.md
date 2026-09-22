@@ -75,8 +75,9 @@
 | getEnvironment() | 返回当前环境整数 |
 | getEnvironmentName() | 返回环境名称字符串（`"dev"` / `"test"` / `"prod"` / `"gray"`）；未知编号回落 `"dev"` 并按进程告警一次 |
 | getMethod() | 获取当前 HTTP 请求方法 |
-| getPath() | 获取当前请求路径 |
+| getPath($withoutLang = false) | 获取当前请求路径；`true` 时去除语言前缀 |
 | getRouterUri() | 获取路由模式 URI（:m/:c/:a 已替换） |
+| url($path, $lang = null) | 生成带语言前缀的 URL；显式传空字符串可省略语言前缀 |
 | getLang() | 获取当前语言前缀 |
 | getModule(), getController(), getAction() | 当前模块、控制器、动作 |
 | clearState() | 软重置当前请求上下文（释放用户数据但保留上下文结构体），Swoole 下建议用 cleanup() |
@@ -232,6 +233,7 @@ $rest->use('user')->call('Ping', 'pong', $params);
 | match($method, $uri) | 纯路由匹配：复用 run() 的查找逻辑但不执行 handler、不触发 hook，query string 剥离但不并入 `$_GET`；命中返回 `['module','controller','action','params','route']`，未命中返回 `false`。用于路由单元测试与预检 |
 | runError($method) | 触发指定错误路由（如 `"404"`） |
 | dispatch($class, $action, $params) | 直接实例化类并调用方法，支持 :c/:a 替换 |
+| dispatchHooks($key) | 执行扩展内部缓存的编译 Hook 链；通常由 Router 内部调用，业务应使用 `hook()` / `through()` 声明 |
 | params($name = null) | 获取路由路径参数 |
 | getRouterUri() | 获取当前匹配到的路由注册键（路由模式串） |
 | getLang() | 获取当前语言 |
@@ -517,6 +519,8 @@ $this->websession->destroy();       // 全部清除并重新生成 SessionId
 | end() | 记录结束时间点与峰值内存 |
 | time($type = false) | 返回耗时字符串；`true` 精确浮点，`false` 3位小数（默认） |
 | memory($type = false) | 返回内存差字符串；`true` 单位 KB，`false` 单位 MB（默认） |
+| mark($name) | 记录命名检查点 |
+| lap($name) | 返回距上次同名 `mark()` / `lap()` 的毫秒数并将检查点重置到当前时刻；不存在时返回 false |
 
 ---
 
@@ -550,7 +554,9 @@ $this->memory->clean();                    // 清空全部
 | get($key) | 读取值，key 不存在返回 null |
 | getTime($key) | 获取某 key 的写入时间戳 |
 | exists($key) | 检查 key 是否存在，返回 bool |
-| del($key) | 删除指定 key |
+| del($key) / delete($key) | 删除指定 key；`delete` 为满足 Session 存储契约的别名 |
+| mget(array $keys) | 批量读取存在的键，返回关联数组 |
+| mset(array $items, $ttl = 0) | 以相同 TTL 批量写入键值 |
 | clean() | 销毁并重新初始化整个共享内存 HashTable |
 | stats() | 分区观测：缓存条目数、协程上下文/ctx pool/sweep 遥测、闭包源码缓存等 |
 | incr/decr($key, $step = 1) | 写锁内原子加减；缺失键以步进值创建 |
@@ -732,6 +738,10 @@ $this->cache->updateVersion(['db.user.id' => [$id1, $id2, $id3]]); // 批量更�
 | localCachedVersion($obj, $args, $versionField, $ttl = null, $mode = null) | 带版本号控制的本地 APCu 缓存，versionField 支持多值数组 |
 | getVersion($version) | 从外部缓存读取指定版本字段的当前值 |
 | updateVersion($version) | 对版本字段执行 incr，支持多值数组批量更新，使关联缓存失效 |
+| processCached(...) / unsetProcessCached(...) / processCachedVersion(...) | 使用进程级 `Gene\Memory` 的对应缓存操作 |
+| cachedBatch($items, $ttl = null) / localCachedBatch(...) / processCachedBatch(...) | 批量读取并回填普通缓存，结果顺序与 items 一致 |
+| cachedVersionBatch($items, $versionField, $ttl = null, $mode = null) | 带共享版本字段的批量外部缓存 |
+| localCachedVersionBatch(...) / processCachedVersionBatch(...) | 带版本字段的批量 APCu / 进程级缓存 |
 
 ---
 
@@ -780,6 +790,8 @@ $config->set('redis', [
 | rateLimit($key, $max, $windowSec) | 原子固定窗口限流（Lua INCR+EXPIRE）；超限返回 `false`，不抛 |
 | lock($key, $ttlSec) | `SET key token NX EX`；成功返回 token，失败 `false` |
 | unlock($key, $token) | Lua 比对后 DEL；token 不符返回 `false` |
+| release() | 连接池模式下提前归还连接；后续操作会按需重新借用 |
+| free() | 池模式等价 `release()`；直连模式释放连接 |
 | __call($method, $params) | 透传调用底层 Redis 对象任意命令，支持断线重连 |
 
 ---
@@ -854,7 +866,8 @@ Swoole 协程 **Redis 连接池**（FPM 无效）。API 与 `Gene\Pool` 基本�
 |------|------|
 | debug/info/notice/warning/error($message, $context = []) | 写日志；`$context` 会 JSON 追加。袋中有 `request_id` 时自动合并（调用方已给的 `request_id` 优先） |
 | exception(\Throwable $e, $message = null) | 记录异常 |
-| setFile($file) / setLevel($level) | 日志文件与级别 |
+| setFile($file) / getFile() | 设置/读取日志文件 |
+| setLevel($level) / getLevel() | 设置/读取最低日志级别 |
 
 ---
 
@@ -951,3 +964,26 @@ $sig = \Gene\Crypto::hmacSign($canonical, $secret);
 | encrypt / decrypt($data, $key) | AES-256-GCM；`$key` 必须 32 字节 |
 
 限流：单 worker 用 `Memory::rateLimit`；多 worker / Swoole 用 `Redis::rateLimit`（Lua）。
+
+---
+
+## Gene\Webscan
+
+内置请求参数扫描器。应用入口优先用 `Application::webscan()` 配置；直接实例化适合需要显式调用 `check()` 的底层场景。
+
+| 方法 | 说明 |
+|------|------|
+| __construct($switch = 1, $whiteDirectory = null, $whiteUrl = null, $get = 1, $post = 1, $cookie = 1, $referer = 1) | 配置开关、目录/URL 白名单及扫描来源 |
+| check() | 扫描当前请求；检测到攻击特征返回 `true`，否则返回 `false` |
+
+---
+
+## Gene\Execute
+
+可信 PHP 源码的编译/执行辅助类。**不得把请求参数、数据库内容或其他不可信输入传给该类。** 常规业务不应使用动态代码执行。
+
+| 方法 | 说明 |
+|------|------|
+| __construct($debug = 0) | 构造；非零 debug 会附加 opcode 调试信息 |
+| GetOpcodes($phpScript) | 编译源码并返回 opcode 信息，不执行源码 |
+| StringRun($phpScript) | 在当前进程执行源码，成功返回 `true` |

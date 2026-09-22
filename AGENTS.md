@@ -1,25 +1,30 @@
-# Gene 扩展 — 构建速查
+# Gene 扩展协作指南
 
-## 仓库地图
+本文记录仓库导航、常用构建/验证命令，以及修改代码时必须保持的行为约定。各子系统的详细用法以对应目录的 `README.md` 为准。
+
+## 仓库导航
 
 | 目录 | 职责 |
 |------|------|
-| `src/` | 扩展 C 源码（按模块分子目录） |
-| `test/` | 回归测试套件（`TestRunner.php` 驱动），用法与免部署参数见 `test/README.md` |
-| `tools/` | 构建脚本（索引见 `tools/README.md`）；`tools/acceptance/` 为 FPM/Swoole 验收工具 |
-| `audit/` | 审计档案：时点报告、`repro/` 复现脚本，见 `audit/README.md` |
-| `plan/` | 演进计划文档；`.closed.md` 后缀 = 已关闭只读，详见 `plan/README.md` 索引 |
-| `docs/` | 用户文档（INI 配置参考等） |
-| `demo/` | 示例应用（FPM / CLI / Swoole 入口） |
-| `gene-ai-helper/` / `gene-ide-helper/` | AI 协作规则与 skill / IDE stub |
+| `src/` | 扩展 C 源码，按模块分目录 |
+| `test/` | `TestRunner.php` 驱动的回归测试；用法及免部署参数见 `test/README.md` |
+| `tools/` | 构建脚本索引见 `tools/README.md`；FPM/Swoole 验收工具位于 `tools/acceptance/` |
+| `audit/` | 时点审计报告及 `repro/` 复现脚本；索引见 `audit/README.md` |
+| `plan/` | 演进计划；`.closed.md` 表示已关闭、只读，索引见 `plan/README.md` |
+| `docs/` | 用户文档，包括 INI 配置参考 |
+| `demo/` | FPM、CLI、Swoole 示例应用 |
+| `gene-ai-helper/` | AI 协作规则与 skill |
+| `gene-ide-helper/` | IDE stub |
 
-## macOS 构建（phpize，Homebrew / 源码 PHP）
+## 构建
 
-### 前置依赖
+### macOS（phpize）
 
-- **Xcode Command Line Tools**：`xcode-select --install`
-- **PHP 8.0+** 及匹配的 `phpize` / `php-config`（`php` 与 `phpize` 必须来自同一安装）
-- **autoconf**（Homebrew：`brew install autoconf pkg-config`）
+#### 前置依赖
+
+- Xcode Command Line Tools：`xcode-select --install`
+- PHP 8.0+，且 `php`、`phpize`、`php-config` 必须来自同一安装
+- `autoconf` 和 `pkg-config`
 
 Homebrew 示例（Apple Silicon / Intel 通用）：
 
@@ -28,28 +33,34 @@ brew install php@8.1 autoconf pkg-config
 export PATH="$(brew --prefix php@8.1)/bin:$PATH"
 ```
 
-### 一键构建
+#### 一键构建
+
+在仓库根目录执行：
 
 ```bash
-# 仓库根目录
 chmod +x tools/mac_build.sh
 tools/mac_build.sh
 ```
 
-脚本执行 `phpize` → `./configure --enable-gene=shared --with-php-config=...` → `make`。成功标准：`src/modules/gene.so` 存在且 `php --ri gene` 能加载。不跑 Swoole 验收。
+脚本依次执行 `phpize`、`./configure --enable-gene=shared --with-php-config=...` 和 `make`，不运行 Swoole 验收。可用选项：
 
-选项：`--install`（`sudo make install`）、`--test`（额外跑 TestRunner）、`--clean`、`--php /path/to/php`。
+- `--install`：执行 `sudo make install`
+- `--test`：额外运行 TestRunner
+- `--clean`：清理后构建
+- `--php /path/to/php`：指定 PHP
 
-### 手动构建
+成功标准：生成 `src/modules/gene.so`，且 `php --ri gene` 可加载扩展。
+
+#### 手动构建
 
 ```bash
 cd src
 phpize
 ./configure --enable-gene=shared --with-php-config="$(command -v php-config)"
-make -j$(sysctl -n hw.ncpu)
+make -j"$(sysctl -n hw.ncpu)"
 ```
 
-### 免安装确认已加载
+#### 免安装验证
 
 ```bash
 GENE_SO="$(pwd)/src/modules/gene.so"
@@ -57,85 +68,103 @@ PHP="$(brew --prefix php@8.1)/bin/php"
 "$PHP" -n -d "extension=$GENE_SO" --ri gene
 ```
 
-### 常见问题
+#### 常见问题
 
 | 现象 | 处理 |
 |------|------|
 | `phpize: command not found` | 将 `$(brew --prefix php@8.1)/bin` 加入 `PATH` |
-| `Cannot find autoconf` | `brew install autoconf` |
-| 扩展加载架构不匹配 | `file "$(command -v php)"` 与 `file src/modules/gene.so` 须同为 `arm64` 或 `x86_64` |
+| `Cannot find autoconf` | 执行 `brew install autoconf` |
+| 扩展加载架构不匹配 | 确认 `file "$(command -v php)"` 与 `file src/modules/gene.so` 同为 `arm64` 或 `x86_64` |
 
-## Windows 构建（本机已验证 2026-08-20）
+### Windows（本机环境）
 
-- PHP SDK：`F:\php-sdk-2.6.0`，但部分环境下实际安装的是 `F:\php-sdk-2.3.0`（两者 `phpsdk-vs16-x64.bat` 用法相同）——
-  若 2.6.0 路径不存在，先用 `Test-Path`/`Get-ChildItem F:\` 确认实际版本号再调用；构建树：
-  `F:\php_src\php-8.1.30-src`（PHP 8.1 NTS x64，VS2019/vs16）。
-- `F:\php_src\php-8.1.30-src\ext\gene` 是指向本仓库 `src/` 的 **Junction**，改源码即改构建树。
-- 构建步骤（config.nice.bat 已配好 `--enable-gene=shared`）：
+以下环境已于 2026-08-20 验证：
+
+| 项目 | 路径/配置 |
+|------|-----------|
+| PHP SDK | 优先使用 `F:\php-sdk-2.6.0`；部分环境实际为 `F:\php-sdk-2.3.0` |
+| PHP 源码树 | `F:\php_src\php-8.1.30-src`（PHP 8.1 NTS x64，VS2019/vs16） |
+| Gene 源码 | `F:\php_src\php-8.1.30-src\ext\gene` 是指向本仓库 `src/` 的 Junction |
+| 构建产物 | `F:\php_src\php-8.1.30-src\x64\Release\php_gene.dll` |
+| 部署目录 | `D:\wampServer-php8.1_x64_nts\php_ext\php_gene.dll` |
+
+若 `F:\php-sdk-2.6.0` 不存在，先用 `Test-Path` 或 `Get-ChildItem F:\` 确认实际 SDK 版本。两个版本的 `phpsdk-vs16-x64.bat` 用法相同。
+
+`config.nice.bat` 已包含 `--enable-gene=shared`。创建任务文件，例如 `task.bat`：
 
 ```bat
-rem task.bat 内容:
 cd /d F:\php_src\php-8.1.30-src
 call config.nice.bat
 nmake php_gene.dll
-F:\php-sdk-2.6.0\phpsdk-vs16-x64.bat -t <task.bat>
 ```
 
-- **`Unsupported OS arch` / `'wmic' 不是内部或外部命令`**：php-sdk 2.3.0 的 `bin\phpsdk_setshell.bat`
-  用 `wmic cpu get Architecture` 探测架构，新版 Windows 已移除 wmic。解决：调用前预设环境变量
-  `PHP_SDK_OS_ARCH_NUM=9`（9 = x64）——探测失败时该变量保留继承值，starter 即可正常进入 vs16-x64 环境。
+再通过 x64 SDK 环境执行：
 
-- **注意**：Makefile 必须在 x64 环境下生成（`BUILD_DIR=x64\Release`，不含 `_USE_32BIT_TIME_T`）。
-  若 Makefile 被误在 x86 环境下重新 configure，需在 phpsdk-vs16-x64 环境中重跑 `config.nice.bat`。
-  新版 Windows SDK (10.0.26100.0) 的 `corecrt.h` 会对 x64 构建中出现的 `_USE_32BIT_TIME_T` 报 `#error`。
+```bat
+F:\php-sdk-2.6.0\phpsdk-vs16-x64.bat -t task.bat
+```
 
-- 产物：`F:\php_src\php-8.1.30-src\x64\Release\php_gene.dll`。
-- 部署：`copy /Y` 到 `D:\wampServer-php8.1_x64_nts\php_ext\php_gene.dll`。
-  **注意**：WampServer 的 httpd/php-cgi 运行时会锁住旧 dll，需先确认无锁再覆盖。
+#### Windows 构建注意事项
 
-## 免部署验证（旧 dll 被占用时）
+- 遇到 `Unsupported OS arch` 或 `'wmic' 不是内部或外部命令`：新版 Windows 已移除 php-sdk 2.3.0 用于探测架构的 `wmic`。调用 SDK 前设置 `PHP_SDK_OS_ARCH_NUM=9`（9 表示 x64）。
+- Makefile 必须在 x64 环境生成：`BUILD_DIR=x64\Release`，且不得包含 `_USE_32BIT_TIME_T`。若曾在 x86 环境重新 configure，须在 `phpsdk-vs16-x64` 环境重跑 `config.nice.bat`。
+- Windows SDK 10.0.26100.0 的 `corecrt.h` 会对 x64 构建中出现的 `_USE_32BIT_TIME_T` 报 `#error`。
+- 部署前确认 WampServer 的 httpd/php-cgi 未锁定旧 DLL，再执行覆盖。
+
+## 验证与测试
+
+| 范围 | 入口 |
+|------|------|
+| 回归测试、单文件测试、免部署参数 | `test/README.md` |
+| FPM/Swoole 验收及发布准入 | `tools/acceptance/README.md` |
+| 审计结论一键复现 | `audit/repro/`，索引约定见 `audit/README.md` |
+
+旧 DLL 被占用时，可直接加载新产物进行免部署验证：
 
 ```bat
 D:\wampServer-php8.1_x64_nts\bin\php.exe -n -d extension_dir=D:\wampServer-php8.1_x64_nts\php_ext -d extension=pdo_sqlite -d extension=F:\php_src\php-8.1.30-src\x64\Release\php_gene.dll <script.php>
 ```
 
-## 验证与测试
+## 行为约定
 
-- 回归测试套件与免部署运行参数：`test/README.md`
-- FPM/Swoole 验收工具与发布准入：`tools/acceptance/README.md`
-- 审计结论的一键复现脚本：`audit/repro/`（索引约定见 `audit/README.md`）
+修改相关模块时，必须保持以下语义，并补充对应回归测试。
 
-## 约定
+### Cache / Worker
 
-- 缓存：`gene.cache_reserve <= gene.cache_max_items` 属矛盾配置，`workerReady()` 会**自动向上矫正**
-  生效 reserve 为 `max_items + max(64, max_items/4)`（只多占内存，不改淘汰语义），并记一次
-  warning 提示修正 php.ini；Swoole 模式下该诊断走 `gene_log_diag()` 只写 error_log，
-  不触发用户错误处理器（避免 workerStart 内异常导致 worker 无限重启）。
-  `workerReady()` 是**幂等**的一次性引导钩子（`worker_ready` 标记早返回），重复调用
-  不会重写日志，也不会 post-freeze 扩容 bucket 数组（扩容会移动 arData → 读者裸指针悬垂）。
-- Db 驱动（Mysql/Sqlite/Pgsql/Mssql）的 `insert()` 等写方法是**惰性执行**：下一次读调用
-  （`lastId()`/`affectedRows()`/`row()`/`all()` 等）才真正执行，重复调用会重复执行。
-  `history()` 返回的是**快照**：返回后引擎继续记录新语句，但不会改动调用方已拿到的数组。
-- ORM：`fill()` 含非空主键即视为已持久化（`exists=1`），`find($id, true)` 返回模型实例
-  （hydrate 会调用 **public 且**无必填参数的构造函数；private/protected 构造函数跳过）。**自然主键/UUID 表**请用 `fill($data, false)`、
-  `setExists(false)` 或 `Model::create()` 插入；hydrate 模型 `save()` 命中 0 行会发
-  `E_NOTICE`（不再静默丢失）。`create()`/`save()` 在 payload 自带主键时原样返回该主键，
-  否则返回 `lastId()`（数字串归一为 int）。
-- `Gene\Di` 注册表是**请求/协程级**（`ctx->di_regs`）：Swoole 下 workerStart 回调跑在独立协程，
-  其中 `Di::set` 对 onRequest 协程不可见——worker 级共享服务请用 `Config` 定义
-  `class`/`params` 惰性实例化（`gene_di_get` 的 config 缓存回落），或在 onRequest 内注册。
-- `Router->error()`/`hook()` 首参（事件名）接受整数等标量：`->error(404, ...)` 会注册为
-  `error:404`；非标量回落空名 `error:` 兜底。`hook(503, ...)`、`runError('404')` 同理。
-- `Validate::name($f)` 同时写 KEY 与 FIELD：`name('x')->rule_email()` 等 `rule_*` 直调可用且
-  返回真实校验结果；FIELD 在 `valid()`/`groupValid()` 内仍按逗号拆分逐字段覆盖。
-  `rule_int` 仅认 `IS_LONG`（数字串校验用 `digit`）。
-- `Gene\Memory` 有 `delete`（`del` 别名）：满足 Session 存储句柄契约 get/set/delete，
-  可作 `session.driver` 的零依赖本地实现。
-- demo 自包含验收：`GENE_DEMO_LOCAL=1` 时 `config.ini.php` 将 db 切到
-  `demo/database/gene_demo.db`（`demo/database/init_sqlite.php` 幂等初始化）、session driver 与
-  cache hook 切到 `localStore`（`Ext\LocalStore`：包 `Gene\Memory`，数组 key 走 `mget`，
-  补 `delete` 别名），swoole 入口只建 `dbPool`；`linux_swoole_verify.sh --demo` 用该模式跑
-  /healthz + /metrics + wrk，web 阶段固定跑仓库内 `demo/`，不依赖任何外部应用。profile 见 `tools/acceptance/README.md`。
-- 视图变量与 DI 是两套存储：`assign()` 写入的变量在模板里以裸 `$name` 访问（extract 进
-  符号表）；`View::__get/__set`（模板内 `$this->x`）走 `gene_di_get_class` 解析 DI 组件，
-  读不到 assign 的值。控制器内同理，`$this->view->x` 不是取视图变量的方式。
+- `gene.cache_reserve <= gene.cache_max_items` 是矛盾配置。`workerReady()` 会将有效 reserve 向上修正为 `max_items + max(64, max_items/4)`；该修正只增加内存占用，不改变淘汰语义，并仅记录一次 warning，提示修正 `php.ini`。
+- Swoole 模式下，上述诊断通过 `gene_log_diag()` 仅写入 `error_log`，不得触发用户错误处理器，以免 workerStart 中的异常导致 worker 无限重启。
+- `workerReady()` 是幂等的一次性引导钩子。`worker_ready` 标记命中后直接返回：不得重复写日志，也不得在 freeze 后扩容 bucket 数组；扩容会移动 `arData`，导致读者持有的裸指针悬垂。
+
+### Database
+
+- Mysql、Sqlite、Pgsql、Mssql 驱动的 `insert()` 等写方法采用惰性执行：下一次读取 `lastId()`、`affectedRows()`、`row()`、`all()` 等结果时才真正执行；重复读取会重复执行。
+- `history()` 返回快照。返回后引擎可以继续记录新语句，但不得修改调用方已取得的数组。
+
+### ORM
+
+- `fill()` 收到非空主键时，将模型视为已持久化（`exists=1`）。自然主键或 UUID 表插入时，应使用 `fill($data, false)`、`setExists(false)` 或 `Model::create()`。
+- `find($id, true)` 返回模型实例。hydrate 只调用 public 且无必填参数的构造函数；跳过 private/protected 构造函数。
+- hydrate 模型执行 `save()` 命中 0 行时发出 `E_NOTICE`，不得静默丢失。
+- `create()` / `save()` 的 payload 自带主键时原样返回该主键；否则返回 `lastId()`，其中数字字符串归一为 int。
+
+### DI / View
+
+- `Gene\Di` 注册表存于 `ctx->di_regs`，作用域为请求/协程。Swoole 的 workerStart 回调运行在独立协程，其中的 `Di::set` 对 onRequest 协程不可见。
+- worker 级共享服务应通过 `Config` 的 `class` / `params` 定义并惰性实例化（`gene_di_get` 的 config 缓存回落），或在 onRequest 内注册。
+- 视图变量与 DI 是两套存储：`assign()` 写入的变量在模板中通过裸 `$name` 访问（extract 到符号表）；`View::__get/__set`（模板中的 `$this->x`）通过 `gene_di_get_class` 解析 DI 组件，无法读取 assign 变量。控制器中的 `$this->view->x` 同样不是读取视图变量的方式。
+
+### Router / Validate
+
+- `Router->error()` / `hook()` 的事件名接受整数等标量。`->error(404, ...)` 注册为 `error:404`；非标量回落为空事件名 `error:`。`hook(503, ...)`、`runError('404')` 语义相同。
+- `Validate::name($f)` 同时写入 KEY 和 FIELD，因此 `name('x')->rule_email()` 等 `rule_*` 直调必须可用并返回真实校验结果。FIELD 在 `valid()` / `groupValid()` 中仍按逗号拆分并逐字段覆盖。
+- `rule_int` 仅接受 `IS_LONG`；数字字符串应使用 `digit` 校验。
+
+### Memory / Session
+
+- `Gene\Memory` 提供 `delete`，`del` 是其别名。它满足 Session 存储句柄的 `get` / `set` / `delete` 契约，可作为 `session.driver` 的零依赖本地实现。
+
+### Demo / Acceptance
+
+- 设置 `GENE_DEMO_LOCAL=1` 后，`config.ini.php` 将数据库切换为 `demo/database/gene_demo.db`（由 `demo/database/init_sqlite.php` 幂等初始化），并将 session driver 和 cache hook 切换为 `localStore`。
+- `Ext\LocalStore` 封装 `Gene\Memory`：数组 key 使用 `mget`，并补充 `delete` 别名；Swoole 入口仅创建 `dbPool`。
+- `linux_swoole_verify.sh --demo` 使用该模式验证 `/healthz`、`/metrics` 和 wrk；web 阶段固定运行仓库内 `demo/`，不依赖外部应用。profile 说明见 `tools/acceptance/README.md`。

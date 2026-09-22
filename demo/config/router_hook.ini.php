@@ -1,11 +1,7 @@
 <?php
 /**
- * Router configuration using Gene\Hook class-based hooks.
- * This avoids eval() for hook execution, improving performance.
- *
- * Compare with router.ini.php which uses closure-based hooks.
- * Class-based hooks use the direct dispatch path (C-level),
- * while closure hooks fall back to eval().
+ * Alternative minimal router configuration using Gene\Hook class-based hooks.
+ * The primary router.ini.php uses the same C-level direct dispatch pattern.
  */
 $router = new \Gene\Router();
 $router->clear()
@@ -41,13 +37,13 @@ $router->clear()
     ->group()
     
     // Doc 模块路由
-    ->group("/mark")
-    ->get(".html", "Controllers\Doc\Mark@run", "adminAuth@clearAfter")
-    ->get("/:a", "Controllers\Doc\Mark@:a", "adminAuth@")
-    ->get("/:a.html", "Controllers\Doc\Mark@:a", "adminAuth@clearAfter")
-    ->get("/:a/:id", "Controllers\Doc\Mark@:a", "adminAuth@")
-    ->get("/:a/:id.html", "Controllers\Doc\Mark@:a", "adminAuth@clearAfter")
-    ->post("/:a", "Controllers\Doc\Mark@:a", "adminAuth@")
+    ->group("/mark")->through(["adminAuth"])
+    ->get(".html", "Controllers\Doc\Mark@run", "@clearAfter")
+    ->get("/:a", "Controllers\Doc\Mark@:a", "@")
+    ->get("/:a.html", "Controllers\Doc\Mark@:a", "@clearAfter")
+    ->get("/:a/:id", "Controllers\Doc\Mark@:a", "@")
+    ->get("/:a/:id.html", "Controllers\Doc\Mark@:a", "@clearAfter")
+    ->post("/:a", "Controllers\Doc\Mark@:a", "@")
     ->group()
         
-    ->error(404, "Hooks\AdminAuth@handle");
+    ->error(404, "Hooks\ErrorHook@handle");

@@ -31,54 +31,30 @@ $router->clear()
     ->get("/set.html", "Controllers\Admin\User@set", "adminAuth@clearAfter")
     ->post("/save.html", "Controllers\Admin\User@save", "adminAuth@")
 
+    // 后台验证、CORS 与全局前后置钩子使用类 Hook，走 C 层直接分发
+    ->hook("adminAuth", "Hooks\AdminAuth@handle")
+    ->hook("cors", "Hooks\Cors@handle")
+    ->hook("before", "Hooks\BeforeHook@handle")
+    ->hook("after", "Hooks\AfterHook@handle")
+
     // Admin模块路由规则 动态匹配类和方法
-    ->group("/:c")
-    ->get(".html", "Controllers\Admin\:c@run", "adminAuth@clearAfter")
-    ->get("/:a", "Controllers\Admin\:c@:a", "adminAuth@")
-    ->get("/:a.html", "Controllers\Admin\:c@:a", "adminAuth@clearAfter")
-    ->get("/:a/:id", "Controllers\Admin\:c@:a", "adminAuth@")
-    ->get("/:a/:id.html", "Controllers\Admin\:c@:a", "adminAuth@clearAfter")
-    ->post("/:a", "Controllers\Admin\:c@:a", "adminAuth@")
+    ->group("/:c")->through(["adminAuth"])
+    ->get(".html", "Controllers\Admin\:c@run", "@clearAfter")
+    ->get("/:a", "Controllers\Admin\:c@:a", "@")
+    ->get("/:a.html", "Controllers\Admin\:c@:a", "@clearAfter")
+    ->get("/:a/:id", "Controllers\Admin\:c@:a", "@")
+    ->get("/:a/:id.html", "Controllers\Admin\:c@:a", "@clearAfter")
+    ->post("/:a", "Controllers\Admin\:c@:a", "@")
     ->group()
     
     // Doc 模块路由 动态匹配方法
-    ->group("/mark")
-    ->get(".html", "Controllers\Doc\Mark@run", "adminAuth@clearAfter")
-    ->get("/:a", "Controllers\Doc\Mark@:a", "adminAuth@")
-    ->get("/:a.html", "Controllers\Doc\Mark@:a", "adminAuth@clearAfter")
-    ->get("/:a/:id", "Controllers\Doc\Mark@:a", "adminAuth@")
-    ->get("/:a/:id.html", "Controllers\Doc\Mark@:a", "adminAuth@clearAfter")
-    ->post("/:a", "Controllers\Doc\Mark@:a", "adminAuth@")
+    ->group("/mark")->through(["adminAuth"])
+    ->get(".html", "Controllers\Doc\Mark@run", "@clearAfter")
+    ->get("/:a", "Controllers\Doc\Mark@:a", "@")
+    ->get("/:a.html", "Controllers\Doc\Mark@:a", "@clearAfter")
+    ->get("/:a/:id", "Controllers\Doc\Mark@:a", "@")
+    ->get("/:a/:id.html", "Controllers\Doc\Mark@:a", "@clearAfter")
+    ->post("/:a", "Controllers\Doc\Mark@:a", "@")
     ->group()
         
-    ->error(404, function() {
-        echo 404;
-    })
-    
-    // 后台验证钩子
-    ->hook("adminAuth", function() {
-        if(!isset($this->user['user_id'])) {
-            $this->response->redirect('/login.html');
-            return false;
-        }
-        $id = \Services\Admin\Module::getInstance()->initPath(\Gene\Application::getRouterUri());
-        if (!$id || strpos(",{$this->user['purview']},", ",{$id},") === false) {
-            \Gene\Response::json(\Gene\Response::error("操作未授权"));
-            return false;
-        }
-    })
-    // 全局前置钩子
-    ->hook("before", function() {
-        $cors = new \Hooks\Cors();
-        if ($cors->handle() === false) {
-            return false;
-        }
-        (new \Hooks\RequestId())->handle();
-        $user = $this->session->get('admin');
-        \Gene\Di::set('user', $user); 
-    })
-    // 全局后置钩子
-    ->hook("after", function($params) {
-        $callback = $this->request->get("callback") ?? '';
-        \Gene\Response::json($params, $callback);
-    });
+    ->error(404, "Hooks\ErrorHook@handle");
