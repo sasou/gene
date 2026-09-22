@@ -415,19 +415,34 @@ zval *gene_memory_zval_local(zval *dst, zval *source) /* {{{ */
 	 * arrays are IS_ARRAY_IMMUTABLE (refcount 2) — the exact opcache shared
 	 * shape — so the request may borrow them: userland writes COW on the
 	 * IMMUTABLE flag, and the non-refcounted zval makes our dtor a no-op.
-	 * Business reads still go through gene_memory_zval_local_copy. */
+	 * Business reads still go through gene_memory_zval_local_copy.
+	 *
+	 * [GENE_FIX:2026-09-22] The borrow is keyed off the value, not merely off
+	 * worker_ready. sql()/where()/union() on all four drivers pass request
+	 * arrays through this function (->sql($sql, [$a, $b])->all()). Borrowing
+	 * those, then clearing type_flags, skips the refcount: the temporary is
+	 * freed when sql() returns and all() walks a dead HashTable. PDO then
+	 * aborts in try_convert_to_string on a garbage type byte. Interned strings
+	 * and IS_ARRAY_IMMUTABLE arrays stay borrowed; everything else falls
+	 * through to the owned copy below. */
 	if (EXPECTED(GENE_G(runtime_type) >= 2)
 			&& EXPECTED(GENE_G(worker_ready))
 			&& EXPECTED(!GENE_G(framework_cache_dirty))
 			&& !GENE_MEMORY_IS_BUSINESS()) {
 		switch (Z_TYPE_P(source)) {
 		case IS_STRING:
-			ZVAL_INTERNED_STR(dst, Z_STR_P(source));
-			return dst;
+			if (ZSTR_IS_INTERNED(Z_STR_P(source))) {
+				ZVAL_INTERNED_STR(dst, Z_STR_P(source));
+				return dst;
+			}
+			break;
 		case IS_ARRAY:
-			ZVAL_ARR(dst, Z_ARRVAL_P(source));
-			Z_TYPE_INFO_P(dst) = IS_ARRAY;
-			return dst;
+			if ((GC_FLAGS(Z_ARRVAL_P(source)) & IS_ARRAY_IMMUTABLE) != 0) {
+				ZVAL_ARR(dst, Z_ARRVAL_P(source));
+				Z_TYPE_INFO_P(dst) = IS_ARRAY;
+				return dst;
+			}
+			break;
 		case IS_TRUE:
 		case IS_FALSE:
 		case IS_DOUBLE:
