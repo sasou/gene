@@ -9,7 +9,7 @@
 [![Swoole](https://img.shields.io/badge/Swoole-Ready-16A34A?style=for-the-badge)](https://www.swoole.com/)
 [![License](https://img.shields.io/badge/License-PHP_3.01-0F766E?style=for-the-badge)](http://www.php.net/license/3_01.txt)
 
-[简体中文](README.md) · [English](README_EN.md) · [配置参考](docs/CONFIGURATION.md) · [在线文档](https://www.1xm.net/)
+[🇨🇳 简体中文](README.md) · [🇬🇧 English](README_EN.md) · [⚙️ 配置参考](docs/CONFIGURATION.md) · [🌐 在线文档](https://www.1xm.net/)
 </div>
 
 ---
@@ -23,21 +23,21 @@ Gene 是一个以 **PHP 扩展** 形态交付、核心能力由 **C 语言** 实
 <table>
 <tr>
 <td width="33%" valign="top">
-<strong>C 级核心路径</strong><br><br>
+<strong>⚙️ C 级核心路径</strong><br><br>
 路由匹配、组件调度、DI、查询构建等关键能力运行在扩展层，减少框架引导、文件加载与用户态调用开销。
 </td>
 <td width="33%" valign="top">
-<strong>双运行时架构</strong><br><br>
+<strong>🔁 双运行时架构</strong><br><br>
 原生支持 PHP-FPM 与 Swoole；为常驻 Worker 提供协程级 Context、请求快照、显式清理与资源复用。
 </td>
 <td width="33%" valign="top">
-<strong>完整生产能力</strong><br><br>
+<strong>🧰 完整生产能力</strong><br><br>
 从 MVC、ORM、缓存到连接池、HTTP 客户端、Session、安全组件与监控，一套框架覆盖完整服务链路。
 </td>
 </tr>
 </table>
 
-> **Gene 6.2.5**：完成路由、DI、数据库与日志热路径优化，加入冻结框架表零拷贝读取、Context 冷热分离、数据库/Redis 双池 C 层空闲栈，以及更完整的视图、日志和 Monitor 可观测配置。Linux + 真实 Swoole 发布门禁 17/17 通过。
+> 🚦 **Gene 6.2.5**：完成路由、DI、数据库与日志热路径优化，加入冻结框架表零拷贝读取、Context 冷热分离、数据库/Redis 双池 C 层空闲栈，以及更完整的视图、日志和 Monitor 可观测配置。Linux + 真实 Swoole 发布门禁 17/17 通过。
 
 ## ✨ 为什么选择 Gene
 
@@ -47,7 +47,7 @@ Gene 不是将传统 PHP 框架简单地搬进常驻进程，而是重新设计�
 
 ### 🔄 一套代码，驾驭两种运行模型
 
-| PHP-FPM | Swoole / Coroutine |
+| 🌐 PHP-FPM | ⚡ Swoole / Coroutine |
 |:---|:---|
 | 标准请求生命周期与进程级故障隔离 | 常驻 Worker、协程并发与低初始化开销 |
 | 适合传统 Web、容器和成熟托管环境 | 适合高并发 API、微服务与网关 |
@@ -55,12 +55,12 @@ Gene 不是将传统 PHP 框架简单地搬进常驻进程，而是重新设计�
 
 ### 🛡️ 不只是组件集合，而是生产级运行底座
 
-- **生命周期明确**：覆盖 MINIT/MSHUTDOWN、RINIT/RSHUTDOWN 与 Swoole 请求上下文的对称管理。
-- **数据边界可靠**：协程级 Context、Request snapshot/restore 与显式作用域，避免跨请求污染。
-- **资源治理内建**：连接池容量约束、等待超时、空闲回收、健康检查与事务泄漏自动回滚。
-- **内存增长可控**：缓存容量上限、TTL、近似 LRU、Context 水位线与常驻进程诊断指标。
-- **异常快速失败**：在执行前拒绝非法查询结构、无效 JSON 与冲突 HTTP Payload。
-- **验收链路完整**：覆盖 Windows、macOS、Linux、FPM 与真实 Swoole 的回归、审计复现和长跑测试。
+- 🔄 **生命周期明确**：覆盖 MINIT/MSHUTDOWN、RINIT/RSHUTDOWN 与 Swoole 请求上下文的对称管理。
+- 🧬 **数据边界可靠**：协程级 Context、Request snapshot/restore 与显式作用域，避免跨请求污染。
+- 🏊 **资源治理内建**：连接池容量约束、等待超时、空闲回收、健康检查与事务泄漏自动回滚。
+- 📏 **内存增长可控**：缓存容量上限、TTL、近似 LRU、Context 水位线与常驻进程诊断指标。
+- 🚫 **异常快速失败**：在执行前拒绝非法查询结构、无效 JSON 与冲突 HTTP Payload。
+- ✅ **验收链路完整**：覆盖 Windows、macOS、Linux、FPM 与真实 Swoole 的回归、审计复现和长跑测试。
 
 ## 🧩 能力全景
 
@@ -86,7 +86,7 @@ Gene 不是将传统 PHP 框架简单地搬进常驻进程，而是重新设计�
 | 🧭 上下文精确判断 | `Context::has()` | 区分键不存在与显式 `null`，消除边界歧义 |
 | 📊 运行时可观测性 | `Monitor::stats()`、慢查询计数、池指标 | 让吞吐、缓存、Context 与连接池状态可度量、可治理 |
 
-## 架构一览
+## 🏛️ 架构一览
 
 ```text
 ┌─────────────────────────────────────────────────────────────────────┐
@@ -103,9 +103,9 @@ Gene 不是将传统 PHP 框架简单地搬进常驻进程，而是重新设计�
 └─────────────────────────────────────────────────────────────────────┘
 ```
 
-## 快速开始
+## 🧭 快速开始
 
-### 1. 编译并启用扩展
+### 1️⃣ 编译并启用扩展
 
 ```bash
 cd src
@@ -129,7 +129,7 @@ php --ri gene
 
 > macOS 可直接使用 `tools/mac_build.sh`；Windows 构建说明见 [AGENTS.md](AGENTS.md)。完整生产配置见 [配置参考](docs/CONFIGURATION.md)。
 
-### 2. 定义应用入口
+### 2️⃣ 定义应用入口
 
 ```php
 <?php
@@ -141,7 +141,7 @@ $app
     ->run();
 ```
 
-### 3. 注册路由
+### 3️⃣ 注册路由
 
 ```php
 <?php
@@ -160,7 +160,7 @@ $router->clear()
     });
 ```
 
-### 4. 配置服务
+### 4️⃣ 配置服务
 
 ```php
 <?php
@@ -178,7 +178,7 @@ $config->set('db', [
 ]);
 ```
 
-### 5. 编写控制器
+### 5️⃣ 编写控制器
 
 ```php
 <?php
@@ -197,7 +197,7 @@ class Home extends \Gene\Controller
 }
 ```
 
-## Swoole：一个入口收口完整生命周期
+## ⚡ Swoole：一个入口收口完整生命周期
 
 ```php
 <?php
@@ -220,30 +220,30 @@ $server->start();
 
 `handleSwoole()` 统一完成 Worker 就绪等待、请求初始化、Response 绑定、应用执行、异常边界、响应结束与 Context 清理，减少手写生命周期遗漏。
 
-## 性能设计
+## 📈 性能设计
 
 Gene 不使用脱离场景的单一数字承诺性能，而是提供可解释、可验证的优化机制：
 
 | 热点路径 | 设计 |
 |:---|:---|
-| 路由与分发 | C 层哈希/树匹配、可选路由预编译、Controller 与 Hook 直接调度 |
-| 配置与缓存 | Worker 内共享、容量硬约束、近似 LRU、TTL 与批量 API |
-| 数据访问 | PDO 查询构建、批量写入、upsert、原子更新与连接复用 |
-| Swoole Runtime | Context 池、协程 ID 快速路径、数据库/Redis 连接池、非阻塞 HTTP |
-| 可观测性 | 请求、缓存、Context、慢查询与连接池指标统一汇入 `Monitor::stats()` |
+| 🌐 路由与分发 | C 层哈希/树匹配、可选路由预编译、Controller 与 Hook 直接调度 |
+| 💾 配置与缓存 | Worker 内共享、容量硬约束、近似 LRU、TTL 与批量 API |
+| 🗄️ 数据访问 | PDO 查询构建、批量写入、upsert、原子更新与连接复用 |
+| ⚡ Swoole Runtime | Context 池、协程 ID 快速路径、数据库/Redis 连接池、非阻塞 HTTP |
+| 📊 可观测性 | 请求、缓存、Context、慢查询与连接池指标统一汇入 `Monitor::stats()` |
 
 实际吞吐取决于硬件、PHP/Swoole 版本、内核参数、数据库与业务逻辑。请在目标环境中使用真实路由和依赖拓扑压测，并同时观察 p95/p99、错误率、RSS 与连接池等待情况。
 
-## 系统要求
+## 💻 系统要求
 
 | 类型 | 要求 |
 |:---|:---|
-| PHP | PHP 8.0–8.5；当前矩阵覆盖 8.1.30、8.2.33、8.3.33、8.4.25、8.5.10 |
-| 平台 | Linux、macOS、Windows |
-| 必需扩展 | PDO（使用数据库能力时） |
-| 可选扩展 | Swoole、Redis、Memcached，以及对应 PDO 数据库驱动 |
+| 🐘 PHP | PHP 8.0–8.5；当前矩阵覆盖 8.1.30、8.2.33、8.3.33、8.4.25、8.5.10 |
+| 🖥️ 平台 | Linux、macOS、Windows |
+| 📦 必需扩展 | PDO（使用数据库能力时） |
+| 🔌 可选扩展 | Swoole、Redis、Memcached，以及对应 PDO 数据库驱动 |
 
-## 验证与生产准入
+## ✅ 验证与生产准入
 
 ```bash
 # 回归测试
@@ -258,27 +258,27 @@ bash tools/acceptance/linux_swoole_verify.sh --demo
 
 测试说明见 [test/README.md](test/README.md)，FPM/Swoole 验收、连接池并发、长跑和日志轮转门禁见 [tools/acceptance/README.md](tools/acceptance/README.md)。
 
-## 生产实践
+## 🏢 生产实践
 
 Gene 已用于教育认证、电商交易与 B2B 供应链等长期运行场景：
 
-- **湖北省教育用户认证中心**：服务全省师生与教育机构的统一认证入口。
-- **尚动电子商务平台**：支撑高并发电商业务与交易中台。
-- **生材网**：工程材料与供应链数字化 B2B 交易平台。
+- 🎓 **湖北省教育用户认证中心**：服务全省师生与教育机构的统一认证入口。
+- 🛒 **尚动电子商务平台**：支撑高并发电商业务与交易中台。
+- 🏗️ **生材网**：工程材料与供应链数字化 B2B 交易平台。
 
-## 文档与社区
+## 📚 文档与社区
 
-- [官方文档](https://www.1xm.net/)
-- [配置参考](docs/CONFIGURATION.md)
-- [GitHub Issues](https://github.com/sasou/php-gene/issues)
-- [Windows 发布版本](https://github.com/sasou/php-gene-for-windows)
-- [PHP 5 遗留版本](https://github.com/sasou/php-gene)
-- 技术交流：<zaipd@qq.com>
+- 📖 [官方文档](https://www.1xm.net/)
+- ⚙️ [配置参考](docs/CONFIGURATION.md)
+- 🐞 [GitHub Issues](https://github.com/sasou/php-gene/issues)
+- 🪟 [Windows 发布版本](https://github.com/sasou/php-gene-for-windows)
+- 📦 [PHP 5 遗留版本](https://github.com/sasou/php-gene)
+- ✉️ 技术交流：<zaipd@qq.com>
 
 ---
 
 <div align="center">
-  <h3>Gene Framework</h3>
+  <h3>🧬 Gene Framework</h3>
   <p><strong>更短的执行路径，更完整的生产能力。</strong></p>
   <p><em>Simple Coding, Elegant Life.</em></p>
 
