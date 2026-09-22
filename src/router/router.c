@@ -3727,20 +3727,41 @@ PHP_METHOD(gene_router, __call) {
 			 zend_string_release(joined);
 		 } else zend_update_property_string(gene_router_ce, gene_strip_obj(self), ZEND_STRL(GENE_ROUTER_GROUP), part);
 		 efree(part);
-	 } else if (zend_hash_num_elements(Z_ARRVAL_P(paths)) > 0) {
-		 zend_ulong index = zend_hash_num_elements(Z_ARRVAL_P(paths)) - 1;
-		 zval *saved = zend_hash_index_find(Z_ARRVAL_P(paths), index);
-		 zval *saved_hooks = zend_hash_index_find(Z_ARRVAL_P(hook_stack), index);
-		 zval *flags = zend_hash_index_find(Z_ARRVAL_P(flag_stack), index);
-		 zend_update_property(gene_router_ce, gene_strip_obj(self), ZEND_STRL(GENE_ROUTER_GROUP), saved);
-		 zend_update_property(gene_router_ce, gene_strip_obj(self), ZEND_STRL(GENE_ROUTER_GROUP_HOOKS), saved_hooks);
-		 if (flags && Z_TYPE_P(flags) == IS_ARRAY) {
-			 zval *b = zend_hash_index_find(Z_ARRVAL_P(flags), 0), *a = zend_hash_index_find(Z_ARRVAL_P(flags), 1);
-			 zend_update_property_bool(gene_router_ce, gene_strip_obj(self), ZEND_STRL(GENE_ROUTER_GROUP_BEFORE), b && zend_is_true(b));
-			 zend_update_property_bool(gene_router_ce, gene_strip_obj(self), ZEND_STRL(GENE_ROUTER_GROUP_AFTER), a && zend_is_true(a));
+	 } else if (Z_TYPE_P(paths) == IS_ARRAY && zend_hash_num_elements(Z_ARRVAL_P(paths)) > 0) {
+		 /* [GENE_FIX:2026-09-22] Pop the last real key. zend_hash_index_del()
+		  * does not rewind nNextFreeElement, so closing an inner group and then
+		  * opening a sibling leaves a hole at nNumOfElements-1. Passing that
+		  * NULL zval into zend_update_property() segfaults in zval_get_type(). */
+		 zend_ulong index = 0;
+		 zend_string *str_key = NULL;
+		 zval *saved = NULL;
+		 int found = 0;
+		 ZEND_HASH_REVERSE_FOREACH_KEY_VAL(Z_ARRVAL_P(paths), index, str_key, saved) {
+			 (void) str_key;
+			 found = 1;
+			 break;
+		 } ZEND_HASH_FOREACH_END();
+		 if (found && saved && !str_key) {
+			 zval *saved_hooks = (Z_TYPE_P(hook_stack) == IS_ARRAY) ? zend_hash_index_find(Z_ARRVAL_P(hook_stack), index) : NULL;
+			 zval *flags = (Z_TYPE_P(flag_stack) == IS_ARRAY) ? zend_hash_index_find(Z_ARRVAL_P(flag_stack), index) : NULL;
+			 zend_update_property(gene_router_ce, gene_strip_obj(self), ZEND_STRL(GENE_ROUTER_GROUP), saved);
+			 if (saved_hooks) {
+				 zend_update_property(gene_router_ce, gene_strip_obj(self), ZEND_STRL(GENE_ROUTER_GROUP_HOOKS), saved_hooks);
+			 }
+			 if (flags && Z_TYPE_P(flags) == IS_ARRAY) {
+				 zval *b = zend_hash_index_find(Z_ARRVAL_P(flags), 0), *a = zend_hash_index_find(Z_ARRVAL_P(flags), 1);
+				 zend_update_property_bool(gene_router_ce, gene_strip_obj(self), ZEND_STRL(GENE_ROUTER_GROUP_BEFORE), b && zend_is_true(b));
+				 zend_update_property_bool(gene_router_ce, gene_strip_obj(self), ZEND_STRL(GENE_ROUTER_GROUP_AFTER), a && zend_is_true(a));
+			 }
+			 zend_hash_index_del(Z_ARRVAL_P(paths), index);
+			 if (Z_TYPE_P(hook_stack) == IS_ARRAY) zend_hash_index_del(Z_ARRVAL_P(hook_stack), index);
+			 if (Z_TYPE_P(flag_stack) == IS_ARRAY) zend_hash_index_del(Z_ARRVAL_P(flag_stack), index);
+			 if (zend_hash_num_elements(Z_ARRVAL_P(paths)) == 0) {
+				 zend_hash_clean(Z_ARRVAL_P(paths));
+				 if (Z_TYPE_P(hook_stack) == IS_ARRAY) zend_hash_clean(Z_ARRVAL_P(hook_stack));
+				 if (Z_TYPE_P(flag_stack) == IS_ARRAY) zend_hash_clean(Z_ARRVAL_P(flag_stack));
+			 }
 		 }
-		 zend_hash_index_del(Z_ARRVAL_P(paths), index); zend_hash_index_del(Z_ARRVAL_P(hook_stack), index); zend_hash_index_del(Z_ARRVAL_P(flag_stack), index);
-		 if (zend_hash_num_elements(Z_ARRVAL_P(paths)) == 0) { zend_hash_clean(Z_ARRVAL_P(paths)); zend_hash_clean(Z_ARRVAL_P(hook_stack)); zend_hash_clean(Z_ARRVAL_P(flag_stack)); }
 	 } else zend_update_property_string(gene_router_ce, gene_strip_obj(self), ZEND_STRL(GENE_ROUTER_GROUP), "");
 	 RETURN_ZVAL(self, 1, 0);
  }
