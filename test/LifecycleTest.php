@@ -252,6 +252,30 @@ class LifecycleTest
         } else {
             echo "✗ lock/unlock: " . var_export([$t, $t2, $unlocked, $bad], true) . "\n";
         }
+        // [audit T4] window/ttl are zend_long and must not truncate through
+        // (int): 2^32+1 collapsed to 1s under the old cast, so after it
+        // elapses the entry must still be alive (clamped to INT_MAX).
+        $wk = 'rl_win_' . bin2hex(random_bytes(4));
+        $w1 = $m->rateLimit($wk, 2, 4294967297);
+        $w2 = $m->rateLimit($wk, 2, 4294967297);
+        $lk2 = 'lock_win_' . bin2hex(random_bytes(4));
+        $lt = $m->lock($lk2, 4294967297);
+        sleep(2);
+        $w3 = $m->rateLimit($wk, 2, 4294967297);
+        $lt2 = $m->lock($lk2, 4294967297);
+        if ($w1 && $w2 && $w3 === false && is_string($lt) && $lt2 === false) {
+            echo "✓ rateLimit/lock honor zend_long windows (no int truncation)\n";
+        } else {
+            echo "✗ window truncation: " . var_export([$w1, $w2, $w3, $lt, $lt2], true) . "\n";
+        }
+        $bk = 'rl_big_' . bin2hex(random_bytes(4));
+        $b1 = $m->rateLimit($bk, 1, PHP_INT_MAX);
+        $b2 = $m->rateLimit($bk, 1, PHP_INT_MAX);
+        if ($b1 && $b2 === false) {
+            echo "✓ rateLimit PHP_INT_MAX window not immediately expired\n";
+        } else {
+            echo "✗ rateLimit PHP_INT_MAX: " . var_export([$b1, $b2], true) . "\n";
+        }
         echo "\n";
     }
 
