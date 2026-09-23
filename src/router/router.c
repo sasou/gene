@@ -2690,7 +2690,25 @@ static zval *gene_router_compose_group_hooks(zval *self, const char *method, con
 	if (safe && Z_TYPE_P(safe) == IS_STRING && Z_STRLEN_P(safe)) memcpy(event_key, Z_STRVAL_P(safe), Z_STRLEN_P(safe));
 	memcpy(event_key + event_len - 3, GENE_ROUTER_ROUTER_EVENT, 3); event_key[event_len] = '\0';
 	events = gene_memory_get(event_key, event_len);
-	if (!events || Z_TYPE_P(events) != IS_ARRAY) return route_hook;
+	if (!events || Z_TYPE_P(events) != IS_ARRAY) {
+		/* [GENE_FIX:2026-09-23] Routes registered before ANY hook()/error()
+		 * call have no event table yet: returning route_hook here silently
+		 * dropped non-empty through() hooks — e.g. adminAuth never ran and
+		 * the protected controller executed unauthenticated. Fail loudly
+		 * like chain_add's "named hook not registered" instead. */
+		if (hooks && Z_TYPE_P(hooks) == IS_ARRAY
+				&& zend_hash_num_elements(Z_ARRVAL_P(hooks)) > 0) {
+			zval *first = NULL;
+			ZEND_HASH_FOREACH_VAL(Z_ARRVAL_P(hooks), first) { break; } ZEND_HASH_FOREACH_END();
+			if (first && Z_TYPE_P(first) == IS_STRING) {
+				zend_value_error("named hook '%s' is not registered", Z_STRVAL_P(first));
+			} else {
+				zend_value_error("named group hook is not registered");
+			}
+			return NULL;
+		}
+		return route_hook;
+	}
 	array_init(&chain);
 	if (hooks && Z_TYPE_P(hooks) == IS_ARRAY) {
 		ZEND_HASH_FOREACH_VAL(Z_ARRVAL_P(hooks), name) {
