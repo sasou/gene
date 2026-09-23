@@ -502,3 +502,151 @@ immutable 只保证 SHM 生命周期内地址稳定。FPM 下 `opcache_reset()` 
 5. **R9、R10、R11、R12**：文档、RINIT 清槽、字段清理、CHANGELOG 与回归用例。
 
 验收：R1 以 demo 加载冒烟测试 + `/login.action` 返回业务 JSON 为准；R2/R3/R4 以 `OrmTest` 新增断言为准；R6 需要 PG 实例，无环境时明确 SKIP，不以 SKIP 为通过。
+
+---
+
+## 九、第二轮落地复核（2026-09-23 追加）
+
+> 复核对象：提交 `91d0442`（`fix: apply 2026-09-23 audit landing-review remediation (R1-R12)`，46 个文件，+1322/−259）。
+> 复核方式：逐条对照 diff 与源码；`x64\Release\php_gene.dll`（19:14:21）晚于 `src/` 最后修改（`orm/meta.c` 19:13:50），免部署运行 TestRunner、`session_store_ttl.php`、`orm_v2_leak_probe.php`，新增 `audit/repro/version_keys_review2.php` 验证 versionKeys 边界。
+> 本节只追加，不改写第一至第八节；与前文矛盾之处以本节为准。
+
+### 9.1 R1–R12 落地状态
+
+| 项 | 状态 | 核对结果 |
+|----|------|----------|
+| R1 静态属性类型 | 已落地，**验收只做了一半** | demo 模型、helper 两份文档、第四节 O3 示例均改为无类型 + PHPDoc；5 个模型、Service、Controller、Hook 实测可加载。但冒烟测试没有加载任何 ORM 模型，见 S3 |
+| R2 行级失效 | 已落地，**引入新缺口** | `updateBy` / `flip` / `destroy` 均按主键预读当前行，非 payload 映射列也会 bump。hydrate 路径的 `save()` 省略预读，改名时漏掉旧键，见 S1 |
+| R3 非主键 where | 已落地 | `gene_orm_version_prefetch_where()` 复用 `gene_orm_apply_where()`，`LIMIT N+1`，超限时 `E_WARNING` 并跳过失效；`$versionScanLimit` 已在 MINIT 声明（默认 1000）。非原子问题见 S7 |
+| R4 按连接分桶 | 已落地 | `{handle => {pdo, maps}}`；commit/rollback 只处理本连接的桶。请求结束时的兜底实测正确：绕过 Gene 直接提交的桶会被冲刷，被事务卫生回滚的桶会被丢弃 |
+| R5 Memcached TTL | 已落地 | `gene_memcached_set` / `gene_memcache_set` 对 `IS_LONG` 且位于 (2592000, now) 区间的值改写为 `now+ttl`；`validity` 全线改为 `zend_long`。字符串 TTL 未覆盖，见 S6 |
+| R6 flip PG 类型 | 已落地，**未实测** | THEN/ELSE 中的 `IS_LONG` 内联为整数字面量，布尔在 PG 下输出 `TRUE/FALSE`、其它驱动输出 `1/0`；demo 三处裸 SQL 已改为 `THEN 1 ELSE 0`。本机仍无 PG 环境 |
+| R7 `S!` 与子类派发 | 已落地 | `page()` / `paginate()` 已改为 `S!`；`page()` 从被调类的 `function_table` 查找 `paginate`。测试断言偏弱，见 S5 |
+| R8 口令迁移与 cookie | 已落地，**部分** | 迁移脚本已补；旧摘要登录后自动升级；`cookie_lifetime <= 0` 输出 `expires=0`。新哈希仍拼接 salt，没有接 `password_needs_rehash()`，见 S4 |
+| R9 文档残留 | 已落地 | `rg "冻结进程级\|后冻结\|只读"` 已无旧说法；`Memory.php` stub 与源码一致 |
+| R10 RINIT 清槽 | 已落地 | 槽位移到文件作用域，由 `gene_cache_call_reset()` 在 RINIT 清零；ZTS 下不做缓存 |
+| R11 字段清理 | 已落地 | 全局变量、清零语句、两处 stats 输出、`swoole_route_probe.php` 均已清理；CHANGELOG 已记录字段移除 |
+| R12 流程与覆盖 | **部分** | CHANGELOG、`AGENTS.md`、`docs/CONFIGURATION.md` 已同步；`SessionTest` / `OrmTest` / `DemoLoadTest` 已补。仍为单个提交，泄漏探针覆盖有偏差，见 S2、S8 |
+
+测试结果（新 DLL，`GENE_TEST_PHP_ARGS` 注入 `-n -d extension=...`）：21 个套件中 20 个全绿，`OrmTest` 193/193、`SessionTest` 57/57、`DemoLoadTest` 4/4。`LifecycleTest` 20/21，原因是 `-n` 模式未加载 openssl，`Gene\Crypto` 直接致命退出，不是回归。`session_store_ttl.php` 输出 `argc=3 ttl=86400 / argc2=2 / OK`；`orm_v2_leak_probe.php` 各项增量为 0 B。
+
+结论：R1–R12 的 C 层修复基本到位，demo 后台已能加载 ORM 模型。仍需处理一处由 R2 修复引入的缓存一致性回归（S1），以及几项验收、测试口径问题（S2、S3、S5）。
+
+### 9.2 问题清单
+
+| # | 等级 | 问题 | 证据 |
+|---|------|------|------|
+| **S1** | 高 | `save()` 在 `attrs` 覆盖全部映射列时，把**已修改的** `attrs` 当作写前旧行：`find($id, true)` 或 `fill()` 之后修改映射列再 `save()`，旧键不会 bump，新值还重复出现两次 | 运行时：`version_keys_review2.php` S1 |
+| **S2** | 中 | 泄漏探针的「非主键 where 预读 + bump」一项实际走的是超限告警分支，预读与 bump 路径的泄漏没有被测到 | 运行时：6000+ 行时每次都报 `matched more than 1000 rows` |
+| **S3** | 中 | R1 的验收没做完：`DemoLoadTest` 只跑 `/healthz` 和未知路由，不加载任何 ORM 模型；`tools/acceptance` 的 `--demo` 没有增加登录请求。demo Service 另有 PHP 8.1 deprecation | 静态 + 运行时 |
+| **S4** | 低（安全） | 新口令仍为 `password_hash($salt . $password)`，16 字符 salt 占用 bcrypt 72 字节输入上限；没有 `password_needs_rehash()` 升级路径 | 静态 |
+| **S5** | 低 | 测试口径：`page()` 子类派发的断言分不出子类收到的是页码还是偏移量；TestRunner 默认不把 `-d extension=` 传给子进程，容易误测旧 DLL；`LifecycleTest` 缺 openssl 时致命退出而不是 SKIP | 运行时 |
+| **S6** | 低 | 字符串 TTL 不参与规范化：Memcached 组件配置里的 `ttl` 若为字符串，不走 R5 的改写；`Gene\Session` 的 `ttl` 配置只接受 `IS_LONG`，`"3600"` 被静默忽略 | 静态 |
+| **S7** | 低 | R3 的「先 SELECT 后 UPDATE」在事务外不是原子的；`flip()` 在影响 0 行时仍多一次预读 | 静态 |
+| **S8** | 低（流程） | 仍是单个提交；PG 仍未实测；`src/` 下 6 个文件没有 UTF-8 BOM（之前就是这样，但违反 `AGENTS.md` 的 Windows 约定）；工作区遗留未跟踪的 `audit/repro/_tmp_load_check.php` | 静态 |
+
+### 9.3 问题详情与解决思路
+
+#### S1 — hydrate / fill 后改映射列再 `save()`，旧键不失效
+
+复现（Release DLL，`audit/repro/version_keys_review2.php`）：
+
+```text
+find($id, true) -> name: old => new -> save()
+S1 bumps: [{"v.id":1,"v.name":["new","new"]}]      期望包含 "old"
+
+(new U)->fill(['id' => $id, 'name' => 'new', ...])->save()
+bumps:    [{"v.id":1,"v.name":["new","new"]}]      同样缺 "old"
+```
+
+根因在 `model.c` `save()` 的 R2 优化：
+
+```c
+if (gene_orm_version_covered(&ver_keys, &meta, attrs)) {
+    ZVAL_COPY(&ver_old, attrs);      /* attrs 已经是改过的值 */
+} else {
+    gene_orm_version_prefetch(...);
+}
+```
+
+`data_copy` 同样复制自 `attrs`，于是 `commit_write` 得到 `prev == neu == 'new'`，`add_pair` 输出 `["new","new"]`。第八节 R2 的建议「hydrate 模型的 `save()` 直接取 `attrs` 里的原值」有前提：模型得保存加载时的原始值。Gene 的模型只有一份 `attributes`，没有 original/dirty 快照，这个前提不成立。`fill()` 的情况更糟：`attrs` 来自调用方，根本不是库里的行。
+
+影响：凡是用 `find($id, true)->xxx = ...; save()` 修改登录名、邮箱等映射列的业务，旧键缓存会保留到 TTL，其间按旧登录名还能查到这一行（含旧的 `status` / 口令摘要）。demo 的 `Models\Admin\User` 走 `updateBy()`，不经过 `save()`，所以 demo 本身不受影响。在 `91d0442` 之前，payload 里有映射列时会按主键预读，不存在这个问题，所以这是 `91d0442` 引入的回归。
+
+**解决思路（二选一，推荐第 1 种先落地）：**
+
+1. **去掉 `covered` 捷径，`save()` 的 update 分支一律按主键预读。** 成本是有二级映射列时每次 `save()` 多一次单行主键 SELECT，与 `updateBy` 一致，也与第八节 R2「成本：与旧 Service 的 `userNameById()` 相同」的承诺一致。同时删除 `gene_orm_version_covered()`，避免被再次误用。
+2. **引入原始值快照（后续优化）。** hydrate（`find($id, true)` / `all(true)` 等）完成后，仅在模型声明了 `versionKeys` 时，把二级映射列的值复制到一个受保护的实例属性（例如 `__versionOrig`，只存映射列，不存整行）；`save()` 成功后用新值刷新它；`fill()` / `setExists()` / `create()` 清空它。`save()` 有快照时用快照当旧行，没有快照时回落第 1 种的预读。这样 hydrate 路径保持零额外 SQL，`fill()` 路径也一定正确。快照挂在实例上，随对象释放，不引入请求级或进程级状态。
+
+配套：
+
+- `gene_orm_version_add_pair()` 在 `prev` 与 `neu` 相等（`zend_is_identical` 或 `zend_compare == 0`）时只写一次，避免 `["new","new"]` 这种重复 bump。
+- 回归：`OrmTest::testVersionKeysRowLevel` 增加两条断言：「`find($id, true)` 改名后 `save()`，bumps 同时含旧值和新值」「`fill()` 带主键改名后 `save()`，同样含旧值」。若采用第 2 种，再加一条「hydrate `save()` 不发预读 SQL」（用 `history()` 快照计数）。
+- `AGENTS.md` 的 ORM 约定已写明「写入前按主键或同一 where 预读受影响行」；修复后 `save()` 与这句话才一致，无需改文字。
+
+#### S2 — 泄漏探针没有测到非主键预读路径
+
+`orm_v2_leak_probe.php` 在 versionKeys 段之前已经 `createMany` 了约 6000 行，`LMV::updateBy(['status' => 1], ['status' => 1])` 每次命中的行数都超过默认上限 1000，于是走 `ver_overflow` 分支：预读结果集被立即释放，`commit_write` 不执行。输出里连续的 `matched more than 1000 rows` 就是证据。「+0 B」只说明告警分支不泄漏。
+
+**解决思路：**
+
+1. 该项改为只命中少量行的条件，例如 `LMV::updateBy(['name' => 'seed'], ['status' => 1])`（`updateOrCreate` 段保证 `seed` 存在且只有 1 行）；或者为探针单独声明 `protected static $versionScanLimit = 100000;` 的子类，让大结果集也走完整的 bump 路径，同时覆盖 `gene_orm_version_gather_col()` 的批量取值。
+2. 探针在该项期间装一个 `set_error_handler`，出现 `E_WARNING` 就判失败，防止将来又悄悄退化成测告警分支。
+3. 超限分支本身保留一个独立探针项（名字写明 overflow），两条路径各测一次。
+
+#### S3 — R1 验收缺口：demo 冒烟没有触达 ORM 模型
+
+第八节 R1 要求「遍历 `demo/application/{Models,Services,Controllers,Hooks,Ext}` 逐个 `class_exists`」和「`--demo` profile 对 `/login.action` POST 错误口令」。`DemoLoadTest` 实际只跑 `init_sqlite.php`、`cli.php /healthz` 和一个未知路由，`healthz` 不加载任何模型。要是再有人给 `$table` 加上类型，这个测试照样全绿，R1 的原始故障会原样复发。
+
+另外，实测加载 `Services\Admin\User` 时 PHP 8.1 报两条 deprecation：`lists($page = 1, $limit = 10, $search)` 把可选参数放在必填参数之前（`Services\Admin\Log::lists` 同样如此）。demo 在 debug 模式下若把 deprecation 转成异常，就会变成 500。
+
+**解决思路：**
+
+1. `DemoLoadTest` 增加一个子进程用例：注册与 demo 相同的 PSR-4 规则，`RecursiveDirectoryIterator` 遍历上述五个目录，逐个 `class_exists($fqcn, true)`，并用 `set_error_handler` 把 `E_DEPRECATED` / `E_WARNING` 也计为失败；断言 exit 0 且没有输出。工作区里的 `audit/repro/_tmp_load_check.php` 可以作为雏形，收进测试后删除这个临时文件。
+2. 本地模式已经补了 sqlite 的 `sys_*` 表和 admin 种子，`DemoLoadTest` 可以再加一个 `cli.php` 用例，直接调用 `Services\Admin\User::getInstance()->checkUser('admin', 'wrong')`（或通过 CLI 路由 POST），期望得到「密码错误」的业务结果而不是致命错误。这一步会真正经过 `cachedVersion` → `Models\Admin\User` → `join()+fields()` → `verifyPassword`。
+3. `tools/acceptance` 的 `--demo` profile 同步增加一个 `/login.action` 错误口令请求，期望 HTTP 200 + 业务 JSON。
+4. 两个 `lists()` 签名改为 `lists($search = [], $page = 1, $limit = 10)` 并同步调用方，或者给 `$search` 也加默认值 `[]`。
+
+#### S4 — 口令哈希仍拼接 salt，缺少 rehash 路径
+
+`generatePasswordHash()` 是 `password_hash($salt . $password, PASSWORD_DEFAULT)`，`verifyPassword()` 对新格式用 `password_verify($salt . $password, ...)`。bcrypt 只取前 72 字节，16 字符的 salt 占掉其中 16 字节，口令超过 56 字节的部分不参与哈希。`checkUser()` 只在旧 md5 摘要时升级，以后更换算法或 cost 时，已有 bcrypt 哈希不会被升级。
+
+**解决思路：**
+
+1. 新哈希改为 `password_hash($password, PASSWORD_DEFAULT)`，不再拼接 salt（`password_hash` 自带随机盐）。`user_salt` 列保留，只供旧 md5 格式校验使用。
+2. `verifyPassword()` 按格式分三类：`$2y$` / `$argon2` 开头的先试 `password_verify($password, $stored)`，失败再试 `password_verify($salt . $password, $stored)`（兼容 `91d0442` 期间写入的拼接格式）；非 `$` 开头的走 legacy md5。
+3. `checkUser()` 校验通过后，只要命中「legacy md5」「拼接格式」或 `password_needs_rehash($stored, PASSWORD_DEFAULT)` 任一条件，就用第 1 条的方式重写。重写仍走 `Models\Admin\User::edit()` → `updateBy()`，由 versionKeys 失效按登录名缓存的行。
+4. `Services\Admin\User::edit()` 改密时不再生成新 salt（或保留生成，但不参与哈希），与第 1 条一致。
+
+#### S5 — 测试口径问题
+
+1. **`page()` 子类派发断言无法区分偏移量。** `OrmRvSub::paginate()` 返回 `"page" => $page`，但 `page()` 随后用 `add_assoc_long("page", 3)` 覆盖了这个键，所以断言 `page === 3` 永远成立，即使子类收到的第二个参数错成页码而不是偏移量 10，也发现不了。**解决：** 子类返回 `"offset" => $page`（第二个参数），断言 `offset === 10`、`limit === 5`、`order === null`。
+2. **TestRunner 默认不把扩展参数传给子进程。** `runIsolated()` 只拼 `PHP_BINARY` 和 `GENE_TEST_PHP_ARGS`。用 `php -n -d extension=<新 DLL> TestRunner.php` 启动时，子进程读的是默认 php.ini，加载的是部署目录里的旧 DLL。本轮第一次运行就因此出现 18 个假失败。**解决：** Runner 启动时若 `GENE_TEST_PHP_ARGS` 为空而当前进程加载的 gene 不是 php.ini 里的那份，就自动转发 `-n` 与 `-d extension=` 参数（可从 `(new ReflectionExtension('gene'))` 与 `php_ini_loaded_file()` 判断），或者至少打印醒目警告；子进程第一行输出 `phpversion('gene')` 与 DLL 路径，便于核对。`AGENTS.md`「验证与测试」一节把 `GENE_TEST_PHP_ARGS` 的用法写进免部署命令。
+3. **`LifecycleTest` 缺 openssl 时致命退出。** 按 `test/README.md`「无环境时 SKIP」的约定，`Gene\Crypto` 段在 `!extension_loaded('openssl')` 时应输出 SKIP 并继续，而不是让整个套件 exit 255。
+
+#### S6 — 字符串 TTL 不参与规范化
+
+- `Gene\Cache\Memcached::set()` 未传 TTL 时回落组件配置的 `ttl`。配置经 `Config` / ini 加载时可能是字符串，此时 `gene_memcached_set()` 走 `params[2] = *ttl` 原样透传，超过 30 天的字符串值不会被改写。**解决：** `Z_TYPE_P(ttl) == IS_STRING` 且为数字字符串（`is_numeric_string`）时，先转为 long 再规范化；其它类型原样透传。
+- `Gene\Session` 构造时 `ttl` / `uttl` 只接受 `IS_LONG`，`'ttl' => '3600'` 被静默忽略，实际仍用 86400。**解决：** 同样接受数字字符串（`zval_get_long` 前先 `is_numeric_string` 校验），非数字值发一次 `E_WARNING`。这项不是本轮回归，但 P1 之后 `ttl` 直接决定存储寿命，配置写错的代价变大了。
+
+#### S7 — 预读与写入之间的窗口
+
+- R3 的 `prefetch_where` 先 SELECT 再 UPDATE。事务外执行时，两条语句之间被其它连接插入或修改、进而满足 where 的行会被 UPDATE 命中，却不在 bump 集合里；其映射键不会失效。**解决：** 不在 C 层隐式开事务（会改变调用方的事务语义）。在 stub 与 `reference.md` 的 `$versionScanLimit` 说明里写明：非主键批量更新需要严格失效时，应在 `transaction()` 内执行；MySQL/PG 下可以考虑预读时加 `FOR UPDATE`，但仅在已处于事务中时才加（`gene_pdo_in_transaction` 为真），避免事务外锁语义不一致。
+- `flip()` 的写后预读在 `affectedRows == 0` 时仍会执行。**解决：** 把 `gene_orm_version_prefetch()` 移到 `n > 0` 的判断之后，省一次无效 SELECT。
+
+#### S8 — 流程与环境
+
+1. **提交粒度：** `91d0442` 仍然一次性包含 ORM 语义修正、Session、Cache、demo 迁移和文档。S1 的修复只涉及 `save()` 与 `meta.c`，建议单独提交，便于回滚。
+2. **PG 实测：** R6 仍未在 PostgreSQL 上跑过。`DatabaseTest` 的 PG 段应加上 `flip()` 用例（默认 `[0, 1]` 与 `[true, false]` 各一条），无 PG 时明确 SKIP；发布前在 Linux 验收机上补跑，不以 SKIP 为通过。
+3. **BOM：** `src/app/application.c`、`application.h`、`src/cache/cache.h`、`memcached.c`、`src/gene.c`、`src/orm/meta.c` 没有 UTF-8 BOM，而 `meta.c` 本轮新增了含 `—`、`→` 的注释。按 `AGENTS.md`，Windows 下会产生 C4819 类告警。**解决：** 随 S1 一并统一加 BOM（`2594ec7` 的做法），并在 CI 或 pre-commit 加一个「`src/**/*.{c,h}` 必须以 EF BB BF 开头」的检查。
+4. **临时文件：** `audit/repro/_tmp_load_check.php` 未跟踪，按 S3 第 1 条收进 `DemoLoadTest` 后删除。
+
+### 9.4 建议修复顺序
+
+1. **S1**（立即）：去掉 `save()` 的 `covered` 捷径并给 `add_pair` 去重，补两条 `OrmTest` 断言；`version_keys_review2.php` 应输出 `S1 OK` 并 exit 0。
+2. **S2 + S3**：修正泄漏探针路径，补 demo 全量加载与登录冒烟，修两个 `lists()` 签名。这两项决定了后续回归能否拦住同类问题。
+3. **S5**：TestRunner 转发扩展参数（或告警）、`page()` 断言、`LifecycleTest` SKIP。
+4. **S4、S6、S7**：口令格式与 rehash、字符串 TTL、预读窗口的文档与 `flip()` 的顺序调整。
+5. **S8**：BOM 统一与检查、PG 实测、清理临时文件。
+
+验收：S1 以 `audit/repro/version_keys_review2.php` exit 0 与 `OrmTest` 新断言为准；S2 以探针期间无 `E_WARNING` 且增量为 0 为准；S3 以 `DemoLoadTest` 覆盖模型加载与登录业务 JSON 为准；R6/S8 的 PG 项无环境时明确 SKIP，不以 SKIP 为通过。
