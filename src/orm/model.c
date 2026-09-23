@@ -1631,15 +1631,11 @@ PHP_METHOD(gene_orm_model, save)
 			gene_orm_apply_timestamps(&data_copy, 0, &meta);
 		}
 		if (ver_on) {
-			/* [GENE_FIX:2026-09-23 R2] A hydrated model's attributes already
-			 * carry the loaded row values: when every secondary mapped
-			 * column is present they double as the pre-write row — zero
-			 * extra SQL. Otherwise prefetch by pk. */
-			if (gene_orm_version_covered(&ver_keys, &meta, attrs)) {
-				ZVAL_COPY(&ver_old, attrs);
-			} else {
-				gene_orm_version_prefetch(db, &meta, &ver_keys, &pk_copy, 0, &ver_old);
-			}
+			/* [GENE_FIX:2026-09-23 S1] Always prefetch the pre-write row by
+			 * pk: `attributes` holds the MODIFIED values (fill()/property
+			 * writes), not the stored row — reusing them as `ver_old`
+			 * loses the old version key when a mapped column is renamed. */
+			gene_orm_version_prefetch(db, &meta, &ver_keys, &pk_copy, 0, &ver_old);
 			if (UNEXPECTED(gene_orm_has_exception())) {
 				zval_ptr_dtor(&pk_copy);
 				goto cleanup;
@@ -2183,24 +2179,28 @@ PHP_METHOD(gene_orm_model, flip)
 		 * the mapped columns' identity except possibly the flipped column
 		 * itself, whose post-update row value plus its counterpart covers
 		 * both directions. Secondary columns get their current value so a
-		 * flip invalidates e.g. the by-login-name cache too. */
-		gene_orm_version_prefetch(db, &meta, &ver_keys, id, 0, &ver_old);
-		if (UNEXPECTED(gene_orm_has_exception())) goto cleanup_db;
-		if (gene_orm_version_col_mapped(&ver_keys, &meta, field)) {
-			zval *cur, other;
-			array_init(&flip_data);
-			cur = (Z_TYPE(ver_old) == IS_ARRAY)
-				? zend_hash_find(Z_ARRVAL(ver_old), field) : NULL;
-			if (cur) {
-				int cmp = zend_compare(cur, v0);
-				ZVAL_COPY(&other, (cmp == 0) ? v1 : v0);
-			} else {
-				ZVAL_COPY(&other, v0);
+		 * flip invalidates e.g. the by-login-name cache too.
+		 * [GENE_FIX:2026-09-23 S7] Skipped entirely when the UPDATE hit no
+		 * row — commit_write() would be a no-op anyway. */
+		if (n > 0) {
+			gene_orm_version_prefetch(db, &meta, &ver_keys, id, 0, &ver_old);
+			if (UNEXPECTED(gene_orm_has_exception())) goto cleanup_db;
+			if (gene_orm_version_col_mapped(&ver_keys, &meta, field)) {
+				zval *cur, other;
+				array_init(&flip_data);
+				cur = (Z_TYPE(ver_old) == IS_ARRAY)
+					? zend_hash_find(Z_ARRVAL(ver_old), field) : NULL;
+				if (cur) {
+					int cmp = zend_compare(cur, v0);
+					ZVAL_COPY(&other, (cmp == 0) ? v1 : v0);
+				} else {
+					ZVAL_COPY(&other, v0);
+				}
+				add_assoc_zval_ex(&flip_data, ZSTR_VAL(field), ZSTR_LEN(field), &other);
 			}
-			add_assoc_zval_ex(&flip_data, ZSTR_VAL(field), ZSTR_LEN(field), &other);
+			gene_orm_version_commit_write(db, &meta, &ver_keys, id,
+				Z_TYPE(flip_data) == IS_ARRAY ? &flip_data : NULL, &ver_old, 0, n);
 		}
-		gene_orm_version_commit_write(db, &meta, &ver_keys, id,
-			Z_TYPE(flip_data) == IS_ARRAY ? &flip_data : NULL, &ver_old, 0, n);
 		if (Z_TYPE(flip_data) != IS_UNDEF) {
 			zval_ptr_dtor(&flip_data);
 		}

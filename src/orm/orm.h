@@ -92,8 +92,6 @@ int gene_orm_version_keys(zend_class_entry *ce, zval *keys);
 void gene_orm_version_prefetch(zval *db, gene_orm_meta_t *meta, zval *keys, zval *pk, zend_bool is_delete, zval *old);
 /* Load pre-write rows for an arbitrary $where (non-pk updateBy). */
 void gene_orm_version_prefetch_where(zval *db, gene_orm_meta_t *meta, zval *keys, zval *where, zend_long limit, zval *old, zend_bool *overflowed);
-/* 1 when attrs already carries every secondary mapped column. */
-int gene_orm_version_covered(zval *keys, gene_orm_meta_t *meta, zval *attrs);
 /* 1 when col_name is a mapped secondary version column. */
 zend_bool gene_orm_version_col_mapped(zval *keys, gene_orm_meta_t *meta, zend_string *col_name);
 /* Model $versionScanLimit static (default 1000). */
