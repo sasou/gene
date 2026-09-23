@@ -39,7 +39,8 @@ class User extends \Gene\Controller
      */
     function info($params)
     {
-        $this->id = intval($params["id"]);
+        // 视图变量走 assign()；$this->id 写入会进入 DI 注册表，影子掉名为 id 的注入组件
+        $this->view->assign('id', intval($params["id"]));
     }
     
     /**

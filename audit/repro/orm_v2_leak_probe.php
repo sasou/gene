@@ -83,5 +83,35 @@ $ok &= probe('updateOrCreate + toggle (timestamps meta)', 5000, function () {
     LM::toggle(1, 'status', [0, 1]);
 });
 
+/* [GENE_FIX:2026-09-23 R12] versionKeys write paths: prefetch arrays,
+ * old/new pair maps, per-PDO pending buckets, post-flip row view. The
+ * cache hook must not accumulate — recording bumps would fake a leak. */
+eval('class LMV extends \\Gene\\Orm\\Model {
+    protected static $table = "m";
+    protected static $connection = "orm_db";
+    protected static $versionKeys = ["db.lm.id" => "id", "db.lm.name" => "name"];
+}');
+\Gene\Di::set('cache', new class {
+    public function updateVersion($fields) { return true; }
+});
+
+$ok &= probe('flip() int inline + version bump', 10000, function () {
+    LMV::flip(1, 'status', [0, 1]);
+});
+$ok &= probe('updateBy pk + version bump (row prefetch)', 10000, function () {
+    LMV::updateBy(1, ['status' => 1]);
+});
+$ok &= probe('updateBy non-pk where prefetch+bump', 5000, function () {
+    LMV::updateBy(['status' => 1], ['status' => 1]);
+});
+$ok &= probe('page() paginate dispatch', 10000, function () {
+    LMV::page(['status' => 1], 1, 3, null);
+});
+$ok &= probe('transaction deferred version bump', 5000, function () {
+    LMV::transaction(function () {
+        LMV::updateBy(1, ['status' => 1]);
+    });
+});
+
 echo $ok ? "LEAK PROBE OK\n" : "LEAK PROBE FAILED\n";
 exit($ok ? 0 : 1);

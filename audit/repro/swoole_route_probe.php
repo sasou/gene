@@ -32,12 +32,13 @@ function gene_probe($tag)
     $stats = $m->stats();
 
     fwrite(STDERR, sprintf(
-        "[GENE-PROBE %s] pid=%d cache_items=%d fn_cache=%d refused=%s | %s\n",
+        "[GENE-PROBE %s] pid=%d cache_items=%d fn_cache=%d biz_items=%s biz_used=%s | %s\n",
         $tag,
         getmypid(),
         $stats['cache_items'] ?? -1,
         $stats['fn_cache_items'] ?? -1,
-        $stats['cache_insert_refused'] ?? 'n/a',
+        $stats['business_cache_items'] ?? 'n/a',
+        $stats['business_cache_num_used'] ?? 'n/a',
         implode(' ', $out)
     ));
 }

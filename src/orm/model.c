@@ -14,6 +14,7 @@
 #include "php_ini.h"
 #include "Zend/zend_API.h"
 #include "zend_exceptions.h"
+#include "zend_operators.h"
 #include "zend_smart_str.h"
 
 #include "../gene.h"
@@ -202,8 +203,10 @@ static zend_always_inline zval *gene_orm_pk_value(zval *attrs, zend_string *pk)
  * condition was actually handed to db->where(). Write entry points
  * (updateBy/updateOrCreate) use this as a semantic guard — an empty array or
  * null $where must abort the UPDATE, not silently become a full-table write.
- * Read paths pass NULL: an unscoped SELECT is legal. */
-static int gene_orm_apply_where(zval *db, zval *where, gene_orm_meta_t *meta, zend_bool *emitted)
+ * Read paths pass NULL: an unscoped SELECT is legal.
+ * Non-static: meta.c's versionKeys where-prefetch reuses the same
+ * condition semantics so the prefetch sees exactly the UPDATE's row set. */
+int gene_orm_apply_where(zval *db, zval *where, gene_orm_meta_t *meta, zend_bool *emitted)
 {
 	zval args[2], retval, cond;
 	uint32_t argc = 1;
@@ -466,7 +469,7 @@ PHP_METHOD(gene_orm_model, paginate)
 	zval db_holder, *db = &db_holder, args[2], retval, count_zv, list_zv;
 	zend_long count_val = 0;
 
-	if (zend_parse_parameters(ZEND_NUM_ARGS(), "zll|S", &where, &offset, &limit, &order) == FAILURE) {
+	if (zend_parse_parameters(ZEND_NUM_ARGS(), "zll|S!", &where, &offset, &limit, &order) == FAILURE) {
 		return;
 	}
 	if (gene_orm_meta_load(ce, &meta) != SUCCESS) {
@@ -545,7 +548,7 @@ PHP_METHOD(gene_orm_model, page)
 	zval args[4], rv;
 	uint32_t argc;
 
-	if (zend_parse_parameters(ZEND_NUM_ARGS(), "zll|S", &where, &page, &per_page, &order) == FAILURE) {
+	if (zend_parse_parameters(ZEND_NUM_ARGS(), "zll|S!", &where, &page, &per_page, &order) == FAILURE) {
 		return;
 	}
 	if (per_page < 1) {
@@ -560,7 +563,9 @@ PHP_METHOD(gene_orm_model, page)
 		RETURN_NULL();
 	}
 	ce = gene_orm_called_ce();
-	fn = zend_hash_str_find_ptr(&gene_orm_model_ce->function_table, ZEND_STRL("paginate"));
+	/* [GENE_FIX:2026-09-23 R7] Resolve paginate() on the called class so a
+	 * subclass override is honored, matching normal static-call dispatch. */
+	fn = zend_hash_str_find_ptr(&ce->function_table, ZEND_STRL("paginate"));
 	if (!fn) {
 		RETURN_NULL();
 	}
@@ -681,7 +686,8 @@ PHP_METHOD(gene_orm_model, updateBy)
 	zend_class_entry *ce = gene_orm_called_ce();
 	zval db_holder, *db = &db_holder, args[2], retval, data_copy;
 	zval ver_keys, ver_old;
-	zend_bool ver_on = 0;
+	zend_bool ver_on = 0, ver_overflow = 0;
+	zend_long ver_scan_limit = 0;
 
 	ZVAL_UNDEF(&ver_keys);
 	ZVAL_UNDEF(&ver_old);
@@ -704,8 +710,14 @@ PHP_METHOD(gene_orm_model, updateBy)
 	}
 	if (ver_on) {
 		zval *pkz = gene_orm_pk_from_where(where, &meta);
+		ver_scan_limit = gene_orm_version_scan_limit(ce);
 		if (pkz) {
-			gene_orm_version_prefetch(db, &meta, &ver_keys, pkz, &data_copy, 0, &ver_old);
+			gene_orm_version_prefetch(db, &meta, &ver_keys, pkz, 0, &ver_old);
+		} else {
+			/* [GENE_FIX:2026-09-23 R3] Non-pk where: pre-read the affected
+			 * rows (bounded) so invalidation covers the real row set. */
+			gene_orm_version_prefetch_where(db, &meta, &ver_keys, where,
+				ver_scan_limit, &ver_old, &ver_overflow);
 		}
 		if (UNEXPECTED(gene_orm_has_exception())) goto cleanup;
 	}
@@ -741,8 +753,15 @@ PHP_METHOD(gene_orm_model, updateBy)
 
 cleanup:
 	if (ver_on && !gene_orm_has_exception()) {
-		zval *pkz = gene_orm_pk_from_where(where, &meta);
-		if (pkz) {
+		if (ver_overflow) {
+			/* [GENE_FIX:2026-09-23 R3] Candidate set exceeds the prefetch
+			 * bound: the write still ran — warn loudly instead of silently
+			 * bumping a partial row set. */
+			php_error_docref(NULL, E_WARNING,
+				"Gene\\Orm\\Model::updateBy() matched more than " ZEND_LONG_FMT " rows; versionKeys cache not invalidated",
+				ver_scan_limit);
+		} else {
+			zval *pkz = gene_orm_pk_from_where(where, &meta);
 			gene_orm_version_commit_write(db, &meta, &ver_keys, pkz, &data_copy, &ver_old, 0, gene_orm_affected_zv(return_value));
 		}
 	}
@@ -792,7 +811,7 @@ PHP_METHOD(gene_orm_model, destroy)
 	}
 	ver_on = gene_orm_version_keys(ce, &ver_keys);
 	if (ver_on) {
-		gene_orm_version_prefetch(db, &meta, &ver_keys, id, NULL, 1, &ver_old);
+		gene_orm_version_prefetch(db, &meta, &ver_keys, id, 1, &ver_old);
 		if (UNEXPECTED(gene_orm_has_exception())) goto cleanup;
 	}
 
@@ -863,7 +882,7 @@ PHP_METHOD(gene_orm_model, destroyAll)
 	}
 	ver_on = gene_orm_version_keys(ce, &ver_keys);
 	if (ver_on) {
-		gene_orm_version_prefetch(db, &meta, &ver_keys, ids, NULL, 1, &ver_old);
+		gene_orm_version_prefetch(db, &meta, &ver_keys, ids, 1, &ver_old);
 		if (UNEXPECTED(gene_orm_has_exception())) goto cleanup;
 	}
 
@@ -1612,7 +1631,15 @@ PHP_METHOD(gene_orm_model, save)
 			gene_orm_apply_timestamps(&data_copy, 0, &meta);
 		}
 		if (ver_on) {
-			gene_orm_version_prefetch(db, &meta, &ver_keys, &pk_copy, &data_copy, 0, &ver_old);
+			/* [GENE_FIX:2026-09-23 R2] A hydrated model's attributes already
+			 * carry the loaded row values: when every secondary mapped
+			 * column is present they double as the pre-write row — zero
+			 * extra SQL. Otherwise prefetch by pk. */
+			if (gene_orm_version_covered(&ver_keys, &meta, attrs)) {
+				ZVAL_COPY(&ver_old, attrs);
+			} else {
+				gene_orm_version_prefetch(db, &meta, &ver_keys, &pk_copy, 0, &ver_old);
+			}
 			if (UNEXPECTED(gene_orm_has_exception())) {
 				zval_ptr_dtor(&pk_copy);
 				goto cleanup;
@@ -1776,7 +1803,7 @@ PHP_METHOD(gene_orm_model, delete)
 		}
 		ver_on = gene_orm_version_keys(ce, &ver_keys);
 		if (ver_on) {
-			gene_orm_version_prefetch(db, &meta, &ver_keys, &pk_copy, NULL, 1, &ver_old);
+			gene_orm_version_prefetch(db, &meta, &ver_keys, &pk_copy, 1, &ver_old);
 			if (UNEXPECTED(gene_orm_has_exception())) goto cleanup;
 		}
 		ZVAL_STR_COPY(&args[0], meta.table);
@@ -2066,14 +2093,52 @@ PHP_METHOD(gene_orm_model, flip)
 	gene_quote_identifier(&sql, ZSTR_VAL(field), ZSTR_LEN(field), oq, cq);
 	smart_str_appends(&sql, " = CASE WHEN ");
 	gene_quote_identifier(&sql, ZSTR_VAL(field), ZSTR_LEN(field), oq, cq);
-	smart_str_appends(&sql, " = ? THEN ? ELSE ? END");
+	smart_str_appends(&sql, " = ? THEN ");
 
 	array_init_size(&binds, 5);
 	{
 		zval c;
 		ZVAL_COPY(&c, v0); add_next_index_zval(&binds, &c);
-		ZVAL_COPY(&c, v1); add_next_index_zval(&binds, &c);
-		ZVAL_COPY(&c, v0); add_next_index_zval(&binds, &c);
+	}
+	/* [GENE_FIX:2026-09-23 R6] PostgreSQL native prepares infer THEN/ELSE
+	 * parameter types from context — all-unknown branches become `text` and
+	 * fail on integer columns. Inline IS_LONG values as integer literals and
+	 * booleans as driver-native literals; strings keep binding (PG coerces
+	 * text→varchar). The WHEN branch stays bound: the column pins its type. */
+	{
+		zend_bool pg = (gene_orm_db_kind(db) == GENE_ORM_DB_PGSQL);
+		zend_bool i0 = (Z_TYPE_P(v0) == IS_LONG) ||
+			(Z_TYPE_P(v0) == IS_TRUE) || (Z_TYPE_P(v0) == IS_FALSE);
+		zend_bool i1 = (Z_TYPE_P(v1) == IS_LONG) ||
+			(Z_TYPE_P(v1) == IS_TRUE) || (Z_TYPE_P(v1) == IS_FALSE);
+		zval c;
+
+		if (i1) {
+			if (Z_TYPE_P(v1) == IS_LONG) {
+				smart_str_append_long(&sql, Z_LVAL_P(v1));
+			} else if (pg) {
+				smart_str_appends(&sql, Z_TYPE_P(v1) == IS_TRUE ? "TRUE" : "FALSE");
+			} else {
+				smart_str_appendc(&sql, Z_TYPE_P(v1) == IS_TRUE ? '1' : '0');
+			}
+		} else {
+			smart_str_appendc(&sql, '?');
+			ZVAL_COPY(&c, v1); add_next_index_zval(&binds, &c);
+		}
+		smart_str_appends(&sql, " ELSE ");
+		if (i0) {
+			if (Z_TYPE_P(v0) == IS_LONG) {
+				smart_str_append_long(&sql, Z_LVAL_P(v0));
+			} else if (pg) {
+				smart_str_appends(&sql, Z_TYPE_P(v0) == IS_TRUE ? "TRUE" : "FALSE");
+			} else {
+				smart_str_appendc(&sql, Z_TYPE_P(v0) == IS_TRUE ? '1' : '0');
+			}
+		} else {
+			smart_str_appendc(&sql, '?');
+			ZVAL_COPY(&c, v0); add_next_index_zval(&binds, &c);
+		}
+		smart_str_appends(&sql, " END");
 	}
 	if (meta.timestamps && meta.updated_at) {
 		array_init(&ts);
@@ -2110,7 +2175,35 @@ PHP_METHOD(gene_orm_model, flip)
 		RETVAL_LONG(0);
 	}
 	if (ver_on && !gene_orm_has_exception()) {
-		gene_orm_version_commit_write(db, &meta, &ver_keys, id, NULL, &ver_old, 0, gene_orm_affected_zv(return_value));
+		zval flip_data;
+		zend_long n = gene_orm_affected_zv(return_value);
+
+		ZVAL_UNDEF(&flip_data);
+		/* [GENE_FIX:2026-09-23 R2] Post-update prefetch: flip never changes
+		 * the mapped columns' identity except possibly the flipped column
+		 * itself, whose post-update row value plus its counterpart covers
+		 * both directions. Secondary columns get their current value so a
+		 * flip invalidates e.g. the by-login-name cache too. */
+		gene_orm_version_prefetch(db, &meta, &ver_keys, id, 0, &ver_old);
+		if (UNEXPECTED(gene_orm_has_exception())) goto cleanup_db;
+		if (gene_orm_version_col_mapped(&ver_keys, &meta, field)) {
+			zval *cur, other;
+			array_init(&flip_data);
+			cur = (Z_TYPE(ver_old) == IS_ARRAY)
+				? zend_hash_find(Z_ARRVAL(ver_old), field) : NULL;
+			if (cur) {
+				int cmp = zend_compare(cur, v0);
+				ZVAL_COPY(&other, (cmp == 0) ? v1 : v0);
+			} else {
+				ZVAL_COPY(&other, v0);
+			}
+			add_assoc_zval_ex(&flip_data, ZSTR_VAL(field), ZSTR_LEN(field), &other);
+		}
+		gene_orm_version_commit_write(db, &meta, &ver_keys, id,
+			Z_TYPE(flip_data) == IS_ARRAY ? &flip_data : NULL, &ver_old, 0, n);
+		if (Z_TYPE(flip_data) != IS_UNDEF) {
+			zval_ptr_dtor(&flip_data);
+		}
 	}
 
 cleanup_db:
@@ -2235,6 +2328,11 @@ GENE_MINIT_FUNCTION(orm)
 		ZEND_ACC_PROTECTED | ZEND_ACC_STATIC);
 	zend_declare_property_null(gene_orm_model_ce, ZEND_STRL(GENE_ORM_VERSION_KEYS),
 		ZEND_ACC_PROTECTED | ZEND_ACC_STATIC);
+	/* [GENE_FIX:2026-09-23 R3] Upper bound on the non-pk updateBy prefetch
+	 * (candidate rows are SELECTed before the UPDATE). Override on the
+	 * subclass; exceeding it warns and skips invalidation. */
+	zend_declare_property_long(gene_orm_model_ce, ZEND_STRL(GENE_ORM_VERSION_SCAN_LIMIT),
+		1000, ZEND_ACC_PROTECTED | ZEND_ACC_STATIC);
 
 	/* Instance state */
 	zend_declare_property_null(gene_orm_model_ce, ZEND_STRL(GENE_ORM_ATTRS), ZEND_ACC_PROTECTED);

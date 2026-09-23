@@ -29,6 +29,115 @@ CREATE TABLE IF NOT EXISTS app_mark (
 )
 SQL);
 
+// ── 后台登录链路（/login.action → checkUser）所需表 ──────────────────────
+// sys_user / sys_group 是登录查询的必需表；sys_purview / sys_log 是登录成功
+// 路径的依赖；sys_module 供 AdminAuth 菜单鉴权。user_pass 用 TEXT：
+// sqlite 不限长度，天然容纳 password_hash 输出（对应 MySQL 侧 varchar(255)
+// 迁移，见 migration_2026_09_23_user_pass.sql）。
+$pdo->exec(<<<'SQL'
+CREATE TABLE IF NOT EXISTS sys_group (
+    group_id          INTEGER PRIMARY KEY AUTOINCREMENT,
+    group_pid         INTEGER NOT NULL DEFAULT 0,
+    group_type        INTEGER NOT NULL DEFAULT 0,
+    group_title       TEXT    NOT NULL DEFAULT '',
+    group_description TEXT    NOT NULL DEFAULT '',
+    gd                INTEGER NOT NULL DEFAULT 0,
+    sort              INTEGER NOT NULL DEFAULT 0,
+    status            INTEGER NOT NULL DEFAULT 0,
+    addtime           INTEGER NOT NULL DEFAULT 0,
+    updatetime        INTEGER NOT NULL DEFAULT 0
+)
+SQL);
+$pdo->exec(<<<'SQL'
+CREATE TABLE IF NOT EXISTS sys_user (
+    user_id       INTEGER PRIMARY KEY AUTOINCREMENT,
+    user_name     TEXT    NOT NULL DEFAULT '',
+    user_salt     TEXT    NOT NULL DEFAULT '',
+    user_pass     TEXT    NOT NULL DEFAULT '',
+    user_realname TEXT    NOT NULL DEFAULT '',
+    user_icon     TEXT    NOT NULL DEFAULT '',
+    group_id      INTEGER NOT NULL DEFAULT 0,
+    gd            INTEGER NOT NULL DEFAULT 0,
+    sort          INTEGER NOT NULL DEFAULT 0,
+    status        INTEGER NOT NULL DEFAULT 0,
+    addtime       INTEGER NOT NULL DEFAULT 0,
+    updatetime    INTEGER NOT NULL DEFAULT 0
+)
+SQL);
+$pdo->exec(<<<'SQL'
+CREATE TABLE IF NOT EXISTS sys_purview (
+    purview_id   INTEGER PRIMARY KEY AUTOINCREMENT,
+    purview_type INTEGER NOT NULL DEFAULT 1,
+    group_id     INTEGER NOT NULL DEFAULT 0,
+    obj_id       INTEGER NOT NULL DEFAULT 0,
+    sort         INTEGER NOT NULL DEFAULT 0,
+    status       INTEGER NOT NULL DEFAULT 1,
+    addtime      INTEGER NOT NULL DEFAULT 0,
+    updatetime   INTEGER NOT NULL DEFAULT 0
+)
+SQL);
+$pdo->exec(<<<'SQL'
+CREATE TABLE IF NOT EXISTS sys_log (
+    log_id      INTEGER PRIMARY KEY AUTOINCREMENT,
+    log_title   TEXT    NOT NULL DEFAULT '',
+    log_data    TEXT    NOT NULL DEFAULT '',
+    log_url     TEXT    NOT NULL DEFAULT '',
+    log_ip      TEXT    NOT NULL DEFAULT '',
+    log_ip_area TEXT    NOT NULL DEFAULT '',
+    user_id     INTEGER NOT NULL DEFAULT 0,
+    sort        INTEGER NOT NULL DEFAULT 0,
+    status      INTEGER NOT NULL DEFAULT 1,
+    addtime     INTEGER NOT NULL DEFAULT 0,
+    updatetime  INTEGER NOT NULL DEFAULT 0
+)
+SQL);
+$pdo->exec(<<<'SQL'
+CREATE TABLE IF NOT EXISTS sys_module (
+    module_id    INTEGER PRIMARY KEY AUTOINCREMENT,
+    module_pid   INTEGER NOT NULL DEFAULT 0,
+    module_path  TEXT    NOT NULL DEFAULT '',
+    module_cat   INTEGER NOT NULL DEFAULT 0,
+    module_title TEXT    NOT NULL DEFAULT '',
+    module_type  TEXT    NOT NULL DEFAULT '',
+    module_url   TEXT    NOT NULL DEFAULT '',
+    module_icon  TEXT    NOT NULL DEFAULT '',
+    gd           INTEGER NOT NULL DEFAULT 0,
+    sort         INTEGER NOT NULL DEFAULT 0,
+    status       INTEGER NOT NULL DEFAULT 0,
+    addtime      INTEGER NOT NULL DEFAULT 0,
+    updatetime   INTEGER NOT NULL DEFAULT 0
+)
+SQL);
+
+// 幂等种子：仅当 sys_user 为空时插入 admin（密码 admin123，
+// 与 Services\Admin\User::verifyPassword 的 password_hash 路径一致）。
+if ((int)$pdo->query('SELECT COUNT(*) FROM sys_user')->fetchColumn() === 0) {
+    $now = time();
+    $salt = 'gene_demo_salt';
+    $pass = password_hash($salt . 'admin123', PASSWORD_DEFAULT);
+    $pdo->exec("INSERT INTO sys_group (group_id, group_pid, group_type, group_title, group_description, gd, sort, status, addtime, updatetime)
+        VALUES (1, 0, 1, '系统管理员', '拥有最高权限', 1, 9, 1, {$now}, {$now})");
+    $stmt = $pdo->prepare('INSERT INTO sys_user (user_name, user_salt, user_pass, user_realname, group_id, gd, sort, status, addtime, updatetime)
+        VALUES (?, ?, ?, ?, 1, 1, 0, 1, ?, ?)');
+    $stmt->execute(['admin', $salt, $pass, 'admin', $now, $now]);
+    // 登录后 AdminAuth 按 obj_id 匹配 module_id：放开顶层菜单
+    $stmt = $pdo->prepare('INSERT INTO sys_purview (purview_type, group_id, obj_id, sort, status, addtime, updatetime)
+        VALUES (1, 1, ?, 0, 1, ?, ?)');
+    foreach ([1, 2, 3, 4, 5, 43, 44, 105] as $objId) {
+        $stmt->execute([$objId, $now, $now]);
+    }
+    $pdo->exec("INSERT INTO sys_module (module_id, module_pid, module_path, module_cat, module_title, module_type, module_url, module_icon, gd, sort, status, addtime, updatetime) VALUES
+        (1, 0, '0,', 1, '系统管理', '1', '', 'layui-icon-set', 1, 11, 1, {$now}, {$now}),
+        (2, 1, '0,1', 1, '用户管理', '1', 'user.html', 'layui-icon-user', 1, 14, 1, {$now}, {$now}),
+        (3, 1, '0,1', 1, '角色分组', '1', 'group.html', 'layui-icon-group', 1, 13, 1, {$now}, {$now}),
+        (4, 1, '0,1', 1, '系统日志', '1', 'log.html', 'layui-icon-log', 1, 1, 1, {$now}, {$now}),
+        (5, 1, '0,1', 0, '栏目管理', '1', 'module.html', 'layui-icon-menu-fill', 1, 16, 1, {$now}, {$now}),
+        (43, 0, '0,', 0, '文档管理', '', '', 'layui-icon-auz', 0, 0, 1, {$now}, {$now}),
+        (44, 43, '0,43', 0, '文档管理', '', 'mark.html', '', 0, 0, 1, {$now}, {$now}),
+        (105, 0, '0,', 0, '控制台', '', 'admin.html', '', 0, 0, 1, {$now}, {$now})");
+    echo "seeded sys_group/sys_user(admin)/sys_purview/sys_module: {$dbFile}\n";
+}
+
 $count = (int)$pdo->query('SELECT COUNT(*) FROM app_mark')->fetchColumn();
 if ($count > 0) {
     echo "app_mark already seeded ({$count} rows): {$dbFile}\n";

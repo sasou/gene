@@ -112,17 +112,35 @@ void gene_memcached_addServers(zval *object, zval *servers) /*{{{*/
     }
 }/*}}}*/
 
+/* [GENE_FIX:2026-09-23 R5] Memcached protocol treats an expiration > 30
+ * days (2592000 s) as an absolute Unix timestamp. A caller that means
+ * "30+ days from now" (e.g. Session cookie_lifetime) would otherwise write
+ * an instantly-expired key. Rewrite relative TTLs above the boundary to
+ * now+ttl; values already past `now` are absolute timestamps — pass through. */
+static zend_long gene_memcached_normalize_ttl(zend_long ttl)
+{
+	if (ttl > 2592000 && ttl < (zend_long)time(NULL)) {
+		return (zend_long)time(NULL) + ttl;
+	}
+	return ttl;
+}
+
 void gene_memcached_set(zval *object, zval *key, zval *value, zval *ttl, zval *retval) /*{{{*/
 {
     ZVAL_UNDEF(retval);
     zend_function *fn = zend_hash_str_find_ptr(&Z_OBJCE_P(object)->function_table, ZEND_STRL("set"));
-    zval params[3];
+    zval params[3], ttl_norm;
     int num = 2;
     params[0] = *key;
     params[1] = *value;
     if (ttl) {
     	num = 3;
-    	params[2] = *ttl;
+    	if (Z_TYPE_P(ttl) == IS_LONG) {
+    		ZVAL_LONG(&ttl_norm, gene_memcached_normalize_ttl(Z_LVAL_P(ttl)));
+    		params[2] = ttl_norm;
+    	} else {
+    		params[2] = *ttl;
+    	}
     }
     if (EXPECTED(fn)) {
         zend_call_known_function(fn, Z_OBJ_P(object), Z_OBJCE_P(object), retval, num, params, NULL);
@@ -186,7 +204,7 @@ void gene_memcache_set(zval *object, zval *key, zval *value, zval *ttl, zval *fl
 {
     ZVAL_UNDEF(retval);
     zend_function *fn = zend_hash_str_find_ptr(&Z_OBJCE_P(object)->function_table, ZEND_STRL("set"));
-    zval params[4],tmp_flag;
+    zval params[4],tmp_flag,ttl_norm;
     int num = 2;
     params[0] = *key;
     params[1] = *value;
@@ -197,7 +215,12 @@ void gene_memcache_set(zval *object, zval *key, zval *value, zval *ttl, zval *fl
     	}
     	num = 4;
     	params[2] = *flag;
-    	params[3] = *ttl;
+    	if (Z_TYPE_P(ttl) == IS_LONG) {
+    		ZVAL_LONG(&ttl_norm, gene_memcached_normalize_ttl(Z_LVAL_P(ttl)));
+    		params[3] = ttl_norm;
+    	} else {
+    		params[3] = *ttl;
+    	}
     }
     if (EXPECTED(fn)) {
         zend_call_known_function(fn, Z_OBJ_P(object), Z_OBJCE_P(object), retval, num, params, NULL);

@@ -60,7 +60,7 @@
 | isStopped() | 当前请求是否已 `stop()` |
 | webscan(...) | 内置 Web 扫描防护（开关、白名单目录/URL、GET/POST/Cookie/Referer） |
 | waitWorkerReady() | Swoole：阻塞直到 workerStart 调用 workerReady()（`handleSwoole` 已内建） |
-| workerReady() | Swoole：标记 Worker 就绪，冻结进程级 Memory，预热请求上下文池 |
+| workerReady() | Swoole：标记 Worker 就绪，冻结进程级框架缓存（路由/配置表），预热请求上下文池；`Gene\Memory` 用户态写入走业务分区，此后仍可用 |
 | bootstrap($appRoot, $confDir, $options = []) | 应用装载收口：autoload + `load(router)` + `load(config)`（文件名支持 `{env}` 展开为 getEnvironmentName()）+ `setMode(mode ?? 1, debug, ex_callback, error_callback)`；debug = `options['debug']` ?? (env ∈ `debug_envs`)，即 exception_type，为 0 时不注册异常处理器（`setMode(1,1)` 恒开语义 = `'debug' => 1` 或 `['dev','test','gray']`）；`ex_callback`/`error_callback` 透传 setMode 第 3/4 参（非 callable 抛 ValueError）；FPM/Swoole 通用 |
 | pools($decls) | 登记连接池声明：`name => ['driver' => 'db'\|'redis', 'component' => config键名, 'params' => [...]?]`；已启动的池不可重声明 |
 | startPools() | workerStart 中创建全部未启动的声明池；FPM 下返回 false；失败抛异常且该声明保持未启动（可重试），幂等 |
@@ -345,13 +345,14 @@ $title = $this->language->login_title; // 读取键值
 
 ## Orm\Model / Orm\Query（ActiveRecord v2，6.1.0+）
 
-数据 Model 继承 `\Gene\Orm\Model`（本身继承 `\Gene\Model`）。声明 `static $table` / `$primaryKey` / `$fields`。可选 `static $versionKeys`：写成功后对名为 `cache` 的组件调用 `updateVersion`。值为列名时按列取值（改非主键列会同时失效旧值和新值）；值为 `null` 时抬一次全局版本。事务在提交后才抬版本。没有 `cache` 组件时不执行。
+数据 Model 继承 `\Gene\Orm\Model`（本身继承 `\Gene\Model`）。声明 `static $table` / `$primaryKey` / `$fields`——**一律无类型声明**（C 层父类如此；子类写 `protected static string $table` 会在类加载时 fatal），类型意图写 PHPDoc。可选 `static $versionKeys`：写成功后对名为 `cache` 的组件调用 `updateVersion`。值为列名时按列取值——**行级失效**：被写行的所有映射列当前值都会 bump（不止 payload 里出现的列），改名列同时失效旧值和新值；值为 `null` 时抬一次全局版本。`updateBy` 的非主键 where 会先按条件预读受影响行（上限 `static $versionScanLimit`，默认 1000，超限告警并跳过失效）。事务在提交后才抬版本（按连接分桶，回滚丢弃）。没有 `cache` 组件时不执行。
 
 | 静态属性 | 说明 |
 |----------|------|
 | $timestamps | true 时 create/save/updateBy/toggle/createMany 自动填充时间列；payload 已含该列则不覆盖 |
 | $createdAt / $updatedAt | 时间列名，默认 `created_at`/`updated_at`；设为 `null`/`''` 则该列不写（6.1.0+） |
 | $timestampFormat | `'datetime'`（Y-m-d H:i:s，默认）或 `'unix'`（int 秒）（6.1.0+） |
+| $versionScanLimit | `updateBy` 非主键 where 的预读行数上限，默认 1000；超限发 E_WARNING 并跳过 versionKeys 失效（6.2.6+） |
 
 | 方法 | 说明 |
 |------|------|

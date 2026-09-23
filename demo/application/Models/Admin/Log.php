@@ -78,7 +78,7 @@ class Log extends \Gene\Model
     function status($id)
     {
         return $this->db
-                    ->sql("UPDATE sys_log SET status = CASE WHEN status = ? THEN ? ELSE ? END", [0, 1, 0])
+                    ->sql("UPDATE sys_log SET status = CASE WHEN status = ? THEN 1 ELSE 0 END", [0])
                     ->where("log_id=?", $id)
                     ->affectedRows();
     }

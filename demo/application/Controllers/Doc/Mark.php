@@ -37,7 +37,8 @@ class Mark extends \Gene\Controller
     function info($params)
     {
         $id = intval($params["id"]);
-        $this->row = \Services\Doc\Mark::getInstance()->row($id);
+        // $this->row 是 DI 写入；视图数据用 assign()
+        $this->view->assign('mark', \Services\Doc\Mark::getInstance()->row($id));
     }
     
     /**

@@ -189,7 +189,7 @@ class Module extends \Gene\Model
     function status($id)
     {
         return $this->db
-                    ->sql("UPDATE sys_module SET status = CASE WHEN status = ? THEN ? ELSE ? END", [0, 1, 0])
+                    ->sql("UPDATE sys_module SET status = CASE WHEN status = ? THEN 1 ELSE 0 END", [0])
                     ->where("module_id=?", $id)
                     ->affectedRows();
     }

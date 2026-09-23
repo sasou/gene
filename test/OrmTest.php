@@ -1267,6 +1267,155 @@ class OrmTest
         }
     }
 
+    /**
+     * [GENE_FIX:2026-09-23 R2/R3/R4] Row-level versionKeys invalidation:
+     * non-payload mapped columns still bump, non-primary-key updateBy
+     * prefetches and invalidates every matched row, scan-limit overflow
+     * warns + skips, transaction bumps fire on commit only, and page()
+     * dispatches to a subclass paginate() with nullable $order.
+     */
+    public function testVersionKeysRowLevel()
+    {
+        echo "\nTesting versionKeys row-level invalidation (SQLite):\n";
+        if (!class_exists('\\Gene\\Db\\Sqlite')) {
+            $this->fail('skip row-level versionKeys — sqlite missing');
+            return;
+        }
+        if (!class_exists('OrmRvUser')) {
+            eval('class OrmRvUser extends \\Gene\\Orm\\Model {
+                protected static $table = "rv_users";
+                protected static $primaryKey = "id";
+                protected static $fields = ["id", "name", "status"];
+                protected static $connection = "rv_db";
+                protected static $versionKeys = ["db.rv.id" => "id", "db.rv.name" => "name"];
+            }');
+        }
+        if (!class_exists('OrmRvScan')) {
+            eval('class OrmRvScan extends OrmRvUser {
+                protected static $versionScanLimit = 1;
+            }');
+        }
+        if (!class_exists('OrmRvSub')) {
+            eval('class OrmRvSub extends OrmRvUser {
+                public static function paginate($where = [], $page = 0, $limit = 10, $order = null) {
+                    return ["marker" => "subclass", "order" => $order, "page" => $page];
+                }
+            }');
+        }
+        try {
+            $db = new \Gene\Db\Sqlite(['dsn' => 'sqlite::memory:']);
+            $db->sql('CREATE TABLE rv_users (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                name TEXT NOT NULL,
+                status INTEGER DEFAULT 1
+            )')->execute();
+            \Gene\Di::set('rv_db', $db);
+            $cache = new class {
+                public $bumps = [];
+                public function updateVersion($fields) { $this->bumps[] = $fields; return true; }
+            };
+            \Gene\Di::set('cache', $cache);
+
+            $saw = function ($key, $val) use ($cache) {
+                foreach ($cache->bumps as $bump) {
+                    $v = $bump[$key] ?? null;
+                    foreach ((array)$v as $x) {
+                        if ($x == $val) return true; // loose: sqlite may return numeric strings
+                    }
+                }
+                return false;
+            };
+
+            // 1) updateBy on a payload that lacks the mapped column must still
+            //    bump that column's current row value (R2).
+            $id = OrmRvUser::create(['name' => 'row-a', 'status' => 1]);
+            $cache->bumps = [];
+            OrmRvUser::updateBy($id, ['status' => 5]);
+            if ($saw('db.rv.name', 'row-a') && $saw('db.rv.id', $id)) {
+                $this->ok('non-payload mapped column bumps current row value');
+            } else {
+                $this->fail('non-payload bump ' . json_encode($cache->bumps));
+            }
+
+            // 2) flip() bumps the mapped secondary column (post-update row view).
+            $cache->bumps = [];
+            $n = OrmRvUser::flip($id, 'status', [5, 9]);
+            if ($n === 1 && $saw('db.rv.name', 'row-a')) {
+                $this->ok('flip() bumps mapped secondary column');
+            } else {
+                $this->fail("flip bump n=$n " . json_encode($cache->bumps));
+            }
+
+            // 3) Non-primary-key updateBy prefetches every matched row (R3).
+            OrmRvUser::create(['name' => 'w1', 'status' => 1]);
+            OrmRvUser::create(['name' => 'w2', 'status' => 1]);
+            $cache->bumps = [];
+            OrmRvUser::updateBy(['status' => 1], ['status' => 9]);
+            if ($saw('db.rv.name', 'w1') && $saw('db.rv.name', 'w2')) {
+                $this->ok('non-pk updateBy invalidates all matched rows');
+            } else {
+                $this->fail('non-pk updateBy bumps ' . json_encode($cache->bumps));
+            }
+
+            // 4) Scan-limit overflow: write still runs, warning emitted, no
+            //    partial invalidation (R3).
+            $warned = false;
+            set_error_handler(function () use (&$warned) { $warned = true; return true; });
+            $cache->bumps = [];
+            $affected = OrmRvScan::updateBy(['status' => 9], ['status' => 8]);
+            restore_error_handler();
+            if ($warned && $affected >= 2 && count($cache->bumps) === 0) {
+                $this->ok('scan-limit overflow warns and skips invalidation');
+            } else {
+                $this->fail('scan-limit warned=' . var_export($warned, true)
+                    . " affected=$affected bumps=" . json_encode($cache->bumps));
+            }
+
+            // 5) Bumps are deferred until commit (R4): none visible inside the
+            //    transaction, all flushed after commit.
+            $cache->bumps = [];
+            $inside = null;
+            OrmRvUser::transaction(function () use ($cache, &$inside) {
+                OrmRvUser::create(['name' => 'tx-defer', 'status' => 1]);
+                $inside = count($cache->bumps);
+            });
+            if ($inside === 0 && $saw('db.rv.name', 'tx-defer')) {
+                $this->ok('version bumps deferred until commit');
+            } else {
+                $this->fail("deferred bumps inside=$inside " . json_encode($cache->bumps));
+            }
+
+            // 6) destroy() bumps the deleted row's mapped values.
+            $cache->bumps = [];
+            OrmRvUser::destroy($id);
+            if ($saw('db.rv.name', 'row-a')) {
+                $this->ok('destroy() bumps deleted row values');
+            } else {
+                $this->fail('destroy bumps ' . json_encode($cache->bumps));
+            }
+
+            // 7) page() dispatches to the called class's paginate() and $order
+            //    accepts null (R7).
+            $r = OrmRvSub::page([], 3, 5, null);
+            if (($r['marker'] ?? '') === 'subclass' && ($r['page'] ?? 0) === 3) {
+                $this->ok('page() dispatches to subclass paginate()');
+            } else {
+                $this->fail('page() subclass dispatch ' . json_encode($r));
+            }
+            $r2 = OrmRvUser::page([], 1, 10, null);
+            if (isset($r2['count'], $r2['list'])) {
+                $this->ok('page() accepts null $order');
+            } else {
+                $this->fail('page() null order ' . json_encode($r2));
+            }
+
+            \Gene\Di::del('cache');
+        } catch (\Throwable $e) {
+            \Gene\Di::del('cache');
+            $this->fail('row-level versionKeys exception: ' . $e->getMessage());
+        }
+    }
+
     public function run()
     {
         $this->testClassSurface();
@@ -1276,6 +1425,7 @@ class OrmTest
         $this->testBatchAndIdempotent();
         $this->testConfigurableTimestamps();
         $this->testFlipPageVersion();
+        $this->testVersionKeysRowLevel();
         echo "\n--- ORM results: {$this->passed} passed, {$this->failed} failed ---\n";
         return $this->failed === 0;
     }

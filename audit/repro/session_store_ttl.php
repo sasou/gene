@@ -5,10 +5,9 @@
  * 前提：已加载 gene 扩展。CLI 即可，不需要 Swoole。
  * 用法：php audit/repro/session_store_ttl.php
  *
- * 当前缺陷：Gene\Session 落库只调用 handler->set($id, $data) 两个参数。
- * cookie_lifetime 默认 86400，但不会传给存储。Memory/Redis/Memcached 的
- * 第三个参数才是 TTL；不传时 Memory 记为永不过期，Redis/Memcached 回落到
- * 组件配置里的 ttl（demo 未配置，等价于不过期）。
+ * 修复后语义 [GENE_FIX:2026-09-23 R8]：Gene\Session 落库把 cookie_lifetime
+ * 作为 set() 第三参传给声明了 ≥3 个参数的句柄；ttl<=0 回落 86400。
+ * Memory/Redis/Memcached 的第三参即 TTL，会话记录不再永不过期。
  *
  * 观察：
  *   三参数句柄 argc=3 且 ttl=86400

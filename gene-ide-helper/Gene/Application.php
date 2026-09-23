@@ -176,8 +176,10 @@ class Application
     /**
      * workerReady
      *
-     * Swoole/常驻模式下标记 Worker 已就绪，冻结进程级 Memory，
-     * 并根据需要预热请求上下文池。
+     * Swoole/常驻模式下标记 Worker 已就绪，冻结进程级框架缓存
+     * （路由/配置表），并根据需要预热请求上下文池。
+     * 此后 Gene\Memory 的用户态 set/del/incr/decr/mset/rateLimit/lock
+     * 仍可写入——落入独立的业务分区，worker 内请求期可用。
      *
      * @return static|bool
      */

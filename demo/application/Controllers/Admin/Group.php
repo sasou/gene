@@ -31,7 +31,8 @@ class Group extends \gene\Controller
     function info($params)
     {
         $id = intval($params["id"]);
-        $this->row = \Services\Admin\Module::getInstance()->row($id);
+        // $this->row 是 DI 写入；视图数据用 assign()
+        $this->view->assign('row', \Services\Admin\Module::getInstance()->row($id));
     }
     
     /**
