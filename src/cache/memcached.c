@@ -1,4 +1,4 @@
-/*
+﻿/*
   +----------------------------------------------------------------------+
   | gene                                                                 |
   +----------------------------------------------------------------------+
@@ -125,6 +125,24 @@ static zend_long gene_memcached_normalize_ttl(zend_long ttl)
 	return ttl;
 }
 
+/* [GENE_FIX:2026-09-23 S6] Normalize a ttl zval into `out` (IS_LONG).
+ * Component config values can arrive as numeric strings — those still need
+ * the >30d rewrite; anything else passes through untouched. */
+static zend_bool gene_memcached_ttl_zval(zval *ttl, zval *out)
+{
+	zend_long v;
+	if (Z_TYPE_P(ttl) == IS_LONG) {
+		v = Z_LVAL_P(ttl);
+	} else if (Z_TYPE_P(ttl) == IS_STRING &&
+		is_numeric_string(Z_STRVAL_P(ttl), Z_STRLEN_P(ttl), &v, NULL, 0) == IS_LONG) {
+		/* v holds the converted value */
+	} else {
+		return 0;
+	}
+	ZVAL_LONG(out, gene_memcached_normalize_ttl(v));
+	return 1;
+}
+
 void gene_memcached_set(zval *object, zval *key, zval *value, zval *ttl, zval *retval) /*{{{*/
 {
     ZVAL_UNDEF(retval);
@@ -135,8 +153,7 @@ void gene_memcached_set(zval *object, zval *key, zval *value, zval *ttl, zval *r
     params[1] = *value;
     if (ttl) {
     	num = 3;
-    	if (Z_TYPE_P(ttl) == IS_LONG) {
-    		ZVAL_LONG(&ttl_norm, gene_memcached_normalize_ttl(Z_LVAL_P(ttl)));
+    	if (gene_memcached_ttl_zval(ttl, &ttl_norm)) {
     		params[2] = ttl_norm;
     	} else {
     		params[2] = *ttl;
@@ -215,8 +232,7 @@ void gene_memcache_set(zval *object, zval *key, zval *value, zval *ttl, zval *fl
     	}
     	num = 4;
     	params[2] = *flag;
-    	if (Z_TYPE_P(ttl) == IS_LONG) {
-    		ZVAL_LONG(&ttl_norm, gene_memcached_normalize_ttl(Z_LVAL_P(ttl)));
+    	if (gene_memcached_ttl_zval(ttl, &ttl_norm)) {
     		params[3] = ttl_norm;
     	} else {
     		params[3] = *ttl;

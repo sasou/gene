@@ -886,6 +886,31 @@ bool gene_session_del_by_path(zval *obj, char *path) {
 }
 /* }}} */
 
+/* [GENE_FIX:2026-09-23 S6] Session ttl/uttl now drive the storage TTL
+ * (P1), so a silently-ignored config value costs real session lifetime.
+ * Accept IS_LONG and numeric strings; anything else warns once instead of
+ * falling back to the default unnoticed. */
+static void gene_session_config_long(zval *config, const char *key, size_t key_len,
+		zval *self, const char *prop, size_t prop_len) {
+	zval *val = zend_hash_str_find(Z_ARRVAL_P(config), key, key_len);
+	zend_long v;
+
+	if (!val) {
+		return;
+	}
+	if (Z_TYPE_P(val) == IS_LONG) {
+		v = Z_LVAL_P(val);
+	} else if (Z_TYPE_P(val) == IS_STRING &&
+		is_numeric_string(Z_STRVAL_P(val), Z_STRLEN_P(val), &v, NULL, 0) == IS_LONG) {
+		/* v converted by is_numeric_string */
+	} else {
+		php_error_docref(NULL, E_WARNING,
+			"Gene\\Session: '%s' must be an integer seconds value, ignored", key);
+		return;
+	}
+	zend_update_property_long(gene_session_ce, gene_strip_obj(self), prop, prop_len, v);
+}
+
 /*
  * {{{ gene_session
  */
@@ -936,14 +961,10 @@ PHP_METHOD(gene_session, __construct) {
 		if (val && Z_TYPE_P(val) == IS_STRING) {
 			zend_update_property_string(gene_session_ce, gene_strip_obj(self), ZEND_STRL(GENE_SESSION_SAMESITE), Z_STRVAL_P(val));
 		}
-		val = zend_hash_str_find(Z_ARRVAL_P(config), ZEND_STRL("ttl"));
-		if (val && Z_TYPE_P(val) == IS_LONG) {
-			zend_update_property_long(gene_session_ce, gene_strip_obj(self), ZEND_STRL(GENE_SESSION_COOKIE_LIFTTIME), Z_LVAL_P(val));
-		}
-		val = zend_hash_str_find(Z_ARRVAL_P(config), ZEND_STRL("uttl"));
-		if (val && Z_TYPE_P(val) == IS_LONG) {
-			zend_update_property_long(gene_session_ce, gene_strip_obj(self), ZEND_STRL(GENE_SESSION_COOKIE_UPTIME), Z_LVAL_P(val));
-		}
+		gene_session_config_long(config, ZEND_STRL("ttl"), self,
+			ZEND_STRL(GENE_SESSION_COOKIE_LIFTTIME));
+		gene_session_config_long(config, ZEND_STRL("uttl"), self,
+			ZEND_STRL(GENE_SESSION_COOKIE_UPTIME));
 		val = zend_hash_str_find(Z_ARRVAL_P(config), ZEND_STRL("hash_mode"));
 		if (val && Z_TYPE_P(val) == IS_LONG) {
 			zend_update_property_long(gene_session_ce, gene_strip_obj(self), ZEND_STRL(GENE_SESSION_HASH_MODE), Z_LVAL_P(val));

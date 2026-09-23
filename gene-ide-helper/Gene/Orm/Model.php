@@ -64,6 +64,9 @@ class Model extends \Gene\Model
      * 非主键 updateBy / 批量删除的版本失效预读上限（行）。
      * 命中行数超过该上限时写仍执行、发出 E_WARNING，并跳过版本失效
      * （宁可整体不失效，也不做部分失效）。
+     * 注意：预读 SELECT 与随后的 UPDATE 在事务外不是原子的——两语句之间
+     * 新满足 where 的行会被写入但不进 bump 集合。需要严格失效时，把
+     * 非主键批量更新放进 transaction() 内执行。
      *
      * @var int
      */

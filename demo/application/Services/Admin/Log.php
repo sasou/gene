@@ -18,13 +18,13 @@ class Log extends \Gene\Service
      * @param  array  $search    查询条件
      * @return array
      */
-    function lists($page = 1, $limit = 10, $search)
+    function lists($page = 1, $limit = 10, $search = [])
     {
         $params = [];
-        if($search['url'] != "") {
+        if(($search['url'] ?? '') != "") {
             $params['log_url'] = trim($search['url']);
         }
-        if($search['ip'] != "") {
+        if(($search['ip'] ?? '') != "") {
             $params['log_ip'] = trim($search['ip']);
         }
         if(isset($search['user_id'])) {
