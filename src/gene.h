@@ -198,7 +198,9 @@ typedef struct _gene_ctx_cold {
 	 zend_string *log_file;
 	 zend_long log_level;
 	 zend_bool log_level_set;
-	 /* ORM versionKeys bumps deferred until the open DB transaction commits. */
+	 /* ORM versionKeys bumps deferred until the owning DB transaction commits.
+	  * [GENE_FIX:2026-09-23 R4] Bucketed per PDO handle:
+	  * { Z_OBJ_HANDLE => ['pdo' => obj, 'maps' => [bump map, ...]] }. */
 	 zval orm_version_pending;
 } gene_ctx_cold;
 
@@ -331,9 +333,6 @@ zend_long cache_max_items;
  * resize the bucket array. From php.ini gene.cache_reserve — do NOT zero in
  * php_gene_init_globals. */
 zend_long cache_reserve;
-/* [GENE_FIX:2026-08-23 UAF-1] Count of business inserts refused after the
- * freeze because the table was full (exported via Gene\Monitor::stats). */
-zend_ulong cache_insert_refused;
 /* [GENE_FIX:2026-08-23 UAF-5] Set on the first Gene\Cache business-layer
  * write after the workerReady() freeze. Once set, the read path keeps taking
  * the rwlock even when worker_ready is 1 — the lock-free fast path is only

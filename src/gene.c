@@ -649,6 +649,12 @@ static void gene_request_context_free_fields(gene_request_context *ctx, int pres
 	/* [GENE_FIX:2026-08-18 4.3'] Roll back orphaned transactions BEFORE the
 	 * DI registry (and its Db handles) is destroyed. */
 	gene_di_regs_tx_hygiene(&ctx->di_regs);
+	/* [GENE_FIX:2026-09-23 R4] Resolve leftover versionKeys pending buckets
+	 * while the DI registry (and its "cache" component) is still reachable:
+	 * committed-out-of-band buckets flush, still-open transactions discard. */
+	if (ctx->cold) {
+		gene_orm_version_pending_shutdown(&ctx->cold->orm_version_pending);
+	}
 	if (Z_TYPE(ctx->di_regs) != IS_UNDEF) {
 		zval_ptr_dtor(&ctx->di_regs);
 		ZVAL_UNDEF(&ctx->di_regs);
@@ -1316,7 +1322,6 @@ static void php_gene_init_globals() {
 	GENE_G(memory_expiry_sweep_ctr) = 0;
 	/* [GENE_FIX:2026-08-23 UAF-1] cache_reserve comes from php.ini �� do NOT
 	 * zero it here (same rule as ctx_pool_prewarm / cache_easy_ttl). */
-	GENE_G(cache_insert_refused) = 0;
 	GENE_G(cache_business_dirty) = 0;
 	GENE_G(framework_cache_dirty) = 0;
 	/* [GENE_FEATURE:2026-07-30 F2] */
@@ -1666,6 +1671,12 @@ PHP_RINIT_FUNCTION(gene) {
 	GENE_G(current_cid) = -1;
 	GENE_G(current_vm_stack) = NULL;
 	GENE_G(autoload_registered) = 0;
+	/* [GENE_FIX:2026-09-23 R10] opcache restarts (opcache_reset / SHM
+	 * exhaustion) only ever complete inside RINIT: class entries and interned
+	 * names are rebuilt, so the process-level callback function slots could
+	 * alias freed SHM. Zero them per request — 4x24 bytes. Swoole workers
+	 * skip RINIT but also cannot restart opcache mid-process. */
+	gene_cache_call_reset();
 	return SUCCESS; // @suppress("Symbol is not resolved")
 }
 /* }}} */

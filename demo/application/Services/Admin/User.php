@@ -56,8 +56,17 @@ class User extends \Gene\Service
         if (!$result['status']) {
             return $this->error('您的账号平台审核中，请耐心等待。。。');
         }
-        if (!$this->verifyPassword($password, $result['user_salt'], $result['user_pass'])) {
+        $stored = $result['user_pass'];
+        if (!$this->verifyPassword($password, $result['user_salt'], $stored)) {
             return $this->error('密码错误!');
+        }
+        // 旧 md5 摘要验证通过后原地升级为 password_hash（沿用现有 salt），
+        // 使存量库无需全量重置即可平滑迁移。updateBy 会 bump versionKeys，
+        // 下次登录读到新摘要。
+        if (strpos($stored, '$') !== 0) {
+            \Models\Admin\User::getInstance()->edit($result['user_id'], [
+                'user_pass' => $this->generatePasswordHash($password, $result['user_salt']),
+            ]);
         }
         //设置权限
         $result['purview'] = \Services\Admin\Purview::getInstance()->getPurviewStr($result['group_id']);

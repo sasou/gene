@@ -9,9 +9,12 @@ namespace Models\Admin;
  */
 class Group extends \Gene\Orm\Model
 {
-    protected static string $table = 'sys_group';
-    protected static string $primaryKey = 'group_id';
-    protected static array $fields = [
+    /** @var string C 层声明为无类型 static，子类声明不得加类型（PHP 继承规则） */
+    protected static $table = 'sys_group';
+    /** @var string */
+    protected static $primaryKey = 'group_id';
+    /** @var string[] */
+    protected static $fields = [
         'group_id', 'group_title', 'group_description', 'status',
     ];
 

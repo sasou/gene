@@ -46,7 +46,7 @@ sequenceDiagram
 |------|------|------|
 | Worker 启动 | `bootstrap(APP_ROOT, CONF_DIR, $options)` | autoload + load(router) + load(config，支持 `{env}`) + setMode 一步收口 |
 | Worker 启动 | `pools($decls)` → `startPools()` | 显式声明并创建连接池；FPM 下 `startPools()` 返回 false |
-| Worker 启动 | **`workerReady()`** | 标记就绪；冻结进程级 Memory；预热请求上下文池 |
+| Worker 启动 | **`workerReady()`** | 标记就绪；冻结进程级框架缓存（路由/配置表）；预热请求上下文池。`Gene\Memory` 用户态写入不受影响——落入业务分区，worker 内请求期可写 |
 | 每次请求 | **`handleSwoole($request, $response)`** | 一站式入口：内建 waitWorkerReady、initSwoole、setResponse、run、异常边界、end、cleanup |
 | Worker 退出 | `stopPoolTimers()` | `onWorkerExit`，清除已启动池的定时器，便于事件循环退出 |
 | Worker 停止 | `closePools()` | `onWorkerStop`，关闭已声明池 |
@@ -179,10 +179,12 @@ $config->set('redis', [
 
 ```php
 class User extends \Gene\Orm\Model {
-    protected static string $table = 'sys_user';
-    protected static string $primaryKey = 'user_id';
-    protected static array $fields = ['user_id', 'user_name', 'status'];
-    protected static bool $timestamps = true;       // 6.1.0+：自动填充 created_at/updated_at
+    // C 层父类按无类型 static 声明；子类【不要】写 string/array/bool 类型，
+    // 否则 PHP 继承校验直接 fatal。类型意图写进 PHPDoc。
+    /** @var string */ protected static $table = 'sys_user';
+    /** @var string */ protected static $primaryKey = 'user_id';
+    /** @var string[] */ protected static $fields = ['user_id', 'user_name', 'status'];
+    /** @var bool */ protected static $timestamps = true;   // 6.1.0+：自动填充 created_at/updated_at
 }
 
 User::find(1);
@@ -377,7 +379,7 @@ Swoole 无 PHP 超全局。推荐 **`Request::initSwoole($request)`**（`handleS
 - 日志：`\Gene\Log::exception($e)`、`\Gene\Log::error($msg)`（自动合并 `Context.request_id`）
 - 出站 HTTP：`\Gene\Http::request()` 在 `runtime_type >= 2` 时走 `Swoole\Coroutine\Http\Client`，**不要**裸 `curl_exec`。`keep_alive=>true` 仅在当前协程请求内按 host 复用 Client；`stream` 为收完后 8KB 切片，不是边收边调。
 - SSE：`Response::sseStart()` / `sseEvent()` / `write()` / `sseEnd()` 对应 `$response->write` / `end`
-- 限流/锁：多 worker 用 `$this->redis->rateLimit/lock/unlock`（Lua **EVALSHA**，NOSCRIPT 回落 EVAL）；`Memory::rateLimit` 仅当前 worker 且 `workerReady()` 后冻结
+- 限流/锁：多 worker 用 `$this->redis->rateLimit/lock/unlock`（Lua **EVALSHA**，NOSCRIPT 回落 EVAL）；`Memory::rateLimit/lock/unlock` 仅当前 worker 内有效，但 `workerReady()` 后仍可用（写业务分区）
 - 生产建议打开 `gene.swoole_auto_cleanup=1`；`handleSwoole` 已内建 cleanup，手写入口 `finally` 仍显式 `cleanup()`
 
 更多方法签名见 [reference.md](reference.md) 中 Application、Pool、RedisPool、Request、Http 章节。

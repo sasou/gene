@@ -8,6 +8,28 @@
 
 use Gene\Session;
 
+/**
+ * [GENE_FIX:2026-09-23 R8] Probe stores for TTL propagation assertions.
+ * The handler contract is get/set/delete; set() may declare an optional
+ * third $ttl argument which receives cookie_lifetime (<=0 falls back to
+ * 86400 inside the extension).
+ */
+class SessionTtlProbeStore
+{
+    public $ttls = [];
+    public function get($key) { return null; }
+    public function set($key, $value, $ttl = 0) { $this->ttls[] = $ttl; return true; }
+    public function delete($key) { return true; }
+}
+
+class SessionLegacyStore
+{
+    public $sets = 0;
+    public function get($key) { return null; }
+    public function set($key, $value) { $this->sets++; return true; }
+    public function delete($key) { return true; }
+}
+
 class SessionTest
 {
     private $session;
@@ -500,6 +522,64 @@ class SessionTest
     }
     
     /**
+     * [GENE_FIX:2026-09-23 R8] Storage TTL propagation: 3-arg handlers
+     * receive cookie_lifetime, ttl<=0 falls back to 86400, and legacy
+     * 2-arg handlers keep working (no ArgumentCountError).
+     */
+    public function testStorageTtlPropagation()
+    {
+        echo "Testing Storage TTL Propagation:\n";
+
+        try {
+            if (!class_exists('\\Gene\\Di')) {
+                echo "✗ Gene\\Di missing — cannot inject probe store\n\n";
+                return;
+            }
+
+            $store = new SessionTtlProbeStore();
+            \Gene\Di::set('sessProbeStore', $store);
+
+            $s = new Session(['driver' => 'sessProbeStore', 'ttl' => 4321, 'name' => 'TTLA']);
+            $s->set('k', 'v');
+            $s->save();
+            $last = end($store->ttls);
+            if ($last === 4321) {
+                echo "✓ 3-arg handler receives cookie_lifetime ttl=4321\n";
+            } else {
+                echo "✗ handler ttl expected 4321, got " . var_export($last, true) . "\n";
+            }
+
+            $s0 = new Session(['driver' => 'sessProbeStore', 'ttl' => 0, 'name' => 'TTLB']);
+            $s0->set('k', 'v');
+            $s0->save();
+            $last = end($store->ttls);
+            if ($last === 86400) {
+                echo "✓ ttl<=0 falls back to 86400 for storage\n";
+            } else {
+                echo "✗ ttl<=0 expected 86400, got " . var_export($last, true) . "\n";
+            }
+
+            $legacy = new SessionLegacyStore();
+            \Gene\Di::set('sessLegacyStore', $legacy);
+            $s2 = new Session(['driver' => 'sessLegacyStore', 'ttl' => 100, 'name' => 'TTLC']);
+            $s2->set('k', 'v');
+            $s2->save();
+            if ($legacy->sets >= 1) {
+                echo "✓ legacy 2-arg handler stays compatible\n";
+            } else {
+                echo "✗ legacy 2-arg handler never called\n";
+            }
+
+            \Gene\Di::del('sessProbeStore');
+            \Gene\Di::del('sessLegacyStore');
+        } catch (\Throwable $e) {
+            echo "✗ Error: " . $e->getMessage() . "\n";
+        }
+
+        echo "\n";
+    }
+
+    /**
      * [GENE_FEATURE:2026-08-07] Test Session::clear() and all()
      */
     public function testClearAll()
@@ -545,6 +625,7 @@ class SessionTest
         $this->testErrorHandling();
         $this->testPerformance();
         $this->testSessionPersistence();
+        $this->testStorageTtlPropagation();
         $this->testClearAll();
         
         echo "=== Session Test Suite Complete ===\n";

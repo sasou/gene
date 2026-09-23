@@ -9,13 +9,17 @@ namespace Models\Admin;
  */
 class User extends \Gene\Orm\Model
 {
-    protected static string $table = 'sys_user';
-    protected static string $primaryKey = 'user_id';
-    protected static array $fields = [
+    /** @var string C 层声明为无类型 static，子类声明不得加类型（PHP 继承规则） */
+    protected static $table = 'sys_user';
+    /** @var string */
+    protected static $primaryKey = 'user_id';
+    /** @var string[] */
+    protected static $fields = [
         'user_id', 'user_name', 'user_realname', 'user_icon', 'group_id', 'status',
     ];
 
-    protected static array $versionKeys = [
+    /** @var array<string,string> 版本键 => 行内列名 */
+    protected static $versionKeys = [
         'db.sys_user.user_id' => 'user_id',
         'db.sys_user.user_name' => 'user_name',
     ];
