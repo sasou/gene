@@ -54,11 +54,13 @@ $config->set("session", [
 ]);
 
 //Redis类注入配置
+// timeout 为 RedisPool 必填（连接超时，秒）；host/port 亦可经 servers[] 提供。
 $config->set("redis", [
     'class' => '\Gene\Cache\Redis',
     'params' => [[
     'host' => '127.0.0.1',
     'port' => 6379,
+    'timeout' => 3,
     'password' => '',
     'database' => 0,
     'pool' => 'redisPool'
