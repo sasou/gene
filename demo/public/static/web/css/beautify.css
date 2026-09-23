@@ -65,10 +65,14 @@ body{
     text-shadow:none;filter:drop-shadow(0 4px 18px rgba(96,165,250,.35));
 }
 .fly-case-banner{
-    top:140px;width:720px;margin-left:-360px;
+    top:140px;left:50%;right:auto;width:min(880px, calc(100% - 32px));margin:0;
+    transform:translateX(-50%);padding:0 8px;box-sizing:border-box;
     font-size:19px;line-height:1.9;color:rgba(226,232,255,.92);letter-spacing:1px;
 }
-.fly-case-version{top:auto;bottom:118px;width:720px;margin-left:-360px;color:#aeb9d8;font-size:13px;}
+.fly-case-version{
+    top:auto;bottom:118px;left:50%;right:auto;width:min(880px, calc(100% - 32px));margin:0;
+    transform:translateX(-50%);padding:0 8px;box-sizing:border-box;color:#aeb9d8;font-size:13px;
+}
 .fly-case-version .layui-badge{
     height:22px;line-height:22px;padding:0 10px;border-radius:11px;font-size:12px;
     background:linear-gradient(90deg,#4f46e5,#06b6d4);box-shadow:0 3px 10px rgba(79,70,229,.45);
@@ -284,8 +288,8 @@ body{
 @media screen and (max-width: 768px){
     .fly-case-header{height:360px;}
     .fly-case-year{font-size:52px;letter-spacing:6px;}
-    .fly-case-banner{top:120px;width:320px;margin-left:-160px;font-size:15px;}
-    .fly-case-version{bottom:132px;width:320px;margin-left:-160px;}
+    .fly-case-banner{top:118px;width:min(880px, calc(100% - 24px));margin:0;font-size:15px;}
+    .fly-case-version{bottom:132px;width:min(880px, calc(100% - 24px));margin:0;}
     .fly-case-btn{bottom:22px;}
     .fly-case-btn .layui-layout-center{flex-direction:column;align-items:center;gap:10px;}
     .fly-case-btn li>a{height:40px;}
