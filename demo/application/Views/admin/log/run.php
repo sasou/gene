@@ -31,7 +31,7 @@
         </tr>
     </thead>
     <tbody>
-        <?php foreach($this->log['list'] as $one): ?>
+        <?php foreach($log['list'] as $one): ?>
         <tr>
             <td>
                 <div class="layui-unselect layui-form-checkbox" lay-skin="primary" data-id="<?php echo $one['log_id']; ?>"><i class="layui-icon"></i></div>
@@ -50,9 +50,9 @@
 </div>
 <div id="page"></div>
 <script>
-iniPage(<?php echo $this->page;?>, <?php echo $this->log['count'];?>, <?php echo $this->limit;?>);
+iniPage(<?php echo $page;?>, <?php echo $log['count'];?>, <?php echo $limit;?>);
 initForm('searchForm', {
-    "url": "<?php echo $this->search['url'];?>",
-    "ip": "<?php echo $this->search['ip'];?>",
+    "url": "<?php echo $search['url'];?>",
+    "ip": "<?php echo $search['ip'];?>",
 })
 </script>

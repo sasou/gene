@@ -890,12 +890,12 @@ void gene_memory_set(char *keyString, size_t keyString_len, zval *zvalue,
 		}
 	copyval = zend_symtable_str_find(GENE_MEMORY_TABLE(), keyString, keyString_len);
 	if (copyval == NULL) {
-		/* [GENE_FIX:2026-08-23 UAF-1] After the workerReady() freeze the bucket
-		 * array address must stay constant: router/DI/config readers hold raw
-		 * zval* into it without a lock. A new-key insert that would trigger a
-		 * resize (perealloc) is therefore refused — the caller simply gets a
-		 * cache miss instead of a SIGSEGV. workerReady() pre-extends the table
-		 * by gene.cache_reserve so normal business churn still fits. */
+		/* [GENE_FIX:2026-09-23 L1] There is no insert-refusal guard here.
+		 * Route/config readers use GENE_G(cache); this write, while the
+		 * business depth is raised, goes to GENE_G(business_cache), so a
+		 * resize cannot move the route table. cache_insert_refused is not
+		 * incremented. Bound growth with TTL (and cache_max_items for the
+		 * business partition), not by failing the insert. */
 		gene_memory_zval_persistent(&ret, zvalue);
 		key = gene_str_persistent(keyString, keyString_len);
 		gene_symtable_update(GENE_MEMORY_TABLE(), key, &ret);
@@ -1541,9 +1541,9 @@ static char *gene_memory_build_key(zval *safe, zend_string *keyString, char *sta
  * [GENE_FIX:2026-08-24 MEM-RW] Callers must bracket with
  * GENE_CACHE_LAYER_MEMORY_WRITE_ENTER/LEAVE (see PHP_METHOD(gene_memory,
  * incr)/decr) so this keeps working after workerReady() in Swoole, same as
- * Memory::set/rateLimit. A brand-new key whose insert would grow the frozen
- * bucket array is refused rather than risking a resize under lock-free
- * readers (same UAF-1 guard as gene_memory_set()/rateLimit()/lock()). */
+ * Memory::set/rateLimit. New keys are not refused: with the business-write
+ * depth raised they land in business_cache, separate from the frozen route
+ * table. See L1 — cache_insert_refused is unused. */
 static zend_long gene_memory_adjust(const char *keyString, size_t keyString_len, zend_long step, zend_bool *ok) {
 	zval *copyval, ret;
 	zend_string *key;
@@ -1708,9 +1708,8 @@ PHP_METHOD(gene_memory, rateLimit) {
 	}
 	copyval = zend_symtable_str_find(GENE_MEMORY_TABLE(), router_e, router_e_len);
 	if (copyval == NULL) {
-		/* [GENE_FIX:2026-08-24 MEM-RW] Same UAF-1 resize guard as
-		 * gene_memory_set(): refuse only this insert, not the whole write,
-		 * if it would grow the frozen bucket array. */
+		/* New key goes into business_cache (write depth is raised). It is
+		 * not refused and does not move the route table. */
 		ZVAL_LONG(&one, 1);
 		pkey = gene_str_persistent(router_e, router_e_len);
 		gene_symtable_update(GENE_MEMORY_TABLE(), pkey, &one);
@@ -1773,9 +1772,7 @@ PHP_METHOD(gene_memory, lock) {
 	}
 	copyval = zend_symtable_str_find(GENE_MEMORY_TABLE(), router_e, router_e_len);
 	if (copyval == NULL) {
-		/* [GENE_FIX:2026-08-24 MEM-RW] Same UAF-1 resize guard as
-		 * gene_memory_set()/rateLimit(): refuse only this insert if it
-		 * would grow the frozen bucket array. */
+		/* New key goes into business_cache. Not an insert refusal. */
 		zval src;
 		ZVAL_STR(&src, token); /* borrow; gene_memory_zval_persistent copies */
 		gene_memory_zval_persistent(&tok, &src);
@@ -2002,7 +1999,9 @@ PHP_METHOD(gene_memory, stats) {
 	add_assoc_long(return_value, "cache_easy_items",
 		GENE_G(cache_easy) ? (zend_long)zend_hash_num_elements(GENE_G(cache_easy)) : 0);
 	gene_rwlock_rdunlock(&GENE_G(business_cache_lock));
-	add_assoc_long(return_value, "cache_insert_refused", (zend_long)GENE_G(cache_insert_refused));
+	/* cache_insert_refused was never incremented. Route-table safety is the
+	 * separate business_cache partition, not an insert refusal. Saturation is
+	 * business_cache_items / business_cache_table_size. */
 	add_assoc_long(return_value, "fn_cache_items",
 		GENE_G(fn_cache) ? (zend_long)zend_hash_num_elements(GENE_G(fn_cache)) : 0);
 	add_assoc_long(return_value, "co_contexts_items",

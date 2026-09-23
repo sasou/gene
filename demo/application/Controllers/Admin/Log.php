@@ -15,16 +15,18 @@ class Log extends \Gene\Controller
      */
     function run()
     {
-        $this->title = '操作日志';
-        $this->page = intval($this->get("page", 1));
-        $this->limit = intval($this->get("limit", 10));
+        $page = intval($this->get("page", 1));
+        $limit = intval($this->get("limit", 10));
         $search['url'] = $this->get("url", "");
         $search['ip'] = $this->get("ip", "");
         if ($this->user['group_id'] != 1) {
             $search['user_id'] = $this->user['user_id'];
         }
-        $this->search = $search;
-        $this->log = \Services\Admin\Log::getInstance()->lists($this->page, $this->limit, $this->search);
+        $this->view->assign('title', '操作日志');
+        $this->view->assign('page', $page);
+        $this->view->assign('limit', $limit);
+        $this->view->assign('search', $search);
+        $this->view->assign('log', \Services\Admin\Log::getInstance()->lists($page, $limit, $search));
         $this->display("admin/log/run", "parent");
     }
 

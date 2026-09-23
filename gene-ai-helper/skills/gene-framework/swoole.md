@@ -232,7 +232,7 @@ User::query()
 | `memcache` / `redis`（无 pool 时） | `instance => true` | 请求内按类名单例；协程隔离靠 `di_regs`，与 `instance` 无关 |
 | `cache` (`Gene\Cache\Cache`) | `true`/`false` 均可 | 代理层，`instance` 只影响同 class 不同 name 是否共享 |
 | `session` | `true`/`false` 均可 | 状态存外部驱动（redis/memcache）；`instance` 不影响隔离 |
-| `memory` (`Gene\Memory`) | `instance => true` | **仅在 `workerReady()` 之前** 写入；请求期只读 |
+| `memory` (`Gene\Memory`) | `instance => true` | 请求期可写**业务分区**。路由/配置在 `workerReady()` 后冻结。`ttl=0` 永不过期；默认无条数上限；不能存对象/资源；多 worker 不共享 |
 
 ---
 
@@ -302,10 +302,10 @@ API 与 `Gene\Pool` 对称：
 ### `workerReady()` 的副作用
 
 1. 设置 Worker 就绪标记 → `waitWorkerReady()` 不再阻塞  
-2. **冻结**进程级 `\Gene\Memory`：请求运行期调用 `Memory::set/del` 会告警并拒绝  
+2. **冻结路由/配置表**：请求期对这条表的写入会告警并拒绝。`Memory::set/del/incr/decr/rateLimit/lock/mset` 以及 `Gene\Cache` 的进程缓存写入另一张业务表，请求期允许  
 3. 自动预热请求上下文对象池（Swoole 下减少分配）
 
-因此：**配置、路由预热、进程级缓存填充** 必须在 `workerReady()` **之前** 完成（通常在 `workerStart` 内 `load()` 之后、调用 `workerReady()` 之前）。
+因此：**配置、路由预热** 必须在 `workerReady()` **之前** 完成（通常在 `workerStart` 内 `load()` 之后、调用 `workerReady()` 之前）。业务分区的会话和版本号要带 TTL，否则活到进程退出。不要把 `get()` 返回的内部指针留到下一次 PHP 调用之后。
 
 ---
 
@@ -355,7 +355,7 @@ Swoole 无 PHP 超全局。推荐 **`Request::initSwoole($request)`**（`handleS
 | ~~使用 `PDO::ATTR_PERSISTENT`~~ | **已无需手动处理**：Swoole/coroutine 模式下扩展自动改为 `false`（四驱动一致），配置可保留 `true` 适配 FPM/Swoole 双模式 |
 | 忘记 `cleanup()` | 协程上下文泄漏、内存上涨（`handleSwoole` 内建 cleanup；手写入口 5.6.8+ 可用 `gene.swoole_auto_cleanup=1` 兜底，见 §7.1） |
 | 忘记 `workerReady()` / `waitWorkerReady()` | 首批请求异常或竞态（`handleSwoole` 内建 `waitWorkerReady`） |
-| `workerReady()` 后在请求里 `Memory::set` | 运行期禁止写入；改 Redis 或 worker 启动前预热 |
+| `workerReady()` 后改路由/配置表 | 告警并拒绝。`Memory::set` 写的是业务分区，可以；`ttl=0` 会活到进程退出 |
 | 闭包钩子里持有请求级大对象 | 常驻进程易泄漏；优先 **类钩子** `Hooks\*` |
 | `run($method, $uri)` 与 `init` 混用不当 | Swoole 标准路径是 **`handleSwoole` 一行收口**（或 initSwoole + run() 无参） |
 | 入口手动 `ob_start`/`end($out)`/`isWritable` 样板 | 已由 `handleSwoole` 收口，勿重复实现 |

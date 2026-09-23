@@ -710,6 +710,12 @@ void gene_cache_call(zval *object, zval *args, zval *retval) /*{{{*/
 		zend_string *mname = Z_STR_P(method);
 		zend_function *fn = NULL;
 
+		/* [GENE_FIX:2026-09-23 P4] Only cache immutable/internal functions.
+		 * A process-lifetime slot holding a user zend_function* dangles
+		 * after RSHUTDOWN when opcache is off (the next request can reuse
+		 * the same CE address) and is cross-thread under ZTS. The lookup
+		 * is not on the SQL/network path that follows a cache miss. */
+#ifndef ZTS
 		struct gene_fn_slot { zend_class_entry *ce; zend_string *m; zend_function *fn; };
 		static struct gene_fn_slot slots[4] = {{0}};
 		static unsigned int rr = 0;
@@ -717,6 +723,7 @@ void gene_cache_call(zval *object, zval *args, zval *retval) /*{{{*/
 		for (s = 0; s < 4; s++) {
 			if (slots[s].ce == ce && slots[s].m == mname) { fn = slots[s].fn; break; }
 		}
+#endif
 		if (!fn) {
 			char lc_stack[128];
 			char *lc = lc_stack;
@@ -729,12 +736,15 @@ void gene_cache_call(zval *object, zval *args, zval *retval) /*{{{*/
 			zend_str_tolower_copy(lc, ZSTR_VAL(mname), mlen);
 			fn = zend_hash_str_find_ptr(&ce->function_table, lc, mlen);
 			if (lc_heap) efree(lc);
-			if (fn && ZSTR_IS_INTERNED(mname)) {
+#ifndef ZTS
+			if (fn && ZSTR_IS_INTERNED(mname) &&
+				(fn->type == ZEND_INTERNAL_FUNCTION || (fn->common.fn_flags & ZEND_ACC_IMMUTABLE))) {
 				unsigned int idx = (rr++) & 3;
 				slots[idx].ce = ce;
 				slots[idx].m = mname;
 				slots[idx].fn = fn;
 			}
+#endif
 		}
 		if (fn) {
 			zend_call_known_function(fn, Z_OBJ_P(class), ce, retval, argc, params, NULL);

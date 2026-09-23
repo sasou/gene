@@ -491,10 +491,31 @@ ZEND_END_ARG_INFO()
 
 		hook = gene_session_get_handler(obj);
 		if (hook) {
-			zval params[] = { *session_id,*data };
-			zval ret;
+			/* [GENE_FIX:2026-09-23 P1] Pass cookie_lifetime as set()'s third
+			 * argument when the handler accepts it. Memory/Redis/Memcached
+			 * treat a missing TTL as "never expire", so a Swoole worker using
+			 * Gene\Memory as the session store grew one record per visitor
+			 * until process exit. Handlers declared with exactly two
+			 * parameters keep the old call (no ArgumentCountError). */
+			zval ttl_zv, params[3], ret;
+			zend_long sec = 86400;
+			uint32_t argc = 2;
+			zval *life = zend_read_property(gene_session_ce, gene_strip_obj(obj), ZEND_STRL(GENE_SESSION_COOKIE_LIFTTIME), 1, NULL);
+			zend_function *set_fn;
+
+			if (life && Z_TYPE_P(life) == IS_LONG && Z_LVAL_P(life) > 0) {
+				sec = Z_LVAL_P(life);
+			}
+			ZVAL_LONG(&ttl_zv, sec);
+			params[0] = *session_id;
+			params[1] = *data;
+			params[2] = ttl_zv;
+			set_fn = zend_hash_find_ptr(&Z_OBJCE_P(hook)->function_table, gene_session_method_set());
+			if (set_fn && (set_fn->common.num_args >= 3 || (set_fn->common.fn_flags & ZEND_ACC_VARIADIC))) {
+				argc = 3;
+			}
 			ZVAL_UNDEF(&ret);
-			gene_session_call_method(hook, gene_session_method_set(), 2, params, &ret);
+			gene_session_call_method(hook, gene_session_method_set(), argc, params, &ret);
 			zend_update_property(gene_session_ce, gene_strip_obj(obj), ZEND_STRL(GENE_SESSION_DATA), data);
 			if (!Z_ISUNDEF(ret)) {
 				zval_ptr_dtor(&ret);

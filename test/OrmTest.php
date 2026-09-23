@@ -54,7 +54,7 @@ class OrmTest
             'find', 'findAll', 'paginate', 'query', 'where',
             'create', 'updateBy', 'destroy', 'destroyAll',
             'fill', 'save', 'delete', 'toArray', 'getInstance', 'setExists',
-            'findMany', 'createMany', 'insertIgnore', 'updateOrCreate', 'toggle',
+            'findMany', 'createMany', 'insertIgnore', 'updateOrCreate', 'toggle', 'flip', 'page',
             'transaction', 'transact',
             '__get', '__set', '__isset', '__unset',
         ];
@@ -1171,6 +1171,102 @@ class OrmTest
         }
     }
 
+    public function testFlipPageVersion()
+    {
+        echo "\nTesting flip / page / versionKeys (SQLite):\n";
+        if (!class_exists('\\Gene\\Db\\Sqlite')) {
+            $this->fail('skip flip — sqlite missing');
+            return;
+        }
+        if (!class_exists('OrmFlipUser')) {
+            eval('class OrmFlipUser extends \\Gene\\Orm\\Model {
+                protected static $table = "flip_users";
+                protected static $primaryKey = "id";
+                protected static $fields = ["id", "name", "status"];
+                protected static $connection = "flip_db";
+                protected static $versionKeys = ["db.flip.id" => "id", "db.flip.name" => "name"];
+            }');
+        }
+        try {
+            $db = new \Gene\Db\Sqlite(['dsn' => 'sqlite::memory:']);
+            $db->sql('CREATE TABLE flip_users (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                name TEXT NOT NULL,
+                status INTEGER DEFAULT 1
+            )')->execute();
+            \Gene\Di::set('flip_db', $db);
+            $cache = new class {
+                public $bumps = [];
+                public function updateVersion($fields) { $this->bumps[] = $fields; return true; }
+            };
+            \Gene\Di::set('cache', $cache);
+
+            $id = OrmFlipUser::create(['name' => 'ada', 'status' => 1]);
+            $page = OrmFlipUser::page([], 1, 2, 'id asc');
+            if ((int)$page['count'] === 1 && (int)$page['page'] === 1 && (int)$page['limit'] === 2
+                && ($page['list'][0]['name'] ?? '') === 'ada') {
+                $this->ok('page() returns count/list/page/limit');
+            } else {
+                $this->fail('page() ' . json_encode($page));
+            }
+            $n = OrmFlipUser::flip($id, 'status');
+            $row = OrmFlipUser::find($id);
+            if ($n === 1 && (int)$row['status'] === 0) {
+                $this->ok('flip 1 -> 0 in one update');
+            } else {
+                $this->fail("flip n=$n status=" . json_encode($row));
+            }
+            $n = OrmFlipUser::flip($id, 'status');
+            $row = OrmFlipUser::find($id);
+            if ($n === 1 && (int)$row['status'] === 1) {
+                $this->ok('flip 0 -> 1');
+            } else {
+                $this->fail("flip back n=$n " . json_encode($row));
+            }
+            $sawName = false;
+            foreach ($cache->bumps as $bump) {
+                if (isset($bump['db.flip.name']) && $bump['db.flip.name'] === 'ada') {
+                    $sawName = true;
+                }
+            }
+            if ($sawName) {
+                $this->ok('versionKeys bumped name on create');
+            } else {
+                $this->fail('versionKeys bumps ' . json_encode($cache->bumps));
+            }
+            $before = count($cache->bumps);
+            try {
+                OrmFlipUser::transaction(function () {
+                    OrmFlipUser::create(['name' => 'nope', 'status' => 1]);
+                    throw new \RuntimeException('rollback');
+                });
+            } catch (\RuntimeException $e) {
+            }
+            if (count($cache->bumps) === $before && !OrmFlipUser::query()->where(['name' => 'nope'])->row()) {
+                $this->ok('rolled-back create does not bump versionKeys');
+            } else {
+                $this->fail('rollback leaked a version bump or a row');
+            }
+            OrmFlipUser::updateBy($id, ['name' => 'ada2']);
+            $renamed = false;
+            foreach ($cache->bumps as $bump) {
+                $v = $bump['db.flip.name'] ?? null;
+                if (is_array($v) && in_array('ada', $v, true) && in_array('ada2', $v, true)) {
+                    $renamed = true;
+                }
+            }
+            if ($renamed) {
+                $this->ok('versionKeys bumps old and new name');
+            } else {
+                $this->fail('rename bumps ' . json_encode($cache->bumps));
+            }
+            \Gene\Di::del('cache');
+        } catch (\Throwable $e) {
+            \Gene\Di::del('cache');
+            $this->fail('flip/page/version exception: ' . $e->getMessage());
+        }
+    }
+
     public function run()
     {
         $this->testClassSurface();
@@ -1179,6 +1275,7 @@ class OrmTest
         $this->testQueryOpsList();
         $this->testBatchAndIdempotent();
         $this->testConfigurableTimestamps();
+        $this->testFlipPageVersion();
         echo "\n--- ORM results: {$this->passed} passed, {$this->failed} failed ---\n";
         return $this->failed === 0;
     }
