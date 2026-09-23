@@ -36,14 +36,21 @@
 - **回归覆盖（R12）**：`SessionTest` 新增存储 TTL 传播断言；`OrmTest` 新增行级失效/非主键更新/事务延迟/扫描上限/`page` 子类派发的 SQLite 用例；新增 `DemoLoadTest`（`GENE_DEMO_LOCAL` 子进程冒烟）；`orm_v2_leak_probe` 纳入 flip/page/versionKeys 写路径。
 
 
-#### �ڶ�����ظ����޸���`audit/AUDIT_REPORT_2026_09_23.md` �ھŽڣ�S1�CS8��
+#### 第二轮落地复核修复（`audit/AUDIT_REPORT_2026_09_23.md` 第九节，S1–S8）
 
-- **`save()` дǰԤ��������S1��**��ȥ�� hydrated `attributes` ����ӳ����ʱֱ�ӵ���дǰ���еĽݾ�����`fill()`/����д��� `attributes` �ǸĹ���ֵ�����û��ø�����ʧ�ɰ汾����`save()` �� update ��֧һ�ɰ�����Ԥ����`updateVersion` bump �� prev �� new ���ʱ����Ϊ��ֵ�����ٳ��� `["new","new"]` �ظ� bump��
-- **������ where Ԥ��˵���� `flip()` ˳��S7��**��stub �� reference д��Ԥ�� SELECT �� UPDATE ���������ԭ�ӣ��ϸ�ʧЧӦ�Ž� `transaction()`��`flip()` ��Ӱ�� 0 ��ʱ��������Ч��д��Ԥ����
-- **TTL �淶����ȫ��S6��**��Memcached/Memcache �� `ttl` Ϊ�����ַ���ʱͬ���� >30 �����ʱ�����д��`Gene\Session` �� `ttl`/`uttl` ���������ַ�����������ֵ�� `E_WARNING` ���Ǿ�Ĭ����Ĭ�ϡ�
-- **demo �����ʽ��ǩ����S3/S4��**��`generatePasswordHash` ����ƴ�� salt��16 �ַ� salt ��ռ�� bcrypt 72 �ֽ��������ޣ����� md5��ƴ�Ӹ�ʽ��ϣ�� `password_needs_rehash` ���еĿ�����У��ͨ�����Զ���д��`lists($page,$limit,$search)` ��������β�������Ĭ��ֵ���� 8.1 deprecation��
-- **���������տھ���S2/S3/S5��**��`orm_v2_leak_probe` �ķ����� where ���Ϊ��ʵ��Ԥ��+bump ·����ԭ 6000+ �к��߳��޸澯��֧�������������� overflow ������̽���ڼ���� `E_WARNING` ����ʧ�ܣ�`DemoLoadTest` ����ȫ�� demo ����أ�`test/demo_class_load.php`��E_DEPRECATED/E_WARNING ��ʧ�ܣ��� `checkUser` ҵ���¼ð�̣�`test/demo_login_probe.php`����`tools/acceptance` `--demo` profile ���� `/doc/1.html`��ORM ģ��·������ `/login.action` ������� JSON ���ԣ�`TestRunner` �� `GENE_TEST_PHP_ARGS` Ϊ���������� `-n` ����ʱ�Զ����ӽ���ת�� `-n` ��ȫ���ļ�̬��չ����������� `[child-env]` �汾�����`page()` �����ɷ����Ը��� `offset` ��������ҳ����ƫ������`LifecycleTest` ȱ openssl ʱ SKIP ����������
-- **���������̣�S8��**��`src/` �º��� ASCII ��Դ�ļ�ͳһ UTF-8 BOM��MSVC C4819�������� `tools/check_src_bom.php`���� ASCII �� BOM ��ʧ�ܣ���`DatabaseTest` PG �β� `flip()` ����/������������ PG ������ȷ SKIP������ SKIP Ϊͨ������
+- **`save()` 写前预读修正（S1）**：去掉 hydrated `attributes` 覆盖映射列时直接当作写前旧行的捷径——`fill()`/属性写入后 `attributes` 是改过的值，复用会让改名丢失旧版本键。`save()` 的 update 分支一律按主键预读；`updateVersion` bump 中 prev 与 new 相等时收敛为单值，不再出现 `["new","new"]` 重复 bump。
+- **非主键 where 预读说明与 `flip()` 顺序（S7）**：stub 与 reference 写明预读 SELECT 与 UPDATE 在事务外非原子，严格失效应放进 `transaction()`；`flip()` 在影响 0 行时不再做无效的写后预读。
+- **TTL 规范化补全（S6）**：Memcached/Memcache 的 `ttl` 为数字字符串时同样走 >30 天绝对时间戳改写；`Gene\Session` 的 `ttl`/`uttl` 接受数字字符串，非数字值发 `E_WARNING` 而非静默回落默认。
+- **demo 口令格式与签名（S3/S4）**：`generatePasswordHash` 不再拼接 salt（16 字符 salt 会占掉 bcrypt 72 字节输入上限），旧 md5、拼接格式哈希及 `password_needs_rehash` 命中的口令在校验通过后自动重写；`lists($page,$limit,$search)` 两个必填尾随参数补默认值消除 8.1 deprecation。
+- **测试与验收口径（S2/S3/S5）**：`orm_v2_leak_probe` 的非主键 where 项改为真实走预读+bump 路径（原 6000+ 行恒走超限告警分支），并独立保留 overflow 用例、探针期间出现 `E_WARNING` 即判失败；`DemoLoadTest` 新增全量 demo 类加载（`test/demo_class_load.php`，E_DEPRECATED/E_WARNING 计失败）与 `checkUser` 业务登录冒烟（`test/demo_login_probe.php`）；`tools/acceptance` `--demo` profile 新增 `/doc/1.html`（ORM 模型路径）与 `/login.action` 错误口令 JSON 断言；`TestRunner` 在 `GENE_TEST_PHP_ARGS` 为空且自身以 `-n` 启动时自动向子进程转发 `-n` 及全部文件态扩展参数，并输出 `[child-env]` 版本横幅；`page()` 子类派发断言改用 `offset` 键以区分页码与偏移量；`LifecycleTest` 缺 openssl 时 SKIP 而非致命。
+- **构建与流程（S8）**：`src/` 下含非 ASCII 的源文件统一 UTF-8 BOM（MSVC C4819），新增 `tools/check_src_bom.php`（非 ASCII 无 BOM 即失败）；`DatabaseTest` PG 段补 `flip()` 整型/布尔用例（无 PG 环境明确 SKIP，不以 SKIP 为通过）。
+
+#### 第四轮复核修复（`audit/AUDIT_REPORT_2026_09_23.md` 第十一节，T1–T4）
+
+- **`Memory::rateLimit`/`lock` 超大窗口夹紧（T4）**：`window`/`ttl` 超过 `INT_MAX` 时收敛到 `INT_MAX`，不再经 `(int)` 截断（此前 `2^32+1` 会被截成 1 秒、`PHP_INT_MAX` 截成负数变永久）。
+- **回归覆盖（T3）**：`OrmTest` 新增 `testVersionKeysPerConnection`——两条 SQLite 连接各自开事务写入，断言 A 提交只冲刷 A 的挂起桶、B 回滚只丢弃 B；重绑连接名后新 PDO 句柄不继承旧桶。
+- **文档（T1/T2）**：修正 `cache_insert_refused` 移除版本的悬空引用（6.2.6 → 6.2.5）；`docs/CONFIGURATION.md` 补 `flip()`/`page()` 与 `$versionKeys`/`$versionScanLimit` 声明说明；AGENTS.md 行为约定标注分桶回归用例名。
+- **附带修复**：CHANGELOG 6.2.5 小节中一段误存为 GBK 编码的「第二轮落地复核修复」条目恢复为 UTF-8。
 
 ### ⚡ 性能（V3 全案落地）
 
@@ -226,7 +233,7 @@
 ### 🐞 修复与兼容性调整
 
 - **模板编译缓存默认生效**：`gene.view_compile_check_mtime` 默认值由 `0` 改为 `1`；只开启 `gene.view_compile=1` 时将复用未过期的编译产物，不再每请求强制重编译。依赖旧行为的部署可显式设置 `gene.view_compile_check_mtime=0` 回退。
-- **进程缓存容量观测**：`Gene\Memory::stats()` 与 `Gene\Monitor::stats()['memory']` 新增 `cache_num_used`、`cache_num_elements`、`cache_table_size`，用于识别冻结表 tombstone/预留 bucket 耗尽。（同期加入的 `cache_insert_refused` 后证实为从未递增的无效字段，已在 6.2.6 移除。）
+- **进程缓存容量观测**：`Gene\Memory::stats()` 与 `Gene\Monitor::stats()['memory']` 新增 `cache_num_used`、`cache_num_elements`、`cache_table_size`，用于识别冻结表 tombstone/预留 bucket 耗尽。（同期加入的 `cache_insert_refused` 后证实为从未递增的无效字段，已在 6.2.5 移除——见 6.2.5「过期遥测清理（R11）」。）
 - **Query 绑定顺序**：Query 重放改为先 JOIN、后 WHERE/IN，保证带值 `joinOn()` 的参数顺序与 SQL 占位符顺序一致。
 - **`Request::bearer()` 严格语义**：仅接受大小写不敏感的 Bearer scheme，scheme 后必须有 SP/HTAB；缺失、非 Bearer、空 token 均返回 `null`。Authorization header 名按大小写不敏感方式查找，并保留 `HTTP_AUTHORIZATION` / `REDIRECT_HTTP_AUTHORIZATION` 回退。
 - **只读 ORM 编译不干扰事务**：UNION/复杂分页使用不持有 PDO/pool 的 builder clone，避免临时编译对象析构时误回滚活动事务。

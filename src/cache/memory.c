@@ -1695,6 +1695,12 @@ PHP_METHOD(gene_memory, rateLimit) {
 	if (max < 1 || window < 1) {
 		RETURN_FALSE;
 	}
+	/* [GENE_FIX:2026-09-23 T4] The expiry helper takes zend_long now, but a
+	 * window beyond INT_MAX is meaningless and risks overflowing
+	 * time(NULL) + validity; clamp instead of truncating via (int). */
+	if (window > INT_MAX) {
+		window = INT_MAX;
+	}
 	GENE_CACHE_LAYER_MEMORY_WRITE_ENTER();
 	if (UNEXPECTED(!gene_memory_write_allowed("Memory::rateLimit"))) {
 		GENE_CACHE_LAYER_MEMORY_WRITE_LEAVE();
@@ -1713,7 +1719,7 @@ PHP_METHOD(gene_memory, rateLimit) {
 		ZVAL_LONG(&one, 1);
 		pkey = gene_str_persistent(router_e, router_e_len);
 		gene_symtable_update(GENE_MEMORY_TABLE(), pkey, &one);
-		gene_memory_set_expiry_nolock(router_e, router_e_len, (int)window);
+		gene_memory_set_expiry_nolock(router_e, router_e_len, window);
 		allowed = 1;
 	} else if (Z_TYPE_P(copyval) == IS_LONG) {
 		n = Z_LVAL_P(copyval);
@@ -1754,6 +1760,11 @@ PHP_METHOD(gene_memory, lock) {
 	if (ttl < 1) {
 		RETURN_FALSE;
 	}
+	/* [GENE_FIX:2026-09-23 T4] Same clamp as rateLimit(): the expiry helper
+	 * takes zend_long; cap at INT_MAX rather than truncating via (int). */
+	if (ttl > INT_MAX) {
+		ttl = INT_MAX;
+	}
 	GENE_CACHE_LAYER_MEMORY_WRITE_ENTER();
 	if (UNEXPECTED(!gene_memory_write_allowed("Memory::lock"))) {
 		GENE_CACHE_LAYER_MEMORY_WRITE_LEAVE();
@@ -1778,7 +1789,7 @@ PHP_METHOD(gene_memory, lock) {
 		gene_memory_zval_persistent(&tok, &src);
 		pkey = gene_str_persistent(router_e, router_e_len);
 		gene_symtable_update(GENE_MEMORY_TABLE(), pkey, &tok);
-		gene_memory_set_expiry_nolock(router_e, router_e_len, (int)ttl);
+		gene_memory_set_expiry_nolock(router_e, router_e_len, ttl);
 		ok = 1;
 		if (GENE_G(cache_max_items) > 0) {
 			gene_cache_lru_touch_nolock(router_e, router_e_len);

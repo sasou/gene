@@ -150,9 +150,15 @@ $server->on('WorkerStart', function () {
 | `Gene\Orm\Model` | `find / findAll / paginate / query / where` | 查询；默认返回 `array` |
 | `Gene\Orm\Model` | `create / updateBy / destroy / destroyAll` | 写入 |
 | `Gene\Orm\Model` | `fill / save / delete / toArray` | 实例 ActiveRecord |
+| `Gene\Orm\Model` | `flip($id, $field, $values = [0, 1])` | 单条 UPDATE 翻转状态；整型内联、布尔按驱动输出、字符串走绑定 |
+| `Gene\Orm\Model` | `page($where, $page, $perPage, $order = null)` | 按页码换算 offset 后派发到被调类的 `paginate()`，子类覆盖生效 |
 | `Gene\Orm\Query` | `where / in / order / limit / all / row / cell / count` | 链式；终端后 reset Db |
 
-子类声明：`protected static $table`、`$primaryKey`、`$fields`、可选 `$timestamps`、`$connection`。
+子类声明：`protected static $table`、`$primaryKey`、`$fields`、可选 `$timestamps`、`$connection`、`$versionKeys`、`$versionScanLimit`。
+
+- `$versionKeys`：`版本键 => 行内列名` 映射。写入成功后按行级失效——写前按主键或同一 where 预读受影响行，映射列发生变更时同时失效新旧值，payload 未包含的映射列按其当前行值失效；事务内 bump 按 PDO 连接分桶，仅在本连接 commit 后冲刷、rollback 丢弃。
+- `$versionScanLimit`：非主键 `updateBy`/批量删除的预读行数上限，默认 1000；超限发出 `E_WARNING` 并跳过失效而非部分失效。预读 SELECT 与 UPDATE 在事务外非原子，需要严格失效时应放进 `transaction()` 内执行。
+- 上述静态属性在 C 层父类中均为**无类型**声明，子类不得加 PHP 类型（如 `protected static string $table` 会触发致命错误），类型意图写进 PHPDoc。
 
 FPM：`db.instance => false`。Swoole：`instance => true` + 连接池；请求 `cleanup(true)` 即可释放 ORM 请求级 meta 缓存。
 
