@@ -144,7 +144,7 @@ class User extends \Gene\Orm\Model
     {
         return static::query()
             ->fields('sys_user.user_id,sys_user.user_name,sys_user.user_pass,sys_user.user_salt,sys_user.user_realname,sys_user.user_icon,sys_user.group_id,sys_group.group_title,sys_user.status')
-            ->join('sys_group', 'sys_group.group_id=sys_user.group_id', 'left')
+            ->join('sys_group', ['sys_group.group_id' => 'sys_user.group_id'], 'left')
             ->where('sys_user.user_name=?', $username)
             ->row();
     }
