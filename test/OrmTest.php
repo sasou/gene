@@ -1298,7 +1298,7 @@ class OrmTest
         if (!class_exists('OrmRvSub')) {
             eval('class OrmRvSub extends OrmRvUser {
                 public static function paginate($where = [], $page = 0, $limit = 10, $order = null) {
-                    return ["marker" => "subclass", "order" => $order, "page" => $page];
+                    return ["marker" => "subclass", "order" => $order, "offset" => $page, "lim" => $limit];
                 }
             }');
         }
@@ -1395,9 +1395,14 @@ class OrmTest
             }
 
             // 7) page() dispatches to the called class's paginate() and $order
-            //    accepts null (R7).
+            //    accepts null (R7). The subclass echoes the raw 2nd/3rd/4th
+            //    parameters under keys page() does not overwrite — asserting
+            //    offset (not the re-added "page") proves page#3/perPage 5
+            //    arrived as offset 10, limit 5, order null (S5).
             $r = OrmRvSub::page([], 3, 5, null);
-            if (($r['marker'] ?? '') === 'subclass' && ($r['page'] ?? 0) === 3) {
+            if (($r['marker'] ?? '') === 'subclass' && ($r['offset'] ?? -1) === 10
+                && ($r['lim'] ?? -1) === 5 && array_key_exists('order', $r)
+                && $r['order'] === null && ($r['page'] ?? 0) === 3) {
                 $this->ok('page() dispatches to subclass paginate()');
             } else {
                 $this->fail('page() subclass dispatch ' . json_encode($r));
@@ -1407,6 +1412,33 @@ class OrmTest
                 $this->ok('page() accepts null $order');
             } else {
                 $this->fail('page() null order ' . json_encode($r2));
+            }
+
+            // 8) Hydrated model renamed then save(): bumps must contain BOTH
+            //    the old and the new mapped value (S1 — `attributes` holds the
+            //    modified values, never the pre-write row).
+            $hid = OrmRvUser::create(['name' => 'hydra', 'status' => 1]);
+            $cache->bumps = [];
+            $hm = OrmRvUser::find($hid, true);
+            $hm->name = 'hydra2';
+            $hm->save();
+            if ($saw('db.rv.name', 'hydra') && $saw('db.rv.name', 'hydra2')) {
+                $this->ok('hydrated save() bumps old and new mapped values');
+            } else {
+                $this->fail('hydrated save bumps ' . json_encode($cache->bumps));
+            }
+
+            // 9) fill() with pk + renamed mapped column then save(): same
+            //    guarantee, the payload row is not the stored row either (S1).
+            $fid = OrmRvUser::create(['name' => 'fillo', 'status' => 1]);
+            $cache->bumps = [];
+            $fm = new OrmRvUser();
+            $fm->fill(['id' => $fid, 'name' => 'fillo2', 'status' => 3]);
+            $fm->save();
+            if ($saw('db.rv.name', 'fillo') && $saw('db.rv.name', 'fillo2')) {
+                $this->ok('fill()+save() bumps old and new mapped values');
+            } else {
+                $this->fail('fill save bumps ' . json_encode($cache->bumps));
             }
 
             \Gene\Di::del('cache');

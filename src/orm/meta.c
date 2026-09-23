@@ -1,4 +1,4 @@
-/*
+﻿/*
  +----------------------------------------------------------------------+
  | gene                                                                 |
  +----------------------------------------------------------------------+
@@ -887,32 +887,6 @@ static zend_bool gene_orm_version_has_any_column(zval *keys, gene_orm_meta_t *me
 	return 0;
 }
 
-/* [GENE_FIX:2026-09-23 R2] 1 when every secondary mapped column is present
- * in the attribute array — a hydrated model then doubles as its own
- * pre-write row and save() issues no extra SELECT. */
-int gene_orm_version_covered(zval *keys, gene_orm_meta_t *meta, zval *attrs)
-{
-	zend_string *field;
-	zval *col;
-
-	if (!keys || Z_TYPE_P(keys) != IS_ARRAY ||
-		!attrs || Z_TYPE_P(attrs) != IS_ARRAY) {
-		return 0;
-	}
-	ZEND_HASH_FOREACH_STR_KEY_VAL(Z_ARRVAL_P(keys), field, col) {
-		if (!field || !col || Z_TYPE_P(col) != IS_STRING) {
-			continue;
-		}
-		if (meta->primary_key && zend_string_equals(Z_STR_P(col), meta->primary_key)) {
-			continue;
-		}
-		if (!zend_hash_exists(Z_ARRVAL_P(attrs), Z_STR_P(col))) {
-			return 0;
-		}
-	} ZEND_HASH_FOREACH_END();
-	return 1;
-}
-
 /* [GENE_FIX:2026-09-23 R6] 1 when col_name is mapped as a secondary
  * version column (flip() then supplies the post-update pair). */
 zend_bool gene_orm_version_col_mapped(zval *keys, gene_orm_meta_t *meta, zend_string *col_name)
@@ -1132,9 +1106,40 @@ static void gene_orm_version_add_value(zval *map, zend_string *field, zval *valu
 	add_assoc_zval_ex(map, ZSTR_VAL(field), ZSTR_LEN(field), &copy);
 }
 
+/* [GENE_FIX:2026-09-23 S1] Loose equality for bump values: a prefetched
+ * row value and the payload's new value may differ only in zval type
+ * (e.g. sqlite numeric string vs int). Restricted to scalars so
+ * zend_compare() never sees array/object pairs. */
+static zend_bool gene_orm_version_same(zval *a, zval *b)
+{
+	if (!a || !b) {
+		return 0;
+	}
+	if (zend_is_identical(a, b)) {
+		return 1;
+	}
+	if (Z_TYPE_P(a) == IS_REFERENCE) {
+		a = Z_REFVAL_P(a);
+	}
+	if (Z_TYPE_P(b) == IS_REFERENCE) {
+		b = Z_REFVAL_P(b);
+	}
+	if (Z_TYPE_P(a) >= IS_NULL && Z_TYPE_P(a) <= IS_STRING &&
+		Z_TYPE_P(b) >= IS_NULL && Z_TYPE_P(b) <= IS_STRING) {
+		return zend_compare(a, b) == 0;
+	}
+	return 0;
+}
+
 static void gene_orm_version_add_pair(zval *map, zend_string *field, zval *oldv, zval *newv)
 {
 	zval pair, a, b;
+	/* [GENE_FIX:2026-09-23 S1] Identical prev/next collapses to a single
+	 * value — ["new","new"] would bump the same key twice for no reason. */
+	if (gene_orm_version_same(oldv, newv)) {
+		gene_orm_version_add_value(map, field, newv);
+		return;
+	}
 	array_init_size(&pair, 2);
 	if (oldv) {
 		ZVAL_COPY(&a, oldv);
