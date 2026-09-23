@@ -650,3 +650,40 @@ if (gene_orm_version_covered(&ver_keys, &meta, attrs)) {
 5. **S8**：BOM 统一与检查、PG 实测、清理临时文件。
 
 验收：S1 以 `audit/repro/version_keys_review2.php` exit 0 与 `OrmTest` 新断言为准；S2 以探针期间无 `E_WARNING` 且增量为 0 为准；S3 以 `DemoLoadTest` 覆盖模型加载与登录业务 JSON 为准；R6/S8 的 PG 项无环境时明确 SKIP，不以 SKIP 为通过。
+
+## 十、第三轮落地复核（2026-09-23 追加）
+
+> 复核对象：提交 `e337c02`（S1，4 文件 +92/−57）与 `60b7be6`（S2–S8，31 文件 +549/−61）。
+> 复核方式：逐条对照 diff；重建 `x64\Release\php_gene.dll`（PHP 8.1.34 NTS x64），免部署运行 TestRunner 全量（`GENE_TEST_PHP_ARGS` 注入 `-n -d extension_dir=... -d extension=pdo_sqlite -d extension=<新 DLL>`）、`version_keys_review2.php`、`orm_v2_leak_probe.php`、`session_store_ttl.php`、`tools/check_src_bom.php`。
+> 本节只追加，不改写前文；与前文矛盾之处以本节为准。
+
+### 10.1 S1–S8 落地状态
+
+| 项 | 状态 | 核对结果 |
+|----|------|----------|
+| S1 `save()` 预读 | 已落地 | `gene_orm_version_covered()` 及其 `orm.h` 声明已删除，`save()` update 分支一律 `gene_orm_version_prefetch()` 按主键预读；`add_pair` 在 prev==new 时只写一次。`version_keys_review2.php` 输出 `S1 bumps: [{"v.id":1,"v.name":["old","new"]}]` → `S1 OK`；`OrmTest` 新增「hydrated save() bumps old and new」「fill()+save() bumps old and new」两条断言 |
+| S2 泄漏探针 | 已落地 | 非主键 where 项改为小结果集走完整 prefetch+bump 路径（输出 `updateBy non-pk where prefetch+bump (1 row)/(all rows)` 各 +0 B）；探针段内 `set_error_handler` 把任何 `E_WARNING` 判失败；overflow 独立成项（`updateBy non-pk where OVERFLOW (warn+skip)` +0 B） |
+| S3 demo 冒烟 | 已落地 | 新增 `test/demo_class_load.php`（遍历 Models/Services/Controllers/Hooks/Ext 逐个 autoload，`E_DEPRECATED`/`E_WARNING` 计失败）与 `test/demo_login_probe.php`（`checkUser('admin','wrong')` 断言业务 JSON，走通 cachedVersion→ORM→join→verifyPassword 全链）；`DemoLoadTest` 由 4 项扩到 6 项全绿；`Services\Admin\{User,Log}::lists` 必填参数后置改为 `$search = []`；`linux_swoole_verify.sh --demo` 新增 `/doc/1.html`（ORM 路径）与 `/login.action` 错误口令 JSON 探针 |
+| S4 口令哈希 | 已落地 | `generatePasswordHash` 不再拼接 salt；`verifyPassword` 三分类（`$` 开头先试裸口令再试 salt 拼接兼容 `91d0442` 存量，非 `$` 走 legacy md5）；`checkUser` 在 legacy/拼接/`password_needs_rehash` 任一命中时重写；`add()`/`edit()` 不再写 `user_salt`（列有 `DEFAULT ''`） |
+| S5 测试口径 | 已落地 | `page()` 派发断言改为核对 `offset===10 && lim===5 && order===null`；`TestRunner` 在 `-n` 启动时自动为子进程推导 `-d extension=`（PHP<8.4 无 `ReflectionExtension::getFileName`，回落 extension_dir 文件探测），并输出 `[child-env] gene=<ver>` 横幅与父进程版本比对——实测不设 `GENE_TEST_PHP_ARGS` 时正确捕获 `gene 6.2.4 vs 6.2.5` 错配并告警；`LifecycleTest` 缺 openssl 输出 `SKIP AES-256-GCM` |
+| S6 字符串 TTL | 已落地 | `gene_memcached_ttl_zval()` 统一 `IS_LONG`/数字字符串→`normalize_ttl`，`gene_memcached_set`/`gene_memcache_set` 两处接入；`gene_session_config_long` 接受数字字符串，非数字值 `E_WARNING`；`ttl<=0` 仍回落默认 86400，语义一致 |
+| S7 预读窗口 | 已落地 | stub `Model.php` 与 `reference.md` 写明预读 SELECT 与 UPDATE 事务外非原子、严格失效应放进 `transaction()`；`flip()` 预读+`commit_write` 整体移入 `n > 0` 分支 |
+| S8 流程 | 已落地（PG 除外） | S1 单独提交 `e337c02`；实际扫描 `src/` 有 16 个含非 ASCII 字节且无 BOM 的文件（比第九节点名的 6 个多），全部统一 UTF-8 BOM；新增 `tools/check_src_bom.php`（88 个 .c/.h，0 违规）；`DatabaseTest` PG 段新增 `flip()` 整型/布尔两条用例，本机无 PG → SKIP；`_tmp_load_check.php`、`_tmp_changelog_insert.php`、测试运行日志均已清理 |
+
+### 10.2 验证结果
+
+- **TestRunner**：21 个套件全绿，959/959，`OrmTest` 195/195、`SessionTest` 57/57、`DatabaseTest` 41/41、`DemoLoadTest` 6/6、`LifecycleTest` 22/22（含 openssl SKIP）；无假失败、无致命退出。
+- **`version_keys_review2.php`**：exit 0 —— S1 旧键已 bump；S2 开放事务的桶被丢弃、绕过 Gene 的 raw `commit()` 桶被 teardown 冲刷，两侧均符合语义。
+- **`orm_v2_leak_probe.php`**：19 项全部 +0 B，含新版 versionKeys 写路径与 overflow 项；期间无 `E_WARNING`。
+- **`session_store_ttl.php`**：`argc=3 ttl=86400 / argc2=2 / OK`（P1 复验）。
+- **`tools/check_src_bom.php`**：88 files checked, 0 non-ASCII without BOM。
+- **`[child-env]` 横幅**：`gene=6.2.5 php=8.1.34`，确认子进程加载的是新构建的 DLL。
+
+### 10.3 遗留与说明
+
+1. **PG 实测仍缺**：`flip()` 的 PG 用例已进 `DatabaseTest`，但本机无 PostgreSQL，按约定记 SKIP，不以 SKIP 为通过；发布前需在 Linux 验收机补跑。
+2. **PHP<8.4 的参数推导是尽力而为**：无 `ReflectionExtension::getFileName` 时按 extension_dir 文件名猜测，命中同名旧 DLL 的风险存在；`[child-env]` 版本比对横幅是兜底，实测可拦下错配。显式 `GENE_TEST_PHP_ARGS` 仍是推荐用法。
+3. **`user_salt` 列保留**：新记录写入 `''`，仅服务于存量 legacy md5 摘要校验；待旧摘要全部迁移后可再评估下线。
+4. 本轮收口后，第一至第九节列出的 P1–P4、L1、O1–O4、R1–R12、S1–S8 全部闭环；剩余的只有需要外部环境的验证项（PG）与约定级说明。
+
+结论：S1–S8 全部按第九节方案落地，构建与全部免部署验证通过；`e337c02`/`60b7be6` 两提交可直接进入验收与发布流程。
