@@ -574,6 +574,86 @@ class OrmTest
                 $this->fail('empty in paginate: ' . json_encode($pg));
             }
 
+            // [GENE_FIX:2026-09-23] v1 connector-carrying fragments —
+            // in(" and id in(?)") is the documented Db API contract
+            // (demo Group::delAll). Query used to splice it verbatim:
+            // "WHERE ... AND and ..." / "WHERE and ..." (MariaDB 1064,
+            // mchat Purview::lists). The connector must be stripped and
+            // re-emitted by the Query layer.
+            $rows = OrmTestQUser::query()
+                ->where('name != ?', 'u9')
+                ->in(' and id in(?)', [1, 3])
+                ->order('id asc')
+                ->all();
+            $sql = $this->lastSql($db);
+            if (is_array($rows) && count($rows) === 2
+                && ($rows[0]['id'] ?? 0) == 1 && ($rows[1]['id'] ?? 0) == 3) {
+                $this->ok('in(" and id in(?)") after where() works');
+            } else {
+                $this->fail('in(" and ...") after where: ' . json_encode($rows));
+            }
+            if ($sql !== null) {
+                if (stripos($sql, 'AND and') === false && stripos($sql, 'WHERE and') === false
+                    && strpos($sql, 'AND id') !== false) {
+                    $this->ok("in(' and ...') SQL sane: $sql");
+                } else {
+                    $this->fail("in(' and ...') SQL: $sql");
+                }
+            }
+
+            // same fragment as the FIRST/only condition — was "WHERE and id in(?)"
+            $rows = OrmTestQUser::query()->in(' and id in(?)', [1, 3])->order('id asc')->all();
+            $sql = $this->lastSql($db);
+            if (is_array($rows) && count($rows) === 2) {
+                $this->ok('in(" and id in(?)") standalone works');
+            } else {
+                $this->fail('in(" and ...") standalone: ' . json_encode($rows));
+            }
+            if ($sql !== null) {
+                if (strpos($sql, 'WHERE id') !== false) {
+                    $this->ok("standalone in SQL sane: $sql");
+                } else {
+                    $this->fail("standalone in SQL: $sql");
+                }
+            }
+
+            // string where() with a leading connector — same bug class
+            $rows = OrmTestQUser::query()->where('status=1')->where(' and name=?', 'u1')->all();
+            if (is_array($rows) && count($rows) === 1 && ($rows[0]['name'] ?? '') === 'u1') {
+                $this->ok('where(" and name=?") stripped');
+            } else {
+                $this->fail('where(" and ..."): ' . json_encode($rows));
+            }
+
+            // a leading OR connector is preserved as OR (v1 semantics)
+            $rows = OrmTestQUser::query()->where('status=?', 0)->in(' or id in(?)', [1])->all();
+            $sql = $this->lastSql($db);
+            if (is_array($rows) && count($rows) === 2) { // u3 (status=0) + u1 (id=1)
+                $this->ok('in(" or id in(?)") keeps OR semantics');
+            } else {
+                $this->fail('in(" or ..."): ' . json_encode($rows));
+            }
+            if ($sql !== null) {
+                if (strpos($sql, 'OR id') !== false) {
+                    $this->ok("or-in SQL keeps OR: $sql");
+                } else {
+                    $this->fail("or-in SQL: $sql");
+                }
+            }
+
+            // having() fragments get the same connector treatment
+            $rows = OrmTestQUser::query()
+                ->fields(['status'])
+                ->group('status')
+                ->having('count(id) >= 1')
+                ->having(' and count(id) <= 5')
+                ->all();
+            if (is_array($rows) && count($rows) === 2) {
+                $this->ok('having(" and ...") stripped');
+            } else {
+                $this->fail('having(" and ..."): ' . json_encode($rows));
+            }
+
             // first()
             $one = OrmTestQUser::query()->order('id desc')->first();
             if (is_array($one) && ($one['name'] ?? '') === 'u3') {

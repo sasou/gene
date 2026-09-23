@@ -15,6 +15,7 @@
 #include "Zend/zend_API.h"
 #include "zend_exceptions.h"
 #include "zend_smart_str.h"
+#include <ctype.h>
 #include <math.h>
 
 #include "../gene.h"
@@ -177,6 +178,49 @@ static zend_bool gene_orm_query_is_empty(zval *self)
 	zval *ops = zend_read_property(gene_orm_query_ce, gene_strip_obj(self),
 		ZEND_STRL(GENE_ORM_QUERY_OPS), 1, NULL);
 	return e && zend_is_true(e) && !gene_orm_query_ops_has(ops, "union");
+}
+
+/* [GENE_FIX:2026-09-23] Strip a leading AND/OR connector (+ surrounding
+ * whitespace) from a raw where/in fragment. The v1 Db contract lets
+ * callers embed the connector in the fragment (db->in(" and id in(?)"),
+ * see demo Group::delAll): Db::in() appended it verbatim AFTER existing
+ * WHERE text, so it was legal there. Query owns connectors (emits
+ * " AND " itself), so a raw " and x"/" or x" spliced verbatim produced
+ * "WHERE and ..." or "... AND and ..." (MariaDB 1064 -- mchat
+ * Purview::lists). A word is only a connector when followed by
+ * whitespace or '(' -- "android_id"/"or_id" stay identifiers. *is_or
+ * reports an OR connector so the caller re-emits " OR " and keeps v1
+ * semantics. Returns a pointer into s; *out_len gets the remaining
+ * length (0 when the fragment was only a connector). */
+static const char *gene_orm_skip_connector(const char *s, size_t len,
+		size_t *out_len, zend_bool *is_or)
+{
+	size_t i = 0;
+	*is_or = 0;
+	while (i < len && isspace((unsigned char)s[i])) {
+		i++;
+	}
+	if (i + 3 <= len
+		&& (s[i] == 'a' || s[i] == 'A')
+		&& (s[i + 1] == 'n' || s[i + 1] == 'N')
+		&& (s[i + 2] == 'd' || s[i + 2] == 'D')
+		&& (i + 3 == len || isspace((unsigned char)s[i + 3]) || s[i + 3] == '(')) {
+		i += 3;
+	} else if (i + 2 <= len
+		&& (s[i] == 'o' || s[i] == 'O')
+		&& (s[i + 1] == 'r' || s[i + 1] == 'R')
+		&& (i + 2 == len || isspace((unsigned char)s[i + 2]) || s[i + 2] == '(')) {
+		*is_or = 1;
+		i += 2;
+	} else {
+		*out_len = len;
+		return s;
+	}
+	while (i < len && isspace((unsigned char)s[i])) {
+		i++;
+	}
+	*out_len = len - i;
+	return s + i;
 }
 
 /* Rebuild the db chain from the op list.
@@ -376,13 +420,22 @@ static int gene_orm_query_apply(zval *self, zval *db, int mode, zval *data,
 			a3 = zend_hash_index_find(Z_ARRVAL_P(op), 3);
 
 			if (strcmp(t, "where") == 0) {
+				const char *frag_p;
+				size_t frag_len;
+				zend_bool frag_or;
 				if (!a1 || Z_TYPE_P(a1) != IS_STRING || Z_STRLEN_P(a1) == 0) {
 					continue; /* array wheres handled in pass 1 */
 				}
-				if (where_started) {
+				frag_p = gene_orm_skip_connector(Z_STRVAL_P(a1), Z_STRLEN_P(a1), &frag_len, &frag_or);
+				if (frag_len == 0) {
+					continue; /* connector-only fragment — drop it AND its bind */
+				}
+				if (where_started || frag_p != Z_STRVAL_P(a1)) {
 					smart_str frag = {0};
-					smart_str_appends(&frag, " AND ");
-					smart_str_appendl(&frag, Z_STRVAL_P(a1), Z_STRLEN_P(a1));
+					if (where_started) {
+						smart_str_appends(&frag, frag_or ? " OR " : " AND ");
+					}
+					smart_str_appendl(&frag, frag_p, frag_len);
 					smart_str_0(&frag);
 					ZVAL_STR(&args[0], frag.s);
 				} else {
@@ -402,13 +455,20 @@ static int gene_orm_query_apply(zval *self, zval *db, int mode, zval *data,
 			} else if (strcmp(t, "in") == 0 || strcmp(t, "inraw") == 0) {
 				smart_str frag = {0};
 				uint32_t argc = 1;
+				const char *frag_p;
+				size_t frag_len;
+				zend_bool frag_or;
 				if (!a1 || Z_TYPE_P(a1) != IS_STRING || Z_STRLEN_P(a1) == 0) {
 					continue;
 				}
-				if (where_started) {
-					smart_str_appends(&frag, " AND ");
+				frag_p = gene_orm_skip_connector(Z_STRVAL_P(a1), Z_STRLEN_P(a1), &frag_len, &frag_or);
+				if (frag_len == 0) {
+					continue;
 				}
-				smart_str_appendl(&frag, Z_STRVAL_P(a1), Z_STRLEN_P(a1));
+				if (where_started) {
+					smart_str_appends(&frag, frag_or ? " OR " : " AND ");
+				}
+				smart_str_appendl(&frag, frag_p, frag_len);
 				if (strcmp(t, "in") == 0) {
 					smart_str_appends(&frag, " in(?)");
 				}
@@ -448,10 +508,17 @@ static int gene_orm_query_apply(zval *self, zval *db, int mode, zval *data,
 				}
 			} else if (strcmp(t, "having") == 0) {
 				if (a1 && Z_TYPE_P(a1) == IS_STRING && Z_STRLEN_P(a1) > 0) {
-					if (having_buf.s && ZSTR_LEN(having_buf.s) > 0) {
-						smart_str_appends(&having_buf, " AND ");
+					const char *frag_p;
+					size_t frag_len;
+					zend_bool frag_or;
+					frag_p = gene_orm_skip_connector(Z_STRVAL_P(a1), Z_STRLEN_P(a1), &frag_len, &frag_or);
+					if (frag_len == 0) {
+						continue;
 					}
-					smart_str_appendl(&having_buf, Z_STRVAL_P(a1), Z_STRLEN_P(a1));
+					if (having_buf.s && ZSTR_LEN(having_buf.s) > 0) {
+						smart_str_appends(&having_buf, frag_or ? " OR " : " AND ");
+					}
+					smart_str_appendl(&having_buf, frag_p, frag_len);
 				}
 			} else if (strcmp(t, "order") == 0) {
 				if (a1 && Z_TYPE_P(a1) == IS_STRING && Z_STRLEN_P(a1) > 0) {

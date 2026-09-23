@@ -149,6 +149,7 @@ D:\wampServer-php8.1_x64_nts\bin\php.exe -n -d extension_dir=D:\wampServer-php8.
 - `create()` / `save()` 的 payload 自带主键时原样返回该主键；否则返回 `lastId()`，其中数字字符串归一为 int。
 - `versionKeys`（版本键 => 行内列名）的失效是行级的：写入前按主键或同一 where 预读受影响行，映射列发生变更时同时失效新旧值；payload 未包含的映射列按其当前行值失效。非主键 `updateBy`/批量删除的预读受 `$versionScanLimit`（默认 1000）限制，超限告警并跳过失效而非部分失效；预读 SELECT 与 UPDATE 在事务外非原子，需要严格失效时应放进 `transaction()` 内执行。事务内 bump 按 PDO 连接分桶，仅在本连接 commit 后冲刷、rollback 丢弃（回归：`OrmTest::testVersionKeysPerConnection`）。模型静态属性（`$table`/`$fields`/`$versionKeys`/`$versionScanLimit` 等）在 C 层父类中无类型声明，子类不得加 PHP 类型，应使用 PHPDoc。
 - `Model::page($where, $page, $perPage, $order = null)` 内部派发到被调类的 `paginate($where, $offset, $limit, $order)`，子类覆盖生效；`$order` 可传 `null`。`flip($id, $field, $values = [0, 1])` 单条 UPDATE 翻转，整型值内联为整数字面量、布尔按驱动输出 `TRUE/FALSE` 或 `1/0`，字符串走绑定。
+- `where()/in()/having()` 的字符串片段若以 `and`/`or` 连接词开头（老版 Db 契约写法，如 `in(' and x in(?)', $ids)`，`demo` 中 `Group::delAll` 同款），`Query` 回放层会剥掉该连接词，再按 `where_started` 重发 ` AND ` 或 ` OR `（`or` 保留原语义）；仅含连接词的片段连同其 bind 一并丢弃。连接词仅在后随空白或 `(` 时识别，`android_id`/`or_id` 等列名不受影响。直连 `Db::where()/Db::in()` 不做剥离，保持 v1 verbatim 语义。
 
 ### DI / View
 
