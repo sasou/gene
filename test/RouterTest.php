@@ -611,6 +611,47 @@ class RouterTest
     }
 
     /**
+     * [GENE_FIX:2026-09-23] through() hooks resolve eagerly at route
+     * registration. If a group route is registered before ANY hook()/error()
+     * call (no event table yet) the group hooks used to be silently dropped —
+     * an auth bypass. Registration must now fail loudly instead.
+     */
+    public function testGroupHookOrdering()
+    {
+        echo "Testing group hook ordering (route before hook registration):\n";
+
+        try {
+            $router = new Router('group-hook-order');
+            $threw = false;
+            try {
+                $router->clear()
+                    ->group('/guard')->through(['missingAuth'])
+                    ->get('/run', 'RouterGroupController@run')
+                    ->group();
+            } catch (\Throwable $e) {
+                $threw = ($e instanceof \ValueError)
+                    && strpos($e->getMessage(), "named hook 'missingAuth' is not registered") !== false;
+            }
+            if ($threw) echo "✓ unregistered group hook fails loudly at route registration\n"; else echo "✗ expected ValueError for unregistered group hook\n";
+
+            // Correct order still composes: hook() first, then through().
+            $router = new Router('group-hook-order-ok');
+            $router->clear()
+                ->hook('groupA', 'RouterGroupHookA@handle')
+                ->group('/ok')->through(['groupA'])
+                ->get('/run', 'RouterGroupController@run')
+                ->group();
+            $m = $router->match('GET', '/ok/run');
+            $hook = $m['route']['hook'] ?? '';
+            if (strpos($hook, '__group_') === 0) echo "✓ hook-before-group composes __group hook\n"; else echo "✗ group hook missing: " . var_export($hook, true) . "\n";
+        } catch (Exception $e) {
+            echo "✗ Error: " . $e->getMessage() . "\n";
+        }
+
+        echo "\n";
+    }
+
+    /**
      * Run all tests
      */
     public function runAllTests()
@@ -633,6 +674,7 @@ class RouterTest
         $this->testComposableGroupHooks();
         $this->testGroupStackSibling();
         $this->testRequestIdPolicy();
+        $this->testGroupHookOrdering();
         
         echo "=== Router Test Suite Complete ===\n";
     }

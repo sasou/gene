@@ -160,6 +160,7 @@ D:\wampServer-php8.1_x64_nts\bin\php.exe -n -d extension_dir=D:\wampServer-php8.
 ### Router / Validate
 
 - `Router->error()` / `hook()` 的事件名接受整数等标量。`->error(404, ...)` 注册为 `error:404`；非标量回落为空事件名 `error:`。`hook(503, ...)`、`runError('404')` 语义相同。
+- `through()` 组钩子在路由注册时即时组合为 `__group_*` 链，所有被引用的 `hook()` 必须先于该 through 组注册——事件表缺失或未注册名会抛 `ValueError: named hook 'x' is not registered`（旧行为是静默丢弃，等于认证旁路）。回归：`RouterTest::testGroupHookOrdering`。
 - `Validate::name($f)` 同时写入 KEY 和 FIELD，因此 `name('x')->rule_email()` 等 `rule_*` 直调必须可用并返回真实校验结果。FIELD 在 `valid()` / `groupValid()` 中仍按逗号拆分并逐字段覆盖。
 - `rule_int` 仅接受 `IS_LONG`；数字字符串应使用 `digit` 校验。
 

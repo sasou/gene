@@ -1,6 +1,14 @@
 <?php
 $router = new \Gene\Router();
 $router->clear()
+    // 后台验证、CORS 与全局前后置钩子使用类 Hook，走 C 层直接分发。
+    // 必须在所有 through() 组之前注册：组钩子在路由注册时即时组合，
+    // 此时找不到对应 hook 名会报错（此前会被静默丢弃，等于认证旁路）。
+    ->hook("adminAuth", "Hooks\AdminAuth@handle")
+    ->hook("cors", "Hooks\Cors@handle")
+    ->hook("before", "Hooks\BeforeHook@handle")
+    ->hook("after", "Hooks\AfterHook@handle")
+
     // Web 页面路由
     ->get("/", "\Controllers\Index@index","@clearAll")
     ->get("/doc.html", "\Controllers\Index@doc","@clearAll")
@@ -25,14 +33,6 @@ $router->clear()
     ->get("/login.html", "Controllers\Admin\Index@login", "@clearAfter")
     ->post("/login.action", "Controllers\Admin\Index@loginPost", "@")
     ->get("/captcha.action", "Controllers\Admin\Index@captcha", "@clearAfter")
-
-    // 后台验证、CORS 与全局前后置钩子使用类 Hook，走 C 层直接分发。
-    // 必须在所有 through() 组之前注册：组钩子在路由注册时即时组合，
-    // 此时找不到对应 hook 名会报错（此前会被静默丢弃，等于认证旁路）。
-    ->hook("adminAuth", "Hooks\AdminAuth@handle")
-    ->hook("cors", "Hooks\Cors@handle")
-    ->hook("before", "Hooks\BeforeHook@handle")
-    ->hook("after", "Hooks\AfterHook@handle")
 
     ->group("")->through(["adminAuth"])
     ->get("/admin.html", "Controllers\Admin\Index@run", "@clearAfter")
