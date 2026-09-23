@@ -33,44 +33,6 @@ class User extends \Gene\Service
     }
 
     /**
-     * 写库后失效：该行 user_id + 当前库中 user_name，及可选曾用登录名（如改名）
-     *
-     * @param int   $id
-     * @param array $extraLoginNames
-     */
-    protected function bumpUserCacheForUser($id, array $extraLoginNames = [])
-    {
-        $name = \Models\Admin\User::getInstance()->userNameById($id);
-        $names = $extraLoginNames;
-        if ($name !== '') {
-            $names[] = $name;
-        }
-        $names = array_values(array_unique(array_filter($names, function ($n) {
-            return $n !== null && $n !== '';
-        })));
-        $ver = $this->userRowVersion($id);
-        if ($names) {
-            $ver['db.sys_user.user_name'] = count($names) === 1 ? $names[0] : $names;
-        }
-        $this->cache->updateVersion($ver);
-    }
-
-    /**
-     * 删除后失效（库中已无该行，登录名须调用方预先取出）
-     *
-     * @param int $id
-     * @param string|null $loginName
-     */
-    protected function bumpUserCacheDeleted($id, $loginName)
-    {
-        $ver = $this->userRowVersion($id);
-        if ($loginName !== null && $loginName !== '') {
-            $ver['db.sys_user.user_name'] = $loginName;
-        }
-        $this->cache->updateVersion($ver);
-    }
-
-    /**
      * 检查登录
      * 
      * @param string $username 用户名
@@ -94,8 +56,7 @@ class User extends \Gene\Service
         if (!$result['status']) {
             return $this->error('您的账号平台审核中，请耐心等待。。。');
         }
-        $password_encode = $this->generatePasswordHash($password, $result['user_salt']);
-        if ($password_encode != $result['user_pass']) {
+        if (!$this->verifyPassword($password, $result['user_salt'], $result['user_pass'])) {
             return $this->error('密码错误!');
         }
         //设置权限
@@ -126,8 +87,7 @@ class User extends \Gene\Service
         if($search['name'] != "") {
             $params['user_name'] = ['%' . $search['name'] . '%', 'like'];
         }
-        $start = $page > 0 ? ($page - 1) * $limit : 0;
-        return \Models\Admin\User::getInstance()->lists($params, $start, $limit);
+        return \Models\Admin\User::getInstance()->lists($params, $page > 0 ? $page : 1, $limit);
     }
 
     /**
@@ -176,11 +136,7 @@ class User extends \Gene\Service
             $data['user_pass'] = $this->generatePasswordHash($data['user_pass'], $data['user_salt']);
         }
         $data['status'] = isset($data['status']) && $data['status'] == 'on' ? 1 : 0;
-        $id = \Models\Admin\User::getInstance()->add($data);
-        if ($id) {
-            $this->bumpUserCacheForUser($id);
-        }
-        return $id;
+        return \Models\Admin\User::getInstance()->add($data);
     }
 
     /**
@@ -199,16 +155,7 @@ class User extends \Gene\Service
             unset($data['user_pass']);
         }
         $data['status'] = isset($data['status']) && $data['status'] == 'on' ? 1 : 0;
-        $oldLoginName = null;
-        if (isset($data['user_name'])) {
-            $oldLoginName = \Models\Admin\User::getInstance()->userNameById($id);
-        }
-        $count = \Models\Admin\User::getInstance()->edit($id, $data);
-        if ($count) {
-            $extra = ($oldLoginName !== null && $oldLoginName !== '') ? [$oldLoginName] : [];
-            $this->bumpUserCacheForUser($id, $extra);
-        }
-        return $count;
+        return \Models\Admin\User::getInstance()->edit($id, $data);
     }
 
     /**
@@ -219,11 +166,7 @@ class User extends \Gene\Service
      */
     function status($id)
     {
-        $count = \Models\Admin\User::getInstance()->status($id);
-        if ($count) {
-            $this->bumpUserCacheForUser($id);
-        }
-        return $count;
+        return \Models\Admin\User::getInstance()->status($id);
     }
     
     /**
@@ -234,13 +177,7 @@ class User extends \Gene\Service
      */
     function del($id)
     {
-        $model = \Models\Admin\User::getInstance();
-        $loginName = $model->userNameById($id);
-        $count = $model->del($id);
-        if ($count) {
-            $this->bumpUserCacheDeleted($id, $loginName);
-        }
-        return $count;
+        return \Models\Admin\User::getInstance()->del($id);
     }
 
     /**
@@ -251,17 +188,7 @@ class User extends \Gene\Service
      */
     function delAll($id_arr)
     {
-        $model = \Models\Admin\User::getInstance();
-        $loginNames = $model->userNamesByIds($id_arr);
-        $count = $model->delAll($id_arr);
-        if ($count) {
-            $ver = ['db.sys_user.user_id' => $id_arr];
-            if ($loginNames) {
-                $ver['db.sys_user.user_name'] = count($loginNames) === 1 ? $loginNames[0] : $loginNames;
-            }
-            $this->cache->updateVersion($ver);
-        }
-        return $count;
+        return \Models\Admin\User::getInstance()->delAll($id_arr);
     }
     
     /**
@@ -287,10 +214,22 @@ class User extends \Gene\Service
      */
     public function generatePasswordHash($password, $salt)
     {
-        $hash = md5($salt . sha1($salt . $password));
-        $hash = substr($hash, 0, 50);
+        return password_hash($salt . $password, PASSWORD_DEFAULT);
+    }
 
-        return $hash;
+    /**
+     * 新口令走 password_hash。已入库的旧 md5 摘要仍可登录。
+     */
+    public function verifyPassword($password, $salt, $stored)
+    {
+        if (!is_string($stored) || $stored === '') {
+            return false;
+        }
+        if (strpos($stored, '$') === 0) {
+            return password_verify($salt . $password, $stored);
+        }
+        $legacy = substr(md5($salt . sha1($salt . $password)), 0, 50);
+        return hash_equals($legacy, $stored);
     }
 
 }

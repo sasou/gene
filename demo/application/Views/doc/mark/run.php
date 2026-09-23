@@ -29,13 +29,13 @@
         </tr>
     </thead>
     <tbody>
-        <?php foreach($this->mark['list'] as $one): ?>
+        <?php foreach($mark['list'] as $one): ?>
         <tr>
             <td>
                 <div class="layui-unselect layui-form-checkbox" lay-skin="primary" data-id="<?php echo $one['mark_id']; ?>"><i class="layui-icon"></i></div>
             </td>
 
-                <td><?php echo $this->mark_type[$one['mark_type']];?></td>
+                <td><?php echo $mark_type[$one['mark_type']];?></td>
                 <td><?php echo $one['mark_title']?></td>
                 <td><?php echo \Services\Admin\User::getInstance()->getField($one['user_id']);?></td>
             <td>
@@ -58,9 +58,9 @@
 </div>
 <div id="page"></div>
 <script>
-iniPage(<?php echo $this->page;?>, <?php echo $this->mark['count'];?>, <?php echo $this->limit;?>);
+iniPage(<?php echo $page;?>, <?php echo $mark['count'];?>, <?php echo $limit;?>);
 initForm('searchForm', {
-    "title": "<?php echo $this->search['title'];?>",
+    "title": "<?php echo $search['title'];?>",
 
 })
 </script>

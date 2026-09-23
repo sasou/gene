@@ -626,3 +626,382 @@ void gene_orm_db_limit(zval *db, zend_long offset, zend_long limit)
 	gene_orm_db_call(db, "limit", 2, args, &retval);
 	zval_ptr_dtor(&retval);
 }
+
+/* [GENE_FEATURE:2026-09-23 O3] versionKeys live on the model class. Bumps are
+ * applied through the request-scoped "cache" component (never a static
+ * Cache/Db pointer). While a PDO transaction is open they sit on the
+ * request cold block and flush only after commit. */
+
+static zval *gene_orm_version_pending_slot(void)
+{
+	gene_request_context *ctx = gene_request_ctx();
+	if (!ctx) {
+		return NULL;
+	}
+	return &GENE_CTX_COLD(ctx)->orm_version_pending;
+}
+
+static void gene_orm_version_call_update(zval *map)
+{
+	zval *cache, rv;
+	zend_string *name;
+	zend_function *fn;
+
+	if (!map || Z_TYPE_P(map) != IS_ARRAY || zend_hash_num_elements(Z_ARRVAL_P(map)) == 0) {
+		return;
+	}
+	name = zend_string_init("cache", sizeof("cache") - 1, 0);
+	cache = gene_di_get(name);
+	zend_string_release(name);
+	if (!cache || Z_TYPE_P(cache) != IS_OBJECT) {
+		return;
+	}
+	fn = zend_hash_str_find_ptr(&Z_OBJCE_P(cache)->function_table, ZEND_STRL("updateversion"));
+	if (!fn) {
+		return;
+	}
+	ZVAL_UNDEF(&rv);
+	zend_call_known_function(fn, Z_OBJ_P(cache), Z_OBJCE_P(cache), &rv, 1, map, NULL);
+	zval_ptr_dtor(&rv);
+}
+
+void gene_orm_version_flush(void)
+{
+	zval *pending, *map;
+
+	pending = gene_orm_version_pending_slot();
+	if (!pending || Z_TYPE_P(pending) != IS_ARRAY) {
+		return;
+	}
+	ZEND_HASH_FOREACH_VAL(Z_ARRVAL_P(pending), map) {
+		if (map && Z_TYPE_P(map) == IS_ARRAY) {
+			gene_orm_version_call_update(map);
+		}
+	} ZEND_HASH_FOREACH_END();
+	zval_ptr_dtor(pending);
+	ZVAL_UNDEF(pending);
+}
+
+void gene_orm_version_discard(void)
+{
+	zval *pending = gene_orm_version_pending_slot();
+	if (!pending || Z_TYPE_P(pending) == IS_UNDEF) {
+		return;
+	}
+	zval_ptr_dtor(pending);
+	ZVAL_UNDEF(pending);
+}
+
+static void gene_orm_version_publish(zval *db, zval *map)
+{
+	zval *pdo = NULL;
+	zval *pending;
+
+	if (!map || Z_TYPE_P(map) != IS_ARRAY || zend_hash_num_elements(Z_ARRVAL_P(map)) == 0) {
+		if (map && Z_TYPE_P(map) != IS_UNDEF) {
+			zval_ptr_dtor(map);
+		}
+		return;
+	}
+	if (db && Z_TYPE_P(db) == IS_OBJECT) {
+		pdo = zend_read_property(Z_OBJCE_P(db), gene_strip_obj(db), ZEND_STRL("pdo"), 1, NULL);
+	}
+	if (pdo && Z_TYPE_P(pdo) == IS_OBJECT && !EG(exception)) {
+		zval in_tx;
+		zend_bool open = 0;
+		gene_pdo_in_transaction(pdo, &in_tx);
+		if (!EG(exception)) {
+			open = zend_is_true(&in_tx);
+		} else {
+			zend_clear_exception();
+		}
+		zval_ptr_dtor(&in_tx);
+		if (open) {
+		pending = gene_orm_version_pending_slot();
+		if (pending) {
+			if (Z_TYPE_P(pending) != IS_ARRAY) {
+				if (Z_TYPE_P(pending) != IS_UNDEF) {
+					zval_ptr_dtor(pending);
+				}
+				array_init(pending);
+			}
+			add_next_index_zval(pending, map);
+			return;
+		}
+		}
+	}
+	gene_orm_version_call_update(map);
+	zval_ptr_dtor(map);
+}
+
+int gene_orm_version_keys(zend_class_entry *ce, zval *keys)
+{
+	zval *zv, *cache;
+	zend_string *name;
+	zend_function *fn;
+
+	ZVAL_UNDEF(keys);
+	if (!ce) {
+		return 0;
+	}
+	zv = zend_read_static_property(ce, ZEND_STRL(GENE_ORM_VERSION_KEYS), 1);
+	if (!zv || Z_TYPE_P(zv) != IS_ARRAY || zend_hash_num_elements(Z_ARRVAL_P(zv)) == 0) {
+		return 0;
+	}
+	name = zend_string_init("cache", sizeof("cache") - 1, 0);
+	cache = gene_di_get(name);
+	zend_string_release(name);
+	if (!cache || Z_TYPE_P(cache) != IS_OBJECT) {
+		return 0;
+	}
+	fn = zend_hash_str_find_ptr(&Z_OBJCE_P(cache)->function_table, ZEND_STRL("updateversion"));
+	if (!fn) {
+		return 0;
+	}
+	ZVAL_COPY(keys, zv);
+	return 1;
+}
+
+static zend_bool gene_orm_version_column_in_payload(zval *keys, gene_orm_meta_t *meta, zval *data)
+{
+	zend_string *field;
+	zval *col;
+
+	if (!data || Z_TYPE_P(data) != IS_ARRAY || !keys || Z_TYPE_P(keys) != IS_ARRAY) {
+		return 0;
+	}
+	ZEND_HASH_FOREACH_STR_KEY_VAL(Z_ARRVAL_P(keys), field, col) {
+		if (!field || !col || Z_TYPE_P(col) != IS_STRING) {
+			continue;
+		}
+		if (meta->primary_key && zend_string_equals(Z_STR_P(col), meta->primary_key)) {
+			continue;
+		}
+		if (zend_hash_exists(Z_ARRVAL_P(data), Z_STR_P(col))) {
+			return 1;
+		}
+	} ZEND_HASH_FOREACH_END();
+	return 0;
+}
+
+static zend_bool gene_orm_version_has_secondary(zval *keys, gene_orm_meta_t *meta)
+{
+	zend_string *field;
+	zval *col;
+
+	if (!keys || Z_TYPE_P(keys) != IS_ARRAY) {
+		return 0;
+	}
+	ZEND_HASH_FOREACH_STR_KEY_VAL(Z_ARRVAL_P(keys), field, col) {
+		if (!field || !col || Z_TYPE_P(col) != IS_STRING) {
+			continue;
+		}
+		if (!meta->primary_key || !zend_string_equals(Z_STR_P(col), meta->primary_key)) {
+			return 1;
+		}
+	} ZEND_HASH_FOREACH_END();
+	return 0;
+}
+
+static void gene_orm_version_reset_db(zval *db)
+{
+	gene_orm_db_reset(db);
+}
+
+void gene_orm_version_prefetch(zval *db, gene_orm_meta_t *meta, zval *keys, zval *pk, zval *data, zend_bool is_delete, zval *old)
+{
+	smart_str cols = {0};
+	zend_string *field;
+	zval *col;
+	zval fields, args[2], retval, lim;
+	zend_bool first = 1;
+	zend_bool want;
+
+	ZVAL_UNDEF(old);
+	if (!db || !meta || !keys || Z_TYPE_P(keys) != IS_ARRAY || !pk) {
+		return;
+	}
+	want = is_delete ? gene_orm_version_has_secondary(keys, meta)
+		: gene_orm_version_column_in_payload(keys, meta, data);
+	if (!want) {
+		return;
+	}
+	ZEND_HASH_FOREACH_STR_KEY_VAL(Z_ARRVAL_P(keys), field, col) {
+		if (!field || !col || Z_TYPE_P(col) != IS_STRING) {
+			continue;
+		}
+		if (!gene_orm_valid_ident(Z_STR_P(col))) {
+			continue;
+		}
+		if (!first) {
+			smart_str_appendc(&cols, ',');
+		}
+		first = 0;
+		smart_str_append(&cols, Z_STR_P(col));
+	} ZEND_HASH_FOREACH_END();
+	if (meta->primary_key && gene_orm_valid_ident(meta->primary_key)) {
+		if (!first) {
+			smart_str_appendc(&cols, ',');
+		}
+		smart_str_append(&cols, meta->primary_key);
+	}
+	smart_str_0(&cols);
+	if (!cols.s) {
+		return;
+	}
+	ZVAL_STR(&fields, cols.s);
+	gene_orm_db_select(db, meta->table, &fields);
+	zval_ptr_dtor(&fields);
+	if (gene_orm_has_exception()) {
+		gene_orm_version_reset_db(db);
+		return;
+	}
+	if (Z_TYPE_P(pk) == IS_ARRAY) {
+		smart_str buf = {0};
+		smart_str_append(&buf, meta->primary_key);
+		smart_str_appends(&buf, " in(?)");
+		smart_str_0(&buf);
+		ZVAL_STR(&args[0], buf.s);
+		ZVAL_COPY(&args[1], pk);
+		gene_orm_db_call(db, "in", 2, args, &retval);
+		zval_ptr_dtor(&args[0]);
+		zval_ptr_dtor(&args[1]);
+		zval_ptr_dtor(&retval);
+		smart_str_free(&buf);
+		if (!gene_orm_has_exception() &&
+			gene_orm_db_call(db, "all", 0, NULL, old) == SUCCESS &&
+			Z_TYPE_P(old) != IS_ARRAY) {
+			zval_ptr_dtor(old);
+			ZVAL_UNDEF(old);
+		}
+	} else {
+		smart_str buf = {0};
+		smart_str_append(&buf, meta->primary_key);
+		smart_str_appends(&buf, "=?");
+		smart_str_0(&buf);
+		ZVAL_STR(&args[0], buf.s);
+		ZVAL_COPY(&args[1], pk);
+		gene_orm_db_call(db, "where", 2, args, &retval);
+		zval_ptr_dtor(&args[0]);
+		zval_ptr_dtor(&args[1]);
+		zval_ptr_dtor(&retval);
+		smart_str_free(&buf);
+		ZVAL_LONG(&lim, 1);
+		gene_orm_db_call(db, "limit", 1, &lim, &retval);
+		zval_ptr_dtor(&retval);
+		if (!gene_orm_has_exception() &&
+			gene_orm_db_call(db, "row", 0, NULL, old) == SUCCESS &&
+			Z_TYPE_P(old) != IS_ARRAY) {
+			zval_ptr_dtor(old);
+			ZVAL_UNDEF(old);
+		}
+	}
+	gene_orm_version_reset_db(db);
+}
+
+static void gene_orm_version_add_value(zval *map, zend_string *field, zval *value)
+{
+	zval copy;
+	if (!value) {
+		add_assoc_null_ex(map, ZSTR_VAL(field), ZSTR_LEN(field));
+		return;
+	}
+	ZVAL_COPY(&copy, value);
+	add_assoc_zval_ex(map, ZSTR_VAL(field), ZSTR_LEN(field), &copy);
+}
+
+static void gene_orm_version_add_pair(zval *map, zend_string *field, zval *oldv, zval *newv)
+{
+	zval pair, a, b;
+	array_init_size(&pair, 2);
+	if (oldv) {
+		ZVAL_COPY(&a, oldv);
+	} else {
+		ZVAL_NULL(&a);
+	}
+	if (newv) {
+		ZVAL_COPY(&b, newv);
+	} else {
+		ZVAL_NULL(&b);
+	}
+	add_next_index_zval(&pair, &a);
+	add_next_index_zval(&pair, &b);
+	add_assoc_zval_ex(map, ZSTR_VAL(field), ZSTR_LEN(field), &pair);
+}
+
+static zval *gene_orm_version_row_col(zval *row, zend_string *col)
+{
+	if (!row || Z_TYPE_P(row) != IS_ARRAY || !col) {
+		return NULL;
+	}
+	return zend_hash_find(Z_ARRVAL_P(row), col);
+}
+
+void gene_orm_version_commit_write(zval *db, gene_orm_meta_t *meta, zval *keys, zval *pk, zval *data, zval *old, zend_bool is_delete, zend_long affected)
+{
+	zval map;
+	zend_string *field;
+	zval *col;
+
+	if (affected <= 0 || !keys || Z_TYPE_P(keys) != IS_ARRAY || !meta) {
+		return;
+	}
+	array_init(&map);
+	ZEND_HASH_FOREACH_STR_KEY_VAL(Z_ARRVAL_P(keys), field, col) {
+		if (!field) {
+			continue;
+		}
+		if (!col || Z_TYPE_P(col) == IS_NULL) {
+			add_assoc_null_ex(&map, ZSTR_VAL(field), ZSTR_LEN(field));
+			continue;
+		}
+		if (Z_TYPE_P(col) != IS_STRING || !gene_orm_valid_ident(Z_STR_P(col))) {
+			continue;
+		}
+		if (meta->primary_key && zend_string_equals(Z_STR_P(col), meta->primary_key)) {
+			if (pk && Z_TYPE_P(pk) != IS_NULL && Z_TYPE_P(pk) != IS_UNDEF) {
+				gene_orm_version_add_value(&map, field, pk);
+			}
+			continue;
+		}
+		if (is_delete) {
+			if (old && Z_TYPE_P(old) == IS_ARRAY && pk && Z_TYPE_P(pk) == IS_ARRAY) {
+				zval gathered;
+				zval *row;
+				array_init(&gathered);
+				ZEND_HASH_FOREACH_VAL(Z_ARRVAL_P(old), row) {
+					zval *v = gene_orm_version_row_col(row, Z_STR_P(col));
+					zval copy;
+					if (!v || Z_TYPE_P(v) == IS_NULL) {
+						continue;
+					}
+					ZVAL_COPY(&copy, v);
+					add_next_index_zval(&gathered, &copy);
+				} ZEND_HASH_FOREACH_END();
+				if (zend_hash_num_elements(Z_ARRVAL(gathered)) > 0) {
+					add_assoc_zval_ex(&map, ZSTR_VAL(field), ZSTR_LEN(field), &gathered);
+				} else {
+					zval_ptr_dtor(&gathered);
+				}
+			} else {
+				zval *v = gene_orm_version_row_col(old, Z_STR_P(col));
+				if (v) {
+					gene_orm_version_add_value(&map, field, v);
+				}
+			}
+			continue;
+		}
+		if (data && Z_TYPE_P(data) == IS_ARRAY) {
+			zval *neu = zend_hash_find(Z_ARRVAL_P(data), Z_STR_P(col));
+			zval *prev = gene_orm_version_row_col(old, Z_STR_P(col));
+			if (neu) {
+				if (prev) {
+					gene_orm_version_add_pair(&map, field, prev, neu);
+				} else {
+					gene_orm_version_add_value(&map, field, neu);
+				}
+			}
+		}
+	} ZEND_HASH_FOREACH_END();
+	gene_orm_version_publish(db, &map);
+}

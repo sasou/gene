@@ -1,9 +1,9 @@
 <div class="gene-welcome-banner">
     <div class="wb-title">欢迎使用微服务管理后台</div>
     <div class="wb-info">
-        <span><i class="layui-icon layui-icon-log"></i> 登录次数：<?php echo $this->loginInfo['count']?></span>
-        <span><i class="layui-icon layui-icon-location"></i> 上次登录IP：<?php echo $this->loginInfo['top']['log_ip'];?></span>
-        <span><i class="layui-icon layui-icon-date"></i> 上次登录时间：<?php echo date("Y-m-d H:i:s", $this->loginInfo['top']['addtime']);?></span>
+        <span><i class="layui-icon layui-icon-log"></i> 登录次数：<?php echo $loginInfo['count']?></span>
+        <span><i class="layui-icon layui-icon-location"></i> 上次登录IP：<?php echo $loginInfo['top']['log_ip'];?></span>
+        <span><i class="layui-icon layui-icon-date"></i> 上次登录时间：<?php echo date("Y-m-d H:i:s", $loginInfo['top']['addtime']);?></span>
     </div>
 </div>
 <fieldset class="layui-elem-field layui-field-title site-title">

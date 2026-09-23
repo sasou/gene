@@ -196,8 +196,8 @@ define('CONF_DIR', dirname(__DIR__) . '/config');
 ## 视图
 
 ```php
-$this->assign('list', $list);
-$this->display('admin/user/run', 'admin/parent');  // 子视图 + layout
+$this->view->assign('list', $list);
+$this->display('admin/user/run', 'admin/parent');  // 子视图 + layout；模板用裸 $list
 $this->display('web/page');                       // 无 layout
 ```
 
@@ -224,7 +224,7 @@ User::query()
 1. **先搜现有代码**再写新逻辑，保持命名与目录风格一致
 2. **不编造** Gene 类方法；不确定时查 [reference.md](reference.md)
 3. 外部输入必须经 **Validate**；权限接口加钩子或 Service 内校验
-4. Swoole 场景必读 [swoole.md](swoole.md)；`workerReady()` 后勿在请求中写 `\Gene\Memory`
+4. Swoole 场景必读 [swoole.md](swoole.md)。`workerReady()` 冻结的是路由/配置表；`Memory::set/del/incr/rateLimit/lock` 写入业务分区，请求期可用。`ttl=0` 活到进程退出，多 worker 不共享，值不能是对象或资源
 5. 改动范围最小化，不重构无关模块
 
 ## 延伸阅读

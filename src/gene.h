@@ -198,6 +198,8 @@ typedef struct _gene_ctx_cold {
 	 zend_string *log_file;
 	 zend_long log_level;
 	 zend_bool log_level_set;
+	 /* ORM versionKeys bumps deferred until the open DB transaction commits. */
+	 zval orm_version_pending;
 } gene_ctx_cold;
 
 typedef struct _gene_request_context {

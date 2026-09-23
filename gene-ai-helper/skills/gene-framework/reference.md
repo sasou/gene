@@ -345,7 +345,7 @@ $title = $this->language->login_title; // 读取键值
 
 ## Orm\Model / Orm\Query（ActiveRecord v2，6.1.0+）
 
-数据 Model 继承 `\Gene\Orm\Model`（本身继承 `\Gene\Model`）。声明 `static $table` / `$primaryKey` / `$fields`。
+数据 Model 继承 `\Gene\Orm\Model`（本身继承 `\Gene\Model`）。声明 `static $table` / `$primaryKey` / `$fields`。可选 `static $versionKeys`：写成功后对名为 `cache` 的组件调用 `updateVersion`。值为列名时按列取值（改非主键列会同时失效旧值和新值）；值为 `null` 时抬一次全局版本。事务在提交后才抬版本。没有 `cache` 组件时不执行。
 
 | 静态属性 | 说明 |
 |----------|------|
@@ -358,12 +358,14 @@ $title = $this->language->login_title; // 读取键值
 | find($id, $asModel = false) / findAll($where = []) | 查询；默认返回数组，`find($id, true)` 返回模型实例 |
 | findMany($ids, $preserveOrder = false) | 主键 IN 批量取（一次查询）；空数组返回 [] 不发 SQL；>1000 发 E_NOTICE（6.1.0+） |
 | paginate($where, $offset, $limit, $order = null) | {count, list}；order 仅作用于列表阶段（6.1.0+） |
+| page($where, $page, $perPage, $order = null) | 页码分页，内部换算 offset 后走 paginate；返回额外带 page、limit |
 | query() / where($where, $bind = null) | 返回 `Gene\Orm\Query` |
 | create($data) / updateBy($where, $data) / destroy($id) / destroyAll($ids) | 写入。**$where 语义**：数组=条件集合（键须为字符串列名，值可为标量或 `[val, op]`；数字键 / 空 op 数组等「非空但语义为空」形态由 makeWhere 响亮失败或匹配 0 行，**不会**静默全表写）、标量=主键值（**非 raw SQL 片段**；'status=1' 这类字符串会静默匹配 0 行）；空数组/null 抛异常（拒绝全表更新，6.1.0+）。raw 片段请用 `query()->where('…')->update($data)` |
 | createMany($rows) | 批量插入（一次 round-trip），返回影响行数；每行键集合与顺序必须一致，否则抛异常；大批量在调用方分片（建议 500/批），>5000 发 E_NOTICE（6.1.0+） |
 | insertIgnore($data) | 幂等写入（MySQL INSERT IGNORE / SQLite INSERT OR IGNORE；Pgsql/Mssql 抛异常），返回影响行数（6.1.0+） |
 | updateOrCreate($where, $data) | 查到则更新（返回影响行数），否则插入（返回新 id，关联数组 where 并入新行）；非原子，并发竞争用唯一键 + insertIgnore（6.1.0+）。$where 语义同 updateBy，空数组/null 在更新分支抛异常 |
 | toggle($id, $field, $values = [0, 1]) | 状态翻转（CAS：WHERE pk=? AND field=?，并发败者返回 0）；$timestamps 开启时同步 $updatedAt（6.1.0+） |
+| flip($id, $field, $values = [0, 1]) | 一条 CASE UPDATE 在两个值之间翻转，不先 SELECT；并发两次都生效。$field 须在 $fields 白名单内 |
 | transaction($fn) / transact($fn) | 在本模型 `$connection` 对应 Db 上执行回调事务，语义同 `Gene\Db\*::transaction()`（6.1.0+） |
 | fill($data, $hydrate = true) / setExists($exists = false) / save() / delete() / toArray() | 实例 ActiveRecord；含非空主键的 `fill()` 默认标记为已持久化，新增自然主键/UUID 数据请用 `fill($data, false)`、`setExists(false)` 或 `create()` |
 
@@ -561,7 +563,7 @@ $this->memory->clean();                    // 清空全部
 | stats() | 分区观测：缓存条目数、协程上下文/ctx pool/sweep 遥测、闭包源码缓存等 |
 | incr/decr($key, $step = 1) | 写锁内原子加减；缺失键以步进值创建 |
 | rateLimit($key, $max, $windowSec) | 单进程固定窗口；超限 `false`。多 worker 不共享，请用 Redis |
-| lock($key, $ttlSec) / unlock($key, $token) | 进程内 NX+TTL 锁。Swoole `workerReady()` 后冻结写入 |
+| lock($key, $ttlSec) / unlock($key, $token) | 进程内 NX+TTL 锁。请求期写入业务分区；路由/配置表在 workerReady() 后仍冻结 |
 
 ---
 

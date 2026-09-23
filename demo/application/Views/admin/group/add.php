@@ -32,8 +32,8 @@
                     <th>权限</th>
                 </thead>
                 <tbody>
-                <?php if(is_array($this->purviewList)):?>
-                <?php foreach($this->purviewList as $v):?>
+                <?php if(is_array($purviewList)):?>
+                <?php foreach($purviewList as $v):?>
                     <tr>
                         <td>
                             <?php echo str_repeat("&nbsp;", $v['deep'] * 8);?><input type="checkbox" name="purview[<?php echo $v['id'];?>]" lay-skin="switch" lay-text="<?php echo $v['name'];?>|<?php echo $v['name'];?>" value="<?php echo $v['id'];?>">
