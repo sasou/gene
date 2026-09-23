@@ -305,3 +305,199 @@ protected static array $versionKeys = [
 6. **L1**：改注释和 Monitor 字段，避免下一轮把恒为 0 的计数当成「扩容已被拦住」。
 
 P1 的验收用 `audit/repro/session_store_ttl.php`（修复后应打印 `OK: store set() received cookie lifetime`）。P3 不改属性写入的语义，`controller_di_shadow.php` 仍应看到 `shadowed=1`；后台页面改完后，模板数据来自 `assign()`，登录用户仍来自 `Di::set('user')`。O2/O3/O4 用 Sqlite 进 `OrmTest`，并沿用 `audit/repro/orm_v2_leak_probe.php` 的 1 万次循环，要求 `memory_get_usage(true)` 增量为 0。Swoole 真实协程下的会话 TTL 清扫不在本机环境，发布前在 Linux worker 上对 `LocalStore` 写入后等待超过 TTL，确认 `Memory::get` 变为未命中；无该环境则 SKIP，不以 SKIP 为通过。
+
+---
+
+## 八、落地复核（2026-09-23 追加）
+
+> 复核对象：提交 `f330c73`（`fix(session): pass cookie TTL to session store set()`，54 个文件，+1680/−447）。
+> 复核方式：逐条对照源码；用 `x64\Release\php_gene.dll`（构建时间 09:53，晚于全部 `src/` 修改）免部署运行两份 repro、`OrmTest` / `SessionTest` / `CacheTest` / `RouterTest` / `MvcTest`，另写一次性探针验证 O3 边界。
+> 本节只追加，不改写第一至第七节；与前文矛盾之处以本节为准。
+
+### 8.1 落地总览
+
+| 项 | 状态 | 说明 |
+|----|------|------|
+| P1 会话 TTL | 已落地 | `session_store_ttl.php` 输出 `argc=3 ttl=86400 / argc2=2 / OK`。残留见 R5、R8 |
+| P2 helper 冻结描述 | **部分落地** | `SKILL.md`、`swoole.md` §4.4/§6 已改；仍有 3 处旧说法，见 R9 |
+| P3 / O1 模板走 `assign()` | 已落地 | 后台 6 个控制器、全部模板已改为 `$this->view->assign()` + 裸变量；模板内仅剩 `$this->user/request/contains()`。`controller_di_shadow.php` 仍为 `shadowed=1`，符合预期 |
+| P4 函数槽 | 已落地 | 只缓存 internal / `ZEND_ACC_IMMUTABLE`，ZTS 整体关闭。残留见 R10 |
+| L1 `cache_insert_refused` | 已落地（有尾巴） | 注释与两处 stats 输出已改。残留见 R11 |
+| O2 `flip()` | C 已落地 | `User`、`Group` 改用 `flip()`；`Log`、`Module`、`Mark` 继承旧 `\Gene\Model`，改成带绑定的 CASE 裸 SQL（Sqlite 实测参数顺序正确）。PostgreSQL 风险见 R6 |
+| O3 `versionKeys` | 已落地，**语义有缺口** | 见 R2、R3、R4 |
+| O4 `page()` | 已落地 | `$order = null` 触发 deprecation，见 R7 |
+| §五 demo 清理 | 已落地 | `join()+fields()`、`password_hash`、`Validate`、删 `RequestId` / `Ext\Session`、`through(['adminAuth'])`、口令注释均已完成。库表迁移缺失，见 R8 |
+| 测试 | 通过 | `OrmTest` 185/0，其余 4 个套件 exit 0。覆盖缺口见 R12 |
+
+结论：C 层 6 项都已按报告动手，但 **demo 后台从 2026-08-08 起就无法加载 ORM 模型（R1）**，因此 O2/O3/O4 在 demo 上的改动从未真正运行过。O3 按报告第四节的设计实现，而这个设计本身比原先手写的 Service 失效得更少，引入了缓存一致性回归（R2）。
+
+### 8.2 问题清单
+
+| # | 等级 | 问题 | 证据 |
+|---|------|------|------|
+| **R1** | 阻断 | demo 的 ORM 模型用 `protected static string/array $x` 重声明基类的无类型静态属性，PHP 报致命错误；后台登录、用户页、角色页全部不可用。helper 文档和本报告 O3 示例也在教这种写法 | 运行时 |
+| **R2** | 高（安全相关） | `versionKeys` 只在 payload 含有映射列时才 bump 二级键。`flip()`、改密码、改资料都不会失效「按登录名」的缓存；账号被禁用或改密后，旧状态和旧口令摘要最长还能用 3600 秒。旧 Service 的 `bumpUserCacheForUser` 每次写入都会 bump 当前登录名，所以这是回归 | 运行时 |
+| **R3** | 高 | `updateBy()` 的 where 不含主键时，命中行数 > 0，但一个版本键都不 bump，也没有告警 | 运行时 |
+| **R4** | 中 | 事务挂起列表挂在请求级、不区分连接：A 连接提交会把 B 连接未提交的 bump 提前 flush；A 回滚会丢掉 B 的 bump | 运行时 |
+| **R5** | 中 | P1 把 `cookie_lifetime` 原样传给 `Memcached::set`；超过 30 天（2592000 秒）时 Memcached 把它当成 Unix 时间戳，会话写入即过期 | 静态 |
+| **R6** | 中（未实测） | `flip()` 生成 `CASE WHEN col = ? THEN ? ELSE ? END`，PostgreSQL 原生预处理下 THEN/ELSE 的参数会被推断为 `text`，写入整型列时报类型错误 | 静态 |
+| **R7** | 低 | `page()` / `paginate()` 的 `$order` 用 `S` 解析，传 `null` 在 PHP 8.1 触发 deprecation，与 stub 的 `$order = null` 不一致 | 运行时 |
+| **R8** | 中 | `user_pass` 只在 `gene_demo.sql` 里改成 `varchar(255)`，已有库没有迁移；`password_hash` 的 60 字符结果会被截断或插入失败。另有 cookie 寿命 `<= 0` 的不一致 | 静态 |
+| **R9** | 低 | P2 残留：`reference.md:63`、`swoole.md:49` 仍写「冻结进程级 Memory」，`swoole.md:380` 仍写 `Memory::rateLimit`「`workerReady()` 后冻结」 | 静态 |
+| **R10** | 低 | P4 残留：opcache 重启（`opcache_reset()` 或 SHM 耗尽）后，immutable 指针所在的 SHM 会被重建，进程级槽仍可能命中旧地址 | 静态 |
+| **R11** | 低 | L1 残留：`GENE_G(cache_insert_refused)` 仍在声明和清零；`audit/repro/swoole_route_probe.php:40` 仍读这个字段；stats 删字段未写 CHANGELOG | 静态 |
+| **R12** | 低（流程） | 单个 `fix(session)` 提交混入 3 个新公开 API；CHANGELOG、`docs/`、`AGENTS.md` 行为约定、`audit/README.md` 都未同步；关键路径缺回归用例 | 静态 |
+
+### 8.3 问题详情与解决思路
+
+#### R1 — 带类型的静态属性重声明导致 demo 模型致命错误
+
+复现（Release DLL，CLI）：
+
+```text
+php -r "require 'demo/application/Models/Admin/User.php';"
+Fatal error: Type of Models\Admin\User::$table must not be defined (as in class Gene\Orm\Model)
+```
+
+`Gene\Orm\Model` 在 MINIT 里用 `zend_declare_property_string/null` 声明 `$table`、`$primaryKey`、`$fields`、`$timestamps`、`$connection`、`$versionKeys`，全部无类型。PHP 7.4+ 规定：父类属性无类型时，子类重声明不能加类型；父类有类型时，子类必须写相同类型。`git log -S` 显示 `protected static string $table` 从 `7bcc5b0`（2026-08-08，ORM v1）起就在 demo 里。`Services\Admin\User::checkUser()` 通过 `cachedVersion(["\Models\Admin\User", ...])` 加载模型，因此后台登录本身就会致命错误。`linux_swoole_verify.sh --demo` 只打 `/healthz`、`/metrics` 和 wrk，一直没有发现。
+
+同样的写法出现在：`demo/application/Models/Admin/User.php`、`Group.php`，`gene-ai-helper/AGENTS.md:97-99`，`gene-ai-helper/skills/gene-framework/swoole.md:182-185`，以及本报告第四节 O3 的示例（`protected static array $versionKeys`）。`test/OrmTest.php` 和 `gene-ide-helper` 用的是无类型写法，所以测试全绿。
+
+**解决思路：**
+
+1. **C 层保持无类型，不要改成 typed property。** 改成 `zend_declare_typed_property` 后，所有现有的无类型子类都会反过来报 `must be string (as in class ...)`，破坏面更大。无类型是唯一能同时兼容「写了 `$table = 'x'`」和「用 stub 生成代码」的选择。
+2. demo 两个模型、helper 两份文档、本报告 O3 示例统一改成 `protected static $table = ...;`。`$fields` / `$versionKeys` 的类型意图写进 `@var array` 注释。
+3. 加加载冒烟测试，防止再次出现「语法对、加载即死」：在 `test/MvcTest.php`（或新 `DemoLoadTest.php`）里注册 demo 的 PSR-4 前缀，遍历 `demo/application/{Models,Services,Controllers,Hooks,Ext}/**/*.php`，逐个 `class_exists($fqcn, true)`，放在子进程里跑，并断言 exit 0。`php -l` 查不出继承期错误，必须真正加载。
+4. `tools/acceptance` 的 `--demo` profile 增加一个会加载 ORM 模型的请求，例如对 `/login.action` POST 错误口令，期望返回 JSON 的「密码错误」或「用户名不存在」，而不是 500。
+
+#### R2 — versionKeys 只 bump payload 里出现的二级键
+
+探针（Sqlite，`versionKeys = ['v.id' => 'id', 'v.name' => 'name']`）：
+
+```text
+flip($id,'status')                  bumps: [{"v.id":1}]
+updateBy($id, ['pass' => 'h2'])     bumps: [{"v.id":1}]
+```
+
+根因在第四节 O3 的规则 2：「若写入数组改到了非主键的映射列，先 SELECT 旧值」。`gene_orm_version_prefetch()` 按这条规则只在 `gene_orm_version_column_in_payload()` 为真时才读旧行，`gene_orm_version_commit_write()` 对 payload 里没有的二级列直接跳过。但版本键保护的是**整行缓存**，不只是那一列：`checkUser()` 按 `db.sys_user.user_name` 缓存的行里包含 `status`、`user_pass`、`user_salt`。
+
+demo 上的直接后果：
+
+- 后台点「禁用」→ `flip($id, 'status')` → 登录名版本不变 → 被禁用的账号最长 3600 秒内仍能登录。
+- `/save.html` 修改自己的口令 → `edit($uid, ['user_pass', 'user_realname', 'status'])`，payload 里没有 `user_name` → 最长 3600 秒内**旧口令能登录，新口令不能**。
+
+旧实现 `bumpUserCacheForUser()` 每次写入都先 `userNameById()`，再 bump 当前登录名，没有这个缺口。
+
+**解决思路：语义改为「行被写，就 bump 这一行在所有 versionKeys 下的当前键；映射列被改名时再加上新值」。**
+
+1. **更新类写入（`updateBy` / `save` / `flip`）：** 只要模型有非主键映射列，就按主键预读这些列的**当前值**，不再看 payload 里有没有。bump 集合 = 旧值 ∪ payload 新值（只有映射列本身被改名时才有新值）。
+2. **省掉预读的场景：**
+   - hydrate 模型的 `save()`：`attrs` 里已有这些列的原值（`find($id, true)` 按 `$fields` 投影加载），直接取，不发 SQL。缺列时再回落预读。
+   - `flip()` 不改二级列，预读可以放在 UPDATE 之后按主键读，顺序不影响正确性。
+   - 模型没有非主键映射列（只有 `id => pk`）时，行为与现在相同，零额外 SQL。
+3. **成本：** 每次有二级键的更新多一次按主键的单行 SELECT，与旧 Service 的 `userNameById()` 相同，没有回退性能。
+4. **回归：** 在 `OrmTest::testFlipPageVersion` 里补三条断言：`flip()` 后 bumps 里有 `v.name => 'ada'`；`updateBy($id, ['pass' => ...])` 后同样有；`save()`（hydrate）不发预读 SQL（可用 `history()` 快照计数）。
+5. 在 `AGENTS.md` 的「ORM」约定里写一行：`versionKeys` 以行为单位失效，任何成功写入都会 bump 该行全部映射键。
+
+#### R3 — 非主键条件的 updateBy 静默不失效
+
+```text
+updateBy(['name' => 'ada'], ['pass' => 'h3'])   affected=1  bumps: []
+```
+
+`gene_orm_pk_from_where()` 在数组 where 里找不到主键就返回 NULL，于是 `updateBy` 跳过预读和 `commit_write`。按主键批量更新（`['id' => [1, 2]]`）时，旧值是 `all()` 返回的列表，但 `commit_write` 的非删除分支按单行 `row_col(old, col)` 取值，拿不到旧的二级键。
+
+**解决思路：**
+
+1. versionKeys 生效且 where 不是纯主键时，在 UPDATE 之前用**同一个 where**（复用 `gene_orm_apply_where`，不拼字符串）做一次 `SELECT pk, 映射列...`，得到受影响行集合；写成功后按 R2 的规则逐行 bump。
+2. 行数上限：预读加 `LIMIT N+1`（N 默认 1000，可做成模型静态属性 `$versionScanLimit`）。超过 N 行时仍执行写入，但发 `E_WARNING`（`versionKeys: updateBy matched more than N rows; cache not invalidated`），**不静默**。与「hydrate `save()` 命中 0 行发 `E_NOTICE`」是同一原则。
+3. `commit_write` 的非删除分支同样要识别 `old` 是行列表的情况（与删除分支的 `gathered` 逻辑合并成一个取值辅助函数）。
+4. 回归：非主键 where 命中 1 行时有 bump；命中超过上限时收到 warning。
+
+#### R4 — 挂起列表不区分连接
+
+```text
+B 连接 beginTransaction → PLog::create()      bumps: []            （正确挂起）
+A 连接 transaction(updateBy) 提交              bumps: [{"v.log":1},{"v.id":1}]   （B 尚未提交就被 flush）
+```
+
+`orm_version_pending` 是请求上下文里的单个数组；`gene_pdo_commit()` / `gene_pdo_rollback()` 分别无条件调用 `gene_orm_version_flush()` / `gene_orm_version_discard()`。多连接（读写分离、业务库 + 日志库）时：
+
+- A 提交 → B 的 bump 提前生效；B 提交前，其他请求重新读库，拿到旧数据并按新版本号写回缓存，B 提交后缓存保持旧值直到 TTL。
+- A 回滚 → B 的 bump 被丢掉，B 提交后缓存没有失效。
+
+**解决思路：**
+
+1. `orm_version_pending` 改为 `HashTable<pdo 对象 handle → list<map>>`。`gene_orm_version_publish()` 挂起时用 `Z_OBJ_HANDLE_P(pdo)` 作为键；`gene_pdo_commit(pdo)` / `gene_pdo_rollback(pdo)` 把 `pdo_object` 传进 flush/discard，只处理自己的那一条。
+2. 请求 `cleanup()` 时，如果某条连接的挂起列表还在，且该 PDO 已不在事务中（说明用户绕过 Gene 直接调了 `$pdo->commit()`，或用 `sql('COMMIT')` 提交），**flush 而不是丢弃**。原则：不确定时多失效一次，代价是一次缓存回源；少失效一次，就会读到脏缓存。连接仍在事务中的，交给现有的事务卫生回滚，回滚路径会按连接 discard。
+3. 句柄复用问题：挂起列表存活时间不超过请求上下文，PDO 对象在这期间被 DI 持有，handle 不会被复用。
+4. 回归：用两个 Sqlite 内存库复现上面的时序，断言 A 提交后 bumps 里没有 `v.log`；A 回滚后再提交 B，bumps 里有 `v.log`。
+
+#### R5 — Memcached 把超过 30 天的 TTL 当成时间戳
+
+P1 修复后，`Gene\Session` 把 `cookie_lifetime` 作为第三个参数传给 `Gene\Cache\Memcached::set`，后者经 `gene_memcached_set()` 原样转给 `Memcached::set($key, $value, $ttl)`。Memcached 协议规定 expiration 大于 2592000 时按 Unix 时间戳解释，所以 `ttl = 90 天` 会被当成 1970 年，写入即过期，用户永远无法保持登录。修复前不传 TTL，反而不会触发这个问题，所以这是 P1 引入的回归（仅在配置 >30 天时）。
+
+**解决思路：** 在驱动层收口，不在 Session 里特判。`gene_memcached_set()`（以及 `mset` / `add` / `touch` 这类带 expiration 的转发，如有）在 `ttl > 2592000` 且 `ttl < time(NULL)` 时改写为 `time(NULL) + ttl`；已经是绝对时间戳的值原样放行。这样所有调用 `Gene\Cache\Memcached` 的业务都受益。同时把 `memory.c` 的 `gene_memory_set_expiry_nolock(..., int validity)` 改为 `zend_long`，避免 `(int)` 截断超大 TTL。
+
+#### R6 — flip() 在 PostgreSQL 下的参数类型推断
+
+pdo_pgsql 默认使用服务端预处理，普通参数以未指定类型发送。PostgreSQL 解析 `CASE ... THEN $2 ELSE $3 END` 时，如果所有分支都是 unknown，就解析为 `text`，赋给 `integer` 列时报 `column "status" is of type integer but expression is of type text`。`WHEN col = $1` 能从列推断类型，但 THEN/ELSE 不能。MySQL 默认模拟预处理、pdo_sqlsrv 按 PHP 类型发送参数，这两个不受影响。本机没有 PG 环境，**尚未实测**。
+
+**解决思路：**
+
+1. `$values` 两个元素都是 `IS_LONG`（默认的 `[0, 1]` 就是）时，THEN/ELSE 直接用 `ZEND_LONG_FMT` 内联成整数字面量。这是 C 层格式化出来的整数，不存在注入面，四种数据库都能正确推断类型。WHEN 分支仍然绑定参数。
+2. `IS_TRUE/IS_FALSE` 按驱动内联为 `1/0`（PG 用 `TRUE/FALSE`）。
+3. 字符串值继续绑定；`text → varchar` 在 PG 有赋值转换，可以正常写入。枚举等其他列类型在 stub 注释里说明需要自行 CAST。
+4. `DatabaseTest` 的 PG 段加一条 `flip()` 用例，无服务器时 SKIP。demo 里 `Log`、`Module`、`Mark` 的 CASE 裸 SQL 同样改成内联整数（`CASE WHEN status = ? THEN 1 ELSE 0 END`）。
+
+#### R7 — page()/paginate() 不接受 null 排序
+
+```text
+Gene\Orm\Model::page(): Passing null to parameter #4 ($order) of type string is deprecated
+```
+
+`page()` 照抄了 `paginate()` 的 `"zll|S"`，stub 却写 `$order = null`。**解决：** 两者都改为 `"zll|S!"`，`order == NULL` 时不传第 4 个参数。`page()` 内部调用 `paginate` 时用的是基类的 `zend_function`，子类覆写 `paginate()` 会被绕过；这点在 stub 里写明，或改为从 `ce->function_table` 查找，与静态调用的解析保持一致。
+
+#### R8 — 口令列没有迁移；cookie 寿命 <= 0 的不一致
+
+1. `gene_demo.sql` 把 `user_pass` 改成 `varchar(255)`，只对新装生效。已有 MySQL 库仍是 `varchar(50)`，而 `password_hash()` 的结果是 60 个字符：严格模式下 `add()/edit()` 插入失败，非严格模式下被静默截断，之后 `password_verify` 永远失败，账号从此无法登录。**解决：** 增加幂等迁移（如 `demo/database/migrate_2026_09_23_user_pass.sql`：`ALTER TABLE sys_user MODIFY user_pass varchar(255) NOT NULL DEFAULT ''`），`init_sqlite.php` 不受影响（SQLite 不限制长度）。部署说明写在 CHANGELOG。
+2. `verifyPassword()` 旧摘要校验通过后没有升级。**建议：** 旧摘要登录成功后，立即用 `password_hash()` 重写并 `updateBy`（会走 versionKeys）；已是新哈希但 `password_needs_rehash()` 为真时同样重写。`$salt . $password` 的拼接只用于兼容旧格式；新哈希直接 `password_hash($password)`，避免 bcrypt 的 72 字节截断吃掉长口令的尾部。
+3. P1 把 `cookie_lifetime <= 0` 的存储 TTL 回落到 86400，但 `gene_cookie()` 对同样的值写 `expires = now + 0`，cookie 立即过期，而不是浏览器会话 cookie。**解决：** `gene_cookie()` 在 lifetime `<= 0` 时传 `expires = 0`（会话 cookie），存储侧保持 86400 作为兜底。二者分别表示「浏览器关了就忘」和「服务端最多留一天」，语义一致。
+
+#### R9 — P2 文档残留
+
+- `reference.md:63` 与 `swoole.md:49`：「冻结进程级 Memory」→ 改为「冻结路由/配置表；用户态 `Memory::*` 写业务分区」。
+- `swoole.md:380`：「`Memory::rateLimit` 仅当前 worker 且 `workerReady()` 后冻结」→ 改为「仅当前 worker；请求期可用」。
+- 用 `rg "冻结进程级|后冻结|只读" gene-ai-helper gene-ide-helper docs` 做一次全量复查，把结果写进 PR 描述。
+
+#### R10 — opcache 重启后的函数槽
+
+immutable 只保证 SHM 生命周期内地址稳定。FPM 下 `opcache_reset()` 或 SHM 耗尽会触发重启：在下一次 `accel_activate()`（RINIT）时清空 SHM 并重新装载脚本，类条目和 interned 方法名都可能落到旧地址，4 槽缓存会命中已不属于它的 `zend_function*`。概率低，但与 P4 属于同一类问题。
+
+**解决：** 在 Gene 的 RINIT 里清零这 4 个槽，成本是 4×24 字节的 memset。opcache 重启只会发生在 RINIT，Swoole worker 不经过逐请求 RINIT，也不会在进程内完成 opcache 重启，因此这样足以覆盖。不需要引入代际计数。
+
+#### R11 — L1 的尾巴
+
+- `src/gene.h:336` 的 `cache_insert_refused` 字段，以及 `gene.c:1319`、`monitor.c:264` 的清零，一并删除，避免下一轮审计又把它当成有效计数。
+- `audit/repro/swoole_route_probe.php:40` 改读 `business_cache_items` / `business_cache_table_size`。
+- `Memory::stats()` / `Monitor::stats()` 删除字段属于对外观测接口变更。CHANGELOG 里写明：字段已移除、替代字段是什么、Prometheus 等看板需要同步调整。
+
+#### R12 — 流程与覆盖
+
+1. **提交粒度：** 标题为 `fix(session)` 的单个提交里包含 3 个新公开 API（`flip`、`page`、`versionKeys`）、事务钩子、demo 重构和文档。建议按报告第七节的顺序拆成 P1+P2、P3/O1、O2+O4、O3、P4+L1 五个提交，出问题时可以单独回滚（R2 只需要回滚 O3）。
+2. **文档同步：** CHANGELOG 没有 6.2.6/Unreleased 条目；`docs/` 没有 `flip`/`page`/`versionKeys`；`AGENTS.md` 行为约定没有 versionKeys 的失效语义和事务延迟规则；`audit/README.md` 没有本报告的索引说明（如仓库约定需要）。
+3. **回归用例缺口：**
+   - `SessionTest`：没有 P1 的常驻用例，只有 repro。应把「3 参数句柄收到 TTL、2 参数句柄不报 `ArgumentCountError`、`ttl <= 0` 回落 86400」三条沉淀进去。
+   - `OrmTest`：没有「事务**提交成功**后才 bump」的正向用例（只有回滚用例），也没有 R2/R3/R4 的用例。
+   - 第七节要求用 `orm_v2_leak_probe.php` 跑 1 万次、`memory_get_usage(true)` 增量为 0，但探针没有扩展到 `flip()`、`page()` 和带 versionKeys 的写入。应补上，尤其是 `gene_orm_version_prefetch()` 的 smart_str / 结果集释放路径，以及挂起列表在 `cleanup()` 中的释放。
+   - Swoole：挂起列表按协程隔离的断言（两个协程各自开事务，互不 flush），无 Swoole 环境时 SKIP。
+
+### 8.4 建议修复顺序
+
+1. **R1**（立即）：demo 与文档去掉静态属性类型，并加 demo 加载冒烟测试。不修这一条，其余 demo 改动都无法验证。
+2. **R2 + R3 + R4**（同一批，O3 语义修正）：行级失效、非主键 where 预读加上限告警、挂起列表按连接分桶。修完之前，建议 demo 的 `Models\Admin\User` 暂时去掉 `$versionKeys`，并在 Service 里恢复 `bumpUserCacheForUser()`，先堵住「禁用账号仍可登录」的问题。
+3. **R8**：库表迁移与旧口令升级。和 R1 一起上线，否则修复 R1 后，已有库在第一次改密时就会写坏口令。
+4. **R5、R6、R7**：驱动层 TTL 规范化、`flip()` 整数内联、`S!`。
+5. **R9、R10、R11、R12**：文档、RINIT 清槽、字段清理、CHANGELOG 与回归用例。
+
+验收：R1 以 demo 加载冒烟测试 + `/login.action` 返回业务 JSON 为准；R2/R3/R4 以 `OrmTest` 新增断言为准；R6 需要 PG 实例，无环境时明确 SKIP，不以 SKIP 为通过。
