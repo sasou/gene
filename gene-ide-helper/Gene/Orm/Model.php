@@ -48,6 +48,15 @@ class Model extends \Gene\Model
      */
     protected static $timestampFormat = 'datetime';
 
+    /**
+     * 写成功后自动 Cache::updateVersion 的键。
+     * 值为列名时按该列取值；值为 null 时以 null 抬一次全局版本。
+     * 事务未提交前不抬版本。没有 cache 组件时不执行。
+     *
+     * @var array<string, string|null>|null
+     */
+    protected static $versionKeys = null;
+
     /** @var string DI 服务名 */
     protected static $connection = 'db';
 
@@ -134,6 +143,21 @@ class Model extends \Gene\Model
     public static function paginate($where, $offset, $limit, $order = null)
     {
         return ['count' => 0, 'list' => []];
+    }
+
+    /**
+     * page — 按页码分页。$page < 1 视为 1，$perPage < 1 抛异常。
+     * 返回与 paginate() 相同的 count/list，并带上 page、limit。
+     *
+     * @param array|mixed $where
+     * @param int $page
+     * @param int $perPage
+     * @param string|null $order
+     * @return array{count:int,list:array,page:int,limit:int}
+     */
+    public static function page($where, $page, $perPage, $order = null)
+    {
+        return ['count' => 0, 'list' => [], 'page' => 1, 'limit' => 10];
     }
 
     /**
@@ -257,6 +281,21 @@ class Model extends \Gene\Model
      * @since 6.1.0
      */
     public static function toggle($id, $field, $values = [0, 1])
+    {
+        return 0;
+    }
+
+    /**
+     * flip — 一条 UPDATE 在两个值之间翻转（CASE WHEN），不先 SELECT。
+     * 并发两次都会生效。toggle() 仍是 CAS，败者返回 0。
+     * $field 必须是合法列名，且在 $fields 白名单内（未声明白名单时只校验列名）。
+     *
+     * @param mixed $id
+     * @param string $field
+     * @param array $values 两个候选值，默认 [0, 1]
+     * @return int
+     */
+    public static function flip($id, $field, $values = [0, 1])
     {
         return 0;
     }

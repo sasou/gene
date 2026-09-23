@@ -15,13 +15,15 @@ class Mark extends \Gene\Controller
      */
     function run()
     {
-        $this->page = intval($this->get("page", 1));
-        $this->limit = intval($this->get("limit", 10));
+        $page = intval($this->get("page", 1));
+        $limit = intval($this->get("limit", 10));
         $search['title'] = trim($this->get("title"));
-        $this->title = '文档管理';
-        $this->mark_type = ["", "框架使用", "框架类文档", "技术研究"];
-        $this->search = $search;
-        $this->mark = \Services\Doc\Mark::getInstance()->lists($this->page, $this->limit, $this->search);
+        $this->view->assign('page', $page);
+        $this->view->assign('limit', $limit);
+        $this->view->assign('title', '文档管理');
+        $this->view->assign('mark_type', ["", "框架使用", "框架类文档", "技术研究"]);
+        $this->view->assign('search', $search);
+        $this->view->assign('mark', \Services\Doc\Mark::getInstance()->lists($page, $limit, $search));
         $this->display("doc/mark/run", "parent");
     }
     
@@ -43,7 +45,7 @@ class Mark extends \Gene\Controller
      */
     function add()
     {
-        $this->title = '文档添加';
+        $this->view->assign('title', '文档添加');
         $this->display("doc/mark/add", "dialog");
     }
     
@@ -53,6 +55,11 @@ class Mark extends \Gene\Controller
     function addPost()
     {
         $data = $this->post('data');
+        if (!$this->validate->init(is_array($data) ? $data : [])
+            ->name('mark_title')->required()->msg('标题不能为空')
+            ->valid()) {
+            return $this->error($this->validate->error());
+        }
         $id = \Services\Doc\Mark::getInstance()->add($data);
         if ($id) {
             return $this->success("添加成功");
@@ -65,9 +72,9 @@ class Mark extends \Gene\Controller
      */
     function edit($params)
     {
-        $this->title = '文档修改';
+        $this->view->assign('title', '文档修改');
         $id = intval($params["id"]);
-        $this->mark = \Services\Doc\Mark::getInstance()->row($id);
+        $this->view->assign('mark', \Services\Doc\Mark::getInstance()->row($id));
         $this->display("doc/mark/edit", "dialog");
     }
     
@@ -78,6 +85,11 @@ class Mark extends \Gene\Controller
     {
         $id = intval($this->post('id'));
         $data = $this->post('data');
+        if (!$this->validate->init(is_array($data) ? $data : [])
+            ->name('mark_title')->required()->msg('标题不能为空')
+            ->valid()) {
+            return $this->error($this->validate->error());
+        }
         $count = \Services\Doc\Mark::getInstance()->edit($id, $data);
         if ($count) {
             return $this->success("修改成功");

@@ -10,7 +10,7 @@
     <div class="layui-input-inline">
       <select name="data[group_id]" lay-verify="required">
         <option value=""></option>
-        <?php foreach($this->group['list'] as $one): ?>
+        <?php foreach($group['list'] as $one): ?>
         <option value="<?php echo $one['group_id']?>"><?php echo $one['group_title']?></option>
         <?php endforeach;?>
       </select>

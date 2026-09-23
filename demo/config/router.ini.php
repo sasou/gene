@@ -21,15 +21,18 @@ $router->clear()
     ->get("/healthz", "\Controllers\Monitor@healthz", "@clearAfter")
     ->get("/metrics", "\Controllers\Monitor@metrics", "@clearAfter")
 
-    // Admin 登录、控制台相关页面 静态匹配具体类的方法
-    ->get("/admin.html", "Controllers\Admin\Index@run", "adminAuth@clearAfter")
+    // 登录与验证码不挂 adminAuth
     ->get("/login.html", "Controllers\Admin\Index@login", "@clearAfter")
     ->post("/login.action", "Controllers\Admin\Index@loginPost", "@")
-    ->get("/exit.action", "Controllers\Admin\Index@exits", "adminAuth@") 
-    ->get("/captcha.action", "Controllers\Admin\Index@captcha", "@clearAfter") 
-    ->get("/welcome.html", "Controllers\Admin\Index@welcome", "adminAuth@clearAfter")
-    ->get("/set.html", "Controllers\Admin\User@set", "adminAuth@clearAfter")
-    ->post("/save.html", "Controllers\Admin\User@save", "adminAuth@")
+    ->get("/captcha.action", "Controllers\Admin\Index@captcha", "@clearAfter")
+
+    ->group("")->through(["adminAuth"])
+    ->get("/admin.html", "Controllers\Admin\Index@run", "@clearAfter")
+    ->get("/exit.action", "Controllers\Admin\Index@exits", "@")
+    ->get("/welcome.html", "Controllers\Admin\Index@welcome", "@clearAfter")
+    ->get("/set.html", "Controllers\Admin\User@set", "@clearAfter")
+    ->post("/save.html", "Controllers\Admin\User@save", "@")
+    ->group()
 
     // 后台验证、CORS 与全局前后置钩子使用类 Hook，走 C 层直接分发
     ->hook("adminAuth", "Hooks\AdminAuth@handle")

@@ -693,6 +693,10 @@ static void gene_request_context_free_fields(gene_request_context *ctx, int pres
 			zval_ptr_dtor(&c->orm_meta);
 			ZVAL_UNDEF(&c->orm_meta);
 		}
+		if (Z_TYPE(c->orm_version_pending) != IS_UNDEF) {
+			zval_ptr_dtor(&c->orm_version_pending);
+			ZVAL_UNDEF(&c->orm_version_pending);
+		}
 		/* [GENE_FEATURE:2026-08-22] Gene\Context request bag. Recycle small
 		 * tables on reset (M5); fully free on destroy. */
 		if (preserve_for_reuse) {
@@ -806,6 +810,7 @@ gene_request_context *gene_request_context_pool_acquire(void) {
 			ZVAL_UNDEF(&ctx->cold->di_alias);
 			ZVAL_UNDEF(&ctx->cold->bench_marks);
 			ZVAL_UNDEF(&ctx->cold->orm_meta);
+			ZVAL_UNDEF(&ctx->cold->orm_version_pending);
 			ZVAL_UNDEF(&ctx->cold->request_json);
 		}
 #endif

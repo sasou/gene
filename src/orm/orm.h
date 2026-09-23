@@ -33,6 +33,7 @@
 #define GENE_ORM_CREATED_AT "createdAt"
 #define GENE_ORM_UPDATED_AT "updatedAt"
 #define GENE_ORM_TS_FORMAT "timestampFormat"
+#define GENE_ORM_VERSION_KEYS "versionKeys"
 
 extern zend_class_entry *gene_orm_model_ce;
 extern zend_class_entry *gene_orm_query_ce;
@@ -81,6 +82,14 @@ void gene_orm_apply_timestamps(zval *data, zend_bool is_insert, gene_orm_meta_t 
 void gene_orm_db_limit(zval *db, zend_long offset, zend_long limit);
 void gene_orm_normalize_id(zval *id);
 zend_bool gene_orm_valid_ident(zend_string *s);
+/* versionKeys: copy the map when a cache component can updateVersion(). */
+int gene_orm_version_keys(zend_class_entry *ce, zval *keys);
+/* Load the pre-write row when a non-pk mapped column will change, or on delete. */
+void gene_orm_version_prefetch(zval *db, gene_orm_meta_t *meta, zval *keys, zval *pk, zval *data, zend_bool is_delete, zval *old);
+/* Queue or apply updateVersion after a successful write. affected <= 0 is a no-op. */
+void gene_orm_version_commit_write(zval *db, gene_orm_meta_t *meta, zval *keys, zval *pk, zval *data, zval *old, zend_bool is_delete, zend_long affected);
+void gene_orm_version_flush(void);
+void gene_orm_version_discard(void);
 
 /* query.c */
 int gene_orm_query_init(zval *query, zval *db, zend_string *table, zval *fields, zend_string *primary_key);
