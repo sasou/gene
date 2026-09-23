@@ -25,7 +25,7 @@ class Module extends \Gene\Model
         $list = $this->db
                      ->select("sys_module", "module_id,module_pid,module_title,module_url,module_icon")
                      ->where("status=1 and module_icon!=''")
-                     ->in("module_id in(?)", $ids)
+                     ->in(" and module_id in(?)", $ids)
                      ->order("sort desc")
                      ->all();
         return $list;
@@ -100,7 +100,7 @@ class Module extends \Gene\Model
                 $parMenu = $this->db
                       ->select("sys_module", "module_id,module_title,module_url")
                       ->where("status=1")
-                      ->in("module_id in(?)", $ids)
+                      ->in(" and module_id in(?)", $ids)
                       ->all();
             }
             if (isset($parMenu[0])) {
