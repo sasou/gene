@@ -78,17 +78,17 @@ PHP="$(brew --prefix php@8.1)/bin/php"
 
 ### Windows（本机环境）
 
-以下环境已于 2026-08-20 验证：
+以下环境已于 2026-09-23 验证：
 
 | 项目 | 路径/配置 |
 |------|-----------|
-| PHP SDK | 优先使用 `F:\php-sdk-2.6.0`；部分环境实际为 `F:\php-sdk-2.3.0` |
+| PHP SDK | `F:\php-sdk-2.8.4`（2.4.0 起改用 `Get-CimInstance` 探测架构，不依赖 `wmic`）；旧版已移至 `F:\php-sdk-2.3.0.bak` 停用 |
 | PHP 源码树 | `F:\php_src\php-8.1.30-src`（PHP 8.1 NTS x64，VS2019/vs16） |
 | Gene 源码 | `F:\php_src\php-8.1.30-src\ext\gene` 是指向本仓库 `src/` 的 Junction |
 | 构建产物 | `F:\php_src\php-8.1.30-src\x64\Release\php_gene.dll` |
 | 部署目录 | `D:\wampServer-php8.1_x64_nts\php_ext\php_gene.dll` |
 
-若 `F:\php-sdk-2.6.0` 不存在，先用 `Test-Path` 或 `Get-ChildItem F:\` 确认实际 SDK 版本。两个版本的 `phpsdk-vs16-x64.bat` 用法相同。
+若 `F:\php-sdk-2.8.4` 不存在，先用 `Get-ChildItem F:\ -Directory -Filter "php-sdk*"` 确认实际 SDK 版本。各版本的 `phpsdk-vs16-x64.bat` 用法相同。
 
 `config.nice.bat` 已包含 `--enable-gene=shared`。创建任务文件，例如 `task.bat`：
 
@@ -101,12 +101,12 @@ nmake php_gene.dll
 再通过 x64 SDK 环境执行：
 
 ```bat
-F:\php-sdk-2.6.0\phpsdk-vs16-x64.bat -t task.bat
+F:\php-sdk-2.8.4\phpsdk-vs16-x64.bat -t task.bat
 ```
 
 #### Windows 构建注意事项
 
-- 遇到 `Unsupported OS arch` 或 `'wmic' 不是内部或外部命令`：新版 Windows 已移除 php-sdk 2.3.0 用于探测架构的 `wmic`。调用 SDK 前设置 `PHP_SDK_OS_ARCH_NUM=9`（9 表示 x64）。
+- 遇到 `Unsupported OS arch` 或 `'wmic' 不是内部或外部命令`：仅 php-sdk ≤2.3.0 用 `wmic` 探测架构，Windows 11 25H2 起已移除 `wmic`。≥2.4.0（本机为 2.8.4）无此问题；若使用旧版，调用 SDK 前设置 `PHP_SDK_OS_ARCH_NUM=9`（9 表示 x64）。
 - Makefile 必须在 x64 环境生成：`BUILD_DIR=x64\Release`，且不得包含 `_USE_32BIT_TIME_T`。若曾在 x86 环境重新 configure，须在 `phpsdk-vs16-x64` 环境重跑 `config.nice.bat`。
 - Windows SDK 10.0.26100.0 的 `corecrt.h` 会对 x64 构建中出现的 `_USE_32BIT_TIME_T` 报 `#error`。
 - Windwos下需要保持src/*.c,*.h 为 UTF-8 with BOM编码，不然会出现warnings。
