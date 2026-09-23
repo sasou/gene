@@ -95,14 +95,38 @@ eval('class LMV extends \\Gene\\Orm\\Model {
     public function updateVersion($fields) { return true; }
 });
 
+/* [GENE_FIX:2026-09-23 S2] A where that matches >1000 rows only exercises
+ * the overflow-warn branch — prefetch/commit_write never run. Use a 1-row
+ * where for the real path, plus a high-limit subclass for the multi-row
+ * gather_col batch path, and fail on any unexpected E_WARNING. */
+eval('class LMVBig extends LMV {
+    protected static $versionScanLimit = 100000;
+}');
+
+$vkWarn = null;
+set_error_handler(function ($no, $str) use (&$vkWarn) { $vkWarn = $str; return true; });
 $ok &= probe('flip() int inline + version bump', 10000, function () {
     LMV::flip(1, 'status', [0, 1]);
 });
 $ok &= probe('updateBy pk + version bump (row prefetch)', 10000, function () {
     LMV::updateBy(1, ['status' => 1]);
 });
-$ok &= probe('updateBy non-pk where prefetch+bump', 5000, function () {
+$ok &= probe('updateBy non-pk where prefetch+bump (1 row)', 5000, function () {
+    LMV::updateBy(['name' => 'seed'], ['status' => 1]);
+});
+$ok &= probe('updateBy non-pk where prefetch+bump (all rows)', 50, function () {
+    LMVBig::updateBy(['status' => 1], ['status' => 1]);
+});
+if ($vkWarn !== null) {
+    echo "UNEXPECTED WARNING during versionKeys probes: $vkWarn\n";
+    $ok = false;
+}
+restore_error_handler();
+
+$ok &= probe('updateBy non-pk where OVERFLOW (warn+skip)', 100, function () {
+    set_error_handler(function () { return true; });
     LMV::updateBy(['status' => 1], ['status' => 1]);
+    restore_error_handler();
 });
 $ok &= probe('page() paginate dispatch', 10000, function () {
     LMV::page(['status' => 1], 1, 3, null);

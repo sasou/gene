@@ -38,14 +38,43 @@ class DemoLoadTest
     }
 
     /**
+     * php args for child processes: GENE_TEST_PHP_ARGS wins; when this test
+     * itself runs with -n (no php.ini), rebuild the same arg set so children
+     * load the SAME freshly built extensions — otherwise they silently pick
+     * up the deployed php_gene.dll (S5).
+     */
+    private function childPhpArgs()
+    {
+        $env = getenv('GENE_TEST_PHP_ARGS');
+        if (is_string($env) && $env !== '') {
+            return $env;
+        }
+        if (php_ini_loaded_file() !== false) {
+            return '';
+        }
+        $args = ['-n'];
+        foreach (get_loaded_extensions() as $ext) {
+            try {
+                $file = (new \ReflectionExtension($ext))->getFileName();
+            } catch (\Throwable $e) {
+                $file = false;
+            }
+            if (is_string($file) && $file !== '') {
+                $args[] = '-d extension=' . $file;
+            }
+        }
+        return implode(' ', array_map('escapeshellarg', $args));
+    }
+
+    /**
      * Spawn a child PHP process mirroring TestRunner::runIsolated().
      * Returns [stdout, exitCode] or [null, -1] on spawn failure.
      */
     private function spawn(array $argv, $cwd)
     {
-        $phpArgs = getenv('GENE_TEST_PHP_ARGS');
+        $phpArgs = $this->childPhpArgs();
         $command = [escapeshellarg(PHP_BINARY)];
-        if (is_string($phpArgs) && $phpArgs !== '') {
+        if ($phpArgs !== '') {
             $command[] = $phpArgs;
         }
         foreach ($argv as $a) {
@@ -130,10 +159,63 @@ class DemoLoadTest
         echo "\n";
     }
 
+    /**
+     * [GENE_FIX:2026-09-23 S3] R1's fatal (typed static property redeclare)
+     * survived because no test ever LOADED a demo ORM model — healthz does
+     * not touch Models. This probe iterates every class file under
+     * application/{Api,Controllers,Ext,Hooks,Models,Services} and autoloads
+     * it for real; warnings/deprecations count as failures.
+     */
+    public function testDemoClassLoad()
+    {
+        echo "Testing demo class load (all app classes):\n";
+
+        $probe = __DIR__ . DIRECTORY_SEPARATOR . 'demo_class_load.php';
+        putenv('GENE_DEMO_LOCAL=1');
+        [$out, $code] = $this->spawn([$probe], __DIR__);
+        putenv('GENE_DEMO_LOCAL');
+        $out = (string)$out;
+        if ($code === 0 && trim($out) === '') {
+            $this->ok('all demo classes autoload cleanly');
+        } else {
+            $this->fail("demo class load exit=$code out=" . substr(trim($out), 0, 800));
+        }
+        echo "\n";
+    }
+
+    /**
+     * [GENE_FIX:2026-09-23 S3] Business-path smoke: checkUser('admin', wrong)
+     * must reach the password-verify branch and return the 密码错误 error
+     * array — exercising config → localStore cache → ORM model → sqlite
+     * join. Requires the seeded sqlite db from testSqliteInit().
+     */
+    public function testCliLogin()
+    {
+        echo "Testing demo login business path (checkUser):\n";
+
+        if (!extension_loaded('pdo_sqlite')) {
+            echo "SKIP login probe (pdo_sqlite missing)\n\n";
+            return;
+        }
+        $probe = __DIR__ . DIRECTORY_SEPARATOR . 'demo_login_probe.php';
+        putenv('GENE_DEMO_LOCAL=1');
+        [$out, $code] = $this->spawn([$probe], __DIR__);
+        putenv('GENE_DEMO_LOCAL');
+        $out = (string)$out;
+        if ($code === 0 && strpos($out, '密码错误') !== false) {
+            $this->ok('checkUser(admin, wrong) returns business error');
+        } else {
+            $this->fail("login probe exit=$code out=" . substr(trim($out), 0, 800));
+        }
+        echo "\n";
+    }
+
     public function run()
     {
         $this->testSqliteInit();
         $this->testCliDispatch();
+        $this->testDemoClassLoad();
+        $this->testCliLogin();
         echo "--- DemoLoad results: {$this->passed} passed, {$this->failed} failed ---\n";
         return $this->failed === 0;
     }
