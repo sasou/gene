@@ -27,7 +27,20 @@ class LocalStore extends \Gene\Service
      */
     public function get($key)
     {
-        return is_array($key) ? $this->mem->mget($key) : $this->mem->get($key);
+        if (is_array($key)) {
+            $rows = $this->mem->mget($key);
+            if (!is_array($rows)) {
+                return $rows;
+            }
+            foreach ($rows as $k => $v) {
+                if ($v === null) {
+                    $rows[$k] = false;
+                }
+            }
+            return $rows;
+        }
+        $val = $this->mem->get($key);
+        return $val === null ? false : $val;
     }
 
     /**
