@@ -687,3 +687,71 @@ if (gene_orm_version_covered(&ver_keys, &meta, attrs)) {
 4. 本轮收口后，第一至第九节列出的 P1–P4、L1、O1–O4、R1–R12、S1–S8 全部闭环；剩余的只有需要外部环境的验证项（PG）与约定级说明。
 
 结论：S1–S8 全部按第九节方案落地，构建与全部免部署验证通过；`e337c02`/`60b7be6` 两提交可直接进入验收与发布流程。
+
+---
+
+## 十一、第四轮复核：收口残留（2026-09-23 追加）
+
+> 基线：`287be3e`（第三轮复核文档）之上的工作区，无新增代码提交。
+> 复核方式：逐条对照源码、文档与测试做静态核对。本节只追加，不改写前文。
+
+### 11.1 落地情况
+
+第三轮结论成立：S1–S8 已在 `e337c02`/`60b7be6` 落地，没有发现回退。下面 5 项是收口时漏掉的残留，**逐条核实都真实存在**，但都不影响运行时正确性：T1、T2 是文档问题，T3 是测试欠账，T4 是理论上的边界问题，T5 需要外部环境。
+
+| # | 级别 | 位置 | 核实结果 |
+|---|------|------|----------|
+| **T1** | 低 | `CHANGELOG.md:229`（6.2.0 小节） | 属实。原文写「已在 6.2.6 移除」，但移除条目在 `CHANGELOG.md:32` 的 `[6.2.5]` 小节（R11），文件里没有 6.2.6 小节 |
+| **T2** | 低 | `docs/CONFIGURATION.md:144-155`「Gene\Orm」方法表 | 属实。表中只有 `find/findAll/paginate/query/where`、`create/updateBy/destroy/destroyAll`、`fill/save/delete/toArray`，全文搜不到 `flip`、`page`、`versionKeys`、`versionScanLimit` |
+| **T3** | 中 | `test/OrmTest.php` | 属实。`src/orm/meta.c` 的 `gene_orm_version_flush()`/`discard()` 已按 `Z_OBJ_HANDLE(pdo)` 分桶，但 OrmTest 中版本键事务用例（约 1374 行）只用了单连接 `rv_db`，没有「A 提交不冲刷 B 的挂起桶」「A 回滚不丢弃 B」的断言 |
+| **T4** | 可忽略 | `src/cache/memory.c:1716` | 属实。`rateLimit` 的 `window` 是 `zend_long`，只校验了 `window >= 1`，传给 `gene_memory_set_expiry_nolock` 时强转 `(int)`；超过 `INT_MAX`（约 68 年）会截断甚至变负 |
+| **T5** | 发布门槛 | PG / Swoole | 属实。`DatabaseTest` 的 PG `flip()` 用例本机 SKIP；Swoole 下「协程级 `orm_version_pending` 互不可见」没有实测 |
+
+### 11.2 解决思路
+
+#### T1 — CHANGELOG 悬空版本号
+
+把 `CHANGELOG.md:229` 括号内改为「……已在 6.2.5 移除（见 6.2.5『过期遥测清理（R11）』）」。之后如果真的开了 6.2.6 小节，也不要回头改这条，因为移除确实发生在 6.2.5。可以顺手在发布检查里加一条：CHANGELOG 中出现的 `x.y.z` 引用必须能对应到已有的 `## [x.y.z]` 标题。
+
+#### T2 — CONFIGURATION.md ORM 表缺项
+
+以 `gene-ide-helper` stub 和 `reference.md` 为准，在方法表中补两行，并在表下「子类声明」段补上静态属性：
+
+| 类 | 方法 | 说明 |
+|----|------|------|
+| `Gene\Orm\Model` | `flip($id, $field, $values = [0, 1])` | 单条 UPDATE 翻转状态；整型内联、布尔按驱动输出、字符串走绑定 |
+| `Gene\Orm\Model` | `page($where, $page, $perPage, $order = null)` | 按页码换算 offset 后派发到被调类的 `paginate()`，子类覆盖生效 |
+
+静态属性补充：`$versionKeys`（版本键 => 行内列名，写成功后行级失效，事务内 commit 后才冲刷）和 `$versionScanLimit`（非主键预读上限，默认 1000，超限告警并跳过）。同时写明：这些静态属性在 C 父类中没有类型声明，子类不能加 PHP 类型，要用 PHPDoc（R1 的教训）。语义描述直接复用 `AGENTS.md`「ORM」一节，避免三处文档说法不一致。
+
+#### T3 — 双连接分桶缺少回归断言
+
+在 `OrmTest` 版本键用例旁新增一个用例，用两个不同的 DI 连接（例如 `rv_db_a`、`rv_db_b`，指向两个独立的 SQLite 内存库或临时文件）和两个模型，缓存 stub 记录 `updateVersion` 的调用：
+
+1. A、B 各自 `beginTransaction()`，各写一次带映射列变更的记录 → 断言 bump 记录为空。
+2. `A->commit()` → 断言只出现 A 模型的版本键，B 的键不出现。
+3. `B->rollBack()` → 断言 B 的键始终没有出现（挂起桶已丢弃）。
+4. 反向再测一次：A 回滚、B 提交，断言只出现 B 的键，证明 discard 也是按连接的。
+5. 可选：A 提交后 `unset` A 的 PDO，再新建一个连接开事务，确认对象 handle 复用时不会继承旧桶。flush/discard 都会 `zend_hash_index_del`，理论上没有残留，但这是分桶以 handle 为 key 的唯一隐患，值得一条断言锁住。
+
+teardown 路径（raw `commit()` 冲刷、仍在事务中则丢弃）已由 `audit/repro/version_keys_review2.php` 覆盖，这里不重复。用例加进 OrmTest 后，同时在 `AGENTS.md` 已有的「事务内 bump 按 PDO 连接分桶」约定旁注明对应用例名。
+
+#### T4 — rateLimit 窗口强转
+
+影响只在 `window > INT_MAX` 秒时出现，实际不会触发，可以低优先级处理。最省事的做法是在参数校验处直接夹紧：`if (window > INT_MAX) window = INT_MAX;`，或者跟 `set()` 的 TTL 走同一套规范化逻辑（如果 `gene_memory_set_expiry_nolock` 以后改成接收 `zend_long`，这里就可以去掉强转）。修改后补一条测试：`rateLimit('k', 1, PHP_INT_MAX)` 第一次返回 true、第二次返回 false，不出现立即过期。
+
+#### T5 — 外部环境验证
+
+这项不能改代码解决，只能列为发布准入条件：
+
+- **PG**：在 Linux 验收机上配置 PostgreSQL 后跑 `DatabaseTest`，确认 `flip()` 的整型、布尔两个用例都是 PASS 而不是 SKIP，把输出片段记入 `tools/acceptance/` 的验收记录。
+- **Swoole 协程桶隔离**：在 `tools/acceptance/` 加一个探针，同一 worker 内并发两个 onRequest 协程：协程 1 开事务、写入、`Co::sleep` 后再提交；协程 2 在这期间用另一个连接提交。断言协程 2 提交时不会冲刷协程 1 的键，协程 1 提交后自己的键才出现。由 `linux_swoole_verify.sh` 调用，结果作为发布门槛。
+
+### 11.3 建议顺序
+
+1. T1、T2：纯文档修改，和 T3 放在同一个提交。
+2. T3：补双连接用例，TestRunner 全量回归。
+3. T4：顺手修复，或者记为已知限制。
+4. T5：发布前在 Linux 验收机补跑，PG 和 Swoole 结果回填本节。
+
+结论：第三轮「全部闭环」的判断在代码层面成立。剩下的是两处文档残留、一处测试欠账和外部环境验证；T3 补齐、T5 在验收机上跑通之前，不建议把 R4 标记为「已验证」。
