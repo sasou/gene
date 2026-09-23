@@ -60,10 +60,12 @@ class User extends \Gene\Service
         if (!$this->verifyPassword($password, $result['user_salt'], $stored)) {
             return $this->error('密码错误!');
         }
-        // 旧 md5 摘要验证通过后原地升级为 password_hash（沿用现有 salt），
-        // 使存量库无需全量重置即可平滑迁移。updateBy 会 bump versionKeys，
-        // 下次登录读到新摘要。
-        if (strpos($stored, '$') !== 0) {
+        // 命中旧 md5 摘要、91d0442 期间的 salt 拼接哈希，或算法/成本已过时
+        // 时，用 password_hash($password) 原地重写。updateBy 会 bump
+        // versionKeys，下次登录读到新摘要。
+        if (strpos($stored, '$') !== 0
+            || !password_verify($password, $stored)
+            || password_needs_rehash($stored, PASSWORD_DEFAULT)) {
             \Models\Admin\User::getInstance()->edit($result['user_id'], [
                 'user_pass' => $this->generatePasswordHash($password, $result['user_salt']),
             ]);
@@ -87,13 +89,13 @@ class User extends \Gene\Service
      * @param  array  $search    查询条件
      * @return array
      */
-    function lists($page = 1, $limit = 10, $search)
+    function lists($page = 1, $limit = 10, $search = [])
     {
         $params = [];
-        if($search['role'] != "") {
+        if(($search['role'] ?? '') != "") {
             $params['group_id'] = $search['role'];
         }
-        if($search['name'] != "") {
+        if(($search['name'] ?? '') != "") {
             $params['user_name'] = ['%' . $search['name'] . '%', 'like'];
         }
         return \Models\Admin\User::getInstance()->lists($params, $page > 0 ? $page : 1, $limit);
@@ -141,8 +143,7 @@ class User extends \Gene\Service
     function add($data)
     {
         if (isset($data['user_pass']) && $data['user_pass'] != '') {
-            $data['user_salt'] = substr(md5(uniqid()), 0, 16);
-            $data['user_pass'] = $this->generatePasswordHash($data['user_pass'], $data['user_salt']);
+            $data['user_pass'] = $this->generatePasswordHash($data['user_pass'], '');
         }
         $data['status'] = isset($data['status']) && $data['status'] == 'on' ? 1 : 0;
         return \Models\Admin\User::getInstance()->add($data);
@@ -158,8 +159,7 @@ class User extends \Gene\Service
     function edit($id, $data)
     {
         if (isset($data['user_pass']) && $data['user_pass'] != '') {
-            $data['user_salt'] = substr(md5(uniqid()), 0, 16);
-            $data['user_pass'] = $this->generatePasswordHash($data['user_pass'], $data['user_salt']);
+            $data['user_pass'] = $this->generatePasswordHash($data['user_pass'], '');
         } else {
             unset($data['user_pass']);
         }
@@ -217,17 +217,21 @@ class User extends \Gene\Service
      * updating this method will void all password history entries
      *
      * @param string  $password The plain text password to hash
-     * @param string  $salt     The salt string
+     * @param string  $salt     The salt string（保留参数兼容调用方；bcrypt
+     *                          自带随机盐，不再参与哈希——16 字符 salt 会占掉
+     *                          bcrypt 72 字节输入上限，吞掉长口令尾部）
      *
      * @return string
      */
     public function generatePasswordHash($password, $salt)
     {
-        return password_hash($salt . $password, PASSWORD_DEFAULT);
+        return password_hash($password, PASSWORD_DEFAULT);
     }
 
     /**
-     * 新口令走 password_hash。已入库的旧 md5 摘要仍可登录。
+     * 三种存储格式：$ 开头的新哈希先试 password_verify($password)，失败再试
+     * $salt . $password（兼容 91d0442 期间写入的拼接格式）；非 $ 开头走旧
+     * md5 摘要。user_salt 只服务旧格式。
      */
     public function verifyPassword($password, $salt, $stored)
     {
@@ -235,7 +239,8 @@ class User extends \Gene\Service
             return false;
         }
         if (strpos($stored, '$') === 0) {
-            return password_verify($salt . $password, $stored);
+            return password_verify($password, $stored)
+                || password_verify($salt . $password, $stored);
         }
         $legacy = substr(md5($salt . sha1($salt . $password)), 0, 50);
         return hash_equals($legacy, $stored);

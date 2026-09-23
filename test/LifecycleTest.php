@@ -211,13 +211,20 @@ class LifecycleTest
         } else {
             echo "✗ randomId: $rid\n";
         }
-        $key = str_repeat('k', 32);
-        $c = \Gene\Crypto::encrypt('plain-text', $key);
-        $p = \Gene\Crypto::decrypt($c, $key);
-        if ($p === 'plain-text') {
-            echo "✓ AES-256-GCM round-trip\n";
+        if (!extension_loaded('openssl')) {
+            // [GENE_FIX:2026-09-23 S5] encrypt/decrypt needs ext-openssl —
+            // a missing extension used to fatal the whole suite (exit 255)
+            // instead of skipping per test/README's "无环境时 SKIP" rule.
+            echo "SKIP AES-256-GCM (ext-openssl not loaded)\n";
         } else {
-            echo "✗ GCM decrypt mismatch\n";
+            $key = str_repeat('k', 32);
+            $c = \Gene\Crypto::encrypt('plain-text', $key);
+            $p = \Gene\Crypto::decrypt($c, $key);
+            if ($p === 'plain-text') {
+                echo "✓ AES-256-GCM round-trip\n";
+            } else {
+                echo "✗ GCM decrypt mismatch\n";
+            }
         }
         echo "\n";
     }

@@ -191,11 +191,44 @@ class DatabaseTest
             $this->pgsql->beginTransaction();
             $this->pgsql->commit();
             echo "✓ PostgreSQL transaction works\n";
-            
+
+            // [GENE_FIX:2026-09-23 S8/R6] flip() under pgsql native prepares:
+            // IS_LONG values must inline as integer literals and booleans as
+            // TRUE/FALSE — bound params in THEN/ELSE branches infer as text
+            // and fail on integer columns. Reached only with a live PG
+            // server; connect() above skips the section otherwise.
+            if (!class_exists('DbPgFlipRow')) {
+                eval('class DbPgFlipRow extends \\Gene\\Orm\\Model {
+                    protected static $table = "gene_flip_test";
+                    protected static $primaryKey = "id";
+                    protected static $fields = ["id", "flag", "switch"];
+                    protected static $connection = "pg_flip_db";
+                }');
+            }
+            \Gene\Di::set('pg_flip_db', $this->pgsql);
+            $this->pgsql->sql('DROP TABLE IF EXISTS gene_flip_test')->execute();
+            $this->pgsql->sql('CREATE TABLE gene_flip_test ('
+                . 'id SERIAL PRIMARY KEY, flag INTEGER NOT NULL DEFAULT 0, '
+                . 'switch BOOLEAN NOT NULL DEFAULT FALSE)')->execute();
+            $fid = DbPgFlipRow::create(['flag' => 0, 'switch' => false]);
+            $n1 = DbPgFlipRow::flip($fid, 'flag');                 // [0,1] → 0→1
+            $n2 = DbPgFlipRow::flip($fid, 'flag');                 // 1→0
+            $b1 = DbPgFlipRow::flip($fid, 'switch', [false, true]); // FALSE→TRUE
+            $row = DbPgFlipRow::find($fid);
+            $this->pgsql->sql('DROP TABLE IF EXISTS gene_flip_test')->execute();
+            \Gene\Di::del('pg_flip_db');
+            if ($n1 === 1 && $n2 === 1 && $b1 === 1
+                && (int)$row['flag'] === 0
+                && in_array($row['switch'], [true, 't', 'true', 1, '1'], true)) {
+                echo "✓ PostgreSQL flip() int + boolean literals\n";
+            } else {
+                $this->fail("PG flip n1=$n1 n2=$n2 b1=$b1 row=" . json_encode($row));
+            }
+
         } catch (Throwable $e) {
             $this->reportCaught($e);
         }
-        
+
         echo "\n";
     }
     

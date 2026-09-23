@@ -352,7 +352,7 @@ $title = $this->language->login_title; // 读取键值
 | $timestamps | true 时 create/save/updateBy/toggle/createMany 自动填充时间列；payload 已含该列则不覆盖 |
 | $createdAt / $updatedAt | 时间列名，默认 `created_at`/`updated_at`；设为 `null`/`''` 则该列不写（6.1.0+） |
 | $timestampFormat | `'datetime'`（Y-m-d H:i:s，默认）或 `'unix'`（int 秒）（6.1.0+） |
-| $versionScanLimit | `updateBy` 非主键 where 的预读行数上限，默认 1000；超限发 E_WARNING 并跳过 versionKeys 失效（6.2.6+） |
+| $versionScanLimit | `updateBy` 非主键 where 的预读行数上限，默认 1000；超限发 E_WARNING 并跳过 versionKeys 失效（6.2.6+）。预读 SELECT 与 UPDATE 在事务外非原子：严格失效语义请把非主键批量更新放进 `transaction()` 内执行 |
 
 | 方法 | 说明 |
 |------|------|
