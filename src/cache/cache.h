@@ -24,6 +24,9 @@ extern uint32_t gene_cache_offset_config;
 
 void makeArgsArr(zval *arr, smart_str *tmp_s);
 void makeArgsKey(zend_ulong indexs, zend_string *id, zval *element, smart_str *tmp_s);
+/* [GENE_FIX:2026-09-23 R10] Zero the process-level gene_cache_call method
+ * slots (NTS only). Called from RINIT — covers opcache SHM restarts. */
+void gene_cache_call_reset(void);
 GENE_MINIT_FUNCTION(cache);
 
 #endif

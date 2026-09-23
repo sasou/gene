@@ -235,7 +235,8 @@ demo 的五个 `status()` 改为 `return static::flip($id, 'status');`。Service
 **模型上声明映射，不在 C 里写业务键名：**
 
 ```php
-protected static array $versionKeys = [
+/** @var array<string,string> 版本键 => 行内列名（C 层父类无类型，子类不得加类型） */
+protected static $versionKeys = [
     'db.sys_user.user_id'   => 'user_id',
     'db.sys_user.user_name' => 'user_name',
 ];

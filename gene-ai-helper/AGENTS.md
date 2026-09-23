@@ -94,9 +94,12 @@ $config->set('db', [
 
 ```php
 class User extends \Gene\Orm\Model {
-    protected static string $table = 'sys_user';
-    protected static string $primaryKey = 'user_id';
-    protected static array $fields = ['user_id', 'user_name', 'status'];
+    // C 层父类按无类型 static 声明，子类声明也【不得加类型】（否则继承即 fatal）；
+    // 类型意图写进 PHPDoc。
+    /** @var string */ protected static $table = 'sys_user';
+    /** @var string */ protected static $primaryKey = 'user_id';
+    /** @var string[] */ protected static $fields = ['user_id', 'user_name', 'status'];
+    /** @var array<string,string> 版本键 => 行内列名 */ protected static $versionKeys = [];
 }
 return User::query()->where(['status' => 1])->order('user_id DESC')->limit($start, $count)->all();
 ```

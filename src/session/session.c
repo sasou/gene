@@ -593,10 +593,14 @@ void gene_cookie(zval *self) /*{{{*/
 	zval times;
 	zend_long now = gene_session_now();
 	zend_long jg;
-	if (Z_TYPE_P(lifetime) == IS_LONG) {
+	/* [GENE_FIX:2026-09-23 R8] cookie_lifetime <= 0 means a browser-session
+	 * cookie: emit expires=0 (setcookie/Swoole convention) instead of
+	 * now+lifetime, which produced an already-expired timestamp and made
+	 * clients drop the cookie immediately. */
+	if (Z_TYPE_P(lifetime) == IS_LONG && Z_LVAL_P(lifetime) > 0) {
 		jg = now + Z_LVAL_P(lifetime);
 	} else {
-		jg = now + 7200;
+		jg = 0;
 	}
 	ZVAL_LONG(&times, jg);
 

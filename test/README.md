@@ -35,6 +35,7 @@ Related verification assets outside this directory:
 | `LifecycleTest.php` | `Context` / `Json` / `Request::json` / SSE `write` / `Crypto` / `Memory` rateLimit+lock; Redis paths SKIP without env. Leak probe: `audit/repro/lifecycle_leak_probe.php` |
 | `RestInvokeTest.php` | `Gene\Invoke` local dispatch and `Gene\Rest` immutable proxy semantics |
 | `SwooleEntryTest.php` | `Request::initSwoole` / `Application::handleSwoole` / `bootstrap()` / `pools()` lifecycle via duck-typed Swoole doubles — ext-swoole not required |
+| `DemoLoadTest.php` | Demo smoke: `GENE_DEMO_LOCAL=1` child process — `init_sqlite.php` idempotent init + `cli.php /healthz` full dispatch (sqlite + `Ext\LocalStore`, no external services) |
 
 ### MVC Layer
 

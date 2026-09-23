@@ -226,7 +226,7 @@ static int gene_memory_expired_nolock(const char *keyString, size_t keyString_le
 }
 
 /* Caller must hold GENE_CACHE_WRLOCK. */
-static void gene_memory_set_expiry_nolock(const char *keyString, size_t keyString_len, int validity) {
+static void gene_memory_set_expiry_nolock(const char *keyString, size_t keyString_len, zend_long validity) {
 	if (!GENE_MEMORY_EXPIRY_TABLE()) {
 		return;
 	}
@@ -851,10 +851,10 @@ static int gene_memory_zval_is_supported(zval *zv) {
 	return ok;
 }
 
-/** {{{ void gene_memory_set(char *keyString,int keyString_len,zval *zvalue, int validity)
+/** {{{ void gene_memory_set(char *keyString,int keyString_len,zval *zvalue, zend_long validity)
  */
 void gene_memory_set(char *keyString, size_t keyString_len, zval *zvalue,
-		int validity) {
+		zend_long validity) {
 	zval *copyval, ret;
 	zend_string *key;
 	/* [GENE_MEM:2026-06-19 M1] Only the Gene\Cache data layer (writes bracketed
@@ -893,9 +893,9 @@ void gene_memory_set(char *keyString, size_t keyString_len, zval *zvalue,
 		/* [GENE_FIX:2026-09-23 L1] There is no insert-refusal guard here.
 		 * Route/config readers use GENE_G(cache); this write, while the
 		 * business depth is raised, goes to GENE_G(business_cache), so a
-		 * resize cannot move the route table. cache_insert_refused is not
-		 * incremented. Bound growth with TTL (and cache_max_items for the
-		 * business partition), not by failing the insert. */
+		 * resize cannot move the route table. Bound growth with TTL (and
+		 * cache_max_items for the business partition), not by failing the
+		 * insert. */
 		gene_memory_zval_persistent(&ret, zvalue);
 		key = gene_str_persistent(keyString, keyString_len);
 		gene_symtable_update(GENE_MEMORY_TABLE(), key, &ret);
@@ -1077,10 +1077,10 @@ filenode * file_cache_get_easy(char *keyString, size_t keyString_len) {
 }
 /* }}} */
 
-/** {{{ void file_cache_set_val(char *val, size_t keyString_len, int times, int validity)
+/** {{{ void file_cache_set_val(char *val, size_t keyString_len, int times, zend_long validity)
  */
 void file_cache_set_val(char *val, size_t keyString_len, zend_long times,
-		int validity) {
+		zend_long validity) {
 	filenode n;
 	zend_string *key;
 	if (UNEXPECTED(!gene_memory_write_allowed("file cache update"))) {
@@ -1135,9 +1135,9 @@ static zval * gene_memory_set_val(zval *val, char *keyString, size_t keyString_l
 }
 /* }}} */
 
-/** {{{ void gene_memory_set_by_router(char *keyString, int keyString_len, char *path, zval *zvalue, int validity)
+/** {{{ void gene_memory_set_by_router(char *keyString, int keyString_len, char *path, zval *zvalue, zend_long validity)
  */
-void gene_memory_set_by_router(char *keyString, size_t keyString_len, char *path, zval *zvalue, int validity) {
+void gene_memory_set_by_router(char *keyString, size_t keyString_len, char *path, zval *zvalue, zend_long validity) {
 	char *ptr = NULL, *seg = NULL;
 	char path_stack[256];
 	char *path_copy = NULL;
@@ -1543,7 +1543,7 @@ static char *gene_memory_build_key(zval *safe, zend_string *keyString, char *sta
  * incr)/decr) so this keeps working after workerReady() in Swoole, same as
  * Memory::set/rateLimit. New keys are not refused: with the business-write
  * depth raised they land in business_cache, separate from the frozen route
- * table. See L1 — cache_insert_refused is unused. */
+ * table. */
 static zend_long gene_memory_adjust(const char *keyString, size_t keyString_len, zend_long step, zend_bool *ok) {
 	zval *copyval, ret;
 	zend_string *key;
@@ -1911,7 +1911,7 @@ PHP_METHOD(gene_memory, mset) {
 		}
 		router_e = gene_memory_build_key(safe, orig_key, stack_buf, sizeof(stack_buf), &router_e_len, &router_e_heap);
 		GENE_CACHE_LAYER_MEMORY_WRITE_ENTER();
-		gene_memory_set(router_e, router_e_len, entry, (int)validity);
+		gene_memory_set(router_e, router_e_len, entry, validity);
 		GENE_CACHE_LAYER_MEMORY_WRITE_LEAVE();
 		if (router_e_heap) efree(router_e);
 	} ZEND_HASH_FOREACH_END();
@@ -1999,8 +1999,8 @@ PHP_METHOD(gene_memory, stats) {
 	add_assoc_long(return_value, "cache_easy_items",
 		GENE_G(cache_easy) ? (zend_long)zend_hash_num_elements(GENE_G(cache_easy)) : 0);
 	gene_rwlock_rdunlock(&GENE_G(business_cache_lock));
-	/* cache_insert_refused was never incremented. Route-table safety is the
-	 * separate business_cache partition, not an insert refusal. Saturation is
+	/* Route-table safety is the separate business_cache partition, not an
+	 * insert refusal. Saturation is
 	 * business_cache_items / business_cache_table_size. */
 	add_assoc_long(return_value, "fn_cache_items",
 		GENE_G(fn_cache) ? (zend_long)zend_hash_num_elements(GENE_G(fn_cache)) : 0);

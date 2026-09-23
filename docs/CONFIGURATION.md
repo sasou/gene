@@ -32,7 +32,7 @@
 | `gene.log_keep_open` | `0` | bool | Swoole 下复用 worker 自持的无缓冲日志流；FPM 保持逐条 `error_log(type=3)` |
 | `gene.log_reopen_interval` | `5` | 秒 | 常驻日志流检查 rename/copytruncate 并重开的间隔 |
 
-> **`Gene\Memory` TTL 语义说明**：`Memory::set($k, $v, $ttl)` 的 `$ttl` 以秒计，`0` 表示永久。两种运行模式下行为不同——**FPM**：过期键由读路径惰性删除 + 每 32 次 TTL 写入抽样主动清扫，内存可回收；**Swoole**：`workerReady()` 后进程级缓存冻结不可写，过期键仅在读路径被「掩蔽」（返回 miss），内存占用不回收。因此 Swoole 下请勿用带 TTL 的 Memory 键做高频轮转写入（如 `rate:$ip`），需要过期回收请用 `Gene\Cache`（Redis/Memcached）层。
+> **`Gene\Memory` TTL 语义说明**：`Memory::set($k, $v, $ttl)` 的 `$ttl` 以秒计，`0` 表示永久。**FPM**：过期键由读路径惰性删除 + 每 32 次 TTL 写入抽样主动清扫，内存可回收。**Swoole**：`workerReady()` 冻结的只是进程级框架缓存（路由/配置表）；`Gene\Memory` 的用户态 set/del/incr/decr/mset/rateLimit/lock 仍写独立的业务分区，worker 内请求期可写。过期键在读路径返回 miss，实体由后续业务写入的清扫或 `del()` 回收。仍不建议在 Swoole 下用带 TTL 的 Memory 键做高频轮转写入（如 `rate:$ip`）——需要跨 worker 共享或确定性过期回收时请用 `Gene\Cache`（Redis/Memcached）层。
 
 ## 推荐最佳配置
 

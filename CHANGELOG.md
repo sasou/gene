@@ -23,6 +23,18 @@
 - **DI `_` 键漏计**：`di_class_keys` 计数覆盖所有 `di_regs` 写入者，修复漏计导致 `$this->x` 类级覆盖失效。
 - **`log.c` 头文件顺序**：`json.h` 移到 `gene.h` 之后包含，修复 `GENE_MINIT_FUNCTION` 未定义的构建错误。
 
+#### 落地复核修复（`audit/AUDIT_REPORT_2026_09_23.md`，R1–R12）
+
+- **ORM `versionKeys` 行级失效（R2/R3/R4）**：写路径不再只看 payload——主键写前预读旧行、非主键 `updateBy`/`destroyAll` 先按相同 where 预读全部命中行（`$versionScanLimit` 默认 1000，超限告警后跳过失效而非部分失效）、删除/批量删除预读后失效旧值；映射列变更同时失效新旧值，payload 未含映射列也按其当前行值失效。事务内 bump 按 PDO 连接分桶挂起，仅在本连接 commit 后冲刷、rollback 丢弃；请求收尾兜底在 `di_regs` 销毁前冲刷带外提交桶、丢弃未决事务桶。
+- **`flip()`/`page()`/`paginate()`（R6/R7）**：`flip` 对整型值内联为 SQL 整数字面量、布尔按驱动输出 `TRUE/FALSE` 或 `1/0`，修复 PostgreSQL 原生 prepare 的类型推断失败；字符串仍走绑定。写后按新行值 + 配对值失效映射列。`page()`/`paginate()` 的 `$order` 改 `S!`（可传 null）；`page()` 经被调类 `function_table` 派发 `paginate()`，子类覆盖生效。
+- **会话 TTL 与 Cookie 过期（R8）**：存储 `set()` 调用向声明 ≥3 参数的句柄传 `cookie_lifetime`（`<=0` 回落 86400），Memory/Redis/Memcached 会话记录不再永不过期；两参句柄保持旧调用。`cookie_lifetime<=0` 的会话 Cookie 输出 `expires=0`（浏览器会话 Cookie），不再发送已过期时间戳。
+- **缓存回调函数槽（R10）**：`gene_cache_call` 的 `zend_function*` 缓存移到文件作用域并新增 `gene_cache_call_reset()`，RINIT 清零；ZTS 不缓存，仅缓存内部/不可变函数指针与 interned 方法名，杜绝 opcache 重启后悬垂指针。
+- **过期遥测清理（R11）**：移除已无对应递增点的 `cache_insert_refused` 字段与 probe 输出，监控描述改指真实缓存分区指标。
+- **有效期类型拓宽（R5）**：`Memory`/`Application::load`/`Config::set`/`filenode.validity` 的 lifetime/validity 由 `int` 改 `zend_long`，消除 `"l"` 解析写入 `int*` 的栈风险；Memcached TTL>30 天规范化为绝对 Unix 时间戳。
+- **demo 修复（R1/R6/R8）**：模型静态属性去 PHP 类型声明（父类无类型）；控制器改用 `View::assign()` 传递模板变量，不再以属性写遮蔽 DI 组件；`Services\Admin\Module` path/id 参数经查询构造器绑定；登录密码经 `password_hash`/`password_verify` 校验并兼容旧 `md5(salt.pass)` 自动升级，`user_pass` 迁移见 `demo/database/migration_2026_09_23_user_pass.sql`；`init_sqlite.php` 补齐 `sys_*` 表与 admin 种子，幂等可重跑。
+- **文档同步（R9/R1）**：更正「`workerReady()` 后 `Gene\Memory` 全部冻结」的过时表述——框架/路由/配置表冻结，用户态 Memory 写走业务分区仍可用；helper/IDE stub 的静态属性示例全部改为无类型 + PHPDoc；补 `$versionScanLimit` 与行级失效/事务语义说明。
+- **回归覆盖（R12）**：`SessionTest` 新增存储 TTL 传播断言；`OrmTest` 新增行级失效/非主键更新/事务延迟/扫描上限/`page` 子类派发的 SQLite 用例；新增 `DemoLoadTest`（`GENE_DEMO_LOCAL` 子进程冒烟）；`orm_v2_leak_probe` 纳入 flip/page/versionKeys 写路径。
+
 ### ⚡ 性能（V3 全案落地）
 
 - **NTS 锁编译期消除**：缓存/业务分区读写锁在 NTS 构建下整体编译为 no-op，热路径零原子操作。
@@ -204,7 +216,7 @@
 ### 🐞 修复与兼容性调整
 
 - **模板编译缓存默认生效**：`gene.view_compile_check_mtime` 默认值由 `0` 改为 `1`；只开启 `gene.view_compile=1` 时将复用未过期的编译产物，不再每请求强制重编译。依赖旧行为的部署可显式设置 `gene.view_compile_check_mtime=0` 回退。
-- **进程缓存容量观测**：`Gene\Memory::stats()` 与 `Gene\Monitor::stats()['memory']` 新增 `cache_num_used`、`cache_num_elements`、`cache_table_size` 和 `cache_insert_refused`，用于识别冻结表 tombstone/预留 bucket 耗尽。
+- **进程缓存容量观测**：`Gene\Memory::stats()` 与 `Gene\Monitor::stats()['memory']` 新增 `cache_num_used`、`cache_num_elements`、`cache_table_size`，用于识别冻结表 tombstone/预留 bucket 耗尽。（同期加入的 `cache_insert_refused` 后证实为从未递增的无效字段，已在 6.2.6 移除。）
 - **Query 绑定顺序**：Query 重放改为先 JOIN、后 WHERE/IN，保证带值 `joinOn()` 的参数顺序与 SQL 占位符顺序一致。
 - **`Request::bearer()` 严格语义**：仅接受大小写不敏感的 Bearer scheme，scheme 后必须有 SP/HTAB；缺失、非 Bearer、空 token 均返回 `null`。Authorization header 名按大小写不敏感方式查找，并保留 `HTTP_AUTHORIZATION` / `REDIRECT_HTTP_AUTHORIZATION` 回退。
 - **只读 ORM 编译不干扰事务**：UNION/复杂分页使用不持有 PDO/pool 的 builder clone，避免临时编译对象析构时误回滚活动事务。
