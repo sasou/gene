@@ -1448,6 +1448,137 @@ class OrmTest
         }
     }
 
+    /**
+     * [GENE_FIX:2026-09-23 T3] Pending versionKey bumps are bucketed per PDO
+     * object handle: committing connection A must not flush B's still-open
+     * transaction, and rolling A back must not discard B's bucket.
+     */
+    public function testVersionKeysPerConnection()
+    {
+        echo "\nTesting versionKeys per-connection buckets (SQLite):\n";
+        if (!class_exists('\\Gene\\Db\\Sqlite')) {
+            $this->fail('skip per-connection versionKeys — sqlite missing');
+            return;
+        }
+        if (!class_exists('OrmRvA')) {
+            eval('class OrmRvA extends \\Gene\\Orm\\Model {
+                protected static $table = "rv_a";
+                protected static $primaryKey = "id";
+                protected static $fields = ["id", "name", "status"];
+                protected static $connection = "rv_db_a";
+                protected static $versionKeys = ["db.pa.id" => "id", "db.pa.name" => "name"];
+            }');
+        }
+        if (!class_exists('OrmRvB')) {
+            eval('class OrmRvB extends \\Gene\\Orm\\Model {
+                protected static $table = "rv_b";
+                protected static $primaryKey = "id";
+                protected static $fields = ["id", "name", "status"];
+                protected static $connection = "rv_db_b";
+                protected static $versionKeys = ["db.pb.id" => "id", "db.pb.name" => "name"];
+            }');
+        }
+        $ddl = 'CREATE TABLE %s (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            name TEXT NOT NULL,
+            status INTEGER DEFAULT 1
+        )';
+        try {
+            $dbA = new \Gene\Db\Sqlite(['dsn' => 'sqlite::memory:']);
+            $dbB = new \Gene\Db\Sqlite(['dsn' => 'sqlite::memory:']);
+            $dbA->sql(sprintf($ddl, 'rv_a'))->execute();
+            $dbB->sql(sprintf($ddl, 'rv_b'))->execute();
+            \Gene\Di::set('rv_db_a', $dbA);
+            \Gene\Di::set('rv_db_b', $dbB);
+            $cache = new class {
+                public $bumps = [];
+                public function updateVersion($fields) { $this->bumps[] = $fields; return true; }
+            };
+            \Gene\Di::set('cache', $cache);
+
+            $sawKey = function ($prefix) use ($cache) {
+                foreach ($cache->bumps as $bump) {
+                    foreach ($bump as $k => $v) {
+                        if (strpos($k, $prefix) === 0) return true;
+                    }
+                }
+                return false;
+            };
+
+            // 1) Both connections inside a transaction: writes defer bumps.
+            $dbA->beginTransaction();
+            $dbB->beginTransaction();
+            OrmRvA::create(['name' => 'a1', 'status' => 1]);
+            OrmRvB::create(['name' => 'b1', 'status' => 1]);
+            if (count($cache->bumps) === 0) {
+                $this->ok('bumps deferred while both transactions open');
+            } else {
+                $this->fail('bumps leaked inside tx ' . json_encode($cache->bumps));
+            }
+
+            // 2) Committing A flushes only A's bucket.
+            $dbA->commit();
+            if ($sawKey('db.pa.') && !$sawKey('db.pb.')) {
+                $this->ok('A commit flushes only A bucket');
+            } else {
+                $this->fail('A commit bumps ' . json_encode($cache->bumps));
+            }
+
+            // 3) Rolling B back discards B's bucket — pb keys never appear.
+            $dbB->rollBack();
+            if (!$sawKey('db.pb.')) {
+                $this->ok('B rollback discards B bucket');
+            } else {
+                $this->fail('B rollback bumps ' . json_encode($cache->bumps));
+            }
+
+            // 4) Reverse order: A rollback, B commit → only B bumps.
+            $cache->bumps = [];
+            $dbA->beginTransaction();
+            $dbB->beginTransaction();
+            OrmRvA::create(['name' => 'a2', 'status' => 1]);
+            OrmRvB::create(['name' => 'b2', 'status' => 1]);
+            $dbA->rollBack();
+            if (count($cache->bumps) === 0) {
+                $this->ok('A rollback discards only A bucket');
+            } else {
+                $this->fail('A rollback bumps ' . json_encode($cache->bumps));
+            }
+            $dbB->commit();
+            if ($sawKey('db.pb.') && !$sawKey('db.pa.')) {
+                $this->ok('B commit flushes only B bucket');
+            } else {
+                $this->fail('B commit bumps ' . json_encode($cache->bumps));
+            }
+
+            // 5) A new connection on a rebound Di name must not inherit a
+            //    stale bucket under a recycled PDO handle.
+            \Gene\Di::del('rv_db_a');
+            unset($dbA);
+            $dbA2 = new \Gene\Db\Sqlite(['dsn' => 'sqlite::memory:']);
+            $dbA2->sql(sprintf($ddl, 'rv_a'))->execute();
+            \Gene\Di::set('rv_db_a', $dbA2);
+            $cache->bumps = [];
+            $dbA2->beginTransaction();
+            OrmRvA::create(['name' => 'a3', 'status' => 1]);
+            $dbA2->commit();
+            if (count($cache->bumps) === 1 && $sawKey('db.pa.') && !$sawKey('db.pb.')) {
+                $this->ok('rebound connection commits a clean bucket');
+            } else {
+                $this->fail('rebound bumps ' . json_encode($cache->bumps));
+            }
+
+            \Gene\Di::del('cache');
+            \Gene\Di::del('rv_db_a');
+            \Gene\Di::del('rv_db_b');
+        } catch (\Throwable $e) {
+            \Gene\Di::del('cache');
+            \Gene\Di::del('rv_db_a');
+            \Gene\Di::del('rv_db_b');
+            $this->fail('per-connection versionKeys exception: ' . $e->getMessage());
+        }
+    }
+
     public function run()
     {
         $this->testClassSurface();
@@ -1458,6 +1589,7 @@ class OrmTest
         $this->testConfigurableTimestamps();
         $this->testFlipPageVersion();
         $this->testVersionKeysRowLevel();
+        $this->testVersionKeysPerConnection();
         echo "\n--- ORM results: {$this->passed} passed, {$this->failed} failed ---\n";
         return $this->failed === 0;
     }
