@@ -50,10 +50,13 @@ class Log extends \Gene\Model
                      ->select("sys_log", "log_ip,log_ip_area,addtime")
                      ->where('user_id = ?', $user_id)
                      ->order("log_id desc")
-                     ->limit(1, 1)
+                     ->limit(1)
                      ->row();
+        if (!$top) {
+            $top = ['log_ip' => '-', 'log_ip_area' => '', 'addtime' => 0];
+        }
 
-        return ["count" => $count, "top" => $top];
+        return ["count" => (int) $count, "top" => $top];
     }
     
     /**
