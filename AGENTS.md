@@ -109,6 +109,7 @@ F:\php-sdk-2.8.4\phpsdk-vs16-x64.bat -t task.bat
 - 遇到 `Unsupported OS arch` 或 `'wmic' 不是内部或外部命令`：仅 php-sdk ≤2.3.0 用 `wmic` 探测架构，Windows 11 25H2 起已移除 `wmic`。≥2.4.0（本机为 2.8.4）无此问题；若使用旧版，调用 SDK 前设置 `PHP_SDK_OS_ARCH_NUM=9`（9 表示 x64）。
 - Makefile 必须在 x64 环境生成：`BUILD_DIR=x64\Release`，且不得包含 `_USE_32BIT_TIME_T`。若曾在 x86 环境重新 configure，须在 `phpsdk-vs16-x64` 环境重跑 `config.nice.bat`。
 - Windows SDK 10.0.26100.0 的 `corecrt.h` 会对 x64 构建中出现的 `_USE_32BIT_TIME_T` 报 `#error`。
+- nmake 的 .dep 不跟踪 `ext/gene` 内部头文件依赖：`src/gene.h`（`zend_gene_globals` 布局）等头文件变更后，旧 .obj 不会自动重编，新旧对象混链会导致全局结构体字段错位（典型症状：路由派发报 `Gene Unknown Router Cache`，`cache_layer_memory_write_depth` 读出垃圾值）。`task_build_x64/x86.bat` 已在 nmake 前删除 `ext\gene\*.obj`，手动增量编译时若改了公共头文件，须先删 `x64\Release\ext\gene\*.obj`（x86 为 `Release\ext\gene\*.obj`）。
 - Windwos下需要保持src/*.c,*.h 为 UTF-8 with BOM编码，不然会出现warnings。
 - 部署前确认 WampServer 的 httpd/php-cgi 未锁定旧 DLL，再执行覆盖。
 
