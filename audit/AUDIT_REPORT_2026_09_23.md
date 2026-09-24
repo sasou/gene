@@ -755,3 +755,38 @@ teardown 路径（raw `commit()` 冲刷、仍在事务中则丢弃）已由 `aud
 4. T5：发布前在 Linux 验收机补跑，PG 和 Swoole 结果回填本节。
 
 结论：第三轮「全部闭环」的判断在代码层面成立。剩下的是两处文档残留、一处测试欠账和外部环境验证；T3 补齐、T5 在验收机上跑通之前，不建议把 R4 标记为「已验证」。
+
+---
+
+## 十二、验收回填（2026-09-24 追加）
+
+> 基线：gene 6.2.6（`477389b`），Linux 验收机 192.168.27.101（CentOS 7），PHP 8.1.34 NTS DEBUG + swoole 6.1.9。
+> 命令：`linux_swoole_verify.sh --all`，输出 `gene-swoole-result-20260924`。本节只追加，不改写前文。
+
+### 12.1 验收结果
+
+**20/20 阶段 PASS**（status.tsv 全 PASS、exit_code 全 0）：
+
+- `full-tests`：TestRunner **989/989**、0 失败、无 `UNCOVERED`；SKIP=7 均为环境缺服务（MySQL socket / PG 连接拒绝 / Redis NOAUTH），沿用「SKIP 视为通过」约定。
+- `swoole-matrix`：四格 `RESULT-DIGEST=856ba31839fa8675` 一致，与 6.2.5 两轮验收逐位相同——本轮审计修复未改变路由/协程语义。
+- `entry-matrix` / `entry-bench-equiv`：entry 四格与 manual/init/handle 三入口 digest `fd1425a4658c643a` 各自组内一致。
+- `entry-soak`：10 万真实 HTTP 请求 19386 req/s，`co_contexts_items=0`、`ctx_pool_size=512` 未超限。
+- `context-manual` / `context-auto`：各 10 万协程 `isolationFailures=0`；auto 模式 `deferredDelta=reclaimedDelta=100000`。
+- `log-rotation`：rename / copytruncate / SIGKILL 三探针全过，异常退出 100/100 行落盘零丢失。
+- `mysql-pool` / `redis-pool`：200 协程 × 1000 迭代 `failures=0`、`commandFailures=0`；`*-pool-lifecycle` 三场景全过（满池 waiter ~0.20s 唤醒、close 交错 waiter 收 null、`total=0`）。
+- `tx-hygiene`：`POOL TX HYGIENE OK`（开事务归还的连接被回滚保护）。
+- `demo-web`：wrk 2m **18708 req/s**、224.7 万请求 0 错误、p50 25.7ms / p99 54.8ms；`/doc/1.html`（ORM 路径）与 `/login.action` 错误口令（业务 JSON `code=4000`）均正常；worker RSS ~13.5MB 平稳，无单调增长。
+
+### 12.2 T1–T5 状态更新
+
+| # | 落地/验收状态 |
+|---|--------------|
+| T1 | 已落地（`23f3a83`），CHANGELOG 版本引用修正 |
+| T2 | 已落地（`23f3a83`），CONFIGURATION.md ORM 表补齐 `flip`/`page`/`versionKeys`/`versionScanLimit` |
+| T3 | **已验证**：`OrmTest::testVersionKeysPerConnection` 六条断言全过（双连接分桶：A commit 只冲 A、B rollback 只丢 B、handle 复用不继承旧桶） |
+| T4 | 已落地（`23f3a83`），`rateLimit` window 夹紧至 `INT_MAX` |
+| T5 | **未覆盖**：PG `flip()` 用例继续 SKIP（验收机无 PostgreSQL 服务）；Swoole 协程级 `orm_version_pending` 隔离探针仍未加入 `linux_swoole_verify.sh` |
+
+### 12.3 结论
+
+R1–R12、S1–S8、T1–T4 全部落地并在验收机上跑绿，6.2.6 本轮迭代**闭环**。唯一残项是 T5 外部环境验证：按 §11.3 的门槛约定，在 PG 实跑与协程桶隔离探针补跑之前，R4 维持「待验证」；两项补齐后回填本节即可关闭。
