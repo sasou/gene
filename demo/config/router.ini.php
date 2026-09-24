@@ -1,6 +1,14 @@
 <?php
 $router = new \Gene\Router();
 $router->clear()
+    // 后台验证、CORS 与全局前后置钩子使用类 Hook，走 C 层直接分发。
+    // 必须在所有 through() 组之前注册：组钩子在路由注册时即时组合，
+    // 此时找不到对应 hook 名会报错（此前会被静默丢弃，等于认证旁路）。
+    ->hook("adminAuth", "Hooks\AdminAuth@handle")
+    ->hook("cors", "Hooks\Cors@handle")
+    ->hook("before", "Hooks\BeforeHook@handle")
+    ->hook("after", "Hooks\AfterHook@handle")
+
     // Web 页面路由
     ->get("/", "\Controllers\Index@index","@clearAll")
     ->get("/doc.html", "\Controllers\Index@doc","@clearAll")
@@ -21,21 +29,18 @@ $router->clear()
     ->get("/healthz", "\Controllers\Monitor@healthz", "@clearAfter")
     ->get("/metrics", "\Controllers\Monitor@metrics", "@clearAfter")
 
-    // Admin 登录、控制台相关页面 静态匹配具体类的方法
-    ->get("/admin.html", "Controllers\Admin\Index@run", "adminAuth@clearAfter")
+    // 登录与验证码不挂 adminAuth
     ->get("/login.html", "Controllers\Admin\Index@login", "@clearAfter")
     ->post("/login.action", "Controllers\Admin\Index@loginPost", "@")
-    ->get("/exit.action", "Controllers\Admin\Index@exits", "adminAuth@") 
-    ->get("/captcha.action", "Controllers\Admin\Index@captcha", "@clearAfter") 
-    ->get("/welcome.html", "Controllers\Admin\Index@welcome", "adminAuth@clearAfter")
-    ->get("/set.html", "Controllers\Admin\User@set", "adminAuth@clearAfter")
-    ->post("/save.html", "Controllers\Admin\User@save", "adminAuth@")
+    ->get("/captcha.action", "Controllers\Admin\Index@captcha", "@clearAfter")
 
-    // 后台验证、CORS 与全局前后置钩子使用类 Hook，走 C 层直接分发
-    ->hook("adminAuth", "Hooks\AdminAuth@handle")
-    ->hook("cors", "Hooks\Cors@handle")
-    ->hook("before", "Hooks\BeforeHook@handle")
-    ->hook("after", "Hooks\AfterHook@handle")
+    ->group("")->through(["adminAuth"])
+    ->get("/admin.html", "Controllers\Admin\Index@run", "@clearAfter")
+    ->get("/exit.action", "Controllers\Admin\Index@exits", "@")
+    ->get("/welcome.html", "Controllers\Admin\Index@welcome", "@clearAfter")
+    ->get("/set.html", "Controllers\Admin\User@set", "@clearAfter")
+    ->post("/save.html", "Controllers\Admin\User@save", "@")
+    ->group()
 
     // Admin模块路由规则 动态匹配类和方法
     ->group("/:c")->through(["adminAuth"])

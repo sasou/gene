@@ -9,18 +9,27 @@ namespace Models\Admin;
  */
 class User extends \Gene\Orm\Model
 {
-    protected static string $table = 'sys_user';
-    protected static string $primaryKey = 'user_id';
-    protected static array $fields = [
+    /** @var string C 层声明为无类型 static，子类声明不得加类型（PHP 继承规则） */
+    protected static $table = 'sys_user';
+    /** @var string */
+    protected static $primaryKey = 'user_id';
+    /** @var string[] */
+    protected static $fields = [
         'user_id', 'user_name', 'user_realname', 'user_icon', 'group_id', 'status',
+    ];
+
+    /** @var array<string,string> 版本键 => 行内列名 */
+    protected static $versionKeys = [
+        'db.sys_user.user_id' => 'user_id',
+        'db.sys_user.user_name' => 'user_name',
     ];
 
     /**
      * lists — 兼容旧 Service / 缓存回调
      */
-    function lists($params, $start, $limit)
+    function lists($params, $page, $limit)
     {
-        return static::paginate($params ?: [], (int) $start, (int) $limit);
+        return static::page($params ?: [], (int) $page, (int) $limit);
     }
 
     /**
@@ -61,10 +70,7 @@ class User extends \Gene\Orm\Model
      */
     function status($id)
     {
-        return $this->db
-            ->sql('update sys_user set status=abs(status-1)')
-            ->where('user_id=?', $id)
-            ->affectedRows();
+        return static::flip($id, 'status');
     }
 
     /**
@@ -136,14 +142,10 @@ class User extends \Gene\Orm\Model
      */
     function getUserInfoByName($username)
     {
-        return $this->db->sql("select 
-                                    a.user_id,a.user_name,a.user_pass,a.user_salt,a.user_realname,a.user_icon,
-                                    a.group_id,b.group_title,a.status 
-                                from 
-                                    sys_user a 
-                                left join 
-                                    sys_group b on b.group_id=a.group_id 
-                                where 
-                                    a.user_name=?", $username)->row();
+        return static::query()
+            ->fields('sys_user.user_id,sys_user.user_name,sys_user.user_pass,sys_user.user_salt,sys_user.user_realname,sys_user.user_icon,sys_user.group_id,sys_group.group_title,sys_user.status')
+            ->join('sys_group', ['sys_group.group_id' => 'sys_user.group_id'], 'left')
+            ->where('sys_user.user_name=?', $username)
+            ->row();
     }
 }

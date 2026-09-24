@@ -33,6 +33,11 @@
 #define GENE_ORM_CREATED_AT "createdAt"
 #define GENE_ORM_UPDATED_AT "updatedAt"
 #define GENE_ORM_TS_FORMAT "timestampFormat"
+#define GENE_ORM_VERSION_KEYS "versionKeys"
+/* [GENE_FIX:2026-09-23 R3] Model static: upper bound on the non-pk where
+ * prefetch (SELECT pk + mapped cols). Exceeding it warns and skips
+ * invalidation rather than bumping a partial set. */
+#define GENE_ORM_VERSION_SCAN_LIMIT "versionScanLimit"
 
 extern zend_class_entry *gene_orm_model_ce;
 extern zend_class_entry *gene_orm_query_ce;
@@ -81,6 +86,26 @@ void gene_orm_apply_timestamps(zval *data, zend_bool is_insert, gene_orm_meta_t 
 void gene_orm_db_limit(zval *db, zend_long offset, zend_long limit);
 void gene_orm_normalize_id(zval *id);
 zend_bool gene_orm_valid_ident(zend_string *s);
+/* versionKeys: copy the map when a cache component can updateVersion(). */
+int gene_orm_version_keys(zend_class_entry *ce, zval *keys);
+/* Load the pre-write row(s) for pk-scoped writes (update/delete/flip). */
+void gene_orm_version_prefetch(zval *db, gene_orm_meta_t *meta, zval *keys, zval *pk, zend_bool is_delete, zval *old);
+/* Load pre-write rows for an arbitrary $where (non-pk updateBy). */
+void gene_orm_version_prefetch_where(zval *db, gene_orm_meta_t *meta, zval *keys, zval *where, zend_long limit, zval *old, zend_bool *overflowed);
+/* 1 when col_name is a mapped secondary version column. */
+zend_bool gene_orm_version_col_mapped(zval *keys, gene_orm_meta_t *meta, zend_string *col_name);
+/* Model $versionScanLimit static (default 1000). */
+zend_long gene_orm_version_scan_limit(zend_class_entry *ce);
+/* Queue or apply updateVersion after a successful write. affected <= 0 is a no-op. */
+void gene_orm_version_commit_write(zval *db, gene_orm_meta_t *meta, zval *keys, zval *pk, zval *data, zval *old, zend_bool is_delete, zend_long affected);
+/* Per-connection pending buckets: commit/rollback touch only this PDO. */
+void gene_orm_version_flush(zval *pdo);
+void gene_orm_version_discard(zval *pdo);
+/* Request-teardown safety net (gene.c ctx free, between tx hygiene and
+ * di_regs destruction). Takes the ctx's orm_version_pending slot. */
+void gene_orm_version_pending_shutdown(zval *pending);
+/* model.c — shared where application (array conditions / scalar = pk). */
+int gene_orm_apply_where(zval *db, zval *where, gene_orm_meta_t *meta, zend_bool *emitted);
 
 /* query.c */
 int gene_orm_query_init(zval *query, zval *db, zend_string *table, zval *fields, zend_string *primary_key);

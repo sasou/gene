@@ -29,6 +29,7 @@
 
 #include "../gene.h"
 #include "../common/common.h"
+#include "../orm/orm.h"
 #include "pdo.h"
 
 /* [GENE_PERF:2026-09-21 V3-3.2] Resolve the driver property slots once per
@@ -769,6 +770,12 @@ void gene_pdo_commit(zval *pdo_object, zval *retval)/*{{{*/
     if (EXPECTED(fn)) {
         zend_call_known_function(fn, Z_OBJ_P(pdo_object), Z_OBJCE_P(pdo_object), retval, 0, NULL, NULL);
     }
+    /* [GENE_FEATURE:2026-09-23 O3] Bump deferred versionKeys only after the
+     * transaction actually commits. A failed commit leaves the list for rollback.
+     * [GENE_FIX:2026-09-23 R4] Flush only this connection's bucket. */
+    if (!EG(exception) && Z_TYPE_P(retval) != IS_UNDEF && zend_is_true(retval)) {
+        gene_orm_version_flush(pdo_object);
+    }
 }/*}}}*/
 
 
@@ -892,6 +899,11 @@ void gene_pdo_rollback(zval *pdo_object, zval *retval) /*{{{*/
     zend_function *fn = zend_hash_str_find_ptr(&Z_OBJCE_P(pdo_object)->function_table, ZEND_STRL("rollback"));
     if (EXPECTED(fn)) {
         zend_call_known_function(fn, Z_OBJ_P(pdo_object), Z_OBJCE_P(pdo_object), retval, 0, NULL, NULL);
+    }
+    /* Rolled-back writes must not invalidate caches.
+     * [GENE_FIX:2026-09-23 R4] Discard only this connection's bucket. */
+    if (!EG(exception)) {
+        gene_orm_version_discard(pdo_object);
     }
 }/*}}}*/
 

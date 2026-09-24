@@ -19,8 +19,7 @@ class Group extends \Gene\Service
      */
     function lists($page = 1, $pagesize = 10)
     {
-        $start = $page > 0 ? ($page - 1)*$pagesize : 0;
-        return \Models\Admin\Group::getInstance()->lists($start, $pagesize);
+        return \Models\Admin\Group::getInstance()->lists($page > 0 ? $page : 1, $pagesize);
     }
 
     /**

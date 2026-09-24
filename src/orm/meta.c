@@ -1,4 +1,4 @@
-/*
+ï»¿/*
  +----------------------------------------------------------------------+
  | gene                                                                 |
  +----------------------------------------------------------------------+
@@ -74,7 +74,7 @@ static void gene_orm_meta_from_array(zval *arr, gene_orm_meta_t *meta)
 		meta->connection = zend_string_init("db", sizeof("db") - 1, 0);
 	}
 	/* [GENE_FEATURE:2026-08-18 3.2] createdAt/updatedAt/timestampFormat ride
-	 * the same request cache ¡ª to_array always writes the keys, so here a
+	 * the same request cache ï¿½ï¿½ to_array always writes the keys, so here a
 	 * NULL zval means "column disabled", a missing key means default. */
 	zv = zend_hash_str_find(Z_ARRVAL_P(arr), ZEND_STRL("createdAt"));
 	if (zv && Z_TYPE_P(zv) == IS_STRING && Z_STRLEN_P(zv) > 0) {
@@ -254,7 +254,7 @@ void gene_orm_meta_release(gene_orm_meta_t *meta)
 	}
 	/* [GENE_FEATURE:2026-08-18 3.2] M3: every new zend_string* in the meta
 	 * struct must be released here AND round-tripped through
-	 * to_array/from_array ¡ª missing either leaks or loses config per request. */
+	 * to_array/from_array ï¿½ï¿½ missing either leaks or loses config per request. */
 	if (meta->created_at) {
 		zend_string_release(meta->created_at);
 		meta->created_at = NULL;
@@ -289,7 +289,7 @@ int gene_orm_get_db(zend_string *connection, zval *out)
 	 * DI registry hashtable *slot*. The 2026-08-09 M5 fix only ADDREF'd the
 	 * object but kept handing out the slot pointer: callers hold it across
 	 * several call_user_function round-trips during which user code (getters,
-	 * error handlers, __destruct) could Di::del()/Di::set() the service ¡ª
+	 * error handlers, __destruct) could Di::del()/Di::set() the service ï¿½ï¿½
 	 * deleting/replacing the slot so the later gene_orm_db_reset()/dtor acted
 	 * on the replacement object or freed memory (UAF + leak). Copy the zval
 	 * itself so the caller owns an independent handle; no user code runs
@@ -316,7 +316,7 @@ void gene_orm_db_reset(zval *db)
 	} else if (ce == gene_db_mssql_ce) {
 		mssql_reset_sql_params(db);
 	} else {
-		/* Unknown driver ¡ª fall back to public reset(). [GENE_FIX:2026-08-19 N4]
+		/* Unknown driver ï¿½ï¿½ fall back to public reset(). [GENE_FIX:2026-08-19 N4]
 		 * Even with a pending exception we MUST clean: a guard exception
 		 * (e.g. P0-2/N1) leaves a built but unexecuted WHERE-less UPDATE on
 		 * the handle, and skipping reset would let a later read terminal
@@ -371,7 +371,7 @@ int gene_orm_db_call(zval *db, const char *method, uint32_t argc, zval *argv, zv
 }
 
 /* [GENE_FEATURE:2026-08-18] Driver identification by class entry (same
- * approach as gene_orm_db_reset ¡ª name substring matching misidentifies
+ * approach as gene_orm_db_reset ï¿½ï¿½ name substring matching misidentifies
  * subclasses/pool wrappers). Used for driver-aware SQL fragments. */
 int gene_orm_db_kind(zval *db)
 {
@@ -399,7 +399,7 @@ int gene_orm_db_kind(zval *db)
 /* [GENE_FEATURE:2026-08-18 3.1/3.5] Identifier whitelist for API surfaces
  * that splice a column name into a SQL fragment (where 3-arg, in column
  * form, whereLike, selectSub alias). Anything outside [A-Za-z0-9_.] (with a
- * non-digit, non-dot first char) is rejected ¡ª these APIs must not become a
+ * non-digit, non-dot first char) is rejected ï¿½ï¿½ these APIs must not become a
  * new injection surface around the raw string-where path. */
 zend_bool gene_orm_valid_ident(zend_string *s)
 {
@@ -425,7 +425,7 @@ zend_bool gene_orm_valid_ident(zend_string *s)
  * " FROM " occurrence (a subquery appended earlier would introduce its own,
  * so we anchor at the end; a quoted identifier literally containing
  * " FROM " is pathological and out of scope). $sql is developer-written,
- * same trust level as Db::sql() ¡ª deliberately NOT escaped. */
+ * same trust level as Db::sql() ï¿½ï¿½ deliberately NOT escaped. */
 int gene_orm_db_select_sub(zval *db, zend_string *sub, zend_string *alias)
 {
 	zval *sql_zv;
@@ -504,7 +504,7 @@ int gene_orm_db_select(zval *db, zend_string *table, zval *fields)
 				 * zend_read_property() without a copy) with refcount != 1.
 				 * zend_hash_internal_pointer_reset()/_get_current_data()
 				 * write through ht->nInternalPointer, mutating the shared
-				 * array in place ¡ª undefined under concurrent readers
+				 * array in place ï¿½ï¿½ undefined under concurrent readers
 				 * (Swoole coroutines) and fatal in debug builds
 				 * (zend_hash_internal_pointer_reset_ex() assertion). Use a
 				 * local HashPosition instead so we never touch the array's
@@ -537,7 +537,7 @@ int gene_orm_db_select(zval *db, zend_string *table, zval *fields)
 
 /* [GENE_FIX:2026-08-09 M2] PDO lastInsertId() is always a string, which made
  * create()/save() return a string id and store a string pk into attributes
- * while find() returns int ¡ª the same field with two types. Normalize numeric
+ * while find() returns int ï¿½ï¿½ the same field with two types. Normalize numeric
  * strings to long, mirroring Query::count()'s 2026-08-08 hardening. */
 void gene_orm_normalize_id(zval *id)
 {
@@ -566,7 +566,7 @@ void gene_orm_apply_timestamps(zval *data, zend_bool is_insert, gene_orm_meta_t 
 		return;
 	}
 	/* [GENE_FIX:2026-08-09 H3] sapi_get_request_time() is constant for the whole
-	 * SAPI request ¡ª under CLI/Swoole that spans the process/worker lifetime, so
+	 * SAPI request ï¿½ï¿½ under CLI/Swoole that spans the process/worker lifetime, so
 	 * created_at/updated_at froze at worker start. Use wall clock like the rest
 	 * of the codebase (memory.c, pool.c, session.c, ...). */
 	t = time(NULL);
@@ -596,8 +596,8 @@ void gene_orm_apply_timestamps(zval *data, zend_bool is_insert, gene_orm_meta_t 
 }
 
 /* Paginate-friendly limit: ORM API is always (offset, limit).
- * MySQL Db::limit($a,$b) ¡ú LIMIT a,b (offset,count).
- * Sqlite/Pgsql/Mssql Db::limit($a,$b) ¡ú LIMIT a OFFSET b (count,offset). */
+ * MySQL Db::limit($a,$b) ï¿½ï¿½ LIMIT a,b (offset,count).
+ * Sqlite/Pgsql/Mssql Db::limit($a,$b) ï¿½ï¿½ LIMIT a OFFSET b (count,offset). */
 void gene_orm_db_limit(zval *db, zend_long offset, zend_long limit)
 {
 	zval args[2], retval;
@@ -625,4 +625,673 @@ void gene_orm_db_limit(zval *db, zend_long offset, zend_long limit)
 	}
 	gene_orm_db_call(db, "limit", 2, args, &retval);
 	zval_ptr_dtor(&retval);
+}
+
+/* [GENE_FEATURE:2026-09-23 O3] versionKeys live on the model class. Bumps are
+ * applied through the request-scoped "cache" component (never a static
+ * Cache/Db pointer). While a PDO transaction is open they sit on the
+ * request cold block and flush only after commit.
+ * [GENE_FIX:2026-09-23 R4] The pending list is bucketed per PDO object
+ * handle: { handle => ['pdo' => obj, 'maps' => [map, ...]] }. Committing
+ * connection A must not flush (or discard) connection B's still-open
+ * transaction bumps. */
+
+static zval *gene_orm_version_pending_slot(void)
+{
+	gene_request_context *ctx = gene_request_ctx();
+	if (!ctx) {
+		return NULL;
+	}
+	return &GENE_CTX_COLD(ctx)->orm_version_pending;
+}
+
+static void gene_orm_version_call_update(zval *map)
+{
+	zval *cache, rv;
+	zend_string *name;
+	zend_function *fn;
+
+	if (!map || Z_TYPE_P(map) != IS_ARRAY || zend_hash_num_elements(Z_ARRVAL_P(map)) == 0) {
+		return;
+	}
+	name = zend_string_init("cache", sizeof("cache") - 1, 0);
+	cache = gene_di_get(name);
+	zend_string_release(name);
+	if (!cache || Z_TYPE_P(cache) != IS_OBJECT) {
+		return;
+	}
+	fn = zend_hash_str_find_ptr(&Z_OBJCE_P(cache)->function_table, ZEND_STRL("updateversion"));
+	if (!fn) {
+		return;
+	}
+	ZVAL_UNDEF(&rv);
+	zend_call_known_function(fn, Z_OBJ_P(cache), Z_OBJCE_P(cache), &rv, 1, map, NULL);
+	zval_ptr_dtor(&rv);
+}
+
+static void gene_orm_version_flush_maps(zval *maps)
+{
+	zval *map;
+
+	if (!maps || Z_TYPE_P(maps) != IS_ARRAY) {
+		return;
+	}
+	ZEND_HASH_FOREACH_VAL(Z_ARRVAL_P(maps), map) {
+		if (map && Z_TYPE_P(map) == IS_ARRAY) {
+			gene_orm_version_call_update(map);
+		}
+	} ZEND_HASH_FOREACH_END();
+}
+
+/* Flush only the bucket belonging to this PDO handle. Called from
+ * gene_pdo_commit() â€” B's open transaction is untouched when A commits. */
+void gene_orm_version_flush(zval *pdo)
+{
+	zval *pending, *bucket, *maps;
+
+	if (!pdo || Z_TYPE_P(pdo) != IS_OBJECT) {
+		return;
+	}
+	pending = gene_orm_version_pending_slot();
+	if (!pending || Z_TYPE_P(pending) != IS_ARRAY) {
+		return;
+	}
+	bucket = zend_hash_index_find(Z_ARRVAL_P(pending), (zend_ulong)Z_OBJ_HANDLE_P(pdo));
+	if (bucket && Z_TYPE_P(bucket) == IS_ARRAY) {
+		maps = zend_hash_str_find(Z_ARRVAL_P(bucket), ZEND_STRL("maps"));
+		gene_orm_version_flush_maps(maps);
+	}
+	zend_hash_index_del(Z_ARRVAL_P(pending), (zend_ulong)Z_OBJ_HANDLE_P(pdo));
+}
+
+void gene_orm_version_discard(zval *pdo)
+{
+	zval *pending;
+
+	if (!pdo || Z_TYPE_P(pdo) != IS_OBJECT) {
+		return;
+	}
+	pending = gene_orm_version_pending_slot();
+	if (!pending || Z_TYPE_P(pending) != IS_ARRAY) {
+		return;
+	}
+	zend_hash_index_del(Z_ARRVAL_P(pending), (zend_ulong)Z_OBJ_HANDLE_P(pdo));
+}
+
+/* [GENE_FIX:2026-09-23 R4] Request-teardown safety net, called from
+ * gene_request_context_free_fields() AFTER di_regs transaction hygiene but
+ * BEFORE di_regs is destroyed (so gene_di_get("cache") still resolves).
+ * A surviving bucket whose PDO is no longer in a transaction means the
+ * commit bypassed gene_pdo_commit() (raw $pdo->commit() / sql('COMMIT')):
+ * flush it â€” over-invalidating costs one cache refill, under-invalidating
+ * leaves stale rows. A bucket still inside a transaction is discarded; its
+ * eventual rollback path discards again harmlessly. */
+void gene_orm_version_pending_shutdown(zval *pending)
+{
+	zval *bucket;
+
+	/* The slot is passed in (not resolved via gene_request_ctx()): ctx
+	 * teardown may run for a non-current coroutine or a pooled struct. */
+	if (!pending || Z_TYPE_P(pending) != IS_ARRAY) {
+		return;
+	}
+	ZEND_HASH_FOREACH_VAL(Z_ARRVAL_P(pending), bucket) {
+		zval *pdo, *maps, in_tx;
+		zend_bool open = 0;
+
+		if (!bucket || Z_TYPE_P(bucket) != IS_ARRAY) {
+			continue;
+		}
+		pdo = zend_hash_str_find(Z_ARRVAL_P(bucket), ZEND_STRL("pdo"));
+		maps = zend_hash_str_find(Z_ARRVAL_P(bucket), ZEND_STRL("maps"));
+		if (pdo && Z_TYPE_P(pdo) == IS_OBJECT) {
+			gene_pdo_in_transaction(pdo, &in_tx);
+			if (!EG(exception)) {
+				open = zend_is_true(&in_tx);
+			} else {
+				zend_clear_exception();
+			}
+			zval_ptr_dtor(&in_tx);
+		}
+		if (!open) {
+			gene_orm_version_flush_maps(maps);
+		}
+	} ZEND_HASH_FOREACH_END();
+	zval_ptr_dtor(pending);
+	ZVAL_UNDEF(pending);
+}
+
+static void gene_orm_version_publish(zval *db, zval *map)
+{
+	zval *pdo = NULL;
+	zval *pending;
+
+	if (!map || Z_TYPE_P(map) != IS_ARRAY || zend_hash_num_elements(Z_ARRVAL_P(map)) == 0) {
+		if (map && Z_TYPE_P(map) != IS_UNDEF) {
+			zval_ptr_dtor(map);
+		}
+		return;
+	}
+	if (db && Z_TYPE_P(db) == IS_OBJECT) {
+		pdo = zend_read_property(Z_OBJCE_P(db), gene_strip_obj(db), ZEND_STRL("pdo"), 1, NULL);
+	}
+	if (pdo && Z_TYPE_P(pdo) == IS_OBJECT && !EG(exception)) {
+		zval in_tx;
+		zend_bool open = 0;
+		gene_pdo_in_transaction(pdo, &in_tx);
+		if (!EG(exception)) {
+			open = zend_is_true(&in_tx);
+		} else {
+			zend_clear_exception();
+		}
+		zval_ptr_dtor(&in_tx);
+		if (open) {
+		pending = gene_orm_version_pending_slot();
+		if (pending) {
+			zval *bucket, *maps;
+			zend_ulong h = (zend_ulong)Z_OBJ_HANDLE_P(pdo);
+			if (Z_TYPE_P(pending) != IS_ARRAY) {
+				if (Z_TYPE_P(pending) != IS_UNDEF) {
+					zval_ptr_dtor(pending);
+				}
+				array_init(pending);
+			}
+			bucket = zend_hash_index_find(Z_ARRVAL_P(pending), h);
+			if (!bucket || Z_TYPE_P(bucket) != IS_ARRAY) {
+				zval nb, pdo_copy, maps_arr;
+				array_init(&nb);
+				ZVAL_COPY(&pdo_copy, pdo);
+				add_assoc_zval_ex(&nb, ZEND_STRL("pdo"), &pdo_copy);
+				array_init(&maps_arr);
+				add_assoc_zval_ex(&nb, ZEND_STRL("maps"), &maps_arr);
+				zend_hash_index_update(Z_ARRVAL_P(pending), h, &nb);
+				bucket = zend_hash_index_find(Z_ARRVAL_P(pending), h);
+			}
+			maps = bucket ? zend_hash_str_find(Z_ARRVAL_P(bucket), ZEND_STRL("maps")) : NULL;
+			if (maps && Z_TYPE_P(maps) == IS_ARRAY) {
+				add_next_index_zval(maps, map);
+				return;
+			}
+		}
+		}
+	}
+	gene_orm_version_call_update(map);
+	zval_ptr_dtor(map);
+}
+
+int gene_orm_version_keys(zend_class_entry *ce, zval *keys)
+{
+	zval *zv, *cache;
+	zend_string *name;
+	zend_function *fn;
+
+	ZVAL_UNDEF(keys);
+	if (!ce) {
+		return 0;
+	}
+	zv = zend_read_static_property(ce, ZEND_STRL(GENE_ORM_VERSION_KEYS), 1);
+	if (!zv || Z_TYPE_P(zv) != IS_ARRAY || zend_hash_num_elements(Z_ARRVAL_P(zv)) == 0) {
+		return 0;
+	}
+	name = zend_string_init("cache", sizeof("cache") - 1, 0);
+	cache = gene_di_get(name);
+	zend_string_release(name);
+	if (!cache || Z_TYPE_P(cache) != IS_OBJECT) {
+		return 0;
+	}
+	fn = zend_hash_str_find_ptr(&Z_OBJCE_P(cache)->function_table, ZEND_STRL("updateversion"));
+	if (!fn) {
+		return 0;
+	}
+	ZVAL_COPY(keys, zv);
+	return 1;
+}
+
+static zend_bool gene_orm_version_has_secondary(zval *keys, gene_orm_meta_t *meta)
+{
+	zend_string *field;
+	zval *col;
+
+	if (!keys || Z_TYPE_P(keys) != IS_ARRAY) {
+		return 0;
+	}
+	ZEND_HASH_FOREACH_STR_KEY_VAL(Z_ARRVAL_P(keys), field, col) {
+		if (!field || !col || Z_TYPE_P(col) != IS_STRING) {
+			continue;
+		}
+		if (!meta->primary_key || !zend_string_equals(Z_STR_P(col), meta->primary_key)) {
+			return 1;
+		}
+	} ZEND_HASH_FOREACH_END();
+	return 0;
+}
+
+/* [GENE_FIX:2026-09-23 R2] Any valid column mapping (pk or secondary) â€”
+ * used to decide whether a non-pk where needs the prefetch SELECT at all. */
+static zend_bool gene_orm_version_has_any_column(zval *keys, gene_orm_meta_t *meta)
+{
+	zend_string *field;
+	zval *col;
+
+	if (!keys || Z_TYPE_P(keys) != IS_ARRAY) {
+		return 0;
+	}
+	ZEND_HASH_FOREACH_STR_KEY_VAL(Z_ARRVAL_P(keys), field, col) {
+		if (!field || !col || Z_TYPE_P(col) != IS_STRING) {
+			continue;
+		}
+		if (gene_orm_valid_ident(Z_STR_P(col))) {
+			return 1;
+		}
+	} ZEND_HASH_FOREACH_END();
+	return 0;
+}
+
+/* [GENE_FIX:2026-09-23 R6] 1 when col_name is mapped as a secondary
+ * version column (flip() then supplies the post-update pair). */
+zend_bool gene_orm_version_col_mapped(zval *keys, gene_orm_meta_t *meta, zend_string *col_name)
+{
+	zend_string *field;
+	zval *col;
+
+	if (!keys || Z_TYPE_P(keys) != IS_ARRAY || !col_name) {
+		return 0;
+	}
+	ZEND_HASH_FOREACH_STR_KEY_VAL(Z_ARRVAL_P(keys), field, col) {
+		if (!field || !col || Z_TYPE_P(col) != IS_STRING) {
+			continue;
+		}
+		if (meta->primary_key && zend_string_equals(Z_STR_P(col), meta->primary_key)) {
+			continue;
+		}
+		if (zend_string_equals(Z_STR_P(col), col_name)) {
+			return 1;
+		}
+	} ZEND_HASH_FOREACH_END();
+	return 0;
+}
+
+zend_long gene_orm_version_scan_limit(zend_class_entry *ce)
+{
+	zval *zv;
+	zend_long n = 1000;
+
+	if (!ce) {
+		return n;
+	}
+	zv = gene_orm_read_static(ce, ZEND_STRL(GENE_ORM_VERSION_SCAN_LIMIT));
+	if (zv && Z_TYPE_P(zv) == IS_LONG && Z_LVAL_P(zv) > 0) {
+		n = Z_LVAL_P(zv);
+	}
+	return n;
+}
+
+static void gene_orm_version_reset_db(zval *db)
+{
+	gene_orm_db_reset(db);
+}
+
+/* Build "pk,col1,col2" (pk first, deduped) for the prefetch SELECT. */
+static zend_string *gene_orm_version_prefetch_cols(zval *keys, gene_orm_meta_t *meta)
+{
+	smart_str cols = {0};
+	zend_string *field;
+	zval *col;
+	zend_bool first = 1;
+	zend_bool pk_in = 0;
+
+	if (meta->primary_key && gene_orm_valid_ident(meta->primary_key)) {
+		smart_str_append(&cols, meta->primary_key);
+		first = 0;
+	}
+	ZEND_HASH_FOREACH_STR_KEY_VAL(Z_ARRVAL_P(keys), field, col) {
+		if (!field || !col || Z_TYPE_P(col) != IS_STRING) {
+			continue;
+		}
+		if (!gene_orm_valid_ident(Z_STR_P(col))) {
+			continue;
+		}
+		if (meta->primary_key && zend_string_equals(Z_STR_P(col), meta->primary_key)) {
+			pk_in = 1;
+			continue;
+		}
+		if (!first) {
+			smart_str_appendc(&cols, ',');
+		}
+		first = 0;
+		smart_str_append(&cols, Z_STR_P(col));
+	} ZEND_HASH_FOREACH_END();
+	smart_str_0(&cols);
+	return cols.s;
+}
+
+/* [GENE_FIX:2026-09-23 R2] Pre-write read by primary key. Updates prefetch
+ * whenever a secondary column is mapped (row-level invalidation needs the
+ * current values regardless of payload), deletes likewise. Returns a single
+ * assoc row (scalar pk) or a list of rows (array pk) in `old`. */
+void gene_orm_version_prefetch(zval *db, gene_orm_meta_t *meta, zval *keys, zval *pk, zend_bool is_delete, zval *old)
+{
+	zend_string *cols;
+	zval fields, args[2], retval, lim;
+
+	ZVAL_UNDEF(old);
+	if (!db || !meta || !keys || Z_TYPE_P(keys) != IS_ARRAY || !pk) {
+		return;
+	}
+	if (!gene_orm_version_has_secondary(keys, meta)) {
+		return;
+	}
+	cols = gene_orm_version_prefetch_cols(keys, meta);
+	if (!cols) {
+		return;
+	}
+	ZVAL_STR(&fields, cols);
+	gene_orm_db_select(db, meta->table, &fields);
+	zval_ptr_dtor(&fields);
+	if (gene_orm_has_exception()) {
+		gene_orm_version_reset_db(db);
+		return;
+	}
+	if (Z_TYPE_P(pk) == IS_ARRAY) {
+		smart_str buf = {0};
+		smart_str_append(&buf, meta->primary_key);
+		smart_str_appends(&buf, " in(?)");
+		smart_str_0(&buf);
+		ZVAL_STR(&args[0], buf.s);
+		ZVAL_COPY(&args[1], pk);
+		gene_orm_db_call(db, "in", 2, args, &retval);
+		zval_ptr_dtor(&args[0]); /* consumes buf.s â€” do NOT smart_str_free */
+		zval_ptr_dtor(&args[1]);
+		zval_ptr_dtor(&retval);
+		if (!gene_orm_has_exception() &&
+			gene_orm_db_call(db, "all", 0, NULL, old) == SUCCESS &&
+			Z_TYPE_P(old) != IS_ARRAY) {
+			zval_ptr_dtor(old);
+			ZVAL_UNDEF(old);
+		}
+	} else {
+		smart_str buf = {0};
+		smart_str_append(&buf, meta->primary_key);
+		smart_str_appends(&buf, "=?");
+		smart_str_0(&buf);
+		ZVAL_STR(&args[0], buf.s);
+		ZVAL_COPY(&args[1], pk);
+		gene_orm_db_call(db, "where", 2, args, &retval);
+		zval_ptr_dtor(&args[0]); /* consumes buf.s â€” do NOT smart_str_free */
+		zval_ptr_dtor(&args[1]);
+		zval_ptr_dtor(&retval);
+		ZVAL_LONG(&lim, 1);
+		gene_orm_db_call(db, "limit", 1, &lim, &retval);
+		zval_ptr_dtor(&retval);
+		if (!gene_orm_has_exception() &&
+			gene_orm_db_call(db, "row", 0, NULL, old) == SUCCESS &&
+			Z_TYPE_P(old) != IS_ARRAY) {
+			zval_ptr_dtor(old);
+			ZVAL_UNDEF(old);
+		}
+	}
+	gene_orm_version_reset_db(db);
+}
+
+/* [GENE_FIX:2026-09-23 R3] Pre-write read for an arbitrary $where clause
+ * (non-pk updateBy). Applies the same where semantics as the UPDATE via
+ * gene_orm_apply_where() and caps the candidate set at `limit` rows
+ * (LIMIT limit+1). On overflow sets *overflowed and returns no rows â€”
+ * the caller warns and skips invalidation instead of bumping a partial set. */
+void gene_orm_version_prefetch_where(zval *db, gene_orm_meta_t *meta, zval *keys, zval *where, zend_long limit, zval *old, zend_bool *overflowed)
+{
+	zend_string *cols;
+	zval fields, retval;
+	zend_bool emitted = 0;
+
+	ZVAL_UNDEF(old);
+	if (overflowed) {
+		*overflowed = 0;
+	}
+	if (!db || !meta || !keys || Z_TYPE_P(keys) != IS_ARRAY ||
+		!where || Z_TYPE_P(where) == IS_UNDEF || Z_TYPE_P(where) == IS_NULL) {
+		return;
+	}
+	if (Z_TYPE_P(where) == IS_ARRAY && zend_hash_num_elements(Z_ARRVAL_P(where)) == 0) {
+		return;
+	}
+	if (!gene_orm_version_has_any_column(keys, meta)) {
+		return;
+	}
+	cols = gene_orm_version_prefetch_cols(keys, meta);
+	if (!cols) {
+		return;
+	}
+	ZVAL_STR(&fields, cols);
+	gene_orm_db_select(db, meta->table, &fields);
+	zval_ptr_dtor(&fields);
+	if (gene_orm_has_exception()) {
+		gene_orm_version_reset_db(db);
+		return;
+	}
+	gene_orm_apply_where(db, where, meta, &emitted);
+	if (!emitted || gene_orm_has_exception()) {
+		gene_orm_version_reset_db(db);
+		return;
+	}
+	gene_orm_db_limit(db, 0, limit + 1);
+	if (gene_orm_has_exception()) {
+		gene_orm_version_reset_db(db);
+		return;
+	}
+	if (gene_orm_db_call(db, "all", 0, NULL, old) == SUCCESS &&
+		Z_TYPE_P(old) == IS_ARRAY) {
+		if (overflowed && (zend_long)zend_hash_num_elements(Z_ARRVAL_P(old)) > limit) {
+			zval_ptr_dtor(old);
+			ZVAL_UNDEF(old);
+			*overflowed = 1;
+		}
+	} else {
+		if (Z_TYPE_P(old) != IS_UNDEF) {
+			zval_ptr_dtor(old);
+		}
+		ZVAL_UNDEF(old);
+	}
+	gene_orm_version_reset_db(db);
+}
+
+static void gene_orm_version_add_value(zval *map, zend_string *field, zval *value)
+{
+	zval copy;
+	if (!value) {
+		add_assoc_null_ex(map, ZSTR_VAL(field), ZSTR_LEN(field));
+		return;
+	}
+	ZVAL_COPY(&copy, value);
+	add_assoc_zval_ex(map, ZSTR_VAL(field), ZSTR_LEN(field), &copy);
+}
+
+/* [GENE_FIX:2026-09-23 S1] Loose equality for bump values: a prefetched
+ * row value and the payload's new value may differ only in zval type
+ * (e.g. sqlite numeric string vs int). Restricted to scalars so
+ * zend_compare() never sees array/object pairs. */
+static zend_bool gene_orm_version_same(zval *a, zval *b)
+{
+	if (!a || !b) {
+		return 0;
+	}
+	if (zend_is_identical(a, b)) {
+		return 1;
+	}
+	if (Z_TYPE_P(a) == IS_REFERENCE) {
+		a = Z_REFVAL_P(a);
+	}
+	if (Z_TYPE_P(b) == IS_REFERENCE) {
+		b = Z_REFVAL_P(b);
+	}
+	if (Z_TYPE_P(a) >= IS_NULL && Z_TYPE_P(a) <= IS_STRING &&
+		Z_TYPE_P(b) >= IS_NULL && Z_TYPE_P(b) <= IS_STRING) {
+		return zend_compare(a, b) == 0;
+	}
+	return 0;
+}
+
+static void gene_orm_version_add_pair(zval *map, zend_string *field, zval *oldv, zval *newv)
+{
+	zval pair, a, b;
+	/* [GENE_FIX:2026-09-23 S1] Identical prev/next collapses to a single
+	 * value â€” ["new","new"] would bump the same key twice for no reason. */
+	if (gene_orm_version_same(oldv, newv)) {
+		gene_orm_version_add_value(map, field, newv);
+		return;
+	}
+	array_init_size(&pair, 2);
+	if (oldv) {
+		ZVAL_COPY(&a, oldv);
+	} else {
+		ZVAL_NULL(&a);
+	}
+	if (newv) {
+		ZVAL_COPY(&b, newv);
+	} else {
+		ZVAL_NULL(&b);
+	}
+	add_next_index_zval(&pair, &a);
+	add_next_index_zval(&pair, &b);
+	add_assoc_zval_ex(map, ZSTR_VAL(field), ZSTR_LEN(field), &pair);
+}
+
+static zval *gene_orm_version_row_col(zval *row, zend_string *col)
+{
+	if (!row || Z_TYPE_P(row) != IS_ARRAY || !col) {
+		return NULL;
+	}
+	return zend_hash_find(Z_ARRVAL_P(row), col);
+}
+
+/* `old` carries either one assoc row (scalar-pk prefetch / hydrated attrs)
+ * or a list of assoc rows (pk-array prefetch / where prefetch). */
+static zend_bool gene_orm_version_old_is_rows(zval *old)
+{
+	HashPosition pos;
+	zval *first;
+
+	if (!old || Z_TYPE_P(old) != IS_ARRAY ||
+		zend_hash_num_elements(Z_ARRVAL_P(old)) == 0) {
+		return 0;
+	}
+	zend_hash_internal_pointer_reset_ex(Z_ARRVAL_P(old), &pos);
+	first = zend_hash_get_current_data_ex(Z_ARRVAL_P(old), &pos);
+	return (first && Z_TYPE_P(first) == IS_ARRAY) ? 1 : 0;
+}
+
+static void gene_orm_version_gather_col(zval *map, zend_string *field, zval *rows, zend_string *col)
+{
+	zval gathered, *row;
+
+	array_init(&gathered);
+	ZEND_HASH_FOREACH_VAL(Z_ARRVAL_P(rows), row) {
+		zval *v = gene_orm_version_row_col(row, col);
+		zval copy;
+		if (!v || Z_TYPE_P(v) == IS_NULL) {
+			continue;
+		}
+		ZVAL_COPY(&copy, v);
+		add_next_index_zval(&gathered, &copy);
+	} ZEND_HASH_FOREACH_END();
+	if (zend_hash_num_elements(Z_ARRVAL(gathered)) > 0) {
+		add_assoc_zval_ex(map, ZSTR_VAL(field), ZSTR_LEN(field), &gathered);
+	} else {
+		zval_ptr_dtor(&gathered);
+	}
+}
+
+/* [GENE_FIX:2026-09-23 R2/R3] Row-level invalidation: any successful write
+ * bumps the row's CURRENT key under every mapped version column â€” not just
+ * columns present in the payload. A renamed column adds its new value on
+ * top of the old one. */
+void gene_orm_version_commit_write(zval *db, gene_orm_meta_t *meta, zval *keys, zval *pk, zval *data, zval *old, zend_bool is_delete, zend_long affected)
+{
+	zval map;
+	zend_string *field;
+	zval *col;
+	zend_bool rows;
+
+	if (affected <= 0 || !keys || Z_TYPE_P(keys) != IS_ARRAY || !meta) {
+		return;
+	}
+	rows = gene_orm_version_old_is_rows(old);
+	array_init(&map);
+	ZEND_HASH_FOREACH_STR_KEY_VAL(Z_ARRVAL_P(keys), field, col) {
+		if (!field) {
+			continue;
+		}
+		if (!col || Z_TYPE_P(col) == IS_NULL) {
+			add_assoc_null_ex(&map, ZSTR_VAL(field), ZSTR_LEN(field));
+			continue;
+		}
+		if (Z_TYPE_P(col) != IS_STRING || !gene_orm_valid_ident(Z_STR_P(col))) {
+			continue;
+		}
+		if (meta->primary_key && zend_string_equals(Z_STR_P(col), meta->primary_key)) {
+			if (pk && Z_TYPE_P(pk) != IS_NULL && Z_TYPE_P(pk) != IS_UNDEF) {
+				gene_orm_version_add_value(&map, field, pk);
+			} else if (rows) {
+				gene_orm_version_gather_col(&map, field, old, meta->primary_key);
+			} else {
+				zval *v = gene_orm_version_row_col(old, meta->primary_key);
+				if (v) {
+					gene_orm_version_add_value(&map, field, v);
+				}
+			}
+			continue;
+		}
+		if (is_delete) {
+			if (rows) {
+				gene_orm_version_gather_col(&map, field, old, Z_STR_P(col));
+			} else {
+				zval *v = gene_orm_version_row_col(old, Z_STR_P(col));
+				if (v) {
+					gene_orm_version_add_value(&map, field, v);
+				}
+			}
+			continue;
+		}
+		{
+			zval *neu = (data && Z_TYPE_P(data) == IS_ARRAY)
+				? zend_hash_find(Z_ARRVAL_P(data), Z_STR_P(col)) : NULL;
+			if (rows) {
+				/* Batch where: every prefetched row's current value plus the
+				 * payload's new value (once). */
+				zval gathered, *row;
+				array_init(&gathered);
+				ZEND_HASH_FOREACH_VAL(Z_ARRVAL_P(old), row) {
+					zval *v = gene_orm_version_row_col(row, Z_STR_P(col));
+					zval copy;
+					if (!v || Z_TYPE_P(v) == IS_NULL) {
+						continue;
+					}
+					ZVAL_COPY(&copy, v);
+					add_next_index_zval(&gathered, &copy);
+				} ZEND_HASH_FOREACH_END();
+				if (neu) {
+					zval copy;
+					ZVAL_COPY(&copy, neu);
+					add_next_index_zval(&gathered, &copy);
+				}
+				if (zend_hash_num_elements(Z_ARRVAL(gathered)) > 0) {
+					add_assoc_zval_ex(&map, ZSTR_VAL(field), ZSTR_LEN(field), &gathered);
+				} else {
+					zval_ptr_dtor(&gathered);
+				}
+			} else {
+				zval *prev = gene_orm_version_row_col(old, Z_STR_P(col));
+				if (neu) {
+					if (prev) {
+						gene_orm_version_add_pair(&map, field, prev, neu);
+					} else {
+						gene_orm_version_add_value(&map, field, neu);
+					}
+				} else if (prev) {
+					gene_orm_version_add_value(&map, field, prev);
+				}
+			}
+		}
+	} ZEND_HASH_FOREACH_END();
+	gene_orm_version_publish(db, &map);
 }

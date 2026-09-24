@@ -18,9 +18,14 @@ class Module extends \Gene\Model
      */
     function lists($purview = '')
     {
+        $ids = $this->csvIds($purview);
+        if (!$ids) {
+            return [];
+        }
         $list = $this->db
                      ->select("sys_module", "module_id,module_pid,module_title,module_url,module_icon")
-                     ->where("status=1 and module_icon!='' and find_in_set(module_id,?)", $purview)
+                     ->where("status=1 and module_icon!=''")
+                     ->in(" and module_id in(?)", $ids)
                      ->order("sort desc")
                      ->all();
         return $list;
@@ -89,10 +94,15 @@ class Module extends \Gene\Model
                       ->row();
         if (isset($curMenu['module_path'])) {
             $menu = [];
-            $parMenu = $this->db
+            $parMenu = [];
+            $ids = $this->csvIds($curMenu['module_path']);
+            if ($ids) {
+                $parMenu = $this->db
                       ->select("sys_module", "module_id,module_title,module_url")
-                      ->where("status=1 and FIND_IN_SET(module_id,?)", $curMenu['module_path'])
+                      ->where("status=1")
+                      ->in(" and module_id in(?)", $ids)
                       ->all();
+            }
             if (isset($parMenu[0])) {
                 foreach($parMenu as $v) {
                     $menu[$v['module_id']]['title'] = $v['module_title'];
@@ -122,7 +132,24 @@ class Module extends \Gene\Model
         }
         return $path;
     }
-    
+
+    /**
+     * 逗号分隔的正整数 id。等价于 FIND_IN_SET 的成员判断，SQLite 没有该函数。
+     *
+     * @param  string $csv
+     * @return int[]
+     */
+    private function csvIds($csv)
+    {
+        $ids = [];
+        foreach (explode(',', (string)$csv) as $part) {
+            $part = trim($part);
+            if ($part !== '' && ctype_digit($part) && (int)$part > 0) {
+                $ids[] = (int)$part;
+            }
+        }
+        return $ids;
+    }
     
     /**
      * row
@@ -189,7 +216,7 @@ class Module extends \Gene\Model
     function status($id)
     {
         return $this->db
-                    ->sql("update sys_module set status=abs(status-1)")
+                    ->sql("UPDATE sys_module SET status = CASE WHEN status = ? THEN 1 ELSE 0 END", [0])
                     ->where("module_id=?", $id)
                     ->affectedRows();
     }
