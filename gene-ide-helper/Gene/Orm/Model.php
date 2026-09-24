@@ -48,6 +48,30 @@ class Model extends \Gene\Model
      */
     protected static $timestampFormat = 'datetime';
 
+    /**
+     * 写成功后自动 Cache::updateVersion 的键。
+     * 值为列名时按该列取值；值为 null 时以 null 抬一次全局版本。
+     * 失效是行级的：写前按主键或同一 where 预读受影响行，映射列变更时
+     * 新旧值一并失效；payload 未含的映射列按其当前行值失效。
+     * 事务内 bump 按 PDO 连接分桶，仅本连接 commit 后冲刷、rollback 丢弃。
+     * 没有 cache 组件时不执行。
+     *
+     * @var array<string, string|null>|null
+     */
+    protected static $versionKeys = null;
+
+    /**
+     * 非主键 updateBy / 批量删除的版本失效预读上限（行）。
+     * 命中行数超过该上限时写仍执行、发出 E_WARNING，并跳过版本失效
+     * （宁可整体不失效，也不做部分失效）。
+     * 注意：预读 SELECT 与随后的 UPDATE 在事务外不是原子的——两语句之间
+     * 新满足 where 的行会被写入但不进 bump 集合。需要严格失效时，把
+     * 非主键批量更新放进 transaction() 内执行。
+     *
+     * @var int
+     */
+    protected static $versionScanLimit = 1000;
+
     /** @var string DI 服务名 */
     protected static $connection = 'db';
 
@@ -134,6 +158,22 @@ class Model extends \Gene\Model
     public static function paginate($where, $offset, $limit, $order = null)
     {
         return ['count' => 0, 'list' => []];
+    }
+
+    /**
+     * page — 按页码分页。$page < 1 视为 1，$perPage < 1 抛异常。
+     * 内部派发到被调类的 paginate($where, $offset, $limit, $order)，
+     * 子类覆盖 paginate() 生效；返回其数组并补 page、limit。
+     *
+     * @param array|mixed $where
+     * @param int $page
+     * @param int $perPage
+     * @param string|null $order
+     * @return array{count:int,list:array,page:int,limit:int}
+     */
+    public static function page($where, $page, $perPage, $order = null)
+    {
+        return ['count' => 0, 'list' => [], 'page' => 1, 'limit' => 10];
     }
 
     /**
@@ -257,6 +297,23 @@ class Model extends \Gene\Model
      * @since 6.1.0
      */
     public static function toggle($id, $field, $values = [0, 1])
+    {
+        return 0;
+    }
+
+    /**
+     * flip — 一条 UPDATE 在两个值之间翻转（CASE WHEN），不先 SELECT。
+     * 并发两次都会生效。toggle() 仍是 CAS，败者返回 0。
+     * $field 必须是合法列名，且在 $fields 白名单内（未声明白名单时只校验列名）。
+     * $values 中的整型/布尔值按驱动内联为整数字面量或 TRUE/FALSE|1/0
+     * （PostgreSQL 原生 prepare 安全），字符串仍走绑定。
+     *
+     * @param mixed $id
+     * @param string $field
+     * @param array $values 两个候选值，默认 [0, 1]
+     * @return int
+     */
+    public static function flip($id, $field, $values = [0, 1])
     {
         return 0;
     }

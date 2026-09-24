@@ -18,14 +18,16 @@ class User extends \Gene\Controller
      */
     function run()
     {
-        $this->page = intval($this->get("page", 1));
-        $this->limit = intval($this->get("limit", 10));
+        $page = intval($this->get("page", 1));
+        $limit = intval($this->get("limit", 10));
         $search['role'] = $this->get("role", '');
         $search['name'] = $this->get("name", '');
-        $this->title = '用户管理';
-        $this->search = $search;
-        $this->userlist = \Services\Admin\User::getInstance()->lists($this->page, $this->limit, $this->search);
-        $this->group = \Services\Admin\Group::getInstance()->lists();
+        $this->view->assign('page', $page);
+        $this->view->assign('limit', $limit);
+        $this->view->assign('title', '用户管理');
+        $this->view->assign('search', $search);
+        $this->view->assign('userlist', \Services\Admin\User::getInstance()->lists($page, $limit, $search));
+        $this->view->assign('group', \Services\Admin\Group::getInstance()->lists());
         $this->display("admin/user/run", "parent");
     }
 
@@ -37,7 +39,8 @@ class User extends \Gene\Controller
      */
     function info($params)
     {
-        $this->id = intval($params["id"]);
+        // 视图变量走 assign()；$this->id 写入会进入 DI 注册表，影子掉名为 id 的注入组件
+        $this->view->assign('id', intval($params["id"]));
     }
     
     /**
@@ -48,8 +51,8 @@ class User extends \Gene\Controller
      */
     function set($params)
     {
-        $this->title = '修改资料';
-        $this->row = \Services\Admin\User::getInstance()->row($this->user['user_id']);
+        $this->view->assign('title', '修改资料');
+        $this->view->assign('row', \Services\Admin\User::getInstance()->row($this->user['user_id']));
         $this->display("admin/user/set", "dialog");
     }
     
@@ -79,8 +82,8 @@ class User extends \Gene\Controller
      */
     function add()
     {
-        $this->title = '菜单添加';
-        $this->group = \Services\Admin\Group::getInstance()->lists();
+        $this->view->assign('title', '菜单添加');
+        $this->view->assign('group', \Services\Admin\Group::getInstance()->lists());
         $this->display("admin/user/add", "dialog");
     }
     
@@ -93,6 +96,11 @@ class User extends \Gene\Controller
     function addPost()
     {
         $data = $this->post('data');
+        if (!$this->validate->init(is_array($data) ? $data : [])
+            ->name('user_name')->required()->msg('用户名不能为空')
+            ->valid()) {
+            return $this->error($this->validate->error());
+        }
         $id = \Services\Admin\User::getInstance()->add($data);
         if ($id) {
             return $this->success("添加成功");
@@ -108,10 +116,10 @@ class User extends \Gene\Controller
      */
     function edit($params)
     {
-        $this->title = '菜单修改';
+        $this->view->assign('title', '菜单修改');
         $id = intval($params["id"]);
-        $this->group = \Services\Admin\Group::getInstance()->lists();
-        $this->row = \Services\Admin\User::getInstance()->row($id);
+        $this->view->assign('group', \Services\Admin\Group::getInstance()->lists());
+        $this->view->assign('row', \Services\Admin\User::getInstance()->row($id));
         $this->display("admin/user/edit", "dialog");
     }
     
@@ -125,6 +133,11 @@ class User extends \Gene\Controller
     {
         $id = intval($this->post('id'));
         $data = $this->post('data');
+        if (!$this->validate->init(is_array($data) ? $data : [])
+            ->name('user_name')->required()->msg('用户名不能为空')
+            ->valid()) {
+            return $this->error($this->validate->error());
+        }
         $count = \Services\Admin\User::getInstance()->edit($id, $data);
         if ($count) {
             return $this->success("修改成功");

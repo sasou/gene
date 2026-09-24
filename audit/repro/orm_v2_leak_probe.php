@@ -83,5 +83,59 @@ $ok &= probe('updateOrCreate + toggle (timestamps meta)', 5000, function () {
     LM::toggle(1, 'status', [0, 1]);
 });
 
+/* [GENE_FIX:2026-09-23 R12] versionKeys write paths: prefetch arrays,
+ * old/new pair maps, per-PDO pending buckets, post-flip row view. The
+ * cache hook must not accumulate — recording bumps would fake a leak. */
+eval('class LMV extends \\Gene\\Orm\\Model {
+    protected static $table = "m";
+    protected static $connection = "orm_db";
+    protected static $versionKeys = ["db.lm.id" => "id", "db.lm.name" => "name"];
+}');
+\Gene\Di::set('cache', new class {
+    public function updateVersion($fields) { return true; }
+});
+
+/* [GENE_FIX:2026-09-23 S2] A where that matches >1000 rows only exercises
+ * the overflow-warn branch — prefetch/commit_write never run. Use a 1-row
+ * where for the real path, plus a high-limit subclass for the multi-row
+ * gather_col batch path, and fail on any unexpected E_WARNING. */
+eval('class LMVBig extends LMV {
+    protected static $versionScanLimit = 100000;
+}');
+
+$vkWarn = null;
+set_error_handler(function ($no, $str) use (&$vkWarn) { $vkWarn = $str; return true; });
+$ok &= probe('flip() int inline + version bump', 10000, function () {
+    LMV::flip(1, 'status', [0, 1]);
+});
+$ok &= probe('updateBy pk + version bump (row prefetch)', 10000, function () {
+    LMV::updateBy(1, ['status' => 1]);
+});
+$ok &= probe('updateBy non-pk where prefetch+bump (1 row)', 5000, function () {
+    LMV::updateBy(['name' => 'seed'], ['status' => 1]);
+});
+$ok &= probe('updateBy non-pk where prefetch+bump (all rows)', 50, function () {
+    LMVBig::updateBy(['status' => 1], ['status' => 1]);
+});
+if ($vkWarn !== null) {
+    echo "UNEXPECTED WARNING during versionKeys probes: $vkWarn\n";
+    $ok = false;
+}
+restore_error_handler();
+
+$ok &= probe('updateBy non-pk where OVERFLOW (warn+skip)', 100, function () {
+    set_error_handler(function () { return true; });
+    LMV::updateBy(['status' => 1], ['status' => 1]);
+    restore_error_handler();
+});
+$ok &= probe('page() paginate dispatch', 10000, function () {
+    LMV::page(['status' => 1], 1, 3, null);
+});
+$ok &= probe('transaction deferred version bump', 5000, function () {
+    LMV::transaction(function () {
+        LMV::updateBy(1, ['status' => 1]);
+    });
+});
+
 echo $ok ? "LEAK PROBE OK\n" : "LEAK PROBE FAILED\n";
 exit($ok ? 0 : 1);

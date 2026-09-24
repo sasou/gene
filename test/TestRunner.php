@@ -27,7 +27,8 @@ $testFiles = [
     'LifecycleTest.php',
     'HttpClientTest.php',
     'RestInvokeTest.php',
-    'SwooleEntryTest.php'
+    'SwooleEntryTest.php',
+    'DemoLoadTest.php'
 ];
 
 // Test runner class
@@ -42,11 +43,124 @@ class TestRunner
         $this->startTime = microtime(true);
     }
 
+    /**
+     * [GENE_FIX:2026-09-23 S5] php args every child process gets.
+     * GENE_TEST_PHP_ARGS wins. When the runner itself was started with -n
+     * (no php.ini) a plain `php` child would read the default ini and load
+     * the DEPLOYED php_gene.dll instead of the freshly built one — the
+     * classic "18 phantom failures" trap. Forward -n plus every loaded
+     * extension that came from a file, so children mirror this process.
+     */
+    private function childPhpArgs()
+    {
+        static $cached = null;
+        if ($cached !== null) {
+            return $cached;
+        }
+        $env = getenv('GENE_TEST_PHP_ARGS');
+        if (is_string($env) && $env !== '') {
+            return $cached = $env;
+        }
+        $cached = '';
+        if (php_ini_loaded_file() === false) {
+            // Started with -n: children need explicit -d extension args.
+            // ReflectionExtension::getFileName() only exists on PHP >= 8.4,
+            // so fall back to a file probe in ini extension_dir.
+            static $builtin = ['Core' => 1, 'date' => 1, 'hash' => 1, 'json' => 1,
+                'pcre' => 1, 'pdo' => 1, 'Reflection' => 1, 'SPL' => 1, 'standard' => 1];
+            $args = ['-n'];
+            $unmapped = [];
+            $dir = ini_get('extension_dir');
+            foreach (get_loaded_extensions() as $ext) {
+                $file = false;
+                if (method_exists('ReflectionExtension', 'getFileName')) {
+                    $file = (new \ReflectionExtension($ext))->getFileName();
+                }
+                if ((!is_string($file) || $file === '') && is_string($dir) && $dir !== '') {
+                    foreach (["php_{$ext}.dll", "{$ext}.dll", "{$ext}.so"] as $cand) {
+                        if (is_file($dir . DIRECTORY_SEPARATOR . $cand)) {
+                            $file = $dir . DIRECTORY_SEPARATOR . $cand;
+                            break;
+                        }
+                    }
+                }
+                if (is_string($file) && $file !== '') {
+                    $args[] = '-d extension=' . $file;
+                } elseif (!isset($builtin[$ext])) {
+                    $unmapped[] = $ext;
+                }
+            }
+            $cached = implode(' ', array_map('escapeshellarg', $args));
+            // Grandchildren (e.g. DemoLoadTest's own proc_open spawns)
+            // inherit this env and forward the same args.
+            putenv('GENE_TEST_PHP_ARGS=' . $cached);
+            // Noise floor: most builds compile these statically — they are
+            // absent from extension_dir but also don't need forwarding.
+            static $needed = ['gene', 'pdo_sqlite', 'pdo_mysql', 'pdo_pgsql',
+                'curl', 'openssl', 'redis', 'swoole', 'memcached'];
+            $missing = array_intersect($unmapped, $needed);
+            if ($missing) {
+                fwrite(STDERR, "[TestRunner] WARNING: cannot derive dll path for "
+                    . "needed extension(s) " . implode(', ', $missing) . " — "
+                    . "child processes run WITHOUT them. Set GENE_TEST_PHP_ARGS "
+                    . "with explicit '-d extension=<path>' entries.\n");
+            }
+        } elseif (extension_loaded('gene')) {
+            fwrite(STDERR, "[TestRunner] WARNING: GENE_TEST_PHP_ARGS is empty and "
+                . "php.ini is in use — child processes load php.ini's extension "
+                . "list. If this runner was started with -d extension=<fresh "
+                . "dll>, set GENE_TEST_PHP_ARGS='-d extension=<dll>'.\n");
+        }
+        return $cached;
+    }
+
+    /**
+     * One-line banner with the child process's gene version + dll path, so a
+     * mismatched extension is visible right above the test output. Probed
+     * once (args are identical for every child).
+     */
+    private function childEnvBanner($phpArgs)
+    {
+        static $printed = false;
+        if ($printed) {
+            return '';
+        }
+        $printed = true;
+        $cmd = escapeshellarg(PHP_BINARY) . ' ' . $phpArgs
+            . ' -r ' . escapeshellarg(
+                'echo \'[child-env] gene=\', '
+                . '(extension_loaded(\'gene\') ? phpversion(\'gene\') : \'NOT LOADED\'), '
+                . '\' php=\', PHP_VERSION, \' ext_dir=\', ini_get(\'extension_dir\'), PHP_EOL;'
+            );
+        $out = [];
+        exec($cmd . ' 2>&1', $out);
+        $line = implode("\n", $out);
+        // The derived/guessed args may still resolve to a different dll than
+        // the one this process loaded (e.g. a stale build in extension_dir).
+        if (preg_match('/gene=([0-9][^ ]*)/', $line, $m)) {
+            $mine = extension_loaded('gene') ? phpversion('gene') : null;
+            if ($mine === null) {
+                fwrite(STDERR, "[TestRunner] WARNING: children load gene "
+                    . "{$m[1]} but this runner has NO gene loaded.\n");
+            } elseif ($m[1] !== $mine) {
+                fwrite(STDERR, "[TestRunner] WARNING: children load gene "
+                    . "{$m[1]} but this runner has gene {$mine} — results "
+                    . "reflect the WRONG build. Set GENE_TEST_PHP_ARGS with "
+                    . "'-d extension=<fresh dll>'.\n");
+            }
+        } else {
+            fwrite(STDERR, "[TestRunner] WARNING: gene not loaded in child "
+                . "processes — suite will SKIP gene-dependent tests. Set "
+                . "GENE_TEST_PHP_ARGS with '-d extension=<dll>'.\n");
+        }
+        return $line . "\n";
+    }
+
     private function runIsolated($testPath)
     {
         $command = [escapeshellarg(PHP_BINARY)];
-        $phpArgs = getenv('GENE_TEST_PHP_ARGS');
-        if (is_string($phpArgs) && $phpArgs !== '') {
+        $phpArgs = $this->childPhpArgs();
+        if ($phpArgs !== '') {
             $command[] = $phpArgs;
         }
         $command[] = escapeshellarg($testPath);
@@ -62,7 +176,7 @@ class TestRunner
         fclose($pipes[0]);
         $output = stream_get_contents($pipes[1]);
         fclose($pipes[1]);
-        return [$output, proc_close($process)];
+        return [$this->childEnvBanner($phpArgs) . $output, proc_close($process)];
     }
     
     /**
@@ -94,7 +208,8 @@ class TestRunner
             'LifecycleTest.php',
             'HttpClientTest.php',
             'RestInvokeTest.php',
-            'SwooleEntryTest.php'
+            'SwooleEntryTest.php',
+            'DemoLoadTest.php'
         ];
         
         $totalTests = 0;

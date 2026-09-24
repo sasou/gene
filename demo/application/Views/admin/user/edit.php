@@ -1,5 +1,5 @@
 <form class="layui-form" action="" lay-filter="geneForm">
-    <input type="hidden" name="id" value="<?php echo $this->row['user_id'];?>" >
+    <input type="hidden" name="id" value="<?php echo $row['user_id'];?>" >
   <div class="layui-form-item">
     <label class="layui-form-label">用户名</label>
     <div class="layui-input-inline">
@@ -11,7 +11,7 @@
     <div class="layui-input-inline">
       <select name="data[group_id]" lay-verify="required">
         <option value=""></option>
-        <?php foreach($this->group['list'] as $one): ?>
+        <?php foreach($group['list'] as $one): ?>
         <option value="<?php echo $one['group_id']?>"><?php echo $one['group_title']?></option>
         <?php endforeach;?>
       </select>
@@ -59,10 +59,10 @@
 </form>
 <script>
 initForm('geneForm', {
-    "data[user_name]": "<?php echo $this->row['user_name'];?>",
-    "data[user_realname]": "<?php echo $this->row['user_realname'];?>",
-    "data[group_id]": <?php echo $this->row['group_id'];?>,
-    "data[status]": <?php echo $this->row['status'];?>
+    "data[user_name]": "<?php echo $row['user_name'];?>",
+    "data[user_realname]": "<?php echo $row['user_realname'];?>",
+    "data[group_id]": <?php echo $row['group_id'];?>,
+    "data[status]": <?php echo $row['status'];?>
 });
 
 layui.use(['form','layer'], function(){

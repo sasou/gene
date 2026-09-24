@@ -15,9 +15,10 @@ class Group extends \gene\Controller
      */
     function run()
     {
-        $this->page = intval($this->get("page", 1));
-        $this->title = '角色管理';
-        $this->group = \Services\Admin\Group::getInstance()->lists($this->page);
+        $page = intval($this->get("page", 1));
+        $this->view->assign('page', $page);
+        $this->view->assign('title', '角色管理');
+        $this->view->assign('group', \Services\Admin\Group::getInstance()->lists($page));
         $this->display("admin/group/run", "parent");
     }
 
@@ -30,7 +31,8 @@ class Group extends \gene\Controller
     function info($params)
     {
         $id = intval($params["id"]);
-        $this->row = \Services\Admin\Module::getInstance()->row($id);
+        // $this->row 是 DI 写入；视图数据用 assign()
+        $this->view->assign('row', \Services\Admin\Module::getInstance()->row($id));
     }
     
     /**
@@ -38,8 +40,8 @@ class Group extends \gene\Controller
      */
     function add()
     {
-        $this->title = '角色添加';
-        $this->purviewList = \Services\Admin\Module::getInstance()->purviewList();
+        $this->view->assign('title', '角色添加');
+        $this->view->assign('purviewList', \Services\Admin\Module::getInstance()->purviewList());
         $this->display("admin/group/add", "dialog");
     }
     
@@ -50,6 +52,11 @@ class Group extends \gene\Controller
     {
         $data = $this->post('data');
         $purview = $this->post('purview');
+        if (!$this->validate->init(is_array($data) ? $data : [])
+            ->name('group_title')->required()->msg('角色名不能为空')
+            ->valid()) {
+            return $this->error($this->validate->error());
+        }
         $id = \Services\Admin\Group::getInstance()->add($data);
         if ($id) {
             \Services\Admin\Purview::getInstance()->add($id, $purview);
@@ -66,11 +73,11 @@ class Group extends \gene\Controller
      */
     function edit($params)
     {
-        $this->title = '角色修改';
+        $this->view->assign('title', '角色修改');
         $id = intval($params["id"]);
-        $this->purviewList = \Services\Admin\Module::getInstance()->purviewList();
-        $this->purview = \Services\Admin\Purview::getInstance()->lists($id);
-        $this->group = \Services\Admin\Group::getInstance()->row($id);
+        $this->view->assign('purviewList', \Services\Admin\Module::getInstance()->purviewList());
+        $this->view->assign('purview', \Services\Admin\Purview::getInstance()->lists($id));
+        $this->view->assign('group', \Services\Admin\Group::getInstance()->row($id));
         $this->display("admin/group/edit", "dialog");
     }
     
@@ -82,6 +89,11 @@ class Group extends \gene\Controller
         $id = intval($this->post('id'));
         $data = $this->post('data');
         $purview = $this->post('purview');
+        if (!$this->validate->init(is_array($data) ? $data : [])
+            ->name('group_title')->required()->msg('角色名不能为空')
+            ->valid()) {
+            return $this->error($this->validate->error());
+        }
         $count_g = \Services\Admin\Group::getInstance()->edit($id, $data);
         $count_p = \Services\Admin\Purview::getInstance()->update($id, $purview);
         if ($count_g || $count_p) {

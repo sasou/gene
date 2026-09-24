@@ -19,8 +19,8 @@ class Index extends \Gene\Controller
      */
     function run()
     {
-        $this->title = 'Gene';
-        $this->loginInfo = \Services\Admin\Log::getInstance()->getUserLastLoginInfo($this->user['user_id']);
+        $this->view->assign('title', 'Gene');
+        $this->view->assign('loginInfo', \Services\Admin\Log::getInstance()->getUserLastLoginInfo($this->user['user_id']));
         $this->display("welcome", "parent");
     }
     
@@ -32,7 +32,7 @@ class Index extends \Gene\Controller
      */
     function login()
     {
-        $this->title = 'Gene';
+        $this->view->assign('title', 'Gene');
         $this->display("index/login");
     }
     

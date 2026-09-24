@@ -491,10 +491,31 @@ ZEND_END_ARG_INFO()
 
 		hook = gene_session_get_handler(obj);
 		if (hook) {
-			zval params[] = { *session_id,*data };
-			zval ret;
+			/* [GENE_FIX:2026-09-23 P1] Pass cookie_lifetime as set()'s third
+			 * argument when the handler accepts it. Memory/Redis/Memcached
+			 * treat a missing TTL as "never expire", so a Swoole worker using
+			 * Gene\Memory as the session store grew one record per visitor
+			 * until process exit. Handlers declared with exactly two
+			 * parameters keep the old call (no ArgumentCountError). */
+			zval ttl_zv, params[3], ret;
+			zend_long sec = 86400;
+			uint32_t argc = 2;
+			zval *life = zend_read_property(gene_session_ce, gene_strip_obj(obj), ZEND_STRL(GENE_SESSION_COOKIE_LIFTTIME), 1, NULL);
+			zend_function *set_fn;
+
+			if (life && Z_TYPE_P(life) == IS_LONG && Z_LVAL_P(life) > 0) {
+				sec = Z_LVAL_P(life);
+			}
+			ZVAL_LONG(&ttl_zv, sec);
+			params[0] = *session_id;
+			params[1] = *data;
+			params[2] = ttl_zv;
+			set_fn = zend_hash_find_ptr(&Z_OBJCE_P(hook)->function_table, gene_session_method_set());
+			if (set_fn && (set_fn->common.num_args >= 3 || (set_fn->common.fn_flags & ZEND_ACC_VARIADIC))) {
+				argc = 3;
+			}
 			ZVAL_UNDEF(&ret);
-			gene_session_call_method(hook, gene_session_method_set(), 2, params, &ret);
+			gene_session_call_method(hook, gene_session_method_set(), argc, params, &ret);
 			zend_update_property(gene_session_ce, gene_strip_obj(obj), ZEND_STRL(GENE_SESSION_DATA), data);
 			if (!Z_ISUNDEF(ret)) {
 				zval_ptr_dtor(&ret);
@@ -572,10 +593,14 @@ void gene_cookie(zval *self) /*{{{*/
 	zval times;
 	zend_long now = gene_session_now();
 	zend_long jg;
-	if (Z_TYPE_P(lifetime) == IS_LONG) {
+	/* [GENE_FIX:2026-09-23 R8] cookie_lifetime <= 0 means a browser-session
+	 * cookie: emit expires=0 (setcookie/Swoole convention) instead of
+	 * now+lifetime, which produced an already-expired timestamp and made
+	 * clients drop the cookie immediately. */
+	if (Z_TYPE_P(lifetime) == IS_LONG && Z_LVAL_P(lifetime) > 0) {
 		jg = now + Z_LVAL_P(lifetime);
 	} else {
-		jg = now + 7200;
+		jg = 0;
 	}
 	ZVAL_LONG(&times, jg);
 
@@ -861,6 +886,31 @@ bool gene_session_del_by_path(zval *obj, char *path) {
 }
 /* }}} */
 
+/* [GENE_FIX:2026-09-23 S6] Session ttl/uttl now drive the storage TTL
+ * (P1), so a silently-ignored config value costs real session lifetime.
+ * Accept IS_LONG and numeric strings; anything else warns once instead of
+ * falling back to the default unnoticed. */
+static void gene_session_config_long(zval *config, const char *key, size_t key_len,
+		zval *self, const char *prop, size_t prop_len) {
+	zval *val = zend_hash_str_find(Z_ARRVAL_P(config), key, key_len);
+	zend_long v;
+
+	if (!val) {
+		return;
+	}
+	if (Z_TYPE_P(val) == IS_LONG) {
+		v = Z_LVAL_P(val);
+	} else if (Z_TYPE_P(val) == IS_STRING &&
+		is_numeric_string(Z_STRVAL_P(val), Z_STRLEN_P(val), &v, NULL, 0) == IS_LONG) {
+		/* v converted by is_numeric_string */
+	} else {
+		php_error_docref(NULL, E_WARNING,
+			"Gene\\Session: '%s' must be an integer seconds value, ignored", key);
+		return;
+	}
+	zend_update_property_long(gene_session_ce, gene_strip_obj(self), prop, prop_len, v);
+}
+
 /*
  * {{{ gene_session
  */
@@ -911,14 +961,10 @@ PHP_METHOD(gene_session, __construct) {
 		if (val && Z_TYPE_P(val) == IS_STRING) {
 			zend_update_property_string(gene_session_ce, gene_strip_obj(self), ZEND_STRL(GENE_SESSION_SAMESITE), Z_STRVAL_P(val));
 		}
-		val = zend_hash_str_find(Z_ARRVAL_P(config), ZEND_STRL("ttl"));
-		if (val && Z_TYPE_P(val) == IS_LONG) {
-			zend_update_property_long(gene_session_ce, gene_strip_obj(self), ZEND_STRL(GENE_SESSION_COOKIE_LIFTTIME), Z_LVAL_P(val));
-		}
-		val = zend_hash_str_find(Z_ARRVAL_P(config), ZEND_STRL("uttl"));
-		if (val && Z_TYPE_P(val) == IS_LONG) {
-			zend_update_property_long(gene_session_ce, gene_strip_obj(self), ZEND_STRL(GENE_SESSION_COOKIE_UPTIME), Z_LVAL_P(val));
-		}
+		gene_session_config_long(config, ZEND_STRL("ttl"), self,
+			ZEND_STRL(GENE_SESSION_COOKIE_LIFTTIME));
+		gene_session_config_long(config, ZEND_STRL("uttl"), self,
+			ZEND_STRL(GENE_SESSION_COOKIE_UPTIME));
 		val = zend_hash_str_find(Z_ARRVAL_P(config), ZEND_STRL("hash_mode"));
 		if (val && Z_TYPE_P(val) == IS_LONG) {
 			zend_update_property_long(gene_session_ce, gene_strip_obj(self), ZEND_STRL(GENE_SESSION_HASH_MODE), Z_LVAL_P(val));

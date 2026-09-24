@@ -18,8 +18,8 @@ class Module extends \Gene\Controller
      */
     function run()
     {
-        $this->title = '权限分类';
-        $this->module = \Services\Admin\Module::getInstance()->manageList();
+        $this->view->assign('title', '权限分类');
+        $this->view->assign('module', \Services\Admin\Module::getInstance()->manageList());
         $this->display("admin/module/run", "parent");
     }
 
@@ -32,7 +32,8 @@ class Module extends \Gene\Controller
     function info($params)
     {
         $id = intval($params["id"]);
-        $this->row = \Services\Admin\Module::getInstance()->row($id);
+        // $this->row 是 DI 写入；视图数据用 assign()
+        $this->view->assign('row', \Services\Admin\Module::getInstance()->row($id));
     }
     
     /**
@@ -43,8 +44,8 @@ class Module extends \Gene\Controller
      */
     function add()
     {
-        $this->title = '菜单添加';
-        $this->moduleList = \Services\Admin\Module::getInstance()->manageList();
+        $this->view->assign('title', '菜单添加');
+        $this->view->assign('moduleList', \Services\Admin\Module::getInstance()->manageList());
         $this->display("admin/module/add", "dialog");
     }
     
@@ -57,6 +58,11 @@ class Module extends \Gene\Controller
     function addPost()
     {
         $data = $this->post('data');
+        if (!$this->validate->init(is_array($data) ? $data : [])
+            ->name('module_title')->required()->msg('名称不能为空')
+            ->valid()) {
+            return $this->error($this->validate->error());
+        }
         $id = \Services\Admin\Module::getInstance()->add($data);
         if ($id) {
             return $this->success("添加成功");
@@ -72,10 +78,10 @@ class Module extends \Gene\Controller
      */
     function edit($params)
     {
-        $this->title = '菜单修改';
+        $this->view->assign('title', '菜单修改');
         $id = intval($params["id"]);
-        $this->moduleList = \Services\Admin\Module::getInstance()->manageList();
-        $this->module = \Services\Admin\Module::getInstance()->row($id);
+        $this->view->assign('moduleList', \Services\Admin\Module::getInstance()->manageList());
+        $this->view->assign('module', \Services\Admin\Module::getInstance()->row($id));
         $this->display("admin/module/edit", "dialog");
     }
     
@@ -89,6 +95,11 @@ class Module extends \Gene\Controller
     {
         $id = intval($this->post('id'));
         $data = $this->post('data');
+        if (!$this->validate->init(is_array($data) ? $data : [])
+            ->name('module_title')->required()->msg('名称不能为空')
+            ->valid()) {
+            return $this->error($this->validate->error());
+        }
         $count = \Services\Admin\Module::getInstance()->edit($id, $data);
         if ($count) {
             return $this->success("修改成功");

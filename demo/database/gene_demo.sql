@@ -280,7 +280,7 @@ CREATE TABLE `sys_user` (
   `user_id` int(11) unsigned NOT NULL AUTO_INCREMENT COMMENT 'ID',
   `user_name` varchar(50) NOT NULL DEFAULT '' COMMENT '用户',
   `user_salt` varchar(50) NOT NULL DEFAULT '' COMMENT '密码加盐',
-  `user_pass` varchar(50) NOT NULL DEFAULT '' COMMENT '用户密码',
+  `user_pass` varchar(255) NOT NULL DEFAULT '' COMMENT '用户密码',
   `user_realname` varchar(50) NOT NULL DEFAULT '' COMMENT '用户真实姓名',
   `user_icon` varchar(150) NOT NULL DEFAULT '' COMMENT '头像',
   `group_id` int(11) NOT NULL DEFAULT 0 COMMENT '用户组ID',

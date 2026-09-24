@@ -663,6 +663,28 @@ void makeArgsKey(zend_ulong indexs, zend_string *id, zval *element, smart_str *t
 	}
 }
 /*}}}*/
+
+/* [GENE_FIX:2026-09-23 P4/R10] Callback method cache lives at file scope so
+ * gene_cache_call_reset() can zero it from RINIT. Only immutable/internal
+ * functions are ever stored (see below); the RINIT reset additionally covers
+ * opcache restarts (opcache_reset / SHM exhaustion), which rebuild class
+ * entries and interned names inside the same RINIT — leaving stale
+ * CE/function pointers that could alias freed SHM. ZTS builds never cache:
+ * per-thread CEs would cross threads in a process-level table. */
+#ifndef ZTS
+struct gene_fn_slot { zend_class_entry *ce; zend_string *m; zend_function *fn; };
+static struct gene_fn_slot gene_fn_slots[4] = {{0}};
+static unsigned int gene_fn_slot_rr = 0;
+#endif
+
+void gene_cache_call_reset(void)
+{
+#ifndef ZTS
+	memset(gene_fn_slots, 0, sizeof(gene_fn_slots));
+	gene_fn_slot_rr = 0;
+#endif
+}
+
 void gene_cache_call(zval *object, zval *args, zval *retval) /*{{{*/
 {
 	zval *class = NULL, *method = NULL, *element = NULL;
@@ -710,13 +732,18 @@ void gene_cache_call(zval *object, zval *args, zval *retval) /*{{{*/
 		zend_string *mname = Z_STR_P(method);
 		zend_function *fn = NULL;
 
-		struct gene_fn_slot { zend_class_entry *ce; zend_string *m; zend_function *fn; };
-		static struct gene_fn_slot slots[4] = {{0}};
-		static unsigned int rr = 0;
+		/* [GENE_FIX:2026-09-23 P4] Only cache immutable/internal functions.
+		 * A process-lifetime slot holding a user zend_function* dangles
+		 * after RSHUTDOWN when opcache is off (the next request can reuse
+		 * the same CE address) and is cross-thread under ZTS. The lookup
+		 * is not on the SQL/network path that follows a cache miss.
+		 * Slots are file-scope and zeroed every RINIT (R10). */
+#ifndef ZTS
 		unsigned int s;
 		for (s = 0; s < 4; s++) {
-			if (slots[s].ce == ce && slots[s].m == mname) { fn = slots[s].fn; break; }
+			if (gene_fn_slots[s].ce == ce && gene_fn_slots[s].m == mname) { fn = gene_fn_slots[s].fn; break; }
 		}
+#endif
 		if (!fn) {
 			char lc_stack[128];
 			char *lc = lc_stack;
@@ -729,12 +756,15 @@ void gene_cache_call(zval *object, zval *args, zval *retval) /*{{{*/
 			zend_str_tolower_copy(lc, ZSTR_VAL(mname), mlen);
 			fn = zend_hash_str_find_ptr(&ce->function_table, lc, mlen);
 			if (lc_heap) efree(lc);
-			if (fn && ZSTR_IS_INTERNED(mname)) {
-				unsigned int idx = (rr++) & 3;
-				slots[idx].ce = ce;
-				slots[idx].m = mname;
-				slots[idx].fn = fn;
+#ifndef ZTS
+			if (fn && ZSTR_IS_INTERNED(mname) &&
+				(fn->type == ZEND_INTERNAL_FUNCTION || (fn->common.fn_flags & ZEND_ACC_IMMUTABLE))) {
+				unsigned int idx = (gene_fn_slot_rr++) & 3;
+				gene_fn_slots[idx].ce = ce;
+				gene_fn_slots[idx].m = mname;
+				gene_fn_slots[idx].fn = fn;
 			}
+#endif
 		}
 		if (fn) {
 			zend_call_known_function(fn, Z_OBJ_P(class), ce, retval, argc, params, NULL);

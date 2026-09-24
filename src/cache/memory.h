@@ -65,7 +65,7 @@
 struct _filenode {
 	zend_long stime;
 	zend_long ftime;
-	int validity;
+	zend_long validity;
 	int status;
 };
 
@@ -79,7 +79,7 @@ void gene_hash_destroy(HashTable *ht);
 /* [GENE_MEM:2026-06-19 M1] Free the Gene\Cache business-partition LRU tracking
  * set (and its persistent key copies). Safe no-op when tracking is inactive. */
 void gene_cache_lru_destroy(void);
-void gene_memory_set(char *keyString, size_t keyString_len, zval *zvalue, int validity);
+void gene_memory_set(char *keyString, size_t keyString_len, zval *zvalue, zend_long validity);
 zval * gene_memory_get(char *keyString, size_t keyString_len);
 int gene_business_memory_get_copy(char *keyString, size_t keyString_len, zval *dst);
 /* [GENE_PERF:2026-04-19] gene_memory_get_quick collapsed to macro — it was an alias
@@ -96,11 +96,11 @@ void gene_memory_get_triple(
 	const char *k2, size_t k2_len, zval **out2,
 	const char *k3, size_t k3_len, zval **out3);
 zval * gene_memory_get_by_config(char *keyString, size_t keyString_len,char *path);
-void gene_memory_set_by_router(char *keyString, size_t keyString_len, char *path, zval *zvalue, int validity);
+void gene_memory_set_by_router(char *keyString, size_t keyString_len, char *path, zval *zvalue, zend_long validity);
 zend_long gene_memory_getTime(char *keyString, size_t keyString_len);
 int gene_memory_exists(char *keyString, size_t keyString_len);
 int gene_memory_del(char *keyString, size_t keyString_len);
-void file_cache_set_val(char *val, size_t keyString_len, zend_long times, int validity);
+void file_cache_set_val(char *val, size_t keyString_len, zend_long times, zend_long validity);
 filenode * file_cache_get_easy(char *keyString, size_t keyString_len);
 
 void gene_memory_hash_copy_local(HashTable *target, HashTable *source);

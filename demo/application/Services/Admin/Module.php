@@ -9,6 +9,10 @@ namespace Services\Admin;
  */
 class Module extends \Gene\Service
 {
+    /** @var array 面包屑路径；真实属性，避免 $this->path 走 DI 注册表 */
+    public $path = [];
+    /** @var int 当前栏目 id；真实属性，避免 $this->id 走 DI 注册表 */
+    public $id = 0;
 
     /**
      * lists

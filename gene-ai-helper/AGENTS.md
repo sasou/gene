@@ -7,7 +7,7 @@
 
 ## 1. 框架认知
 
-- Gene 是 **PHP 扩展**（`extension=gene`），版本线 **6.2.x**（当前 6.2.5），要求 **PHP 8.0–8.5**
+- Gene 是 **PHP 扩展**（`extension=gene`），版本线 **6.2.x**（当前 6.2.6），要求 **PHP 8.0–8.5**
 - API 最终权威来源：`src/` 中的类注册、方法表与 arginfo；`gene-ide-helper/Gene/**/*.php` 用于 IDE 签名，`demo/` 用于推荐用法
 - **禁止**编造类名、方法名或配置键；不确定时先查 `gene-ide-helper` / reference，维护 helper 时必须回查 `src/`
 
@@ -94,9 +94,12 @@ $config->set('db', [
 
 ```php
 class User extends \Gene\Orm\Model {
-    protected static string $table = 'sys_user';
-    protected static string $primaryKey = 'user_id';
-    protected static array $fields = ['user_id', 'user_name', 'status'];
+    // C 层父类按无类型 static 声明，子类声明也【不得加类型】（否则继承即 fatal）；
+    // 类型意图写进 PHPDoc。
+    /** @var string */ protected static $table = 'sys_user';
+    /** @var string */ protected static $primaryKey = 'user_id';
+    /** @var string[] */ protected static $fields = ['user_id', 'user_name', 'status'];
+    /** @var array<string,string> 版本键 => 行内列名 */ protected static $versionKeys = [];
 }
 return User::query()->where(['status' => 1])->order('user_id DESC')->limit($start, $count)->all();
 ```

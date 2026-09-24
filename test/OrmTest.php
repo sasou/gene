@@ -54,7 +54,7 @@ class OrmTest
             'find', 'findAll', 'paginate', 'query', 'where',
             'create', 'updateBy', 'destroy', 'destroyAll',
             'fill', 'save', 'delete', 'toArray', 'getInstance', 'setExists',
-            'findMany', 'createMany', 'insertIgnore', 'updateOrCreate', 'toggle',
+            'findMany', 'createMany', 'insertIgnore', 'updateOrCreate', 'toggle', 'flip', 'page',
             'transaction', 'transact',
             '__get', '__set', '__isset', '__unset',
         ];
@@ -572,6 +572,86 @@ class OrmTest
                 $this->ok('in($col, []) -> paginate {0, []}');
             } else {
                 $this->fail('empty in paginate: ' . json_encode($pg));
+            }
+
+            // [GENE_FIX:2026-09-23] v1 connector-carrying fragments —
+            // in(" and id in(?)") is the documented Db API contract
+            // (demo Group::delAll). Query used to splice it verbatim:
+            // "WHERE ... AND and ..." / "WHERE and ..." (MariaDB 1064,
+            // mchat Purview::lists). The connector must be stripped and
+            // re-emitted by the Query layer.
+            $rows = OrmTestQUser::query()
+                ->where('name != ?', 'u9')
+                ->in(' and id in(?)', [1, 3])
+                ->order('id asc')
+                ->all();
+            $sql = $this->lastSql($db);
+            if (is_array($rows) && count($rows) === 2
+                && ($rows[0]['id'] ?? 0) == 1 && ($rows[1]['id'] ?? 0) == 3) {
+                $this->ok('in(" and id in(?)") after where() works');
+            } else {
+                $this->fail('in(" and ...") after where: ' . json_encode($rows));
+            }
+            if ($sql !== null) {
+                if (stripos($sql, 'AND and') === false && stripos($sql, 'WHERE and') === false
+                    && strpos($sql, 'AND id') !== false) {
+                    $this->ok("in(' and ...') SQL sane: $sql");
+                } else {
+                    $this->fail("in(' and ...') SQL: $sql");
+                }
+            }
+
+            // same fragment as the FIRST/only condition — was "WHERE and id in(?)"
+            $rows = OrmTestQUser::query()->in(' and id in(?)', [1, 3])->order('id asc')->all();
+            $sql = $this->lastSql($db);
+            if (is_array($rows) && count($rows) === 2) {
+                $this->ok('in(" and id in(?)") standalone works');
+            } else {
+                $this->fail('in(" and ...") standalone: ' . json_encode($rows));
+            }
+            if ($sql !== null) {
+                if (strpos($sql, 'WHERE id') !== false) {
+                    $this->ok("standalone in SQL sane: $sql");
+                } else {
+                    $this->fail("standalone in SQL: $sql");
+                }
+            }
+
+            // string where() with a leading connector — same bug class
+            $rows = OrmTestQUser::query()->where('status=1')->where(' and name=?', 'u1')->all();
+            if (is_array($rows) && count($rows) === 1 && ($rows[0]['name'] ?? '') === 'u1') {
+                $this->ok('where(" and name=?") stripped');
+            } else {
+                $this->fail('where(" and ..."): ' . json_encode($rows));
+            }
+
+            // a leading OR connector is preserved as OR (v1 semantics)
+            $rows = OrmTestQUser::query()->where('status=?', 0)->in(' or id in(?)', [1])->all();
+            $sql = $this->lastSql($db);
+            if (is_array($rows) && count($rows) === 2) { // u3 (status=0) + u1 (id=1)
+                $this->ok('in(" or id in(?)") keeps OR semantics');
+            } else {
+                $this->fail('in(" or ..."): ' . json_encode($rows));
+            }
+            if ($sql !== null) {
+                if (strpos($sql, 'OR id') !== false) {
+                    $this->ok("or-in SQL keeps OR: $sql");
+                } else {
+                    $this->fail("or-in SQL: $sql");
+                }
+            }
+
+            // having() fragments get the same connector treatment
+            $rows = OrmTestQUser::query()
+                ->fields(['status'])
+                ->group('status')
+                ->having('count(id) >= 1')
+                ->having(' and count(id) <= 5')
+                ->all();
+            if (is_array($rows) && count($rows) === 2) {
+                $this->ok('having(" and ...") stripped');
+            } else {
+                $this->fail('having(" and ..."): ' . json_encode($rows));
             }
 
             // first()
@@ -1171,6 +1251,414 @@ class OrmTest
         }
     }
 
+    public function testFlipPageVersion()
+    {
+        echo "\nTesting flip / page / versionKeys (SQLite):\n";
+        if (!class_exists('\\Gene\\Db\\Sqlite')) {
+            $this->fail('skip flip — sqlite missing');
+            return;
+        }
+        if (!class_exists('OrmFlipUser')) {
+            eval('class OrmFlipUser extends \\Gene\\Orm\\Model {
+                protected static $table = "flip_users";
+                protected static $primaryKey = "id";
+                protected static $fields = ["id", "name", "status"];
+                protected static $connection = "flip_db";
+                protected static $versionKeys = ["db.flip.id" => "id", "db.flip.name" => "name"];
+            }');
+        }
+        try {
+            $db = new \Gene\Db\Sqlite(['dsn' => 'sqlite::memory:']);
+            $db->sql('CREATE TABLE flip_users (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                name TEXT NOT NULL,
+                status INTEGER DEFAULT 1
+            )')->execute();
+            \Gene\Di::set('flip_db', $db);
+            $cache = new class {
+                public $bumps = [];
+                public function updateVersion($fields) { $this->bumps[] = $fields; return true; }
+            };
+            \Gene\Di::set('cache', $cache);
+
+            $id = OrmFlipUser::create(['name' => 'ada', 'status' => 1]);
+            $page = OrmFlipUser::page([], 1, 2, 'id asc');
+            if ((int)$page['count'] === 1 && (int)$page['page'] === 1 && (int)$page['limit'] === 2
+                && ($page['list'][0]['name'] ?? '') === 'ada') {
+                $this->ok('page() returns count/list/page/limit');
+            } else {
+                $this->fail('page() ' . json_encode($page));
+            }
+            $n = OrmFlipUser::flip($id, 'status');
+            $row = OrmFlipUser::find($id);
+            if ($n === 1 && (int)$row['status'] === 0) {
+                $this->ok('flip 1 -> 0 in one update');
+            } else {
+                $this->fail("flip n=$n status=" . json_encode($row));
+            }
+            $n = OrmFlipUser::flip($id, 'status');
+            $row = OrmFlipUser::find($id);
+            if ($n === 1 && (int)$row['status'] === 1) {
+                $this->ok('flip 0 -> 1');
+            } else {
+                $this->fail("flip back n=$n " . json_encode($row));
+            }
+            $sawName = false;
+            foreach ($cache->bumps as $bump) {
+                if (isset($bump['db.flip.name']) && $bump['db.flip.name'] === 'ada') {
+                    $sawName = true;
+                }
+            }
+            if ($sawName) {
+                $this->ok('versionKeys bumped name on create');
+            } else {
+                $this->fail('versionKeys bumps ' . json_encode($cache->bumps));
+            }
+            $before = count($cache->bumps);
+            try {
+                OrmFlipUser::transaction(function () {
+                    OrmFlipUser::create(['name' => 'nope', 'status' => 1]);
+                    throw new \RuntimeException('rollback');
+                });
+            } catch (\RuntimeException $e) {
+            }
+            if (count($cache->bumps) === $before && !OrmFlipUser::query()->where(['name' => 'nope'])->row()) {
+                $this->ok('rolled-back create does not bump versionKeys');
+            } else {
+                $this->fail('rollback leaked a version bump or a row');
+            }
+            OrmFlipUser::updateBy($id, ['name' => 'ada2']);
+            $renamed = false;
+            foreach ($cache->bumps as $bump) {
+                $v = $bump['db.flip.name'] ?? null;
+                if (is_array($v) && in_array('ada', $v, true) && in_array('ada2', $v, true)) {
+                    $renamed = true;
+                }
+            }
+            if ($renamed) {
+                $this->ok('versionKeys bumps old and new name');
+            } else {
+                $this->fail('rename bumps ' . json_encode($cache->bumps));
+            }
+            \Gene\Di::del('cache');
+        } catch (\Throwable $e) {
+            \Gene\Di::del('cache');
+            $this->fail('flip/page/version exception: ' . $e->getMessage());
+        }
+    }
+
+    /**
+     * [GENE_FIX:2026-09-23 R2/R3/R4] Row-level versionKeys invalidation:
+     * non-payload mapped columns still bump, non-primary-key updateBy
+     * prefetches and invalidates every matched row, scan-limit overflow
+     * warns + skips, transaction bumps fire on commit only, and page()
+     * dispatches to a subclass paginate() with nullable $order.
+     */
+    public function testVersionKeysRowLevel()
+    {
+        echo "\nTesting versionKeys row-level invalidation (SQLite):\n";
+        if (!class_exists('\\Gene\\Db\\Sqlite')) {
+            $this->fail('skip row-level versionKeys — sqlite missing');
+            return;
+        }
+        if (!class_exists('OrmRvUser')) {
+            eval('class OrmRvUser extends \\Gene\\Orm\\Model {
+                protected static $table = "rv_users";
+                protected static $primaryKey = "id";
+                protected static $fields = ["id", "name", "status"];
+                protected static $connection = "rv_db";
+                protected static $versionKeys = ["db.rv.id" => "id", "db.rv.name" => "name"];
+            }');
+        }
+        if (!class_exists('OrmRvScan')) {
+            eval('class OrmRvScan extends OrmRvUser {
+                protected static $versionScanLimit = 1;
+            }');
+        }
+        if (!class_exists('OrmRvSub')) {
+            eval('class OrmRvSub extends OrmRvUser {
+                public static function paginate($where = [], $page = 0, $limit = 10, $order = null) {
+                    return ["marker" => "subclass", "order" => $order, "offset" => $page, "lim" => $limit];
+                }
+            }');
+        }
+        try {
+            $db = new \Gene\Db\Sqlite(['dsn' => 'sqlite::memory:']);
+            $db->sql('CREATE TABLE rv_users (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                name TEXT NOT NULL,
+                status INTEGER DEFAULT 1
+            )')->execute();
+            \Gene\Di::set('rv_db', $db);
+            $cache = new class {
+                public $bumps = [];
+                public function updateVersion($fields) { $this->bumps[] = $fields; return true; }
+            };
+            \Gene\Di::set('cache', $cache);
+
+            $saw = function ($key, $val) use ($cache) {
+                foreach ($cache->bumps as $bump) {
+                    $v = $bump[$key] ?? null;
+                    foreach ((array)$v as $x) {
+                        if ($x == $val) return true; // loose: sqlite may return numeric strings
+                    }
+                }
+                return false;
+            };
+
+            // 1) updateBy on a payload that lacks the mapped column must still
+            //    bump that column's current row value (R2).
+            $id = OrmRvUser::create(['name' => 'row-a', 'status' => 1]);
+            $cache->bumps = [];
+            OrmRvUser::updateBy($id, ['status' => 5]);
+            if ($saw('db.rv.name', 'row-a') && $saw('db.rv.id', $id)) {
+                $this->ok('non-payload mapped column bumps current row value');
+            } else {
+                $this->fail('non-payload bump ' . json_encode($cache->bumps));
+            }
+
+            // 2) flip() bumps the mapped secondary column (post-update row view).
+            $cache->bumps = [];
+            $n = OrmRvUser::flip($id, 'status', [5, 9]);
+            if ($n === 1 && $saw('db.rv.name', 'row-a')) {
+                $this->ok('flip() bumps mapped secondary column');
+            } else {
+                $this->fail("flip bump n=$n " . json_encode($cache->bumps));
+            }
+
+            // 3) Non-primary-key updateBy prefetches every matched row (R3).
+            OrmRvUser::create(['name' => 'w1', 'status' => 1]);
+            OrmRvUser::create(['name' => 'w2', 'status' => 1]);
+            $cache->bumps = [];
+            OrmRvUser::updateBy(['status' => 1], ['status' => 9]);
+            if ($saw('db.rv.name', 'w1') && $saw('db.rv.name', 'w2')) {
+                $this->ok('non-pk updateBy invalidates all matched rows');
+            } else {
+                $this->fail('non-pk updateBy bumps ' . json_encode($cache->bumps));
+            }
+
+            // 4) Scan-limit overflow: write still runs, warning emitted, no
+            //    partial invalidation (R3).
+            $warned = false;
+            set_error_handler(function () use (&$warned) { $warned = true; return true; });
+            $cache->bumps = [];
+            $affected = OrmRvScan::updateBy(['status' => 9], ['status' => 8]);
+            restore_error_handler();
+            if ($warned && $affected >= 2 && count($cache->bumps) === 0) {
+                $this->ok('scan-limit overflow warns and skips invalidation');
+            } else {
+                $this->fail('scan-limit warned=' . var_export($warned, true)
+                    . " affected=$affected bumps=" . json_encode($cache->bumps));
+            }
+
+            // 5) Bumps are deferred until commit (R4): none visible inside the
+            //    transaction, all flushed after commit.
+            $cache->bumps = [];
+            $inside = null;
+            OrmRvUser::transaction(function () use ($cache, &$inside) {
+                OrmRvUser::create(['name' => 'tx-defer', 'status' => 1]);
+                $inside = count($cache->bumps);
+            });
+            if ($inside === 0 && $saw('db.rv.name', 'tx-defer')) {
+                $this->ok('version bumps deferred until commit');
+            } else {
+                $this->fail("deferred bumps inside=$inside " . json_encode($cache->bumps));
+            }
+
+            // 6) destroy() bumps the deleted row's mapped values.
+            $cache->bumps = [];
+            OrmRvUser::destroy($id);
+            if ($saw('db.rv.name', 'row-a')) {
+                $this->ok('destroy() bumps deleted row values');
+            } else {
+                $this->fail('destroy bumps ' . json_encode($cache->bumps));
+            }
+
+            // 7) page() dispatches to the called class's paginate() and $order
+            //    accepts null (R7). The subclass echoes the raw 2nd/3rd/4th
+            //    parameters under keys page() does not overwrite — asserting
+            //    offset (not the re-added "page") proves page#3/perPage 5
+            //    arrived as offset 10, limit 5, order null (S5).
+            $r = OrmRvSub::page([], 3, 5, null);
+            if (($r['marker'] ?? '') === 'subclass' && ($r['offset'] ?? -1) === 10
+                && ($r['lim'] ?? -1) === 5 && array_key_exists('order', $r)
+                && $r['order'] === null && ($r['page'] ?? 0) === 3) {
+                $this->ok('page() dispatches to subclass paginate()');
+            } else {
+                $this->fail('page() subclass dispatch ' . json_encode($r));
+            }
+            $r2 = OrmRvUser::page([], 1, 10, null);
+            if (isset($r2['count'], $r2['list'])) {
+                $this->ok('page() accepts null $order');
+            } else {
+                $this->fail('page() null order ' . json_encode($r2));
+            }
+
+            // 8) Hydrated model renamed then save(): bumps must contain BOTH
+            //    the old and the new mapped value (S1 — `attributes` holds the
+            //    modified values, never the pre-write row).
+            $hid = OrmRvUser::create(['name' => 'hydra', 'status' => 1]);
+            $cache->bumps = [];
+            $hm = OrmRvUser::find($hid, true);
+            $hm->name = 'hydra2';
+            $hm->save();
+            if ($saw('db.rv.name', 'hydra') && $saw('db.rv.name', 'hydra2')) {
+                $this->ok('hydrated save() bumps old and new mapped values');
+            } else {
+                $this->fail('hydrated save bumps ' . json_encode($cache->bumps));
+            }
+
+            // 9) fill() with pk + renamed mapped column then save(): same
+            //    guarantee, the payload row is not the stored row either (S1).
+            $fid = OrmRvUser::create(['name' => 'fillo', 'status' => 1]);
+            $cache->bumps = [];
+            $fm = new OrmRvUser();
+            $fm->fill(['id' => $fid, 'name' => 'fillo2', 'status' => 3]);
+            $fm->save();
+            if ($saw('db.rv.name', 'fillo') && $saw('db.rv.name', 'fillo2')) {
+                $this->ok('fill()+save() bumps old and new mapped values');
+            } else {
+                $this->fail('fill save bumps ' . json_encode($cache->bumps));
+            }
+
+            \Gene\Di::del('cache');
+        } catch (\Throwable $e) {
+            \Gene\Di::del('cache');
+            $this->fail('row-level versionKeys exception: ' . $e->getMessage());
+        }
+    }
+
+    /**
+     * [GENE_FIX:2026-09-23 T3] Pending versionKey bumps are bucketed per PDO
+     * object handle: committing connection A must not flush B's still-open
+     * transaction, and rolling A back must not discard B's bucket.
+     */
+    public function testVersionKeysPerConnection()
+    {
+        echo "\nTesting versionKeys per-connection buckets (SQLite):\n";
+        if (!class_exists('\\Gene\\Db\\Sqlite')) {
+            $this->fail('skip per-connection versionKeys — sqlite missing');
+            return;
+        }
+        if (!class_exists('OrmRvA')) {
+            eval('class OrmRvA extends \\Gene\\Orm\\Model {
+                protected static $table = "rv_a";
+                protected static $primaryKey = "id";
+                protected static $fields = ["id", "name", "status"];
+                protected static $connection = "rv_db_a";
+                protected static $versionKeys = ["db.pa.id" => "id", "db.pa.name" => "name"];
+            }');
+        }
+        if (!class_exists('OrmRvB')) {
+            eval('class OrmRvB extends \\Gene\\Orm\\Model {
+                protected static $table = "rv_b";
+                protected static $primaryKey = "id";
+                protected static $fields = ["id", "name", "status"];
+                protected static $connection = "rv_db_b";
+                protected static $versionKeys = ["db.pb.id" => "id", "db.pb.name" => "name"];
+            }');
+        }
+        $ddl = 'CREATE TABLE %s (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            name TEXT NOT NULL,
+            status INTEGER DEFAULT 1
+        )';
+        try {
+            $dbA = new \Gene\Db\Sqlite(['dsn' => 'sqlite::memory:']);
+            $dbB = new \Gene\Db\Sqlite(['dsn' => 'sqlite::memory:']);
+            $dbA->sql(sprintf($ddl, 'rv_a'))->execute();
+            $dbB->sql(sprintf($ddl, 'rv_b'))->execute();
+            \Gene\Di::set('rv_db_a', $dbA);
+            \Gene\Di::set('rv_db_b', $dbB);
+            $cache = new class {
+                public $bumps = [];
+                public function updateVersion($fields) { $this->bumps[] = $fields; return true; }
+            };
+            \Gene\Di::set('cache', $cache);
+
+            $sawKey = function ($prefix) use ($cache) {
+                foreach ($cache->bumps as $bump) {
+                    foreach ($bump as $k => $v) {
+                        if (strpos($k, $prefix) === 0) return true;
+                    }
+                }
+                return false;
+            };
+
+            // 1) Both connections inside a transaction: writes defer bumps.
+            $dbA->beginTransaction();
+            $dbB->beginTransaction();
+            OrmRvA::create(['name' => 'a1', 'status' => 1]);
+            OrmRvB::create(['name' => 'b1', 'status' => 1]);
+            if (count($cache->bumps) === 0) {
+                $this->ok('bumps deferred while both transactions open');
+            } else {
+                $this->fail('bumps leaked inside tx ' . json_encode($cache->bumps));
+            }
+
+            // 2) Committing A flushes only A's bucket.
+            $dbA->commit();
+            if ($sawKey('db.pa.') && !$sawKey('db.pb.')) {
+                $this->ok('A commit flushes only A bucket');
+            } else {
+                $this->fail('A commit bumps ' . json_encode($cache->bumps));
+            }
+
+            // 3) Rolling B back discards B's bucket — pb keys never appear.
+            $dbB->rollBack();
+            if (!$sawKey('db.pb.')) {
+                $this->ok('B rollback discards B bucket');
+            } else {
+                $this->fail('B rollback bumps ' . json_encode($cache->bumps));
+            }
+
+            // 4) Reverse order: A rollback, B commit → only B bumps.
+            $cache->bumps = [];
+            $dbA->beginTransaction();
+            $dbB->beginTransaction();
+            OrmRvA::create(['name' => 'a2', 'status' => 1]);
+            OrmRvB::create(['name' => 'b2', 'status' => 1]);
+            $dbA->rollBack();
+            if (count($cache->bumps) === 0) {
+                $this->ok('A rollback discards only A bucket');
+            } else {
+                $this->fail('A rollback bumps ' . json_encode($cache->bumps));
+            }
+            $dbB->commit();
+            if ($sawKey('db.pb.') && !$sawKey('db.pa.')) {
+                $this->ok('B commit flushes only B bucket');
+            } else {
+                $this->fail('B commit bumps ' . json_encode($cache->bumps));
+            }
+
+            // 5) A new connection on a rebound Di name must not inherit a
+            //    stale bucket under a recycled PDO handle.
+            \Gene\Di::del('rv_db_a');
+            unset($dbA);
+            $dbA2 = new \Gene\Db\Sqlite(['dsn' => 'sqlite::memory:']);
+            $dbA2->sql(sprintf($ddl, 'rv_a'))->execute();
+            \Gene\Di::set('rv_db_a', $dbA2);
+            $cache->bumps = [];
+            $dbA2->beginTransaction();
+            OrmRvA::create(['name' => 'a3', 'status' => 1]);
+            $dbA2->commit();
+            if (count($cache->bumps) === 1 && $sawKey('db.pa.') && !$sawKey('db.pb.')) {
+                $this->ok('rebound connection commits a clean bucket');
+            } else {
+                $this->fail('rebound bumps ' . json_encode($cache->bumps));
+            }
+
+            \Gene\Di::del('cache');
+            \Gene\Di::del('rv_db_a');
+            \Gene\Di::del('rv_db_b');
+        } catch (\Throwable $e) {
+            \Gene\Di::del('cache');
+            \Gene\Di::del('rv_db_a');
+            \Gene\Di::del('rv_db_b');
+            $this->fail('per-connection versionKeys exception: ' . $e->getMessage());
+        }
+    }
+
     public function run()
     {
         $this->testClassSurface();
@@ -1179,6 +1667,9 @@ class OrmTest
         $this->testQueryOpsList();
         $this->testBatchAndIdempotent();
         $this->testConfigurableTimestamps();
+        $this->testFlipPageVersion();
+        $this->testVersionKeysRowLevel();
+        $this->testVersionKeysPerConnection();
         echo "\n--- ORM results: {$this->passed} passed, {$this->failed} failed ---\n";
         return $this->failed === 0;
     }

@@ -2,6 +2,8 @@
 $config = new \Gene\Config();
 $config->clear();
 
+// 下面的数据库口令、Redis 口令只供本机 demo，不要抄进生产配置。
+
 // GENE_DEMO_LOCAL=1：完全本地化模式（验收/压测用，不依赖任何外部服务）——
 //   db      → sqlite 文件 demo/database/gene_demo.db（init_sqlite.php 幂等初始化）
 //   session → localStore（Ext\LocalStore：Gene\Memory 适配 get/set/delete 句柄契约）
@@ -52,11 +54,13 @@ $config->set("session", [
 ]);
 
 //Redis类注入配置
+// timeout 为 RedisPool 必填（连接超时，秒）；host/port 亦可经 servers[] 提供。
 $config->set("redis", [
     'class' => '\Gene\Cache\Redis',
     'params' => [[
     'host' => '127.0.0.1',
     'port' => 6379,
+    'timeout' => 3,
     'password' => '',
     'database' => 0,
     'pool' => 'redisPool'

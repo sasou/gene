@@ -102,7 +102,7 @@ class Mark extends \Gene\Model
     function status($id)
     {
         return $this->db
-                    ->sql("update app_mark set status=abs(status-1)")
+                    ->sql("UPDATE app_mark SET status = CASE WHEN status = ? THEN 1 ELSE 0 END", [0])
                     ->where("mark_id=?", $id)
                     ->affectedRows();
     }
