@@ -685,6 +685,17 @@ void gene_cache_call_reset(void)
 #endif
 }
 
+/* A user callback that already threw leaves its retval UNDEF/NULL
+ * (zend_call_function skips the call while EG(exception) is set).
+ * Callers must return before writing that retval into a cache. */
+static void gene_cache_dtor_span(zval *items, uint32_t from, uint32_t count)
+{
+	uint32_t j;
+	for (j = from; j < count; j++) {
+		zval_ptr_dtor(&items[j]);
+	}
+}
+
 void gene_cache_call(zval *object, zval *args, zval *retval) /*{{{*/
 {
 	zval *class = NULL, *method = NULL, *element = NULL;
@@ -1102,9 +1113,20 @@ PHP_METHOD(gene_cache, cached)
 	zval key, ret;
 	gene_cache_key(sign, 1, obj, args, ttl, &key, (int)hash_mode);
 	gene_cache_get(hook, &key, &ret);
+	if (EG(exception)) {
+		zval_ptr_dtor(&ret);
+		zval_ptr_dtor(&key);
+		RETURN_NULL();
+	}
 	if (Z_TYPE(ret) == IS_FALSE) {
 		zval data;
 		gene_cache_call(obj, args, &data);
+		if (EG(exception)) {
+			zval_ptr_dtor(&data);
+			zval_ptr_dtor(&key);
+			zval_ptr_dtor(&ret);
+			RETURN_NULL();
+		}
 		hook = gene_di_get(Z_STR_P(hookName));
 		if (hook) {
 			hook_cache_set(hook, &key, &data, ttl);
@@ -1152,6 +1174,12 @@ PHP_METHOD(gene_cache, localCached)
 	if (Z_TYPE(ret) == IS_FALSE) {
 		zval data;
 		gene_cache_call(obj, args, &data);
+		if (EG(exception)) {
+			zval_ptr_dtor(&data);
+			zval_ptr_dtor(&key);
+			zval_ptr_dtor(&ret);
+			RETURN_NULL();
+		}
 		gene_apcu_store(&key, &data, ttl, &ret);
 		zval_ptr_dtor(&key);
 		zval_ptr_dtor(&ret);
@@ -1261,6 +1289,12 @@ PHP_METHOD(gene_cache, cachedVersion)
 	gene_cache_key(sign, 0, obj, args, ttl, &key, (int)hash_mode);
 	gene_cache_get_version_arr(versionSign, versionField, &cache_key, &key, (int)hash_mode);
 	gene_cache_get(hook, &cache_key, &cache);
+	if (EG(exception)) {
+		zval_ptr_dtor(&cache);
+		zval_ptr_dtor(&cache_key);
+		zval_ptr_dtor(&key);
+		RETURN_NULL();
+	}
 
 	if (Z_TYPE(cache) == IS_ARRAY) {
 		data = zend_hash_find(Z_ARRVAL(cache), Z_STR(key));
@@ -1275,6 +1309,14 @@ PHP_METHOD(gene_cache, cachedVersion)
 			if (cacheData == NULL || cacheVersion == NULL || checkVersion(cacheVersion, &cur_version, mode) == 0) {
 				zval data_new,cur_data;
 				gene_cache_call(obj, args, &cur_data);
+				if (EG(exception)) {
+					zval_ptr_dtor(&cur_data);
+					zval_ptr_dtor(&cur_version);
+					zval_ptr_dtor(&cache_key);
+					zval_ptr_dtor(&cache);
+					zval_ptr_dtor(&key);
+					RETURN_NULL();
+				}
 				gene_cache_build_version_payload(&data_new, &cur_data, &cur_version);
 				hook = gene_di_get(Z_STR_P(hookName));
 				if (hook) {
@@ -1297,6 +1339,13 @@ PHP_METHOD(gene_cache, cachedVersion)
 		} else {
 			zval data_new,cur_data,cur_version;
 			gene_cache_call(obj, args, &cur_data);
+			if (EG(exception)) {
+				zval_ptr_dtor(&cur_data);
+				zval_ptr_dtor(&cache_key);
+				zval_ptr_dtor(&cache);
+				zval_ptr_dtor(&key);
+				RETURN_NULL();
+			}
 			curVersion(&cache_key, &cache, &cur_version);
 			gene_cache_build_version_payload(&data_new, &cur_data, &cur_version);
 			hook = gene_di_get(Z_STR_P(hookName));
@@ -1315,6 +1364,14 @@ PHP_METHOD(gene_cache, cachedVersion)
 		zval data_new, cur_data, cur_version;
 		array_init(&cur_version);
 		gene_cache_call(obj, args, &cur_data);
+		if (EG(exception)) {
+			zval_ptr_dtor(&cur_data);
+			zval_ptr_dtor(&cur_version);
+			zval_ptr_dtor(&cache_key);
+			zval_ptr_dtor(&cache);
+			zval_ptr_dtor(&key);
+			RETURN_NULL();
+		}
 		gene_cache_build_version_payload(&data_new, &cur_data, &cur_version);
 		hook = gene_di_get(Z_STR_P(hookName));
 		if (hook) {
@@ -1372,6 +1429,13 @@ PHP_METHOD(gene_cache, localCachedVersion)
 		RETURN_NULL();
 	}
 	gene_cache_get(hook, &cache_key, &cur_version);
+	if (EG(exception)) {
+		zval_ptr_dtor(&cur_version);
+		zval_ptr_dtor(&cache_key);
+		zval_ptr_dtor(&cache);
+		zval_ptr_dtor(&key);
+		RETURN_NULL();
+	}
 
 	if (Z_TYPE(cache) == IS_ARRAY) {
 		zval *cacheData = NULL,*cacheVersion = NULL;
@@ -1381,6 +1445,14 @@ PHP_METHOD(gene_cache, localCachedVersion)
 		if (cacheData == NULL || cacheVersion == NULL || checkVersion(cacheVersion, &cur_version, mode) == 0) {
 			zval data_new,cur_data;
 			gene_cache_call(obj, args, &cur_data);
+			if (EG(exception)) {
+				zval_ptr_dtor(&cur_data);
+				zval_ptr_dtor(&cur_version);
+				zval_ptr_dtor(&cache_key);
+				zval_ptr_dtor(&cache);
+				zval_ptr_dtor(&key);
+				RETURN_NULL();
+			}
 			gene_cache_build_version_payload(&data_new, &cur_data, &cur_version);
 			zval ret;
 			gene_apcu_store(&key, &data_new, ttl, &ret);
@@ -1402,6 +1474,14 @@ PHP_METHOD(gene_cache, localCachedVersion)
 	} else {
 		zval data_new,cur_data;
 		gene_cache_call(obj, args, &cur_data);
+		if (EG(exception)) {
+			zval_ptr_dtor(&cur_data);
+			zval_ptr_dtor(&cur_version);
+			zval_ptr_dtor(&cache_key);
+			zval_ptr_dtor(&cache);
+			zval_ptr_dtor(&key);
+			RETURN_NULL();
+		}
 		gene_cache_build_version_payload(&data_new, &cur_data, &cur_version);
 		zval ret;
 		gene_apcu_store(&key, &data_new, ttl, &ret);
@@ -1447,6 +1527,11 @@ PHP_METHOD(gene_cache, getVersion)
 	}
 	gene_cache_get_version_arr(versionSign, versionField, &new_arr, NULL, (int)hash_mode);
 	gene_cache_get(hook, &new_arr, &ret);
+	if (EG(exception)) {
+		zval_ptr_dtor(&ret);
+		zval_ptr_dtor(&new_arr);
+		RETURN_NULL();
+	}
 	zval_ptr_dtor(&new_arr);
 	RETURN_ZVAL(&ret, 1, 1);
 }
@@ -1518,6 +1603,11 @@ PHP_METHOD(gene_cache, processCached)
 	}
 	zval data;
 	gene_cache_call(obj, args, &data);
+	if (EG(exception)) {
+		zval_ptr_dtor(&data);
+		zval_ptr_dtor(&key);
+		RETURN_NULL();
+	}
 	GENE_CACHE_LAYER_MEMORY_WRITE_ENTER();
 	gene_memory_set(Z_STRVAL(key), Z_STRLEN(key), &data, 0);
 	GENE_CACHE_LAYER_MEMORY_WRITE_LEAVE();
@@ -1617,6 +1707,7 @@ PHP_METHOD(gene_cache, processCachedVersion)
 			gene_cache_call(obj, args, &cur_data);
 			if (EG(exception)) {
 				zval_ptr_dtor(&cur_data);
+				zval_ptr_dtor(&cached_local);
 				zval_ptr_dtor(&cur_version);
 				zval_ptr_dtor(&cache_key);
 				zval_ptr_dtor(&key);
@@ -1731,6 +1822,14 @@ PHP_METHOD(gene_cache, cachedBatch)
 	zval cache_result;
 	gene_cache_get(hook, &keys_batch, &cache_result);
 	zval_ptr_dtor(&keys_batch);
+	if (EG(exception)) {
+		zval_ptr_dtor(&cache_result);
+		gene_cache_dtor_span(keys, 0, count);
+		efree(keys);
+		efree(objs);
+		efree(args_arr);
+		RETURN_NULL();
+	}
 
 	array_init_size(return_value, count);
 	for (i = 0; i < count; i++) {
@@ -1751,6 +1850,15 @@ PHP_METHOD(gene_cache, cachedBatch)
 		} else {
 			zval data;
 			gene_cache_call(&objs[i], &args_arr[i], &data);
+			if (EG(exception)) {
+				zval_ptr_dtor(&data);
+				gene_cache_dtor_span(keys, i, count);
+				zval_ptr_dtor(&cache_result);
+				efree(keys);
+				efree(objs);
+				efree(args_arr);
+				RETURN_NULL();
+			}
 			hook = gene_di_get(Z_STR_P(hookName));
 			if (hook) {
 				hook_cache_set(hook, &keys[i], &data, ttl);
@@ -1848,6 +1956,15 @@ PHP_METHOD(gene_cache, localCachedBatch)
 		} else {
 			zval data, ret;
 			gene_cache_call(&objs[i], &args_arr[i], &data);
+			if (EG(exception)) {
+				zval_ptr_dtor(&data);
+				gene_cache_dtor_span(keys, i, count);
+				zval_ptr_dtor(&apcu_result);
+				efree(keys);
+				efree(objs);
+				efree(args_arr);
+				RETURN_NULL();
+			}
 			gene_apcu_store(&keys[i], &data, ttl, &ret);
 			zval_ptr_dtor(&ret);
 			add_next_index_zval(return_value, &data);
@@ -1927,6 +2044,14 @@ PHP_METHOD(gene_cache, processCachedBatch)
 		} else {
 			zval data;
 			gene_cache_call(&objs[i], &args_arr[i], &data);
+			if (EG(exception)) {
+				zval_ptr_dtor(&data);
+				gene_cache_dtor_span(keys, i, count);
+				efree(keys);
+				efree(objs);
+				efree(args_arr);
+				RETURN_NULL();
+			}
 			GENE_CACHE_LAYER_MEMORY_WRITE_ENTER();
 			gene_memory_set(Z_STRVAL(keys[i]), Z_STRLEN(keys[i]), &data, 0);
 			GENE_CACHE_LAYER_MEMORY_WRITE_LEAVE();
@@ -2015,6 +2140,15 @@ PHP_METHOD(gene_cache, cachedVersionBatch)
 	zval cache_result;
 	gene_cache_get(hook, &batch_keys, &cache_result);
 	zval_ptr_dtor(&batch_keys);
+	if (EG(exception)) {
+		zval_ptr_dtor(&cache_result);
+		zval_ptr_dtor(&version_keys);
+		gene_cache_dtor_span(data_keys, 0, count);
+		efree(data_keys);
+		efree(objs);
+		efree(args_arr);
+		RETURN_NULL();
+	}
 
 	zval cur_version;
 	array_init_size(&cur_version, ver_count);
@@ -2052,6 +2186,17 @@ PHP_METHOD(gene_cache, cachedVersionBatch)
 		}
 		zval cur_data, data_new;
 		gene_cache_call(&objs[i], &args_arr[i], &cur_data);
+		if (EG(exception)) {
+			zval_ptr_dtor(&cur_data);
+			gene_cache_dtor_span(data_keys, i, count);
+			zval_ptr_dtor(&cache_result);
+			zval_ptr_dtor(&cur_version);
+			zval_ptr_dtor(&version_keys);
+			efree(data_keys);
+			efree(objs);
+			efree(args_arr);
+			RETURN_NULL();
+		}
 		gene_cache_build_version_payload(&data_new, &cur_data, &cur_version);
 		hook = gene_di_get(Z_STR_P(hookName));
 		if (hook) {
@@ -2145,6 +2290,16 @@ PHP_METHOD(gene_cache, localCachedVersionBatch)
 	gene_cache_get_version_arr(versionSign, versionField, &version_keys, NULL, (int)hash_mode);
 	zval cur_version;
 	gene_cache_get(hook, &version_keys, &cur_version);
+	if (EG(exception)) {
+		zval_ptr_dtor(&cur_version);
+		zval_ptr_dtor(&version_keys);
+		zval_ptr_dtor(&apcu_result);
+		gene_cache_dtor_span(data_keys, 0, count);
+		efree(data_keys);
+		efree(objs);
+		efree(args_arr);
+		RETURN_NULL();
+	}
 
 	array_init_size(return_value, count);
 	for (i = 0; i < count; i++) {
@@ -2170,6 +2325,17 @@ PHP_METHOD(gene_cache, localCachedVersionBatch)
 		}
 		zval cur_data, data_new;
 		gene_cache_call(&objs[i], &args_arr[i], &cur_data);
+		if (EG(exception)) {
+			zval_ptr_dtor(&cur_data);
+			gene_cache_dtor_span(data_keys, i, count);
+			zval_ptr_dtor(&apcu_result);
+			zval_ptr_dtor(&cur_version);
+			zval_ptr_dtor(&version_keys);
+			efree(data_keys);
+			efree(objs);
+			efree(args_arr);
+			RETURN_NULL();
+		}
 		gene_cache_build_version_payload(&data_new, &cur_data, &cur_version);
 		zval ret;
 		gene_apcu_store(&data_keys[i], &data_new, ttl, &ret);
@@ -2250,6 +2416,15 @@ PHP_METHOD(gene_cache, processCachedVersionBatch)
 	gene_cache_get_version_arr(versionSign, versionField, &version_keys, NULL, (int)hash_mode);
 	zval cur_version;
 	gene_cache_get(hook, &version_keys, &cur_version);
+	if (EG(exception)) {
+		zval_ptr_dtor(&cur_version);
+		zval_ptr_dtor(&version_keys);
+		gene_cache_dtor_span(data_keys, 0, count);
+		efree(data_keys);
+		efree(objs);
+		efree(args_arr);
+		RETURN_NULL();
+	}
 
 	array_init_size(return_value, count);
 	for (i = 0; i < count; i++) {
@@ -2282,6 +2457,16 @@ PHP_METHOD(gene_cache, processCachedVersionBatch)
 		}
 		zval cur_data, data_new;
 		gene_cache_call(&objs[i], &args_arr[i], &cur_data);
+		if (EG(exception)) {
+			zval_ptr_dtor(&cur_data);
+			gene_cache_dtor_span(data_keys, i, count);
+			zval_ptr_dtor(&cur_version);
+			zval_ptr_dtor(&version_keys);
+			efree(data_keys);
+			efree(objs);
+			efree(args_arr);
+			RETURN_NULL();
+		}
 		gene_cache_build_version_payload(&data_new, &cur_data, &cur_version);
 		GENE_CACHE_LAYER_MEMORY_WRITE_ENTER();
 		gene_memory_set(Z_STRVAL(data_keys[i]), Z_STRLEN(data_keys[i]), &data_new, 0);
