@@ -1,8 +1,7 @@
 @echo off
 setlocal enabledelayedexpansion
 
-if not defined PHP_SDK_ROOT set "PHP_SDK_ROOT=F:\php-sdk-2.6.0"
-if not exist "%PHP_SDK_ROOT%" if exist "F:\php-sdk-2.3.0" set "PHP_SDK_ROOT=F:\php-sdk-2.3.0"
+if not defined PHP_SDK_ROOT set "PHP_SDK_ROOT=F:\php-sdk-2.8.4"
 if not defined PHP_SRC_ROOT set "PHP_SRC_ROOT=F:\php_src"
 set "SDK=%PHP_SDK_ROOT%"
 set "TASK_X64=%~dp0task_build_x64.bat"
