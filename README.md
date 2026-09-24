@@ -287,3 +287,6 @@ Gene 已用于教育认证、电商交易与 B2B 供应链等长期运行场景�
 
 <sub>Released under the <a href="http://www.php.net/license/3_01.txt">PHP License 3.01</a>.</sub>
 </div>
+
+
+<a href="https://info.flagcounter.com/AEYx"><img src="https://s11.flagcounter.com/count2/AEYx/bg_FFFFFF/txt_000000/border_CCCCCC/columns_2/maxflags_10/viewers_0/labels_1/pageviews_1/flags_0/percent_0/" alt="Flag Counter" border="0"></a>
