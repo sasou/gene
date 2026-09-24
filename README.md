@@ -5,7 +5,7 @@
   <p>面向高并发 API、企业级 Web 应用与 Swoole 常驻服务的高性能全栈框架</p>
 
 [![PHP](https://img.shields.io/badge/PHP-8.0--8.5-777BB4?style=for-the-badge&logo=php&logoColor=white)](https://www.php.net/)
-[![Release](https://img.shields.io/badge/Release-6.2.5-2563EB?style=for-the-badge&logo=github&logoColor=white)](https://github.com/sasou/php-gene/releases)
+[![Release](https://img.shields.io/badge/Release-6.2.6-2563EB?style=for-the-badge&logo=github&logoColor=white)](https://github.com/sasou/php-gene/releases)
 [![Swoole](https://img.shields.io/badge/Swoole-Ready-16A34A?style=for-the-badge)](https://www.swoole.com/)
 [![License](https://img.shields.io/badge/License-PHP_3.01-0F766E?style=for-the-badge)](http://www.php.net/license/3_01.txt)
 
@@ -37,7 +37,7 @@ Gene 是一个以 **PHP 扩展** 形态交付、核心能力由 **C 语言** 实
 </tr>
 </table>
 
-> 🚦 **Gene 6.2.5**：完成路由、DI、数据库与日志热路径优化，加入冻结框架表零拷贝读取、Context 冷热分离、数据库/Redis 双池 C 层空闲栈，以及更完整的视图、日志和 Monitor 可观测配置。Linux + 真实 Swoole 发布门禁 17/17 通过。
+> 🚦 **Gene 6.2.6**：修正版——修复路由组栈 packed hole 段错误、worker 冻结后借用数组致 PDO 悬垂读、连接池 `close()` 排空竞态漏槽；`through()` 引用未注册钩子改为显式 `ValueError`（旧静默丢弃等于认证旁路）；ORM 裸片段兼容 v1 `and/or` 连接词写法。
 
 ## ✨ 为什么选择 Gene
 
@@ -191,7 +191,7 @@ class Home extends \Gene\Controller
     {
         return \Gene\Http\Response::json([
             'framework' => 'Gene',
-            'version' => '6.2.5',
+            'version' => '6.2.6',
         ]);
     }
 }

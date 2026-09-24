@@ -582,6 +582,30 @@ if ((RUN_WEB)); then
             curl_probe "$METRICS_URL" >"$OUT/metrics-before.txt" || WEB_FAILED=1
         fi
 
+        # [GENE_FIX:2026-09-23 S3] Prove an ORM-model path over HTTP:
+        # /doc/1.html dispatches through Services\Doc\Mark →
+        # Models\Doc\Mark → cachedVersion → sqlite app_mark. A fatal like
+        # R1 (typed static property redeclare) shows up as a 500 here even
+        # though /healthz stays green.
+        if ((WEB_FAILED == 0)); then
+            curl_probe "http://127.0.0.1:$GENE_SWOOLE_PORT/doc/1.html" \
+                >"$OUT/doc-1.html" || WEB_FAILED=1
+        fi
+        # /login.action with a wrong payload must answer business JSON
+        # ({code:4000,...}), never a 500 — exercises routing, validate and
+        # the login service path.
+        if ((WEB_FAILED == 0)); then
+            if ! curl -fsS \
+                    --connect-timeout "$CURL_CONNECT_TIMEOUT" \
+                    --max-time "$CURL_MAX_TIME" \
+                    -X POST -d 'username=admin&password=wrong&captcha=0000' \
+                    "http://127.0.0.1:$GENE_SWOOLE_PORT/login.action" \
+                    >"$OUT/login-wrong.json" 2>/dev/null \
+                || ! grep -q '"code"' "$OUT/login-wrong.json"; then
+                WEB_FAILED=1
+            fi
+        fi
+
         if ((WEB_FAILED == 0)); then
             log "demo-web wrk warmup ($WRK_WARMUP_DURATION)"
             wrk -t"$WRK_THREADS" -c"$WRK_CONNECTIONS" -d"$WRK_WARMUP_DURATION" --latency \

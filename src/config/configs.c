@@ -81,7 +81,7 @@ PHP_METHOD(gene_config, __construct) {
 PHP_METHOD(gene_config, set) {
 	char *keyString;
 	size_t keyString_len;
-	int validity = 0;
+	zend_long validity = 0;
 	char router_e_stack[256];
 	char *router_e = router_e_stack;
 	size_t router_e_len;

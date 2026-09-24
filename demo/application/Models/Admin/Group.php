@@ -9,9 +9,12 @@ namespace Models\Admin;
  */
 class Group extends \Gene\Orm\Model
 {
-    protected static string $table = 'sys_group';
-    protected static string $primaryKey = 'group_id';
-    protected static array $fields = [
+    /** @var string C 层声明为无类型 static，子类声明不得加类型（PHP 继承规则） */
+    protected static $table = 'sys_group';
+    /** @var string */
+    protected static $primaryKey = 'group_id';
+    /** @var string[] */
+    protected static $fields = [
         'group_id', 'group_title', 'group_description', 'status',
     ];
 
@@ -20,14 +23,7 @@ class Group extends \Gene\Orm\Model
      */
     function lists($start, $pagesize)
     {
-        $where = ['group_pid' => 0];
-        $count = static::query()->where($where)->count();
-        $list = static::query()
-            ->where($where)
-            ->order('group_id asc')
-            ->limit((int) $start, (int) $pagesize)
-            ->all() ?: [];
-        return ['count' => $count, 'list' => $list];
+        return static::page(['group_pid' => 0], (int) $start, (int) $pagesize, 'group_id asc');
     }
 
     /**
@@ -59,10 +55,7 @@ class Group extends \Gene\Orm\Model
      */
     function status($id)
     {
-        return $this->db
-            ->sql('update sys_group set status=abs(status-1)')
-            ->where('group_id=?', $id)
-            ->affectedRows();
+        return static::flip($id, 'status');
     }
 
     /**

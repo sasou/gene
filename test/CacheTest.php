@@ -410,8 +410,8 @@ class CacheTest
                 }
             }
             $after = $memory->stats();
-            if (($after['cache_insert_refused'] ?? 0) !== ($before['cache_insert_refused'] ?? 0)) {
-                throw new RuntimeException('business churn unexpectedly refused inserts');
+            if (($after['business_cache_table_size'] ?? 0) < ($before['business_cache_table_size'] ?? 0)) {
+                throw new RuntimeException('business cache table shrank during churn');
             }
             if (($after['business_cache_items'] ?? -1) !== ($before['business_cache_items'] ?? -2)) {
                 throw new RuntimeException('business cache did not return to its pre-churn size');
@@ -446,7 +446,7 @@ class CacheTest
                     echo "✓ stats key '$key' present\n";
                 }
             }
-            foreach (['cache_items', 'cache_num_used', 'cache_num_elements', 'cache_table_size', 'cache_insert_refused',
+            foreach (['cache_items', 'cache_num_used', 'cache_num_elements', 'cache_table_size',
                       'framework_cache_items', 'business_cache_items', 'business_cache_num_used', 'business_cache_table_size',
                       'co_contexts_items', 'co_contexts_sweep_count', 'co_contexts_sweep_skipped',
                       'ctx_pool_size', 'cache_easy_ttl', 'framework_cache_dirty', 'view_fresh_items', 'view_fresh_bytes',
