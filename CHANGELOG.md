@@ -1,5 +1,38 @@
 # Gene Framework Changelog
 
+## [6.2.6]
+
+> 本版为修正版：收敛 6.2.5 发布后发现的五处核心缺陷——路由组栈 packed hole 段错误、worker 冻结后借用请求数组致 PDO 悬垂读、连接池 `close()` 排空竞态漏槽、`through()` 未注册钩子静默丢弃（等于认证旁路）、ORM 裸片段开头 `and/or` 连接词致 MariaDB 1064；demo 按 SQLite 本地模式做一轮可用性修复，Windows 构建脚本补陈旧对象清理。
+
+### 🐞 修复
+
+- **路由组栈 packed hole 段错误**：`zend_hash_index_del()` 不回退 `nNextFreeElement`，内层 `group()` 关闭后再开兄弟组会留下空洞，下一次 pop 命中空槽把 NULL zval 传给 `zend_update_property()`，在 `zval_get_type()` 内段错误；改为反向遍历弹出最后一个真实键，并对 `hook_stack`/`flag_stack` 做类型存在性判断。
+- **worker 冻结后借用请求数组致 PDO 悬垂读**：`gene_memory_zval_local()` 的零拷贝借用只按 `worker_ready` 判定、不看值形态，四驱动 `sql()/where()/union()` 透传的请求期临时数组被借用后跳过 refcount——`sql()` 返回即释放，`all()` 遍历已死的 HashTable，PDO 在 `try_convert_to_string` 读到垃圾类型字节中止。现仅 interned 字符串与 `IS_ARRAY_IMMUTABLE` 数组继续借用，其余回落 owned copy。
+- **连接池 `close()` 排空竞态漏槽**：`Gene\Pool`/`Gene\Cache\RedisPool` 在 `close()` 排空期间被 `put()/remove()` 归还的连接现在递减计数（live-channel 守卫保证 close 完成后的调用仍为 no-op），phase-2 循环不再空转整个 waitTimeout，`stats()` 不再把已归还连接误报为 in-use；`waiters` 递减钳制到 0（close 重置计数时协程可能仍停在 `Channel::pop()`）。
+- **`through()` 引用未注册钩子抛 `ValueError`**：在任何 `hook()`/`error()` 注册之前注册的路由没有事件表，`gene_router_compose_group_hooks()` 原路返回使非空 `through()` 钩子被静默丢弃——`adminAuth` 类钩子不执行而受保护控制器照常运行，等于认证旁路。现对非空 hooks 抛出 `ValueError: named hook 'x' is not registered`，与 `chain_add` 的具名钩子检查一致；`hooks` 为空时维持旧返回。回归：`RouterTest::testGroupHookOrdering`。
+- **ORM 裸片段开头 `and/or` 连接词剥离**：`where()/in()/having()` 的字符串片段若以 `and`/`or` 连接词开头（v1 Db 契约写法，如 `in(' and x in(?)', $ids)`，demo `Group::delAll` 同款），`Query` 回放层经 `gene_orm_skip_connector()` 剥掉该连接词，再按 `where_started` 重发 ` AND ` 或 ` OR `（`or` 保留原语义）；仅含连接词的片段连同其 bind 一并丢弃。连接词仅在后随空白或 `(` 时识别，`android_id`/`or_id` 等列名不受影响；直连 `Db::where()/Db::in()` 不做剥离，保持 v1 verbatim 语义。修复 "WHERE and ..." / "... AND and ..." MariaDB 1064。
+
+### ✅ 测试
+
+- `RouterTest` 新增组栈真实键弹出与 `through()` 钩子顺序断言；`OrmTest` 新增连接词剥离、列名不受影响、纯连接词片段丢弃用例；`DatabaseTest` 新增 worker 冻结后临时 bind 数组用例。
+- Windows 全量回归 975/975（php-8.1.30 NTS x64 vs16，php-sdk-2.8.4）。
+
+### 🔧 demo / 构建 / 文档
+
+- **demo SQLite 本地模式可用性**：`Ext\LocalStore::cached()` 未命中返回 `false`；链式 `in()` 片段补 `AND` 前缀；`FIND_IN_SET` 改写为 `IN`；`getUserInfoByName` join 改关联数组 ON；池化 redis 配置补必填 `timeout`；404 页刷新并新增 50x 错误页；fly-case banner 响应式居中；`router.ini.php` 的 `hook()` 注册提前到 `through()` 组之前（配合上述严格校验）。
+- **Windows 构建脚本陈旧对象清理**：`tools/task_build_x64/x86.bat` 在 nmake 前删除 `ext/gene/*.obj`——nmake .dep 不跟踪扩展内部头文件依赖，`gene.h` 布局变更后新旧对象混链会导致 `zend_gene_globals` 字段错位。
+- **文档**：Windows 构建环境更新到 PHP SDK 2.8.4；`README.md`/`README_EN.md` 重写并补 emoji 分节；`AGENTS.md` 行为约定补 `through()` 注册顺序、连接词剥离与 .obj 清理约定。
+
+### 🔧 修改文件一览
+
+- `src/router/router.c` — 组栈按最后真实键弹出、`through()` 未注册钩子 `ValueError`
+- `src/cache/memory.c` — 冻结借用收窄为 interned 串 + `IS_ARRAY_IMMUTABLE` 数组
+- `src/db/pool.c` / `src/cache/redis_pool.c` — close 排空竞态槽位释放、waiters 下溢钳制
+- `src/orm/query.c` — `gene_orm_skip_connector()` 连接词剥离
+- `src/gene.h` — 版本号 6.2.6
+- `test/{RouterTest,DatabaseTest,OrmTest}.php` — 回归用例
+- `demo/` — LocalStore/模型/视图/路由/配置修复；`tools/task_build_*.bat`、`AGENTS.md`、`README*.md` — 构建与文档
+
 ## [6.2.5]
 
 > 本版落地 `plan/Performance-tuning-V2.closed.md`（原名 `Performance-tuning-V3.md`）全部三阶段代码级优化（NTS 锁编译期消除、路由/DI/Db/日志热路径去分配、冻结框架表零拷贝、ctx 冷热分离、双连接池 C 层 idle 栈），并收敛第二轮独立代码审计的全部残留（P0 池 idle 栈索引缺陷、waiters bailout 配平、日志流所有权、框架表 dirty 回退、`view_fresh` 上限、`handleSwoole` 兜底 500）；新增 4 项 INI 与一批 Monitor 可观测字段。Linux + 真实 Swoole 门禁已两轮线上回填：首轮 17/17 PASS（归档 `gene-v3-20260921-212542`）、第二轮 20/20 PASS（归档 `gene-v3-20260921-224917`，含满池排队/recycle·close 交错/日志 rename·copytruncate·异常退出探针），见 plan 文 §13.5。
