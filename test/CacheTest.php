@@ -67,10 +67,15 @@ class GeneCacheTestStore
 class GeneCacheTestHelper
 {
     public static $calls = 0;
+    public static $throwOnce = false;
 
     public function produce($param = null)
     {
         self::$calls++;
+        if (self::$throwOnce) {
+            self::$throwOnce = false;
+            throw new RuntimeException('cache callback failed');
+        }
         return [
             'param' => $param,
             'calls' => self::$calls,
@@ -497,6 +502,63 @@ class CacheTest
     /**
      * [GENE_FEATURE:2026-08-07] Test Memory::mget() and mset()
      */
+    public function testCallbackExceptionDoesNotPoisonCache()
+    {
+        echo "Testing callback exception does not poison cache:\n";
+
+        try {
+            $this->cache = $this->makeCache();
+            $this->store->clear();
+            GeneCacheTestHelper::$calls = 0;
+            GeneCacheTestHelper::$throwOnce = true;
+
+            $args = ['exception_safe'];
+            $versionField = ['user' => 1];
+            $ttl = 3600;
+            $threw = false;
+            try {
+                $this->cache->processCachedVersion($this->callable, $args, $versionField, $ttl);
+            } catch (RuntimeException $e) {
+                $threw = $e->getMessage() === 'cache callback failed';
+            }
+            if (!$threw) {
+                throw new RuntimeException('processCachedVersion() swallowed callback exception');
+            }
+
+            GeneCacheTestHelper::$throwOnce = false;
+            $again = $this->cache->processCachedVersion($this->callable, $args, $versionField, $ttl);
+            if (!is_array($again) || ($again['param'] ?? null) !== 'exception_safe') {
+                throw new RuntimeException('processCachedVersion() reused a null entry after callback failure');
+            }
+            if (GeneCacheTestHelper::$calls !== 2) {
+                throw new RuntimeException('processCachedVersion() did not recompute after callback failure');
+            }
+            echo "✓ processCachedVersion() leaves cache empty when the callback throws\n";
+
+            GeneCacheTestHelper::$throwOnce = true;
+            $threw = false;
+            try {
+                $this->cache->cached($this->callable, ['hook_exception'], $ttl);
+            } catch (RuntimeException $e) {
+                $threw = true;
+            }
+            if (!$threw) {
+                throw new RuntimeException('cached() swallowed callback exception');
+            }
+            GeneCacheTestHelper::$throwOnce = false;
+            $before = GeneCacheTestHelper::$calls;
+            $hooked = $this->cache->cached($this->callable, ['hook_exception'], $ttl);
+            if (!is_array($hooked) || GeneCacheTestHelper::$calls !== $before + 1) {
+                throw new RuntimeException('cached() stored a null payload after callback failure');
+            }
+            echo "✓ cached() does not store a null payload after callback failure\n";
+        } catch (\Throwable $e) {
+            echo "✗ Error: " . $e->getMessage() . "\n";
+        }
+
+        echo "\n";
+    }
+
     public function testMgetMset()
     {
         echo "Testing Memory mget()/mset():\n";
@@ -538,6 +600,7 @@ class CacheTest
         $this->testCacheConfigurations();
         $this->testBusinessCacheHighChurn();
         $this->testMonitorStats();
+        $this->testCallbackExceptionDoesNotPoisonCache();
         $this->testMgetMset();
 
         echo "=== Cache Test Suite Complete ===\n";
