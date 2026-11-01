@@ -6,8 +6,8 @@
  +----------------------------------------------------------------------+
  */
 /* [GENE_SEC:2026-11-01 S7] Atomic failure counting / throttling over cache
- * stores. Replaces the 7 read-compare-write failure counters in exchange/
- * mchat/gene_web which all race under concurrent requests.
+ * stores. Replaces the 7 read-compare-write failure counters in the audited
+ * applications which all race under concurrent requests.
  *
  * Semantics (fixed window, "count failures, clear on success"):
  *   hit(store, key, ttl)          atomic +1, ttl set when the window opens

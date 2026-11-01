@@ -31,8 +31,8 @@ function isLoginRateLimited(array $cfg, string $ip): bool
 }
 
 $cfg = [
-    'persistent' => false, 'host' => '192.168.5.102', 'port' => 6379,
-    'timeout' => 3, 'ttl' => 0, 'password' => 'rds2024', 'serializer' => 0,
+    'persistent' => false, 'host' => '127.0.0.1', 'port' => 6379,
+    'timeout' => 3, 'ttl' => 0, 'password' => 'changeme', 'serializer' => 0,
 ];
 $ip = '203.0.113.' . random_int(1, 254);
 
