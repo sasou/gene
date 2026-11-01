@@ -1629,7 +1629,7 @@ PHP_METHOD(gene_orm_query, count)
 		if (Z_TYPE(retval) == IS_LONG) {
 			n = Z_LVAL(retval);
 		} else if (Z_TYPE(retval) == IS_STRING) {
-			n = zend_atol(Z_STRVAL(retval), Z_STRLEN(retval));
+			n = ZEND_STRTOL(Z_STRVAL(retval), NULL, 10);
 		} else if (Z_TYPE(retval) == IS_DOUBLE) {
 			n = (zend_long)Z_DVAL(retval);
 		} else {
@@ -1689,7 +1689,7 @@ PHP_METHOD(gene_orm_query, paginate)
 		if (Z_TYPE(retval) == IS_LONG) {
 			count_val = Z_LVAL(retval);
 		} else if (Z_TYPE(retval) == IS_STRING) {
-			count_val = zend_atol(Z_STRVAL(retval), Z_STRLEN(retval));
+			count_val = ZEND_STRTOL(Z_STRVAL(retval), NULL, 10);
 		} else if (Z_TYPE(retval) == IS_DOUBLE) {
 			count_val = (zend_long)Z_DVAL(retval);
 		} else {
