@@ -1,4 +1,4 @@
-/*
+﻿/*
  +----------------------------------------------------------------------+
  | gene                                                                 |
  +----------------------------------------------------------------------+
@@ -34,6 +34,11 @@
 #define GENE_SESSION_DIRTY  "_dirty"
 #define GENE_SESSION_COOKIE_SENT  "_cookie_sent"
 #define GENE_SESSION_COOKIE_NEW  "_cookie_new"
+/* [GENE_SEC:2026-11-01 S8] Session hardening: idle/absolute timeouts and
+ * fingerprint binding flags (1=ua, 2=ip). */
+#define GENE_SESSION_IDLE_TTL  "idle_ttl"
+#define GENE_SESSION_ABS_TTL  "absolute_ttl"
+#define GENE_SESSION_BIND  "bind_flags"
 
 extern zend_class_entry *gene_session_ce;
 

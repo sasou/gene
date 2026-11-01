@@ -1,4 +1,4 @@
-/*
+﻿/*
  +----------------------------------------------------------------------+
  | gene                                                                 |
  +----------------------------------------------------------------------+
@@ -26,6 +26,8 @@ extern zend_class_entry *gene_response_ce;
 void gene_response_set_redirect(char *url, zend_long code);
 void gene_response_set_status(zend_long code);
 void gene_response_set_header(char *key, char *value);
+void gene_response_set_header_ex(const char *key, size_t key_len, const char *value, size_t value_len);
+zend_string *gene_response_csp_nonce(void);
 void gene_response_end(zend_string *data);
 void gene_response_redirect_js(zend_string *url);
 void gene_response_alert(zend_string *text, zend_string *url);

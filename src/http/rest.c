@@ -1,4 +1,4 @@
-#ifdef HAVE_CONFIG_H
+﻿#ifdef HAVE_CONFIG_H
 #include "config.h"
 #endif
 
@@ -14,6 +14,7 @@
 #include "../http/http.h"
 #include "../http/invoke.h"
 #include "../http/rest.h"
+#include "../http/policy.h"
 
 zend_class_entry *gene_rest_ce;
 
@@ -115,6 +116,74 @@ static zend_bool gene_rest_opt_bool(zval *root, zval *svc, zval *opts, const cha
 		if (v) return zend_is_true(v);
 	}
 	return def;
+}
+
+/* [GENE_SEC:2026-11-01 S5] Borrowed-string option lookup (opts → svc → cfg). */
+static zend_string *gene_rest_opt_str(zval *root, zval *svc, zval *opts, const char *k, size_t klen) {
+	zval *v;
+	if (opts && Z_TYPE_P(opts) == IS_ARRAY) {
+		v = zend_hash_str_find(Z_ARRVAL_P(opts), k, klen);
+		if (v && Z_TYPE_P(v) == IS_STRING && Z_STRLEN_P(v) > 0) return Z_STR_P(v);
+	}
+	if (svc) {
+		v = zend_hash_str_find(Z_ARRVAL_P(svc), k, klen);
+		if (v && Z_TYPE_P(v) == IS_STRING && Z_STRLEN_P(v) > 0) return Z_STR_P(v);
+	}
+	if (root) {
+		v = zend_hash_str_find(Z_ARRVAL_P(root), k, klen);
+		if (v && Z_TYPE_P(v) == IS_STRING && Z_STRLEN_P(v) > 0) return Z_STR_P(v);
+	}
+	return NULL;
+}
+
+/* [GENE_SEC:2026-11-01 S5] When a 'secret' is configured (opts → service →
+ * root), outbound requests self-sign with the restGuard scheme:
+ * X-Gene-Ts / X-Gene-Nonce / X-Gene-Sign over method\npath\nts\nnonce\nbody-sha. */
+static void gene_rest_sign_headers(zval *headers, zend_string *secret,
+	const char *method, size_t method_len, const char *path, size_t path_len, zval *opts)
+{
+	zend_long ts = (zend_long)time(NULL);
+	zend_string *nonce_raw, *nonce, *body, *sign;
+	char tsbuf[24];
+
+	if (!headers || Z_TYPE_P(headers) != IS_ARRAY) {
+		return;
+	}
+	body = ZSTR_EMPTY_ALLOC();
+	if (opts && Z_TYPE_P(opts) == IS_ARRAY) {
+		zval *b = zend_hash_str_find(Z_ARRVAL_P(opts), ZEND_STRL("body"));
+		zval *j = zend_hash_str_find(Z_ARRVAL_P(opts), ZEND_STRL("json"));
+		if (b && Z_TYPE_P(b) == IS_STRING) {
+			body = zend_string_copy(Z_STR_P(b));
+		} else if (j) {
+			zval enc;
+			if (gene_json_encode_throw(j, &enc) == SUCCESS && Z_TYPE(enc) == IS_STRING) {
+				body = zend_string_copy(Z_STR(enc));
+			}
+			if (!Z_ISUNDEF(enc)) zval_ptr_dtor(&enc);
+		}
+	}
+	nonce_raw = policy_random_bytes(12);
+	if (!nonce_raw) {
+		return;
+	}
+	nonce = policy_b64url(ZSTR_VAL(nonce_raw), ZSTR_LEN(nonce_raw));
+	zend_string_release(nonce_raw);
+	if (!nonce) {
+		return;
+	}
+	sign = gene_policy_sign_request(secret, method, method_len, path, path_len, ts, nonce, body);
+	if (body != ZSTR_EMPTY_ALLOC()) {
+		zend_string_release(body);
+	}
+	if (!sign) {
+		zend_string_release(nonce);
+		return;
+	}
+	snprintf(tsbuf, sizeof(tsbuf), "%lld", (long long)ts);
+	add_assoc_stringl_ex(headers, ZEND_STRL("X-Gene-Ts"), tsbuf, strlen(tsbuf));
+	add_assoc_str_ex(headers, ZEND_STRL("X-Gene-Nonce"), nonce);
+	add_assoc_str_ex(headers, ZEND_STRL("X-Gene-Sign"), sign);
 }
 
 static int gene_rest_header_exists(HashTable *headers, const char *name) {
@@ -227,6 +296,13 @@ static int gene_rest_http_exec(zval *this_ptr, const char *method, size_t method
 
 	gene_rest_merge_headers(&headers, cfg, svc, opts);
 	gene_rest_pass_request_id(&headers, gene_rest_opt_bool(cfg, svc, opts, ZEND_STRL("pass_request_id"), 1));
+	/* [GENE_SEC:2026-11-01 S5] secret-configured services self-sign. */
+	{
+		zend_string *secret = gene_rest_opt_str(cfg, svc, opts, ZEND_STRL("secret"));
+		if (secret) {
+			gene_rest_sign_headers(&headers, secret, method, method_len, path, path_len, opts);
+		}
+	}
 
 	array_init(&http_opts);
 	add_assoc_str_ex(&http_opts, ZEND_STRL("url"), url);

@@ -32,8 +32,12 @@
 #include "../gene.h"
 #include "../http/response.h"
 #include "../http/json.h"
+#include "../http/policy.h"
 #include "../cache/memory.h"
 #include "../di/di.h"
+
+zend_string *gene_crypto_seal_str(zend_string *plain, zend_string *ctx);
+zend_string *gene_crypto_unseal_str(zend_string *cipher, zend_string *ctx);
 
 zend_class_entry * gene_response_ce;
 
@@ -262,7 +266,7 @@ void gene_response_set_redirect(char *url, zend_long code) {
 
 /** {{{ void gene_response_set_header(char *key, char *value)
  */
-static void gene_response_set_header_ex(char *key, size_t key_len, char *value, size_t value_len) {
+void gene_response_set_header_ex(const char *key, size_t key_len, const char *value, size_t value_len) {
 	zval *swoole_resp = gene_response_context_obj();
 	if (swoole_resp) {
 		/* [GENE_PERF:2026-05-19] Swoole mode: sapi_header_op is a no-op, no fallback. */
@@ -573,6 +577,19 @@ PHP_METHOD(gene_response, json) {
 	if (zend_parse_parameters(ZEND_NUM_ARGS(), "z|sl", &data, &callback, &callback_len, &code) == FAILURE) {
 		return;
 	}
+	/* [GENE_SEC:2026-11-01 S4] JSONP hardening: the callback must be a valid
+	 * JS identifier path (dropped silently on mismatch — same semantic as the
+	 * 5 hand-rolled preg_match guards in the apps). gene.jsonp=0 disables
+	 * JSONP entirely; a used callback emits a comment opener wrapper plus
+	 * nosniff and a JS content-type so the response cannot be sniffed as
+	 * HTML/SWF. */
+	if (!GENE_G(jsonp_enabled) || !gene_jsonp_valid(callback, (size_t)callback_len)) {
+		callback_len = 0;
+	}
+	if (callback_len) {
+		gene_response_set_header("Content-Type", "application/javascript; charset=UTF-8");
+		gene_response_set_header("X-Content-Type-Options", "nosniff");
+	}
 	/* [GENE_PERF:2026-09-20 V3-2.7] Encode into a smart_str instead of a
 	 * zend_call_known_function("json_encode") round trip — one less VM
 	 * frame and no temporary returned zval on the hot response path.
@@ -580,6 +597,7 @@ PHP_METHOD(gene_response, json) {
 	 * identical (JSON_THROW_ON_ERROR still raises JsonException). */
 	if (gene_json_encode_buf(&jbuf, data, code) == SUCCESS) {
 		if (callback_len) {
+			php_write(ZEND_STRL("/**/"));
 			php_write(callback, callback_len);
 			php_write(ZEND_STRL("("));
 		}
@@ -1015,6 +1033,112 @@ PHP_METHOD(gene_response, setHtmlHeader) {
 }
 /* }}} */
 
+/* {{{ gene_response_csp_nonce — per-request base64url nonce for CSP {nonce} */
+zend_string *gene_response_csp_nonce(void) {
+	gene_ctx_cold *c = GENE_CTX_COLD(gene_request_ctx());
+	if (!c->csp_nonce) {
+		zval in, out;
+		ZVAL_LONG(&in, 18);
+		{
+			zend_function *fn = zend_hash_str_find_ptr(CG(function_table), ZEND_STRL("random_bytes"));
+			if (!fn) return NULL;
+			ZVAL_UNDEF(&out);
+			zend_call_known_function(fn, NULL, NULL, &out, 1, &in, NULL);
+		}
+		if (Z_TYPE(out) != IS_STRING) {
+			zval_ptr_dtor(&out);
+			return NULL;
+		}
+		{
+			zval b;
+			ZVAL_STR(&in, Z_STR(out)); /* reuse in as input zval */
+			{
+				zend_function *fn2 = zend_hash_str_find_ptr(CG(function_table), ZEND_STRL("base64_encode"));
+				if (!fn2) {
+					zval_ptr_dtor(&out);
+					return NULL;
+				}
+				ZVAL_UNDEF(&b);
+				zend_call_known_function(fn2, NULL, NULL, &b, 1, &in, NULL);
+			}
+			zval_ptr_dtor(&out);
+			if (Z_TYPE(b) != IS_STRING) {
+				zval_ptr_dtor(&b);
+				return NULL;
+			}
+			c->csp_nonce = Z_STR(b);
+		}
+		/* b64url in-place */
+		{
+			char *p = ZSTR_VAL(c->csp_nonce);
+			size_t i, n = ZSTR_LEN(c->csp_nonce);
+			for (i = 0; i < n; i++) {
+				if (p[i] == '+') p[i] = '-';
+				else if (p[i] == '/') p[i] = '_';
+			}
+			while (n > 0 && p[n - 1] == '=') n--;
+			ZSTR_LEN(c->csp_nonce) = n;
+			p[n] = '\0';
+		}
+	}
+	return c->csp_nonce;
+}
+
+/* {{{ proto public gene_response::cspNonce(): string */
+PHP_METHOD(gene_response, cspNonce) {
+	zend_string *n = gene_response_csp_nonce();
+	if (!n) {
+		RETURN_EMPTY_STRING();
+	}
+	RETURN_STR(zend_string_copy(n));
+}
+/* }}} */
+
+/* {{{ proto public gene_response::sealedCookie(name, value, expires[, ...])
+ * Tamper-evident cookie: value is AES-256-GCM sealed under the Crypto keyring
+ * with AAD "cookie.<name>" — a sealed value cannot be replayed into another
+ * cookie name or another context. Requires Crypto::keyring(). */
+PHP_METHOD(gene_response, sealedCookie) {
+	zval *name = NULL, *value = NULL, *expires = NULL, *path = NULL, *domain = NULL, *secure = NULL, *httponly = NULL, *samesite = NULL;
+	zend_string *sealed, *ctx;
+	if (zend_parse_parameters(ZEND_NUM_ARGS(), "zz|zzzzzz", &name, &value, &expires, &path, &domain, &secure, &httponly, &samesite) == FAILURE) {
+		return;
+	}
+	if (!name || Z_TYPE_P(name) != IS_STRING || Z_STRLEN_P(name) == 0) {
+		zend_argument_value_error(1, "must be a non-empty cookie name");
+		RETURN_THROWS();
+	}
+	ctx = zend_string_init(ZEND_STRL("cookie."), 0);
+	ctx = zend_string_extend(ctx, ZSTR_LEN(ctx) + Z_STRLEN_P(name), 0);
+	memcpy(ZSTR_VAL(ctx) + 7, Z_STRVAL_P(name), Z_STRLEN_P(name) + 1);
+	{
+		zend_string *plain;
+		if (value && Z_TYPE_P(value) == IS_STRING) {
+			plain = zend_string_copy(Z_STR_P(value));
+		} else {
+			zval empty;
+			ZVAL_EMPTY_STRING(&empty);
+			plain = zval_get_string(value ? value : &empty);
+		}
+		sealed = gene_crypto_seal_str(plain, ctx);
+		zend_string_release(plain);
+	}
+	zend_string_release(ctx);
+	if (!sealed) {
+		if (!EG(exception)) {
+			zend_throw_exception_ex(NULL, 0, "Gene\\Response::sealedCookie requires Crypto::keyring()");
+		}
+		RETURN_THROWS();
+	}
+	{
+		zval sv;
+		ZVAL_STR(&sv, sealed);
+		gene_response_cookie(name, &sv, expires, path, domain, secure, httponly, samesite, return_value);
+	}
+	zend_string_release(sealed);
+}
+/* }}} */
+
 /*
  * {{{ gene_response_methods
  */
@@ -1041,6 +1165,9 @@ const zend_function_entry gene_response_methods[] = {
 	PHP_ME(gene_response, sendFile, gene_response_arg_send_file, ZEND_ACC_PUBLIC|ZEND_ACC_STATIC)
 	PHP_ME(gene_response, setJsonHeader, gene_response_void_arginfo, ZEND_ACC_PUBLIC|ZEND_ACC_STATIC)
 	PHP_ME(gene_response, setHtmlHeader, gene_response_void_arginfo, ZEND_ACC_PUBLIC|ZEND_ACC_STATIC)
+	/* [GENE_SEC:2026-11-01] S3 CSP nonce + S9 sealed cookie. */
+	PHP_ME(gene_response, cspNonce, gene_response_void_arginfo, ZEND_ACC_PUBLIC|ZEND_ACC_STATIC)
+	PHP_ME(gene_response, sealedCookie, gene_response_arg_cookie, ZEND_ACC_PUBLIC|ZEND_ACC_STATIC)
 	PHP_ME(gene_response, __construct, gene_response_construct_arginfo, ZEND_ACC_PUBLIC)
 	{ NULL, NULL, NULL }
 };
