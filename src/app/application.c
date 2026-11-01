@@ -1533,6 +1533,12 @@ static void gene_application_policy_setter(INTERNAL_FUNCTION_PARAMETERS, const c
 	}
 	if (config) {
 		zend_update_static_property(gene_application_ce, prop, prop_len, config);
+	} else if (ZEND_NUM_ARGS() == 0) {
+		/* no argument = enable with built-in defaults; explicit null = off */
+		zval empty;
+		array_init(&empty);
+		zend_update_static_property(gene_application_ce, prop, prop_len, &empty);
+		zval_ptr_dtor(&empty);
 	} else {
 		ZVAL_FALSE(&disabled);
 		zend_update_static_property(gene_application_ce, prop, prop_len, &disabled);
@@ -1548,18 +1554,30 @@ PHP_METHOD(gene_application, trustProxies) {
 	if (zend_parse_parameters(ZEND_NUM_ARGS(), "|a!", &config) == FAILURE) {
 		return;
 	}
-	if (GENE_G(worker_ready)) {
-		/* readers borrow bare CIDR pointers on the lock-free path */
-		zend_throw_exception_ex(NULL, 0,
-			"Gene\\Application::trustProxies must be configured before workerReady()");
-		RETURN_THROWS();
-	}
-	if (config) {
-		gene_trust_compile(config);
-	} else {
+	{
 		zval empty;
-		array_init(&empty);
-		gene_trust_compile(&empty);
+		zend_string *sig;
+		if (!config) {
+			array_init(&empty);
+			config = &empty;
+		} else {
+			ZVAL_UNDEF(&empty);
+		}
+		sig = gene_trust_signature(config);
+		/* identical config (entry chain re-run per request): no-op */
+		if (!gene_trust_same(sig)) {
+			if (GENE_G(worker_ready)) {
+				/* readers borrow bare CIDR pointers on the lock-free path */
+				zend_string_release(sig);
+				zval_ptr_dtor(&empty);
+				zend_throw_exception_ex(NULL, 0,
+					"Gene\\Application::trustProxies config cannot change after workerReady()");
+				RETURN_THROWS();
+			}
+			gene_trust_compile(config);
+			gene_trust_set_sig(sig);
+		}
+		zend_string_release(sig);
 		zval_ptr_dtor(&empty);
 	}
 	RETURN_ZVAL(self, 1, 0);
@@ -1687,9 +1705,25 @@ PHP_METHOD(gene_application, run) {
 	/* [GENE_SEC:2026-11-01] Security policies run before webscan at the single
 	 * dispatch choke point: secure headers are applied first (cheap, only when
 	 * configured), then csrf/restGuard/readonly may deny the request. */
-	gene_policy_headers_apply();
-	if (gene_policy_check()) {
-		RETURN_ZVAL(self, 1, 0);
+	/* [GENE_SEC:2026-11-01 R2] Outermost dispatch only: a nested run()
+	 * (Invoke::local / internal re-dispatch) was already admitted by the
+	 * outer request. Policies judge the method/path actually dispatched —
+	 * run($method, $path) arguments win over the server bag. */
+	if (GENE_G(run_depth) == 0) {
+		const char *pm = min ? min : ctx->method;
+		size_t pml = min ? ZSTR_LEN(methodin) : ctx->method_len;
+		const char *pp = pin ? pin : ctx->path;
+		size_t ppl = pin ? ZSTR_LEN(pathin) : ctx->path_len;
+		if (pin) {
+			const char *qm = memchr(pin, '?', ppl);
+			if (qm) {
+				ppl = (size_t)(qm - pin);
+			}
+		}
+		gene_policy_headers_apply();
+		if (gene_policy_check(pm, pml, pp, ppl)) {
+			RETURN_ZVAL(self, 1, 0);
+		}
 	}
 	if (gene_application_webscan_check()) {
 		RETURN_ZVAL(self, 1, 0);

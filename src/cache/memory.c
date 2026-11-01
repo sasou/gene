@@ -55,6 +55,12 @@ ZEND_BEGIN_ARG_INFO_EX(gene_memory_arg_incr, 0, 0, 1)
     ZEND_ARG_INFO(0, step)
 ZEND_END_ARG_INFO()
 
+ZEND_BEGIN_ARG_INFO_EX(gene_memory_arg_incr_ttl, 0, 0, 1)
+	ZEND_ARG_INFO(0, key)
+	ZEND_ARG_INFO(0, step)
+	ZEND_ARG_INFO(0, ttl)
+ZEND_END_ARG_INFO()
+
 ZEND_BEGIN_ARG_INFO_EX(gene_memory_arg_get, 0, 0, 1)
 	ZEND_ARG_INFO(0, key)
 ZEND_END_ARG_INFO()
@@ -1544,7 +1550,7 @@ static char *gene_memory_build_key(zval *safe, zend_string *keyString, char *sta
  * Memory::set/rateLimit. New keys are not refused: with the business-write
  * depth raised they land in business_cache, separate from the frozen route
  * table. */
-static zend_long gene_memory_adjust(const char *keyString, size_t keyString_len, zend_long step, zend_bool *ok) {
+static zend_long gene_memory_adjust(const char *keyString, size_t keyString_len, zend_long step, zend_long ttl, zend_bool *ok) {
 	zval *copyval, ret;
 	zend_string *key;
 	zend_long result = 0;
@@ -1553,13 +1559,25 @@ static zend_long gene_memory_adjust(const char *keyString, size_t keyString_len,
 	if (UNEXPECTED(!gene_memory_write_allowed("Memory::incr/decr"))) {
 		return 0;
 	}
+	if (ttl > INT_MAX) {
+		ttl = INT_MAX;
+	}
 	GENE_CACHE_WRLOCK();
+	/* [GENE_FIX:2026-11-01 R2] An expired counter restarts instead of
+	 * growing forever off its stale value (get() already reports it as a
+	 * miss — incr must agree, or fixed-window counters never reset). */
+	if (gene_memory_expired_nolock(keyString, keyString_len)) {
+		gene_memory_del_core(keyString, keyString_len);
+	}
 	copyval = zend_symtable_str_find(GENE_MEMORY_TABLE(), keyString, keyString_len);
 	if (copyval == NULL) {
 		ZVAL_LONG(&ret, step);
 		key = gene_str_persistent(keyString, keyString_len);
 		gene_symtable_update(GENE_MEMORY_TABLE(), key, &ret);
 		/* key is now owned by the hash table; do not free here. */
+		if (ttl > 0) {
+			gene_memory_set_expiry_nolock(keyString, keyString_len, ttl);
+		}
 		*ok = 1;
 		result = step;
 	} else if (Z_TYPE_P(copyval) == IS_LONG) {
@@ -1578,27 +1596,35 @@ static zend_long gene_memory_adjust(const char *keyString, size_t keyString_len,
 }
 
 /*
- * {{{ public gene_memory::incr(string $key, int $step = 1): int|false
+ * {{{ public gene_memory::incr(string $key, int $step = 1, int $ttl = 0): int|false
+ * $ttl (seconds) applies only when the counter is created (fresh or after
+ * expiry) — fixed-window semantics, same as Redis INCR + first EXPIRE.
  */
-PHP_METHOD(gene_memory, incr) {
-	zend_string *keyString;
-	zend_long step = 1;
+zend_long gene_memory_incr_ttl(zval *self, zend_string *keyString, zend_long step, zend_long ttl, zend_bool *ok) {
 	char stack_buf[256];
 	char *router_e;
 	size_t router_e_len;
 	int router_e_heap = 0;
-	zend_bool ok;
 	zend_long result;
 	zval *safe;
-	if (zend_parse_parameters(ZEND_NUM_ARGS(), "S|l", &keyString, &step) == FAILURE) {
-		return;
-	}
-	safe = zend_read_property(gene_memory_ce, gene_strip_obj(getThis()), GENE_MEMORY_SAFE, strlen(GENE_MEMORY_SAFE), 1, NULL);
+	safe = zend_read_property(gene_memory_ce, gene_strip_obj(self), GENE_MEMORY_SAFE, strlen(GENE_MEMORY_SAFE), 1, NULL);
 	router_e = gene_memory_build_key(safe, keyString, stack_buf, sizeof(stack_buf), &router_e_len, &router_e_heap);
 	GENE_CACHE_LAYER_MEMORY_WRITE_ENTER();
-	result = gene_memory_adjust(router_e, router_e_len, step, &ok);
+	result = gene_memory_adjust(router_e, router_e_len, step, ttl, ok);
 	GENE_CACHE_LAYER_MEMORY_WRITE_LEAVE();
 	if (router_e_heap) efree(router_e);
+	return result;
+}
+
+PHP_METHOD(gene_memory, incr) {
+	zend_string *keyString;
+	zend_long step = 1, ttl = 0;
+	zend_bool ok;
+	zend_long result;
+	if (zend_parse_parameters(ZEND_NUM_ARGS(), "S|ll", &keyString, &step, &ttl) == FAILURE) {
+		return;
+	}
+	result = gene_memory_incr_ttl(getThis(), keyString, step, ttl, &ok);
 	if (!ok) {
 		RETURN_FALSE;
 	}
@@ -1625,7 +1651,7 @@ PHP_METHOD(gene_memory, decr) {
 	safe = zend_read_property(gene_memory_ce, gene_strip_obj(getThis()), GENE_MEMORY_SAFE, strlen(GENE_MEMORY_SAFE), 1, NULL);
 	router_e = gene_memory_build_key(safe, keyString, stack_buf, sizeof(stack_buf), &router_e_len, &router_e_heap);
 	GENE_CACHE_LAYER_MEMORY_WRITE_ENTER();
-	result = gene_memory_adjust(router_e, router_e_len, -step, &ok);
+	result = gene_memory_adjust(router_e, router_e_len, -step, 0, &ok);
 	GENE_CACHE_LAYER_MEMORY_WRITE_LEAVE();
 	if (router_e_heap) efree(router_e);
 	if (!ok) {
@@ -2058,7 +2084,7 @@ const zend_function_entry gene_memory_methods[] = {
 	 * satisfies the session storage handler contract (get/set/delete) and can
 	 * be used as `session.driver` in fully local deployments. */
 	PHP_MALIAS(gene_memory, delete, del, gene_memory_arg_del, ZEND_ACC_PUBLIC)
-	PHP_ME(gene_memory, incr, gene_memory_arg_incr, ZEND_ACC_PUBLIC)
+	PHP_ME(gene_memory, incr, gene_memory_arg_incr_ttl, ZEND_ACC_PUBLIC)
 	PHP_ME(gene_memory, decr, gene_memory_arg_incr, ZEND_ACC_PUBLIC)
 	PHP_ME(gene_memory, rateLimit, gene_memory_arg_rate_limit, ZEND_ACC_PUBLIC)
 	PHP_ME(gene_memory, lock, gene_memory_arg_lock, ZEND_ACC_PUBLIC)

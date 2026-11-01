@@ -1386,6 +1386,9 @@ static void php_gene_init_globals() {
 	GENE_G(trust_hdr_n) = 0;
 	GENE_G(trust_compiled) = 0;
 	GENE_G(trust_proto) = 0;
+	GENE_G(trust_sig) = NULL;
+	GENE_G(trust_xfp_warned) = 0;
+	GENE_G(password_dummy) = NULL;
 	gene_memory_init();
 }
 /* }}} */
@@ -1639,6 +1642,10 @@ PHP_MSHUTDOWN_FUNCTION(gene) {
 	gene_closure_src_cache_destroy();
 	/* [GENE_SEC:2026-11-01 S1] Free the pemalloc'd trusted-proxy table. */
 	gene_trust_destroy();
+	if (GENE_G(password_dummy)) {
+		zend_string_release(GENE_G(password_dummy));
+		GENE_G(password_dummy) = NULL;
+	}
 	if (GENE_G(cache_easy)) {
 		gene_hash_destroy(GENE_G(cache_easy));
 		GENE_G(cache_easy) = NULL;

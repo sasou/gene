@@ -23,6 +23,7 @@
 #define GENE_REDIS_POOL_REF "pool"
 
 extern zend_class_entry *gene_redis_ce;
+zend_long gene_redis_hit(zval *self, zend_string *key, zend_long ttl);
 
 
 GENE_MINIT_FUNCTION(redis);

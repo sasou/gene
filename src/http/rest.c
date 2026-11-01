@@ -300,7 +300,21 @@ static int gene_rest_http_exec(zval *this_ptr, const char *method, size_t method
 	{
 		zend_string *secret = gene_rest_opt_str(cfg, svc, opts, ZEND_STRL("secret"));
 		if (secret) {
-			gene_rest_sign_headers(&headers, secret, method, method_len, path, path_len, opts);
+			/* sign the request-target the server will see: path (including any
+			 * base_url path prefix) + query, without scheme/host/fragment */
+			const char *u = ZSTR_VAL(url), *ue = u + ZSTR_LEN(url), *t, *te;
+			const char *sch = strstr(u, "://");
+			t = sch ? sch + 3 : u;
+			while (t < ue && *t != '/' && *t != '?') t++;
+			te = memchr(t, '#', (size_t)(ue - t));
+			if (!te) te = ue;
+			if (t == te || *t != '/') {
+				zend_string *tg = zend_string_concat2("/", 1, t, (size_t)(te - t));
+				gene_rest_sign_headers(&headers, secret, method, method_len, ZSTR_VAL(tg), ZSTR_LEN(tg), opts);
+				zend_string_release(tg);
+			} else {
+				gene_rest_sign_headers(&headers, secret, method, method_len, t, (size_t)(te - t), opts);
+			}
 		}
 	}
 

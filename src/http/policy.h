@@ -27,7 +27,7 @@ void gene_policy_headers_apply(void);
 
 /* Run the request policy (csrf + restGuard + readonly). Returns 1 when the
  * request was answered/denied and dispatch must be skipped (webscan-style). */
-int gene_policy_check(void);
+int gene_policy_check(const char *method, size_t mlen, const char *path, size_t plen);
 
 /* JSONP callback whitelist validator (mchat strict variant). */
 int gene_jsonp_valid(const char *s, size_t n);
@@ -39,6 +39,8 @@ int gene_path_glob(const char *pat, size_t plen, const char *s, size_t slen);
 zend_string *gene_policy_sign_request(zend_string *secret, const char *method, size_t mlen,
 	const char *path, size_t plen, zend_long ts, zend_string *nonce, zend_string *body);
 zend_bool gene_policy_nonce_check(zend_string *component, zend_string *key, zend_long ttl);
+/* Atomic single-use marker: 1 first use, 0 seen, -1 store error. */
+int gene_store_once(zval *store, zend_string *key, zend_long ttl);
 zend_string *policy_b64url(const char *data, size_t len);
 zend_string *policy_random_bytes(zend_long n);
 
