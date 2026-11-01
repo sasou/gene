@@ -1273,11 +1273,30 @@ PHP_METHOD(gene_crypto, totpVerify) {
 		}
 	}
 	if (ok && store) {
-		/* single-use: "gene:totp:<sha1(secret)>" marked for the full window —
-		 * a second verify with the same code in the window fails */
+		/* single-use per time step: "gene:totp:<hex(hmac(secret))[:32]>:<counter>".
+		 * The secret never reaches the store's key space, and a fresh code
+		 * from the next step is still accepted. */
 		smart_str k = {0};
+		zend_string *tag = zend_string_init(ZEND_STRL("gene:totp"), 0);
+		zend_string *fp = gene_hmac_sha256_raw(raw, tag);
+		zend_string_release(tag);
+		if (!fp) {
+			zend_string_release(raw);
+			RETURN_FALSE;
+		}
 		smart_str_appends(&k, "gene:totp:");
-		smart_str_append(&k, secret);
+		{
+			static const char hx[] = "0123456789abcdef";
+			size_t hi;
+			for (hi = 0; hi < 16 && hi < ZSTR_LEN(fp); hi++) {
+				unsigned char b = (unsigned char)ZSTR_VAL(fp)[hi];
+				smart_str_appendc(&k, hx[b >> 4]);
+				smart_str_appendc(&k, hx[b & 15]);
+			}
+		}
+		zend_string_release(fp);
+		smart_str_appendc(&k, ':');
+		smart_str_append_long(&k, counter);
 		smart_str_0(&k);
 		if (k.s) {
 			if (gene_store_once(store, k.s, step * (2 * window + 1)) != 1) {
