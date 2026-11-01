@@ -30,6 +30,7 @@ $testFiles = [
     'RestInvokeTest.php',
     'SwooleEntryTest.php',
     'SecurityTest.php',
+    'WebscanTest.php',
     'DemoLoadTest.php'
 ];
 
@@ -213,6 +214,7 @@ class TestRunner
             'RestInvokeTest.php',
             'SwooleEntryTest.php',
             'SecurityTest.php',
+            'WebscanTest.php',
             'DemoLoadTest.php'
         ];
         

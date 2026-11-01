@@ -37,6 +37,9 @@ void gene_request_input_invalidate(gene_request_context *ctx);
  * FAILURE leaves a pending exception; SUCCESS commits all bags. */
 int gene_request_init_swoole(zval *request_obj);
 void gene_request_input_value(zval *return_value, zend_string *key, zval *def);
+void gene_request_raw_value(zval *return_value);
+zend_bool gene_request_json_content_type(void);
+int gene_request_json_peek(zval *return_value);
 
 /* [GENE_PERF:2026-04-19 #2] Cache ctx once per is-method call — previously issued
  * 2 ctx lookups (one for NULL check, one for strcasecmp). Expanded across
