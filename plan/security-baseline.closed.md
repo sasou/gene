@@ -693,5 +693,15 @@ S1-S12 已全部按本文方案落地于 C 扩展；回归文件 `test/SecurityT
 
 - ~~OpenSSL 构建下 `seal/unseal`/`sealedCookie` 与 TOTP `used` 端到端~~ —— 已在 8.2.35 + openssl 下全绿。
 - ~~`ctype`/`pdo_sqlite` 齐备后全量恢复绿~~ —— 1084/1084 达成。
-- FPM/Swoole curl 验收补安全头、CSRF、REST 签名断言；Redis/Memcached 实存下的 `gene_store_once`/throttle 原子路径。
+- ~~Redis/Memcached 实存下的 `gene_store_once`/throttle 原子路径~~ —— 已实测通过并修复派生缺陷（见下节）。
+- FPM/Swoole curl 验收补安全头、CSRF、REST 签名断言。
+
+### 实存验证（2026-11-01，PHP 8.2.35 + 实存 Memcached 172.17.0.1:1121 / Redis 172.17.0.1:6379 AUTH）
+
+- **覆盖存储形态**：`\Memcached` 鸭子类型适配器（通用分支 `incr→expire`/`add`）、`Gene\Cache\Memcached`、`Gene\Cache\Redis`（Lua INCR+EXPIRE / lock SET NX EX）。
+- **验证中发现并修复一个派生 bug**：`gene_throttle_call`/`gene_store_call` 只查 `function_table`，对经 `__call` 透传方法的存储（`Gene\Cache\Redis`/`Gene\Cache\Memcached` 正是这种形态）静默空操作——实测 `Throttle::clear` 在 `Gene\Cache\Redis` 上不删键。修复：方法表未命中时回退调用 public `__call`（与用户态调用语义一致）；同时补齐 `Gene\Cache\Redis::del/delete`、`Gene\Cache\Memcached::add/del/delete/expire(→touch)`，并把 `incr`/`decr` 缺键兜底从非原子 `set()` 改为 `add()`+重试。
+- **序列断言 53/53 PASS**（三种存储 × hit 递增/首写 TTL/`gene:thr:` 服务端可见/TTL 到期归零/`attempt` 边界/`remaining`/`clear` + `totpVerify['used']` 首用通过/重放拒绝/`gene:totp:<secret>` 标记在服务端可见；Redis 侧另验证服务端 `TTL` 已挂上）。
+- **多进程竞态 6/6**：每存储 8 进程 × 20 `hit` → 服务端精确 160 无丢更新；8 进程并发 `totpVerify` 同码 → 恰好 1 WIN——`incr`/`add`/`lock`/`SET NX EX` 原子性在实存下成立。
+- **错误路径**：死 Memcached `hit`→-1、`attempt` fail-open、`totpVerify['used']` fail-closed；`Gene\Cache\Redis` 构造即 connect（eager），不可达抛 `RedisException`（设计行为，应用侧拿不到死对象）。
+- **回归**：新增 `__call` 代理存储断言 7 项；`SecurityTest` 全绿，全量 `TestRunner` 1084 项全 PASS（CacheTest 74/74 无回归）。
 

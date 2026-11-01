@@ -912,6 +912,38 @@ PHP_METHOD(gene_redis, unlock) {
 }
 
 /*
+ * {{{ public gene_redis::del() / delete() — satisfies the store contract
+ * used by Throttle::clear / nonce cleanup; forwards to phpredis del.
+ */
+PHP_METHOD(gene_redis, del) {
+	zend_string *key;
+	zval *self = getThis(), *object, params, ret;
+	if (zend_parse_parameters(ZEND_NUM_ARGS(), "S", &key) == FAILURE) {
+		return;
+	}
+	object = zend_read_property(gene_redis_ce, gene_strip_obj(self), ZEND_STRL(GENE_REDIS_OBJ), 1, NULL);
+	if (object && Z_TYPE_P(object) == IS_OBJECT) {
+		array_init(&params);
+		add_next_index_str(&params, zend_string_copy(key));
+		ZVAL_UNDEF(&ret);
+		gene_factory_call(object, "del", sizeof("del") - 1, &params, &ret);
+		if (EG(exception) && checkError(EG(exception))) {
+			zend_clear_exception();
+			if (!Z_ISUNDEF(ret)) { zval_ptr_dtor(&ret); ZVAL_UNDEF(&ret); }
+			gene_redis_reconnect(self);
+			object = zend_read_property(gene_redis_ce, gene_strip_obj(self), ZEND_STRL(GENE_REDIS_OBJ), 1, NULL);
+			if (object && Z_TYPE_P(object) == IS_OBJECT) {
+				gene_factory_call(object, "del", sizeof("del") - 1, &params, &ret);
+			}
+		}
+		zval_ptr_dtor(&params);
+		RETURN_ZVAL(&ret, 1, 1);
+	}
+	RETURN_NULL();
+}
+/* }}} */
+
+/*
  * {{{ public gene_redis::release()
  *
  * Explicitly return the pool-borrowed Redis connection back to the pool.
@@ -976,6 +1008,8 @@ const zend_function_entry gene_redis_methods[] = {
 		PHP_ME(gene_redis, rateLimit,   gene_redis_rate_limit_arginfo, ZEND_ACC_PUBLIC)
 		PHP_ME(gene_redis, lock,        gene_redis_lock_arginfo, ZEND_ACC_PUBLIC)
 		PHP_ME(gene_redis, unlock,      gene_redis_unlock_arginfo, ZEND_ACC_PUBLIC)
+		PHP_ME(gene_redis, del,         gene_redis_get_arginfo, ZEND_ACC_PUBLIC)
+		PHP_MALIAS(gene_redis, delete, del, gene_redis_get_arginfo, ZEND_ACC_PUBLIC)
 		PHP_ME(gene_redis, __call,      gene_redis_call_arginfo, ZEND_ACC_PUBLIC)
 		PHP_ME(gene_redis, __construct, gene_redis_construct_arginfo, ZEND_ACC_PUBLIC)
 		PHP_ME(gene_redis, release,     gene_redis_void_arginfo, ZEND_ACC_PUBLIC)

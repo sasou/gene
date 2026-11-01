@@ -604,10 +604,26 @@ zend_string *gene_policy_sign_request(zend_string *secret, const char *method, s
 static int gene_store_call(zval *store, const char *m, size_t mlen, uint32_t argc, zval *params, zval *ret) {
 	zend_function *fn = zend_hash_str_find_ptr(&Z_OBJCE_P(store)->function_table, m, mlen);
 	ZVAL_UNDEF(ret);
-	if (!fn) {
-		return FAILURE;
+	if (fn) {
+		zend_call_known_function(fn, Z_OBJ_P(store), Z_OBJCE_P(store), ret, argc, params, NULL);
+	} else if ((fn = Z_OBJCE_P(store)->__call) != NULL
+			&& (fn->common.fn_flags & ZEND_ACC_PUBLIC)) {
+		/* __call-proxied drivers (Gene\Cache\* wrappers) expose add/set the
+		 * same way a userland call sees them — without this the NX marker
+		 * never reached stores that only proxy their methods. */
+		zval cparams[2], args;
+		uint32_t i;
+		array_init(&args);
+		for (i = 0; i < argc; i++) {
+			Z_TRY_ADDREF(params[i]);
+			add_next_index_zval(&args, &params[i]);
+		}
+		ZVAL_STRINGL(&cparams[0], m, mlen);
+		ZVAL_COPY_VALUE(&cparams[1], &args);
+		zend_call_known_function(fn, Z_OBJ_P(store), Z_OBJCE_P(store), ret, 2, cparams, NULL);
+		zval_ptr_dtor(&cparams[0]);
+		zval_ptr_dtor(&cparams[1]);
 	}
-	zend_call_known_function(fn, Z_OBJ_P(store), Z_OBJCE_P(store), ret, argc, params, NULL);
 	if (EG(exception)) {
 		zend_clear_exception();
 		zval_ptr_dtor(ret);
