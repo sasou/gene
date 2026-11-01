@@ -673,7 +673,7 @@ S1-S12 已全部按本文方案落地于 C 扩展；回归文件 `test/SecurityT
 | S8 | 会话绑定的客户端 IP 取 XFF 可被伪造；UA 只读 server 袋；idle 每请求触盘写会话 | 绑定指纹改用 `gene_request_client_ip()`（信任表解析）；UA 走 HEADER 袋；`_born`/`_bind` 随会话持久化，`gene_session_touch_interval` 限频（uttl 与 idle/2 取小） |
 | S9 | `sealedCookie` 只有浏览器端 expires，客户端可回放过期值 | sealed 明文内嵌 `"exp\nvalue"`：`Response::sealedCookie` 写入，`Request::sealedCookie` 校验内嵌过期（exp=0 不过期），篡改/过期/无头负载一律 null |
 | S9 | `gene_crypto_unseal_str` 给 `openssl_decrypt` 传了 8 参（encrypt 专属的 tag_length），调用即抛 ArgumentCountError——`unseal`/`sealedCookie` 在有 openssl 的环境下永远失败（此前构建无 openssl 从未跑到） | 改为 7 参调用；PHP 8.2.35 + openssl 下 seal/unseal/轮换/sealedCookie 全链路回归通过 |
-| S10 | `totpVerify` 用 `strtol` 宽松解析（空白/符号/任意长度可过）；同一窗口内验证码可重放 | 严格校验"恰为 digits 位 ASCII 数字"；新增 `opts['used']` 存储：验证通过即 `gene_store_once` 打 `gene:totp:<secret>` 标记（窗口时长），同码二次验证返回 false |
+| S10 | `totpVerify` 用 `strtol` 宽松解析（空白/符号/任意长度可过）；同一窗口内验证码可重放 | 严格校验"恰为 digits 位 ASCII 数字"；新增 `opts['used']` 存储：验证通过即 `gene_store_once` 打 `gene:totp:<hmac指纹>:<counter>` 标记（窗口时长，见第三轮复审），同码二次验证返回 false |
 
 ### 复审结论
 
@@ -700,7 +700,7 @@ S1-S12 已全部按本文方案落地于 C 扩展；回归文件 `test/SecurityT
 
 - **覆盖存储形态**：`\Memcached` 鸭子类型适配器（通用分支 `incr→expire`/`add`）、`Gene\Cache\Memcached`、`Gene\Cache\Redis`（Lua INCR+EXPIRE / lock SET NX EX）。
 - **验证中发现并修复一个派生 bug**：`gene_throttle_call`/`gene_store_call` 只查 `function_table`，对经 `__call` 透传方法的存储（`Gene\Cache\Redis`/`Gene\Cache\Memcached` 正是这种形态）静默空操作——实测 `Throttle::clear` 在 `Gene\Cache\Redis` 上不删键。修复：方法表未命中时回退调用 public `__call`（与用户态调用语义一致）；同时补齐 `Gene\Cache\Redis::del/delete`、`Gene\Cache\Memcached::add/del/delete/expire(→touch)`，并把 `incr`/`decr` 缺键兜底从非原子 `set()` 改为 `add()`+重试。
-- **序列断言 53/53 PASS**（三种存储 × hit 递增/首写 TTL/`gene:thr:` 服务端可见/TTL 到期归零/`attempt` 边界/`remaining`/`clear` + `totpVerify['used']` 首用通过/重放拒绝/`gene:totp:<secret>` 标记在服务端可见；Redis 侧另验证服务端 `TTL` 已挂上）。
+- **序列断言 53/53 PASS**（三种存储 × hit 递增/首写 TTL/`gene:thr:` 服务端可见/TTL 到期归零/`attempt` 边界/`remaining`/`clear` + `totpVerify['used']` 首用通过/重放拒绝/`gene:totp:*` 标记在服务端可见；Redis 侧另验证服务端 `TTL` 已挂上）。
 - **多进程竞态 6/6**：每存储 8 进程 × 20 `hit` → 服务端精确 160 无丢更新；8 进程并发 `totpVerify` 同码 → 恰好 1 WIN——`incr`/`add`/`lock`/`SET NX EX` 原子性在实存下成立。
 - **错误路径**：死 Memcached `hit`→-1、`attempt` fail-open、`totpVerify['used']` fail-closed；`Gene\Cache\Redis` 构造即 connect（eager），不可达抛 `RedisException`（设计行为，应用侧拿不到死对象）。
 - **回归**：新增 `__call` 代理存储断言 7 项；`SecurityTest` 全绿，全量 `TestRunner` 1084 项全 PASS（CacheTest 74/74 无回归）。
@@ -711,4 +711,17 @@ S1-S12 已全部按本文方案落地于 C 扩展；回归文件 `test/SecurityT
 - **XFP 信任边界（HSTS）**：未配 `trustProxies` 时 `X-Forwarded-Proto: https` 被忽略，`isSecure()=false` 不发 HSTS；`trustProxies(['proxies'=>['127.0.0.0/8']])` 下同头生效，`isSecure()=true` 下发 `Strict-Transport-Security: max-age=31536000`；HTTP（无 XFP）始终不发 HSTS——`curl` 对照两端口实测。
 - **CSRF**（`token=>true`，session 组件走 `Gene\Memory`）：无 token POST→403；`_token` 表单字段→200；`X-Csrf-Token` 头→200；query 串携带 `_token`→403（防 Referer/日志泄漏）；异源 `Origin`→403；同源 `Origin`→200；`Sec-Fetch-Site: cross-site`→403。
 - **REST HMAC 签名**（`restGuard` + `Crypto::signRequest`）：未签名→403；合法签名→200；同 nonce 重放→403（Memory 存储一次性标记跨请求生效）；篡改签名→403；超 skew 旧 ts→403；签名不含 query 而请求带 query→403（证明签名目标含 query 串）；签名含 body 与实发 body 不符→403、相符→200。
+
+### 第三轮复审与关闭（2026-11-01）
+
+对第二轮四轴结论逐项复核：S1-S12 的修复与验证证据成立（严格 IP 解析、HEADER 袋统一、原子计数/NX 标记、签名覆盖 query+body、sealedCookie 内嵌过期、openssl 7 参修复），REST nonce 在签名校验之后才消费（未签名请求无法耗尽 nonce），TTL `2*skew` 覆盖 ts 有效区间。仅发现 1 处遗留问题并已修复：
+
+| 轴 | 问题 | 修复 |
+|----|------|------|
+| 安全 / bug | `totpVerify['used']` 防重放键直接拼接**明文 TOTP 密钥**（注释写 sha1，代码为原文）——2FA 种子出现在 Redis/Memcached 键空间，`KEYS`/`MONITOR`/慢日志/监控可见 | 键改为 `gene:totp:<hex(HMAC-SHA256(raw, "gene:totp"))[:32]>:<counter>`，种子不再落入存储 |
+| 易用 | 标记按 secret 粒度：一次验证成功后整窗口（默认 90s）内用户输入**新时间片的新码**也被拒 | 标记按匹配到的时间片 counter 粒度：同码重放仍拒绝，下一时间片的新码正常通过 |
+
+验证：PHP 8.2.35 NTS x64 + openssl/pdo_sqlite 重编 `php_gene.dll`，`SecurityTest` **107/107 PASS**（新增：当前步通过、相邻步新码通过、键不含密钥且格式为 `gene:totp:<32hex>:<counter>`），全量 `TestRunner` 全部通过。
+
+**结论：四轴（科学合理 / bug / 易用 / 高并发）均已闭环，无已知异常或安全遗留，本方案关闭。** 仅余 Swoole 形态在 Linux 上执行 `tools/acceptance/linux_swoole_verify.sh` 做最终确认（与 FPM 同代码路径，属环境确认项，不阻塞关闭）。
 
