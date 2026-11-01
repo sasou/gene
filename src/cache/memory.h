@@ -100,6 +100,9 @@ void gene_memory_set_by_router(char *keyString, size_t keyString_len, char *path
 zend_long gene_memory_getTime(char *keyString, size_t keyString_len);
 int gene_memory_exists(char *keyString, size_t keyString_len);
 int gene_memory_del(char *keyString, size_t keyString_len);
+/* [GENE_SEC:2026-11-01 R2] Memory::incr core: ttl applies on creation
+ * (fresh/expired key); used by Gene\Throttle's allocation-free fast path. */
+zend_long gene_memory_incr_ttl(zval *self, zend_string *keyString, zend_long step, zend_long ttl, zend_bool *ok);
 void file_cache_set_val(char *val, size_t keyString_len, zend_long times, zend_long validity);
 filenode * file_cache_get_easy(char *keyString, size_t keyString_len);
 
