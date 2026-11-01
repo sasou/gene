@@ -1,0 +1,608 @@
+﻿/*
+ +----------------------------------------------------------------------+
+ | gene                                                                 |
+ +----------------------------------------------------------------------+
+ | Author: Sasou  <zohocodes@outlook.com> web:www.1xm.net             |
+ +----------------------------------------------------------------------+
+ */
+/* [GENE_SEC:2026-11-01 S1] Trusted-proxy aware client IP resolution. */
+
+#ifdef HAVE_CONFIG_H
+#include "config.h"
+#endif
+
+#include "php.h"
+#include "php_ini.h"
+#include "Zend/zend_API.h"
+#include "zend_exceptions.h"
+#include "zend_smart_str.h"
+#include "ext/standard/php_string.h"
+#include <string.h>
+
+#include "../gene.h"
+#include "../http/request.h"
+#include "../http/ip.h"
+
+zend_class_entry *gene_ip_ce;
+
+/* {{{ gene_ip_parse — parse "a.b.c.d" or IPv6 literal into 16 bytes.
+ * v4 results are stored as ::ffff:a.b.c.d so a single matcher serves both
+ * families. Returns 1 on success. */
+int gene_ip_parse(const char *s, size_t len, unsigned char out[16]) {
+	const char *p, *end;
+	uint32_t parts[4];
+	int i, is_v6 = 0;
+
+	if (!s || len == 0 || len > 45) {
+		return 0;
+	}
+	for (i = 0; (size_t)i < len; i++) {
+		if (s[i] == ':') { is_v6 = 1; break; }
+	}
+	if (!is_v6) {
+		unsigned long v;
+		int dots = 0;
+		p = s; end = s + len;
+		for (i = 0; i < 4; i++) {
+			v = 0;
+			if (p >= end || *p < '0' || *p > '9') return 0;
+			while (p < end && *p >= '0' && *p <= '9') {
+				v = v * 10 + (unsigned long)(*p - '0');
+				if (v > 255) return 0;
+				p++;
+			}
+			parts[i] = v;
+			if (i < 3) {
+				if (p >= end || *p != '.') return 0;
+				p++;
+			}
+		}
+		if (p != end) return 0;
+		memset(out, 0, 10);
+		out[10] = 0xff; out[11] = 0xff;
+		out[12] = (unsigned char)parts[0]; out[13] = (unsigned char)parts[1];
+		out[14] = (unsigned char)parts[2]; out[15] = (unsigned char)parts[3];
+		return 1;
+	}
+	/* IPv6: :: expansion, optional embedded v4 tail, optional leading [ ]. */
+	{
+		unsigned short grp[8];
+		int head = 0, pre = -1, i2;
+		const char *q = s, *e = s + len;
+		if (len >= 2 && s[0] == '[' && s[len - 1] == ']') {
+			q = s + 1; e = s + len - 1;
+		}
+		memset(grp, 0, sizeof(grp));
+		while (q < e && head < 8) {
+			unsigned long val;
+			const char *c;
+			if (q[0] == ':') {
+				if (q + 1 < e && q[1] == ':') {
+					if (pre >= 0) return 0; /* second :: */
+					pre = head;             /* groups so far stay on the left */
+					q += 2;
+					continue;
+				}
+				if (q == s || q == (s + 1)) { q++; continue; } /* leading ':' inside [] */
+				return 0;
+			}
+			/* embedded v4 tail? */
+			for (c = q; c < e && *c != ':'; c++) {
+				if (*c == '.') {
+					unsigned char v4[16];
+					if (!gene_ip_parse(q, (size_t)(e - q), v4)) return 0;
+					if (head > 6) return 0;
+					grp[head++] = ((unsigned short)v4[12] << 8) | v4[13];
+					grp[head++] = ((unsigned short)v4[14] << 8) | v4[15];
+					goto done;
+				}
+			}
+			val = 0;
+			for (i2 = 0; q + i2 < e && i2 < 4; i2++) {
+				char ch = q[i2];
+				unsigned int d;
+				if (ch >= '0' && ch <= '9') d = (unsigned int)(ch - '0');
+				else if (ch >= 'a' && ch <= 'f') d = (unsigned int)(ch - 'a' + 10);
+				else if (ch >= 'A' && ch <= 'F') d = (unsigned int)(ch - 'A' + 10);
+				else break;
+				val = (val << 4) | d;
+			}
+			if (i2 == 0) return 0;
+			grp[head++] = (unsigned short)val;
+			q += i2;
+			if (q < e && *q == ':') {
+				if (q + 1 < e && q[1] == ':') {
+					if (pre >= 0) return 0;
+					pre = head;
+					q += 2;
+					continue;
+				}
+				q++;
+				continue;
+			}
+			break;
+		}
+done:
+		if (pre < 0 && head != 8) return 0;
+		if (pre >= 0) {
+			/* '::' expands between pre and the groups parsed after it:
+			 * grp[pre..head-1] move to the right edge, zeros fill the middle. */
+			int post = head - pre;
+			memmove(&grp[8 - post], &grp[pre], post * sizeof(unsigned short));
+			memset(&grp[pre], 0, (8 - pre - post) * sizeof(unsigned short));
+		}
+		for (i2 = 0; i2 < 8; i2++) {
+			out[i2 * 2] = (unsigned char)(grp[i2] >> 8);
+			out[i2 * 2 + 1] = (unsigned char)(grp[i2] & 0xff);
+		}
+		return 1;
+	}
+}
+/* }}} */
+
+/* {{{ gene_cidr_match */
+int gene_cidr_match(const unsigned char ip[16], const gene_cidr_t *list, uint32_t n) {
+	uint32_t i;
+	for (i = 0; i < n; i++) {
+		const gene_cidr_t *c = &list[i];
+		uint8_t full = c->prefix >> 3, rem = c->prefix & 7;
+		if (c->prefix == 0) {
+			return 1;
+		}
+		if (full && memcmp(ip, c->addr, full) != 0) {
+			continue;
+		}
+		if (rem) {
+			unsigned char mask = (unsigned char)(0xff << (8 - rem));
+			if ((ip[full] & mask) != (c->addr[full] & mask)) {
+				continue;
+			}
+		}
+		return 1;
+	}
+	return 0;
+}
+/* }}} */
+
+/* {{{ gene_ip_is_internal — RFC1918, loopback, link-local, CGNAT, ULA fc00::/7, fe80::/10, ::1 */
+int gene_ip_is_internal(const unsigned char ip[16]) {
+	/* ::1 */
+	static const unsigned char loop6[16] = {0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1};
+	if (memcmp(ip, loop6, 16) == 0) {
+		return 1;
+	}
+	/* IPv6 ULA fc00::/7 and link-local fe80::/10 */
+	if ((ip[0] & 0xfe) == 0xfc) return 1;
+	if (ip[0] == 0xfe && (ip[1] & 0xc0) == 0x80) return 1;
+	/* v4-mapped only below */
+	if (!(ip[10] == 0xff && ip[11] == 0xff)) {
+		return 0;
+	}
+	{
+		unsigned char a = ip[12], b = ip[13];
+		if (a == 127 || a == 10 || a == 0) return 1;
+		if (a == 172 && b >= 16 && b <= 31) return 1;
+		if (a == 192 && b == 168) return 1;
+		if (a == 169 && b == 254) return 1;          /* link-local */
+		if (a == 100 && (b & 0xc0) == 64) return 1;  /* CGNAT 100.64/10 */
+	}
+	return 0;
+}
+/* }}} */
+
+int gene_ip_is_public_str(const char *s, size_t len) {
+	unsigned char bin[16];
+	if (!gene_ip_parse(s, len, bin)) {
+		return 0;
+	}
+	return !gene_ip_is_internal(bin);
+}
+
+/* {{{ trust table compile/destroy */
+static void gene_trust_free(void) {
+	if (GENE_G(trust_cidrs)) {
+		pefree(GENE_G(trust_cidrs), 1);
+		GENE_G(trust_cidrs) = NULL;
+	}
+	GENE_G(trust_cidr_n) = 0;
+	if (GENE_G(trust_hdrs)) {
+		uint32_t i;
+		for (i = 0; i < GENE_G(trust_hdr_n); i++) {
+			zend_string_release(GENE_G(trust_hdrs)[i]);
+		}
+		pefree(GENE_G(trust_hdrs), 1);
+		GENE_G(trust_hdrs) = NULL;
+	}
+	GENE_G(trust_hdr_n) = 0;
+	GENE_G(trust_proto) = 0;
+	GENE_G(trust_compiled) = 0;
+}
+
+void gene_trust_destroy(void) {
+	gene_trust_free();
+}
+
+/* Parse a comma-separated "ip[/len]" list into persistent gene_cidr_t[]. */
+static uint32_t gene_cidr_list_parse(const char *s, size_t len, gene_cidr_t **out) {
+	gene_cidr_t *list;
+	uint32_t n = 0, cap = 8;
+	const char *p = s, *end = s + len;
+	list = (gene_cidr_t *)pemalloc(cap * sizeof(gene_cidr_t), 1);
+	while (p < end) {
+		const char *comma = memchr(p, ',', (size_t)(end - p));
+		const char *item_end = comma ? comma : end;
+		const char *a = p, *b = item_end;
+		const char *slash;
+		unsigned char bin[16];
+		long prefix = -1;
+		while (a < b && (*a == ' ' || *a == '\t')) a++;
+		while (b > a && (b[-1] == ' ' || b[-1] == '\t')) b--;
+		slash = memchr(a, '/', (size_t)(b - a));
+		if (slash) {
+			const char *q = slash + 1;
+			long v = 0;
+			while (q < b && *q >= '0' && *q <= '9') { v = v * 10 + (*q - '0'); q++; }
+			if (q == b && v >= 0 && v <= 128) {
+				prefix = v;
+				b = slash;
+			}
+		}
+		if (b > a && gene_ip_parse(a, (size_t)(b - a), bin)) {
+			if (n >= cap) {
+				cap *= 2;
+				list = (gene_cidr_t *)perealloc(list, cap * sizeof(gene_cidr_t), 1);
+			}
+			memcpy(list[n].addr, bin, 16);
+			list[n].prefix = (uint8_t)(prefix < 0 ? 128 : prefix);
+			/* normalize v4 /32 to mapped space: prefix 32 => 96+32 */
+			if (prefix >= 0 && bin[10] == 0xff && bin[11] == 0xff && prefix <= 32) {
+				list[n].prefix = (uint8_t)(96 + prefix);
+			}
+			n++;
+		} else {
+			php_error_docref(NULL, E_WARNING, "Gene: ignoring invalid CIDR entry '%.*s'", (int)(item_end - a), a);
+		}
+		p = item_end + 1;
+	}
+	*out = list;
+	return n;
+}
+
+/* Parse a comma-separated header-name list into persistent lowercase zend_string*[]. */
+static uint32_t gene_header_list_parse(const char *s, size_t len, zend_string ***out) {
+	zend_string **list;
+	uint32_t n = 0, cap = 4;
+	const char *p = s, *end = s + len;
+	list = (zend_string **)pemalloc(cap * sizeof(zend_string *), 1);
+	while (p < end) {
+		const char *comma = memchr(p, ',', (size_t)(end - p));
+		const char *item_end = comma ? comma : end;
+		const char *a = p, *b = item_end;
+		while (a < b && (*a == ' ' || *a == '\t')) a++;
+		while (b > a && (b[-1] == ' ' || b[-1] == '\t')) b--;
+		if (b > a) {
+			char *buf = estrndup(a, (size_t)(b - a)); /* request-scope temp */
+			size_t i;
+			for (i = 0; i < (size_t)(b - a); i++) {
+				unsigned char c = (unsigned char)buf[i];
+				buf[i] = (c == '_') ? '-' : ((c >= 'A' && c <= 'Z') ? (char)(c | 0x20) : (char)c);
+			}
+			if (n >= cap) {
+				cap *= 2;
+				list = (zend_string **)perealloc(list, cap * sizeof(zend_string *), 1);
+			}
+			list[n++] = zend_string_init(buf, (size_t)(b - a), 1); /* persistent */
+			efree(buf);
+		}
+		p = item_end + 1;
+	}
+	*out = list;
+	return n;
+}
+
+/* Compile trusted-proxy table from a userland config array:
+ * ['proxies'=>[cidrs...], 'headers'=>[names...], 'proto'=>bool] */
+void gene_trust_compile(zval *cfg) {
+	gene_cidr_t *cidrs = NULL;
+	zend_string **hdrs = NULL;
+	uint32_t cn = 0, hn = 0;
+	zend_bool proto = 0;
+
+	if (cfg && Z_TYPE_P(cfg) == IS_ARRAY) {
+		zval *v;
+		v = zend_hash_str_find(Z_ARRVAL_P(cfg), ZEND_STRL("proto"));
+		proto = v ? zend_is_true(v) : 1;
+		v = zend_hash_str_find(Z_ARRVAL_P(cfg), ZEND_STRL("proxies"));
+		if (v && Z_TYPE_P(v) == IS_ARRAY) {
+			smart_str joined = {0};
+			zval *item;
+			ZEND_HASH_FOREACH_VAL(Z_ARRVAL_P(v), item) {
+				if (Z_TYPE_P(item) == IS_STRING && Z_STRLEN_P(item) > 0) {
+					if (joined.s) smart_str_appendc(&joined, ',');
+					smart_str_append(&joined, Z_STR_P(item));
+				}
+			} ZEND_HASH_FOREACH_END();
+			if (joined.s) {
+				smart_str_0(&joined);
+				cn = gene_cidr_list_parse(ZSTR_VAL(joined.s), ZSTR_LEN(joined.s), &cidrs);
+				smart_str_free(&joined);
+			}
+		} else if (v && Z_TYPE_P(v) == IS_STRING) {
+			cn = gene_cidr_list_parse(Z_STRVAL_P(v), Z_STRLEN_P(v), &cidrs);
+		}
+		v = zend_hash_str_find(Z_ARRVAL_P(cfg), ZEND_STRL("headers"));
+		if (v && Z_TYPE_P(v) == IS_ARRAY) {
+			smart_str joined = {0};
+			zval *item;
+			ZEND_HASH_FOREACH_VAL(Z_ARRVAL_P(v), item) {
+				if (Z_TYPE_P(item) == IS_STRING && Z_STRLEN_P(item) > 0) {
+					if (joined.s) smart_str_appendc(&joined, ',');
+					smart_str_append(&joined, Z_STR_P(item));
+				}
+			} ZEND_HASH_FOREACH_END();
+			if (joined.s) {
+				smart_str_0(&joined);
+				hn = gene_header_list_parse(ZSTR_VAL(joined.s), ZSTR_LEN(joined.s), &hdrs);
+				smart_str_free(&joined);
+			}
+		} else if (v && Z_TYPE_P(v) == IS_STRING) {
+			hn = gene_header_list_parse(Z_STRVAL_P(v), Z_STRLEN_P(v), &hdrs);
+		}
+	}
+	/* default header when proxies are set but headers omitted */
+	if (cn > 0 && hn == 0) {
+		hdrs = (zend_string **)pemalloc(sizeof(zend_string *), 1);
+		hdrs[0] = zend_string_init(ZEND_STRL("x-forwarded-for"), 1);
+		hn = 1;
+	}
+	gene_trust_free();
+	GENE_G(trust_cidrs) = cidrs;
+	GENE_G(trust_cidr_n) = cn;
+	GENE_G(trust_hdrs) = hdrs;
+	GENE_G(trust_hdr_n) = hn;
+	GENE_G(trust_proto) = proto;
+	GENE_G(trust_compiled) = 1;
+}
+
+/* Lazy compile from INI when Application::trustProxies() was never called. */
+void gene_trust_compile_ini(void) {
+	zval cfg;
+	if (GENE_G(trust_compiled)) {
+		return;
+	}
+	GENE_G(trust_proto) = GENE_G(trust_proto_ini);
+	if (GENE_G(trusted_proxies) && GENE_G(trusted_proxies)[0] != '\0') {
+		array_init(&cfg);
+		add_assoc_bool_ex(&cfg, ZEND_STRL("proto"), GENE_G(trust_proto_ini));
+		if (GENE_G(trusted_proxies)) {
+			add_assoc_string_ex(&cfg, ZEND_STRL("proxies"), GENE_G(trusted_proxies));
+		}
+		if (GENE_G(trusted_headers)) {
+			add_assoc_string_ex(&cfg, ZEND_STRL("headers"), GENE_G(trusted_headers));
+		}
+		gene_trust_compile(&cfg);
+		zval_ptr_dtor(&cfg);
+		return;
+	}
+	GENE_G(trust_compiled) = 1; /* compiled-empty: trusted proxies disabled */
+}
+/* }}} */
+
+/* {{{ direct/client ip resolution */
+static zval *gene_server_val(const char *name, size_t len) {
+	return getVal(TRACK_VARS_SERVER, (char *)name, len);
+}
+
+zend_string *gene_request_direct_ip(void) {
+	zval *v = gene_server_val(ZEND_STRL("REMOTE_ADDR"));
+	const char *s;
+	size_t n;
+	if (!v || Z_TYPE_P(v) != IS_STRING || Z_STRLEN_P(v) == 0) {
+		return NULL;
+	}
+	s = Z_STRVAL_P(v);
+	n = Z_STRLEN_P(v);
+	while (n && s[0] == ' ') { s++; n--; }
+	while (n && s[n - 1] == ' ') { n--; }
+	return zend_string_init(s, n, 0);
+}
+
+static zend_bool gene_direct_is_trusted(unsigned char *bin_out) {
+	zend_string *d;
+	unsigned char bin[16];
+	gene_trust_compile_ini();
+	d = gene_request_direct_ip();
+	if (!d) return 0;
+	if (!gene_ip_parse(ZSTR_VAL(d), ZSTR_LEN(d), bin)) {
+		zend_string_release(d);
+		return 0;
+	}
+	if (bin_out) memcpy(bin_out, bin, 16);
+	zend_string_release(d);
+	return gene_cidr_match(bin, GENE_G(trust_cidrs), GENE_G(trust_cidr_n));
+}
+
+/* Find a header value in the HEADER bag (lowercase keys), falling back to
+ * the server bag's HTTP_* shape for FPM requests without an injected bag. */
+static zval *gene_header_lookup(const char *name, size_t len) {
+	zval *v = getVal(GENE_REQUEST_ATTR_HEADER, (char *)name, len);
+	if (v && Z_TYPE_P(v) == IS_STRING) {
+		return v;
+	}
+	return NULL;
+}
+
+zend_string *gene_request_client_ip(void) {
+	unsigned char bin[16];
+	uint32_t h;
+	gene_trust_compile_ini();
+	if (GENE_G(trust_cidr_n) == 0) {
+		return gene_request_direct_ip();
+	}
+	if (!gene_direct_is_trusted(bin)) {
+		return gene_request_direct_ip();
+	}
+	for (h = 0; h < GENE_G(trust_hdr_n); h++) {
+		zend_string *hn = GENE_G(trust_hdrs)[h];
+		zval *xff = gene_header_lookup(ZSTR_VAL(hn), ZSTR_LEN(hn));
+		const char *s, *e, *p;
+		if (!xff || Z_TYPE_P(xff) != IS_STRING) {
+			continue;
+		}
+		s = Z_STRVAL_P(xff);
+		e = s + Z_STRLEN_P(xff);
+		p = e;
+		/* right-most non-trusted entry wins (the node the trusted proxy appended) */
+		while (p > s) {
+			const char *q = p, *a, *b;
+			while (q > s && q[-1] != ',') q--;
+			a = q; b = p;
+			while (a < b && (*a == ' ' || *a == '\t')) a++;
+			while (b > a && (b[-1] == ' ' || b[-1] == '\t')) b--;
+			if (b > a && gene_ip_parse(a, (size_t)(b - a), bin)) {
+				if (!gene_cidr_match(bin, GENE_G(trust_cidrs), GENE_G(trust_cidr_n))) {
+					return zend_string_init(a, (size_t)(b - a), 0);
+				}
+			} else {
+				break; /* malformed segment: stop, fall back to direct ip */
+			}
+			p = (q > s) ? q - 1 : s;
+		}
+	}
+	return gene_request_direct_ip();
+}
+
+zend_bool gene_request_ip_is_internal(void) {
+	zend_string *d = gene_request_direct_ip();
+	unsigned char bin[16];
+	zend_bool r = 0;
+	if (d && gene_ip_parse(ZSTR_VAL(d), ZSTR_LEN(d), bin)) {
+		r = gene_ip_is_internal(bin);
+	}
+	if (d) zend_string_release(d);
+	return r;
+}
+
+/* Secure detection honoring trust_proto: when trusted proxies are compiled
+ * the X-Forwarded-Proto header is only believed from a trusted peer. */
+int gene_request_is_secure(void) {
+	zval *https = gene_server_val(ZEND_STRL("HTTPS"));
+	if (https && Z_TYPE_P(https) == IS_STRING && Z_STRLEN_P(https) > 0
+		&& strcasecmp("off", Z_STRVAL_P(https)) != 0) {
+		return 1;
+	}
+	gene_trust_compile_ini();
+	{
+		/* X-Forwarded-Proto is client-controlled input: believe it only when
+		 * trusted proxies are configured AND the direct peer is trusted.
+		 * Without a trust table the header must not escalate isSecure(). */
+		zend_bool trusted_mode = (GENE_G(trust_cidr_n) > 0);
+		if (trusted_mode && GENE_G(trust_proto) && gene_direct_is_trusted(NULL)) {
+			zval *proto = gene_server_val(ZEND_STRL("HTTP_X_FORWARDED_PROTO"));
+			if (proto && Z_TYPE_P(proto) == IS_STRING
+				&& Z_STRLEN_P(proto) == sizeof("https") - 1
+				&& strncasecmp("https", Z_STRVAL_P(proto), sizeof("https") - 1) == 0) {
+				return 1;
+			}
+		}
+	}
+	{
+		zval *port = gene_server_val(ZEND_STRL("SERVER_PORT"));
+		if (port) {
+			if (Z_TYPE_P(port) == IS_LONG && Z_LVAL_P(port) == 443) {
+				return 1;
+			}
+			if (Z_TYPE_P(port) == IS_STRING && Z_STRLEN_P(port) == 3
+				&& memcmp("443", Z_STRVAL_P(port), 3) == 0) {
+				return 1;
+			}
+		}
+	}
+	return 0;
+}
+/* }}} */
+
+/* {{{ proto static bool Gene\Ip::inCidr(string $ip, string|array $cidrs) */
+PHP_METHOD(gene_ip, inCidr) {
+	zend_string *ip;
+	zval *cidrs;
+	unsigned char bin[16];
+	gene_cidr_t *list = NULL;
+	uint32_t n;
+	int ok;
+	if (zend_parse_parameters(ZEND_NUM_ARGS(), "Sz", &ip, &cidrs) == FAILURE) {
+		return;
+	}
+	if (!gene_ip_parse(ZSTR_VAL(ip), ZSTR_LEN(ip), bin)) {
+		RETURN_FALSE;
+	}
+	if (Z_TYPE_P(cidrs) == IS_STRING) {
+		n = gene_cidr_list_parse(Z_STRVAL_P(cidrs), Z_STRLEN_P(cidrs), &list);
+	} else if (Z_TYPE_P(cidrs) == IS_ARRAY) {
+		smart_str joined = {0};
+		zval *item;
+		ZEND_HASH_FOREACH_VAL(Z_ARRVAL_P(cidrs), item) {
+			if (Z_TYPE_P(item) == IS_STRING && Z_STRLEN_P(item) > 0) {
+				if (joined.s) smart_str_appendc(&joined, ',');
+				smart_str_append(&joined, Z_STR_P(item));
+			}
+		} ZEND_HASH_FOREACH_END();
+		if (!joined.s) {
+			RETURN_FALSE;
+		}
+		smart_str_0(&joined);
+		n = gene_cidr_list_parse(ZSTR_VAL(joined.s), ZSTR_LEN(joined.s), &list);
+		smart_str_free(&joined);
+	} else {
+		RETURN_FALSE;
+	}
+	ok = gene_cidr_match(bin, list, n);
+	if (list) pefree(list, 1);
+	RETURN_BOOL(ok);
+}
+/* }}} */
+
+/* {{{ proto static bool Gene\Ip::isInternal(string $ip) */
+PHP_METHOD(gene_ip, isInternal) {
+	zend_string *ip;
+	unsigned char bin[16];
+	if (zend_parse_parameters(ZEND_NUM_ARGS(), "S", &ip) == FAILURE) {
+		return;
+	}
+	RETURN_BOOL(gene_ip_parse(ZSTR_VAL(ip), ZSTR_LEN(ip), bin) && gene_ip_is_internal(bin));
+}
+/* }}} */
+
+/* {{{ proto static bool Gene\Ip::isValid(string $ip) */
+PHP_METHOD(gene_ip, isValid) {
+	zend_string *ip;
+	unsigned char bin[16];
+	if (zend_parse_parameters(ZEND_NUM_ARGS(), "S", &ip) == FAILURE) {
+		return;
+	}
+	RETURN_BOOL(gene_ip_parse(ZSTR_VAL(ip), ZSTR_LEN(ip), bin));
+}
+/* }}} */
+
+ZEND_BEGIN_ARG_INFO_EX(gene_ip_incidr_arginfo, 0, 0, 2)
+	ZEND_ARG_INFO(0, ip)
+	ZEND_ARG_INFO(0, cidrs)
+ZEND_END_ARG_INFO()
+
+ZEND_BEGIN_ARG_INFO_EX(gene_ip_str_arginfo, 0, 0, 1)
+	ZEND_ARG_INFO(0, ip)
+ZEND_END_ARG_INFO()
+
+const zend_function_entry gene_ip_methods[] = {
+	PHP_ME(gene_ip, inCidr, gene_ip_incidr_arginfo, ZEND_ACC_PUBLIC|ZEND_ACC_STATIC)
+	PHP_ME(gene_ip, isInternal, gene_ip_str_arginfo, ZEND_ACC_PUBLIC|ZEND_ACC_STATIC)
+	PHP_ME(gene_ip, isValid, gene_ip_str_arginfo, ZEND_ACC_PUBLIC|ZEND_ACC_STATIC)
+	{ NULL, NULL, NULL }
+};
+
+GENE_MINIT_FUNCTION(ip) {
+	zend_class_entry ce;
+	GENE_INIT_CLASS_ENTRY(ce, "Gene_Ip", "Gene\\Ip", gene_ip_methods);
+	gene_ip_ce = zend_register_internal_class(&ce);
+	return SUCCESS;
+}

@@ -1,6 +1,6 @@
 # 安全基线框架化（Security Baseline）
 
-> 状态：候选
+> 状态：关闭（2026-11-01 全部落地，实现与验证记录见 §十八）
 > 立项依据：exchange / mchat / gene_web 三个应用近期安全加固中出现的**重复实现**与**口径分叉**
 > 范围：只写 Gene 扩展需要提供的能力；应用侧迁移不在本文范围（遵循 `plan/README.md` 维护约定）
 
@@ -622,3 +622,37 @@ $router->readonly('/admin', [
 - bsafe 设备指纹 / 风控逻辑（属于业务 SDK，仅通过 S8 的 `bind` callable 接入）。
 - OAuth / JWT 完整协议栈（现有 `hmacToken` 已满足内部令牌需求，另行立项）。
 - 应用仓库的迁移清单。
+
+---
+
+## 十八、落地复盘（2026-11-01）
+
+S1-S12 已全部按本文方案落地于 C 扩展；回归文件 `test/SecurityTest.php`（66 项断言，接入 `TestRunner.php`）。
+
+| 项 | 落地位置 |
+|----|----------|
+| S1 | `src/http/ip.c/.h`：`Gene\Ip`（inCidr/isInternal/isValid，v4/v6/嵌入v4）、`Application::trustProxies`（CIDR 表 MINIT 编译、MSHUTDOWN 释放）、`Request::ip/directIp/ips/isInternal`、`isSecure` 收紧 |
+| S2 | `src/http/policy.c`：`Application::csrf` + `Gene\Csrf`（token/check/field），Fetch-Site + Origin/Referer 同源（端口按 scheme 归一）+ 同步令牌三层 |
+| S3 | `policy.c`：`Application::secureHeaders`（nosniff/frame/referrer/hsts/permissions/coop/csp/report-only/remove），`Response::cspNonce` 请求级缓存 |
+| S4 | `response.c`：`gene_jsonp_valid`（`^[A-Za-z_`$`][A-Za-z0-9_`$`]*(\.…)*`$` ≤128），非法 callback 静默退化为 JSON |
+| S5 | `policy.c` + `rest.c` + `crypto.c`：`Application::restGuard`（internal 直连 IP 判定、shared/hmac 模式、skew、nonce 防重放、body 签名、prefixes/except）；`Rest` 出站 `sign` 自动加签；`Crypto::signRequest` |
+| S6 | `src/tool/password.c`：`Gene\Password` hash/verify/verifyLegacy/verifyAny/needsRehash/dummy |
+| S7 | `src/tool/throttle.c`：`Gene\Throttle` hit/tooMany/attempt/count/clear，适配 Memory/Redis/Memcached 形存储（incr → nx-set 兜底） |
+| S8 | `session.c`：`secure:'auto'`、samesite 默认 Lax、idle/absolute 超时、UA/IP 指纹绑定（`_born`/`_bind` 随会话持久化） |
+| S9 | `crypto.c`：keyring/derive/seal/unseal（AES-256-GCM，`g1.kid.*` 线格式，ctx 作 AAD）；`Response::sealedCookie`/`Request::sealedCookie` |
+| S10 | `crypto.c`：totpSecret/totp/totpVerify（±1 窗口）、randomCode |
+| S11 | `demo/application/Ext/UploadCheck.php`（PHP 参考实现，未达下沉门槛） |
+| S12 | `policy.c`：`Application::readonly`（GET 方法守卫 405）+ `demo/application/Hooks/ReadonlyGuard.php` |
+
+### 验证
+
+- Windows PHP 8.1.30 x64 NTS 编译通过（`buildconf` → `config.nice` → `nmake`，新增 `ip/policy/password/throttle.c` 已入 `config.w32`/`config.m4`）。
+- `SecurityTest.php` 66/66 PASS；全量 `TestRunner` 891 项、881 通过、失败 10 均为环境缺 `ctype`/`pdo_sqlite`，与本次改动无关。
+- 复盘修复：isSecure 空信任表时不再采信 XFP；v6 `::` 压缩段解析错位；`hash()` 实参顺序；`verifyAny` 算法 zval 未释放即覆写；rest 出站 body 借用串被误 release；Origin 显式非默认端口绕过；`{nonce}` 只替换首处；`on_fail.code` 优先级。
+
+### 遗留待验证（环境项，非缺陷）
+
+- OpenSSL 构建下 `seal/unseal`/`sealedCookie` 加解密路径（当前构建无 openssl，断言其正确抛错）。
+- `ctype`/`pdo_sqlite` 齐备后全量应恢复绿。
+- FPM/Swoole 验收工具补充安全头、CSRF、REST 签名 curl 断言；`gene-ide-helper` stub 与 `gene-ai-helper` reference 同步。
+
