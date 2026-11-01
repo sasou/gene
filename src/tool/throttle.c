@@ -75,16 +75,32 @@ static zend_string *gene_throttle_key(zend_string *key) {
 
 /* Call $store->$method(...$params); returns retval zval (UNDEF on failure).
  * Clears any exception raised inside the driver — a missing method or a
- * signature mismatch means "try the next form", not a userland error. */
+ * signature mismatch means "try the next form", not a userland error.
+ * Stores that expose their driver API through __call (Gene\Cache\Redis and
+ * Gene\Cache\Memcached both do) get the magic handler invoked exactly like
+ * a userland call — otherwise e.g. clear() silently no-ops on them. */
 static zval gene_throttle_call(zval *store, const char *method, size_t mlen, uint32_t argc, zval *params) {
 	zval ret;
 	zend_function *fn;
 	ZVAL_UNDEF(&ret);
 	fn = zend_hash_str_find_ptr(&Z_OBJCE_P(store)->function_table, method, mlen);
-	if (!fn) {
-		return ret;
+	if (fn) {
+		zend_call_known_function(fn, Z_OBJ_P(store), Z_OBJCE_P(store), &ret, argc, params, NULL);
+	} else if ((fn = Z_OBJCE_P(store)->__call) != NULL
+			&& (fn->common.fn_flags & ZEND_ACC_PUBLIC)) {
+		zval cparams[2], args;
+		uint32_t i;
+		array_init(&args);
+		for (i = 0; i < argc; i++) {
+			Z_TRY_ADDREF(params[i]);
+			add_next_index_zval(&args, &params[i]);
+		}
+		ZVAL_STRINGL(&cparams[0], method, mlen);
+		ZVAL_COPY_VALUE(&cparams[1], &args);
+		zend_call_known_function(fn, Z_OBJ_P(store), Z_OBJCE_P(store), &ret, 2, cparams, NULL);
+		zval_ptr_dtor(&cparams[0]);
+		zval_ptr_dtor(&cparams[1]);
 	}
-	zend_call_known_function(fn, Z_OBJ_P(store), Z_OBJCE_P(store), &ret, argc, params, NULL);
 	if (EG(exception)) {
 		zend_clear_exception();
 		zval_ptr_dtor(&ret);

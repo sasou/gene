@@ -167,6 +167,24 @@ class Redis
      */
     public function unlock($key, $token) {}
 
+    /**
+     * del — 删除缓存 key（DEL）。
+     *
+     * 满足 Throttle::clear / nonce 清理使用的存储契约；断线自动重连后重试一次。
+     *
+     * @param string $key 缓存 key
+     * @return int|false 删除的 key 数量；连接失败返回 false
+     */
+    public function del($key) {}
+
+    /**
+     * delete — del() 的别名
+     *
+     * @param string $key 缓存 key
+     * @return int|false
+     */
+    public function delete($key) {}
+
     // -------------------------------------------------------------------------
 
     /**

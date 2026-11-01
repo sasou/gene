@@ -240,6 +240,34 @@ check("Memory::incr key expired after ttl", !$memT->get('ic'));
 /* read-only gate: tooMany must not consume budget */
 check("Throttle::tooMany read-only", Throttle::tooMany($memT, 'ro', 1) === false && Throttle::count($memT, 'ro') === 0);
 
+/* __call-proxied store (Gene\Cache\Redis/Memcached shape): dispatch must
+ * reach methods through __call — earlier function_table-only lookup made
+ * clear()/add() silently no-op on the wrappers themselves. */
+class SecProxyInner {
+    private $mem;
+    public function __construct($m) { $this->mem = $m; }
+    public function incr($k) { return $this->mem->incr($k); }
+    public function expire($k, $ttl) { return true; }
+    public function get($k) { return $this->mem->get($k); }
+    public function delete($k) { return $this->mem->delete($k); }
+    public function add($k, $v, $ttl = 0) { return $this->mem->lock($k, $ttl) !== false; }
+}
+class SecProxyStore {
+    private $inner;
+    public function __construct($i) { $this->inner = $i; }
+    public function __call($m, $a) { return $this->inner->$m(...$a); }
+}
+$proxy = new SecProxyStore(new SecProxyInner(new Memory('sec_proxy')));
+check("Throttle via __call: hit 1", Throttle::hit($proxy, 'p1', 60) === 1);
+check("Throttle via __call: hit 2", Throttle::hit($proxy, 'p1', 60) === 2);
+check("Throttle via __call: count", Throttle::count($proxy, 'p1') === 2);
+check("Throttle via __call: clear", Throttle::clear($proxy, 'p1') === true);
+check("Throttle via __call: count 0", Throttle::count($proxy, 'p1') === 0);
+$secP = 'JBSWY3DPEHPK3PXP';
+$codeP = Crypto::totp($secP, 0, 30, 6);
+check("store_once via __call: first", Crypto::totpVerify($secP, $codeP, 1, 30, 6, ['used' => $proxy]) === true);
+check("store_once via __call: replay", Crypto::totpVerify($secP, $codeP, 1, 30, 6, ['used' => $proxy]) === false);
+
 /* ---------- S2: Gene\Csrf ---------- */
 class SecFakeSess {
     public $d = [];
