@@ -1118,7 +1118,7 @@ PHP_METHOD(gene_request, _set) {
  *  - Swoole: returned from index 8 set via Request::init($..., $rawContent).
  *  - FPM/CLI/CGI: read on-demand from php://input and cached at index 8.
  */
-static void gene_request_raw_value(zval *return_value) {
+void gene_request_raw_value(zval *return_value) {
 	zval *cached = getVal(GENE_REQUEST_ATTR_RAW, NULL, 0);
 	php_stream *stream;
 	zend_string *contents;
@@ -1176,7 +1176,22 @@ static int gene_request_json_value(gene_request_context *ctx, zval *return_value
 	return SUCCESS;
 }
 
-static zend_bool gene_request_json_content_type(void) {
+/* Non-throwing JSON body read for internal scanners: shares the decode cache
+ * with Request::json(); a decode failure clears the exception and returns
+ * FAILURE (the cached error still surfaces on a later Request::json()). */
+int gene_request_json_peek(zval *return_value) {
+	ZVAL_UNDEF(return_value);
+	if (gene_request_json_value(gene_request_ctx(), return_value) != SUCCESS) {
+		if (EG(exception)) {
+			zend_clear_exception();
+		}
+		ZVAL_UNDEF(return_value);
+		return FAILURE;
+	}
+	return SUCCESS;
+}
+
+zend_bool gene_request_json_content_type(void) {
 	zval *type = getVal(GENE_REQUEST_ATTR_HEADER, ZEND_STRL("Content-Type"));
 	const char *p;
 	size_t len, i;
