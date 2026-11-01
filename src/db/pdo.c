@@ -406,7 +406,7 @@ static int gene_ident_quotes_balanced(const char *s, size_t len) {
  * "t1 a LEFT JOIN t2 b ON a.id=b.id" that should be passed through as raw
  * SQL rather than being dot-path quoted. Newline/CR are included as word
  * boundaries because real Model code uses multi-line string literals for
- * complex JOIN fragments (e.g. exchange Order.php, Pexch.php). */
+ * complex JOIN fragments (e.g. legacy-app Order.php, Pexch.php). */
 static int gene_ident_has_join_keyword(const char *s, size_t len) {
     size_t i;
     for (i = 0; i < len; i++) {
@@ -498,7 +498,7 @@ char *gene_quote_table(const char *name, char oq, char cq) /*{{{*/
     /* [GENE_AUDIT:2026-07-05 8.2.12] JOIN table fragments — developer-written
      * multi-table SQL like "t1 a LEFT JOIN t2 b ON a.id=b.id". Pass through
      * unchanged after injection-marker safety check; the =, !, (), etc. in
-     * ON clauses are legitimate. Without this, 48 exchange Model calls
+     * ON clauses are legitimate. Without this, 48 legacy-app Model calls
      * (17 files) would fail-safe to illegal backtick-wrapped SQL.
      * Guard: require whitespace in the string so that a table literally
      * named "join" (a SQL reserved word) is NOT treated as a JOIN fragment —

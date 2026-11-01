@@ -7,7 +7,7 @@
  */
 /* [GENE_SEC:2026-11-01 S1] Trusted-proxy aware client IP resolution.
  * One canonical source for directIp()/ip()/isInternal()/inCidr so apps stop
- * shipping divergent Ext\Ip copies (XFF left-most vs right-most). */
+ * shipping divergent app-level Ip copies (XFF left-most vs right-most). */
 
 #ifndef GENE_IP_H
 #define GENE_IP_H

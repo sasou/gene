@@ -1,7 +1,7 @@
 # 安全基线框架化（Security Baseline）
 
 > 状态：关闭（2026-11-01 全部落地，实现与验证记录见 §十八）
-> 立项依据：exchange / mchat / gene_web 三个应用近期安全加固中出现的**重复实现**与**口径分叉**
+> 立项依据：业务A / 业务B / 业务C 三个应用近期安全加固中出现的**重复实现**与**口径分叉**
 > 范围：只写 Gene 扩展需要提供的能力；应用侧迁移不在本文范围（遵循 `plan/README.md` 维护约定）
 
 ---
@@ -10,7 +10,7 @@
 
 三个应用在近期安全加固中，各自在 `Ext\`、`Hooks\`、`config/router*.php` 里重复实现了同一批安全原语。这样带来三个问题：
 
-1. **口径分叉**：例如"真实 IP"，exchange 取 XFF **最左**一节，mchat 取 XFF **最右**一节，gene_web 的 `Device::clientIp()` 又取最左一节。限流、审计、内网判定用的 IP 口径不一致，存在绕过风险。
+1. **口径分叉**：例如"真实 IP"，业务A 取 XFF **最左**一节，业务B 取 XFF **最右**一节，业务C 的 `Device::clientIp()` 又取最左一节。限流、审计、内网判定用的 IP 口径不一致，存在绕过风险。
 2. **复制粘贴**：Origin 同源校验、JSONP callback 正则、legacy 密码校验在多个文件里逐字复制，修一处漏一处。
 3. **缺省不安全**：三个应用都**没有**输出任何安全响应头（`X-Content-Type-Options` / `X-Frame-Options` / `HSTS` / `Referrer-Policy` 在三仓库检索结果为 0）。验证码用 `rand()` 生成，也不是 CSPRNG。
 
@@ -22,7 +22,7 @@
 |------|------|------|
 | `Gene\Crypto` hmacToken/hmacVerify/hmacSign/hmacCheck/tsSkew/randomId/encrypt/decrypt(GCM) | `src/tool/crypto.c` | 本文在其上扩展 |
 | `Memory::rateLimit/lock`、`Redis::rateLimit/lock` | `src/cache/*` | 固定窗口限流，不含"失败计数+成功清零"语义 |
-| `Application::webscan()` / `Gene\Webscan` | `src/http/webscan.c` | 已在 mchat/gene_web 入口使用，本文不涉及 |
+| `Application::webscan()` / `Gene\Webscan` | `src/http/webscan.c` | 已在 业务B/业务C 入口使用，本文不涉及 |
 | `Session` secure/httponly/samesite、`regenerateId` | `src/session/session.c` | 本文补默认值与会话绑定 |
 | `Request::isSecure()`（含 `X-Forwarded-Proto`）、`Request::bearer()`、`Request::header()` | `src/http/request.c` | 本文补可信代理与客户端 IP |
 | `Hook::abort/respond`、`through()` 组钩子 | `src/mvc/hook.c`、router | 内置安全钩子基于它实现 |
@@ -34,18 +34,18 @@
 
 | 编号 | 优先级 | 能力 | 代码证据（重复/缺口） | 收益 |
 |------|--------|------|------------------------|------|
-| S1 | P0 | 可信代理 + `Request::ip()` / `Request::isInternal()` / `Gene\Ip` | 三仓 `Ext\Ip` 各一份，`getDirectIp/getConnectionIp/isInternalIp` 共 36 处调用，XFF 取值方向不一致 | 统一 IP 口径，消除伪造 XFF 绕过 |
-| S2 | P0 | 内置同源/CSRF 策略 `Application::csrf()` + `Gene\Csrf` | exchange `router.php:82`、`router.admin.php:158` 逐字复制；gene_web `Hooks/AdminAuth.php`（Sec-Fetch-Site + Origin）；mchat `ChatSecurity::getRequestDomain` | 删除 4 份手写同源校验 |
+| S1 | P0 | 可信代理 + `Request::ip()` / `Request::isInternal()` / `Gene\Ip` | 三仓 `Ip` 各一份，`getDirectIp/getConnectionIp/isInternalIp` 共 36 处调用，XFF 取值方向不一致 | 统一 IP 口径，消除伪造 XFF 绕过 |
+| S2 | P0 | 内置同源/CSRF 策略 `Application::csrf()` + `Gene\Csrf` | 业务A `router.php`、`router.admin.php` 逐字复制；业务C `Hooks/AdminAuth.php`（Sec-Fetch-Site + Origin）；业务B `Security::getRequestDomain` | 删除 4 份手写同源校验 |
 | S3 | P0 | 安全响应头 `Application::secureHeaders()` | 三仓库检索 `X-Frame-Options|X-Content-Type-Options|HSTS|Referrer-Policy` = 0 | 补齐缺省防护 |
-| S4 | P0 | JSONP callback 在 C 层白名单校验 | exchange `router.php:123`、`router.admin.php:181`、`router.api.php:27`，gene_web `AfterHook.php:17`，mchat `AfterHook.php:11`，共 5 处同一正则（mchat 版本还更严） | 删掉 5 处正则，杜绝遗漏 |
-| S5 | P0 | 内部 REST 鉴权 `Application::restGuard()` + `Gene\Rest` 自动带签 | exchange `Ext\Guard::restAllowed`（内网 + `X-Rest-Secret`）、mchat `RestAuthHook`、gene_web `RestAuth`（仅内网 IP） | 统一为"内网 + 签名"，消除反代下 REMOTE_ADDR 恒为内网导致的旁路 |
-| S6 | P1 | `Gene\Password`（hash/verify/needsRehash + legacy 迁移） | `md5($salt.sha1($salt.$password))` 出现在 exchange `Admin\User`、`Wallet\Member`，mchat `Im\User`、`Admin\User`、`Aff\Affiliate`，gene_web `Admin\User`；"校验通过后透明升级 bcrypt"写了 4 遍 | 一行完成双格式校验与升级 |
-| S7 | P1 | `Gene\Throttle` 失败计数/锁定 | exchange `Services\Web\Safes`：mail/check/checkTwofa/regMail/regCheck/payCheck/feedSpamCheck 共 7 套 "get→>=N→set(count+1)" 非原子计数 | 原子、口径统一、少写 80% 样板 |
-| S8 | P1 | 会话加固：安全默认值 + 绑定 + 空闲/绝对超时 | gene_web `AdminAuth` 手写 UA 哈希与 vid 绑定；exchange `wsafe->check(sessid)`；mchat/exchange 仍保留 PHP `Ext\Session`（无 samesite） | 会话劫持防护内建 |
-| S9 | P1 | `Crypto` 密钥环（kid 前缀 + 轮换 + HKDF）与 `seal/unseal` | mchat `SecretCrypto`（3 份候选 material 逐个试解）、`ChannelCrypto`（另一份前缀）；exchange `Encrypt::easyEncode` 用于 2FA 密钥与 Cookie | 密钥轮换与版本化标准化 |
-| S10 | P1 | `Crypto::totp` / `Crypto::randomCode` | exchange、gene_web 各带一份 `Ext\Tool\GoogleAuth`；验证码 `rand(1111, 9999)`（`Safes.php:32/127`） | 去掉第三方拷贝，验证码改用 CSPRNG |
-| S11 | P2 | 上传安全校验 `Gene\Upload::check()` | mchat `Services\Common\Upload::checkAllowed`（size/ext/getimagesize） | 增加 MIME 嗅探，统一安全文件名 |
-| S12 | P2 | 方法守卫：动态路由 GET 只读白名单 | mchat `Hooks\MethodGuard`（约 150 行静态白名单） | 配置化，跨应用复用 |
+| S4 | P0 | JSONP callback 在 C 层白名单校验 | 业务A `router.php`、`router.admin.php`、`router.api.php`，业务C `AfterHook.php`，业务B `AfterHook.php`，共 5 处同一正则（业务B 版本还更严） | 删掉 5 处正则，杜绝遗漏 |
+| S5 | P0 | 内部 REST 鉴权 `Application::restGuard()` + `Gene\Rest` 自动带签 | 业务A `Guard::restAllowed`（内网 + `X-Rest-Secret`）、业务B `RestAuthHook`、业务C `RestAuth`（仅内网 IP） | 统一为"内网 + 签名"，消除反代下 REMOTE_ADDR 恒为内网导致的旁路 |
+| S6 | P1 | `Gene\Password`（hash/verify/needsRehash + legacy 迁移） | `md5($salt.sha1($salt.$password))` 出现在 业务A `Admin\User`、`Member`，业务B `User`、`Admin\User`、`Affiliate`，业务C `Admin\User`；"校验通过后透明升级 bcrypt"写了 4 遍 | 一行完成双格式校验与升级 |
+| S7 | P1 | `Gene\Throttle` 失败计数/锁定 | 业务A `Safes`：mail/check/checkTwofa/regMail/regCheck/payCheck/feedSpamCheck 共 7 套 "get→>=N→set(count+1)" 非原子计数 | 原子、口径统一、少写 80% 样板 |
+| S8 | P1 | 会话加固：安全默认值 + 绑定 + 空闲/绝对超时 | 业务C `AdminAuth` 手写 UA 哈希与 vid 绑定；业务A `safe->check(sessid)`；业务B/业务A 仍保留 PHP `Session`（无 samesite） | 会话劫持防护内建 |
+| S9 | P1 | `Crypto` 密钥环（kid 前缀 + 轮换 + HKDF）与 `seal/unseal` | 业务B `SecretCrypto`（3 份候选 material 逐个试解）、`ChannelCrypto`（另一份前缀）；业务A `Encrypt::easyEncode` 用于 2FA 密钥与 Cookie | 密钥轮换与版本化标准化 |
+| S10 | P1 | `Crypto::totp` / `Crypto::randomCode` | 业务A、业务C 各带一份 `GoogleAuth`；验证码 `rand(1111, 9999)`（`Safes.php`） | 去掉第三方拷贝，验证码改用 CSPRNG |
+| S11 | P2 | 上传安全校验 `Gene\Upload::check()` | 业务B `Upload::checkAllowed`（size/ext/getimagesize） | 增加 MIME 嗅探，统一安全文件名 |
+| S12 | P2 | 方法守卫：动态路由 GET 只读白名单 | 业务B `MethodGuard`（约 150 行静态白名单） | 配置化，跨应用复用 |
 
 实现约束（沿用 `plan/README.md`）：C 层只加入"重复 ≥3 处或位于热路径"的 API；每项都要补 `test/*.php` 回归用例，并同步 `gene-ide-helper` stub 和 `gene-ai-helper/skills/gene-framework/reference.md`。S11、S12 的重复次数不足 3，列为 P2，可以先在 `demo/` 中以 PHP 参考实现落地，再根据使用情况决定是否下沉到 C 层。
 
@@ -55,9 +55,9 @@
 
 ### 3.1 问题
 
-- exchange `Ext\Ip::getClientIp()`：优先取 `CF-Connecting-IP`，再取 XFF 最左一节。客户端可以直接伪造请求头。
-- mchat `Ext\Ip::getConnectionIp()`：`REMOTE_ADDR` 为内网地址时取 XFF **最右**一节（nginx 追加的那一节），这是正确做法。
-- gene_web `Device::clientIp()` 取最左一节，并用于设备哈希，可被伪造。
+- 业务A `Ip::getClientIp()`：优先取 `CF-Connecting-IP`，再取 XFF 最左一节。客户端可以直接伪造请求头。
+- 业务B `Ip::getConnectionIp()`：`REMOTE_ADDR` 为内网地址时取 XFF **最右**一节（nginx 追加的那一节），这是正确做法。
+- 业务C `Device::clientIp()` 取最左一节，并用于设备哈希，可被伪造。
 - 内网判定（`isInternalIp`）各仓一份，CIDR 匹配（`netMatch`）各仓一份。
 
 ### 3.2 设计
@@ -149,7 +149,7 @@ static zend_string *gene_request_resolve_ip(void)
 
 ### 4.1 问题
 
-exchange 的 webAuth 与 admin before 钩子各有一份约 20 行的"Origin host+port 归一化比较"；gene_web 用 `Sec-Fetch-Site: cross-site` 加危险动作正则；mchat 用 GET 白名单兜底。三种实现的防护强度不同。
+业务A 的 webAuth 与 admin before 钩子各有一份约 20 行的"Origin host+port 归一化比较"；业务C 用 `Sec-Fetch-Site: cross-site` 加危险动作正则；业务B 用 GET 白名单兜底。三种实现的防护强度不同。
 
 ### 4.2 设计
 
@@ -183,7 +183,7 @@ $router->group('/admin')->through(['@csrf', 'adminAuth'])->post('/:c/:a', 'Contr
 
 ### 4.3 实现思路
 
-- 新文件 `src/http/csrf.c`。同源判定封装为纯函数 `gene_csrf_same_origin(origin, host, is_secure)`，采用 exchange 现有的 scheme 默认端口归一化规则（这一逻辑已在线上验证）。
+- 新文件 `src/http/csrf.c`。同源判定封装为纯函数 `gene_csrf_same_origin(origin, host, is_secure)`，采用 业务A 现有的 scheme 默认端口归一化规则（这一逻辑已在线上验证）。
 - 判定顺序：方法不在 `methods` → 放行；命中 `except` → 放行；`Sec-Fetch-Site` 为 `cross-site` → 拒绝；为 `same-origin`/`none` → 进入令牌阶段；Origin（缺失时取 Referer）与 Host 或 `origins` 不匹配 → 拒绝；两者都缺失且 `require_origin` → 拒绝；`token=true` 时还要校验令牌。
 - 拒绝时调用 `gene_hook_respond()`，复用现有终止语义，`after` 钩子行为与 `Hook::respond()` 一致。
 - 策略在 `csrf()` 调用时编译成 worker 级只读结构；`except` 预编译为 glob 列表。
@@ -272,7 +272,7 @@ static void gene_secure_headers_apply(gene_response_ctx *r)
 
 `Response::json($data, $callback)` 与 `Controller::json` 在 C 层校验 `$callback`：
 
-- 规则采用 mchat 的严格版：`^[A-Za-z_$][A-Za-z0-9_$]*(\.[A-Za-z_$][A-Za-z0-9_$]*)*$`，长度 ≤ 128。
+- 规则采用 业务B 的严格版：`^[A-Za-z_$][A-Za-z0-9_$]*(\.[A-Za-z_$][A-Za-z0-9_$]*)*$`，长度 ≤ 128。
 - 校验不通过：**丢弃 callback，按纯 JSON 输出**，与三个应用当前的行为一致。
 - JSONP 输出增加 `/**/` 前缀，加上 `Content-Type: application/javascript; charset=utf-8` 和 `X-Content-Type-Options: nosniff`，防御 Rosetta Flash 类攻击。
 - INI `gene.jsonp = 1|0`：设为 0 时完全禁用 JSONP（推荐新项目使用）。
@@ -305,7 +305,7 @@ static zend_bool gene_jsonp_valid(const char *s, size_t n)
 
 ### 7.1 问题
 
-`/rest/*` 依赖 "REMOTE_ADDR 为内网" 来鉴权。反代部署时 REMOTE_ADDR 恒为内网地址，鉴权实际失效。exchange 已经补上了 `X-Rest-Secret` 共享密钥，但 mchat 和 gene_web 没有。共享明文密钥本身也有被重放、被日志泄露的风险。
+`/rest/*` 依赖 "REMOTE_ADDR 为内网" 来鉴权。反代部署时 REMOTE_ADDR 恒为内网地址，鉴权实际失效。业务A 已经补上了 `X-Rest-Secret` 共享密钥，但 业务B 和 业务C 没有。共享明文密钥本身也有被重放、被日志泄露的风险。
 
 ### 7.2 设计
 
@@ -314,7 +314,7 @@ static zend_bool gene_jsonp_valid(const char *s, size_t n)
 \Gene\Application::getInstance()->restGuard([
     'internal' => true,                        // 要求 Request::isInternal(directIp)
     'secret'   => \Gene\Application::config('restAuthSecret'), // 非空即强制签名
-    'mode'     => 'hmac',                      // 'hmac'（推荐）| 'shared'（兼容 exchange X-Rest-Secret）
+    'mode'     => 'hmac',                      // 'hmac'（推荐）| 'shared'（兼容 业务A X-Rest-Secret）
     'skew'     => 30,                          // 时间戳容差（秒）
     'nonce'    => 'redis',                     // 防重放存储组件名；null 则仅时间戳
 ]);
@@ -325,8 +325,8 @@ $router->group('/rest')->through(['@rest'])->get('/:c/:a', 'Api\:c@:a');
 
 - `Gene\Di::get('inner')` 为真（`Invoke::local` 本地互调）时直接放行，与现有三个钩子的语义一致。
 - **签名格式**（请求头）：`X-Gene-Ts`、`X-Gene-Nonce`、`X-Gene-Sign = base64url(HMAC-SHA256(secret, METHOD\nPATH\nTS\nNONCE\nsha256(body)))`。
-- 客户端：`Gene\Rest` / `Gene\Http` 识别同一配置后**自动加签**，应用不再手写 `X-Rest-Secret`（exchange `Ext\Services\Rest.php:350`）。
-- `mode=shared`：保留 exchange 现有协议（使用 `hash_equals` 比较），作为过渡方案。
+- 客户端：`Gene\Rest` / `Gene\Http` 识别同一配置后**自动加签**，应用不再手写 `X-Rest-Secret`（业务A `Rest.php`）。
+- `mode=shared`：保留 业务A 现有协议（使用 `hash_equals` 比较），作为过渡方案。
 
 ### 7.3 实现思路
 
@@ -368,7 +368,7 @@ $hash = \Gene\Password::hash($plain);
 $r = \Gene\Password::verify($plain, $stored, [
     'legacy' => 'md5salt',           // 内置：md5(salt . sha1(salt . pass))
     'salt'   => $row['user_salt'],
-    'truncate' => 50,                // exchange Admin\User 曾截断为 50 位
+    'truncate' => 50,                // 业务A Admin\User 曾截断为 50 位
 ]);
 // $r = ['ok' => true, 'rehash' => true|false, 'hash' => '<新哈希，仅 rehash=true 时有>']
 
@@ -419,7 +419,7 @@ PHP_METHOD(gene_password, verify) {
 
 ### 9.1 问题
 
-exchange `Safes` 中 7 处都是如下写法：
+业务A `Safes` 中 7 处都是如下写法：
 
 ```php
 $count = intval($this->memcache->get($key));
@@ -497,7 +497,7 @@ $config->set('adminsession', [
 ]);
 ```
 
-- 绑定指纹保存在 session 保留键 `_gene_fp`（sha256），在 `load()` 时校验。不匹配时按 `on_mismatch` 处理，并通过 `Session::compromised(): bool` 暴露结果，替代 gene_web `AdminAuth` 中约 20 行手写的 UA 比对代码。
+- 绑定指纹保存在 session 保留键 `_gene_fp`（sha256），在 `load()` 时校验。不匹配时按 `on_mismatch` 处理，并通过 `Session::compromised(): bool` 暴露结果，替代 业务C `AdminAuth` 中约 20 行手写的 UA 比对代码。
 - 设备级指纹（如 bsafe vid）属于业务，通过 `bind => [fn() => Device::visitorId()]` 注入。
 - `regenerateId()` 改为同时刷新 `_gene_fp` 与 `_gene_at`（登录时间），并删除旧 ID（现有实现需确认是否已删除旧数据，在回归中断言）。
 
@@ -511,7 +511,7 @@ $config->set('adminsession', [
 
 ### 11.1 问题
 
-mchat `SecretCrypto` 为了兼容历史数据，按 3 份候选 material 逐个试解密，而且 key 由 DB 账号密码派生（改 DB 密码会导致所有密文无法解密）。`ChannelCrypto` 是另一套前缀。exchange `Encrypt::easyEncode` 是自定义的弱加密，被用于 2FA 密钥和推荐 Cookie。
+业务B `SecretCrypto` 为了兼容历史数据，按 3 份候选 material 逐个试解密，而且 key 由 DB 账号密码派生（改 DB 密码会导致所有密文无法解密）。`ChannelCrypto` 是另一套前缀。业务A `Encrypt::easyEncode` 是自定义的弱加密，被用于 2FA 密钥和推荐 Cookie。
 
 ### 11.2 设计
 
@@ -546,13 +546,13 @@ $id = \Gene\Request::sealedCookie('lmtj');           // 被篡改或过期时返
 
 ```php
 \Gene\Crypto::totpSecret(20);                      // base32 secret
-\Gene\Crypto::totpUri($secret, 'user@x', 'Exchange');
+\Gene\Crypto::totpUri($secret, 'user@x', 'MyApp');
 \Gene\Crypto::totpVerify($secret, $code, ['window' => 1, 'digits' => 6, 'period' => 30,
                                           'used' => 'redis']); // used：同一时间片的码只能用一次
 \Gene\Crypto::randomCode(6);                       // CSPRNG 数字验证码（php_random_int），替代 rand()
 ```
 
-实现：基于 RFC 6238，HMAC-SHA1 复用 `ext/hash`；base32 编解码放在 `src/tool/crypto.c`；`used` 用 `SET NX EX period*(2*window+1)` 防止同一验证码在窗口期内被重放。可以删除 exchange 与 gene_web 两份 `Ext\Tool\GoogleAuth`。
+实现：基于 RFC 6238，HMAC-SHA1 复用 `ext/hash`；base32 编解码放在 `src/tool/crypto.c`；`used` 用 `SET NX EX period*(2*window+1)` 防止同一验证码在窗口期内被重放。可以删除 业务A 与 业务C 两份 `GoogleAuth`。
 
 ---
 
@@ -586,7 +586,7 @@ $router->readonly('/admin', [
 // 命中前缀、方法为 GET 且不在白名单 → 405（走 error:405 钩子）
 ```
 
-实现：在路由派发确定 `:c/:a` 之后、执行 handler 之前查询一张只读哈希表（`prefix → c → a`），与 S2 的 `@csrf` 互补。mchat `MethodGuard` 约 150 行可以改为配置。
+实现：在路由派发确定 `:c/:a` 之后、执行 handler 之前查询一张只读哈希表（`prefix → c → a`），与 S2 的 `@csrf` 互补。业务B `MethodGuard` 约 150 行可以改为配置。
 
 ---
 
@@ -696,7 +696,7 @@ S1-S12 已全部按本文方案落地于 C 扩展；回归文件 `test/SecurityT
 - ~~Redis/Memcached 实存下的 `gene_store_once`/throttle 原子路径~~ —— 已实测通过并修复派生缺陷（见下节）。
 - ~~FPM curl 验收补安全头、CSRF、REST 签名断言~~ —— 已实测通过（见末节）；Swoole 形态同代码路径，留 Linux 环境跑 `tools/acceptance/linux_swoole_verify.sh` 做最终确认。
 
-### 实存验证（2026-11-01，PHP 8.2.35 + 实存 Memcached 172.17.0.1:1121 / Redis 172.17.0.1:6379 AUTH）
+### 实存验证（2026-11-01，PHP 8.2.35 + 实存 Memcached <memcached-host>:1121 / Redis <redis-host>:6379 AUTH）
 
 - **覆盖存储形态**：`\Memcached` 鸭子类型适配器（通用分支 `incr→expire`/`add`）、`Gene\Cache\Memcached`、`Gene\Cache\Redis`（Lua INCR+EXPIRE / lock SET NX EX）。
 - **验证中发现并修复一个派生 bug**：`gene_throttle_call`/`gene_store_call` 只查 `function_table`，对经 `__call` 透传方法的存储（`Gene\Cache\Redis`/`Gene\Cache\Memcached` 正是这种形态）静默空操作——实测 `Throttle::clear` 在 `Gene\Cache\Redis` 上不删键。修复：方法表未命中时回退调用 public `__call`（与用户态调用语义一致）；同时补齐 `Gene\Cache\Redis::del/delete`、`Gene\Cache\Memcached::add/del/delete/expire(→touch)`，并把 `incr`/`decr` 缺键兜底从非原子 `set()` 改为 `add()`+重试。
