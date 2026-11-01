@@ -19,6 +19,7 @@ extern zend_class_entry *gene_ip_ce;
 int  gene_ip_parse(const char *s, size_t len, unsigned char out[16]);
 int  gene_cidr_match(const unsigned char ip[16], const gene_cidr_t *list, uint32_t n);
 int  gene_ip_is_internal(const unsigned char ip[16]);
+int  gene_ip_is_v4mapped(const unsigned char ip[16]);
 int  gene_ip_is_public_str(const char *s, size_t len);
 
 /* Worker-lifetime trusted-proxy config (pemalloc persistent; compile once,
@@ -26,6 +27,9 @@ int  gene_ip_is_public_str(const char *s, size_t len);
 void gene_trust_compile(zval *cfg);
 void gene_trust_compile_ini(void);
 void gene_trust_destroy(void);
+zend_string *gene_trust_signature(zval *cfg);
+int  gene_trust_same(zend_string *sig);
+void gene_trust_set_sig(zend_string *sig);
 
 zend_string *gene_request_direct_ip(void);
 zend_string *gene_request_client_ip(void);

@@ -22,6 +22,7 @@
 #include "../gene.h"
 #include "../http/request.h"
 #include "../http/ip.h"
+#include "../exception/exception.h"
 
 zend_class_entry *gene_ip_ce;
 
@@ -33,7 +34,7 @@ int gene_ip_parse(const char *s, size_t len, unsigned char out[16]) {
 	uint32_t parts[4];
 	int i, is_v6 = 0;
 
-	if (!s || len == 0 || len > 45) {
+	if (!s || len == 0 || len > 47) {
 		return 0;
 	}
 	for (i = 0; (size_t)i < len; i++) {
@@ -41,11 +42,13 @@ int gene_ip_parse(const char *s, size_t len, unsigned char out[16]) {
 	}
 	if (!is_v6) {
 		unsigned long v;
-		int dots = 0;
 		p = s; end = s + len;
 		for (i = 0; i < 4; i++) {
 			v = 0;
 			if (p >= end || *p < '0' || *p > '9') return 0;
+			/* reject leading zeros ("010"): octal in some parsers, never
+			 * emitted by proxies — ambiguity is a matching hazard */
+			if (*p == '0' && p + 1 < end && p[1] >= '0' && p[1] <= '9') return 0;
 			while (p < end && *p >= '0' && *p <= '9') {
 				v = v * 10 + (unsigned long)(*p - '0');
 				if (v > 255) return 0;
@@ -64,41 +67,41 @@ int gene_ip_parse(const char *s, size_t len, unsigned char out[16]) {
 		out[14] = (unsigned char)parts[2]; out[15] = (unsigned char)parts[3];
 		return 1;
 	}
-	/* IPv6: :: expansion, optional embedded v4 tail, optional leading [ ]. */
+	/* IPv6: :: expansion, optional embedded v4 tail, optional [ ] brackets.
+	 * Strict: every byte must be consumed — trailing garbage, a lone leading
+	 * or trailing ':', 5+ hex digits, >8 groups or a '::' standing for zero
+	 * groups all reject (a lenient parser lets malformed XFF entries match
+	 * CIDRs they should not). */
 	{
 		unsigned short grp[8];
 		int head = 0, pre = -1, i2;
 		const char *q = s, *e = s + len;
-		if (len >= 2 && s[0] == '[' && s[len - 1] == ']') {
+		if (s[0] == '[') {
+			if (len < 3 || s[len - 1] != ']') return 0;
 			q = s + 1; e = s + len - 1;
 		}
 		memset(grp, 0, sizeof(grp));
-		while (q < e && head < 8) {
-			unsigned long val;
+		if (e - q >= 2 && q[0] == ':' && q[1] == ':') {
+			pre = 0;
+			q += 2;
+		} else if (q < e && q[0] == ':') {
+			return 0;
+		}
+		while (q < e) {
+			unsigned long val = 0;
 			const char *c;
-			if (q[0] == ':') {
-				if (q + 1 < e && q[1] == ':') {
-					if (pre >= 0) return 0; /* second :: */
-					pre = head;             /* groups so far stay on the left */
-					q += 2;
-					continue;
-				}
-				if (q == s || q == (s + 1)) { q++; continue; } /* leading ':' inside [] */
-				return 0;
+			if (head >= 8) return 0;
+			for (c = q; c < e && *c != ':' && *c != '.'; c++);
+			if (c < e && *c == '.') {
+				/* embedded v4 tail must run to the end */
+				unsigned char v4[16];
+				if (head > 6 || !gene_ip_parse(q, (size_t)(e - q), v4)) return 0;
+				grp[head++] = ((unsigned short)v4[12] << 8) | v4[13];
+				grp[head++] = ((unsigned short)v4[14] << 8) | v4[15];
+				q = e;
+				break;
 			}
-			/* embedded v4 tail? */
-			for (c = q; c < e && *c != ':'; c++) {
-				if (*c == '.') {
-					unsigned char v4[16];
-					if (!gene_ip_parse(q, (size_t)(e - q), v4)) return 0;
-					if (head > 6) return 0;
-					grp[head++] = ((unsigned short)v4[12] << 8) | v4[13];
-					grp[head++] = ((unsigned short)v4[14] << 8) | v4[15];
-					goto done;
-				}
-			}
-			val = 0;
-			for (i2 = 0; q + i2 < e && i2 < 4; i2++) {
+			for (i2 = 0; q + i2 < e && i2 < 5; i2++) {
 				char ch = q[i2];
 				unsigned int d;
 				if (ch >= '0' && ch <= '9') d = (unsigned int)(ch - '0');
@@ -107,23 +110,21 @@ int gene_ip_parse(const char *s, size_t len, unsigned char out[16]) {
 				else break;
 				val = (val << 4) | d;
 			}
-			if (i2 == 0) return 0;
+			if (i2 == 0 || i2 > 4) return 0;
 			grp[head++] = (unsigned short)val;
 			q += i2;
+			if (q == e) break;
+			if (*q != ':') return 0;
+			q++;
 			if (q < e && *q == ':') {
-				if (q + 1 < e && q[1] == ':') {
-					if (pre >= 0) return 0;
-					pre = head;
-					q += 2;
-					continue;
-				}
+				if (pre >= 0) return 0; /* second :: */
+				pre = head;
 				q++;
-				continue;
+			} else if (q == e) {
+				return 0; /* trailing single ':' */
 			}
-			break;
 		}
-done:
-		if (pre < 0 && head != 8) return 0;
+		if (pre < 0 ? head != 8 : head > 7) return 0;
 		if (pre >= 0) {
 			/* '::' expands between pre and the groups parsed after it:
 			 * grp[pre..head-1] move to the right edge, zeros fill the middle. */
@@ -164,6 +165,11 @@ int gene_cidr_match(const unsigned char ip[16], const gene_cidr_t *list, uint32_
 }
 /* }}} */
 
+int gene_ip_is_v4mapped(const unsigned char ip[16]) {
+	static const unsigned char pfx[12] = {0,0,0,0,0,0,0,0,0,0,0xff,0xff};
+	return memcmp(ip, pfx, 12) == 0;
+}
+
 /* {{{ gene_ip_is_internal — RFC1918, loopback, link-local, CGNAT, ULA fc00::/7, fe80::/10, ::1 */
 int gene_ip_is_internal(const unsigned char ip[16]) {
 	/* ::1 */
@@ -174,8 +180,10 @@ int gene_ip_is_internal(const unsigned char ip[16]) {
 	/* IPv6 ULA fc00::/7 and link-local fe80::/10 */
 	if ((ip[0] & 0xfe) == 0xfc) return 1;
 	if (ip[0] == 0xfe && (ip[1] & 0xc0) == 0x80) return 1;
-	/* v4-mapped only below */
-	if (!(ip[10] == 0xff && ip[11] == 0xff)) {
+	/* v4-mapped only below. The full ::ffff:0:0/96 prefix must match — a
+	 * global v6 address whose interface id happens to carry ffff:0a00:xxxx
+	 * (attacker-chosen within its own /64) must not read as 10.x. */
+	if (!gene_ip_is_v4mapped(ip)) {
 		return 0;
 	}
 	{
@@ -220,6 +228,57 @@ static void gene_trust_free(void) {
 
 void gene_trust_destroy(void) {
 	gene_trust_free();
+	if (GENE_G(trust_sig)) {
+		zend_string_release(GENE_G(trust_sig));
+		GENE_G(trust_sig) = NULL;
+	}
+}
+
+/* Canonical signature of a trustProxies() config: entry scripts re-run the
+ * whole bootstrap chain per request (FPM, and Swoole onRequest), so an
+ * identical config must be a cheap no-op instead of a per-request rebuild —
+ * and must not trip the post-workerReady guard. */
+static void gene_trust_sig_append(smart_str *s, zval *v) {
+	if (!v) {
+		return;
+	}
+	if (Z_TYPE_P(v) == IS_STRING) {
+		smart_str_append(s, Z_STR_P(v));
+	} else if (Z_TYPE_P(v) == IS_ARRAY) {
+		zval *item;
+		ZEND_HASH_FOREACH_VAL(Z_ARRVAL_P(v), item) {
+			if (Z_TYPE_P(item) == IS_STRING) {
+				smart_str_append(s, Z_STR_P(item));
+				smart_str_appendc(s, ',');
+			}
+		} ZEND_HASH_FOREACH_END();
+	}
+}
+
+zend_string *gene_trust_signature(zval *cfg) {
+	smart_str s = {0};
+	smart_str_appends(&s, "t1|");
+	if (cfg && Z_TYPE_P(cfg) == IS_ARRAY) {
+		zval *proto = zend_hash_str_find(Z_ARRVAL_P(cfg), ZEND_STRL("proto"));
+		gene_trust_sig_append(&s, zend_hash_str_find(Z_ARRVAL_P(cfg), ZEND_STRL("proxies")));
+		smart_str_appendc(&s, '|');
+		gene_trust_sig_append(&s, zend_hash_str_find(Z_ARRVAL_P(cfg), ZEND_STRL("headers")));
+		smart_str_appendc(&s, '|');
+		smart_str_appendc(&s, (!proto || zend_is_true(proto)) ? '1' : '0');
+	}
+	smart_str_0(&s);
+	return s.s;
+}
+
+int gene_trust_same(zend_string *sig) {
+	return GENE_G(trust_compiled) && GENE_G(trust_sig) && zend_string_equals(GENE_G(trust_sig), sig);
+}
+
+void gene_trust_set_sig(zend_string *sig) {
+	if (GENE_G(trust_sig)) {
+		zend_string_release(GENE_G(trust_sig));
+	}
+	GENE_G(trust_sig) = zend_string_init(ZSTR_VAL(sig), ZSTR_LEN(sig), 1);
 }
 
 /* Parse a comma-separated "ip[/len]" list into persistent gene_cidr_t[]. */
@@ -235,31 +294,47 @@ static uint32_t gene_cidr_list_parse(const char *s, size_t len, gene_cidr_t **ou
 		const char *slash;
 		unsigned char bin[16];
 		long prefix = -1;
+		int bad = 0;
 		while (a < b && (*a == ' ' || *a == '\t')) a++;
 		while (b > a && (b[-1] == ' ' || b[-1] == '\t')) b--;
+		if (b == a) { /* empty item (",," / trailing comma) */
+			p = item_end + 1;
+			continue;
+		}
 		slash = memchr(a, '/', (size_t)(b - a));
 		if (slash) {
+			/* 1..3 digits required: "10.0.0.1/" must not become /0 (= trust all) */
 			const char *q = slash + 1;
 			long v = 0;
-			while (q < b && *q >= '0' && *q <= '9') { v = v * 10 + (*q - '0'); q++; }
-			if (q == b && v >= 0 && v <= 128) {
+			int nd = 0;
+			while (q < b && *q >= '0' && *q <= '9' && nd < 4) { v = v * 10 + (*q - '0'); q++; nd++; }
+			if (q == b && nd >= 1 && nd <= 3) {
 				prefix = v;
-				b = slash;
+			} else {
+				bad = 1;
 			}
+			b = slash;
 		}
-		if (b > a && gene_ip_parse(a, (size_t)(b - a), bin)) {
-			if (n >= cap) {
-				cap *= 2;
-				list = (gene_cidr_t *)perealloc(list, cap * sizeof(gene_cidr_t), 1);
+		if (!bad && b > a && gene_ip_parse(a, (size_t)(b - a), bin)) {
+			/* textual family decides the prefix space: v4 "/n" (n<=32) maps to
+			 * 96+n in ::ffff:0:0/96; a v6 literal keeps its prefix verbatim */
+			zend_bool v4text = memchr(a, ':', (size_t)(b - a)) == NULL;
+			long eff = prefix < 0 ? 128 : (v4text ? 96 + prefix : prefix);
+			if ((v4text && prefix > 32) || eff > 128) {
+				bad = 1;
+			} else {
+				if (n >= cap) {
+					cap *= 2;
+					list = (gene_cidr_t *)perealloc(list, cap * sizeof(gene_cidr_t), 1);
+				}
+				memcpy(list[n].addr, bin, 16);
+				list[n].prefix = (uint8_t)eff;
+				n++;
 			}
-			memcpy(list[n].addr, bin, 16);
-			list[n].prefix = (uint8_t)(prefix < 0 ? 128 : prefix);
-			/* normalize v4 /32 to mapped space: prefix 32 => 96+32 */
-			if (prefix >= 0 && bin[10] == 0xff && bin[11] == 0xff && prefix <= 32) {
-				list[n].prefix = (uint8_t)(96 + prefix);
-			}
-			n++;
 		} else {
+			bad = 1;
+		}
+		if (bad) {
 			php_error_docref(NULL, E_WARNING, "Gene: ignoring invalid CIDR entry '%.*s'", (int)(item_end - a), a);
 		}
 		p = item_end + 1;
@@ -407,23 +482,34 @@ zend_string *gene_request_direct_ip(void) {
 	return zend_string_init(s, n, 0);
 }
 
-static zend_bool gene_direct_is_trusted(unsigned char *bin_out) {
-	zend_string *d;
-	unsigned char bin[16];
-	gene_trust_compile_ini();
-	d = gene_request_direct_ip();
-	if (!d) return 0;
-	if (!gene_ip_parse(ZSTR_VAL(d), ZSTR_LEN(d), bin)) {
-		zend_string_release(d);
+/* Allocation-free: parse the TCP peer straight out of the server bag.
+ * Hot path (isSecure / secureHeaders / csrf / restGuard each consult it). */
+static int gene_direct_bin(unsigned char bin[16]) {
+	zval *v = gene_server_val(ZEND_STRL("REMOTE_ADDR"));
+	const char *s;
+	size_t n;
+	if (!v || Z_TYPE_P(v) != IS_STRING || Z_STRLEN_P(v) == 0) {
 		return 0;
 	}
-	if (bin_out) memcpy(bin_out, bin, 16);
-	zend_string_release(d);
+	s = Z_STRVAL_P(v);
+	n = Z_STRLEN_P(v);
+	while (n && s[0] == ' ') { s++; n--; }
+	while (n && s[n - 1] == ' ') { n--; }
+	return gene_ip_parse(s, n, bin);
+}
+
+static zend_bool gene_direct_is_trusted(void) {
+	unsigned char bin[16];
+	gene_trust_compile_ini();
+	if (GENE_G(trust_cidr_n) == 0 || !gene_direct_bin(bin)) {
+		return 0;
+	}
 	return gene_cidr_match(bin, GENE_G(trust_cidrs), GENE_G(trust_cidr_n));
 }
 
-/* Find a header value in the HEADER bag (lowercase keys), falling back to
- * the server bag's HTTP_* shape for FPM requests without an injected bag. */
+/* Header lookup goes through the HEADER bag (lowercase dash keys): Swoole
+ * fills it from $request->header, FPM materializes it from HTTP_* server
+ * keys — one code path for both runtimes. */
 static zval *gene_header_lookup(const char *name, size_t len) {
 	zval *v = getVal(GENE_REQUEST_ATTR_HEADER, (char *)name, len);
 	if (v && Z_TYPE_P(v) == IS_STRING) {
@@ -435,11 +521,7 @@ static zval *gene_header_lookup(const char *name, size_t len) {
 zend_string *gene_request_client_ip(void) {
 	unsigned char bin[16];
 	uint32_t h;
-	gene_trust_compile_ini();
-	if (GENE_G(trust_cidr_n) == 0) {
-		return gene_request_direct_ip();
-	}
-	if (!gene_direct_is_trusted(bin)) {
+	if (!gene_direct_is_trusted()) {
 		return gene_request_direct_ip();
 	}
 	for (h = 0; h < GENE_G(trust_hdr_n); h++) {
@@ -473,14 +555,8 @@ zend_string *gene_request_client_ip(void) {
 }
 
 zend_bool gene_request_ip_is_internal(void) {
-	zend_string *d = gene_request_direct_ip();
 	unsigned char bin[16];
-	zend_bool r = 0;
-	if (d && gene_ip_parse(ZSTR_VAL(d), ZSTR_LEN(d), bin)) {
-		r = gene_ip_is_internal(bin);
-	}
-	if (d) zend_string_release(d);
-	return r;
+	return gene_direct_bin(bin) && gene_ip_is_internal(bin);
 }
 
 /* Secure detection honoring trust_proto: when trusted proxies are compiled
@@ -496,14 +572,26 @@ int gene_request_is_secure(void) {
 		/* X-Forwarded-Proto is client-controlled input: believe it only when
 		 * trusted proxies are configured AND the direct peer is trusted.
 		 * Without a trust table the header must not escalate isSecure(). */
-		zend_bool trusted_mode = (GENE_G(trust_cidr_n) > 0);
-		if (trusted_mode && GENE_G(trust_proto) && gene_direct_is_trusted(NULL)) {
-			zval *proto = gene_server_val(ZEND_STRL("HTTP_X_FORWARDED_PROTO"));
-			if (proto && Z_TYPE_P(proto) == IS_STRING
-				&& Z_STRLEN_P(proto) == sizeof("https") - 1
-				&& strncasecmp("https", Z_STRVAL_P(proto), sizeof("https") - 1) == 0) {
-				return 1;
+		if (GENE_G(trust_proto) && gene_direct_is_trusted()) {
+			/* first token: a proxy chain may send "https, http" — the left-most
+			 * entry is what the edge proxy saw from the client */
+			zval *proto = gene_header_lookup(ZEND_STRL("x-forwarded-proto"));
+			if (proto) {
+				const char *a = Z_STRVAL_P(proto), *e = a + Z_STRLEN_P(proto), *b;
+				while (a < e && (*a == ' ' || *a == '\t')) a++;
+				b = a;
+				while (b < e && *b != ',' && *b != ' ' && *b != '\t') b++;
+				if (b - a == 5 && strncasecmp("https", a, 5) == 0) {
+					return 1;
+				}
 			}
+		} else if (GENE_G(trust_cidr_n) == 0 && !GENE_G(trust_xfp_warned)
+				&& gene_header_lookup(ZEND_STRL("x-forwarded-proto"))) {
+			/* behavior change vs <=2026-10: one diag per process so deployments
+			 * behind a TLS-terminating proxy notice the missing trust table */
+			GENE_G(trust_xfp_warned) = 1;
+			gene_log_diag(E_NOTICE, "Gene: X-Forwarded-Proto ignored because no trusted proxies are configured; "
+				"call Application::trustProxies() or set gene.trusted_proxies");
 		}
 	}
 	{

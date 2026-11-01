@@ -788,6 +788,37 @@ PHP_METHOD(gene_redis, rateLimit) {
 	RETURN_NULL();
 }
 
+/* [GENE_SEC:2026-11-01 R2] Atomic failure counter for Gene\Throttle:
+ * INCR + EXPIRE-on-create in one script, returns the new count. A bare INCR
+ * creates the key without a TTL, which turned throttled accounts into a
+ * permanent lockout. -1 = indeterminate (redis unreachable). */
+static const char GENE_REDIS_HIT_LUA[] =
+	"local n = redis.call('INCR', KEYS[1])\n"
+	"if n == 1 or redis.call('TTL', KEYS[1]) < 0 then redis.call('EXPIRE', KEYS[1], ARGV[1]) end\n"
+	"return n";
+static zend_string *gene_redis_sha_hit = NULL;
+
+zend_long gene_redis_hit(zval *self, zend_string *key, zend_long ttl) {
+	zval args, ret;
+	zend_long n = -1;
+	array_init(&args);
+	add_next_index_str(&args, zend_string_copy(key));
+	add_next_index_long(&args, ttl);
+	gene_redis_eval(self, GENE_REDIS_HIT_LUA, &gene_redis_sha_hit, &args, 1, &ret);
+	zval_ptr_dtor(&args);
+	if (Z_TYPE(ret) == IS_LONG) {
+		n = Z_LVAL(ret);
+	} else if (Z_TYPE(ret) == IS_STRING) {
+		zend_long lval;
+		double dval;
+		if (is_numeric_string(Z_STRVAL(ret), Z_STRLEN(ret), &lval, &dval, 0) == IS_LONG) {
+			n = lval;
+		}
+	}
+	zval_ptr_dtor(&ret);
+	return n;
+}
+
 PHP_METHOD(gene_redis, lock) {
 	zend_string *key, *token;
 	zend_long ttl;

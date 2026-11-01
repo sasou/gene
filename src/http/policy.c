@@ -27,10 +27,30 @@
 #include "../http/policy.h"
 #include "../app/application.h"
 #include "../di/di.h"
+#include "../cache/memory.h"
+#include "../cache/redis.h"
+#include "../exception/exception.h"
 
 extern zend_class_entry *gene_application_ce;
 
 zend_class_entry *gene_csrf_ce;
+
+/* Method/path actually being dispatched (run() args win over server bag). */
+typedef struct {
+	const char *method;
+	size_t mlen;
+	const char *path;
+	size_t plen;
+} gene_policy_req;
+
+/* Request headers through the HEADER bag (lowercase dash names): Swoole
+ * fills it from $request->header, FPM materializes it from HTTP_* — reading
+ * HTTP_* from the server bag directly silently disabled the Origin/Fetch-
+ * Metadata checks under Swoole. */
+static zval *policy_header(const char *name, size_t len) {
+	zval *v = getVal(GENE_REQUEST_ATTR_HEADER, (char *)name, len);
+	return (v && Z_TYPE_P(v) == IS_STRING && Z_STRLEN_P(v) > 0) ? v : NULL;
+}
 
 /* {{{ small php-function call helper (crypto.c-style) */
 static int policy_call(const char *name, size_t name_len, uint32_t argc, zval *params, zval *retval) {
@@ -174,16 +194,21 @@ static void gene_policy_deny(const char *msg, zend_long code) {
 	gene_response_set_header_ex("Content-Type", sizeof("Content-Type") - 1,
 		"application/json; charset=UTF-8", sizeof("application/json; charset=UTF-8") - 1);
 	smart_str_appends(&buf, "{\"code\":4000,\"msg\":\"");
-	/* minimal JSON escape for msg (configs only ship ASCII literals) */
+	/* JSON string escape: quotes, backslash and control bytes (UTF-8 bytes
+	 * >= 0x80 pass through verbatim) */
 	{
-		const char *p = msg;
+		const unsigned char *p = (const unsigned char *)msg;
 		for (; *p; p++) {
-			char c = *p;
+			unsigned char c = *p;
 			if (c == '"' || c == '\\') {
 				smart_str_appendc(&buf, '\\');
-				smart_str_appendc(&buf, c);
+				smart_str_appendc(&buf, (char)c);
+			} else if (c < 0x20) {
+				char esc[8];
+				snprintf(esc, sizeof(esc), "\\u%04x", c);
+				smart_str_appends(&buf, esc);
 			} else {
-				smart_str_appendc(&buf, c);
+				smart_str_appendc(&buf, (char)c);
 			}
 		}
 	}
@@ -254,7 +279,15 @@ static zval *gene_csrf_session_obj(zval *cfg) {
 	return (obj && Z_TYPE_P(obj) == IS_OBJECT) ? obj : NULL;
 }
 
+static zend_string *gene_csrf_session_token_ex(zval *cfg, zend_bool create);
+
 zend_string *gene_csrf_session_token(zval *cfg) {
+	return gene_csrf_session_token_ex(cfg, 1);
+}
+
+/* create=0: read-only peek — verification must never mint+save a token
+ * (a forged request would otherwise write session state on every probe). */
+static zend_string *gene_csrf_session_token_ex(zval *cfg, zend_bool create) {
 	zval *sess = gene_csrf_session_obj(cfg);
 	zval ret, name;
 	zend_string *tok = NULL;
@@ -277,8 +310,8 @@ zend_string *gene_csrf_session_token(zval *cfg) {
 		tok = zend_string_copy(Z_STR(ret));
 	}
 	zval_ptr_dtor(&ret);
-	if (!tok) {
-		tok = policy_random_bytes(16);
+	if (!tok && create) {
+		tok = policy_random_bytes(32);
 		if (!tok) {
 			return NULL;
 		}
@@ -321,10 +354,10 @@ zend_string *gene_csrf_session_token(zval *cfg) {
 zend_bool gene_csrf_check_token(zval *cfg, zend_string *given) {
 	zend_string *tok;
 	zend_bool ok = 0;
-	if (!given) {
+	if (!given || ZSTR_LEN(given) == 0) {
 		return 0;
 	}
-	tok = gene_csrf_session_token(cfg);
+	tok = gene_csrf_session_token_ex(cfg, 0);
 	if (tok) {
 		ok = policy_hash_equals(tok, given);
 		zend_string_release(tok);
@@ -428,11 +461,11 @@ static zend_bool gene_csrf_origin_allowed(zval *cfg, zval *origin) {
 	return 0;
 }
 
-static int gene_policy_csrf_run(zval *cfg, gene_request_context *ctx) {
-	const char *method = ctx->method ? ctx->method : "GET";
-	size_t mlen = ctx->method_len ? ctx->method_len : 3;
-	const char *path = ctx->path ? ctx->path : "/";
-	size_t plen = ctx->path_len;
+static int gene_policy_csrf_run(zval *cfg, const gene_policy_req *req) {
+	const char *method = req->method;
+	size_t mlen = req->mlen;
+	const char *path = req->path;
+	size_t plen = req->plen;
 	zval *fetch, *origin = NULL, *host;
 	zend_string *fail_msg;
 	zend_long fail_code;
@@ -462,8 +495,8 @@ static int gene_policy_csrf_run(zval *cfg, gene_request_context *ctx) {
 	/* 1. Fetch metadata: cross-site is always denied for mutating verbs;
 	 *    same-site needs allow_same_site. */
 	if (gene_policy_cfg_bool(cfg, ZEND_STRL("fetch_site"), 1)) {
-		fetch = getVal(TRACK_VARS_SERVER, ZEND_STRL("HTTP_SEC_FETCH_SITE"));
-		if (fetch && Z_TYPE_P(fetch) == IS_STRING) {
+		fetch = policy_header(ZEND_STRL("sec-fetch-site"));
+		if (fetch) {
 			if (zend_string_equals_literal_ci(Z_STR_P(fetch), "cross-site")) {
 				gene_policy_deny(fail_msg ? ZSTR_VAL(fail_msg) : "非法请求来源", fail_code);
 				return 1;
@@ -477,13 +510,13 @@ static int gene_policy_csrf_run(zval *cfg, gene_request_context *ctx) {
 	}
 
 	/* 2. Origin/Referer same-origin (any method carrying Origin). */
-	host = getVal(TRACK_VARS_SERVER, ZEND_STRL("HTTP_HOST"));
-	origin = getVal(TRACK_VARS_SERVER, ZEND_STRL("HTTP_ORIGIN"));
-	if ((!origin || Z_TYPE_P(origin) != IS_STRING || Z_STRLEN_P(origin) == 0)) {
-		origin = getVal(TRACK_VARS_SERVER, ZEND_STRL("HTTP_REFERER"));
+	host = policy_header(ZEND_STRL("host"));
+	origin = policy_header(ZEND_STRL("origin"));
+	if (!origin) {
+		origin = policy_header(ZEND_STRL("referer"));
 	}
 	if (gene_policy_cfg_bool(cfg, ZEND_STRL("origin"), 1)) {
-		if (origin && Z_TYPE_P(origin) == IS_STRING && Z_STRLEN_P(origin) > 0) {
+		if (origin) {
 			if (!gene_csrf_same_origin(origin, host) && !gene_csrf_origin_allowed(cfg, origin)) {
 				gene_policy_deny(fail_msg ? ZSTR_VAL(fail_msg) : "非法请求来源", fail_code);
 				return 1;
@@ -496,12 +529,11 @@ static int gene_policy_csrf_run(zval *cfg, gene_request_context *ctx) {
 
 	/* 3. Synchronizer token (high-sensitivity backends). */
 	if (gene_policy_cfg_bool(cfg, ZEND_STRL("token"), 0)) {
-		zval *given = getVal(GENE_REQUEST_ATTR_HEADER, ZEND_STRL("x-csrf-token"));
-		if (!given || Z_TYPE_P(given) != IS_STRING) {
+		/* header or POST field only — a token in the query string leaks via
+		 * Referer/access logs */
+		zval *given = policy_header(ZEND_STRL("x-csrf-token"));
+		if (!given) {
 			given = getVal(TRACK_VARS_POST, ZEND_STRL("_token"));
-		}
-		if (!given || Z_TYPE_P(given) != IS_STRING) {
-			given = getVal(TRACK_VARS_GET, ZEND_STRL("_token"));
 		}
 		if (!gene_csrf_check_token(cfg, (given && Z_TYPE_P(given) == IS_STRING) ? Z_STR_P(given) : NULL)) {
 			gene_policy_deny(fail_msg ? ZSTR_VAL(fail_msg) : "非法请求来源", fail_code);
@@ -531,7 +563,15 @@ zend_string *gene_policy_sign_request(zend_string *secret, const char *method, s
 		return NULL;
 	}
 
-	smart_str_appendl(&s, method, mlen);
+	/* method is canonicalized to upper case: the dispatcher lower-cases
+	 * ctx->method while clients send "POST" — both sides must agree */
+	{
+		size_t i;
+		for (i = 0; i < mlen; i++) {
+			unsigned char c = (unsigned char)method[i];
+			smart_str_appendc(&s, (char)((c >= 'a' && c <= 'z') ? (c - 32) : c));
+		}
+	}
 	smart_str_appendc(&s, '\n');
 	smart_str_appendl(&s, path, plen);
 	smart_str_appendc(&s, '\n');
@@ -552,41 +592,102 @@ zend_string *gene_policy_sign_request(zend_string *secret, const char *method, s
 	return sig;
 }
 
-/* nonce single-use: store->set(key, 1, nx+ex) semantics per driver. */
-zend_bool gene_policy_nonce_check(zend_string *component, zend_string *key, zend_long ttl) {
-	zval *store = gene_di_get(component);
-	zend_function *fn;
-	zval ret, params[3];
-	zend_bool fresh = 0;
-	if (!store || Z_TYPE_P(store) != IS_OBJECT) {
-		return 1; /* no nonce store configured: accept (time-skew still applies) */
-	}
-	fn = zend_hash_str_find_ptr(&Z_OBJCE_P(store)->function_table, ZEND_STRL("set"));
+/* {{{ gene_store_once — atomic "first writer wins" marker with a TTL.
+ * 1 = first use, 0 = already seen (replay), -1 = store error/unsupported.
+ *   Gene\Memory / Gene\Cache\Redis → lock(key, ttl)   (SET NX EX / wrlock)
+ *   other objects                  → add(key, 1, ttl) (memcached shape)
+ *                                  → set(key, 1, ['nx', 'ex' => ttl]) (phpredis)
+ * The former set(key, 1, ['nx' => true, ...]) form was not NX at all:
+ * phpredis only honours 'nx' as a list value, Gene\Cache\Redis::set reads the
+ * array as a long ttl and Gene\Memory::set throws on it (swallowed → fresh) —
+ * replay protection silently never engaged. */
+static int gene_store_call(zval *store, const char *m, size_t mlen, uint32_t argc, zval *params, zval *ret) {
+	zend_function *fn = zend_hash_str_find_ptr(&Z_OBJCE_P(store)->function_table, m, mlen);
+	ZVAL_UNDEF(ret);
 	if (!fn) {
-		return 1;
+		return FAILURE;
 	}
-	ZVAL_STR(&params[0], key);
-	ZVAL_LONG(&params[1], 1);
-	array_init(&params[2]);
-	add_assoc_bool_ex(&params[2], ZEND_STRL("nx"), 1);
-	add_assoc_long_ex(&params[2], ZEND_STRL("ex"), ttl);
-	ZVAL_UNDEF(&ret);
-	zend_call_known_function(fn, Z_OBJ_P(store), Z_OBJCE_P(store), &ret, 3, params, NULL);
-	zval_ptr_dtor(&params[2]);
+	zend_call_known_function(fn, Z_OBJ_P(store), Z_OBJCE_P(store), ret, argc, params, NULL);
 	if (EG(exception)) {
 		zend_clear_exception();
-		return 1;
+		zval_ptr_dtor(ret);
+		ZVAL_UNDEF(ret);
+		return FAILURE;
 	}
-	fresh = !Z_ISUNDEF(ret) && zend_is_true(&ret);
-	if (!Z_ISUNDEF(ret)) {
-		zval_ptr_dtor(&ret);
-	}
-	return fresh;
+	return SUCCESS;
 }
 
-static int gene_policy_rest_run(zval *cfg, gene_request_context *ctx) {
-	const char *path = ctx->path ? ctx->path : "/";
-	size_t plen = ctx->path_len;
+int gene_store_once(zval *store, zend_string *key, zend_long ttl) {
+	zval params[3], ret;
+	int r = -1;
+	if (!store || Z_TYPE_P(store) != IS_OBJECT) {
+		return -1;
+	}
+	if (ttl < 1) {
+		ttl = 1;
+	}
+	ZVAL_STR(&params[0], key);
+	if (instanceof_function(Z_OBJCE_P(store), gene_memory_ce)
+			|| instanceof_function(Z_OBJCE_P(store), gene_redis_ce)) {
+		ZVAL_LONG(&params[1], ttl);
+		if (gene_store_call(store, ZEND_STRL("lock"), 2, params, &ret) == SUCCESS) {
+			/* Redis::lock returns NULL when the connection is down */
+			r = (Z_TYPE(ret) == IS_NULL) ? -1 : (zend_is_true(&ret) ? 1 : 0);
+		}
+		zval_ptr_dtor(&ret);
+		return r;
+	}
+	ZVAL_LONG(&params[1], 1);
+	ZVAL_LONG(&params[2], ttl);
+	if (gene_store_call(store, ZEND_STRL("add"), 3, params, &ret) == SUCCESS) {
+		r = zend_is_true(&ret) ? 1 : 0;
+		zval_ptr_dtor(&ret);
+		return r;
+	}
+	array_init(&params[2]);
+	add_next_index_string(&params[2], "nx");
+	add_assoc_long_ex(&params[2], ZEND_STRL("ex"), ttl);
+	if (gene_store_call(store, ZEND_STRL("set"), 3, params, &ret) == SUCCESS) {
+		r = zend_is_true(&ret) ? 1 : 0;
+	}
+	zval_ptr_dtor(&params[2]);
+	zval_ptr_dtor(&ret);
+	return r;
+}
+/* }}} */
+
+/* nonce single-use. A configured-but-missing component is a deployment
+ * error → reject (fail closed, visible at once). A store outage → accept
+ * with a diag (time skew still bounds replay; internal APIs stay up). */
+zend_bool gene_policy_nonce_check(zend_string *component, zend_string *key, zend_long ttl) {
+	zval *store = gene_di_get(component);
+	int r;
+	if (!store || Z_TYPE_P(store) != IS_OBJECT) {
+		gene_log_diag(E_WARNING, "Gene restGuard: nonce store '%s' is not a registered component", ZSTR_VAL(component));
+		return 0;
+	}
+	r = gene_store_once(store, key, ttl);
+	if (r < 0) {
+		gene_log_diag(E_WARNING, "Gene restGuard: nonce store '%s' unavailable, replay check skipped", ZSTR_VAL(component));
+		return 1;
+	}
+	return r == 1;
+}
+
+/* Signed request target: path plus raw query string ("?a=1" covered by the
+ * signature so query parameters cannot be swapped). FPM QUERY_STRING and
+ * Swoole query_string resolve through the server bag's lowercase fallback. */
+static zend_string *gene_policy_target(const char *path, size_t plen) {
+	zval *qs = getVal(TRACK_VARS_SERVER, ZEND_STRL("QUERY_STRING"));
+	if (qs && Z_TYPE_P(qs) == IS_STRING && Z_STRLEN_P(qs) > 0) {
+		return zend_string_concat3(path, plen, "?", 1, Z_STRVAL_P(qs), Z_STRLEN_P(qs));
+	}
+	return zend_string_init(path, plen, 0);
+}
+
+static int gene_policy_rest_run(zval *cfg, const gene_policy_req *req) {
+	const char *path = req->path;
+	size_t plen = req->plen;
 	zval *prefixes;
 	int hit = 0;
 	zend_bool inner = 0;
@@ -621,7 +722,7 @@ static int gene_policy_rest_run(zval *cfg, gene_request_context *ctx) {
 		}
 	}
 	if (inner) {
-		return 0;
+		return 2;
 	}
 	{
 		zval *on_fail = zend_hash_str_find(Z_ARRVAL_P(cfg), ZEND_STRL("on_fail"));
@@ -664,7 +765,21 @@ static int gene_policy_rest_run(zval *cfg, gene_request_context *ctx) {
 					gene_policy_deny(fail_msg ? ZSTR_VAL(fail_msg) : "访问未授权", fail_code);
 					return 1;
 				}
-				ts = ZEND_STRTOL(Z_STRVAL_P(ts_v), NULL, 10);
+				{
+					/* strict decimal seconds; bounded digits keeps the
+					 * subtraction below free of signed overflow */
+					const char *tp = Z_STRVAL_P(ts_v);
+					size_t ti, tl = Z_STRLEN_P(ts_v);
+					zend_bool ts_ok = tl > 0 && tl <= 12;
+					for (ti = 0; ts_ok && ti < tl; ti++) {
+						if (tp[ti] < '0' || tp[ti] > '9') ts_ok = 0;
+					}
+					ts = ts_ok ? ZEND_STRTOL(tp, NULL, 10) : 0;
+					if (!ts_ok || Z_STRLEN_P(nonce_v) < 8) {
+						gene_policy_deny(fail_msg ? ZSTR_VAL(fail_msg) : "访问未授权", fail_code);
+						return 1;
+					}
+				}
 				{
 					zend_long diff = (zend_long)time(NULL) - ts;
 					if (diff < 0) diff = -diff;
@@ -687,9 +802,12 @@ static int gene_policy_rest_run(zval *cfg, gene_request_context *ctx) {
 						body = (Z_TYPE(rv) == IS_STRING) ? zend_string_copy(Z_STR(rv)) : ZSTR_EMPTY_ALLOC();
 						if (!Z_ISUNDEF(rv)) zval_ptr_dtor(&rv);
 					}
-					expect = gene_policy_sign_request(secret,
-						ctx->method ? ctx->method : "GET", ctx->method_len ? ctx->method_len : 3,
-						path, plen, ts, Z_STR_P(nonce_v), body);
+					{
+						zend_string *target = gene_policy_target(path, plen);
+						expect = gene_policy_sign_request(secret, req->method, req->mlen,
+							ZSTR_VAL(target), ZSTR_LEN(target), ts, Z_STR_P(nonce_v), body);
+						zend_string_release(target);
+					}
 					zend_string_release(body);
 					if (!expect || !policy_hash_equals(expect, Z_STR_P(sign_v))) {
 						if (expect) zend_string_release(expect);
@@ -717,84 +835,84 @@ static int gene_policy_rest_run(zval *cfg, gene_request_context *ctx) {
 			}
 		}
 	}
-	return 0;
+	return 2; /* guarded REST route admitted */
 }
 /* }}} */
 
 /* {{{ readonly (S12): GET on dynamic {c,a} not whitelisted => 405 */
-static int gene_policy_readonly_run(zval *cfg, gene_request_context *ctx) {
-	const char *path;
-	size_t plen;
+/* Controller lookup is case-insensitive: dispatch resolves :c to a PHP
+ * class name (case-insensitive), so "/admin/USER/del" must hit the 'user'
+ * entry — an exact-case hash probe let any case variant skip the guard.
+ * No fixed buffers either (long names used to `continue` = fail-open). */
+static zval *gene_policy_readonly_find(zval *ent, const char *c, size_t clen) {
+	zend_string *k;
+	zval *v, *star = NULL;
+	ZEND_HASH_FOREACH_STR_KEY_VAL(Z_ARRVAL_P(ent), k, v) {
+		if (!k) {
+			continue;
+		}
+		if (ZSTR_LEN(k) == clen && strncasecmp(ZSTR_VAL(k), c, clen) == 0) {
+			return v;
+		}
+		if (ZSTR_LEN(k) == 1 && ZSTR_VAL(k)[0] == '*') {
+			star = v;
+		}
+	} ZEND_HASH_FOREACH_END();
+	return star;
+}
+
+static int gene_policy_readonly_run(zval *cfg, const gene_policy_req *req) {
+	const char *path = req->path;
+	size_t plen = req->plen;
 	zend_string *key;
 	zval *ent;
 
-	if (!ctx->method || strcasecmp(ctx->method, "GET") != 0) {
-		return 0;
-	}
-	path = ctx->path ? ctx->path : "/";
-	plen = ctx->path_len;
-	if (plen == 0) {
+	if (plen == 0 || !((req->mlen == 3 && strncasecmp(req->method, "GET", 3) == 0)
+			|| (req->mlen == 4 && strncasecmp(req->method, "HEAD", 4) == 0))) {
 		return 0;
 	}
 	/* config shape: { "/admin": { "user": ["lists","edit"], "*": ["run"] }, ... } */
 	ZEND_HASH_FOREACH_STR_KEY_VAL(Z_ARRVAL_P(cfg), key, ent) {
 		size_t klen;
-		const char *rest, *seg, *p2, *a_end;
-		char cbuf[64], abuf[64];
+		const char *rest, *rest_end = path + plen, *seg, *p2, *a_end;
 		size_t clen, alen;
+		zval *al;
 		if (!key || Z_TYPE_P(ent) != IS_ARRAY) {
 			continue;
 		}
 		klen = ZSTR_LEN(key);
-		if (klen == 0 || klen >= plen) {
-			continue;
+		while (klen > 0 && ZSTR_VAL(key)[klen - 1] == '/') {
+			klen--; /* "/admin/" == "/admin" */
 		}
-		if (strncasecmp(ZSTR_VAL(key), path, klen) != 0) {
-			continue;
-		}
-		if (path[klen] != '/') {
+		if (klen >= plen || strncasecmp(ZSTR_VAL(key), path, klen) != 0 || path[klen] != '/') {
 			continue;
 		}
 		rest = path + klen + 1;
-		seg = memchr(rest, '/', plen - klen - 1);
+		seg = memchr(rest, '/', (size_t)(rest_end - rest));
 		if (!seg) {
 			continue; /* single segment: no {c}/{a} pair */
 		}
 		clen = (size_t)(seg - rest);
-		if (clen == 0 || clen >= sizeof(cbuf)) {
-			continue;
-		}
 		p2 = seg + 1;
-		a_end = p2;
-		{
-			const char *rest_end = path + plen;
-			while (a_end < rest_end && *a_end != '/' && *a_end != '.') a_end++;
-		}
+		for (a_end = p2; a_end < rest_end && *a_end != '/' && *a_end != '.'; a_end++);
 		alen = (size_t)(a_end - p2);
-		if (alen == 0 || alen >= sizeof(abuf)) {
+		if (clen == 0 || alen == 0) {
 			continue;
 		}
-		memcpy(cbuf, rest, clen); cbuf[clen] = '\0';
-		memcpy(abuf, p2, alen); abuf[alen] = '\0';
-		{
-			zval *al = zend_hash_str_find(Z_ARRVAL_P(ent), cbuf, clen);
-			if (!al) {
-				al = zend_hash_str_find(Z_ARRVAL_P(ent), ZEND_STRL("*"));
-			}
-			if (al && Z_TYPE_P(al) == IS_ARRAY) {
-				zval *a;
-				int allowed = 0;
-				ZEND_HASH_FOREACH_VAL(Z_ARRVAL_P(al), a) {
-					if (Z_TYPE_P(a) == IS_STRING && Z_STRLEN_P(a) == alen
-						&& strncasecmp(Z_STRVAL_P(a), abuf, alen) == 0) {
-						allowed = 1;
-						break;
-					}
-				} ZEND_HASH_FOREACH_END();
-				if (!allowed) {
-					gene_policy_deny("method not allowed", 405);
-					return 1;
+		al = gene_policy_readonly_find(ent, rest, clen);
+		if (al && Z_TYPE_P(al) == IS_ARRAY) {
+			zval *a;
+			int allowed = 0;
+			ZEND_HASH_FOREACH_VAL(Z_ARRVAL_P(al), a) {
+				if (Z_TYPE_P(a) == IS_STRING && Z_STRLEN_P(a) == alen
+					&& strncasecmp(Z_STRVAL_P(a), p2, alen) == 0) {
+					allowed = 1;
+					break;
 				}
+			} ZEND_HASH_FOREACH_END();
+			if (!allowed) {
+				gene_policy_deny("method not allowed", 405);
+				return 1;
 			}
 		}
 	} ZEND_HASH_FOREACH_END();
@@ -829,9 +947,15 @@ void gene_policy_headers_apply(void) {
 		gene_response_set_header_ex(ZEND_STRL("Referrer-Policy"),
 			ZEND_STRL("strict-origin-when-cross-origin"));
 	}
+	/* HSTS: on by default for secure requests (plan §5.1); max-age only —
+	 * includeSubDomains/preload are opt-in because they bind sibling hosts */
 	v = zend_hash_str_find(Z_ARRVAL_P(cfg), ZEND_STRL("hsts"));
-	if (v && Z_TYPE_P(v) == IS_STRING && Z_STRLEN_P(v) > 0 && secure) {
-		gene_response_set_header_ex(ZEND_STRL("Strict-Transport-Security"), Z_STRVAL_P(v), Z_STRLEN_P(v));
+	if (secure) {
+		if (v && Z_TYPE_P(v) == IS_STRING && Z_STRLEN_P(v) > 0) {
+			gene_response_set_header_ex(ZEND_STRL("Strict-Transport-Security"), Z_STRVAL_P(v), Z_STRLEN_P(v));
+		} else if (!v || Z_TYPE_P(v) == IS_TRUE) {
+			gene_response_set_header_ex(ZEND_STRL("Strict-Transport-Security"), ZEND_STRL("max-age=31536000"));
+		}
 	}
 	v = zend_hash_str_find(Z_ARRVAL_P(cfg), ZEND_STRL("permissions"));
 	if (v && Z_TYPE_P(v) == IS_STRING && Z_STRLEN_P(v) > 0) {
@@ -892,20 +1016,29 @@ void gene_policy_headers_apply(void) {
 }
 /* }}} */
 
-int gene_policy_check(void) {
-	gene_request_context *ctx = gene_request_ctx();
+int gene_policy_check(const char *method, size_t mlen, const char *path, size_t plen) {
+	gene_policy_req req;
 	zval *cfg;
+	int rest;
 
-	cfg = gene_policy_cfg(ZEND_STRL(GENE_APPLICATION_CSRF_CONFIG));
-	if (cfg && gene_policy_csrf_run(cfg, ctx)) {
+	req.method = (method && mlen) ? method : "GET";
+	req.mlen = (method && mlen) ? mlen : 3;
+	req.path = (path && plen) ? path : "/";
+	req.plen = (path && plen) ? plen : 1;
+
+	/* restGuard first: an admitted server-to-server REST call (2) carries no
+	 * browser Origin and is authenticated by the guard, so csrf skips it */
+	cfg = gene_policy_cfg(ZEND_STRL(GENE_APPLICATION_REST_CONFIG));
+	rest = cfg ? gene_policy_rest_run(cfg, &req) : 0;
+	if (rest == 1) {
 		return 1;
 	}
-	cfg = gene_policy_cfg(ZEND_STRL(GENE_APPLICATION_REST_CONFIG));
-	if (cfg && gene_policy_rest_run(cfg, ctx)) {
+	cfg = gene_policy_cfg(ZEND_STRL(GENE_APPLICATION_CSRF_CONFIG));
+	if (cfg && rest != 2 && gene_policy_csrf_run(cfg, &req)) {
 		return 1;
 	}
 	cfg = gene_policy_cfg(ZEND_STRL(GENE_APPLICATION_READONLY_CONFIG));
-	if (cfg && gene_policy_readonly_run(cfg, ctx)) {
+	if (cfg && gene_policy_readonly_run(cfg, &req)) {
 		return 1;
 	}
 	return 0;

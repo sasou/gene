@@ -556,6 +556,13 @@ gene_cidr_t *trust_cidrs;
 uint32_t trust_cidr_n;
 zend_string **trust_hdrs;
 uint32_t trust_hdr_n;
+/* [GENE_SEC:2026-11-01 R2] Canonical signature of the compiled trust config
+ * (persistent) so re-running trustProxies() per request is a no-op; one-shot
+ * diag latch for ignored X-Forwarded-Proto; lazily computed dummy bcrypt
+ * hash matching the current PASSWORD_DEFAULT cost (Password::dummy). */
+zend_string *trust_sig;
+zend_bool trust_xfp_warned;
+zend_string *password_dummy;
 ZEND_END_MODULE_GLOBALS (gene)
  
  extern ZEND_DECLARE_MODULE_GLOBALS (gene);

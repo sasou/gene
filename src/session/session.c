@@ -138,16 +138,20 @@ static zend_string *gene_session_fingerprint(zval *obj) {
 	}
 	smart_str_appends(&raw, "gene.bind|");
 	if (Z_LVAL_P(flags) & 1) {
-		zval *ua = getVal(TRACK_VARS_SERVER, ZEND_STRL("HTTP_USER_AGENT"));
+		/* HEADER bag: Swoole headers never reach the server bag as HTTP_* */
+		zval *ua = getVal(GENE_REQUEST_ATTR_HEADER, ZEND_STRL("user-agent"));
 		if (ua && Z_TYPE_P(ua) == IS_STRING) {
 			smart_str_append(&raw, Z_STR_P(ua));
 		}
 		smart_str_appendc(&raw, '|');
 	}
 	if (Z_LVAL_P(flags) & 2) {
-		zval *ip = getVal(TRACK_VARS_SERVER, ZEND_STRL("REMOTE_ADDR"));
-		if (ip && Z_TYPE_P(ip) == IS_STRING) {
-			smart_str_append(&raw, Z_STR_P(ip));
+		/* client IP through the trusted-proxy table: behind a load balancer
+		 * REMOTE_ADDR is the LB, binding to it protects nothing */
+		zend_string *ip = gene_request_client_ip();
+		if (ip) {
+			smart_str_append(&raw, ip);
+			zend_string_release(ip);
 		}
 	}
 	smart_str_0(&raw);
@@ -167,6 +171,18 @@ static zend_string *gene_session_fingerprint(zval *obj) {
 }
 
 static zend_long gene_session_now(void);
+
+/* [GENE_SEC:2026-11-01 R2] stime refresh interval. Reads only re-save the
+ * session once `uttl` has elapsed; with an idle timeout shorter than uttl an
+ * active user would be kicked mid-use, so cap the interval at idle/2. */
+static zend_long gene_session_touch_interval(zval *obj, zval *uptime) {
+	zend_long iv = Z_LVAL_P(uptime);
+	zval *idle = zend_read_property(gene_session_ce, gene_strip_obj(obj), ZEND_STRL(GENE_SESSION_IDLE_TTL), 1, NULL);
+	if (idle && Z_TYPE_P(idle) == IS_LONG && Z_LVAL_P(idle) > 0 && Z_LVAL_P(idle) / 2 < iv) {
+		iv = Z_LVAL_P(idle) / 2;
+	}
+	return iv;
+}
 
 /* [GENE_SEC:2026-11-01 S8] Post-load enforcement: absolute/idle timeout and
  * fingerprint binding. Violations destroy the record through the handler and
@@ -243,6 +259,15 @@ static zval *gene_session_get_data(zval *obj)
 		/* [GENE_SEC:2026-11-01 S8] runs once, inside the lazy-load branch */
 		gene_session_enforce(obj, sess);
 		sess = zend_read_property(gene_session_ce, gene_strip_obj(obj), ZEND_STRL(GENE_SESSION_DATA), 1, NULL);
+		if (sess && Z_TYPE_P(sess) == IS_NULL) {
+			/* enforcement destroyed the record and minted a new id: continue
+			 * this request on an empty session instead of a NULL payload */
+			zval empty;
+			array_init(&empty);
+			zend_update_property(gene_session_ce, gene_strip_obj(obj), ZEND_STRL(GENE_SESSION_DATA), &empty);
+			zval_ptr_dtor(&empty);
+			sess = zend_read_property(gene_session_ce, gene_strip_obj(obj), ZEND_STRL(GENE_SESSION_DATA), 1, NULL);
+		}
 	}
 	/* [GENE_PERF:2026-05-29] Pure reads (get/has) must NOT emit a Set-Cookie.
 	 * Cookie emission belongs to the write lifecycle: set/del/setSessionId
@@ -939,7 +964,7 @@ zval * gene_session_get_by_path(zval *obj, char *path) {
 			 * Z_LVAL_P would read garbage from the union. */
 			if (uptime && Z_TYPE_P(uptime) == IS_LONG) {
 				zend_long jg = gene_session_now() - Z_LVAL_P(stime);
-				if (jg > Z_LVAL_P(uptime)) {
+				if (jg > gene_session_touch_interval(obj, uptime)) {
 					gene_data_save(obj, NULL);
 				}
 			}
@@ -1232,7 +1257,7 @@ PHP_METHOD(gene_session, get) {
 					/* [GENE_FIX:2026-04-27] See gene_session_get_by_path. */
 					if (uptime && Z_TYPE_P(uptime) == IS_LONG) {
 						zend_long jg = gene_session_now() - Z_LVAL_P(stime);
-						if (jg > Z_LVAL_P(uptime)) {
+						if (jg > gene_session_touch_interval(self, uptime)) {
 							gene_data_save(self, NULL);
 						}
 					}
