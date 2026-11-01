@@ -35,7 +35,7 @@
 
 ### ✅ 测试
 
-- `test/SecurityTest.php`（110 项）覆盖 S1–S12 全部断言；`test/WebscanTest.php`（42 项）旧实现在白名单、注释混淆、JSON、路径/请求头、PCRE 失败相关的 20 项上失败；两者已注册进 `TestRunner`。
+- `test/SecurityTest.php`（107 项）覆盖 S1–S12 全部断言；`test/WebscanTest.php`（40 项）旧实现在白名单、注释混淆、JSON、路径/请求头、PCRE 失败相关的 20 项上失败；两者已注册进 `TestRunner`（PHP 8.2.35 下 1147/1147 全绿）。
 - 真实 Memcached/Redis 实存验证：53 项序列断言（hit 原子递增/首写 TTL/tooMany 只读/clear/TOTP 重放）+ 8 进程并发竞态（hit 精确计数、TOTP 恰好一个胜者）。
 - `php -S` FPM curl 端到端：安全头与 HSTS 信任边界、CSRF 7 例、REST 签名 8 例（nonce 重放、query/body 覆盖、过期时间戳）。
 
