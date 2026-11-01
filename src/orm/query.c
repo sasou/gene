@@ -186,7 +186,7 @@ static zend_bool gene_orm_query_is_empty(zval *self)
  * see demo Group::delAll): Db::in() appended it verbatim AFTER existing
  * WHERE text, so it was legal there. Query owns connectors (emits
  * " AND " itself), so a raw " and x"/" or x" spliced verbatim produced
- * "WHERE and ..." or "... AND and ..." (MariaDB 1064 -- mchat
+ * "WHERE and ..." or "... AND and ..." (MariaDB 1064 -- legacy-app
  * Purview::lists). A word is only a connector when followed by
  * whitespace or '(' -- "android_id"/"or_id" stay identifiers. *is_or
  * reports an OR connector so the caller re-emits " OR " and keeps v1

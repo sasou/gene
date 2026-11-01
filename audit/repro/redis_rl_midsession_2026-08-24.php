@@ -7,11 +7,11 @@
  */
 $cfg = [
     'persistent' => false,
-    'host' => '192.168.5.102',
+    'host' => '127.0.0.1',
     'port' => 6379,
     'timeout' => 3,
     'ttl' => 0,
-    'password' => 'rds2024',
+    'password' => 'changeme',
     'serializer' => 0,
 ];
 
@@ -23,8 +23,8 @@ echo "My client id: " . var_export($myId, true) . "\n";
 
 // Open a second raw connection to issue CLIENT KILL against the first.
 $killer = new \Redis();
-$killer->connect('192.168.5.102', 6379, 3);
-$killer->auth('rds2024');
+$killer->connect('127.0.0.1', 6379, 3);
+$killer->auth('changeme');
 $killResult = $killer->rawCommand('CLIENT', 'KILL', 'ID', (string)$myId);
 echo "CLIENT KILL result: " . var_export($killResult, true) . "\n";
 $killer->close();

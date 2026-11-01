@@ -29,7 +29,7 @@ void gene_policy_headers_apply(void);
  * request was answered/denied and dispatch must be skipped (webscan-style). */
 int gene_policy_check(const char *method, size_t mlen, const char *path, size_t plen);
 
-/* JSONP callback whitelist validator (mchat strict variant). */
+/* JSONP callback whitelist validator (strict app variant). */
 int gene_jsonp_valid(const char *s, size_t n);
 
 /* Simple case-insensitive glob: '*' any run, '?' single char. */

@@ -7,11 +7,11 @@
  */
 $cfg = [
     'persistent' => false,
-    'host' => '192.168.5.102',
+    'host' => '127.0.0.1',
     'port' => 6379,
     'timeout' => 3,
     'ttl' => 0,
-    'password' => 'rds2024',
+    'password' => 'changeme',
     'serializer' => 0,
 ];
 
@@ -33,7 +33,7 @@ echo "\n";
 
 echo "=== 2) Error path: unreachable host/port ===\n";
 $badCfg = $cfg;
-$badCfg['host'] = '192.168.5.102';
+$badCfg['host'] = '127.0.0.1';
 $badCfg['port'] = 6390; // nothing listening here
 $badCfg['timeout'] = 1;
 try {
