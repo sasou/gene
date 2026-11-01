@@ -1,5 +1,55 @@
 # Gene Framework Changelog
 
+## [6.2.7]
+
+> 本版为安全基线版：应用侧重复实现的安全原语全部框架化（S1–S12，方案与验证记录见 `plan/security-baseline.closed.md`），并修复 `Gene\Webscan` 白名单/SQL 注释混淆绕过及实存验证中暴露的多处缺陷。PHP 8.1.30 / 8.2.35 NTS x64 双版本编译通过，真实 Memcached/Redis 原子路径与 `php -S` FPM curl 端到端验收全过。
+
+### ✨ 新增（安全基线 S1–S12）
+
+- **S1 可信代理与真实 IP**：`Application::trustProxies($cfg)`（`proxies` CIDR + `headers` + `proto`，配置签名幂等）；`Request::directIp()/ip()/isInternal()/isSecure()` 统一口径，`X-Forwarded-Proto` 仅对可信直连代理生效；新类 `Gene\Ip`（`isValid`/`inCidr`/`isInternal`，严格 IPv4/IPv6/CIDR 解析，拒绝畸形输入）。
+- **S2 CSRF/同源策略**：`Application::csrf([...])` + 预注册组钩子 `@csrf`；`Gene\Csrf::token()/check()/field()`；`Sec-Fetch-Site`/`Origin`/`Referer` 与 Host 归一化比较；`check` 只读，失败不生成不轮换 token。
+- **S3 安全响应头**：`Application::secureHeaders([...])` 默认下发 `nosniff`/`X-Frame-Options`/`Referrer-Policy`/CSP（`{nonce}` 逐请求替换）；HSTS 仅在 `Request::isSecure()` 为真时下发；嵌套 `run()` 不重复执行策略。
+- **S4 JSONP 白名单**：`Response::json($data, $callback)` C 层校验 callback（严格标识符规则、≤128），不通过按纯 JSON 输出；输出带 `/**/` 前缀与 `nosniff`；INI `gene.jsonp` 可整体禁用。
+- **S5 内部 REST 鉴权**：`Application::restGuard([...])` + 组钩子 `@rest`；`internal` 内网判定 + `secret` 签名（`hmac`/`shared` 双模式）；`Gene\Rest`/`Gene\Http` 出站自动加签，签名覆盖 method/path/query/时间戳/nonce/body 哈希；nonce 仅在验签通过后原子一次性消费，消除"反代下 REMOTE_ADDR 恒内网"的鉴权旁路。
+- **S6 `Gene\Password`**：`hash/verify/needsRehash` + `legacy` 旧格式迁移，`md5($salt.sha1($salt.$password))` 等历史散列校验通过后可透明升级 bcrypt；校验恒走 dummy 哈希抗时序探测。
+- **S7 `Gene\Throttle`**：`hit/tooMany(只读)/attempt/remaining/clear`；Memory 写锁 + TTL 感知递增、Redis Lua `INCR`+首写 `EXPIRE`、通用存储 `incr→add→set(nx,ex)` 原子降级链；键统一 `gene:thr:` 前缀。
+- **S8 会话加固**：指纹 `_gene_fp`（UA + 可信客户端 IP 哈希）写进 session，`load()` 校验不一致按 `on_mismatch` 处理并可用 `Session::compromised()` 探测；cookie secure/httponly/samesite 安全默认值、空闲/绝对超时、idle touch 间隔限制持久化写。
+- **S9 密钥环与密封**：`Crypto` kid 前缀 + 多版本轮换 + HKDF；`seal/unseal`（AES-256-GCM）；`Response::sealedCookie`/`Request::sealedCookie` 过期时间写入密文载荷、服务端校验，篡改/过期/畸形即拒。
+- **S10 TOTP 与安全随机码**：`Crypto::totpSecret/totpUri/totp/totpVerify`（RFC 6238）+ `randomCode`（CSPRNG，替代 `rand()`）；`totpVerify` 支持 `used` 存储打一次性标记，键为 HMAC 指纹+时间片、不含明文密钥，同码重放拒绝、相邻步新码放行。
+- **S11 上传校验参考实现**：`demo/application/Ext/UploadCheck.php`（大小/扩展名白名单/MIME 嗅探链）。
+- **S12 方法守卫**：`Application::readonly()` / `$router->readonly()`，动态路径 GET 只读白名单（非 GET 405）；demo `Hooks\ReadonlyGuard` 参考实现。
+
+### 🛡️ 安全（Webscan 加固）
+
+- **`Gene\Webscan` 白名单绕过**：目录/URL 白名单原先对含 query 的完整 `REQUEST_URI` 做子串匹配，`?x=admin` 即可让整个请求跳过检测。现只匹配 URL 解码后的路径：目录白名单须为首个路径段（`/admin`、`/admin/...`；`/adminfoo`、`/x/admin` 不算），含 `..` 的路径不进白名单；URL 白名单值为空时要求 query 也为空。
+- **SQL 注释混淆归一化**：叶子级剥离 `#`/`-- ` 行注释、`/*...*/` 注释与 `/*!...*/` 可执行注释外壳、双负号 `--x`，压缩空白后再匹配，覆盖 `INSERT#\nINTO`、`and#\n1=1`、`or a=--b` 等绕过；原文与归一化文本双重匹配，避免字符串字面量内的 `#`/`--` 被剥离后藏匿载荷。
+- **扫描面扩展**：POST 开关同时覆盖 JSON 请求体（`Content-Type: */json`，或无 POST 字段且 body 以 `{`/`[` 开头；与 `Request::json()` 共享解码缓存，解码失败按原文扫描）；GET 开关同时覆盖请求路径；Referer 开关同时覆盖 `User-Agent`、`X-Forwarded-For`。
+- **PCRE 失败默认拦截**：`preg_match()` 因回溯/JIT 超限返回 `false` 时按命中处理，防止填充超长载荷绕过；构造函数新增第 8 个参数 `webscan_fail_closed`（默认 1）可关闭。
+
+### 🐞 修复（验证中发现）
+
+- `gene_crypto_unseal_str` 误向 `openssl_decrypt` 传 8 参（`tag_length` 为加密专属参数），编译进 openssl 的构建下 `unseal`/`sealedCookie` 必抛 `ArgumentCountError`。
+- `gene_throttle_call`/`gene_store_call` 只查方法表：依赖 `__call` 透传的存储（`Gene\Cache\Redis`/`Memcached`）上 `Throttle::clear` 等静默空操作；现回退 `__call` 派发。包装类补齐契约：`Gene\Cache\Redis` 新增 `del`/`delete`，`Gene\Cache\Memcached` 新增 `add`/`del`/`delete`/`expire`；Memcached `incr`/`decr` 缺键兜底从非原子 `set` 改原子 `add`+重试。
+- `Request::init()` 不失效惰性物化的 HEADER 袋，二次 init 读到旧快照（XFP 等判定漏判）。
+- TOTP 重放标记键由明文密钥改为 HMAC-SHA256 指纹 + 计数器时间片。
+
+### ✅ 测试
+
+- `test/SecurityTest.php`（110 项）覆盖 S1–S12 全部断言；`test/WebscanTest.php`（42 项）旧实现在白名单、注释混淆、JSON、路径/请求头、PCRE 失败相关的 20 项上失败；两者已注册进 `TestRunner`。
+- 真实 Memcached/Redis 实存验证：53 项序列断言（hit 原子递增/首写 TTL/tooMany 只读/clear/TOTP 重放）+ 8 进程并发竞态（hit 精确计数、TOTP 恰好一个胜者）。
+- `php -S` FPM curl 端到端：安全头与 HSTS 信任边界、CSRF 7 例、REST 签名 8 例（nonce 重放、query/body 覆盖、过期时间戳）。
+
+### 🔧 修改文件一览
+
+- `src/http/`：`ip.c`/`ip.h`、`policy.c`/`policy.h`（新增）、`request.c`/`request.h`、`response.c`/`response.h`、`rest.c`、`webscan.c`
+- `src/tool/`：`password.c`/`password.h`、`throttle.c`/`throttle.h`（新增）、`crypto.c`
+- `src/session/session.c`/`session.h`、`src/app/application.c`、`src/gene.h`（版本号 6.2.7）、`src/gene.c`
+- `src/cache/`：`memory.c`/`memory.h`、`redis.c`/`redis.h`、`memcached.c`/`memcached.h`
+- `demo/`：`Ext\UploadCheck`、`Hooks\ReadonlyGuard`、`config.ini.php`
+- `test/`：`SecurityTest.php`、`WebscanTest.php`（新增）、`TestRunner.php`
+- `gene-ide-helper/Gene/`：`Ip`/`Csrf`/`Password`/`Throttle`（新增）及 `Crypto`/`Request`/`Response`/`Application`/`Memory`/`Cache\Redis`/`Cache\Memcached`/`Webscan` 同步
+- 文档：`plan/security-baseline.closed.md`、`README*.md`、`AGENTS.md`、`gene-ai-helper`，及全仓业务信息脱敏
+
 ## [6.2.6]
 
 > 本版为修正版：收敛 6.2.5 发布后发现的五处核心缺陷——路由组栈 packed hole 段错误、worker 冻结后借用请求数组致 PDO 悬垂读、连接池 `close()` 排空竞态漏槽、`through()` 未注册钩子静默丢弃（等于认证旁路）、ORM 裸片段开头 `and/or` 连接词致 MariaDB 1064；demo 按 SQLite 本地模式做一轮可用性修复，Windows 构建脚本补陈旧对象清理。
