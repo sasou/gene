@@ -19,6 +19,7 @@
 extern zend_class_entry *gene_request_ce;
 #define GENE_REQUEST_STACK_MAX 8
 #define GENE_INVOKE_DEPTH_MAX 8
+#define GENE_REQUEST_ATTR_HEADER 7
 #define GENE_REQUEST_ATTR_RAW 8
 
 zval * request_query(zend_ulong type, char * name, size_t len);

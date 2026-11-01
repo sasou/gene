@@ -165,6 +165,10 @@ D:\wampServer-php8.1_x64_nts\bin\php.exe -n -d extension_dir=D:\wampServer-php8.
 - `Validate::name($f)` 同时写入 KEY 和 FIELD，因此 `name('x')->rule_email()` 等 `rule_*` 直调必须可用并返回真实校验结果。FIELD 在 `valid()` / `groupValid()` 中仍按逗号拆分并逐字段覆盖。
 - `rule_int` 仅接受 `IS_LONG`；数字字符串应使用 `digit` 校验。
 
+### Request
+
+- `Request::header()` 的 HEADER bag（`request_attr` 索引 `GENE_REQUEST_ATTR_HEADER=7`）：`init()`/`initSwoole()` 显式注入优先；未注入时惰性从 server bag（或真实 `$_SERVER`）物化——`HTTP_*` 去前缀、`_`→`-`、小写（与 Swoole/PSR 同形），`CONTENT_TYPE`/`CONTENT_LENGTH` 一并映射。物化结果为请求级快照，后续改写 `$_SERVER` 不回灌。CLI 下 userland 写 `$_SERVER` 会触发数组分离、C 层仍见旧数组，回归须用 `init()` 注入 server bag 或预置环境变量（回归：`RequestHeaderTest.php`）。
+
 ### Memory / Session
 
 - `Gene\Memory` 提供 `delete`，`del` 是其别名。它满足 Session 存储句柄的 `get` / `set` / `delete` 契约，可作为 `session.driver` 的零依赖本地实现。
