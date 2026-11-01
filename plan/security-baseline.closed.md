@@ -656,3 +656,40 @@ S1-S12 已全部按本文方案落地于 C 扩展；回归文件 `test/SecurityT
 - `ctype`/`pdo_sqlite` 齐备后全量应恢复绿。
 - FPM/Swoole 验收工具补充安全头、CSRF、REST 签名 curl 断言；`gene-ide-helper` stub 与 `gene-ai-helper` reference 同步。
 
+### 落地优化复审（2026-11-01 第二轮）
+
+按"科学合理 / bug / 易用 / 高并发"四轴复审，落地代码修复如下（除注明外均在 C 扩展内完成）：
+
+| 轴 | 问题 | 修复 |
+|----|------|------|
+| S1 | v6 解析器接受重复 `::`、尾部垃圾、5+ hex 组、非法嵌入 v4；v4 `/33+` 前缀越界被静默收纳 | `gene_ip_parse` 重写为严格逐字节消费；`gene_cidr_list_parse` 按文本族判定前缀域（v4 `/n` → `96+n`，上限 32/128），非法项告警并跳过（不再静默当 `/0` 信任全部） |
+| S1 | `isInternal` 把含 `ffff:0a00:*` 接口 ID 的全局 v6 误判 10.x | 先全前缀校验 `::ffff:0:0/96` 再取 v4 段（`gene_ip_is_v4mapped`） |
+| S1 | XFP 只查 `$_SERVER`，Swoole 注入 header 袋时不生效；`trustProxies()` 每次重建信任表 | `gene_header_lookup` 统一走 HEADER 袋（Swoole 显式注入 / FPM 由 server 袋惰性物化）；`trustProxies` 按配置签名幂等（同配置二次调用为零成本 no-op），并修复 `Request::init()` 未失效物化 HEADER 袋导致旧快照残留的真 bug（回归：`isSecure: XFP via header bag`） |
+| S1 | `directIp` 每请求堆分配 | `gene_direct_bin` 改为零分配直连解析，热路径（isSecure/secureHeaders/csrf/restGuard）复用 |
+| S2/S3/S5/S12 | 策略读 header 依赖 server 袋，Swoole header 袋不一致；readonly `:c` 段大小写敏感、超长段被跳过（fail-open）；无参调用策略配置被当"禁用"；HSTS 可能明文下发；嵌套 `run()` 会重跑策略 | `policy_header` 走 HEADER 袋；readonly 改大小写不敏感、定长缓冲移除（超长段 fail closed）；setter 无参=应用默认值；HSTS 仅 `isSecure()` 时下发；嵌套 run 检测后跳过策略复跑；CSRF `check` 改只读（`create=0`，失败不生成/轮换 token） |
+| S5 | REST 签名目标与实发请求不一致（仅 path，缺 query）；nonce 复用检查用了非 NX 的 `set(nx=>true)` 写法——phpredis/Gene\Redis/Memory 三种实现都不认，防重放静默失效 | 签名目标统一为 `path + '?' + QUERY_STRING`（`gene_policy_target`），出站 `Rest` 自动签名取规范化后的完整 path+query、body 取最终序列化串；nonce 改 `gene_store_once`：Memory/Redis→`lock`（SET NX EX），memcached 形→`add`，phpredis 形→`set('nx','ex')`，未配置组件 fail-closed、存储宕机放行+diag（时间窗仍兜底） |
+| S6 | `dummy()` 硬编码 literal 哈希可能成本漂移/格式错误（立即返回即失效）；`verify` 返回缺 algo/rehash 信息；`needsRehash` 未走默认参数 | dummy 哈希进程内用当前默认算法现算一次（持久串）；`verify/verifyAny` 统一返回 `ok/algo/needs_rehash[.hash]`（验证成功且需升级时附带新哈希）；`needsRehash` 默认 PASSWORD_DEFAULT；legacy 走 `hash_equals` 常量时间比较 |
+| S7 | `hit()` 用裸 `incr`：Memory/Redis 上新建计数器无 TTL → 被限键永久锁定 | `Memory::incr(key,step,ttl)` 增 TTL 形参（写锁内建窗）；`gene_redis_hit` Lua 单脚本 INCR+首建 EXPIRE；通用存储 `incr→expire`/`add`/`set(nx,ex)` 回退；`tooMany` 明确为只读语义（不计入本次），键统一 `gene:thr:` 前缀 |
+| S8 | 会话绑定的客户端 IP 取 XFF 可被伪造；UA 只读 server 袋；idle 每请求触盘写会话 | 绑定指纹改用 `gene_request_client_ip()`（信任表解析）；UA 走 HEADER 袋；`_born`/`_bind` 随会话持久化，`gene_session_touch_interval` 限频（uttl 与 idle/2 取小） |
+| S9 | `sealedCookie` 只有浏览器端 expires，客户端可回放过期值 | sealed 明文内嵌 `"exp\nvalue"`：`Response::sealedCookie` 写入，`Request::sealedCookie` 校验内嵌过期（exp=0 不过期），篡改/过期/无头负载一律 null |
+| S10 | `totpVerify` 用 `strtol` 宽松解析（空白/符号/任意长度可过）；同一窗口内验证码可重放 | 严格校验"恰为 digits 位 ASCII 数字"；新增 `opts['used']` 存储：验证通过即 `gene_store_once` 打 `gene:totp:<secret>` 标记（窗口时长），同码二次验证返回 false |
+
+### 复审结论
+
+- **科学合理**：集中式策略在 `Application::run()` 单点前置执行，无路由顺序旁路；直连 IP 与转发 IP 语义分层（授权判 peer、日志用 client）；原子承诺均有真原子实现支撑（Memory 写锁 / Redis Lua / NX-SET）。
+- **易用**：应用侧只做声明式配置（`trustProxies/csrf/restGuard/secureHeaders/readonly` 无参即默认值），原语开箱即用，无需复制粘贴正则/哈希逻辑。
+- **高并发**：热路径无全局写、无 per-request 堆分配（directIp 零分配、HEADER 袋惰性物化一次/请求）；trust 表签名幂等使 Swoole 每请求 bootstrap 零成本；计数/防重放均为单原子操作，无读-改-写竞态。
+
+### 验证（第二轮）
+
+- Windows PHP 8.1.30 x64 NTS `nmake` 全量重编通过。
+- `test/SecurityTest.php` **88/88 PASS**（新增 22 项：v6 严格解析边界、header 袋 XFP、TOTP 防重放与严格位长、Throttle TTL 过期与只读 tooMany、CSRF 无副作用、sealedCookie 内嵌过期[openssl 分支]）。
+- 全量 `TestRunner` 913 项、903 通过、失败 10 均为环境缺 `ctype`/`pdo_sqlite`（OrmTest 7、DemoLoad 2、RouterTest 1），与改动无关；较前基线 891/881 无回归。
+- `gene-ide-helper` stub 已同步：新增 `Ip/Csrf/Password/Throttle`，`Crypto` 补 S9/S10 方法，`Memory::incr` 补 `$ttl`，`Request/Response/Application` 补安全 API。
+
+### 遗留待验证（复审后更新）
+
+- OpenSSL 构建下 `seal/unseal`/`sealedCookie`（含内嵌过期）与 TOTP `used` 存储的端到端断言，当前构建断言其正确抛错。
+- `ctype`/`pdo_sqlite` 齐备后全量恢复绿（预期 10 项环境失败清零）。
+- FPM/Swoole curl 验收补安全头、CSRF、REST 签名断言；Redis/Memcached 实存下的 `gene_store_once`/throttle 原子路径。
+

@@ -25,6 +25,7 @@
 #include "main/php_variables.h"
 #include "Zend/zend_API.h"
 #include "zend_exceptions.h"
+#include <time.h>
 
 #include "../gene.h"
 #include "../http/request.h"
@@ -810,6 +811,26 @@ PHP_METHOD(gene_request, sealedCookie) {
 	if (!plain) {
 		RETURN_NULL();
 	}
+	/* plaintext = "<exp>\n<value>": embedded expiry (sealedCookie writes it
+	 * into the blob, so a stale cookie can't be replayed past its lifetime) */
+	{
+		const char *nl = memchr(ZSTR_VAL(plain), '\n', ZSTR_LEN(plain));
+		if (!nl) {
+			zend_string_release(plain);
+			RETURN_NULL();
+		}
+		{
+			zend_long exp = ZEND_STRTOL(ZSTR_VAL(plain), NULL, 10);
+			size_t vlen = ZSTR_LEN(plain) - (size_t)(nl - ZSTR_VAL(plain)) - 1;
+			if (exp > 0 && (zend_long)time(NULL) > exp) {
+				zend_string_release(plain);
+				RETURN_NULL();
+			}
+			memmove(ZSTR_VAL(plain), nl + 1, vlen);
+			ZSTR_LEN(plain) = vlen;
+			ZSTR_VAL(plain)[vlen] = '\0';
+		}
+	}
 	RETURN_STR(plain);
 }
 /* }}} */
@@ -885,6 +906,11 @@ static void gene_request_init_bags(zval *get, zval *post, zval *cookie, zval *se
 		gene_request_input_invalidate(ctx);
 		if (Z_TYPE(ctx->request_attr) == IS_ARRAY) {
 			zend_hash_index_del(Z_ARRVAL(ctx->request_attr), GENE_REQUEST_ATTR_RAW);
+			/* The lazily materialized header bag is a snapshot of the OLD
+			 * server bag — drop it on every init so a re-init without an
+			 * explicit header arg rematerializes from the new server bag
+			 * (stale headers leaked across init() calls otherwise). */
+			zend_hash_index_del(Z_ARRVAL(ctx->request_attr), GENE_REQUEST_ATTR_HEADER);
 		}
 	}
 	if (raw_content && Z_TYPE_P(raw_content) == IS_STRING) {
