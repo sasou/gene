@@ -492,7 +492,7 @@ PHP_METHOD(gene_orm_model, paginate)
 		if (Z_TYPE(count_zv) == IS_LONG) {
 			count_val = Z_LVAL(count_zv);
 		} else if (Z_TYPE(count_zv) == IS_STRING) {
-			count_val = zend_atol(Z_STRVAL(count_zv), Z_STRLEN(count_zv));
+			count_val = ZEND_STRTOL(Z_STRVAL(count_zv), NULL, 10);
 		} else if (Z_TYPE(count_zv) == IS_DOUBLE) {
 			count_val = (zend_long)Z_DVAL(count_zv);
 		}
@@ -1129,7 +1129,7 @@ PHP_METHOD(gene_orm_model, createMany)
 	if (gene_orm_db_call(db, "affectedRows", 0, NULL, return_value) != SUCCESS) {
 		RETVAL_LONG(0);
 	} else if (Z_TYPE_P(return_value) == IS_STRING) {
-		zend_long v = zend_atol(Z_STRVAL_P(return_value), Z_STRLEN_P(return_value));
+		zend_long v = ZEND_STRTOL(Z_STRVAL_P(return_value), NULL, 10);
 		zval_ptr_dtor(return_value);
 		RETVAL_LONG(v);
 	}
@@ -1182,7 +1182,7 @@ PHP_METHOD(gene_orm_model, insertIgnore)
 	if (gene_orm_db_call(db, "affectedRows", 0, NULL, return_value) != SUCCESS) {
 		RETVAL_LONG(0);
 	} else if (Z_TYPE_P(return_value) == IS_STRING) {
-		zend_long v = zend_atol(Z_STRVAL_P(return_value), Z_STRLEN_P(return_value));
+		zend_long v = ZEND_STRTOL(Z_STRVAL_P(return_value), NULL, 10);
 		zval_ptr_dtor(return_value);
 		RETVAL_LONG(v);
 	}
@@ -1668,7 +1668,7 @@ PHP_METHOD(gene_orm_model, save)
 			RETVAL_LONG(0);
 		} else if ((Z_TYPE_P(return_value) == IS_LONG && Z_LVAL_P(return_value) == 0) ||
 			(Z_TYPE_P(return_value) == IS_STRING &&
-				zend_atol(Z_STRVAL_P(return_value), Z_STRLEN_P(return_value)) == 0)) {
+				ZEND_STRTOL(Z_STRVAL_P(return_value), NULL, 10) == 0)) {
 			/* [GENE_FIX:2026-08-10 N2] A hydrated model whose row is missing
 			 * (typical: client-generated primary key inserted via fill()+save())
 			 * used to fail silently — 0 rows affected, return 0, no error. */
