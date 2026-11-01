@@ -937,9 +937,10 @@ zend_string *gene_crypto_unseal_str(zend_string *cipher, zend_string *ctx) {
 	ZVAL_STR(&params[4], iv);
 	ZVAL_STR(&params[5], tag);
 	ZVAL_STR(&params[6], aad);
-	ZVAL_LONG(&params[7], 16);
 	ZVAL_UNDEF(&retval);
-	zend_call_known_function(fn, NULL, NULL, &retval, 8, params, NULL);
+	/* openssl_decrypt() takes 7 args (no tag_length — that's encrypt-only);
+	 * passing 8 throws ArgumentCountError and unseal() always fails. */
+	zend_call_known_function(fn, NULL, NULL, &retval, 7, params, NULL);
 	zval_ptr_dtor(&params[1]);
 	zend_string_release(aad);
 	zend_string_release(iv);

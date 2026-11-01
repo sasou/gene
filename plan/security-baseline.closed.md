@@ -672,6 +672,7 @@ S1-S12 已全部按本文方案落地于 C 扩展；回归文件 `test/SecurityT
 | S7 | `hit()` 用裸 `incr`：Memory/Redis 上新建计数器无 TTL → 被限键永久锁定 | `Memory::incr(key,step,ttl)` 增 TTL 形参（写锁内建窗）；`gene_redis_hit` Lua 单脚本 INCR+首建 EXPIRE；通用存储 `incr→expire`/`add`/`set(nx,ex)` 回退；`tooMany` 明确为只读语义（不计入本次），键统一 `gene:thr:` 前缀 |
 | S8 | 会话绑定的客户端 IP 取 XFF 可被伪造；UA 只读 server 袋；idle 每请求触盘写会话 | 绑定指纹改用 `gene_request_client_ip()`（信任表解析）；UA 走 HEADER 袋；`_born`/`_bind` 随会话持久化，`gene_session_touch_interval` 限频（uttl 与 idle/2 取小） |
 | S9 | `sealedCookie` 只有浏览器端 expires，客户端可回放过期值 | sealed 明文内嵌 `"exp\nvalue"`：`Response::sealedCookie` 写入，`Request::sealedCookie` 校验内嵌过期（exp=0 不过期），篡改/过期/无头负载一律 null |
+| S9 | `gene_crypto_unseal_str` 给 `openssl_decrypt` 传了 8 参（encrypt 专属的 tag_length），调用即抛 ArgumentCountError——`unseal`/`sealedCookie` 在有 openssl 的环境下永远失败（此前构建无 openssl 从未跑到） | 改为 7 参调用；PHP 8.2.35 + openssl 下 seal/unseal/轮换/sealedCookie 全链路回归通过 |
 | S10 | `totpVerify` 用 `strtol` 宽松解析（空白/符号/任意长度可过）；同一窗口内验证码可重放 | 严格校验"恰为 digits 位 ASCII 数字"；新增 `opts['used']` 存储：验证通过即 `gene_store_once` 打 `gene:totp:<secret>` 标记（窗口时长），同码二次验证返回 false |
 
 ### 复审结论
@@ -686,10 +687,11 @@ S1-S12 已全部按本文方案落地于 C 扩展；回归文件 `test/SecurityT
 - `test/SecurityTest.php` **88/88 PASS**（新增 22 项：v6 严格解析边界、header 袋 XFP、TOTP 防重放与严格位长、Throttle TTL 过期与只读 tooMany、CSRF 无副作用、sealedCookie 内嵌过期[openssl 分支]）。
 - 全量 `TestRunner` 913 项、903 通过、失败 10 均为环境缺 `ctype`/`pdo_sqlite`（OrmTest 7、DemoLoad 2、RouterTest 1），与改动无关；较前基线 891/881 无回归。
 - `gene-ide-helper` stub 已同步：新增 `Ip/Csrf/Password/Throttle`，`Crypto` 补 S9/S10 方法，`Memory::incr` 补 `$ttl`，`Request/Response/Application` 补安全 API。
+- **PHP 8.2.35 NTS x64 + openssl/pdo_sqlite/ctype 全量复验（同日）**：用 `php-8.2.33-src` 树编出 8.2 版 `php_gene.dll`，挂到 WampServer 8.2 php 上——`TestRunner` **1084/1084 全绿**（SecurityTest 97/97 含 openssl 全路径、OrmTest 206、RouterTest 49、DemoLoad 6），环境失败清零。复验中发现并修复 `openssl_decrypt` 8 参调用 bug（见 S9 行）。
 
 ### 遗留待验证（复审后更新）
 
-- OpenSSL 构建下 `seal/unseal`/`sealedCookie`（含内嵌过期）与 TOTP `used` 存储的端到端断言，当前构建断言其正确抛错。
-- `ctype`/`pdo_sqlite` 齐备后全量恢复绿（预期 10 项环境失败清零）。
+- ~~OpenSSL 构建下 `seal/unseal`/`sealedCookie` 与 TOTP `used` 端到端~~ —— 已在 8.2.35 + openssl 下全绿。
+- ~~`ctype`/`pdo_sqlite` 齐备后全量恢复绿~~ —— 1084/1084 达成。
 - FPM/Swoole curl 验收补安全头、CSRF、REST 签名断言；Redis/Memcached 实存下的 `gene_store_once`/throttle 原子路径。
 
