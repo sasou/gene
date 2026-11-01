@@ -57,6 +57,17 @@ ZEND_BEGIN_ARG_INFO_EX(gene_memcached_set_arginfo, 0, 0, 2)
 	ZEND_ARG_INFO(0, flag)
 ZEND_END_ARG_INFO()
 
+ZEND_BEGIN_ARG_INFO_EX(gene_memcached_add_arginfo, 0, 0, 2)
+	ZEND_ARG_INFO(0, key)
+	ZEND_ARG_INFO(0, value)
+	ZEND_ARG_INFO(0, ttl)
+ZEND_END_ARG_INFO()
+
+ZEND_BEGIN_ARG_INFO_EX(gene_memcached_expire_arginfo, 0, 0, 2)
+	ZEND_ARG_INFO(0, key)
+	ZEND_ARG_INFO(0, ttl)
+ZEND_END_ARG_INFO()
+
 ZEND_BEGIN_ARG_INFO_EX(gene_memcached_call_arginfo, 0, 0, 2)
 	ZEND_ARG_INFO(0, method)
 	ZEND_ARG_INFO(0, params)
@@ -505,17 +516,26 @@ PHP_METHOD(gene_memcached, incr) {
 			RETURN_ZVAL(&ret, 1, 1);
 		}
 	    zval retval;
-	    zend_function *set_fn = zend_hash_str_find_ptr(&Z_OBJCE_P(object)->function_table, ZEND_STRL("set"));
+	    /* [GENE_SEC:2026-11-01] missing key: add() is the atomic create;
+	     * the former set() fallback could overwrite a concurrent create. */
+	    zend_function *add_fn = zend_hash_str_find_ptr(&Z_OBJCE_P(object)->function_table, ZEND_STRL("add"));
 		zval params[] = { *key, *value };
 	    ZVAL_UNDEF(&retval);
-	    if (EXPECTED(set_fn)) {
-	        zend_call_known_function(set_fn, Z_OBJ_P(object), Z_OBJCE_P(object), &retval, 2, params, NULL);
+	    if (EXPECTED(add_fn)) {
+	        zend_call_known_function(add_fn, Z_OBJ_P(object), Z_OBJCE_P(object), &retval, 2, params, NULL);
 	    }
 	    if (Z_TYPE(retval) == IS_TRUE) {
 	    	zval_ptr_dtor(&retval);
-	    	RETURN_LONG(1);
+	    	RETURN_LONG(zval_get_long(value));
 	    }
 	    zval_ptr_dtor(&retval);
+	    /* add lost the create race — key now exists, retry increment */
+	    ZVAL_UNDEF(&ret);
+	    gene_memcached_increment(object, key, value, &ret);
+	    if (Z_TYPE(ret) != IS_FALSE) {
+	    	RETURN_ZVAL(&ret, 1, 1);
+	    }
+	    zval_ptr_dtor(&ret);
 	    RETURN_FALSE;
 	}
 	RETURN_NULL();
@@ -542,21 +562,113 @@ PHP_METHOD(gene_memcached, decr) {
 		}
 		zval_ptr_dtor(&ret);
 	    zval retval;
-	    zend_function *set_fn = zend_hash_str_find_ptr(&Z_OBJCE_P(object)->function_table, ZEND_STRL("set"));
-		zval params[] = { *key, *value };
+	    /* [GENE_SEC:2026-11-01] same atomic-create fix as incr(); a fresh
+	     * counter floors at 0 instead of being set() to the step value. */
+	    zend_function *add_fn = zend_hash_str_find_ptr(&Z_OBJCE_P(object)->function_table, ZEND_STRL("add"));
 	    ZVAL_UNDEF(&retval);
-	    if (EXPECTED(set_fn)) {
-	        zend_call_known_function(set_fn, Z_OBJ_P(object), Z_OBJCE_P(object), &retval, 2, params, NULL);
+	    if (EXPECTED(add_fn)) {
+	    	zval zero;
+	    	ZVAL_LONG(&zero, 0);
+	    	zval aparams[] = { *key, zero };
+	        zend_call_known_function(add_fn, Z_OBJ_P(object), Z_OBJCE_P(object), &retval, 2, aparams, NULL);
 	    }
 	    if (Z_TYPE(retval) == IS_TRUE) {
 	    	zval_ptr_dtor(&retval);
 	    	RETURN_LONG(0);
 	    }
 	    zval_ptr_dtor(&retval);
+	    ZVAL_UNDEF(&ret);
+	    gene_memcached_decrement(object, key, value, &ret);
+	    if (Z_TYPE(ret) != IS_FALSE) {
+	    	RETURN_ZVAL(&ret, 1, 1);
+	    }
+	    zval_ptr_dtor(&ret);
 	    RETURN_FALSE;
 	}
 	RETURN_NULL();
 }
+
+/*
+ * {{{ public gene_memcached::add()
+ */
+PHP_METHOD(gene_memcached, add) {
+	zval *self = getThis(), *object = NULL, *key = NULL, *value = NULL, *ttl = NULL;
+	if (zend_parse_parameters(ZEND_NUM_ARGS(), "zz|z", &key, &value, &ttl) == FAILURE) {
+		RETURN_NULL();
+	}
+	object = zend_read_property(gene_memcached_ce, gene_strip_obj(self), ZEND_STRL(GENE_MEM_OBJ), 1, NULL);
+	if (object && Z_TYPE_P(object) == IS_OBJECT) {
+		zend_function *fn = zend_hash_str_find_ptr(&Z_OBJCE_P(object)->function_table, ZEND_STRL("add"));
+		if (EXPECTED(fn)) {
+			zval params[3], ttl_norm;
+			int num = 2;
+			params[0] = *key;
+			params[1] = *value;
+			if (ttl) {
+				num = 3;
+				if (gene_memcached_ttl_zval(ttl, &ttl_norm)) {
+					params[2] = ttl_norm;
+				} else {
+					params[2] = *ttl;
+				}
+			}
+			zend_call_known_function(fn, Z_OBJ_P(object), Z_OBJCE_P(object), return_value, num, params, NULL);
+			return;
+		}
+	}
+	RETURN_NULL();
+}
+/* }}} */
+
+/*
+ * {{{ public gene_memcached::del() / delete()
+ */
+PHP_METHOD(gene_memcached, del) {
+	zval *self = getThis(), *object = NULL, *key = NULL;
+	if (zend_parse_parameters(ZEND_NUM_ARGS(), "z", &key) == FAILURE) {
+		RETURN_NULL();
+	}
+	object = zend_read_property(gene_memcached_ce, gene_strip_obj(self), ZEND_STRL(GENE_MEM_OBJ), 1, NULL);
+	if (object && Z_TYPE_P(object) == IS_OBJECT) {
+		zend_function *fn = zend_hash_str_find_ptr(&Z_OBJCE_P(object)->function_table, ZEND_STRL("delete"));
+		if (!fn) {
+			fn = zend_hash_str_find_ptr(&Z_OBJCE_P(object)->function_table, ZEND_STRL("del"));
+		}
+		if (EXPECTED(fn)) {
+			zval params[] = { *key };
+			zend_call_known_function(fn, Z_OBJ_P(object), Z_OBJCE_P(object), return_value, 1, params, NULL);
+			return;
+		}
+	}
+	RETURN_NULL();
+}
+/* }}} */
+
+/*
+ * {{{ public gene_memcached::expire() — the throttle-facing name; the
+ * memcached protocol calls it touch().
+ */
+PHP_METHOD(gene_memcached, expire) {
+	zval *self = getThis(), *object = NULL, *key = NULL, *ttl = NULL;
+	if (zend_parse_parameters(ZEND_NUM_ARGS(), "zz", &key, &ttl) == FAILURE) {
+		RETURN_NULL();
+	}
+	object = zend_read_property(gene_memcached_ce, gene_strip_obj(self), ZEND_STRL(GENE_MEM_OBJ), 1, NULL);
+	if (object && Z_TYPE_P(object) == IS_OBJECT) {
+		zend_function *fn = zend_hash_str_find_ptr(&Z_OBJCE_P(object)->function_table, ZEND_STRL("touch"));
+		if (EXPECTED(fn)) {
+			zval ttl_norm;
+			zval params[] = { *key, *ttl };
+			if (gene_memcached_ttl_zval(ttl, &ttl_norm)) {
+				params[1] = ttl_norm;
+			}
+			zend_call_known_function(fn, Z_OBJ_P(object), Z_OBJCE_P(object), return_value, 2, params, NULL);
+			return;
+		}
+	}
+	RETURN_NULL();
+}
+/* }}} */
 
 /*
  * {{{ gene_memcached_methods
@@ -564,6 +676,10 @@ PHP_METHOD(gene_memcached, decr) {
 const zend_function_entry gene_memcached_methods[] = {
 		PHP_ME(gene_memcached, decr, gene_memcached_decr_arginfo, ZEND_ACC_PUBLIC)
 		PHP_ME(gene_memcached, incr, gene_memcached_incr_arginfo, ZEND_ACC_PUBLIC)
+		PHP_ME(gene_memcached, add, gene_memcached_add_arginfo, ZEND_ACC_PUBLIC)
+		PHP_ME(gene_memcached, del, gene_memcached_get_arginfo, ZEND_ACC_PUBLIC)
+		PHP_MALIAS(gene_memcached, delete, del, gene_memcached_get_arginfo, ZEND_ACC_PUBLIC)
+		PHP_ME(gene_memcached, expire, gene_memcached_expire_arginfo, ZEND_ACC_PUBLIC)
 		PHP_ME(gene_memcached, get, gene_memcached_get_arginfo, ZEND_ACC_PUBLIC)
 		PHP_ME(gene_memcached, set, gene_memcached_set_arginfo, ZEND_ACC_PUBLIC)
 		PHP_ME(gene_memcached, __call, gene_memcached_call_arginfo, ZEND_ACC_PUBLIC)
