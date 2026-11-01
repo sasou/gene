@@ -114,6 +114,40 @@ class Response
     }
 
     /**
+     * sealedCookie
+     * Tamper-evident cookie: value is AES-256-GCM sealed under the Crypto
+     * keyring with AAD "cookie.<name>" — the value can't be replayed into
+     * another cookie name or context. The expiry is embedded INSIDE the
+     * sealed blob, so a cookie the browser still sends past its lifetime
+     * is rejected by Request::sealedCookie(). Requires Crypto::keyring().
+     *
+     * @param string $name cookie name
+     * @param string $value
+     * @param int $expires unix ts; 0/omitted = session cookie, payload never expires
+     * @param string $path
+     * @param string $domain
+     * @param bool $secure
+     * @param bool $httponly
+     * @param string $samesite
+     * @return mixed
+     * @throws \Exception when no keyring is configured
+     */
+    public static function sealedCookie($name, $value = null, $expires = null, $path = null, $domain = null, $secure = null, $httponly = null, $samesite = null) {
+
+    }
+
+    /**
+     * cspNonce
+     * Per-request CSP nonce (stable within the request): emit it in the
+     * Content-Security-Policy header and on inline <script>/<style> tags.
+     *
+     * @return string
+     */
+    public static function cspNonce() {
+
+    }
+
+    /**
      * url
      * 返回带语言前缀的 URL，如 url("login.html") => "/en/login.html"
      * 传入 "/" 也会加上语言前缀，如 url("/") => "/en/"

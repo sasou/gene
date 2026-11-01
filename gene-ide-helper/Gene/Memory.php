@@ -94,9 +94,11 @@ class Memory
      *
      * @param string $key 缓存 key
      * @param int $step 步长（默认 1）
+     * @param int $ttl 秒，仅在计数器新建（或过期后重建）时生效——固定窗口语义，
+     *                 同 Redis INCR + 首次 EXPIRE；0 = 永不过期
      * @return int|false 自增后的值
      */
-    public function incr($key, $step = 1) {}
+    public function incr($key, $step = 1, $ttl = 0) {}
 
     /**
      * decr

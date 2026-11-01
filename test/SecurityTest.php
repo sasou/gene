@@ -54,6 +54,17 @@ check("Ip::isInternal 192.168/16", Ip::isInternal('192.168.1.1') === true);
 check("Ip::isInternal ULA fd00::/7", Ip::isInternal('fd00::1') === true);
 check("Ip::isInternal public", Ip::isInternal('8.8.8.8') === false);
 
+/* strict parser: malformed forms must be rejected, not silently parsed */
+check("Ip::isValid dup ::", Ip::isValid('2001:db8::1::2') === false);
+check("Ip::isValid trailing garbage", Ip::isValid('2001:db8::1x') === false);
+check("Ip::isValid bad embedded v4", Ip::isValid('::ffff:999.0.0.1') === false);
+check("Ip::isValid 5 octets", Ip::isValid('1.2.3.4.5') === false);
+check("Ip::isValid v4-mapped form", Ip::isValid('::ffff:192.168.0.1') === true);
+check("Ip::inCidr v4 bad prefix", @Ip::inCidr('10.0.0.1', '10.0.0.0/33') === false);
+check("Ip::inCidr v6 bad prefix", @Ip::inCidr('2001:db8::1', '2001:db8::/129') === false);
+check("Ip::inCidr junk cidr", @Ip::inCidr('10.0.0.1', '10.0.0.0/x') === false);
+check("Ip::inCidr v4-mapped vs v4 cidr", Ip::inCidr('::ffff:10.1.2.3', '10.0.0.0/8') === true);
+
 /* ---------- S1: Request ip methods ---------- */
 $server = [
     'REQUEST_METHOD' => 'GET',
@@ -65,6 +76,8 @@ Request::init(null, null, null, $server);
 check("Request::directIp peer", Request::directIp() === '172.18.0.1');
 check("Request::ip ignores untrusted XFF", Request::ip() === '172.18.0.1');
 
+Application::getInstance()->trustProxies(['proxies' => '172.18.0.0/16', 'proto' => true]);
+/* idempotent: a second call with the same table must not break or double-compile */
 Application::getInstance()->trustProxies(['proxies' => '172.18.0.0/16', 'proto' => true]);
 check("Request::ip rightmost-untrusted", Request::ip() === '203.0.113.7');
 check("Request::ips chain", is_array(Request::ips()) && count(Request::ips()) >= 1);
@@ -87,6 +100,15 @@ $server['HTTPS'] = 'on';
 Request::init(null, null, null, $server);
 check("isSecure: real HTTPS", Request::isSecure() === true);
 unset($server['HTTPS'], $server['HTTP_X_FORWARDED_PROTO']);
+
+/* Swoole-style explicit header bag: XFP arrives via `header` (lowercase),
+ * not the server bag — must still be honored for a trusted peer */
+$server2 = ['REQUEST_METHOD' => 'GET', 'REQUEST_URI' => '/', 'REMOTE_ADDR' => '172.18.0.1'];
+Request::init(null, null, null, $server2, null, null, null, ['x-forwarded-proto' => 'https']);
+check("isSecure: XFP via header bag (trusted)", Request::isSecure() === true);
+$server2['REMOTE_ADDR'] = '8.8.8.8';
+Request::init(null, null, null, $server2, null, null, null, ['x-forwarded-proto' => 'https']);
+check("isSecure: XFP via header bag (untrusted)", Request::isSecure() === false);
 
 /* ---------- S4: JSONP callback ---------- */
 ob_start();
@@ -138,6 +160,21 @@ if (function_exists('openssl_encrypt')) {
     Crypto::keyring(['k2' => str_repeat('b', 32)]);
     check("Crypto::unseal after rotate", Crypto::unseal($sealed, 'cookie.sess') === 'hello-sec');
     Crypto::keyring(['k1' => str_repeat('a', 32), 'k2' => str_repeat('b', 32)], 'k2');
+
+    /* sealed cookie: "<exp>\n<value>" embedded expiry — a cookie the browser
+     * still sends past its lifetime must be rejected server-side */
+    $ck = [
+        'myc' => Crypto::seal("0\nsess-val", 'cookie.myc'),
+        'fut' => Crypto::seal((time() + 60) . "\nfresh", 'cookie.fut'),
+        'old' => Crypto::seal((time() - 10) . "\nstale", 'cookie.old'),
+        'bad' => Crypto::seal('no-expiry-header', 'cookie.bad'),
+    ];
+    Request::init(null, null, $ck, $server);
+    check("sealedCookie plain value", Request::sealedCookie('myc') === 'sess-val');
+    check("sealedCookie future expiry", Request::sealedCookie('fut') === 'fresh');
+    check("sealedCookie expired rejected", Request::sealedCookie('old') === null);
+    check("sealedCookie malformed rejected", Request::sealedCookie('bad') === null);
+    check("sealedCookie absent", Request::sealedCookie('none') === null);
 } else {
     try {
         Crypto::seal('x');
@@ -168,6 +205,15 @@ check("totp 6-digit", preg_match('/^\d{6}$/', $code) === 1);
 check("totp deterministic", Crypto::totp($sec, 1700000000) === $code);
 check("totpVerify now", Crypto::totpVerify($sec, Crypto::totp($sec), 1) === true);
 check("totpVerify garbage", Crypto::totpVerify($sec, 'x1y2z3', 1) === false);
+/* strict digits: wrong length / padded / signed forms must all fail */
+check("totpVerify short code", Crypto::totpVerify($sec, '12345', 1) === false);
+check("totpVerify long code", Crypto::totpVerify($sec, '1234567', 1) === false);
+check("totpVerify whitespace code", Crypto::totpVerify($sec, ' 23456', 1) === false);
+/* replay store: the same code in the same window is single-use */
+$totpStore = new Memory('sec_totp');
+$nowCode = Crypto::totp($sec);
+check("totpVerify first use", Crypto::totpVerify($sec, $nowCode, 1, 30, 6, ['used' => $totpStore]) === true);
+check("totpVerify replay rejected", Crypto::totpVerify($sec, $nowCode, 1, 30, 6, ['used' => $totpStore]) === false);
 check("randomCode digits", preg_match('/^\d{6}$/', Crypto::randomCode(6)) === 1);
 $rc2 = Crypto::randomCode(8, 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789');
 check("randomCode alphabet", strlen($rc2) === 8 && strpbrk($rc2, '01IO') === false);
@@ -176,12 +222,23 @@ check("randomCode alphabet", strlen($rc2) === 8 && strpbrk($rc2, '01IO') === fal
 $mem = new Memory('sec_regress');
 check("Throttle::hit 1", Throttle::hit($mem, 'login:u1', 60) === 1);
 check("Throttle::hit 2", Throttle::hit($mem, 'login:u1', 60) === 2);
-check("Throttle::tooMany under", Throttle::tooMany($mem, 'login:u1', 5, 60) === false);
-check("Throttle::count", Throttle::count($mem, 'login:u1') === 3);
+check("Throttle::tooMany under", Throttle::tooMany($mem, 'login:u1', 5) === false);
+check("Throttle::count", Throttle::count($mem, 'login:u1') === 2); /* tooMany is read-only now */
 check("Throttle::attempt over", Throttle::attempt($mem, 'login:u1', 2, 60) === false);
 check("Throttle::clear", Throttle::clear($mem, 'login:u1') === true);
 check("Throttle::count after clear", Throttle::count($mem, 'login:u1') === 0);
 check("Throttle::count missing key", Throttle::count($mem, 'login:ghost') === 0);
+
+/* fixed-window TTL: a counter created with ttl=1 must expire (the earlier
+ * bare-INCR path left the key permanent → throttle never released) */
+$memT = new Memory('sec_thr_ttl');
+check("Throttle::hit ttl window opens", Throttle::hit($memT, 'w', 1) === 1);
+check("Memory::incr ttl arg", $memT->incr('ic', 1, 1) === 1);
+sleep(2);
+check("Throttle key expired after ttl", Throttle::count($memT, 'w') === 0);
+check("Memory::incr key expired after ttl", !$memT->get('ic'));
+/* read-only gate: tooMany must not consume budget */
+check("Throttle::tooMany read-only", Throttle::tooMany($memT, 'ro', 1) === false && Throttle::count($memT, 'ro') === 0);
 
 /* ---------- S2: Gene\Csrf ---------- */
 class SecFakeSess {
@@ -190,11 +247,14 @@ class SecFakeSess {
     public function set($k, $v) { $this->d[$k] = $v; return true; }
     public function save() { return true; }
 }
-Di::set('session', new SecFakeSess());
+$secSess = new SecFakeSess();
+Di::set('session', $secSess);
 $tok = Csrf::token();
 check("Csrf::token string", is_string($tok) && strlen($tok) >= 20);
 check("Csrf::check own token", Csrf::check($tok) === true);
 check("Csrf::check foreign", Csrf::check('bogus') === false);
+/* a failed check must not rotate or create a token (no side effects) */
+check("Csrf::check no side effect", ($secSess->d['_csrf'] ?? null) === $tok);
 check("Csrf::field html", strpos(Csrf::field(), 'name="_token"') !== false);
 
 /* ---------- S3: cspNonce + headers config ---------- */
