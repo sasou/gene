@@ -19,6 +19,7 @@
 
 | 文件 | 说明 | 状态 |
 |------|------|------|
+| [security-baseline.md](security-baseline.md) | 安全基线框架化（可信 IP、CSRF、安全头、JSONP、REST 签名、Password、Throttle、会话加固、密钥环、TOTP、上传、方法守卫） | 候选 |
 | [orm-v2.closed.md](orm-v2.closed.md) | Db ↔ ORM 对称性（Query ops、timestamps、批量写、行锁、IN） | 关闭（6.1.0 已落地） |
 | [lifecycle-completeness.closed.md](lifecycle-completeness.closed.md) | 全生命周期原语（Http、SSE、Context、限流/锁、Json、Crypto） | 关闭（6.1.x 已落地，见文内 §八） |
 | [rest-invoke.closed.md](rest-invoke.closed.md) | 框架级 REST 互调（Request 栈、Invoke 本地隔离、命名 Rest、Http multipart） | 关闭（6.1.x 已落地，见文内复盘） |
