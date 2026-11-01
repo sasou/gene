@@ -694,7 +694,7 @@ S1-S12 已全部按本文方案落地于 C 扩展；回归文件 `test/SecurityT
 - ~~OpenSSL 构建下 `seal/unseal`/`sealedCookie` 与 TOTP `used` 端到端~~ —— 已在 8.2.35 + openssl 下全绿。
 - ~~`ctype`/`pdo_sqlite` 齐备后全量恢复绿~~ —— 1084/1084 达成。
 - ~~Redis/Memcached 实存下的 `gene_store_once`/throttle 原子路径~~ —— 已实测通过并修复派生缺陷（见下节）。
-- FPM/Swoole curl 验收补安全头、CSRF、REST 签名断言。
+- ~~FPM curl 验收补安全头、CSRF、REST 签名断言~~ —— 已实测通过（见末节）；Swoole 形态同代码路径，留 Linux 环境跑 `tools/acceptance/linux_swoole_verify.sh` 做最终确认。
 
 ### 实存验证（2026-11-01，PHP 8.2.35 + 实存 Memcached 172.17.0.1:1121 / Redis 172.17.0.1:6379 AUTH）
 
@@ -704,4 +704,11 @@ S1-S12 已全部按本文方案落地于 C 扩展；回归文件 `test/SecurityT
 - **多进程竞态 6/6**：每存储 8 进程 × 20 `hit` → 服务端精确 160 无丢更新；8 进程并发 `totpVerify` 同码 → 恰好 1 WIN——`incr`/`add`/`lock`/`SET NX EX` 原子性在实存下成立。
 - **错误路径**：死 Memcached `hit`→-1、`attempt` fail-open、`totpVerify['used']` fail-closed；`Gene\Cache\Redis` 构造即 connect（eager），不可达抛 `RedisException`（设计行为，应用侧拿不到死对象）。
 - **回归**：新增 `__call` 代理存储断言 7 项；`SecurityTest` 全绿，全量 `TestRunner` 1084 项全 PASS（CacheTest 74/74 无回归）。
+
+### FPM curl 端到端验收（2026-11-01，`php -S` + 最小 Gene 应用，`$_SERVER` 真实请求周期）
+
+- **安全响应头**：`secureHeaders()` 无参默认——`X-Content-Type-Options: nosniff`、`X-Frame-Options: SAMEORIGIN`、`Referrer-Policy: strict-origin-when-cross-origin` 均下发；CSP `{nonce}` 占位符逐请求替换为随机 nonce。
+- **XFP 信任边界（HSTS）**：未配 `trustProxies` 时 `X-Forwarded-Proto: https` 被忽略，`isSecure()=false` 不发 HSTS；`trustProxies(['proxies'=>['127.0.0.0/8']])` 下同头生效，`isSecure()=true` 下发 `Strict-Transport-Security: max-age=31536000`；HTTP（无 XFP）始终不发 HSTS——`curl` 对照两端口实测。
+- **CSRF**（`token=>true`，session 组件走 `Gene\Memory`）：无 token POST→403；`_token` 表单字段→200；`X-Csrf-Token` 头→200；query 串携带 `_token`→403（防 Referer/日志泄漏）；异源 `Origin`→403；同源 `Origin`→200；`Sec-Fetch-Site: cross-site`→403。
+- **REST HMAC 签名**（`restGuard` + `Crypto::signRequest`）：未签名→403；合法签名→200；同 nonce 重放→403（Memory 存储一次性标记跨请求生效）；篡改签名→403；超 skew 旧 ts→403；签名不含 query 而请求带 query→403（证明签名目标含 query 串）；签名含 body 与实发 body 不符→403、相符→200。
 
