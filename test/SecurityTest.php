@@ -268,6 +268,19 @@ $codeP = Crypto::totp($secP, 0, 30, 6);
 check("store_once via __call: first", Crypto::totpVerify($secP, $codeP, 1, 30, 6, ['used' => $proxy]) === true);
 check("store_once via __call: replay", Crypto::totpVerify($secP, $codeP, 1, 30, 6, ['used' => $proxy]) === false);
 
+/* TOTP marker: keyed per time step, secret never in the store key space */
+class SecRecStore {
+    public $keys = [];
+    public function add($k, $v, $ttl = 0) { if (isset($this->keys[$k])) return false; $this->keys[$k] = $ttl; return true; }
+}
+$rec = new SecRecStore();
+$secR = 'JBSWY3DPEHPK3PXP';
+$nowStep = intdiv(time(), 30);
+check("totp used: current step", Crypto::totpVerify($secR, Crypto::totp($secR, $nowStep * 30), 1, 30, 6, ['used' => $rec]) === true);
+check("totp used: previous step still accepted", Crypto::totpVerify($secR, Crypto::totp($secR, ($nowStep - 1) * 30), 1, 30, 6, ['used' => $rec]) === true);
+$recKeys = implode('|', array_keys($rec->keys));
+check("totp used: secret not in key", strpos($recKeys, $secR) === false && preg_match('/^gene:totp:[0-9a-f]{32}:\d+$/', array_key_first($rec->keys)) === 1);
+
 /* ---------- S2: Gene\Csrf ---------- */
 class SecFakeSess {
     public $d = [];
