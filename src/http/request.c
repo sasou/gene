@@ -108,7 +108,7 @@ static void gene_request_set_server_val(zval *server) {
 
 /* [GENE_PERF:2026-04-23] Same shallow-share rationale as set_server_val. */
 static void gene_request_set_header_val(zval *header) {
-	setVal(7, header);
+	setVal(GENE_REQUEST_ATTR_HEADER, header);
 }
 
 void gene_request_input_invalidate(gene_request_context *ctx) {
@@ -181,7 +181,7 @@ ZEND_END_ARG_INFO()
 /* }}} */
 
 static const zend_ulong gene_request_stack_idxs[] = {
-	TRACK_VARS_POST, TRACK_VARS_GET, TRACK_VARS_FILES, TRACK_VARS_REQUEST, 7, GENE_REQUEST_ATTR_RAW
+	TRACK_VARS_POST, TRACK_VARS_GET, TRACK_VARS_FILES, TRACK_VARS_REQUEST, GENE_REQUEST_ATTR_HEADER, GENE_REQUEST_ATTR_RAW
 };
 
 static void gene_request_dup_zval(zval *dst, zval *src) {
@@ -484,6 +484,59 @@ void setVal(zend_ulong type, zval *value) {
 	}
 }
 
+/* [GENE_FIX:2026-11-02] FPM header bag: the HEADER carrier (index 7) is only
+ * populated by Request::init()/initSwoole(); under php-cgi/FPM no caller ever
+ * fills it, so Request::header() silently returned NULL for every header
+ * (breaking e.g. Sec-Fetch-Site CSRF checks). Build the bag lazily from
+ * $_SERVER on first access: HTTP_* keys lose their prefix, underscores become
+ * dashes, names are lowercased — the same shape Swoole/PSR callers populate,
+ * which the lowercase fallback below already expects. CONTENT_TYPE and
+ * CONTENT_LENGTH carry no HTTP_ prefix in $_SERVER and are mapped too. */
+static zval *gene_request_materialize_headers(zval *attr) {
+	zval headers;
+	/* Prefer an injected server bag (Request::init/initSwoole set it via
+	 * set_server_val); only fall back to the real $_SERVER when absent —
+	 * under FPM the two are the same array. */
+	zval *server = zend_hash_index_find(Z_ARRVAL_P(attr), TRACK_VARS_SERVER);
+	if (!server || Z_TYPE_P(server) != IS_ARRAY) {
+		server = request_query(TRACK_VARS_SERVER, NULL, 0);
+	}
+	array_init(&headers);
+	if (server && Z_TYPE_P(server) == IS_ARRAY) {
+		zend_string *key;
+		zval *entry;
+		ZEND_HASH_FOREACH_STR_KEY_VAL(Z_ARRVAL_P(server), key, entry) {
+			const char *name;
+			size_t nl;
+			char lower[256];
+			size_t i;
+			if (!key) {
+				continue;
+			}
+			if (ZSTR_LEN(key) > 5 && memcmp(ZSTR_VAL(key), "HTTP_", 5) == 0) {
+				name = ZSTR_VAL(key) + 5;
+				nl = ZSTR_LEN(key) - 5;
+			} else if (zend_string_equals_literal(key, "CONTENT_TYPE")
+					|| zend_string_equals_literal(key, "CONTENT_LENGTH")) {
+				name = ZSTR_VAL(key);
+				nl = ZSTR_LEN(key);
+			} else {
+				continue;
+			}
+			if (nl == 0 || nl >= sizeof(lower)) {
+				continue;
+			}
+			for (i = 0; i < nl; i++) {
+				unsigned char c = (unsigned char) name[i];
+				lower[i] = (c == '_') ? '-' : ((c >= 'A' && c <= 'Z') ? (char)(c | 0x20) : (char)c);
+			}
+			zend_hash_str_update(Z_ARRVAL(headers), lower, nl, entry);
+		} ZEND_HASH_FOREACH_END();
+	}
+	/* zend_hash_index_update takes ownership of headers — no dtor here. */
+	return zend_hash_index_update(Z_ARRVAL_P(attr), GENE_REQUEST_ATTR_HEADER, &headers);
+}
+
 zval *getVal(zend_ulong type, char *name, size_t len) {
 	zval *attr = gene_request_attr();
 	zval *val = NULL;
@@ -497,6 +550,8 @@ zval *getVal(zend_ulong type, char *name, size_t len) {
 			 * init() on the real $_REQUEST superglobal path below. */
 			if (type == TRACK_VARS_REQUEST && gene_request_ctx()->request_bags_inited) {
 				val = gene_request_materialize_request(attr);
+			} else if (type == GENE_REQUEST_ATTR_HEADER) {
+				val = gene_request_materialize_headers(attr);
 			} else {
 				/* [GENE_PERF:2026-04-24 v5.5.8] Slow path (first touch of this
 				 * track-var per request). Use the zend_hash_index_update return
@@ -525,7 +580,7 @@ zval *getVal(zend_ulong type, char *name, size_t len) {
 			 * blocks. The `len > 0` guard from the prior version is dropped
 			 * because the early `len == 0 || name == NULL` check above already
 			 * returned for that case. */
-			if ((type == TRACK_VARS_SERVER || type == 7) && len < 256) {
+			if ((type == TRACK_VARS_SERVER || type == GENE_REQUEST_ATTR_HEADER) && len < 256) {
 				char lower_name[256];
 				size_t i;
 				unsigned char c;
@@ -664,7 +719,7 @@ PHP_METHOD(gene_request, isSecure) {
 
 /** {{{ public gene_request::header(mixed $name, mixed $default = NULL)
  */
-GENE_REQUEST_METHOD(gene_request, header, 7);
+GENE_REQUEST_METHOD(gene_request, header, GENE_REQUEST_ATTR_HEADER);
 /* }}} */
 
 /** {{{ public gene_request::isAjax()
@@ -999,7 +1054,7 @@ static int gene_request_json_value(gene_request_context *ctx, zval *return_value
 }
 
 static zend_bool gene_request_json_content_type(void) {
-	zval *type = getVal(7, ZEND_STRL("Content-Type"));
+	zval *type = getVal(GENE_REQUEST_ATTR_HEADER, ZEND_STRL("Content-Type"));
 	const char *p;
 	size_t len, i;
 	if (!type || Z_TYPE_P(type) != IS_STRING) {
@@ -1135,7 +1190,7 @@ static zend_string *gene_request_find_auth_header(void) {
 	zval *hdrs, *auth;
 	zend_string *key;
 
-	hdrs = getVal(7, NULL, 0);
+	hdrs = getVal(GENE_REQUEST_ATTR_HEADER, NULL, 0);
 	if (hdrs && Z_TYPE_P(hdrs) == IS_ARRAY) {
 		ZEND_HASH_FOREACH_STR_KEY_VAL(Z_ARRVAL_P(hdrs), key, auth) {
 			if (key && ZSTR_LEN(key) == sizeof("Authorization") - 1
