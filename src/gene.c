@@ -44,7 +44,11 @@
 #include "http/http.h"
 #include "http/invoke.h"
 #include "http/rest.h"
+#include "http/ip.h"
+#include "http/policy.h"
 #include "tool/crypto.h"
+#include "tool/password.h"
+#include "tool/throttle.h"
 #include "tool/text.h"
 #include "session/session.h"
 #include "mvc/view.h"
@@ -169,6 +173,13 @@ STD_PHP_INI_ENTRY("gene.cache_easy_ttl", "0", PHP_INI_SYSTEM, OnUpdateLong, cach
 STD_PHP_INI_ENTRY("gene.slow_query_ms", "0", PHP_INI_SYSTEM, OnUpdateLong, slow_query_ms, zend_gene_globals, gene_globals) // @suppress("Symbol is not resolved")
 STD_PHP_INI_BOOLEAN("gene.log_keep_open", "0", PHP_INI_SYSTEM, OnUpdateBool, log_keep_open, zend_gene_globals, gene_globals) // @suppress("Symbol is not resolved")
 STD_PHP_INI_ENTRY("gene.log_reopen_interval", "5", PHP_INI_SYSTEM, OnUpdateLong, log_reopen_interval, zend_gene_globals, gene_globals) // @suppress("Symbol is not resolved")
+/* [GENE_SEC:2026-11-01 S1/S4] Security INI: trusted proxies (comma-separated
+ * CIDRs), forwarded-header names, X-Forwarded-Proto trust, JSONP switch.
+ * Application::trustProxies() overrides these at bootstrap time. */
+STD_PHP_INI_ENTRY("gene.trusted_proxies", "", PHP_INI_SYSTEM, OnUpdateString, trusted_proxies, zend_gene_globals, gene_globals) // @suppress("Symbol is not resolved")
+STD_PHP_INI_ENTRY("gene.trusted_headers", "x-forwarded-for", PHP_INI_SYSTEM, OnUpdateString, trusted_headers, zend_gene_globals, gene_globals) // @suppress("Symbol is not resolved")
+STD_PHP_INI_BOOLEAN("gene.trusted_proto", "1", PHP_INI_SYSTEM, OnUpdateBool, trust_proto_ini, zend_gene_globals, gene_globals) // @suppress("Symbol is not resolved")
+STD_PHP_INI_BOOLEAN("gene.jsonp", "1", PHP_INI_SYSTEM, OnUpdateBool, jsonp_enabled, zend_gene_globals, gene_globals) // @suppress("Symbol is not resolved")
 PHP_INI_END();
 /* }}} */
 
@@ -620,6 +631,10 @@ static void gene_request_context_free_fields(gene_request_context *ctx, int pres
 		c->request_json_state = 0;
 		c->invoke_depth = 0;
 		c->http_busy = 0;
+		if (c->csp_nonce) {
+			zend_string_release(c->csp_nonce);
+			c->csp_nonce = NULL;
+		}
 	}
 	if (!preserve_for_reuse) {
 		/* [GENE_MEM:2026-04-24] Inlined path_params: dtor the HashTable
@@ -1361,6 +1376,16 @@ static void php_gene_init_globals() {
 	GENE_G(cache_lru) = NULL;
 	gene_rwlock_init(&GENE_G(cache_lock));
 	gene_rwlock_init(&GENE_G(business_cache_lock));
+	/* [GENE_SEC:2026-11-01 S1] Trusted-proxy compiled table. INI strings
+	 * (trusted_proxies/trusted_headers/trust_proto_ini/jsonp_enabled) are
+	 * populated by the PHP_INI loader and must NOT be touched here; the
+	 * pemalloc'd compiled state is worker-lifetime and starts empty. */
+	GENE_G(trust_cidrs) = NULL;
+	GENE_G(trust_cidr_n) = 0;
+	GENE_G(trust_hdrs) = NULL;
+	GENE_G(trust_hdr_n) = 0;
+	GENE_G(trust_compiled) = 0;
+	GENE_G(trust_proto) = 0;
 	gene_memory_init();
 }
 /* }}} */
@@ -1520,6 +1545,13 @@ PHP_MINIT_FUNCTION(gene) {
 	GENE_STARTUP(invoke);
 	GENE_STARTUP(rest);
 	GENE_STARTUP(crypto);
+	/* [GENE_SEC:2026-11-01] S1-S10 security modules. ip+policy register
+	 * Gene\Ip / Gene\Csrf; password+throttle register Gene\Password /
+	 * Gene\Throttle. */
+	GENE_STARTUP(ip);
+	GENE_STARTUP(policy);
+	GENE_STARTUP(password);
+	GENE_STARTUP(throttle);
 	GENE_STARTUP(text);
 	GENE_STARTUP(validate);
 	GENE_STARTUP(session);
@@ -1605,6 +1637,8 @@ PHP_MSHUTDOWN_FUNCTION(gene) {
 	/* [GENE_PERF:2026-06-19 P6] Free the persistent FPM closure-source cache
 	 * (NTS-only; never allocated under ZTS). Keeps valgrind/ASAN clean. */
 	gene_closure_src_cache_destroy();
+	/* [GENE_SEC:2026-11-01 S1] Free the pemalloc'd trusted-proxy table. */
+	gene_trust_destroy();
 	if (GENE_G(cache_easy)) {
 		gene_hash_destroy(GENE_G(cache_easy));
 		GENE_G(cache_easy) = NULL;
