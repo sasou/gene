@@ -1112,16 +1112,26 @@ PHP_METHOD(gene_response, sealedCookie) {
 	ctx = zend_string_extend(ctx, ZSTR_LEN(ctx) + Z_STRLEN_P(name), 0);
 	memcpy(ZSTR_VAL(ctx) + 7, Z_STRVAL_P(name), Z_STRLEN_P(name) + 1);
 	{
-		zend_string *plain;
-		if (value && Z_TYPE_P(value) == IS_STRING) {
-			plain = zend_string_copy(Z_STR_P(value));
-		} else {
-			zval empty;
-			ZVAL_EMPTY_STRING(&empty);
-			plain = zval_get_string(value ? value : &empty);
+		/* plaintext = "<exp>\n<value>": the expiry rides inside the sealed
+		 * blob so a client-side "expires" attribute can't extend the value's
+		 * lifetime (Request::sealedCookie enforces it server-side) */
+		smart_str pb = {0};
+		zend_long exp = 0;
+		if (expires && Z_TYPE_P(expires) == IS_LONG) {
+			exp = Z_LVAL_P(expires);
 		}
-		sealed = gene_crypto_seal_str(plain, ctx);
-		zend_string_release(plain);
+		smart_str_append_long(&pb, exp);
+		smart_str_appendc(&pb, '\n');
+		if (value && Z_TYPE_P(value) == IS_STRING) {
+			smart_str_append(&pb, Z_STR_P(value));
+		} else if (value) {
+			zend_string *cv = zval_get_string(value);
+			smart_str_append(&pb, cv);
+			zend_string_release(cv);
+		}
+		smart_str_0(&pb);
+		sealed = pb.s ? gene_crypto_seal_str(pb.s, ctx) : NULL;
+		smart_str_free(&pb);
 	}
 	zend_string_release(ctx);
 	if (!sealed) {

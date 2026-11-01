@@ -1215,13 +1215,18 @@ PHP_METHOD(gene_crypto, totp) {
 }
 /* }}} */
 
-/* {{{ proto static bool Gene\Crypto::totpVerify(string $secret, string $code [, int $window [, int $step [, int $digits]]]) */
+/* {{{ proto static bool Gene\Crypto::totpVerify(string $secret, string $code [, int $window [, int $step [, int $digits [, array $opts]]]])
+ * opts['used'] => store object (Memory/Redis/memcached-shaped): marks each
+ * accepted code single-use for step*(2*window+1)s so the same code in the
+ * same window cannot be replayed. */
 PHP_METHOD(gene_crypto, totpVerify) {
 	zend_string *secret, *code_s, *raw;
+	zval *opts = NULL, *store = NULL;
 	zend_long window = 1, step = 30, digits = 6;
 	zend_long given, ts, w, counter;
 	char *endp;
-	if (zend_parse_parameters(ZEND_NUM_ARGS(), "SS|lll", &secret, &code_s, &window, &step, &digits) == FAILURE) {
+	zend_bool ok = 0;
+	if (zend_parse_parameters(ZEND_NUM_ARGS(), "SS|llla!", &secret, &code_s, &window, &step, &digits, &opts) == FAILURE) {
 		return;
 	}
 	if (ZSTR_LEN(code_s) == 0 || ZSTR_LEN(code_s) > 8) {
@@ -1230,9 +1235,27 @@ PHP_METHOD(gene_crypto, totpVerify) {
 	if (step < 1 || step > 300 || digits < 6 || digits > 8 || window < 0 || window > 10) {
 		RETURN_FALSE;
 	}
+	/* strict: exactly `digits` ASCII digits (strtol tolerates whitespace/sign) */
+	if (ZSTR_LEN(code_s) != (size_t)digits) {
+		RETURN_FALSE;
+	}
+	{
+		size_t ci;
+		for (ci = 0; ci < ZSTR_LEN(code_s); ci++) {
+			if (ZSTR_VAL(code_s)[ci] < '0' || ZSTR_VAL(code_s)[ci] > '9') {
+				RETURN_FALSE;
+			}
+		}
+	}
 	given = ZEND_STRTOL(ZSTR_VAL(code_s), &endp, 10);
 	if (endp != ZSTR_VAL(code_s) + ZSTR_LEN(code_s)) {
 		RETURN_FALSE;
+	}
+	if (opts && Z_TYPE_P(opts) == IS_ARRAY) {
+		store = zend_hash_str_find(Z_ARRVAL_P(opts), ZEND_STRL("used"));
+		if (store && Z_TYPE_P(store) != IS_OBJECT) {
+			store = NULL;
+		}
 	}
 	if (!gene_b32_decode(secret, &raw)) {
 		RETURN_FALSE;
@@ -1244,12 +1267,28 @@ PHP_METHOD(gene_crypto, totpVerify) {
 			continue;
 		}
 		if (gene_totp_code(raw, counter, digits) == given) {
-			zend_string_release(raw);
-			RETURN_TRUE;
+			ok = 1;
+			break;
+		}
+	}
+	if (ok && store) {
+		/* single-use: "gene:totp:<sha1(secret)>" marked for the full window —
+		 * a second verify with the same code in the window fails */
+		smart_str k = {0};
+		smart_str_appends(&k, "gene:totp:");
+		smart_str_append(&k, secret);
+		smart_str_0(&k);
+		if (k.s) {
+			if (gene_store_once(store, k.s, step * (2 * window + 1)) != 1) {
+				smart_str_free(&k);
+				zend_string_release(raw);
+				RETURN_FALSE; /* replayed or store refused the marker */
+			}
+			smart_str_free(&k);
 		}
 	}
 	zend_string_release(raw);
-	RETURN_FALSE;
+	RETURN_BOOL(ok);
 }
 /* }}} */
 
@@ -1344,6 +1383,7 @@ ZEND_BEGIN_ARG_INFO_EX(gene_crypto_totp_verify_arginfo, 0, 0, 2)
 	ZEND_ARG_INFO(0, window)
 	ZEND_ARG_INFO(0, step)
 	ZEND_ARG_INFO(0, digits)
+	ZEND_ARG_INFO(0, opts)
 ZEND_END_ARG_INFO()
 
 ZEND_BEGIN_ARG_INFO_EX(gene_crypto_random_code_arginfo, 0, 0, 1)
