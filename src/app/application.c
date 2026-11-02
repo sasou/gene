@@ -148,6 +148,7 @@ ZEND_BEGIN_ARG_INFO_EX(gene_application_webscan, 0, 0, 0)
 	ZEND_ARG_INFO(0, webscan_post)
 	ZEND_ARG_INFO(0, webscan_cookie)
 	ZEND_ARG_INFO(0, webscan_referer)
+	ZEND_ARG_INFO(0, webscan_fail_closed)
 ZEND_END_ARG_INFO()
 
 ZEND_BEGIN_ARG_INFO_EX(gene_application_get_method, 0, 0, 0)
@@ -444,15 +445,7 @@ static int gene_application_webscan_check()
 {
 	zval *enabled = zend_read_static_property(gene_application_ce, ZEND_STRL(GENE_APPLICATION_WEBSCAN_ENABLED), 1);
 	zval *config = NULL, *callback = NULL;
-	zend_class_entry *webscan_ce = NULL;
-	zval webscan_obj, ctor_ret, check_ret;
-	zval params[7];
-	int i, blocked = 0;
-	/* [GENE_PERF:2026-04-17] Cache class entry + function pointers per process to avoid
-	 * zend_lookup_class + ZVAL_STRING method name heap-alloc on every request. */
-	static zend_class_entry *cached_ce = NULL;
-	static zend_function *cached_ctor = NULL;
-	static zend_function *cached_check = NULL;
+	int blocked;
 
 	if (!enabled || !zend_is_true(enabled)) {
 		return 0;
@@ -463,59 +456,20 @@ static int gene_application_webscan_check()
 	}
 	callback = zend_read_static_property(gene_application_ce, ZEND_STRL(GENE_APPLICATION_WEBSCAN_CALLBACK), 1);
 
-	if (UNEXPECTED(!cached_ce)) {
-		/* [GENE_FIX:2026-05-24] gene_lookup_class_str avoids the unsafe
-		 * static zend_string* + zend_string_init_interned(...,1) pattern that
-		 * dangles across requests under opcache.file_cache_only=1. */
-		webscan_ce = gene_lookup_class_str(ZEND_STRL("Gene\\Webscan"));
-		if (!webscan_ce) {
-			php_error_docref(NULL, E_WARNING, "Unable to load security scanner class Gene\\Webscan");
+	/* [GENE_PERF:2026-11-02] Call the scanner core directly: the former
+	 * per-request Gene\Webscan object + ctor + check() round-trip and its
+	 * 8 property reads were pure overhead on every dispatched request. */
+	{
+		HashTable *ht = Z_ARRVAL_P(config);
+		zval *sw = zend_hash_index_find(ht, 0);
+#define GENE_WS_FLAG(idx, def) ((zend_hash_index_find(ht, idx)) ? zend_is_true(zend_hash_index_find(ht, idx)) : (def))
+		if (sw && !zend_is_true(sw)) {
 			return 0;
 		}
-		cached_ce = webscan_ce;
-		cached_ctor = webscan_ce->constructor;
-		cached_check = zend_hash_str_find_ptr(&webscan_ce->function_table, "check", sizeof("check") - 1);
+		blocked = gene_webscan_scan(zend_hash_index_find(ht, 1), zend_hash_index_find(ht, 2),
+			GENE_WS_FLAG(3, 1), GENE_WS_FLAG(4, 1), GENE_WS_FLAG(5, 1), GENE_WS_FLAG(6, 1), GENE_WS_FLAG(7, 1));
+#undef GENE_WS_FLAG
 	}
-	webscan_ce = cached_ce;
-
-	object_init_ex(&webscan_obj, webscan_ce);
-	for (i = 0; i < 7; i++) {
-		zval *item = zend_hash_index_find(Z_ARRVAL_P(config), i);
-		if (item) {
-			/* Addref instead of deep copy: call_user_function/zend_call_known_function
-			 * treats args as input and will not mutate a shared persistent config array. */
-			Z_TRY_ADDREF_P(item);
-			ZVAL_COPY_VALUE(&params[i], item);
-		} else {
-			ZVAL_NULL(&params[i]);
-		}
-	}
-
-	ZVAL_NULL(&ctor_ret);
-	if (EXPECTED(cached_ctor)) {
-		zend_call_known_function(cached_ctor, Z_OBJ(webscan_obj), webscan_ce, &ctor_ret, 7, params, NULL);
-	} else {
-		zval ctor_name;
-		ZVAL_STRINGL(&ctor_name, "__construct", sizeof("__construct") - 1);
-		call_user_function(NULL, &webscan_obj, &ctor_name, &ctor_ret, 7, params);
-		zval_ptr_dtor(&ctor_name);
-	}
-	zval_ptr_dtor(&ctor_ret);
-	for (i = 0; i < 7; i++) {
-		zval_ptr_dtor(&params[i]);
-	}
-
-	ZVAL_NULL(&check_ret);
-	if (EXPECTED(cached_check)) {
-		zend_call_known_function(cached_check, Z_OBJ(webscan_obj), webscan_ce, &check_ret, 0, NULL, NULL);
-	} else {
-		zval check_name;
-		ZVAL_STRINGL(&check_name, "check", sizeof("check") - 1);
-		call_user_function(NULL, &webscan_obj, &check_name, &check_ret, 0, NULL);
-		zval_ptr_dtor(&check_name);
-	}
-	blocked = zend_is_true(&check_ret);
-	zval_ptr_dtor(&check_ret);
 
 	if (blocked) {
 		if (callback && Z_TYPE_P(callback) != IS_NULL) {
@@ -536,7 +490,6 @@ static int gene_application_webscan_check()
 		}
 	}
 
-	zval_ptr_dtor(&webscan_obj);
 	return blocked;
 }
 
@@ -1358,11 +1311,11 @@ PHP_METHOD(gene_application, setView) {
  */
 PHP_METHOD(gene_application, webscan) {
     zval *callback = NULL, *webscan_white_url = NULL, *self = getThis();
-    zend_long webscan_switch = 1, webscan_get = 1, webscan_post = 1, webscan_cookie = 1, webscan_referer = 1;
+    zend_long webscan_switch = 1, webscan_get = 1, webscan_post = 1, webscan_cookie = 1, webscan_referer = 1, webscan_fail_closed = 1;
     zend_string *webscan_white_directory = NULL;
     zval config, enabled, null_val;
 
-    if (zend_parse_parameters(ZEND_NUM_ARGS(), "|lSzallll",
+    if (zend_parse_parameters(ZEND_NUM_ARGS(), "|lSzalllll",
         &webscan_switch,
         &webscan_white_directory,
         &callback,
@@ -1370,11 +1323,12 @@ PHP_METHOD(gene_application, webscan) {
         &webscan_get,
         &webscan_post,
         &webscan_cookie,
-        &webscan_referer) == FAILURE) {
+        &webscan_referer,
+        &webscan_fail_closed) == FAILURE) {
         return;
     }
 
-    array_init_size(&config, 7);
+    array_init_size(&config, 8);
     add_index_long(&config, 0, webscan_switch);
     if (webscan_white_directory) {
         add_index_str(&config, 1, zend_string_copy(webscan_white_directory));
@@ -1394,6 +1348,7 @@ PHP_METHOD(gene_application, webscan) {
     add_index_long(&config, 4, webscan_post);
     add_index_long(&config, 5, webscan_cookie);
     add_index_long(&config, 6, webscan_referer);
+    add_index_long(&config, 7, webscan_fail_closed);
     zend_update_static_property(gene_application_ce, ZEND_STRL(GENE_APPLICATION_WEBSCAN_CONFIG), &config);
     zval_ptr_dtor(&config);
 
@@ -1630,6 +1585,12 @@ static void gene_application_apply_request_id(void) {
 	if (v && Z_TYPE_P(v) == IS_LONG && Z_LVAL_P(v) >= 1) max_length = Z_LVAL_P(v);
 	v = zend_hash_str_find(Z_ARRVAL_P(config), ZEND_STRL("trust"));
 	if (v) trust = zend_is_true(v);
+	/* With trustProxies configured, an incoming id is only believed from a
+	 * trusted peer — a direct client must not pick its own correlation id. */
+	if (trust) {
+		gene_trust_compile_ini();
+		if (GENE_G(trust_cidr_n) > 0 && !gene_request_direct_trusted()) trust = 0;
+	}
 	if (trust && header_len + 5 < sizeof(server_key)) {
 		zval *incoming = NULL, *headers = getVal(7, NULL, 0);
 		if (headers && Z_TYPE_P(headers) == IS_ARRAY) {

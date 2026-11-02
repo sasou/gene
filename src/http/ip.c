@@ -554,8 +554,24 @@ zend_string *gene_request_client_ip(void) {
 	return gene_request_direct_ip();
 }
 
+zend_bool gene_request_direct_trusted(void) {
+	return gene_direct_is_trusted();
+}
+
+/* Behind a trusted proxy the TCP peer is the proxy itself (typically
+ * 127.0.0.1 / RFC1918), so judging it would admit every public client.
+ * Judge the resolved client instead; untrusted peers keep the direct-peer
+ * rule (XFF is never consulted for them). */
 zend_bool gene_request_ip_is_internal(void) {
 	unsigned char bin[16];
+	if (gene_direct_is_trusted()) {
+		zend_string *ip = gene_request_client_ip();
+		zend_bool ok = ip && gene_ip_parse(ZSTR_VAL(ip), ZSTR_LEN(ip), bin) && gene_ip_is_internal(bin);
+		if (ip) {
+			zend_string_release(ip);
+		}
+		return ok;
+	}
 	return gene_direct_bin(bin) && gene_ip_is_internal(bin);
 }
 

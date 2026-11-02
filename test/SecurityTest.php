@@ -85,7 +85,8 @@ check("Request::ips chain", is_array(Request::ips()) && count(Request::ips()) >=
 $server['HTTP_X_FORWARDED_FOR'] = '10.0.0.99, 203.0.113.7, 172.18.0.1';
 Request::init(null, null, null, $server);
 check("Request::ip skips spoofed left entries", Request::ip() === '203.0.113.7');
-check("Request::isInternal peer", Request::isInternal() === true);
+/* peer is a trusted proxy → judged by the resolved (public) client */
+check("Request::isInternal behind trusted proxy", Request::isInternal() === false);
 check("Request::isInternal arg", Request::isInternal('8.8.8.8') === false);
 
 /* isSecure: XFP believed only from a trusted peer */

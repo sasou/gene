@@ -34,6 +34,7 @@ void gene_trust_set_sig(zend_string *sig);
 zend_string *gene_request_direct_ip(void);
 zend_string *gene_request_client_ip(void);
 zend_bool gene_request_ip_is_internal(void);
+zend_bool gene_request_direct_trusted(void);
 int  gene_request_is_secure(void);
 
 GENE_MINIT_FUNCTION (ip);
