@@ -71,6 +71,11 @@ check("white url + query value", scan(['uri' => '/cms/save?m=edit', 'get' => $at
 check("white url value missing", scan(['uri' => '/cms/save?m=del', 'get' => $attack + ['m' => 'del']], [2 => ['/cms/save' => 'm=edit']]) === true);
 check("white url empty value needs empty query", scan(['uri' => '/cms/save?id=1', 'get' => $attack], [2 => ['/cms/save' => '']]) === true);
 check("white url key in query ignored", scan(['uri' => '/api/x?r=/cms/save', 'get' => $attack + ['r' => '/cms/save']], [2 => ['/cms/save' => '']]) === true);
+/* directory array: several subtrees, query-independent — Apache's
+ * index.php?/$1 rewrite fills QUERY_STRING with the path itself */
+check("white dir array whitelists members", scan(['uri' => '/cms/x', 'get' => $attack], [1 => ['admin', 'cms']]) === false);
+check("white dir array ignores query", scan(['uri' => '/admin/x', 'server' => ['QUERY_STRING' => '/admin/x&a=1'], 'post' => $attack], [1 => ['admin', 'cms']]) === false);
+check("white dir array non-member still scanned", scan(['uri' => '/api/x', 'get' => $attack], [1 => ['admin', 'cms']]) === true);
 
 /* ---------- comment normalization ---------- */
 check("INSERT#\\nINTO", scan(['post' => ['s' => "INSERT#x\nINTO t VALUES(1)"]]) === true);
