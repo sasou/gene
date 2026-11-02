@@ -369,8 +369,25 @@ static int gene_webscan_icontains(const char *hay, size_t hay_len, const char *n
     return 0;
 }
 
+static int gene_webscan_white_dir_hit(const char *p, size_t plen, const char *d, size_t dlen)
+{
+    while (dlen && *d == '/') {
+        d++;
+        dlen--;
+    }
+    while (dlen && d[dlen - 1] == '/') {
+        dlen--;
+    }
+    return dlen && plen > dlen && p[0] == '/' && strncasecmp(p + 1, d, dlen) == 0
+        && (plen == dlen + 1 || p[dlen + 1] == '/');
+}
+
 /* Whitelists match the path only — a query value such as ?x=admin must not
- * switch the scanner off. The directory must be a leading path segment. */
+ * switch the scanner off. The directory must be a leading path segment.
+ * white_dir accepts a string or an array of strings; directory matches are
+ * query-independent (front-controller rewrites like index.php?/$1 fill
+ * QUERY_STRING with the path, so query-gated white_url entries cannot
+ * express "this subtree regardless of query"). */
 static int gene_webscan_is_white(zval *server, zend_string *path, zval *white_dir, zval *white_urls)
 {
     zval *query = gene_webscan_server_val(server, ZEND_STRL("QUERY_STRING"), ZEND_STRL("query_string"));
@@ -383,19 +400,19 @@ static int gene_webscan_is_white(zval *server, zend_string *path, zval *white_di
         return 0;
     }
 
-    if (white_dir && Z_TYPE_P(white_dir) == IS_STRING && Z_STRLEN_P(white_dir) > 0) {
-        const char *d = Z_STRVAL_P(white_dir);
-        size_t dlen = Z_STRLEN_P(white_dir);
-        while (dlen && *d == '/') {
-            d++;
-            dlen--;
-        }
-        while (dlen && d[dlen - 1] == '/') {
-            dlen--;
-        }
-        if (dlen && plen > dlen && p[0] == '/' && strncasecmp(p + 1, d, dlen) == 0
-            && (plen == dlen + 1 || p[dlen + 1] == '/')) {
-            return 1;
+    if (white_dir) {
+        if (Z_TYPE_P(white_dir) == IS_STRING && Z_STRLEN_P(white_dir) > 0) {
+            if (gene_webscan_white_dir_hit(p, plen, Z_STRVAL_P(white_dir), Z_STRLEN_P(white_dir))) {
+                return 1;
+            }
+        } else if (Z_TYPE_P(white_dir) == IS_ARRAY) {
+            zval *dv;
+            ZEND_HASH_FOREACH_VAL(Z_ARRVAL_P(white_dir), dv) {
+                if (Z_TYPE_P(dv) == IS_STRING
+                    && gene_webscan_white_dir_hit(p, plen, Z_STRVAL_P(dv), Z_STRLEN_P(dv))) {
+                    return 1;
+                }
+            } ZEND_HASH_FOREACH_END();
         }
     }
 
@@ -478,17 +495,22 @@ static int gene_webscan_scan_json(zend_string *regex, int fail_closed)
 
 PHP_METHOD(gene_webscan, __construct)
 {
-    zval *self = getThis(), *white_urls = NULL;
+    zval *self = getThis(), *white_urls = NULL, *white_dir = NULL;
     zend_long webscan_switch = 1, webscan_get = 1, webscan_post = 1, webscan_cookie = 1, webscan_referer = 1, webscan_fail_closed = 1;
-    zend_string *white_dir = NULL;
 
-    if (zend_parse_parameters(ZEND_NUM_ARGS(), "|lSalllll", &webscan_switch, &white_dir, &white_urls, &webscan_get, &webscan_post, &webscan_cookie, &webscan_referer, &webscan_fail_closed) == FAILURE) {
+    if (zend_parse_parameters(ZEND_NUM_ARGS(), "|lzalllll", &webscan_switch, &white_dir, &white_urls, &webscan_get, &webscan_post, &webscan_cookie, &webscan_referer, &webscan_fail_closed) == FAILURE) {
         return;
+    }
+    if (white_dir && Z_TYPE_P(white_dir) != IS_STRING && Z_TYPE_P(white_dir) != IS_ARRAY) {
+        zend_type_error("Gene\\Webscan::__construct(): Argument #2 ($webscan_white_directory) must be of type array|string, %s given", zend_zval_type_name(white_dir));
+        RETURN_THROWS();
     }
 
     zend_update_property_long(gene_webscan_ce, gene_strip_obj(self), ZEND_STRL("webscan_switch"), webscan_switch);
-    if (white_dir) {
-        zend_update_property_str(gene_webscan_ce, gene_strip_obj(self), ZEND_STRL("webscan_white_directory"), white_dir);
+    if (white_dir && Z_TYPE_P(white_dir) == IS_STRING) {
+        zend_update_property_str(gene_webscan_ce, gene_strip_obj(self), ZEND_STRL("webscan_white_directory"), Z_STR_P(white_dir));
+    } else if (white_dir && Z_TYPE_P(white_dir) == IS_ARRAY) {
+        zend_update_property(gene_webscan_ce, gene_strip_obj(self), ZEND_STRL("webscan_white_directory"), white_dir);
     }
     if (white_urls) {
         zend_update_property(gene_webscan_ce, gene_strip_obj(self), ZEND_STRL("webscan_white_url"), white_urls);

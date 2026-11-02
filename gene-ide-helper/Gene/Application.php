@@ -116,7 +116,7 @@ class Application
      * webscan
      * 
      * @param int|null $webscan_switch
-     * @param string|null $webscan_white_directory
+     * @param string|array|null $webscan_white_directory 目录白名单：与查询串无关的前导路径段（可传数组放行多个子树）
      * @param callable|null $callback
      * @param array|null $webscan_white_url
      * @param int|null $webscan_get

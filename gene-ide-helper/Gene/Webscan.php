@@ -13,7 +13,7 @@ class Webscan
 {
     /**
      * @param int $webscan_switch 是否启用
-     * @param string|null $webscan_white_directory 目录白名单
+     * @param string|array|null $webscan_white_directory 目录白名单（可传数组，与查询串无关）
      * @param array|null $webscan_white_url URL 白名单
      * @param int $webscan_get 是否扫描 GET
      * @param int $webscan_post 是否扫描 POST

@@ -1310,14 +1310,13 @@ PHP_METHOD(gene_application, setView) {
  * {{{ public gene_application::webscan()
  */
 PHP_METHOD(gene_application, webscan) {
-    zval *callback = NULL, *webscan_white_url = NULL, *self = getThis();
+    zval *callback = NULL, *webscan_white_url = NULL, *webscan_white_dir = NULL, *self = getThis();
     zend_long webscan_switch = 1, webscan_get = 1, webscan_post = 1, webscan_cookie = 1, webscan_referer = 1, webscan_fail_closed = 1;
-    zend_string *webscan_white_directory = NULL;
     zval config, enabled, null_val;
 
-    if (zend_parse_parameters(ZEND_NUM_ARGS(), "|lSzalllll",
+    if (zend_parse_parameters(ZEND_NUM_ARGS(), "|lzzalllll",
         &webscan_switch,
-        &webscan_white_directory,
+        &webscan_white_dir,
         &callback,
         &webscan_white_url,
         &webscan_get,
@@ -1327,11 +1326,20 @@ PHP_METHOD(gene_application, webscan) {
         &webscan_fail_closed) == FAILURE) {
         return;
     }
+    /* white directory: string for one subtree, array for several */
+    if (webscan_white_dir && Z_TYPE_P(webscan_white_dir) != IS_STRING && Z_TYPE_P(webscan_white_dir) != IS_ARRAY) {
+        zend_type_error("Gene\\Application::webscan(): Argument #2 ($webscan_white_directory) must be of type array|string, %s given", zend_zval_type_name(webscan_white_dir));
+        RETURN_THROWS();
+    }
 
     array_init_size(&config, 8);
     add_index_long(&config, 0, webscan_switch);
-    if (webscan_white_directory) {
-        add_index_str(&config, 1, zend_string_copy(webscan_white_directory));
+    if (webscan_white_dir && Z_TYPE_P(webscan_white_dir) == IS_STRING) {
+        add_index_str(&config, 1, zend_string_copy(Z_STR_P(webscan_white_dir)));
+    } else if (webscan_white_dir && Z_TYPE_P(webscan_white_dir) == IS_ARRAY) {
+        zval tmp;
+        ZVAL_COPY(&tmp, webscan_white_dir);
+        add_index_zval(&config, 1, &tmp);
     } else {
         add_index_string(&config, 1, "");
     }
