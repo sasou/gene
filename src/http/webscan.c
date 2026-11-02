@@ -500,25 +500,14 @@ PHP_METHOD(gene_webscan, __construct)
     zend_update_property_long(gene_webscan_ce, gene_strip_obj(self), ZEND_STRL("webscan_fail_closed"), webscan_fail_closed);
 }
 
-static int gene_webscan_run(zval *self)
+/* Scanner core shared by Webscan::check() and the Application dispatch path
+ * (the latter calls it directly — no per-request object/ctor/8 property reads). */
+int gene_webscan_scan(zval *white_dir, zval *white_urls, int scan_get_on, int scan_post_on,
+    int scan_cookie_on, int scan_referer_on, int fail_closed)
 {
-    zval rv1, rv2, rv3, rv4, rv5, rv6, rv7, rv8;
-    zval *enabled = zend_read_property(gene_webscan_ce, gene_strip_obj(self), ZEND_STRL("webscan_switch"), 1, &rv1);
-    zval *white_dir = zend_read_property(gene_webscan_ce, gene_strip_obj(self), ZEND_STRL("webscan_white_directory"), 1, &rv2);
-    zval *white_urls = zend_read_property(gene_webscan_ce, gene_strip_obj(self), ZEND_STRL("webscan_white_url"), 1, &rv3);
-    zval *scan_get = zend_read_property(gene_webscan_ce, gene_strip_obj(self), ZEND_STRL("webscan_get"), 1, &rv4);
-    zval *scan_post = zend_read_property(gene_webscan_ce, gene_strip_obj(self), ZEND_STRL("webscan_post"), 1, &rv5);
-    zval *scan_cookie = zend_read_property(gene_webscan_ce, gene_strip_obj(self), ZEND_STRL("webscan_cookie"), 1, &rv6);
-    zval *scan_referer = zend_read_property(gene_webscan_ce, gene_strip_obj(self), ZEND_STRL("webscan_referer"), 1, &rv7);
-    zval *fail_zv = zend_read_property(gene_webscan_ce, gene_strip_obj(self), ZEND_STRL("webscan_fail_closed"), 1, &rv8);
-    int fail_closed = zend_is_true(fail_zv);
     zval *server;
     zend_string *path;
     int hit = 0;
-
-    if (!zend_is_true(enabled)) {
-        return 0;
-    }
 
     server = getVal(TRACK_VARS_SERVER, NULL, 0);
     path = gene_webscan_request_path(server);
@@ -528,7 +517,7 @@ static int gene_webscan_run(zval *self)
         return 0;
     }
 
-    if (zend_is_true(scan_get)) {
+    if (scan_get_on) {
         hit = gene_webscan_scan_bag(getVal(TRACK_VARS_GET, NULL, 0), gene_webscan_regex_get_cached(), fail_closed)
             || gene_webscan_match_both(gene_webscan_regex_get_cached(), path, fail_closed);
     }
@@ -537,7 +526,7 @@ static int gene_webscan_run(zval *self)
         return 1;
     }
 
-    if (zend_is_true(scan_post)) {
+    if (scan_post_on) {
         zend_string *re = gene_webscan_regex_post_cached();
         if (gene_webscan_scan_bag(getVal(TRACK_VARS_POST, NULL, 0), re, fail_closed)
             || gene_webscan_scan_json(re, fail_closed)) {
@@ -545,12 +534,12 @@ static int gene_webscan_run(zval *self)
         }
     }
 
-    if (zend_is_true(scan_cookie)
+    if (scan_cookie_on
         && gene_webscan_scan_bag(getVal(TRACK_VARS_COOKIE, NULL, 0), gene_webscan_regex_cookie_cached(), fail_closed)) {
         return 1;
     }
 
-    if (zend_is_true(scan_referer)) {
+    if (scan_referer_on) {
         static const struct { const char *upper; size_t ulen; const char *lower; size_t llen; } headers[] = {
             { ZEND_STRL("HTTP_REFERER"), ZEND_STRL("http_referer") },
             { ZEND_STRL("HTTP_USER_AGENT"), ZEND_STRL("http_user_agent") },
@@ -566,6 +555,26 @@ static int gene_webscan_run(zval *self)
     }
 
     return 0;
+}
+
+static int gene_webscan_run(zval *self)
+{
+    zval rv1, rv2, rv3, rv4, rv5, rv6, rv7, rv8;
+    zend_object *obj = gene_strip_obj(self);
+    zval *enabled = zend_read_property(gene_webscan_ce, obj, ZEND_STRL("webscan_switch"), 1, &rv1);
+    zval *white_dir = zend_read_property(gene_webscan_ce, obj, ZEND_STRL("webscan_white_directory"), 1, &rv2);
+    zval *white_urls = zend_read_property(gene_webscan_ce, obj, ZEND_STRL("webscan_white_url"), 1, &rv3);
+    zval *scan_get = zend_read_property(gene_webscan_ce, obj, ZEND_STRL("webscan_get"), 1, &rv4);
+    zval *scan_post = zend_read_property(gene_webscan_ce, obj, ZEND_STRL("webscan_post"), 1, &rv5);
+    zval *scan_cookie = zend_read_property(gene_webscan_ce, obj, ZEND_STRL("webscan_cookie"), 1, &rv6);
+    zval *scan_referer = zend_read_property(gene_webscan_ce, obj, ZEND_STRL("webscan_referer"), 1, &rv7);
+    zval *fail_zv = zend_read_property(gene_webscan_ce, obj, ZEND_STRL("webscan_fail_closed"), 1, &rv8);
+
+    if (!zend_is_true(enabled)) {
+        return 0;
+    }
+    return gene_webscan_scan(white_dir, white_urls, zend_is_true(scan_get), zend_is_true(scan_post),
+        zend_is_true(scan_cookie), zend_is_true(scan_referer), zend_is_true(fail_zv));
 }
 
 PHP_METHOD(gene_webscan, check)

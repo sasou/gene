@@ -369,7 +369,8 @@ class Request
     /**
      * isInternal
      * Internal-network check (RFC1918/loopback/link-local/CGNAT/ULA).
-     * No arg → judges the direct TCP peer (client cannot fake it);
+     * No arg → judges the direct TCP peer (client cannot fake it); when the
+     * peer is a trustProxies proxy, judges the resolved client IP instead;
      * pass an explicit IP for a pure literal check.
      *
      * @param string|null $ip

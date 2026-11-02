@@ -169,6 +169,13 @@ D:\wampServer-php8.1_x64_nts\bin\php.exe -n -d extension_dir=D:\wampServer-php8.
 
 - `Request::header()` 的 HEADER bag（`request_attr` 索引 `GENE_REQUEST_ATTR_HEADER=7`）：`init()`/`initSwoole()` 显式注入优先；未注入时惰性从 server bag（或真实 `$_SERVER`）物化——`HTTP_*` 去前缀、`_`→`-`、小写（与 Swoole/PSR 同形），`CONTENT_TYPE`/`CONTENT_LENGTH` 一并映射。物化结果为请求级快照，后续改写 `$_SERVER` 不回灌。CLI 下 userland 写 `$_SERVER` 会触发数组分离、C 层仍见旧数组，回归须用 `init()` 注入 server bag 或预置环境变量（回归：`RequestHeaderTest.php`）。
 
+### Security policy / IP
+
+- `Request::isInternal()`（无参）与 `restGuard(['internal'=>true])` 共用 `gene_request_ip_is_internal()`：直连对端不是 `trustProxies` 可信代理时只看 TCP 对端（XFF 永不采信）；对端是可信代理时改判解析后的客户端 IP——同机反代下对端恒为 127.0.0.1，按对端判断会让公网请求全部通过。
+- `requestId(['trust'=>true])`：已配置 `trustProxies` 时仅采信可信对端传入的 ID，直连客户端的值被替换为随机 ID；未配置可信代理表时保持旧行为。
+- `Application::webscan()` 第 9 个参数为 `fail_closed`（默认 1），配置数组索引 7；派发路径直接调用 `gene_webscan_scan()`，不再每请求实例化 `Gene\Webscan`。`Webscan::check()` 与派发路径共用同一扫描核心。
+- 回归：`SecurityPolicyTest.php`（派发级 restGuard/requestId/webscan），`SecurityTest.php`。
+
 ### Memory / Session
 
 - `Gene\Memory` 提供 `delete`，`del` 是其别名。它满足 Session 存储句柄的 `get` / `set` / `delete` 契约，可作为 `session.driver` 的零依赖本地实现。
