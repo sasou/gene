@@ -123,6 +123,7 @@ class Application
      * @param int|null $webscan_post
      * @param int|null $webscan_cookie
      * @param int|null $webscan_referer
+     * @param int|null $webscan_fail_closed 1(默认)=PCRE 出错（回溯/JIT 栈超限）按命中拦截；0=放行
      * @return static
      */
     public function webscan(
@@ -133,7 +134,8 @@ class Application
         $webscan_get = null,
         $webscan_post = null,
         $webscan_cookie = null,
-        $webscan_referer = null
+        $webscan_referer = null,
+        $webscan_fail_closed = null
     ) {
 
     }
@@ -155,6 +157,7 @@ class Application
     /**
      * Enable the request-id policy, or disable it by passing null.
      * @param array|null $config header, bytes, trust and max_length options
+     *        (with trustProxies configured, trust only honours ids from a trusted peer)
      * @return static
      */
     public function requestId(?array $config = null) {

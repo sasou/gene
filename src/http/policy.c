@@ -123,17 +123,20 @@ zend_string *policy_random_bytes(zend_long n) {
 	return Z_STR(out);
 }
 
+/* Constant-time compare (length leak only, same as hash_equals); no userland
+ * call round-trip on the csrf/restGuard path. */
 static int policy_hash_equals(zend_string *a, zend_string *b) {
-	zval params[2], out;
-	int ok;
-	ZVAL_STR(&params[0], a);
-	ZVAL_STR(&params[1], b);
-	if (policy_call(ZEND_STRL("hash_equals"), 2, params, &out) != SUCCESS) {
+	const unsigned char *x = (const unsigned char *)ZSTR_VAL(a);
+	const unsigned char *y = (const unsigned char *)ZSTR_VAL(b);
+	size_t i, n = ZSTR_LEN(a);
+	unsigned char r = 0;
+	if (n != ZSTR_LEN(b)) {
 		return 0;
 	}
-	ok = zend_is_true(&out);
-	zval_ptr_dtor(&out);
-	return ok;
+	for (i = 0; i < n; i++) {
+		r |= x[i] ^ y[i];
+	}
+	return r == 0;
 }
 /* }}} */
 
@@ -750,7 +753,8 @@ static int gene_policy_rest_run(zval *cfg, const gene_policy_req *req) {
 		}
 	}
 
-	/* internal-only gate on the TCP peer (never XFF) */
+	/* internal-only gate: TCP peer, or the trustProxies-resolved client when
+	 * the peer is a trusted proxy (XFF from untrusted peers is never read) */
 	if (gene_policy_cfg_bool(cfg, ZEND_STRL("internal"), 1) && !gene_request_ip_is_internal()) {
 		gene_policy_deny(fail_msg ? ZSTR_VAL(fail_msg) : "访问未授权", fail_code);
 		return 1;
