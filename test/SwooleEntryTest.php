@@ -186,6 +186,22 @@ class SwooleRedirectController
     }
 }
 
+class SwooleAlertController
+{
+    public function run()
+    {
+        Response::alert('验证成功，设备已绑定', '/admin.html');
+    }
+}
+
+class SwooleRedirectJsController
+{
+    public function run()
+    {
+        Response::redirectJs('/to');
+    }
+}
+
 class SwooleWriteController
 {
     public function run()
@@ -346,6 +362,8 @@ class SwooleEntryTest
             ->get('/direct', 'SwooleDirectEndController@run')
             ->get('/gend', 'SwooleGeneEndController@run')
             ->get('/redir', 'SwooleRedirectController@run')
+            ->get('/alert', 'SwooleAlertController@run')
+            ->get('/redirjs', 'SwooleRedirectJsController@run')
             ->get('/write', 'SwooleWriteController@run')
             ->get('/file', 'SwooleFileController@run')
             ->get('/denied', 'SwooleGuardedController@run', 'deny')
@@ -450,6 +468,31 @@ class SwooleEntryTest
             echo "✓ redirect keeps status/location, no extra end\n";
         } else {
             echo "✗ redirect path failed: " . json_encode([$resp->endCount, $resp->redirected, $resp->status]) . "\n";
+        }
+
+        /* alert() emits a bare <script> fragment — under Swoole there is no
+         * default_charset fallback, so the helper must declare UTF-8 itself
+         * or zh-locale browsers mojibake the text (regression: 2FA 弹框乱码). */
+        $resp = new FakeSwooleResponse();
+        $this->app->handleSwoole($this->swooleRequest('/alert'), $resp);
+        if ($resp->endCount === 1
+            && ($resp->headers['Content-Type'] ?? '') === 'text/html; charset=UTF-8'
+            && strpos($resp->body, 'alert("验证成功，设备已绑定")') !== false
+            && strpos($resp->body, 'window.location.href="/admin.html"') !== false) {
+            echo "✓ alert() declares text/html; charset=UTF-8, body intact\n";
+        } else {
+            echo "✗ alert charset/body failed: " . json_encode([$resp->headers, $resp->body]) . "\n";
+        }
+
+        /* redirectJs same class of fragment — header declared too */
+        $resp = new FakeSwooleResponse();
+        $this->app->handleSwoole($this->swooleRequest('/redirjs'), $resp);
+        if ($resp->endCount === 1
+            && ($resp->headers['Content-Type'] ?? '') === 'text/html; charset=UTF-8'
+            && strpos($resp->body, 'window.location.href="/to"') !== false) {
+            echo "✓ redirectJs() declares text/html; charset=UTF-8\n";
+        } else {
+            echo "✗ redirectJs charset failed: " . json_encode([$resp->headers, $resp->body]) . "\n";
         }
 
         /* write() streams then buffered tail flushed by end() */

@@ -461,7 +461,13 @@ PHP_METHOD(gene_response, redirect) {
 /** {{{ void gene_response_redirect_js(zend_string *url)
  */
 void gene_response_redirect_js(zend_string *url) {
-	zend_string *escaped_url = php_addslashes(url);
+	zend_string *escaped_url;
+	/* [GENE_FIX:2026-11-03] Declare the fragment charset before output: under
+	 * FPM php.ini default_charset fills Content-Type for us, but Swoole sends
+	 * none — a charset-less <script> fragment decodes as GBK on zh-locale
+	 * browsers and mojibakes any UTF-8 text/URL inside. */
+	gene_response_set_header("Content-Type", "text/html; charset=UTF-8");
+	escaped_url = php_addslashes(url);
 	php_printf("<script type=\"text/javascript\">\n");
 	php_printf("window.location.href=\"%s\";\n", ZSTR_VAL(escaped_url));
 	php_printf("</script>\n");
@@ -486,7 +492,12 @@ PHP_METHOD(gene_response, redirectJs) {
 /** {{{ void gene_response_alert(zend_string *text, zend_string *url)
  */
 void gene_response_alert(zend_string *text, zend_string *url) {
-	zend_string *escaped_text = php_addslashes(text);
+	zend_string *escaped_text;
+	/* [GENE_FIX:2026-11-03] Same as redirect_js above: alert() emits a bare
+	 * <script> fragment; declare UTF-8 so Swoole (no default_charset fallback)
+	 * does not let the browser decode the Chinese text as GBK. */
+	gene_response_set_header("Content-Type", "text/html; charset=UTF-8");
+	escaped_text = php_addslashes(text);
 	php_printf("\n<script type=\"text/javascript\">\nalert(\"%s\");\n", ZSTR_VAL(escaped_text));
 	zend_string_release(escaped_text);
 	if (url && ZSTR_LEN(url)) {
