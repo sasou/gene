@@ -92,6 +92,20 @@ class DiTest
             } else {
                 echo "✗ magic __get() returned unexpected value\n";
             }
+            /* [GENE_FEATURE:2026-11-03] isset($di->x) aligns with get():
+             * non-null result → true, missing/null slot → false. */
+            if (isset($a->magicKey) && !isset($a->di_test_no_such_key)) {
+                echo "✓ magic __isset() aligns with __get\n";
+            } else {
+                echo "✗ magic __isset() semantics mismatch\n";
+            }
+            Di::set('di_test_null_slot', null);
+            if (!isset($a->di_test_null_slot)) {
+                echo "✓ __isset() reports false for a null slot (PHP isset semantics)\n";
+            } else {
+                echo "✗ __isset() true for null slot\n";
+            }
+            Di::del('di_test_null_slot');
             Di::del('magicKey');
         } catch (\Throwable $e) {
             echo "✗ Error: " . $e->getMessage() . "\n";

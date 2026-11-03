@@ -305,6 +305,13 @@ class ApplicationTest
                 // Test __get
                 $value = $this->app->testProperty;
                 echo "✓ __get() returns: " . ($value ?? 'null') . "\n";
+
+                // [GENE_FEATURE:2026-11-03] __isset mirrors __get
+                if (isset($this->app->testProperty) && !isset($this->app->noSuchProp)) {
+                    echo "✓ __isset() mirrors __get\n";
+                } else {
+                    echo "✗ __isset() semantics mismatch\n";
+                }
             }
             
         } catch (Exception $e) {

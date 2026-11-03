@@ -2493,6 +2493,35 @@ PHP_METHOD(gene_application, __get)
 /* }}} */
 
 /*
+ * {{{ gene_application
+ * [GENE_FEATURE:2026-11-03] isset($app->x) support — mirrors __get's
+ * class-scoped + DI/config lookup; true only for a non-null result.
+ */
+PHP_METHOD(gene_application, __isset)
+{
+	zval *pzval = NULL;
+	zend_string *name = NULL;
+
+	if (zend_parse_parameters(ZEND_NUM_ARGS(), "S", &name) == FAILURE) {
+		return;
+	}
+
+	if (!name) {
+		RETURN_FALSE;
+	} else {
+		zend_string *class_name = gene_get_class_name_fast();
+		if (!class_name) { RETURN_FALSE; }
+		pzval = gene_di_get_class(class_name, name);
+		if (pzval) {
+			ZVAL_DEREF(pzval);
+			RETURN_BOOL(Z_TYPE_P(pzval) != IS_NULL);
+		}
+		RETURN_FALSE;
+	}
+}
+/* }}} */
+
+/*
  * {{{ gene_application_methods
  */
 const zend_function_entry gene_application_methods[] = {
@@ -2548,6 +2577,7 @@ const zend_function_entry gene_application_methods[] = {
 	PHP_ME(gene_application, params, gene_application_params, ZEND_ACC_PUBLIC|ZEND_ACC_STATIC)
 	PHP_ME(gene_application, __get, gene_application_get, ZEND_ACC_PUBLIC)
 	PHP_ME(gene_application, __set, gene_application_set, ZEND_ACC_PUBLIC)
+	PHP_ME(gene_application, __isset, gene_application_get, ZEND_ACC_PUBLIC)
 	{ NULL, NULL, NULL }
 };
 /* }}} */
