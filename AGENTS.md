@@ -141,10 +141,13 @@ D:\wampServer-php8.1_x64_nts\bin\php.exe -n -d extension_dir=D:\wampServer-php8.
 
 - Mysql、Sqlite、Pgsql、Mssql 驱动的 `insert()` 等写方法采用惰性执行：下一次读取 `lastId()`、`affectedRows()`、`row()`、`all()` 等结果时才真正执行；重复读取会重复执行。
 - `history()` 返回快照。返回后引擎可以继续记录新语句，但不得修改调用方已取得的数组。
+- `orderBy($col, $dir, $allow)`（四驱动与 `Orm\Query`）是用户排序字段的唯一入口：列须命中 `$allow`（列表或别名=>列映射），无 `$allow` 时须为纯标识符/点路径，方向仅 ASC/DESC，否则抛 `ValueError`；构造由 `gene_db_order_by_build()` 共用。
+- `sql()` 在 `gene.run_environment=0` 时，若片段含单引号字面量且无绑定值，经 `gene_log_diag()` 仅写日志提示（不触发用户错误处理器、不改语句）。
+- 直连 `Gene\Db\Mysql` 与 Pool 一致默认 `ATTR_EMULATE_PREPARES=false`（用户 `options[20]` 显式值优先）；DSN 缺 `charset=` 时进程内仅记录一次诊断。
 
 ### ORM
 
-- `fill()` 收到非空主键时，将模型视为已持久化（`exists=1`）。自然主键或 UUID 表插入时，应使用 `fill($data, false)`、`setExists(false)` 或 `Model::create()`。
+- `fill()` 收到非空主键时，将模型视为已持久化（`exists=1`）。自然主键或 UUID 表插入时，应使用 `fill($data, false)`、`setExists(false)` 或 `Model::create()`；也可在类上声明 `protected static $incrementing = false;`，此时 `fill()` 恒按新行处理（`find($id, true)` 水合不受影响，但 `(new M)->fill(M::find($id))->save()` 会走 INSERT，应改用 `find($id, true)`）。
 - `find($id, true)` 返回模型实例。hydrate 只调用 public 且无必填参数的构造函数；跳过 private/protected 构造函数。
 - hydrate 模型执行 `save()` 命中 0 行时发出 `E_NOTICE`，不得静默丢失。
 - `create()` / `save()` 的 payload 自带主键时原样返回该主键；否则返回 `lastId()`，其中数字字符串归一为 int。
@@ -156,7 +159,9 @@ D:\wampServer-php8.1_x64_nts\bin\php.exe -n -d extension_dir=D:\wampServer-php8.
 
 - `Gene\Di` 注册表存于 `ctx->di_regs`，作用域为请求/协程。Swoole 的 workerStart 回调运行在独立协程，其中的 `Di::set` 对 onRequest 协程不可见。
 - worker 级共享服务应通过 `Config` 的 `class` / `params` 定义并惰性实例化（`gene_di_get` 的 config 缓存回落），或在 onRequest 内注册。
-- 视图变量与 DI 是两套存储：`assign()` 写入的变量在模板中通过裸 `$name` 访问（extract 到符号表）；`View::__get/__set`（模板中的 `$this->x`）通过 `gene_di_get_class` 解析 DI 组件，无法读取 assign 变量。控制器中的 `$this->view->x` 同样不是读取视图变量的方式。
+- 视图变量与 DI 是两套存储：`assign()` 写入的变量在模板中通过裸 `$name` 访问（extract 到符号表）；`View::__get/__isset` 先经 `gene_di_get_class` 解析 DI 组件，未命中时回落读取当前作用域的 assign 变量（DI 优先）。模板中的 `$this` 绑定控制器，不走该回落。
+- 模板转义：`{$v}`、`{$a.b}`、`{$a.b.c}` 编译为 `\Gene\View::e()`（ENT_QUOTES|ENT_SUBSTITUTE，UTF-8，null/false/array 输出空串）；`{!! expr !!}` 原样；`{:expr}` 仅在 `gene.view_autoescape=1` 时转义。替换表依赖 PHP_INI_SYSTEM 配置，进程内恒定。已编译缓存只在模板 mtime 变化时重编，升级后需清空 `Cache/Views` 或执行 `View::compileAll()`。
+- `Response::alert()/redirectJs()` 文本与 URL 经 `gene_view_js()` JSON 编码输出（`</script>` 不可逃逸），URL 协议白名单外改为 `/`；`gene.redirect_hosts` 非空时三者与 `redirect()` 共用主机白名单（`gene_response_redirect_target`）。回归：`ViewEscapeTest.php`。
 
 ### Router / Validate
 
@@ -164,6 +169,17 @@ D:\wampServer-php8.1_x64_nts\bin\php.exe -n -d extension_dir=D:\wampServer-php8.
 - `through()` 组钩子在路由注册时即时组合为 `__group_*` 链，所有被引用的 `hook()` 必须先于该 through 组注册——事件表缺失或未注册名会抛 `ValueError: named hook 'x' is not registered`（旧行为是静默丢弃，等于认证旁路）。回归：`RouterTest::testGroupHookOrdering`。
 - `Validate::name($f)` 同时写入 KEY 和 FIELD，因此 `name('x')->rule_email()` 等 `rule_*` 直调必须可用并返回真实校验结果。FIELD 在 `valid()` / `groupValid()` 中仍按逗号拆分并逐字段覆盖。
 - `rule_int` 仅接受 `IS_LONG`；数字字符串应使用 `digit` 校验。
+
+### Request
+
+- `Request::header()` 的 HEADER bag（`request_attr` 索引 `GENE_REQUEST_ATTR_HEADER=7`）：`init()`/`initSwoole()` 显式注入优先；未注入时惰性从 server bag（或真实 `$_SERVER`）物化——`HTTP_*` 去前缀、`_`→`-`、小写（与 Swoole/PSR 同形），`CONTENT_TYPE`/`CONTENT_LENGTH` 一并映射。物化结果为请求级快照，后续改写 `$_SERVER` 不回灌。CLI 下 userland 写 `$_SERVER` 会触发数组分离、C 层仍见旧数组，回归须用 `init()` 注入 server bag 或预置环境变量（回归：`RequestHeaderTest.php`）。
+
+### Security policy / IP
+
+- `Request::isInternal()`（无参）与 `restGuard(['internal'=>true])` 共用 `gene_request_ip_is_internal()`：直连对端不是 `trustProxies` 可信代理时只看 TCP 对端（XFF 永不采信）；对端是可信代理时改判解析后的客户端 IP——同机反代下对端恒为 127.0.0.1，按对端判断会让公网请求全部通过。
+- `requestId(['trust'=>true])`：已配置 `trustProxies` 时仅采信可信对端传入的 ID，直连客户端的值被替换为随机 ID；未配置可信代理表时保持旧行为。
+- `Application::webscan()` 第 9 个参数为 `fail_closed`（默认 1），配置数组索引 7；派发路径直接调用 `gene_webscan_scan()`，不再每请求实例化 `Gene\Webscan`。`Webscan::check()` 与派发路径共用同一扫描核心。
+- 回归：`SecurityPolicyTest.php`（派发级 restGuard/requestId/webscan），`SecurityTest.php`。
 
 ### Memory / Session
 

@@ -19,6 +19,7 @@ $testFiles = [
     'BenchmarkTest.php',
     'ExecuteTest.php',
     'HttpTest.php',
+    'RequestHeaderTest.php',
     'MvcTest.php',
     'DatabaseTest.php',
     'OrmTest.php',
@@ -28,6 +29,9 @@ $testFiles = [
     'HttpClientTest.php',
     'RestInvokeTest.php',
     'SwooleEntryTest.php',
+    'SecurityTest.php',
+    'SecurityPolicyTest.php',
+    'WebscanTest.php',
     'DemoLoadTest.php'
 ];
 
@@ -200,6 +204,7 @@ class TestRunner
             'BenchmarkTest.php',
             'ExecuteTest.php',
             'HttpTest.php',
+    'RequestHeaderTest.php',
             'MvcTest.php',
             'DatabaseTest.php',
             'OrmTest.php',
@@ -209,6 +214,9 @@ class TestRunner
             'HttpClientTest.php',
             'RestInvokeTest.php',
             'SwooleEntryTest.php',
+            'SecurityTest.php',
+            'SecurityPolicyTest.php',
+            'WebscanTest.php',
             'DemoLoadTest.php'
         ];
         

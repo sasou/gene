@@ -749,7 +749,7 @@ php -n -d extension_dir="D:\wampServer-php8.1_x64_nts\php_ext" `
 | 形态 | 判定 | 依据与前提 |
 |------|------|------------|
 | **FPM**（`db.instance=true` + `ATTR_PERSISTENT`） | ✅ **可生产使用** | 三道事务卫生防线齐备；N1/P0-2 护栏封住了全表改写；124 项 ORM 断言 + 24 个复现脚本全过；5k/10k 压测无内存增长。**已知瑕疵**：N6 会在「请求以未捕获异常结束 **且** `rollBack()` 抛异常」时多打一条伪 Fatal（脏事务本身已被 `__destruct` 防线回滚），属日志噪声级 |
-| **Swoole**（`runtime_type>=2`，池 + 强制关闭 `ATTR_PERSISTENT`） | ✅ **可生产使用**（见 §十六） | `gene_pool_return_pdo()` 收口、`clearState()` 有栈帧故 N2/N6 路径正确；**2026-08-25 Linux 批次**在 `runtime_type=2` + MySQL 下跑通 `tx_leak_pool.php`（`POOL TX HYGIENE OK`），并覆盖四组 Swoole 开关矩阵、10 万协程 context soak、Redis/MySQL 池并发与 `gene_web` wrk（0 错误）。`RESULT-DIGEST=b887e533c417447e` |
+| **Swoole**（`runtime_type>=2`，池 + 强制关闭 `ATTR_PERSISTENT`） | ✅ **可生产使用**（见 §十六） | `gene_pool_return_pdo()` 收口、`clearState()` 有栈帧故 N2/N6 路径正确；**2026-08-25 Linux 批次**在 `runtime_type=2` + MySQL 下跑通 `tx_leak_pool.php`（`POOL TX HYGIENE OK`），并覆盖四组 Swoole 开关矩阵、10 万协程 context soak、Redis/MySQL 池并发与 `业务C` wrk（0 错误）。`RESULT-DIGEST=b887e533c417447e` |
 | **CLI 长任务** | ✅ | 与 FPM 同路径；建议 `db.instance=false` + 关持久连接（§4.3′ 配置矩阵） |
 
 **结论**：最新一轮修复**科学合理、落地真实、无已知内存泄漏**；FPM 已可生产级使用；
@@ -887,16 +887,16 @@ Swoole 同等结论见 **§十六**（2026-08-25 Linux 集成验收批次）。
 
 **目标**：在真实 Linux + Swoole + MySQL + Redis 环境，一次性关闭 §13.5-2 / §15.6-2（P1-3 池归还事务卫生）及 Swoole 生产级硬门槛。
 
-**入口**：`bash tools/acceptance/linux_swoole_verify.sh --all <gene_web> --redis --mysql`（详见 `tools/acceptance/README.md`）。
+**入口**：`bash tools/acceptance/linux_swoole_verify.sh --all <业务C> --redis --mysql`（详见 `tools/acceptance/README.md`）。
 
 **环境**（摘自 `gene-swoole-verify-20260825-195941`）：
 
 | 项 | 值 |
 |----|-----|
-| 主机 | Linux 192.168.27.101（CentOS 7 x86_64） |
+| 主机 | Linux 192.168.x.x（CentOS 7 x86_64） |
 | PHP | 8.1.34 NTS DEBUG |
-| Gene | `/data/src/gene/src/modules/gene.so`（脚本内编译） |
-| `gene.run_environment` | `0`（gene_web dev 配置） |
+| Gene | `src/modules/gene.so`（脚本内编译） |
+| `gene.run_environment` | `0`（业务C dev 配置） |
 | MySQL / Redis | 环境变量 `GENE_MYSQL_*` / `GENE_REDIS_*` 注入 |
 
 **阶段结果**（`status.tsv` 全部 PASS）：
@@ -908,7 +908,7 @@ Swoole 同等结论见 **§十六**（2026-08-25 Linux 集成验收批次）。
 | `context-manual` / `context-auto` | 各 10 万协程，隔离与 auto-cleanup 计数正确 |
 | `redis-pool` / `mysql-pool` | 200 协程 × 1000 迭代，`failures=0`，池 `using=0` |
 | `tx-hygiene` | `audit/repro/tx_leak_pool.php`（MySQL + `runtime_type=2`）→ `POOL TX HYGIENE OK` |
-| `gene-web` | wrk `/healthz` 2min：**5816 req/s**，698,392 请求，**0 错误**；metrics 无 pool timeout |
+| `业务C` | wrk `/healthz` 2min：**5816 req/s**，698,392 请求，**0 错误**；metrics 无 pool timeout |
 
 **关闭项**：§13.5-2、§15.6-2（P1-3 Swoole 池验收）。
 

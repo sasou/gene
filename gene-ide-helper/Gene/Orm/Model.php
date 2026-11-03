@@ -72,6 +72,12 @@ class Model extends \Gene\Model
      */
     protected static $versionScanLimit = 1000;
 
+    /**
+     * false for UUID / natural-key tables: fill() with a payload pk stays a new row.
+     * @var bool
+     */
+    protected static $incrementing = true;
+
     /** @var string DI 服务名 */
     protected static $connection = 'db';
 

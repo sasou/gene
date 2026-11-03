@@ -760,7 +760,7 @@ teardown 路径（raw `commit()` 冲刷、仍在事务中则丢弃）已由 `aud
 
 ## 十二、验收回填（2026-09-24 追加）
 
-> 基线：gene 6.2.6（`477389b`），Linux 验收机 192.168.27.101（CentOS 7），PHP 8.1.34 NTS DEBUG + swoole 6.1.9。
+> 基线：gene 6.2.6（`477389b`），Linux 验收机 192.168.x.x（CentOS 7），PHP 8.1.34 NTS DEBUG + swoole 6.1.9。
 > 命令：`linux_swoole_verify.sh --all`，输出 `gene-swoole-result-20260924`。本节只追加，不改写前文。
 
 ### 12.1 验收结果

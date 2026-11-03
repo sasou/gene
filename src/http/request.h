@@ -19,6 +19,7 @@
 extern zend_class_entry *gene_request_ce;
 #define GENE_REQUEST_STACK_MAX 8
 #define GENE_INVOKE_DEPTH_MAX 8
+#define GENE_REQUEST_ATTR_HEADER 7
 #define GENE_REQUEST_ATTR_RAW 8
 
 zval * request_query(zend_ulong type, char * name, size_t len);
@@ -36,6 +37,9 @@ void gene_request_input_invalidate(gene_request_context *ctx);
  * FAILURE leaves a pending exception; SUCCESS commits all bags. */
 int gene_request_init_swoole(zval *request_obj);
 void gene_request_input_value(zval *return_value, zend_string *key, zval *def);
+void gene_request_raw_value(zval *return_value);
+zend_bool gene_request_json_content_type(void);
+int gene_request_json_peek(zval *return_value);
 
 /* [GENE_PERF:2026-04-19 #2] Cache ctx once per is-method call — previously issued
  * 2 ctx lookups (one for NULL check, one for strcasecmp). Expanded across

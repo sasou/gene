@@ -23,6 +23,7 @@
 #include "ext/session/php_session.h"
 #include "ext/standard/md5.h"
 #include "zend_exceptions.h"
+#include "zend_smart_str.h"
 #include <time.h>
 
 #ifdef PHP_WIN32
@@ -36,6 +37,7 @@ PHPAPI int gettimeofday(struct timeval *time_Info, struct timezone *timezone_Inf
 
 #include "../gene.h"
 #include "../session/session.h"
+#include "../http/ip.h"
 #include "../common/common.h"
 #include "../di/di.h"
 #include "../http/request.h"
@@ -65,6 +67,7 @@ static zval * gene_session_set_val(zval *val, char *keyString, size_t keyString_
 static zend_string *gene_session_method_get(void);
 static zend_string *gene_session_method_set(void);
 static zend_string *gene_session_method_delete(void);
+static void gene_session_mark_dirty(zval *obj);
 
  static zend_bool gene_session_call_method(zval *target, zend_string *method, uint32_t param_count, zval *params, zval *retval)
  {
@@ -111,12 +114,160 @@ static zend_string *gene_session_method_delete(void);
 	return 1;
  }
 
- static zval *gene_session_get_data(zval *obj)
+/* [GENE_SEC:2026-11-01 S8] plain php-function call helper (for hash()). */
+static int gene_session_php_call(const char *name, size_t name_len, uint32_t argc, zval *params, zval *retval) {
+	zend_function *fn;
+	ZVAL_UNDEF(retval);
+	fn = zend_hash_str_find_ptr(CG(function_table), name, name_len);
+	if (UNEXPECTED(!fn)) {
+		return FAILURE;
+	}
+	zend_call_known_function(fn, NULL, NULL, retval, argc, params, NULL);
+	return EG(exception) ? FAILURE : SUCCESS;
+}
+
+/* [GENE_SEC:2026-11-01 S8] Bind fingerprint: sha1 over the configured
+ * components ("gene.bind|"+ua+"|"+ip). NULL when binding off or inputs
+ * unavailable. */
+static zend_string *gene_session_fingerprint(zval *obj) {
+	zval *flags = zend_read_property(gene_session_ce, gene_strip_obj(obj), ZEND_STRL(GENE_SESSION_BIND), 1, NULL);
+	smart_str raw = {0};
+	zend_string *fp = NULL;
+	if (!flags || Z_TYPE_P(flags) != IS_LONG || Z_LVAL_P(flags) == 0) {
+		return NULL;
+	}
+	smart_str_appends(&raw, "gene.bind|");
+	if (Z_LVAL_P(flags) & 1) {
+		/* HEADER bag: Swoole headers never reach the server bag as HTTP_* */
+		zval *ua = getVal(GENE_REQUEST_ATTR_HEADER, ZEND_STRL("user-agent"));
+		if (ua && Z_TYPE_P(ua) == IS_STRING) {
+			smart_str_append(&raw, Z_STR_P(ua));
+		}
+		smart_str_appendc(&raw, '|');
+	}
+	if (Z_LVAL_P(flags) & 2) {
+		/* client IP through the trusted-proxy table: behind a load balancer
+		 * REMOTE_ADDR is the LB, binding to it protects nothing */
+		zend_string *ip = gene_request_client_ip();
+		if (ip) {
+			smart_str_append(&raw, ip);
+			zend_string_release(ip);
+		}
+	}
+	smart_str_0(&raw);
+	if (raw.s) {
+		zval params[2], ret;
+		ZVAL_STR(&params[0], raw.s);
+		ZVAL_STRING(&params[1], "sha1");
+		if (gene_session_php_call(ZEND_STRL("hash"), 2, params, &ret) == SUCCESS
+				&& Z_TYPE(ret) == IS_STRING) {
+			fp = zend_string_copy(Z_STR(ret));
+		}
+		zval_ptr_dtor(&params[1]);
+		if (!Z_ISUNDEF(ret)) zval_ptr_dtor(&ret);
+		smart_str_free(&raw);
+	}
+	return fp;
+}
+
+static zend_long gene_session_now(void);
+
+/* [GENE_SEC:2026-11-01 R2] stime refresh interval. Reads only re-save the
+ * session once `uttl` has elapsed; with an idle timeout shorter than uttl an
+ * active user would be kicked mid-use, so cap the interval at idle/2. */
+static zend_long gene_session_touch_interval(zval *obj, zval *uptime) {
+	zend_long iv = Z_LVAL_P(uptime);
+	zval *idle = zend_read_property(gene_session_ce, gene_strip_obj(obj), ZEND_STRL(GENE_SESSION_IDLE_TTL), 1, NULL);
+	if (idle && Z_TYPE_P(idle) == IS_LONG && Z_LVAL_P(idle) > 0 && Z_LVAL_P(idle) / 2 < iv) {
+		iv = Z_LVAL_P(idle) / 2;
+	}
+	return iv;
+}
+
+/* [GENE_SEC:2026-11-01 S8] Post-load enforcement: absolute/idle timeout and
+ * fingerprint binding. Violations destroy the record through the handler and
+ * mint a fresh session id — exactly the app-side "kick" behavior, centralized. */
+static void gene_session_enforce(zval *obj, zval *sess) {
+	zend_long now;
+	zval *pz;
+	zval *idle, *abs_, *flags;
+	zend_string *fp, *stored;
+
+	if (!sess || Z_TYPE_P(sess) != IS_ARRAY) {
+		return;
+	}
+	now = gene_session_now();
+
+	abs_ = zend_read_property(gene_session_ce, gene_strip_obj(obj), ZEND_STRL(GENE_SESSION_ABS_TTL), 1, NULL);
+	if (abs_ && Z_TYPE_P(abs_) == IS_LONG && Z_LVAL_P(abs_) > 0) {
+		pz = zend_symtable_str_find(Z_ARRVAL_P(sess), ZEND_STRL("_born"));
+		if (pz && Z_TYPE_P(pz) == IS_LONG && now - Z_LVAL_P(pz) > Z_LVAL_P(abs_)) {
+			gene_data_clear(obj);
+			return;
+		}
+		if (!pz) {
+			/* old sessions predate _born: approximate with stime so they age
+			 * on their own clock instead of restarting now */
+			zval back;
+			ZVAL_LONG(&back, now);
+			zval *st = zend_symtable_str_find(Z_ARRVAL_P(sess), ZEND_STRL("stime"));
+			if (st && Z_TYPE_P(st) == IS_LONG) {
+				ZVAL_LONG(&back, Z_LVAL_P(st));
+			}
+			zend_hash_str_update(Z_ARRVAL_P(sess), ZEND_STRL("_born"), &back);
+			gene_session_mark_dirty(obj);
+		}
+	}
+
+	idle = zend_read_property(gene_session_ce, gene_strip_obj(obj), ZEND_STRL(GENE_SESSION_IDLE_TTL), 1, NULL);
+	if (idle && Z_TYPE_P(idle) == IS_LONG && Z_LVAL_P(idle) > 0) {
+		pz = zend_symtable_str_find(Z_ARRVAL_P(sess), ZEND_STRL("stime"));
+		if (pz && Z_TYPE_P(pz) == IS_LONG && now - Z_LVAL_P(pz) > Z_LVAL_P(idle)) {
+			gene_data_clear(obj);
+			return;
+		}
+	}
+
+	flags = zend_read_property(gene_session_ce, gene_strip_obj(obj), ZEND_STRL(GENE_SESSION_BIND), 1, NULL);
+	if (flags && Z_TYPE_P(flags) == IS_LONG && Z_LVAL_P(flags) > 0) {
+		stored = NULL;
+		pz = zend_symtable_str_find(Z_ARRVAL_P(sess), ZEND_STRL("_bind"));
+		if (pz && Z_TYPE_P(pz) == IS_STRING) {
+			stored = Z_STR_P(pz);
+		}
+		if (stored) {
+			fp = gene_session_fingerprint(obj);
+			if (fp) {
+				if (!zend_string_equals(fp, stored)) {
+					zend_string_release(fp);
+					/* device/UA moved underneath a live session id — kick it */
+					gene_data_clear(obj);
+					return;
+				}
+				zend_string_release(fp);
+			}
+		}
+	}
+}
+
+static zval *gene_session_get_data(zval *obj)
  {
 	zval *sess = zend_read_property(gene_session_ce, gene_strip_obj(obj), ZEND_STRL(GENE_SESSION_DATA), 1, NULL);
 	if (sess && Z_TYPE_P(sess) == IS_NULL) {
 		gene_data_load(obj);
 		sess = zend_read_property(gene_session_ce, gene_strip_obj(obj), ZEND_STRL(GENE_SESSION_DATA), 1, NULL);
+		/* [GENE_SEC:2026-11-01 S8] runs once, inside the lazy-load branch */
+		gene_session_enforce(obj, sess);
+		sess = zend_read_property(gene_session_ce, gene_strip_obj(obj), ZEND_STRL(GENE_SESSION_DATA), 1, NULL);
+		if (sess && Z_TYPE_P(sess) == IS_NULL) {
+			/* enforcement destroyed the record and minted a new id: continue
+			 * this request on an empty session instead of a NULL payload */
+			zval empty;
+			array_init(&empty);
+			zend_update_property(gene_session_ce, gene_strip_obj(obj), ZEND_STRL(GENE_SESSION_DATA), &empty);
+			zval_ptr_dtor(&empty);
+			sess = zend_read_property(gene_session_ce, gene_strip_obj(obj), ZEND_STRL(GENE_SESSION_DATA), 1, NULL);
+		}
 	}
 	/* [GENE_PERF:2026-05-29] Pure reads (get/has) must NOT emit a Set-Cookie.
 	 * Cookie emission belongs to the write lifecycle: set/del/setSessionId
@@ -487,6 +638,23 @@ ZEND_END_ARG_INFO()
 			zval time;
 			ZVAL_LONG(&time, gene_session_now());
 			zend_hash_str_update(Z_ARRVAL_P(data), ZEND_STRL("stime"), &time);
+			/* [GENE_SEC:2026-11-01 S8] Persist _born (once) + _bind fingerprint
+			 * alongside the touch timestamp, only when the features are on. */
+			{
+				zval *abs_ = zend_read_property(gene_session_ce, gene_strip_obj(obj), ZEND_STRL(GENE_SESSION_ABS_TTL), 1, NULL);
+				if (abs_ && Z_TYPE_P(abs_) == IS_LONG && Z_LVAL_P(abs_) > 0
+						&& !zend_symtable_str_find(Z_ARRVAL_P(data), ZEND_STRL("_born"))) {
+					zend_hash_str_update(Z_ARRVAL_P(data), ZEND_STRL("_born"), &time);
+				}
+			}
+			{
+				zend_string *fp = gene_session_fingerprint(obj);
+				if (fp) {
+					zval bv;
+					ZVAL_STR(&bv, fp);
+					zend_hash_str_update(Z_ARRVAL_P(data), ZEND_STRL("_bind"), &bv);
+				}
+			}
 		}
 
 		hook = gene_session_get_handler(obj);
@@ -796,7 +964,7 @@ zval * gene_session_get_by_path(zval *obj, char *path) {
 			 * Z_LVAL_P would read garbage from the union. */
 			if (uptime && Z_TYPE_P(uptime) == IS_LONG) {
 				zend_long jg = gene_session_now() - Z_LVAL_P(stime);
-				if (jg > Z_LVAL_P(uptime)) {
+				if (jg > gene_session_touch_interval(obj, uptime)) {
 					gene_data_save(obj, NULL);
 				}
 			}
@@ -943,7 +1111,12 @@ PHP_METHOD(gene_session, __construct) {
 		}
 		val = zend_hash_str_find(Z_ARRVAL_P(config), ZEND_STRL("secure"));
 		if (val) {
-			if (Z_TYPE_P(val) == IS_TRUE) {
+			if (Z_TYPE_P(val) == IS_STRING && zend_string_equals_literal_ci(Z_STR_P(val), "auto")) {
+				/* [GENE_SEC:2026-11-01 S8] secure:'auto' follows the trusted
+				 * request scheme — cookie drops Secure on plain http, keeps it
+				 * on https/trusted-xfp without app branches. */
+				zend_update_property_bool(gene_session_ce, gene_strip_obj(self), ZEND_STRL(GENE_SESSION_SECURE), gene_request_is_secure());
+			} else if (Z_TYPE_P(val) == IS_TRUE) {
 				zend_update_property_bool(gene_session_ce, gene_strip_obj(self), ZEND_STRL(GENE_SESSION_SECURE), 1);
 			} else {
 				zend_update_property_bool(gene_session_ce, gene_strip_obj(self), ZEND_STRL(GENE_SESSION_SECURE), 0);
@@ -965,6 +1138,31 @@ PHP_METHOD(gene_session, __construct) {
 			ZEND_STRL(GENE_SESSION_COOKIE_LIFTTIME));
 		gene_session_config_long(config, ZEND_STRL("uttl"), self,
 			ZEND_STRL(GENE_SESSION_COOKIE_UPTIME));
+		/* [GENE_SEC:2026-11-01 S8] idle/absolute timeouts + bind flags. */
+		gene_session_config_long(config, ZEND_STRL("idle"), self,
+			ZEND_STRL(GENE_SESSION_IDLE_TTL));
+		gene_session_config_long(config, ZEND_STRL("absolute"), self,
+			ZEND_STRL(GENE_SESSION_ABS_TTL));
+		val = zend_hash_str_find(Z_ARRVAL_P(config), ZEND_STRL("bind"));
+		if (val) {
+			zend_long flags = 0;
+			if (Z_TYPE_P(val) == IS_TRUE) {
+				flags = 1; /* bind:true → ua only */
+			} else if (Z_TYPE_P(val) == IS_STRING) {
+				if (zend_string_equals_literal_ci(Z_STR_P(val), "ua")) flags |= 1;
+				if (zend_string_equals_literal_ci(Z_STR_P(val), "ip")) flags |= 2;
+				if (zend_string_equals_literal_ci(Z_STR_P(val), "device")) flags |= 1;
+			} else if (Z_TYPE_P(val) == IS_ARRAY) {
+				zval *b;
+				ZEND_HASH_FOREACH_VAL(Z_ARRVAL_P(val), b) {
+					if (Z_TYPE_P(b) == IS_STRING) {
+						if (zend_string_equals_literal_ci(Z_STR_P(b), "ua") || zend_string_equals_literal_ci(Z_STR_P(b), "device")) flags |= 1;
+						if (zend_string_equals_literal_ci(Z_STR_P(b), "ip")) flags |= 2;
+					}
+				} ZEND_HASH_FOREACH_END();
+			}
+			zend_update_property_long(gene_session_ce, gene_strip_obj(self), ZEND_STRL(GENE_SESSION_BIND), flags);
+		}
 		val = zend_hash_str_find(Z_ARRVAL_P(config), ZEND_STRL("hash_mode"));
 		if (val && Z_TYPE_P(val) == IS_LONG) {
 			zend_update_property_long(gene_session_ce, gene_strip_obj(self), ZEND_STRL(GENE_SESSION_HASH_MODE), Z_LVAL_P(val));
@@ -1059,7 +1257,7 @@ PHP_METHOD(gene_session, get) {
 					/* [GENE_FIX:2026-04-27] See gene_session_get_by_path. */
 					if (uptime && Z_TYPE_P(uptime) == IS_LONG) {
 						zend_long jg = gene_session_now() - Z_LVAL_P(stime);
-						if (jg > Z_LVAL_P(uptime)) {
+						if (jg > gene_session_touch_interval(self, uptime)) {
 							gene_data_save(self, NULL);
 						}
 					}
@@ -1379,7 +1577,13 @@ GENE_MINIT_FUNCTION(session) {
 	zend_declare_property_string(gene_session_ce, ZEND_STRL(GENE_SESSION_COOKIE_PATH), "/", ZEND_ACC_PUBLIC);
 	zend_declare_property_bool(gene_session_ce, ZEND_STRL(GENE_SESSION_SECURE), 0, ZEND_ACC_PUBLIC);
 	zend_declare_property_bool(gene_session_ce, ZEND_STRL(GENE_SESSION_HTTPONLY), 1, ZEND_ACC_PUBLIC);
-	zend_declare_property_string(gene_session_ce, ZEND_STRL(GENE_SESSION_SAMESITE), "", ZEND_ACC_PUBLIC);
+	/* [GENE_SEC:2026-11-01 S8] SameSite defaults to Lax (was "" = no attr).
+	 * Apps needing None still set samesite:'None' explicitly (with secure). */
+	zend_declare_property_string(gene_session_ce, ZEND_STRL(GENE_SESSION_SAMESITE), "Lax", ZEND_ACC_PUBLIC);
+	/* [GENE_SEC:2026-11-01 S8] idle/absolute timeouts (0 = off) + bind flags. */
+	zend_declare_property_long(gene_session_ce, ZEND_STRL(GENE_SESSION_IDLE_TTL), 0, ZEND_ACC_PUBLIC);
+	zend_declare_property_long(gene_session_ce, ZEND_STRL(GENE_SESSION_ABS_TTL), 0, ZEND_ACC_PUBLIC);
+	zend_declare_property_long(gene_session_ce, ZEND_STRL(GENE_SESSION_BIND), 0, ZEND_ACC_PUBLIC);
 	zend_declare_property_null(gene_session_ce, ZEND_STRL(GENE_SESSION_HANDLER), ZEND_ACC_PROTECTED);
 	zend_declare_property_bool(gene_session_ce, ZEND_STRL(GENE_SESSION_DIRTY), 0, ZEND_ACC_PROTECTED);
 	zend_declare_property_bool(gene_session_ce, ZEND_STRL(GENE_SESSION_COOKIE_SENT), 0, ZEND_ACC_PROTECTED);

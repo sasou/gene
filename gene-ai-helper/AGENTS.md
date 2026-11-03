@@ -7,7 +7,7 @@
 
 ## 1. 框架认知
 
-- Gene 是 **PHP 扩展**（`extension=gene`），版本线 **6.2.x**（当前 6.2.6），要求 **PHP 8.0–8.5**
+- Gene 是 **PHP 扩展**（`extension=gene`），版本线 **6.2.x**（当前 6.2.8），要求 **PHP 8.0–8.5**
 - API 最终权威来源：`src/` 中的类注册、方法表与 arginfo；`gene-ide-helper/Gene/**/*.php` 用于 IDE 签名，`demo/` 用于推荐用法
 - **禁止**编造类名、方法名或配置键；不确定时先查 `gene-ide-helper` / reference，维护 helper 时必须回查 `src/`
 
@@ -146,6 +146,8 @@ Swoole 细则：**必读** `skills/gene-framework/swoole.md`。
 ## 8. 安全与质量
 
 - 所有外部输入走 **Validate**
+- 用户传入的排序字段只用 `orderBy($col, $dir, $allow)`（白名单），禁止传给 `order()` / `select()` / `sql()`；`sql()` 值一律 `?` 绑定
+- 视图输出用户数据用 `{$x}` 或 `\Gene\View::e()`；链接用 `View::safeUrl()`，脚本内数据用 `View::js()`
 - 权限：路由钩子 + Service 二次校验
 - 不提交密钥；不改 `git config`；不 force push
 - 改动**最小范围**，匹配现有代码风格

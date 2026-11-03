@@ -36,6 +36,12 @@ class Monitor
      *
      * @return array
      */
+    /**
+     * Security-relevant ini snapshot: name => ['value'=>, 'recommended'=>, 'ok'=>bool|null].
+     * @return array
+     */
+    public static function security() {}
+
     public static function stats() {
 
     }
