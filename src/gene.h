@@ -307,6 +307,8 @@ static zend_always_inline gene_ctx_cold *gene_ctx_cold_get(gene_request_context 
  bool use_namespace;
  bool view_compile;
  bool view_compile_check_mtime;
+ bool view_autoescape;
+ char *redirect_hosts;
  /* [GENE_PERF:2026-09-21 V3-3.3] gene.view_stat_ttl (seconds, 0=off). When >0,
   * a compiled view path verified up-to-date is remembered in view_fresh and
   * the mtime stat pair is skipped until the TTL lapses. */

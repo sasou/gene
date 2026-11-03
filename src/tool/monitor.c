@@ -108,6 +108,58 @@ static void gene_monitor_collect_pools(zend_class_entry *pool_ce, const char *pr
  *     'swoole_auto_cleanup_reclaimed' => n,
  *   ]
  */
+static void gene_monitor_sec_item(zval *arr, const char *ini, const char *recommended, int ok)
+{
+	zval item;
+	char *v = zend_ini_string_ex((char *) ini, strlen(ini), 0, NULL);
+	array_init_size(&item, 3);
+	add_assoc_string(&item, "value", v ? v : "");
+	add_assoc_string(&item, "recommended", (char *) recommended);
+	if (ok < 0) {
+		add_assoc_null(&item, "ok");
+	} else {
+		add_assoc_bool(&item, "ok", ok);
+	}
+	add_assoc_zval(arr, ini, &item);
+}
+
+static int gene_monitor_ini_on(const char *ini)
+{
+	char *v = zend_ini_string_ex((char *) ini, strlen(ini), 0, NULL);
+	return v && (strcmp(v, "1") == 0 || strcasecmp(v, "on") == 0 || strcasecmp(v, "true") == 0);
+}
+
+static int gene_monitor_ini_empty(const char *ini)
+{
+	char *v = zend_ini_string_ex((char *) ini, strlen(ini), 0, NULL);
+	return !v || !*v;
+}
+
+/*
+ * {{{ public static Gene\Monitor::security(): array
+ * Security-relevant ini snapshot: name => [value, recommended, ok]; ok=null
+ * means deployment-dependent (review manually). Pure read.
+ */
+PHP_METHOD(gene_monitor, security) {
+	char *ss;
+	ZEND_PARSE_PARAMETERS_NONE();
+	array_init(return_value);
+	gene_monitor_sec_item(return_value, "gene.view_autoescape", "1", GENE_G(view_autoescape));
+	gene_monitor_sec_item(return_value, "gene.redirect_hosts", "your own hosts", !gene_monitor_ini_empty("gene.redirect_hosts"));
+	gene_monitor_sec_item(return_value, "gene.trusted_proxies", "proxy CIDRs when behind a reverse proxy", -1);
+	gene_monitor_sec_item(return_value, "gene.jsonp", "0", !GENE_G(jsonp_enabled));
+	gene_monitor_sec_item(return_value, "gene.run_environment", "1 (production)", GENE_G(run_environment) != 0);
+	gene_monitor_sec_item(return_value, "display_errors", "0", !gene_monitor_ini_on("display_errors"));
+	gene_monitor_sec_item(return_value, "expose_php", "0", !gene_monitor_ini_on("expose_php"));
+	gene_monitor_sec_item(return_value, "session.cookie_httponly", "1", gene_monitor_ini_on("session.cookie_httponly"));
+	gene_monitor_sec_item(return_value, "session.cookie_secure", "1 (HTTPS)", gene_monitor_ini_on("session.cookie_secure"));
+	gene_monitor_sec_item(return_value, "session.use_strict_mode", "1", gene_monitor_ini_on("session.use_strict_mode"));
+	ss = zend_ini_string_ex("session.cookie_samesite", sizeof("session.cookie_samesite") - 1, 0, NULL);
+	gene_monitor_sec_item(return_value, "session.cookie_samesite", "Lax or Strict",
+		ss && (strcasecmp(ss, "Lax") == 0 || strcasecmp(ss, "Strict") == 0));
+}
+/* }}} */
+
 PHP_METHOD(gene_monitor, stats) {
 	zval mem, dbp, rdp, req;
 
@@ -386,6 +438,7 @@ PHP_METHOD(gene_monitor, prometheus) {
  */
 const zend_function_entry gene_monitor_methods[] = {
 	PHP_ME(gene_monitor, stats, gene_monitor_void_arginfo, ZEND_ACC_PUBLIC|ZEND_ACC_STATIC)
+	PHP_ME(gene_monitor, security, gene_monitor_void_arginfo, ZEND_ACC_PUBLIC|ZEND_ACC_STATIC)
 	/* [GENE_FEATURE:2026-08-07] Counter reset + Prometheus text export. */
 	PHP_ME(gene_monitor, reset, gene_monitor_void_arginfo, ZEND_ACC_PUBLIC|ZEND_ACC_STATIC)
 	PHP_ME(gene_monitor, prometheus, gene_monitor_void_arginfo, ZEND_ACC_PUBLIC|ZEND_ACC_STATIC)

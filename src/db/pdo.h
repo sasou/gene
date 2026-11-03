@@ -57,6 +57,8 @@ void gene_insert_field_value_batch(zval *fields, smart_str *field_str, smart_str
 void gene_insert_field_value_batch_other(zval *fields, smart_str *value_str, zval *field_value);
 void gene_update_field_value(zval *fields, smart_str *field_str, zval *field_value, char oq, char cq);
 zend_bool gene_db_valid_identifier(zend_string *name);
+zend_string *gene_db_order_by_build(zend_string *column, zend_string *direction, HashTable *allow);
+void gene_db_sql_literal_check(const char *sql, size_t len, zval *binds);
 int gene_db_build_join_on(zval *self, zend_class_entry *ce, const char *join_prop, size_t join_prop_len, const char *data_prop, size_t data_prop_len, zend_string *table, zval *predicates, zend_string *type, char oq, char cq);
 int gene_db_build_arithmetic(zval *self, zend_class_entry *ce, const char *sql_prop, size_t sql_prop_len, const char *data_prop, size_t data_prop_len, zend_string *table, zend_string *column, double amount, zend_bool amount_is_long, zend_long amount_long, zend_bool increment, char oq, char cq);
 void makeWhere(zval *self, smart_str *where_str, zval *where, zval *field_value);
