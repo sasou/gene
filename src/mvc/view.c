@@ -1024,6 +1024,37 @@ PHP_METHOD(gene_view, __get)
 /* }}} */
 
 /*
+ * {{{ gene_view
+ * [GENE_FEATURE:2026-11-03] isset($this->x) support in templates — mirrors
+ * __get's class-scoped + DI/config lookup; true only for non-null.
+ * (Templates bind $this to the controller, so controller.__isset covers
+ * $this->x there too; this one is for direct $view->x usage.)
+ */
+PHP_METHOD(gene_view, __isset)
+{
+	zval *pzval = NULL;
+	zend_string *name = NULL;
+
+	if (zend_parse_parameters(ZEND_NUM_ARGS(), "|S", &name) == FAILURE) {
+		return;
+	}
+
+	if (!name) {
+		RETURN_FALSE;
+	} else {
+		zend_string *class_name = gene_get_class_name_fast();
+		if (!class_name) { RETURN_FALSE; }
+		pzval = gene_di_get_class(class_name, name);
+		if (pzval) {
+			ZVAL_DEREF(pzval);
+			RETURN_BOOL(Z_TYPE_P(pzval) != IS_NULL);
+		}
+		RETURN_FALSE;
+	}
+}
+/* }}} */
+
+/*
  * {{{ gene_view_methods
  */
 const zend_function_entry gene_view_methods[] = {
@@ -1042,6 +1073,7 @@ const zend_function_entry gene_view_methods[] = {
 	PHP_ME(gene_view, scope, gene_view_arg_scope, ZEND_ACC_PUBLIC)
 	PHP_ME(gene_view, __get, gene_view_arg_get, ZEND_ACC_PUBLIC)
 	PHP_ME(gene_view, __set, gene_view_arg_set, ZEND_ACC_PUBLIC)
+	PHP_ME(gene_view, __isset, gene_view_arg_get, ZEND_ACC_PUBLIC)
 	{ NULL,NULL, NULL }
 };
 /* }}} */

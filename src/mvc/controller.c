@@ -224,7 +224,7 @@ GENE_REQUEST_IS_METHOD(gene_controller, Cli);
  */
 PHP_METHOD(gene_controller, isAjax) {
 	zval *header = request_query(TRACK_VARS_SERVER, ZEND_STRL("HTTP_X_REQUESTED_WITH"));
-	/* [GENE_FIX:2026-04-27] See gene_request::isAjax ¡ª require exact length
+	/* [GENE_FIX:2026-04-27] See gene_request::isAjax ï¿½ï¿½ require exact length
 	 * match to reject prefix false-positives like "XML". */
 	if (header && Z_TYPE_P(header) == IS_STRING
 		&& Z_STRLEN_P(header) == sizeof("XMLHttpRequest") - 1
@@ -259,7 +259,7 @@ PHP_METHOD(gene_controller, getLang) {
 }
 /* }}} */
 
-/* [GENE_FEATURE:2026-08-06 F1-6] Forwarding depth ceiling ¡ª a controller
+/* [GENE_FEATURE:2026-08-06 F1-6] Forwarding depth ceiling ï¿½ï¿½ a controller
  * forwarding to itself (directly or via a cycle) would otherwise recurse in C
  * until the stack blows. */
 #define GENE_FORWARD_MAX_DEPTH 5
@@ -285,12 +285,12 @@ PHP_METHOD(gene_controller, forward) {
 
 	if (GENE_G(forward_depth) >= GENE_FORWARD_MAX_DEPTH) {
 		php_error_docref(NULL, E_WARNING,
-			"Gene\\Controller::forward() depth limit (%d) exceeded ¡ª possible forwarding loop",
+			"Gene\\Controller::forward() depth limit (%d) exceeded - possible forwarding loop",
 			GENE_FORWARD_MAX_DEPTH);
 		RETURN_FALSE;
 	}
 
-	/* Internal class, process-lifetime ¡ª one-shot cache is safe (same
+	/* Internal class, process-lifetime ï¿½ï¿½ one-shot cache is safe (same
 	 * convention as the pool/redis_pool fn caches). */
 	if (UNEXPECTED(!fn_dispatch)) {
 		fn_dispatch = zend_hash_str_find_ptr(&gene_router_ce->function_table, ZEND_STRL("dispatch"));
@@ -302,7 +302,7 @@ PHP_METHOD(gene_controller, forward) {
 	ZVAL_STR(&call_params[0], controller);
 	ZVAL_STR(&call_params[1], action);
 	if (params) {
-		call_params[2] = *params; /* borrowed ¡ª the callee does not dtor params */
+		call_params[2] = *params; /* borrowed ï¿½ï¿½ the callee does not dtor params */
 	} else {
 		array_init(&empty_params);
 		call_params[2] = empty_params;
@@ -478,7 +478,7 @@ PHP_METHOD(gene_controller, containsExt) {
 /* }}} */
 
 /** {{{ public gene_controller::getPath([bool $withoutLang = false])
- *  ·µ»Øµ±Ç°ÇëÇóÂ·¾¶¡£$withoutLang=true Ê±È¥³ýÓïÑÔÇ°×º¡£
+ *  ï¿½ï¿½ï¿½Øµï¿½Ç°ï¿½ï¿½ï¿½ï¿½Â·ï¿½ï¿½ï¿½ï¿½$withoutLang=true Ê±È¥ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½Ç°×ºï¿½ï¿½
  */
 PHP_METHOD(gene_controller, getPath) {
 	zend_bool without_lang = 0;
@@ -490,7 +490,7 @@ PHP_METHOD(gene_controller, getPath) {
 /* }}} */
 
 /** {{{ public gene_controller::getRouterUri()
- *  ·µ»Øµ±Ç°Â·ÓÉ URI£¨:m/:c/:a Ìæ»»ºó£¬Ð¡Ð´£©¡£
+ *  ï¿½ï¿½ï¿½Øµï¿½Ç°Â·ï¿½ï¿½ URIï¿½ï¿½:m/:c/:a ï¿½æ»»ï¿½ï¿½ï¿½ï¿½Ð¡Ð´ï¿½ï¿½ï¿½ï¿½
  */
 PHP_METHOD(gene_controller, getRouterUri) {
 	gene_get_router_uri(return_value);
@@ -498,7 +498,7 @@ PHP_METHOD(gene_controller, getRouterUri) {
 /* }}} */
 
 /** {{{ public gene_controller::url(string $path [, string $lang])
- *  ·µ»Ø´øÓïÑÔÇ°×ºµÄ URL¡£$lang Î´´«Ê±Ê¹ÓÃµ±Ç°ÇëÇóÓïÑÔ£»´«¿Õ´®Ôò²»¼ÓÓïÑÔÇ°×º¡£
+ *  ï¿½ï¿½ï¿½Ø´ï¿½ï¿½ï¿½ï¿½ï¿½Ç°×ºï¿½ï¿½ URLï¿½ï¿½$lang Î´ï¿½ï¿½Ê±Ê¹ï¿½Ãµï¿½Ç°ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½Ô£ï¿½ï¿½ï¿½ï¿½Õ´ï¿½ï¿½ò²»¼ï¿½ï¿½ï¿½ï¿½ï¿½Ç°×ºï¿½ï¿½
  */
 PHP_METHOD(gene_controller, url) {
 	zend_string *path_str = NULL, *lang_str = NULL;
@@ -583,7 +583,7 @@ PHP_METHOD(gene_controller, json) {
 	if (zend_parse_parameters(ZEND_NUM_ARGS(), "z|sl", &data, &callback, &callback_len, &code) == FAILURE) {
 		return;
 	}
-	/* [GENE_PERF:2026-09-20 V3-2.7] Direct smart_str encode ¡ª see
+	/* [GENE_PERF:2026-09-20 V3-2.7] Direct smart_str encode ï¿½ï¿½ see
 	 * gene_response::json / gene_json_encode_buf(). */
 	if (gene_json_encode_buf(&jbuf, data, code) == SUCCESS) {
 		if (callback_len) {
@@ -660,6 +660,39 @@ PHP_METHOD(gene_controller, __get)
 }
 /* }}} */
 
+/*
+ * {{{ gene_controller
+ * [GENE_FEATURE:2026-11-03] isset($this->x) / empty($this->x) support.
+ * Mirrors __get: resolves the class-scoped key first, then the plain
+ * DI/config fallback; reports true only for a non-null result. Without
+ * __isset, isset() silently returned false for every magic property
+ * (dim-isset like isset($this->a['k']) was the only form that worked,
+ * and only because the engine falls back to __get for the base).
+ */
+PHP_METHOD(gene_controller, __isset)
+{
+	zval *pzval = NULL;
+	zend_string *name = NULL;
+
+	if (zend_parse_parameters(ZEND_NUM_ARGS(), "|S", &name) == FAILURE) {
+		return;
+	}
+
+	if (!name) {
+		RETURN_FALSE;
+	} else {
+		zend_string *class_name = gene_get_class_name_fast();
+		if (!class_name) { RETURN_FALSE; }
+		pzval = gene_di_get_class(class_name, name);
+		if (pzval) {
+			ZVAL_DEREF(pzval);
+			RETURN_BOOL(Z_TYPE_P(pzval) != IS_NULL);
+		}
+		RETURN_FALSE;
+	}
+}
+/* }}} */
+
 
 /*
  * {{{ gene_controller_methods
@@ -703,6 +736,7 @@ const zend_function_entry gene_controller_methods[] = {
 	PHP_ME(gene_controller, assign, gene_controller_se_assign, ZEND_ACC_PUBLIC|ZEND_ACC_STATIC)
 	PHP_ME(gene_controller, __get, gene_controller_get, ZEND_ACC_PUBLIC)
 	PHP_ME(gene_controller, __set, gene_controller_set, ZEND_ACC_PUBLIC)
+	PHP_ME(gene_controller, __isset, gene_controller_get, ZEND_ACC_PUBLIC)
 	{ NULL, NULL, NULL }
 };
 /* }}} */

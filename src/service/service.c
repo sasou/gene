@@ -122,6 +122,35 @@ PHP_METHOD(gene_service, __get)
 }
 /* }}} */
 
+/*
+ * {{{ gene_service
+ * [GENE_FEATURE:2026-11-03] isset($this->x) support - mirrors __get's
+ * class-scoped + DI/config lookup; true only for a non-null result.
+ */
+PHP_METHOD(gene_service, __isset)
+{
+	zval *pzval = NULL;
+	zend_string *name = NULL;
+
+	if (zend_parse_parameters(ZEND_NUM_ARGS(), "|S", &name) == FAILURE) {
+		return;
+	}
+
+	if (!name) {
+		RETURN_FALSE;
+	} else {
+		zend_string *class_name = gene_get_class_name_fast();
+		if (!class_name) { RETURN_FALSE; }
+		pzval = gene_di_get_class(class_name, name);
+		if (pzval) {
+			ZVAL_DEREF(pzval);
+			RETURN_BOOL(Z_TYPE_P(pzval) != IS_NULL);
+		}
+		RETURN_FALSE;
+	}
+}
+/* }}} */
+
 
 /** {{{ proto public gene_service::success(string $text, int $code)
  */
@@ -213,6 +242,7 @@ const zend_function_entry gene_service_methods[] = {
 		PHP_ME(gene_service, __destruct,	gene_service_void_arginfo, ZEND_ACC_PUBLIC)
 		PHP_ME(gene_service, __get, gene_service_get, ZEND_ACC_PUBLIC)
 		PHP_ME(gene_service, __set, gene_service_set, ZEND_ACC_PUBLIC)
+		PHP_ME(gene_service, __isset, gene_service_get, ZEND_ACC_PUBLIC)
 		PHP_ME(gene_service, success, gene_service_arg_se, ZEND_ACC_PUBLIC)
 		PHP_ME(gene_service, error, gene_service_arg_se, ZEND_ACC_PUBLIC)
 		PHP_ME(gene_service, data, gene_service_arg_se_data, ZEND_ACC_PUBLIC)

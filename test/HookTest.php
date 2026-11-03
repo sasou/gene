@@ -109,6 +109,32 @@ class HookTest
     }
 
     /**
+     * [GENE_FEATURE:2026-11-03] __isset mirrors __get for magic DI props.
+     */
+    public function testMagicIsset()
+    {
+        echo "Testing Hook Magic isset/empty:\n";
+
+        try {
+            \Gene\Di::set('hookIssetUser', ['id' => 1]);
+            $hook = new Hook();
+            $hook->ownProp = 'v';
+            if (isset($hook->ownProp) && isset($hook->hookIssetUser)
+                && isset($hook->hookIssetUser['id']) && !isset($hook->missing)
+                && !empty($hook->hookIssetUser)) {
+                echo "✓ Hook isset/empty mirror __get\n";
+            } else {
+                echo "✗ Hook __isset semantics mismatch\n";
+            }
+            \Gene\Di::del('hookIssetUser');
+        } catch (\Throwable $e) {
+            echo "✗ Error: " . $e->getMessage() . "\n";
+        }
+
+        echo "\n";
+    }
+
+    /**
      * success()/error()/data() payload shapes.
      */
     public function testResponsePayloads()
@@ -246,6 +272,7 @@ class HookTest
     {
         $this->testDefaultHooks();
         $this->testSubclassOverrides();
+        $this->testMagicIsset();
         $this->testResponsePayloads();
         $this->testMethodPredicates();
         $this->testRequestAccessors();
