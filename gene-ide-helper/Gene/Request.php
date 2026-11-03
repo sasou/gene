@@ -323,10 +323,73 @@ class Request
     /**
      * isSecure
      * Returns true if the current request was made over HTTPS/TLS.
+     * Honors X-Forwarded-Proto only when the direct peer is a configured
+     * trusted proxy (Application::trustProxies / gene.trusted_proxies).
      *
      * @return bool
      */
     public static function isSecure() {
+
+    }
+
+    /**
+     * directIp
+     * TCP-layer peer address (REMOTE_ADDR only — never client-supplied
+     * headers). The authoritative value for internal-only auth gates.
+     *
+     * @return string
+     */
+    public static function directIp() {
+
+    }
+
+    /**
+     * ip
+     * Client IP resolved through the trusted-proxy table (right-most
+     * untrusted XFF entry). Equals directIp() while no proxies are
+     * configured or the direct peer is untrusted.
+     *
+     * @return string
+     */
+    public static function ip() {
+
+    }
+
+    /**
+     * ips
+     * Forwarding chain [client, ..., direct] for audit; empty when the
+     * direct peer is untrusted or no forwarding header is present.
+     *
+     * @return array
+     */
+    public static function ips() {
+
+    }
+
+    /**
+     * isInternal
+     * Internal-network check (RFC1918/loopback/link-local/CGNAT/ULA).
+     * No arg → judges the direct TCP peer (client cannot fake it); when the
+     * peer is a trustProxies proxy, judges the resolved client IP instead;
+     * pass an explicit IP for a pure literal check.
+     *
+     * @param string|null $ip
+     * @return bool
+     */
+    public static function isInternal($ip = null) {
+
+    }
+
+    /**
+     * sealedCookie
+     * Read a cookie written by Response::sealedCookie(). The sealed blob
+     * carries its own expiry — tampered, wrong-context or expired values
+     * decode to null (never a raw string).
+     *
+     * @param string $name cookie name
+     * @return string|null
+     */
+    public static function sealedCookie($name) {
 
     }
 

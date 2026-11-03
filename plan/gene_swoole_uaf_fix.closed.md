@@ -142,7 +142,7 @@ ab -n 10000  -c 100 http://127.0.0.1:81/admin/login.html
 # 随后访问 /doc/autoload.html → worker signal 11
 ```
 
-`gdb /data/app/php/bin/php core.php.75 -ex 'bt full'` 的三条可信信息：
+`gdb /path/to/php core.php.75 -ex 'bt full'` 的三条可信信息：
 
 ### 6.1 崩溃 PC 在 opcache 映射区且无符号
 
@@ -214,7 +214,7 @@ opcache.jit_buffer_size=0
 - 取栈命令换成：
 
 ```bash
-gdb /data/app/php/bin/php core.php.<pid> \
+gdb /path/to/php core.php.<pid> \
   -ex 'thread apply all bt full' \
   -ex 'info registers' \
   -ex 'info sharedlibrary' \

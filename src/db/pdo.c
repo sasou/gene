@@ -30,6 +30,7 @@
 #include "../gene.h"
 #include "../common/common.h"
 #include "../orm/orm.h"
+#include "../exception/exception.h"
 #include "pdo.h"
 
 /* [GENE_PERF:2026-09-21 V3-3.2] Resolve the driver property slots once per
@@ -406,7 +407,7 @@ static int gene_ident_quotes_balanced(const char *s, size_t len) {
  * "t1 a LEFT JOIN t2 b ON a.id=b.id" that should be passed through as raw
  * SQL rather than being dot-path quoted. Newline/CR are included as word
  * boundaries because real Model code uses multi-line string literals for
- * complex JOIN fragments (e.g. exchange Order.php, Pexch.php). */
+ * complex JOIN fragments (e.g. legacy-app Order.php, Pexch.php). */
 static int gene_ident_has_join_keyword(const char *s, size_t len) {
     size_t i;
     for (i = 0; i < len; i++) {
@@ -498,7 +499,7 @@ char *gene_quote_table(const char *name, char oq, char cq) /*{{{*/
     /* [GENE_AUDIT:2026-07-05 8.2.12] JOIN table fragments — developer-written
      * multi-table SQL like "t1 a LEFT JOIN t2 b ON a.id=b.id". Pass through
      * unchanged after injection-marker safety check; the =, !, (), etc. in
-     * ON clauses are legitimate. Without this, 48 exchange Model calls
+     * ON clauses are legitimate. Without this, 48 legacy-app Model calls
      * (17 files) would fail-safe to illegal backtick-wrapped SQL.
      * Guard: require whitespace in the string so that a table literally
      * named "join" (a SQL reserved word) is NOT treated as a JOIN fragment —
@@ -1505,6 +1506,65 @@ bool checkPdoError(zend_object *ex) {
 	}
 	if (!Z_ISUNDEF(rv)) zval_ptr_dtor(&rv);
 	return 0;
+}
+
+/* orderBy(column, direction, allow): the only ORDER BY entry meant for user
+ * input. With an allow list the column must be one of its values (list form)
+ * or keys (alias => real column form); without one it must be a plain
+ * identifier / dot path. Direction is strictly ASC or DESC. Throws
+ * ValueError and returns NULL on rejection. */
+zend_string *gene_db_order_by_build(zend_string *column, zend_string *direction, HashTable *allow)
+{
+    zend_string *real = column;
+    const char *dir = "ASC";
+    if (direction && ZSTR_LEN(direction)) {
+        if (zend_string_equals_literal_ci(direction, "desc")) {
+            dir = "DESC";
+        } else if (!zend_string_equals_literal_ci(direction, "asc")) {
+            zend_value_error("orderBy(): direction must be ASC or DESC");
+            return NULL;
+        }
+    }
+    if (allow && zend_hash_num_elements(allow)) {
+        zval *v;
+        zend_string *k;
+        real = NULL;
+        ZEND_HASH_FOREACH_STR_KEY_VAL(allow, k, v) {
+            if (k) {
+                if (zend_string_equals(k, column) && Z_TYPE_P(v) == IS_STRING) {
+                    real = Z_STR_P(v);
+                    break;
+                }
+            } else if (Z_TYPE_P(v) == IS_STRING && zend_string_equals(Z_STR_P(v), column)) {
+                real = Z_STR_P(v);
+                break;
+            }
+        } ZEND_HASH_FOREACH_END();
+        if (!real) {
+            zend_value_error("orderBy(): column '%s' is not in the allow list", ZSTR_VAL(column));
+            return NULL;
+        }
+    }
+    if (!gene_db_valid_identifier(real)) {
+        zend_value_error("orderBy(): invalid column identifier");
+        return NULL;
+    }
+    return zend_strpprintf(0, "%s %s", ZSTR_VAL(real), dir);
+}
+
+/* Development-only (gene.run_environment=0) hint: a raw sql() call that
+ * carries a quoted string literal but no bind values is the classic shape
+ * of string interpolation. Notice only; the statement is not altered. */
+void gene_db_sql_literal_check(const char *sql, size_t len, zval *binds)
+{
+    if (GENE_G(run_environment) || !len) return;
+    if (binds && ((Z_TYPE_P(binds) == IS_ARRAY && zend_hash_num_elements(Z_ARRVAL_P(binds))) ||
+                  (Z_TYPE_P(binds) != IS_ARRAY && Z_TYPE_P(binds) != IS_NULL))) {
+        return;
+    }
+    if (memchr(sql, '\'', len)) {
+        gene_log_diag(E_NOTICE, "sql() received a quoted literal without bind values; use ? placeholders for user input: %.120s", sql);
+    }
 }
 
 /*

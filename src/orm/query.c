@@ -59,6 +59,12 @@ ZEND_BEGIN_ARG_INFO_EX(gene_orm_query_str_arginfo, 0, 0, 1)
 	ZEND_ARG_INFO(0, value)
 ZEND_END_ARG_INFO()
 
+ZEND_BEGIN_ARG_INFO_EX(gene_orm_query_order_by_arginfo, 0, 0, 1)
+	ZEND_ARG_INFO(0, column)
+	ZEND_ARG_INFO(0, direction)
+	ZEND_ARG_INFO(0, allow)
+ZEND_END_ARG_INFO()
+
 ZEND_BEGIN_ARG_INFO_EX(gene_orm_query_limit_arginfo, 0, 0, 1)
 	ZEND_ARG_INFO(0, num)
 	ZEND_ARG_INFO(0, limit)
@@ -186,7 +192,7 @@ static zend_bool gene_orm_query_is_empty(zval *self)
  * see demo Group::delAll): Db::in() appended it verbatim AFTER existing
  * WHERE text, so it was legal there. Query owns connectors (emits
  * " AND " itself), so a raw " and x"/" or x" spliced verbatim produced
- * "WHERE and ..." or "... AND and ..." (MariaDB 1064 -- mchat
+ * "WHERE and ..." or "... AND and ..." (MariaDB 1064 -- legacy-app
  * Purview::lists). A word is only a connector when followed by
  * whitespace or '(' -- "android_id"/"or_id" stay identifiers. *is_or
  * reports an OR connector so the caller re-emits " OR " and keeps v1
@@ -1235,6 +1241,28 @@ PHP_METHOD(gene_orm_query, order)
 	RETURN_ZVAL(self, 1, 0);
 }
 
+PHP_METHOD(gene_orm_query, orderBy)
+{
+	zval *self = getThis();
+	zend_string *column = NULL, *direction = NULL, *built;
+	HashTable *allow = NULL;
+	zval op;
+
+	if (zend_parse_parameters(ZEND_NUM_ARGS(), "S|Sh!", &column, &direction, &allow) == FAILURE) {
+		return;
+	}
+	built = gene_db_order_by_build(column, direction, allow);
+	if (!built) {
+		RETURN_THROWS();
+	}
+	array_init_size(&op, 2);
+	gene_orm_query_op_tag(&op, ZEND_STRL("order"));
+	gene_orm_query_op_str(&op, built);
+	gene_orm_query_push(self, &op);
+	zend_string_release(built);
+	RETURN_ZVAL(self, 1, 0);
+}
+
 PHP_METHOD(gene_orm_query, limit)
 {
 	zval *self = getThis();
@@ -1629,7 +1657,7 @@ PHP_METHOD(gene_orm_query, count)
 		if (Z_TYPE(retval) == IS_LONG) {
 			n = Z_LVAL(retval);
 		} else if (Z_TYPE(retval) == IS_STRING) {
-			n = zend_atol(Z_STRVAL(retval), Z_STRLEN(retval));
+			n = ZEND_STRTOL(Z_STRVAL(retval), NULL, 10);
 		} else if (Z_TYPE(retval) == IS_DOUBLE) {
 			n = (zend_long)Z_DVAL(retval);
 		} else {
@@ -1689,7 +1717,7 @@ PHP_METHOD(gene_orm_query, paginate)
 		if (Z_TYPE(retval) == IS_LONG) {
 			count_val = Z_LVAL(retval);
 		} else if (Z_TYPE(retval) == IS_STRING) {
-			count_val = zend_atol(Z_STRVAL(retval), Z_STRLEN(retval));
+			count_val = ZEND_STRTOL(Z_STRVAL(retval), NULL, 10);
 		} else if (Z_TYPE(retval) == IS_DOUBLE) {
 			count_val = (zend_long)Z_DVAL(retval);
 		} else {
@@ -1873,6 +1901,7 @@ const zend_function_entry gene_orm_query_methods[] = {
 	PHP_ME(gene_orm_query, group, gene_orm_query_str_arginfo, ZEND_ACC_PUBLIC)
 	PHP_ME(gene_orm_query, having, gene_orm_query_str_arginfo, ZEND_ACC_PUBLIC)
 	PHP_ME(gene_orm_query, order, gene_orm_query_str_arginfo, ZEND_ACC_PUBLIC)
+	PHP_ME(gene_orm_query, orderBy, gene_orm_query_order_by_arginfo, ZEND_ACC_PUBLIC)
 	PHP_ME(gene_orm_query, limit, gene_orm_query_limit_arginfo, ZEND_ACC_PUBLIC)
 	PHP_ME(gene_orm_query, fields, gene_orm_query_fields_arginfo, ZEND_ACC_PUBLIC)
 	PHP_ME(gene_orm_query, lockForUpdate, gene_orm_query_void_arginfo, ZEND_ACC_PUBLIC)

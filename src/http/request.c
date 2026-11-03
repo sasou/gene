@@ -25,12 +25,16 @@
 #include "main/php_variables.h"
 #include "Zend/zend_API.h"
 #include "zend_exceptions.h"
+#include <time.h>
 
 #include "../gene.h"
 #include "../http/request.h"
 #include "../http/json.h"
+#include "../http/ip.h"
 #include "../common/common.h"
 #include "../cache/memory.h"
+
+zend_string *gene_crypto_unseal_str(zend_string *cipher, zend_string *ctx);
 
 zend_class_entry * gene_request_ce;
 
@@ -108,7 +112,7 @@ static void gene_request_set_server_val(zval *server) {
 
 /* [GENE_PERF:2026-04-23] Same shallow-share rationale as set_server_val. */
 static void gene_request_set_header_val(zval *header) {
-	setVal(7, header);
+	setVal(GENE_REQUEST_ATTR_HEADER, header);
 }
 
 void gene_request_input_invalidate(gene_request_context *ctx) {
@@ -180,8 +184,18 @@ ZEND_BEGIN_ARG_INFO_EX(gene_request_scope_arginfo, 0, 0, 2)
 ZEND_END_ARG_INFO()
 /* }}} */
 
+/* {{{ arginfo */
+ZEND_BEGIN_ARG_INFO_EX(gene_request_is_internal_arginfo, 0, 0, 0)
+	ZEND_ARG_INFO(0, ip)
+ZEND_END_ARG_INFO()
+
+ZEND_BEGIN_ARG_INFO_EX(gene_request_sealed_cookie_arginfo, 0, 0, 1)
+	ZEND_ARG_INFO(0, name)
+ZEND_END_ARG_INFO()
+/* }}} */
+
 static const zend_ulong gene_request_stack_idxs[] = {
-	TRACK_VARS_POST, TRACK_VARS_GET, TRACK_VARS_FILES, TRACK_VARS_REQUEST, 7, GENE_REQUEST_ATTR_RAW
+	TRACK_VARS_POST, TRACK_VARS_GET, TRACK_VARS_FILES, TRACK_VARS_REQUEST, GENE_REQUEST_ATTR_HEADER, GENE_REQUEST_ATTR_RAW
 };
 
 static void gene_request_dup_zval(zval *dst, zval *src) {
@@ -484,6 +498,59 @@ void setVal(zend_ulong type, zval *value) {
 	}
 }
 
+/* [GENE_FIX:2026-11-02] FPM header bag: the HEADER carrier (index 7) is only
+ * populated by Request::init()/initSwoole(); under php-cgi/FPM no caller ever
+ * fills it, so Request::header() silently returned NULL for every header
+ * (breaking e.g. Sec-Fetch-Site CSRF checks). Build the bag lazily from
+ * $_SERVER on first access: HTTP_* keys lose their prefix, underscores become
+ * dashes, names are lowercased — the same shape Swoole/PSR callers populate,
+ * which the lowercase fallback below already expects. CONTENT_TYPE and
+ * CONTENT_LENGTH carry no HTTP_ prefix in $_SERVER and are mapped too. */
+static zval *gene_request_materialize_headers(zval *attr) {
+	zval headers;
+	/* Prefer an injected server bag (Request::init/initSwoole set it via
+	 * set_server_val); only fall back to the real $_SERVER when absent —
+	 * under FPM the two are the same array. */
+	zval *server = zend_hash_index_find(Z_ARRVAL_P(attr), TRACK_VARS_SERVER);
+	if (!server || Z_TYPE_P(server) != IS_ARRAY) {
+		server = request_query(TRACK_VARS_SERVER, NULL, 0);
+	}
+	array_init(&headers);
+	if (server && Z_TYPE_P(server) == IS_ARRAY) {
+		zend_string *key;
+		zval *entry;
+		ZEND_HASH_FOREACH_STR_KEY_VAL(Z_ARRVAL_P(server), key, entry) {
+			const char *name;
+			size_t nl;
+			char lower[256];
+			size_t i;
+			if (!key) {
+				continue;
+			}
+			if (ZSTR_LEN(key) > 5 && memcmp(ZSTR_VAL(key), "HTTP_", 5) == 0) {
+				name = ZSTR_VAL(key) + 5;
+				nl = ZSTR_LEN(key) - 5;
+			} else if (zend_string_equals_literal(key, "CONTENT_TYPE")
+					|| zend_string_equals_literal(key, "CONTENT_LENGTH")) {
+				name = ZSTR_VAL(key);
+				nl = ZSTR_LEN(key);
+			} else {
+				continue;
+			}
+			if (nl == 0 || nl >= sizeof(lower)) {
+				continue;
+			}
+			for (i = 0; i < nl; i++) {
+				unsigned char c = (unsigned char) name[i];
+				lower[i] = (c == '_') ? '-' : ((c >= 'A' && c <= 'Z') ? (char)(c | 0x20) : (char)c);
+			}
+			zend_hash_str_update(Z_ARRVAL(headers), lower, nl, entry);
+		} ZEND_HASH_FOREACH_END();
+	}
+	/* zend_hash_index_update takes ownership of headers — no dtor here. */
+	return zend_hash_index_update(Z_ARRVAL_P(attr), GENE_REQUEST_ATTR_HEADER, &headers);
+}
+
 zval *getVal(zend_ulong type, char *name, size_t len) {
 	zval *attr = gene_request_attr();
 	zval *val = NULL;
@@ -497,6 +564,8 @@ zval *getVal(zend_ulong type, char *name, size_t len) {
 			 * init() on the real $_REQUEST superglobal path below. */
 			if (type == TRACK_VARS_REQUEST && gene_request_ctx()->request_bags_inited) {
 				val = gene_request_materialize_request(attr);
+			} else if (type == GENE_REQUEST_ATTR_HEADER) {
+				val = gene_request_materialize_headers(attr);
 			} else {
 				/* [GENE_PERF:2026-04-24 v5.5.8] Slow path (first touch of this
 				 * track-var per request). Use the zend_hash_index_update return
@@ -525,7 +594,7 @@ zval *getVal(zend_ulong type, char *name, size_t len) {
 			 * blocks. The `len > 0` guard from the prior version is dropped
 			 * because the early `len == 0 || name == NULL` check above already
 			 * returned for that case. */
-			if ((type == TRACK_VARS_SERVER || type == 7) && len < 256) {
+			if ((type == TRACK_VARS_SERVER || type == GENE_REQUEST_ATTR_HEADER) && len < 256) {
 				char lower_name[256];
 				size_t i;
 				unsigned char c;
@@ -633,38 +702,142 @@ GENE_REQUEST_IS_METHOD(gene_request, Cli);
  * Under Swoole these keys come from Request::init()'s server array.
  */
 PHP_METHOD(gene_request, isSecure) {
-	zval *https = getVal(TRACK_VARS_SERVER, ZEND_STRL("HTTPS"));
-	if (https && Z_TYPE_P(https) == IS_STRING && Z_STRLEN_P(https) > 0
-		&& strcasecmp("off", Z_STRVAL_P(https)) != 0) {
-		RETURN_TRUE;
+	/* [GENE_SEC:2026-11-01 S1] Delegates to gene_request_is_secure() so the
+	 * X-Forwarded-Proto hop is gated by the trusted-proxy table when one is
+	 * configured (spoofed XFP from an untrusted client no longer flips HTTPS
+	 * detection). Legacy behavior is kept while no proxies are configured. */
+	RETURN_BOOL(gene_request_is_secure());
+}
+/* }}} */
+
+/** {{{ proto public static gene_request::directIp(): ?string
+ * TCP-layer peer address (REMOTE_ADDR only, never client-supplied headers). */
+PHP_METHOD(gene_request, directIp) {
+	zend_string *ip = gene_request_direct_ip();
+	if (!ip) {
+		RETURN_EMPTY_STRING();
 	}
-	{
-		zval *proto = getVal(TRACK_VARS_SERVER, ZEND_STRL("HTTP_X_FORWARDED_PROTO"));
-		if (proto && Z_TYPE_P(proto) == IS_STRING
-			&& Z_STRLEN_P(proto) == sizeof("https") - 1
-			&& strncasecmp("https", Z_STRVAL_P(proto), sizeof("https") - 1) == 0) {
-			RETURN_TRUE;
+	RETURN_STR(ip);
+}
+/* }}} */
+
+/** {{{ proto public static gene_request::ip(): ?string
+ * Client IP resolved through the trusted-proxy table (right-most untrusted
+ * XFF entry); equals directIp() while no proxies are configured. */
+PHP_METHOD(gene_request, ip) {
+	zend_string *ip = gene_request_client_ip();
+	if (!ip) {
+		RETURN_EMPTY_STRING();
+	}
+	RETURN_STR(ip);
+}
+/* }}} */
+
+/** {{{ proto public static gene_request::ips(): array
+ * Forwarding chain [client, ..., direct] for audit; empty list when the
+ * direct peer is untrusted or no header is present. */
+PHP_METHOD(gene_request, ips) {
+	zend_string *direct;
+	array_init(return_value);
+	gene_trust_compile_ini();
+	direct = gene_request_direct_ip();
+	if (!direct) {
+		return;
+	}
+	if (GENE_G(trust_cidr_n) > 0) {
+		unsigned char bin[16];
+		if (gene_ip_parse(ZSTR_VAL(direct), ZSTR_LEN(direct), bin)
+				&& gene_cidr_match(bin, GENE_G(trust_cidrs), GENE_G(trust_cidr_n))) {
+			uint32_t h;
+			for (h = 0; h < GENE_G(trust_hdr_n); h++) {
+				zend_string *hn = GENE_G(trust_hdrs)[h];
+				zval *xff = getVal(GENE_REQUEST_ATTR_HEADER, ZSTR_VAL(hn), ZSTR_LEN(hn));
+				if (xff && Z_TYPE_P(xff) == IS_STRING) {
+					const char *s = Z_STRVAL_P(xff), *e = s + Z_STRLEN_P(xff), *p = s;
+					while (p < e) {
+						const char *c = memchr(p, ',', (size_t)(e - p));
+						const char *a = p, *b = c ? c : e;
+						while (a < b && (*a == ' ' || *a == '\t')) a++;
+						while (b > a && (b[-1] == ' ' || b[-1] == '\t')) b--;
+						if (b > a) {
+							add_next_index_stringl(return_value, a, (size_t)(b - a));
+						}
+						p = c ? c + 1 : e;
+					}
+					break;
+				}
+			}
 		}
 	}
+	add_next_index_str(return_value, direct);
+}
+/* }}} */
+
+/** {{{ proto public static gene_request::isInternal([string $ip]): bool
+ * Internal-network check. With no arg, judges the direct TCP peer — safe
+ * for auth gates (client cannot fake REMOTE_ADDR). */
+PHP_METHOD(gene_request, isInternal) {
+	zend_string *ip = NULL;
+	unsigned char bin[16];
+	if (zend_parse_parameters(ZEND_NUM_ARGS(), "|S!", &ip) == FAILURE) {
+		return;
+	}
+	if (!ip) {
+		RETURN_BOOL(gene_request_ip_is_internal());
+	}
+	RETURN_BOOL(gene_ip_parse(ZSTR_VAL(ip), ZSTR_LEN(ip), bin) && gene_ip_is_internal(bin));
+}
+/* }}} */
+
+/** {{{ proto public static gene_request::sealedCookie(string $name): ?string
+ * Reads a cookie written by Response::sealedCookie(); tampered or foreign-
+ * context values decode to NULL. */
+PHP_METHOD(gene_request, sealedCookie) {
+	zend_string *name = NULL;
+	zval *v;
+	zend_string *ctx, *plain;
+	if (zend_parse_parameters(ZEND_NUM_ARGS(), "S", &name) == FAILURE) {
+		return;
+	}
+	v = getVal(TRACK_VARS_COOKIE, ZSTR_VAL(name), ZSTR_LEN(name));
+	if (!v || Z_TYPE_P(v) != IS_STRING || Z_STRLEN_P(v) == 0) {
+		RETURN_NULL();
+	}
+	ctx = zend_string_init(ZEND_STRL("cookie."), 0);
+	ctx = zend_string_extend(ctx, ZSTR_LEN(ctx) + ZSTR_LEN(name), 0);
+	memcpy(ZSTR_VAL(ctx) + 7, ZSTR_VAL(name), ZSTR_LEN(name) + 1);
+	plain = gene_crypto_unseal_str(Z_STR_P(v), ctx);
+	zend_string_release(ctx);
+	if (!plain) {
+		RETURN_NULL();
+	}
+	/* plaintext = "<exp>\n<value>": embedded expiry (sealedCookie writes it
+	 * into the blob, so a stale cookie can't be replayed past its lifetime) */
 	{
-		zval *port = getVal(TRACK_VARS_SERVER, ZEND_STRL("SERVER_PORT"));
-		if (port) {
-			if (Z_TYPE_P(port) == IS_LONG && Z_LVAL_P(port) == 443) {
-				RETURN_TRUE;
+		const char *nl = memchr(ZSTR_VAL(plain), '\n', ZSTR_LEN(plain));
+		if (!nl) {
+			zend_string_release(plain);
+			RETURN_NULL();
+		}
+		{
+			zend_long exp = ZEND_STRTOL(ZSTR_VAL(plain), NULL, 10);
+			size_t vlen = ZSTR_LEN(plain) - (size_t)(nl - ZSTR_VAL(plain)) - 1;
+			if (exp > 0 && (zend_long)time(NULL) > exp) {
+				zend_string_release(plain);
+				RETURN_NULL();
 			}
-			if (Z_TYPE_P(port) == IS_STRING && Z_STRLEN_P(port) == 3
-				&& memcmp("443", Z_STRVAL_P(port), 3) == 0) {
-				RETURN_TRUE;
-			}
+			memmove(ZSTR_VAL(plain), nl + 1, vlen);
+			ZSTR_LEN(plain) = vlen;
+			ZSTR_VAL(plain)[vlen] = '\0';
 		}
 	}
-	RETURN_FALSE;
+	RETURN_STR(plain);
 }
 /* }}} */
 
 /** {{{ public gene_request::header(mixed $name, mixed $default = NULL)
  */
-GENE_REQUEST_METHOD(gene_request, header, 7);
+GENE_REQUEST_METHOD(gene_request, header, GENE_REQUEST_ATTR_HEADER);
 /* }}} */
 
 /** {{{ public gene_request::isAjax()
@@ -733,6 +906,11 @@ static void gene_request_init_bags(zval *get, zval *post, zval *cookie, zval *se
 		gene_request_input_invalidate(ctx);
 		if (Z_TYPE(ctx->request_attr) == IS_ARRAY) {
 			zend_hash_index_del(Z_ARRVAL(ctx->request_attr), GENE_REQUEST_ATTR_RAW);
+			/* The lazily materialized header bag is a snapshot of the OLD
+			 * server bag — drop it on every init so a re-init without an
+			 * explicit header arg rematerializes from the new server bag
+			 * (stale headers leaked across init() calls otherwise). */
+			zend_hash_index_del(Z_ARRVAL(ctx->request_attr), GENE_REQUEST_ATTR_HEADER);
 		}
 	}
 	if (raw_content && Z_TYPE_P(raw_content) == IS_STRING) {
@@ -940,7 +1118,7 @@ PHP_METHOD(gene_request, _set) {
  *  - Swoole: returned from index 8 set via Request::init($..., $rawContent).
  *  - FPM/CLI/CGI: read on-demand from php://input and cached at index 8.
  */
-static void gene_request_raw_value(zval *return_value) {
+void gene_request_raw_value(zval *return_value) {
 	zval *cached = getVal(GENE_REQUEST_ATTR_RAW, NULL, 0);
 	php_stream *stream;
 	zend_string *contents;
@@ -998,8 +1176,23 @@ static int gene_request_json_value(gene_request_context *ctx, zval *return_value
 	return SUCCESS;
 }
 
-static zend_bool gene_request_json_content_type(void) {
-	zval *type = getVal(7, ZEND_STRL("Content-Type"));
+/* Non-throwing JSON body read for internal scanners: shares the decode cache
+ * with Request::json(); a decode failure clears the exception and returns
+ * FAILURE (the cached error still surfaces on a later Request::json()). */
+int gene_request_json_peek(zval *return_value) {
+	ZVAL_UNDEF(return_value);
+	if (gene_request_json_value(gene_request_ctx(), return_value) != SUCCESS) {
+		if (EG(exception)) {
+			zend_clear_exception();
+		}
+		ZVAL_UNDEF(return_value);
+		return FAILURE;
+	}
+	return SUCCESS;
+}
+
+zend_bool gene_request_json_content_type(void) {
+	zval *type = getVal(GENE_REQUEST_ATTR_HEADER, ZEND_STRL("Content-Type"));
 	const char *p;
 	size_t len, i;
 	if (!type || Z_TYPE_P(type) != IS_STRING) {
@@ -1135,7 +1328,7 @@ static zend_string *gene_request_find_auth_header(void) {
 	zval *hdrs, *auth;
 	zend_string *key;
 
-	hdrs = getVal(7, NULL, 0);
+	hdrs = getVal(GENE_REQUEST_ATTR_HEADER, NULL, 0);
 	if (hdrs && Z_TYPE_P(hdrs) == IS_ARRAY) {
 		ZEND_HASH_FOREACH_STR_KEY_VAL(Z_ARRVAL_P(hdrs), key, auth) {
 			if (key && ZSTR_LEN(key) == sizeof("Authorization") - 1
@@ -1218,6 +1411,12 @@ const zend_function_entry gene_request_methods[] = {
 	PHP_ME(gene_request, isCli, geme_request_void_arginfo, ZEND_ACC_PUBLIC|ZEND_ACC_STATIC)
 	/* [GENE_FEATURE:2026-08-07] HTTPS detection (see isSecure impl). */
 	PHP_ME(gene_request, isSecure, geme_request_void_arginfo, ZEND_ACC_PUBLIC|ZEND_ACC_STATIC)
+	/* [GENE_SEC:2026-11-01] S1 trusted-proxy IP APIs + S9 sealed cookie read. */
+	PHP_ME(gene_request, directIp, geme_request_void_arginfo, ZEND_ACC_PUBLIC|ZEND_ACC_STATIC)
+	PHP_ME(gene_request, ip, geme_request_void_arginfo, ZEND_ACC_PUBLIC|ZEND_ACC_STATIC)
+	PHP_ME(gene_request, ips, geme_request_void_arginfo, ZEND_ACC_PUBLIC|ZEND_ACC_STATIC)
+	PHP_ME(gene_request, isInternal, gene_request_is_internal_arginfo, ZEND_ACC_PUBLIC|ZEND_ACC_STATIC)
+	PHP_ME(gene_request, sealedCookie, gene_request_sealed_cookie_arginfo, ZEND_ACC_PUBLIC|ZEND_ACC_STATIC)
 	PHP_ME(gene_request, init, gene_request_init_arginfo, ZEND_ACC_PUBLIC|ZEND_ACC_STATIC)
 	/* [GENE_FEATURE:2026-09-12] Swoole request adapter �� see initSwoole. */
 	PHP_ME(gene_request, initSwoole, gene_request_init_swoole_arginfo, ZEND_ACC_PUBLIC|ZEND_ACC_STATIC)

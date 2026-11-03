@@ -60,6 +60,49 @@ class Memcached
     }
 
     /**
+     * add — atomic create-only write (NX); fails when the key exists
+     * 
+     * @param mixed $key key
+     * @param mixed $value value
+     * @param mixed $ttl ttl
+     * @return mixed
+     */
+    public function add($key, $value, $ttl = 0) {
+
+    }
+
+    /**
+     * del — delete a key
+     * 
+     * @param mixed $key key
+     * @return mixed
+     */
+    public function del($key) {
+
+    }
+
+    /**
+     * delete — alias of del()
+     * 
+     * @param mixed $key key
+     * @return mixed
+     */
+    public function delete($key) {
+
+    }
+
+    /**
+     * expire — reset a key's TTL (memcached protocol: touch)
+     * 
+     * @param mixed $key key
+     * @param mixed $ttl ttl
+     * @return mixed
+     */
+    public function expire($key, $ttl) {
+
+    }
+
+    /**
      * __call
      * 
      * @param mixed $method method

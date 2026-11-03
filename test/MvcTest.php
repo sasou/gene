@@ -141,6 +141,58 @@ class MvcTest
         echo "\n";
     }
 
+    /**
+     * [GENE_FEATURE:2026-11-03] __isset on magic DI props: isset()/empty() must
+     * mirror __get (class-scoped key, then plain DI/config fallback). Before
+     * the feature, isset($this->x) was silently false and empty() silently
+     * true for every magic property — only isset($this->a['k']) worked.
+     */
+    public function testMagicIsset()
+    {
+        echo "Testing MVC Magic isset/empty:\n";
+        try {
+            Di::set('mvcIssetUser', ['id' => 7]);
+            Di::set('mvcIssetNull', null);
+            Di::set('mvcIssetZero', 0);
+
+            $c = new Controller();
+            $c->ownProp = 'v';
+            if (!isset($c->ownProp)
+                || !isset($c->mvcIssetUser)
+                || isset($c->mvcIssetNull)
+                || !isset($c->mvcIssetZero)
+                || !isset($c->mvcIssetUser['id'])
+                || isset($c->mvcIssetUser['nope'])
+                || isset($c->mvcIssetMissing)
+                || empty($c->mvcIssetUser)
+                || !empty($c->mvcIssetMissing)) {
+                throw new RuntimeException('Controller __isset semantics mismatch');
+            }
+            echo "✓ Controller isset/empty mirror __get (incl. null/falsy/dim forms)\n";
+
+            $m = new Model();
+            $m->ownProp = 'v';
+            if (!isset($m->ownProp) || !isset($m->mvcIssetUser) || isset($m->mvcIssetMissing)) {
+                throw new RuntimeException('Model __isset semantics mismatch');
+            }
+            echo "✓ Model isset mirrors __get\n";
+
+            $v = new View();
+            $v->ownProp = 'v';
+            if (!isset($v->ownProp) || !isset($v->mvcIssetUser) || isset($v->mvcIssetMissing)) {
+                throw new RuntimeException('View __isset semantics mismatch');
+            }
+            echo "✓ View isset mirrors __get\n";
+
+            Di::del('mvcIssetUser');
+            Di::del('mvcIssetNull');
+            Di::del('mvcIssetZero');
+        } catch (Throwable $e) {
+            echo "✗ Error: " . $e->getMessage() . "\n";
+        }
+        echo "\n";
+    }
+
     public function testMvcPerformance()
     {
         echo "Testing MVC Performance:\n";
@@ -192,6 +244,7 @@ class MvcTest
         $this->testModelClass();
         $this->testViewClass();
         $this->testMvcIntegration();
+        $this->testMagicIsset();
         $this->testMvcPerformance();
         $this->testMvcErrorHandling();
         echo "=== MVC Test Suite Complete ===\n";

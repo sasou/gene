@@ -5,7 +5,7 @@
   <p>A high-performance full-stack framework for concurrent APIs, enterprise web applications, and resident Swoole services</p>
 
 [![PHP](https://img.shields.io/badge/PHP-8.0--8.5-777BB4?style=for-the-badge&logo=php&logoColor=white)](https://www.php.net/)
-[![Release](https://img.shields.io/badge/Release-6.2.6-2563EB?style=for-the-badge&logo=github&logoColor=white)](https://github.com/sasou/php-gene/releases)
+[![Release](https://img.shields.io/badge/Release-6.2.8-2563EB?style=for-the-badge&logo=github&logoColor=white)](https://github.com/sasou/php-gene/releases)
 [![Swoole](https://img.shields.io/badge/Swoole-Ready-16A34A?style=for-the-badge)](https://www.swoole.com/)
 [![License](https://img.shields.io/badge/License-PHP_3.01-0F766E?style=for-the-badge)](http://www.php.net/license/3_01.txt)
 
@@ -37,7 +37,7 @@ MVC, ORM, caching, pools, HTTP, sessions, security, and monitoring cover the com
 </tr>
 </table>
 
-> 🚦 **Gene 6.2.6** is a fix release: it resolves a router group-stack packed-hole segfault, a post-freeze borrowed-array dangling read in PDO, and a connection-pool `close()` drain race; `through()` now raises `ValueError` for unregistered hooks (a silent drop was an auth bypass); and ORM raw fragments accept legacy leading `and`/`or` connectors.
+> 🚦 **Gene 6.2.7** is the security-baseline release: S1–S12 security primitives are now built into the extension — trusted-proxy client IP (`trustProxies`/`Gene\Ip`), built-in CSRF/same-origin policy and secure response headers, internal REST guard with HMAC signing, `Gene\Password` legacy migration, `Gene\Throttle` atomic failure counting, session fingerprint binding, `Crypto` keyring with sealed cookies and replay-safe TOTP; `Gene\Webscan` fixes whitelist and SQL comment-obfuscation bypasses.
 
 ## ✨ Why Gene
 
@@ -191,7 +191,7 @@ class Home extends \Gene\Controller
     {
         return \Gene\Http\Response::json([
             'framework' => 'Gene',
-            'version' => '6.2.6',
+            'version' => '6.2.8',
         ]);
     }
 }

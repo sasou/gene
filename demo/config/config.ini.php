@@ -115,7 +115,7 @@ $config->set("redisDirect", [
     'port' => 6379,
     'timeout' => 3,
     'ttl' => 0,
-    'pass' => 'rds2024',
+    'pass' => 'changeme',
     'serializer' => 1
         ]],
     'instance' => true

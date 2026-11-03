@@ -122,6 +122,16 @@ final class Query
      * @param string $order
      * @return $this
      */
+    /**
+     * Whitelisted ORDER BY, same rules as Db::orderBy().
+     * @param string $column
+     * @param string $direction
+     * @param array|null $allow
+     * @return $this
+     * @throws \ValueError
+     */
+    public function orderBy($column, $direction = 'ASC', $allow = null) {}
+
     public function order($order)
     {
         return $this;

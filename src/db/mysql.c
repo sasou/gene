@@ -33,6 +33,7 @@
 #include "../db/pool.h"
 #include "../factory/factory.h"
 #include "../tool/benchmark.h"
+#include "../exception/exception.h"
 
 zend_class_entry * gene_db_mysql_ce;
 
@@ -117,6 +118,12 @@ ZEND_END_ARG_INFO()
 
 ZEND_BEGIN_ARG_INFO_EX(gene_db_mysql_having, 0, 0, 1)
 	ZEND_ARG_INFO(0, having)
+ZEND_END_ARG_INFO()
+
+ZEND_BEGIN_ARG_INFO_EX(gene_db_mysql_order_by, 0, 0, 1)
+	ZEND_ARG_INFO(0, column)
+	ZEND_ARG_INFO(0, direction)
+	ZEND_ARG_INFO(0, allow)
 ZEND_END_ARG_INFO()
 
 ZEND_BEGIN_ARG_INFO_EX(gene_db_mysql_order, 0, 0, 1)
@@ -277,6 +284,20 @@ bool mysqlInitPdo (zval * self, zval *config) {
 	
 	add_index_long(&option, 3, 2);
 	add_index_long(&option, 19, 2);
+	/* Native prepares, same as Gene\Db\Pool; an explicit user option wins.
+	 * PDO::ATTR_EMULATE_PREPARES index is 20. */
+	if (!zend_hash_index_exists(Z_ARRVAL(option), 20)) {
+		add_index_bool(&option, 20, 0);
+	}
+	if (Z_TYPE_P(dsn) == IS_STRING) {
+		static zend_bool charset_warned = 0;
+		zend_string *ldsn = zend_string_tolower(Z_STR_P(dsn));
+		if (!charset_warned && !zend_memnstr(ZSTR_VAL(ldsn), "charset=", sizeof("charset=") - 1, ZSTR_VAL(ldsn) + ZSTR_LEN(ldsn))) {
+			charset_warned = 1;
+			gene_log_diag(E_WARNING, "Gene\\Db\\Mysql: dsn has no charset=, add charset=utf8mb4 to the dsn");
+		}
+		zend_string_release(ldsn);
+	}
 	/* In Swoole/coroutine mode, do NOT use PDO::ATTR_PERSISTENT.
 	 * PHP persistent connections live in the process-global EG(persistent_list);
 	 * when two coroutines create PDO with the same DSN + ATTR_PERSISTENT, PHP
@@ -945,6 +966,7 @@ PHP_METHOD(gene_db_mysql, sql)
 	if (zend_parse_parameters(ZEND_NUM_ARGS(), "s|z", &sql, &sql_len, &fields) == FAILURE) {
 		return;
 	}
+	gene_db_sql_literal_check(sql, sql_len, fields);
 	mysql_reset_sql_params(self);
     if (sql_len) {
         gene_db_prop_set_stringl(gene_strip_obj(self), gene_db_mysql_prop[GENE_DB_PROP_SQL], sql, sql_len);
@@ -1314,6 +1336,31 @@ PHP_METHOD(gene_db_mysql, having)
 }
 /* }}} */
 
+
+/*
+ * {{{ public gene_db::orderBy(string $column, string $direction = 'ASC', ?array $allow = null)
+ */
+PHP_METHOD(gene_db_mysql, orderBy)
+{
+	zval *self = getThis();
+	zend_string *column = NULL, *direction = NULL, *built;
+	HashTable *allow = NULL;
+	if (zend_parse_parameters(ZEND_NUM_ARGS(), "S|Sh!", &column, &direction, &allow) == FAILURE) {
+		return;
+	}
+	built = gene_db_order_by_build(column, direction, allow);
+	if (!built) {
+		RETURN_THROWS();
+	}
+	{
+		char *qo = gene_quote_order(ZSTR_VAL(built), '`', '`');
+		GENE_DB_MYSQL_SET_PROP(GENE_DB_PROP_ORDER, " ORDER BY %s", qo);
+		efree(qo);
+	}
+	zend_string_release(built);
+	RETURN_ZVAL(self, 1, 0);
+}
+/* }}} */
 
 /*
  * {{{ public gene_db::order()
@@ -1720,6 +1767,7 @@ const zend_function_entry gene_db_mysql_methods[] = {
 		PHP_ME(gene_db_mysql, lockForUpdate, gene_db_mysql_void_arginfo, ZEND_ACC_PUBLIC)
 		PHP_ME(gene_db_mysql, sharedLock, gene_db_mysql_void_arginfo, ZEND_ACC_PUBLIC)
 		PHP_ME(gene_db_mysql, order, gene_db_mysql_order, ZEND_ACC_PUBLIC)
+		PHP_ME(gene_db_mysql, orderBy, gene_db_mysql_order_by, ZEND_ACC_PUBLIC)
 		PHP_ME(gene_db_mysql, group, gene_db_mysql_group, ZEND_ACC_PUBLIC)
 		PHP_ME(gene_db_mysql, having, gene_db_mysql_having, ZEND_ACC_PUBLIC)
 		PHP_ME(gene_db_mysql, execute, gene_db_mysql_void_arginfo, ZEND_ACC_PUBLIC)

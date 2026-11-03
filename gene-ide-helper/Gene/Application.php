@@ -116,13 +116,14 @@ class Application
      * webscan
      * 
      * @param int|null $webscan_switch
-     * @param string|null $webscan_white_directory
+     * @param string|array|null $webscan_white_directory 目录白名单：与查询串无关的前导路径段（可传数组放行多个子树）
      * @param callable|null $callback
      * @param array|null $webscan_white_url
      * @param int|null $webscan_get
      * @param int|null $webscan_post
      * @param int|null $webscan_cookie
      * @param int|null $webscan_referer
+     * @param int|null $webscan_fail_closed 1(默认)=PCRE 出错（回溯/JIT 栈超限）按命中拦截；0=放行
      * @return static
      */
     public function webscan(
@@ -133,7 +134,8 @@ class Application
         $webscan_get = null,
         $webscan_post = null,
         $webscan_cookie = null,
-        $webscan_referer = null
+        $webscan_referer = null,
+        $webscan_fail_closed = null
     ) {
 
     }
@@ -155,9 +157,82 @@ class Application
     /**
      * Enable the request-id policy, or disable it by passing null.
      * @param array|null $config header, bytes, trust and max_length options
+     *        (with trustProxies configured, trust only honours ids from a trusted peer)
      * @return static
      */
     public function requestId(?array $config = null) {
+
+    }
+
+    /**
+     * trustProxies
+     * Declare trusted reverse proxies. Idempotent per signature — safe to
+     * call in every Swoole onRequest bootstrap.
+     * Config: 'proxies' => string|array of "ip[/len]" CIDRs,
+     *         'headers' => string|array of forwarding header names
+     *                    (default: x-forwarded-for),
+     *         'proto'   => bool, trust X-Forwarded-Proto from trusted peers
+     *                    (default true)
+     *
+     * @param array|null $config null → compile from gene.trusted_proxies INI
+     * @return static
+     */
+    public function trustProxies(array $config = null) {
+
+    }
+
+    /**
+     * csrf
+     * CSRF/same-origin policy, enforced centrally in run() before dispatch.
+     * No argument applies safe defaults (unsafe methods only).
+     * Config: 'methods' => array, 'session' => component name,
+     *         'origins' => array extra allowed origins, plus Fetch-Metadata
+     *         and Origin/Referer enforcement per plan S2.
+     *
+     * @param array|null $config null → apply defaults
+     * @return static
+     */
+    public function csrf(array $config = null) {
+
+    }
+
+    /**
+     * restGuard
+     * Internal REST authentication for /rest/* routes: internal peer check,
+     * timestamp skew and HMAC signature + nonce replay guard.
+     * Config: 'prefixes' => array, 'internal' => bool, 'secret' => string,
+     *         'nonce'   => store component name for replay protection.
+     *
+     * @param array|null $config null → apply defaults
+     * @return static
+     */
+    public function restGuard(array $config = null) {
+
+    }
+
+    /**
+     * secureHeaders
+     * Security response headers (CSP/frame/referrer/nosniff/HSTS).
+     * No argument applies plan S3 defaults; HSTS is emitted only when the
+     * request is actually secure.
+     *
+     * @param array|null $config null → apply defaults
+     * @return static
+     */
+    public function secureHeaders(array $config = null) {
+
+    }
+
+    /**
+     * readonly
+     * Dynamic-route allowlist: only the listed controller/action pairs may
+     * be resolved for the given prefixes (case-insensitive, fail closed).
+     * e.g. ['/admin' => ['*' => ['list','index']]]
+     *
+     * @param array|null $config
+     * @return static
+     */
+    public function readonly(array $config = null) {
 
     }
 

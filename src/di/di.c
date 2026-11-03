@@ -588,6 +588,28 @@ PHP_METHOD(gene_di, instance) {
 /* }}} */
 
 /*
+ *  {{{ public gene_di::__isset($name)
+ * [GENE_FEATURE:2026-11-03] isset($di->x) aligned with get(): resolves
+ * aliases AND config-defined components (unlike has(), which probes the
+ * request regs only). Registered as a real instance method because magic
+ * methods must be instance-callable — a static __isset would warn.
+ */
+PHP_METHOD(gene_di, __isset) {
+	zend_string *name;
+	zval *ppzval;
+	if (zend_parse_parameters(ZEND_NUM_ARGS(), "S", &name) == FAILURE) {
+		return;
+	}
+	ppzval = gene_di_get(name);
+	if (ppzval) {
+		ZVAL_DEREF(ppzval);
+		RETURN_BOOL(Z_TYPE_P(ppzval) != IS_NULL);
+	}
+	RETURN_FALSE;
+}
+/* }}} */
+
+/*
  * {{{ gene_di_methods
  */
 const zend_function_entry gene_di_methods[] = {
@@ -602,6 +624,7 @@ const zend_function_entry gene_di_methods[] = {
 	PHP_ME(gene_di, del, gene_di_del_arginfo, ZEND_ACC_PUBLIC|ZEND_ACC_STATIC)
 	PHP_MALIAS(gene_di, __set, set, gene_di_set_arginfo, ZEND_ACC_PUBLIC)
 	PHP_MALIAS(gene_di, __get, get, gene_di_get_arginfo, ZEND_ACC_PUBLIC)
+	PHP_ME(gene_di, __isset, gene_di_get_arginfo, ZEND_ACC_PUBLIC)
 	{ NULL, NULL, NULL }
 };
 /* }}} */

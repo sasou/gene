@@ -28,6 +28,7 @@
 #include "../gene.h"
 #include "language.h"
 #include "../di/di.h"
+#include "../http/request.h"
 
 zend_class_entry *gene_language_ce;
 uint32_t gene_language_offset_dir;
@@ -60,6 +61,11 @@ ZEND_END_ARG_INFO()
 
 ZEND_BEGIN_ARG_INFO_EX(gene_language_lang_arginfo, 0, 0, 0)
     ZEND_ARG_INFO(0, lang)
+ZEND_END_ARG_INFO()
+
+ZEND_BEGIN_ARG_INFO_EX(gene_language_negotiate_arginfo, 0, 0, 1)
+    ZEND_ARG_INFO(0, supported)
+    ZEND_ARG_INFO(0, header)
 ZEND_END_ARG_INFO()
 
 ZEND_BEGIN_ARG_INFO_EX(gene_language_call_arginfo, 0, 0, 2)
@@ -151,6 +157,110 @@ PHP_METHOD(gene_language, lang) {
     }
 
     RETURN_ZVAL(self, 1, 0);
+}
+/* }}} */
+
+/* Index into supported of the entry matching tag (exact, then primary
+ * subtag either way: "zh-CN" ~ "zh"), or -1. */
+static zend_long gene_language_match(HashTable *supported, const char *tag, size_t len)
+{
+    zval *v;
+    zend_ulong i = 0;
+    zend_long prefix = -1;
+    size_t plen = 0;
+    while (plen < len && tag[plen] != '-' && tag[plen] != '_') plen++;
+    ZEND_HASH_FOREACH_VAL(supported, v) {
+        if (Z_TYPE_P(v) == IS_STRING) {
+            const char *s = Z_STRVAL_P(v);
+            size_t sl = Z_STRLEN_P(v), sp = 0;
+            if (sl == len && strncasecmp(s, tag, len) == 0) return (zend_long) i;
+            while (sp < sl && s[sp] != '-' && s[sp] != '_') sp++;
+            if (prefix < 0 && sp == plen && strncasecmp(s, tag, plen) == 0) prefix = (zend_long) i;
+        }
+        i++;
+    } ZEND_HASH_FOREACH_END();
+    return prefix;
+}
+
+/*
+ * {{{ public Gene\Language::negotiate(array $supported, ?string $header = null): string
+ * Picks the supported language with the highest Accept-Language q value
+ * (header defaults to the current request's accept-language), falls back to
+ * the first supported entry, and switches this instance to it.
+ */
+PHP_METHOD(gene_language, negotiate) {
+    HashTable *supported;
+    zend_string *header = NULL;
+    const char *h = NULL, *p;
+    size_t hl = 0;
+    zend_long best = -1;
+    double best_q = -1.0;
+    zval *picked;
+
+    ZEND_PARSE_PARAMETERS_START(1, 2)
+        Z_PARAM_ARRAY_HT(supported)
+        Z_PARAM_OPTIONAL
+        Z_PARAM_STR_OR_NULL(header)
+    ZEND_PARSE_PARAMETERS_END();
+
+    if (zend_hash_num_elements(supported) == 0) {
+        RETURN_EMPTY_STRING();
+    }
+    if (header) {
+        h = ZSTR_VAL(header);
+        hl = ZSTR_LEN(header);
+    } else {
+        zval *hv = getVal(GENE_REQUEST_ATTR_HEADER, "accept-language", sizeof("accept-language") - 1);
+        if (hv && Z_TYPE_P(hv) == IS_STRING) {
+            h = Z_STRVAL_P(hv);
+            hl = Z_STRLEN_P(hv);
+        }
+    }
+    for (p = h; h && p < h + hl;) {
+        const char *item = p, *end = memchr(p, ',', (size_t)(h + hl - p)), *semi;
+        size_t tl;
+        double q = 1.0;
+        zend_long idx;
+        if (!end) end = h + hl;
+        p = end + 1;
+        while (item < end && (*item == ' ' || *item == '\t')) item++;
+        semi = memchr(item, ';', (size_t)(end - item));
+        tl = (size_t)((semi ? semi : end) - item);
+        while (tl && (item[tl - 1] == ' ' || item[tl - 1] == '\t')) tl--;
+        if (semi) {
+            const char *qp = semi + 1;
+            while (qp < end && *qp == ' ') qp++;
+            if (end - qp > 2 && qp[0] == 'q' && qp[1] == '=') q = zend_strtod(qp + 2, NULL);
+        }
+        if (tl == 0 || q <= 0 || q <= best_q) continue;
+        idx = gene_language_match(supported, item, tl);
+        if (idx >= 0) {
+            best = idx;
+            best_q = q;
+        }
+    }
+    if (best < 0) best = 0;
+    picked = NULL;
+    {
+        zval *v;
+        zend_long i = 0;
+        ZEND_HASH_FOREACH_VAL(supported, v) {
+            if (i++ == best) { picked = v; break; }
+        } ZEND_HASH_FOREACH_END();
+    }
+    if (!picked || Z_TYPE_P(picked) != IS_STRING) {
+        RETURN_EMPTY_STRING();
+    }
+    {
+        zend_object *obj = Z_OBJ_P(getThis());
+        zval *slot = OBJ_PROP(obj, gene_language_offset_lang);
+        zval_ptr_dtor(slot);
+        ZVAL_COPY(slot, picked);
+        slot = OBJ_PROP(obj, gene_language_offset_cached);
+        zval_ptr_dtor(slot);
+        ZVAL_NULL(slot);
+    }
+    RETURN_COPY(picked);
 }
 /* }}} */
 
@@ -418,6 +528,7 @@ PHP_METHOD(gene_language, getAll) {
 const zend_function_entry gene_language_methods[] = {
     PHP_ME(gene_language, __construct, gene_language_construct_arginfo, ZEND_ACC_PUBLIC)
     PHP_ME(gene_language, lang,        gene_language_lang_arginfo,      ZEND_ACC_PUBLIC)
+    PHP_ME(gene_language, negotiate,   gene_language_negotiate_arginfo, ZEND_ACC_PUBLIC)
     PHP_ME(gene_language, __call,      gene_language_call_arginfo,      ZEND_ACC_PUBLIC)
     PHP_ME(gene_language, __get,       gene_language_get_arginfo,       ZEND_ACC_PUBLIC)
     PHP_ME(gene_language, get,         gene_language_getone_arginfo,    ZEND_ACC_PUBLIC)

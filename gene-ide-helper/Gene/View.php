@@ -27,6 +27,47 @@ class View
      * @param mixed $value
      * @return mixed
      */
+    /**
+     * HTML body/attribute escape (ENT_QUOTES|ENT_SUBSTITUTE, UTF-8); null/false/array -> "".
+     * Template {$v} / {$a.b} compile to this.
+     * @param mixed $value
+     * @return string
+     */
+    public static function e($value) {}
+
+    /**
+     * JSON literal safe inside <script> (JSON_HEX_TAG|AMP|APOS|QUOT).
+     * @param mixed $value
+     * @return string
+     */
+    public static function js($value) {}
+
+    /**
+     * Escaped URL for href/src; schemes other than http/https/mailto/tel (and relative) become "#".
+     * @param string $url
+     * @return string
+     */
+    public static function safeUrl($url) {}
+
+    /**
+     * Rich text through the registered purifier; escapes when none is set.
+     * @param mixed $html
+     * @return string
+     */
+    public static function clean($html) {}
+
+    /**
+     * @param callable|null $purifier fn(string $html): string
+     * @return void
+     */
+    public static function setPurifier($purifier) {}
+
+    /**
+     * Compile every template under the view directory (deploy step).
+     * @return int templates compiled or verified fresh
+     */
+    public static function compileAll() {}
+
     public function assign($name, $value) {
 
     }

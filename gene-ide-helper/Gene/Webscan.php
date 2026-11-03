@@ -13,12 +13,13 @@ class Webscan
 {
     /**
      * @param int $webscan_switch 是否启用
-     * @param string|null $webscan_white_directory 目录白名单
+     * @param string|array|null $webscan_white_directory 目录白名单（可传数组，与查询串无关）
      * @param array|null $webscan_white_url URL 白名单
      * @param int $webscan_get 是否扫描 GET
      * @param int $webscan_post 是否扫描 POST
      * @param int $webscan_cookie 是否扫描 Cookie
-     * @param int $webscan_referer 是否扫描 Referer
+     * @param int $webscan_referer 是否扫描 Referer / User-Agent / X-Forwarded-For
+     * @param int $webscan_fail_closed 正则执行失败（回溯/JIT 超限）时是否按命中拦截
      */
     public function __construct(
         $webscan_switch = 1,
@@ -27,7 +28,8 @@ class Webscan
         $webscan_get = 1,
         $webscan_post = 1,
         $webscan_cookie = 1,
-        $webscan_referer = 1
+        $webscan_referer = 1,
+        $webscan_fail_closed = 1
     ) {}
 
     /**

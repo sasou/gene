@@ -5,7 +5,7 @@
   <p>面向高并发 API、企业级 Web 应用与 Swoole 常驻服务的高性能全栈框架</p>
 
 [![PHP](https://img.shields.io/badge/PHP-8.0--8.5-777BB4?style=for-the-badge&logo=php&logoColor=white)](https://www.php.net/)
-[![Release](https://img.shields.io/badge/Release-6.2.6-2563EB?style=for-the-badge&logo=github&logoColor=white)](https://github.com/sasou/php-gene/releases)
+[![Release](https://img.shields.io/badge/Release-6.2.8-2563EB?style=for-the-badge&logo=github&logoColor=white)](https://github.com/sasou/php-gene/releases)
 [![Swoole](https://img.shields.io/badge/Swoole-Ready-16A34A?style=for-the-badge)](https://www.swoole.com/)
 [![License](https://img.shields.io/badge/License-PHP_3.01-0F766E?style=for-the-badge)](http://www.php.net/license/3_01.txt)
 
@@ -37,7 +37,7 @@ Gene 是一个以 **PHP 扩展** 形态交付、核心能力由 **C 语言** 实
 </tr>
 </table>
 
-> 🚦 **Gene 6.2.6**：修正版——修复路由组栈 packed hole 段错误、worker 冻结后借用数组致 PDO 悬垂读、连接池 `close()` 排空竞态漏槽；`through()` 引用未注册钩子改为显式 `ValueError`（旧静默丢弃等于认证旁路）；ORM 裸片段兼容 v1 `and/or` 连接词写法。
+> 🚦 **Gene 6.2.7**：安全基线版——S1–S12 安全原语框架化：可信代理真实 IP（`trustProxies`/`Gene\Ip`）、内置 CSRF/同源策略与安全响应头、内部 REST 内网+HMAC 签名鉴权、`Gene\Password` 口令迁移、`Gene\Throttle` 原子限流、会话指纹绑定、`Crypto` 密钥环与密封 Cookie/TOTP 防重放；`Gene\Webscan` 修复白名单与 SQL 注释混淆绕过。
 
 ## ✨ 为什么选择 Gene
 
@@ -191,7 +191,7 @@ class Home extends \Gene\Controller
     {
         return \Gene\Http\Response::json([
             'framework' => 'Gene',
-            'version' => '6.2.6',
+            'version' => '6.2.8',
         ]);
     }
 }

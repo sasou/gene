@@ -1,5 +1,106 @@
 # Gene Framework Changelog
 
+## [6.2.8]
+
+> 本版落地 `plan/framework-review-2026-11.closed.md` 里程碑 A/B：建成模板转义体系（`View::e/js/safeUrl/clean` + `{!! !!}` 原样语法 + `gene.view_autoescape`），并从 API 层收口开放重定向与排序字段注入（`gene.redirect_hosts`、四驱动 `orderBy()` 白名单）；同步收敛可信代理内网判定、Webscan 派发直连与目录白名单数组、用户空间类 `__isset` 等实测问题。PHP 8.1.30 / 8.2.33 NTS x64 双版本零告警编译通过。
+
+### ⚠️ 行为变更
+
+- **模板输出默认转义**：`{$v}`、`{$a.b}`、`{$a.b.c}` 统一编译为 `\Gene\View::e()`（ENT_QUOTES|ENT_SUBSTITUTE，UTF-8，null/false/array 输出空串，顺带消除 PHP 8.1 向 `htmlspecialchars` 传 null 的弃用告警）——此前 `{$a.b}` 点语法是不经转义的原样 `echo`。原样输出改用新增的 `{!! expr !!}`；`{:expr}` 仍原样，除非开启 `gene.view_autoescape=1`。**旧编译缓存在模板 mtime 变化前不会重编，升级后需清空 `Cache/Views` 或执行 `View::compileAll()`**。
+- **直连 `Gene\Db\Mysql` 默认原生预处理**：`ATTR_EMULATE_PREPARES=false` 与 Pool 对齐（用户 `options[20]` 显式值优先）；mysqlnd 原生预处理下整型/浮点列返回 PHP 原生类型而非字符串。DSN 缺 `charset=` 时进程内记录一次诊断。
+
+### ✨ 新增
+
+- **`Gene\View` 转义助手族**：`View::e()`（HTML 正文与属性）；`View::js()`（JSON_HEX_TAG|AMP|APOS|QUOT，可安全内联进 `<script>`）；`View::safeUrl()`（http/https/mailto/tel 与相对路径白名单，跳过空白与控制字符防 `java\tscript:` 混淆）；`View::clean($html)` + `View::setPurifier(callable)`（未注册净化器时按转义处理，失败即安全）；`View::compileAll()`（部署期递归预编译模板目录，返回编译/校验数）。
+- **两项新 INI**：`gene.view_autoescape`（PHP_INI_SYSTEM，默认 0；置 1 时 `{:expr}` 也经 `View::e()` 转义）、`gene.redirect_hosts`（逗号分隔主机白名单，支持 `*.example.com`；非空时 `redirect()`/`redirectJs()`/`alert()` 对绝对、协议相对、`/\host`、`user@host` 形式校验主机，未列出改跳 `/` 并写日志）。
+- **`orderBy($col, $dir='ASC', ?array $allow=null)`**：四驱动（Mysql/Sqlite/Pgsql/Mssql）与 `Orm\Query` 统一的用户排序入口——`$allow` 支持列表或「别名=>列」映射，列必须命中白名单、方向仅 ASC/DESC，违规抛 `ValueError`；无 `$allow` 时列须为纯标识符/点路径；构造共用 `gene_db_order_by_build()`。`order()` 保留给表达式，不应再接收用户输入。
+- **`sql()` 开发期插值提示**：`gene.run_environment=0` 下，SQL 片段含单引号字面量且无绑定值时经 `gene_log_diag()` 仅写日志提醒改用 `?` 占位（不触发用户错误处理器、不改语句）。
+- **`Language::negotiate(array $supported, ?string $header=null)`**：按 Accept-Language q 值挑取支持语言（精确匹配→主子标签匹配），回落首项并切换实例语言；header 缺省取当前请求 `accept-language`（FPM/Swoole 同一 HEADER 袋）。
+- **`Monitor::security()`**：安全相关 INI 快照自检（view_autoescape/redirect_hosts/trusted_proxies/jsonp/run_environment/display_errors/expose_php/session cookie 标志），每项返回 value、recommended、ok（`null` 表示依部署而定）。
+- **ORM `Model::$incrementing`**：类级声明 `protected static $incrementing = false;`（默认 true）后 `fill()` 带主键恒按新行处理，适配 UUID/自然主键，免去每次 `fill($d, false)`；`find($id, true)` 水合不受影响。
+- **`__isset` 魔术方法**：Controller/View/Model/Service/Hook/Application 补齐 `isset($this->x)`/`empty($this->x)`，与 `__get` 的「类限定键 + DI 回落」语义对齐——此前 `isset()` 对所有魔术属性静默返回 false，仅 dim-isset 形式可用。
+- **`View::__get/__isset` assign 回落**：DI 未命中时回落读取当前作用域的 assign 变量（DI 优先），`$this->view->x` 可读回视图变量。
+
+### 🛡️ 安全（可信代理与 Webscan）
+
+- **内网判定口径统一**：`Request::isInternal()` 与 `restGuard(['internal'=>true])` 共用 `gene_request_ip_is_internal()`——直连对端非 `trustProxies` 可信代理时只看 TCP 对端（XFF 永不采信）；对端为可信代理时改判解析后的客户端 IP，修复同机反代下公网请求被误判为内网的鉴权旁路。
+- **`requestId(['trust'=>true])`**：已配置可信代理表时仅采信可信对端传入的关联 ID，直连客户端的值替换为随机 ID；未配置可信代理表时保持旧行为。
+- **Webscan 派发直连**：`Application::webscan()` 新增第 9 个参数 `fail_closed`（默认 1）；派发路径直调 `gene_webscan_scan()` 扫描核心，不再每请求实例化 `Gene\Webscan`（省去 ctor 与 8 次属性读取），`Webscan::check()` 与派发路径共用同一扫描核心；`policy_hash_equals` 改 C 层常数时间比较。
+- **Webscan 目录白名单支持数组并与查询串解耦**：`webscan_white_directory` 接受 `string|array`，按前导路径段匹配——修复 Apache `index.php?/` 重写把路径灌进 `QUERY_STRING` 导致 `white_url` 空值「仅空查询」语义永不命中、后台白名单静默失效的问题。
+- **`Response::alert()/redirectJs()` 防逃逸**：文本与 URL 经 `gene_view_js()` JSON 编码输出，`</script>` 不再可逃逸；URL 协议白名单外改跳 `/`，并与 `redirect()` 共用 `gene.redirect_hosts` 主机白名单；输出前声明 `text/html; charset=UTF-8`，修复 Swoole 无 `default_charset` 兜底时中文片段乱码。
+
+### 🐞 修复
+
+- ORM 中已弃用的 `zend_atol` 替换为 `ZEND_STRTOL`，消除 PHP 8.3+ 编译告警。
+
+### ✅ 测试
+
+- 新增 `test/ViewEscapeTest.php`（46 项：单引号属性、非 UTF-8、`{$a.b}` 转义、`</script>` 逃逸、`javascript:` URL、redirect_hosts 主机白名单等）；新增 `test/SecurityPolicyTest.php`（派发级 restGuard 内网门禁/requestId trust/webscan 直连与 fail_closed）；`MvcTest`/`DiTest`/`HookTest`/`ApplicationTest`/`WebscanTest`/`SwooleEntryTest`/`SecurityTest` 相应扩充。
+- 全量 TestRunner（PHP 8.2）1172 项仅 1 项环境性失败（子进程重复加载 pdo_sqlite 告警，与本次改动无关）；未执行 Swoole/FPM 线上验收（需 Linux 环境）。
+
+### 🔧 修改文件一览
+
+- `src/mvc/view.c`/`view.h`、`src/http/response.c` — 模板转义编译规则、`View::e/js/safeUrl/clean/setPurifier/compileAll`、alert/redirectJs 编码与 redirect_hosts
+- `src/db/pdo.{c,h}` + `src/db/{mysql,sqlite,pgsql,mssql}.c` — `gene_db_order_by_build`、四驱动 `orderBy`、直连 Mysql 原生预处理与 charset 诊断、`sql()` 字面量提示
+- `src/orm/{model,query}.c` — `$incrementing`、`Query::orderBy`、`ZEND_STRTOL`
+- `src/tool/{language,monitor}.c` — `Language::negotiate`、`Monitor::security`
+- `src/http/{ip.c,ip.h,webscan.c,webscan.h,policy.c}`、`src/app/application.c` — 内网判定收敛、webscan 派发直连与第 9 参 fail_closed、requestId trust
+- `src/mvc/{controller,model,view,hook}.c`、`src/service/service.c`、`src/di/di.c` — `__isset` 与 View assign 回落
+- `src/gene.{c,h}` — `gene.view_autoescape`/`gene.redirect_hosts` 两项 INI、版本号 6.2.8
+- `test/` — `ViewEscapeTest`、`SecurityPolicyTest`（新增）及既有套件扩充
+- `gene-ide-helper/Gene/` — `View`/`Language`/`Monitor`/`Orm\Model`/`Orm\Query`/四驱动/`Application`/`Request`/`Webscan` 同步
+- 文档：`plan/framework-review-2026-11.closed.md`、`docs/CONFIGURATION.md`、`AGENTS.md`、`gene-ai-helper`、`README*.md`
+
+## [6.2.7]
+
+> 本版为安全基线版：应用侧重复实现的安全原语全部框架化（S1–S12，方案与验证记录见 `plan/security-baseline.closed.md`），并修复 `Gene\Webscan` 白名单/SQL 注释混淆绕过及实存验证中暴露的多处缺陷。PHP 8.1.30 / 8.2.35 NTS x64 双版本编译通过，真实 Memcached/Redis 原子路径与 `php -S` FPM curl 端到端验收全过。
+
+### ✨ 新增（安全基线 S1–S12）
+
+- **S1 可信代理与真实 IP**：`Application::trustProxies($cfg)`（`proxies` CIDR + `headers` + `proto`，配置签名幂等）；`Request::directIp()/ip()/isInternal()/isSecure()` 统一口径，`X-Forwarded-Proto` 仅对可信直连代理生效；新类 `Gene\Ip`（`isValid`/`inCidr`/`isInternal`，严格 IPv4/IPv6/CIDR 解析，拒绝畸形输入）。
+- **S2 CSRF/同源策略**：`Application::csrf([...])` + 预注册组钩子 `@csrf`；`Gene\Csrf::token()/check()/field()`；`Sec-Fetch-Site`/`Origin`/`Referer` 与 Host 归一化比较；`check` 只读，失败不生成不轮换 token。
+- **S3 安全响应头**：`Application::secureHeaders([...])` 默认下发 `nosniff`/`X-Frame-Options`/`Referrer-Policy`/CSP（`{nonce}` 逐请求替换）；HSTS 仅在 `Request::isSecure()` 为真时下发；嵌套 `run()` 不重复执行策略。
+- **S4 JSONP 白名单**：`Response::json($data, $callback)` C 层校验 callback（严格标识符规则、≤128），不通过按纯 JSON 输出；输出带 `/**/` 前缀与 `nosniff`；INI `gene.jsonp` 可整体禁用。
+- **S5 内部 REST 鉴权**：`Application::restGuard([...])` + 组钩子 `@rest`；`internal` 内网判定 + `secret` 签名（`hmac`/`shared` 双模式）；`Gene\Rest`/`Gene\Http` 出站自动加签，签名覆盖 method/path/query/时间戳/nonce/body 哈希；nonce 仅在验签通过后原子一次性消费，消除"反代下 REMOTE_ADDR 恒内网"的鉴权旁路。
+- **S6 `Gene\Password`**：`hash/verify/needsRehash` + `legacy` 旧格式迁移，`md5($salt.sha1($salt.$password))` 等历史散列校验通过后可透明升级 bcrypt；校验恒走 dummy 哈希抗时序探测。
+- **S7 `Gene\Throttle`**：`hit/tooMany(只读)/attempt/remaining/clear`；Memory 写锁 + TTL 感知递增、Redis Lua `INCR`+首写 `EXPIRE`、通用存储 `incr→add→set(nx,ex)` 原子降级链；键统一 `gene:thr:` 前缀。
+- **S8 会话加固**：指纹 `_gene_fp`（UA + 可信客户端 IP 哈希）写进 session，`load()` 校验不一致按 `on_mismatch` 处理并可用 `Session::compromised()` 探测；cookie secure/httponly/samesite 安全默认值、空闲/绝对超时、idle touch 间隔限制持久化写。
+- **S9 密钥环与密封**：`Crypto` kid 前缀 + 多版本轮换 + HKDF；`seal/unseal`（AES-256-GCM）；`Response::sealedCookie`/`Request::sealedCookie` 过期时间写入密文载荷、服务端校验，篡改/过期/畸形即拒。
+- **S10 TOTP 与安全随机码**：`Crypto::totpSecret/totpUri/totp/totpVerify`（RFC 6238）+ `randomCode`（CSPRNG，替代 `rand()`）；`totpVerify` 支持 `used` 存储打一次性标记，键为 HMAC 指纹+时间片、不含明文密钥，同码重放拒绝、相邻步新码放行。
+- **S11 上传校验参考实现**：`demo/application/Ext/UploadCheck.php`（大小/扩展名白名单/MIME 嗅探链）。
+- **S12 方法守卫**：`Application::readonly()` / `$router->readonly()`，动态路径 GET 只读白名单（非 GET 405）；demo `Hooks\ReadonlyGuard` 参考实现。
+
+### 🛡️ 安全（Webscan 加固）
+
+- **`Gene\Webscan` 白名单绕过**：目录/URL 白名单原先对含 query 的完整 `REQUEST_URI` 做子串匹配，`?x=admin` 即可让整个请求跳过检测。现只匹配 URL 解码后的路径：目录白名单须为首个路径段（`/admin`、`/admin/...`；`/adminfoo`、`/x/admin` 不算），含 `..` 的路径不进白名单；URL 白名单值为空时要求 query 也为空。
+- **SQL 注释混淆归一化**：叶子级剥离 `#`/`-- ` 行注释、`/*...*/` 注释与 `/*!...*/` 可执行注释外壳、双负号 `--x`，压缩空白后再匹配，覆盖 `INSERT#\nINTO`、`and#\n1=1`、`or a=--b` 等绕过；原文与归一化文本双重匹配，避免字符串字面量内的 `#`/`--` 被剥离后藏匿载荷。
+- **扫描面扩展**：POST 开关同时覆盖 JSON 请求体（`Content-Type: */json`，或无 POST 字段且 body 以 `{`/`[` 开头；与 `Request::json()` 共享解码缓存，解码失败按原文扫描）；GET 开关同时覆盖请求路径；Referer 开关同时覆盖 `User-Agent`、`X-Forwarded-For`。
+- **PCRE 失败默认拦截**：`preg_match()` 因回溯/JIT 超限返回 `false` 时按命中处理，防止填充超长载荷绕过；构造函数新增第 8 个参数 `webscan_fail_closed`（默认 1）可关闭。
+
+### 🐞 修复（验证中发现）
+
+- `gene_crypto_unseal_str` 误向 `openssl_decrypt` 传 8 参（`tag_length` 为加密专属参数），编译进 openssl 的构建下 `unseal`/`sealedCookie` 必抛 `ArgumentCountError`。
+- `gene_throttle_call`/`gene_store_call` 只查方法表：依赖 `__call` 透传的存储（`Gene\Cache\Redis`/`Memcached`）上 `Throttle::clear` 等静默空操作；现回退 `__call` 派发。包装类补齐契约：`Gene\Cache\Redis` 新增 `del`/`delete`，`Gene\Cache\Memcached` 新增 `add`/`del`/`delete`/`expire`；Memcached `incr`/`decr` 缺键兜底从非原子 `set` 改原子 `add`+重试。
+- `Request::init()` 不失效惰性物化的 HEADER 袋，二次 init 读到旧快照（XFP 等判定漏判）。
+- TOTP 重放标记键由明文密钥改为 HMAC-SHA256 指纹 + 计数器时间片。
+
+### ✅ 测试
+
+- `test/SecurityTest.php`（107 项）覆盖 S1–S12 全部断言；`test/WebscanTest.php`（40 项）旧实现在白名单、注释混淆、JSON、路径/请求头、PCRE 失败相关的 20 项上失败；两者已注册进 `TestRunner`（PHP 8.2.35 下 1147/1147 全绿）。
+- 真实 Memcached/Redis 实存验证：53 项序列断言（hit 原子递增/首写 TTL/tooMany 只读/clear/TOTP 重放）+ 8 进程并发竞态（hit 精确计数、TOTP 恰好一个胜者）。
+- `php -S` FPM curl 端到端：安全头与 HSTS 信任边界、CSRF 7 例、REST 签名 8 例（nonce 重放、query/body 覆盖、过期时间戳）。
+
+### 🔧 修改文件一览
+
+- `src/http/`：`ip.c`/`ip.h`、`policy.c`/`policy.h`（新增）、`request.c`/`request.h`、`response.c`/`response.h`、`rest.c`、`webscan.c`
+- `src/tool/`：`password.c`/`password.h`、`throttle.c`/`throttle.h`（新增）、`crypto.c`
+- `src/session/session.c`/`session.h`、`src/app/application.c`、`src/gene.h`（版本号 6.2.7）、`src/gene.c`
+- `src/cache/`：`memory.c`/`memory.h`、`redis.c`/`redis.h`、`memcached.c`/`memcached.h`
+- `demo/`：`Ext\UploadCheck`、`Hooks\ReadonlyGuard`、`config.ini.php`
+- `test/`：`SecurityTest.php`、`WebscanTest.php`（新增）、`TestRunner.php`
+- `gene-ide-helper/Gene/`：`Ip`/`Csrf`/`Password`/`Throttle`（新增）及 `Crypto`/`Request`/`Response`/`Application`/`Memory`/`Cache\Redis`/`Cache\Memcached`/`Webscan` 同步
+- 文档：`plan/security-baseline.closed.md`、`README*.md`、`AGENTS.md`、`gene-ai-helper`，及全仓业务信息脱敏
+
 ## [6.2.6]
 
 > 本版为修正版：收敛 6.2.5 发布后发现的五处核心缺陷——路由组栈 packed hole 段错误、worker 冻结后借用请求数组致 PDO 悬垂读、连接池 `close()` 排空竞态漏槽、`through()` 未注册钩子静默丢弃（等于认证旁路）、ORM 裸片段开头 `and/or` 连接词致 MariaDB 1064；demo 按 SQLite 本地模式做一轮可用性修复，Windows 构建脚本补陈旧对象清理。
