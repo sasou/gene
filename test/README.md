@@ -31,6 +31,7 @@ Related verification assets outside this directory:
 | File | Coverage |
 |------|----------|
 | `HttpTest.php` | `Request`/`Response`/`Validate`: method detection, params, headers, files, cookies; status codes & redirects; string/numeric/email/url/file validation; workflow integration |
+| `ViewEscapeTest.php` | `View::e/js/safeUrl/clean`、模板编译转义（`{$v}`/`{$a.b}`/`{!! !!}`）与 `compileAll()`；Db `orderBy()` 白名单（sqlite）、`Language::negotiate()`、`Monitor::security()` |
 | `RequestHeaderTest.php` | `Request::header()` FPM fallback: HEADER bag lazily materialized from server/`$_SERVER` (`HTTP_*` → lowercase dash names, `CONTENT_*` mapped); explicit `init()` header bag precedence |
 | `HttpClientTest.php` | `Gene\Http::request()`: curl backend against a local `php -S` echo fixture; Swoole coroutine client when `runtime_type>=2` — explicit SKIP without the env, no fake pass |
 | `LifecycleTest.php` | `Context` / `Json` / `Request::json` / SSE `write` / `Crypto` / `Memory` rateLimit+lock; Redis paths SKIP without env. Leak probe: `audit/repro/lifecycle_leak_probe.php` |

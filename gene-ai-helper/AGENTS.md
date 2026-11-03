@@ -146,6 +146,8 @@ Swoole 细则：**必读** `skills/gene-framework/swoole.md`。
 ## 8. 安全与质量
 
 - 所有外部输入走 **Validate**
+- 用户传入的排序字段只用 `orderBy($col, $dir, $allow)`（白名单），禁止传给 `order()` / `select()` / `sql()`；`sql()` 值一律 `?` 绑定
+- 视图输出用户数据用 `{$x}` 或 `\Gene\View::e()`；链接用 `View::safeUrl()`，脚本内数据用 `View::js()`
 - 权限：路由钩子 + Service 二次校验
 - 不提交密钥；不改 `git config`；不 force push
 - 改动**最小范围**，匹配现有代码风格

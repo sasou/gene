@@ -1535,6 +1535,10 @@ PHP_METHOD(gene_orm_model, fill)
 	 * [GENE_FIX:2026-08-10 N2] $hydrate=false opts out of the auto-marking —
 	 * the escape hatch for client-generated primary keys (UUID / natural key /
 	 * data import), where the payload pk means "new row", not "persisted". */
+	if (hydrate) {
+		zval *inc = zend_read_static_property(Z_OBJCE_P(self), ZEND_STRL("incrementing"), 1);
+		if (inc && !zend_is_true(inc)) hydrate = 0;
+	}
 	if (hydrate && gene_orm_pk_value(&attrs, meta.primary_key)) {
 		zend_update_property_bool(gene_orm_model_ce, gene_strip_obj(self),
 			ZEND_STRL(GENE_ORM_EXISTS), 1);
@@ -2333,6 +2337,10 @@ GENE_MINIT_FUNCTION(orm)
 	 * subclass; exceeding it warns and skips invalidation. */
 	zend_declare_property_long(gene_orm_model_ce, ZEND_STRL(GENE_ORM_VERSION_SCAN_LIMIT),
 		1000, ZEND_ACC_PROTECTED | ZEND_ACC_STATIC);
+	/* false for UUID / natural-key models: fill() with a payload pk then
+	 * stays a new row (same as fill($data, false)). */
+	zend_declare_property_bool(gene_orm_model_ce, ZEND_STRL("incrementing"),
+		1, ZEND_ACC_PROTECTED | ZEND_ACC_STATIC);
 
 	/* Instance state */
 	zend_declare_property_null(gene_orm_model_ce, ZEND_STRL(GENE_ORM_ATTRS), ZEND_ACC_PROTECTED);

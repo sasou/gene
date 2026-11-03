@@ -35,6 +35,8 @@
 #include "../http/policy.h"
 #include "../cache/memory.h"
 #include "../di/di.h"
+#include "../mvc/view.h"
+#include "../exception/exception.h"
 
 zend_string *gene_crypto_seal_str(zend_string *plain, zend_string *ctx);
 zend_string *gene_crypto_unseal_str(zend_string *cipher, zend_string *ctx);
@@ -206,8 +208,57 @@ void gene_response_set_status(zend_long code) {
 
 /** {{{ void gene_response_set_redirect(char *url, zend_long code)
  */
+/* gene.redirect_hosts (comma list, "*.example.com" wildcards): when set,
+ * absolute and protocol-relative redirect targets must name a listed host,
+ * otherwise the redirect falls back to "/". Empty keeps the old behavior. */
+static int gene_response_host_listed(const char *host, size_t len)
+{
+	const char *list = GENE_G(redirect_hosts), *p, *end;
+	for (p = list; *p; p = end) {
+		size_t n;
+		while (*p == ',' || *p == ' ') p++;
+		end = p;
+		while (*end && *end != ',' && *end != ' ') end++;
+		n = (size_t)(end - p);
+		if (n == 0) continue;
+		if (n > 2 && p[0] == '*' && p[1] == '.') {
+			if (len > n - 1 && strncasecmp(host + len - (n - 1), p + 1, n - 1) == 0) return 1;
+		} else if (n == len && strncasecmp(host, p, n) == 0) {
+			return 1;
+		}
+	}
+	return 0;
+}
+
+static char *gene_response_redirect_target(char *url)
+{
+	const char *s = url, *h, *e;
+	if (!GENE_G(redirect_hosts) || !*GENE_G(redirect_hosts)) return url;
+	while (*s && (unsigned char)*s <= 0x20) s++;
+	if ((s[0] == '/' || s[0] == '\\') && (s[1] == '/' || s[1] == '\\')) {
+		h = s + 2;
+	} else {
+		const char *c = s;
+		while (*c && *c != ':' && *c != '/' && *c != '?' && *c != '#') c++;
+		if (*c != ':') return url;
+		h = c + 1;
+		while (*h == '/' || *h == '\\') h++;
+	}
+	for (e = h; *e && *e != '/' && *e != '\\' && *e != '?' && *e != '#'; e++) {
+		if (*e == '@') h = e + 1;
+	}
+	{
+		const char *colon = h;
+		while (colon < e && *colon != ':') colon++;
+		if (colon > h && gene_response_host_listed(h, (size_t)(colon - h))) return url;
+	}
+	gene_log_diag(E_WARNING, "redirect target host not in gene.redirect_hosts, falling back to /: %.200s", url);
+	return "/";
+}
+
 void gene_response_set_redirect(char *url, zend_long code) {
 	zval *swoole_resp = gene_response_context_obj();
+	url = gene_response_redirect_target(url);
 	if (swoole_resp) {
 		/* [GENE_PERF:2026-05-19] In Swoole mode sapi_header_op is a no-op (Swoole
 		 * bypasses the PHP SAPI output layer entirely). If the Swoole method
@@ -458,6 +509,20 @@ PHP_METHOD(gene_response, redirect) {
 }
 /* }}} */
 
+/* JSON-encoded (</script>-safe) URL literal; disallowed schemes become "/". */
+static zend_string *gene_response_js_url(zend_string *url)
+{
+	zval z;
+	if (gene_view_url_allowed(ZSTR_VAL(url), ZSTR_LEN(url))) {
+		char *target = gene_response_redirect_target(ZSTR_VAL(url));
+		if (target == ZSTR_VAL(url)) {
+			ZVAL_STR(&z, url);
+			return gene_view_js(&z);
+		}
+	}
+	return zend_string_init("\"/\"", 3, 0);
+}
+
 /** {{{ void gene_response_redirect_js(zend_string *url)
  */
 void gene_response_redirect_js(zend_string *url) {
@@ -467,9 +532,9 @@ void gene_response_redirect_js(zend_string *url) {
 	 * none — a charset-less <script> fragment decodes as GBK on zh-locale
 	 * browsers and mojibakes any UTF-8 text/URL inside. */
 	gene_response_set_header("Content-Type", "text/html; charset=UTF-8");
-	escaped_url = php_addslashes(url);
+	escaped_url = gene_response_js_url(url);
 	php_printf("<script type=\"text/javascript\">\n");
-	php_printf("window.location.href=\"%s\";\n", ZSTR_VAL(escaped_url));
+	php_printf("window.location.href=%s;\n", ZSTR_VAL(escaped_url));
 	php_printf("</script>\n");
 	zend_string_release(escaped_url);
 }
@@ -497,12 +562,16 @@ void gene_response_alert(zend_string *text, zend_string *url) {
 	 * <script> fragment; declare UTF-8 so Swoole (no default_charset fallback)
 	 * does not let the browser decode the Chinese text as GBK. */
 	gene_response_set_header("Content-Type", "text/html; charset=UTF-8");
-	escaped_text = php_addslashes(text);
-	php_printf("\n<script type=\"text/javascript\">\nalert(\"%s\");\n", ZSTR_VAL(escaped_text));
+	{
+		zval z;
+		ZVAL_STR(&z, text);
+		escaped_text = gene_view_js(&z);
+	}
+	php_printf("\n<script type=\"text/javascript\">\nalert(%s);\n", ZSTR_VAL(escaped_text));
 	zend_string_release(escaped_text);
 	if (url && ZSTR_LEN(url)) {
-		zend_string *escaped_url = php_addslashes(url);
-		php_printf("window.location.href=\"%s\";\n", ZSTR_VAL(escaped_url));
+		zend_string *escaped_url = gene_response_js_url(url);
+		php_printf("window.location.href=%s;\n", ZSTR_VAL(escaped_url));
 		zend_string_release(escaped_url);
 	}
 	php_printf("</script>\n");

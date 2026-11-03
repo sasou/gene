@@ -19,6 +19,7 @@
 
 | 文件 | 说明 | 状态 |
 |------|------|------|
+| [framework-review-2026-11.closed.md](framework-review-2026-11.closed.md) | 综合评估与需求清单（视图转义、SQL 注入残留面、PDO 选项一致性、惰性写体验、典型业务应用使用反馈） | 关闭（2026-11-03 落地，见文内 §八） |
 | [security-baseline.closed.md](security-baseline.closed.md) | 安全基线框架化（可信 IP、CSRF、安全头、JSONP、REST 签名、Password、Throttle、会话加固、密钥环、TOTP、上传、方法守卫） | 关闭（2026-11-01 全部落地，见文内 §十八） |
 | [orm-v2.closed.md](orm-v2.closed.md) | Db ↔ ORM 对称性（Query ops、timestamps、批量写、行锁、IN） | 关闭（6.1.0 已落地） |
 | [lifecycle-completeness.closed.md](lifecycle-completeness.closed.md) | 全生命周期原语（Http、SSE、Context、限流/锁、Json、Crypto） | 关闭（6.1.x 已落地，见文内 §八） |
