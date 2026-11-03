@@ -180,6 +180,8 @@ STD_PHP_INI_ENTRY("gene.trusted_proxies", "", PHP_INI_SYSTEM, OnUpdateString, tr
 STD_PHP_INI_ENTRY("gene.trusted_headers", "x-forwarded-for", PHP_INI_SYSTEM, OnUpdateString, trusted_headers, zend_gene_globals, gene_globals) // @suppress("Symbol is not resolved")
 STD_PHP_INI_BOOLEAN("gene.trusted_proto", "1", PHP_INI_SYSTEM, OnUpdateBool, trust_proto_ini, zend_gene_globals, gene_globals) // @suppress("Symbol is not resolved")
 STD_PHP_INI_BOOLEAN("gene.jsonp", "1", PHP_INI_SYSTEM, OnUpdateBool, jsonp_enabled, zend_gene_globals, gene_globals) // @suppress("Symbol is not resolved")
+STD_PHP_INI_BOOLEAN("gene.view_autoescape", "0", PHP_INI_SYSTEM, OnUpdateBool, view_autoescape, zend_gene_globals, gene_globals) // @suppress("Symbol is not resolved")
+STD_PHP_INI_ENTRY("gene.redirect_hosts", "", PHP_INI_SYSTEM, OnUpdateString, redirect_hosts, zend_gene_globals, gene_globals) // @suppress("Symbol is not resolved")
 PHP_INI_END();
 /* }}} */
 

@@ -253,6 +253,18 @@ class Mysql
     }
 
     /**
+     * ORDER BY for user-supplied sort fields: column must be in $allow
+     * (list of columns, or alias => column map) or, without $allow, a plain
+     * identifier; direction must be ASC/DESC.
+     * @param string $column
+     * @param string $direction
+     * @param array|null $allow
+     * @return $this
+     * @throws \ValueError
+     */
+    public function orderBy($column, $direction = 'ASC', $allow = null) {}
+
+    /**
      * order
      * 
      * @param mixed $order order

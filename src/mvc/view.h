@@ -22,7 +22,7 @@
 #define GENE_VIEW_EXT_LEN	(sizeof(GENE_VIEW_EXT) - 1)
 #define GENE_VIEW_VARS "vars"
 #define GENE_VIEW_VERSION_NO "no"
-#define PARSER_NUMS 28
+#define PARSER_NUMS 29
 
 extern zend_class_entry *gene_view_ce;
 void gene_view_contains(char *file, zval *ret);
@@ -34,6 +34,9 @@ int gene_view_set_vars(zend_string *name, zval *value);
 zval *gene_view_get_vars();
 void gene_view_clear_vars();
 void gene_view_reset_vars();
+zend_string *gene_view_escape(zval *value);
+zend_string *gene_view_js(zval *value);
+int gene_view_url_allowed(const char *url, size_t len);
 
 GENE_MINIT_FUNCTION (view);
 

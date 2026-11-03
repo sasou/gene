@@ -59,6 +59,12 @@ ZEND_BEGIN_ARG_INFO_EX(gene_orm_query_str_arginfo, 0, 0, 1)
 	ZEND_ARG_INFO(0, value)
 ZEND_END_ARG_INFO()
 
+ZEND_BEGIN_ARG_INFO_EX(gene_orm_query_order_by_arginfo, 0, 0, 1)
+	ZEND_ARG_INFO(0, column)
+	ZEND_ARG_INFO(0, direction)
+	ZEND_ARG_INFO(0, allow)
+ZEND_END_ARG_INFO()
+
 ZEND_BEGIN_ARG_INFO_EX(gene_orm_query_limit_arginfo, 0, 0, 1)
 	ZEND_ARG_INFO(0, num)
 	ZEND_ARG_INFO(0, limit)
@@ -1235,6 +1241,28 @@ PHP_METHOD(gene_orm_query, order)
 	RETURN_ZVAL(self, 1, 0);
 }
 
+PHP_METHOD(gene_orm_query, orderBy)
+{
+	zval *self = getThis();
+	zend_string *column = NULL, *direction = NULL, *built;
+	HashTable *allow = NULL;
+	zval op;
+
+	if (zend_parse_parameters(ZEND_NUM_ARGS(), "S|Sh!", &column, &direction, &allow) == FAILURE) {
+		return;
+	}
+	built = gene_db_order_by_build(column, direction, allow);
+	if (!built) {
+		RETURN_THROWS();
+	}
+	array_init_size(&op, 2);
+	gene_orm_query_op_tag(&op, ZEND_STRL("order"));
+	gene_orm_query_op_str(&op, built);
+	gene_orm_query_push(self, &op);
+	zend_string_release(built);
+	RETURN_ZVAL(self, 1, 0);
+}
+
 PHP_METHOD(gene_orm_query, limit)
 {
 	zval *self = getThis();
@@ -1873,6 +1901,7 @@ const zend_function_entry gene_orm_query_methods[] = {
 	PHP_ME(gene_orm_query, group, gene_orm_query_str_arginfo, ZEND_ACC_PUBLIC)
 	PHP_ME(gene_orm_query, having, gene_orm_query_str_arginfo, ZEND_ACC_PUBLIC)
 	PHP_ME(gene_orm_query, order, gene_orm_query_str_arginfo, ZEND_ACC_PUBLIC)
+	PHP_ME(gene_orm_query, orderBy, gene_orm_query_order_by_arginfo, ZEND_ACC_PUBLIC)
 	PHP_ME(gene_orm_query, limit, gene_orm_query_limit_arginfo, ZEND_ACC_PUBLIC)
 	PHP_ME(gene_orm_query, fields, gene_orm_query_fields_arginfo, ZEND_ACC_PUBLIC)
 	PHP_ME(gene_orm_query, lockForUpdate, gene_orm_query_void_arginfo, ZEND_ACC_PUBLIC)

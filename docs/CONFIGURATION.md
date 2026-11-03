@@ -14,6 +14,8 @@
 | `gene.use_namespace` | `1` | bool | 命名空间风格加载 / 回调解析 |
 | `gene.view_compile` | `0` | bool | 模板编译缓存 |
 | `gene.view_compile_check_mtime` | `1` | bool | 编译模板按 mtime 失效校验（默认开启，生产建议显式设为 `0`） |
+| `gene.view_autoescape` | `0` | bool | `1` 时模板 `{:expr}` 也经 `View::e()` 转义（原样输出改用 `{!! expr !!}`）；新项目建议开启 |
+| `gene.redirect_hosts` | `""` | string | 逗号分隔的允许跳转主机（支持 `*.example.com`）；非空时 `redirect()`/`redirectJs()`/`alert()` 的绝对或协议相对 URL 指向未列出主机时改跳 `/` 并写日志 |
 | `gene.view_stat_ttl` | `0` | 秒，`0`=关闭 | mtime 检查结果缓存时间；开启后源模板更新最多延迟该时长生效 |
 | `gene.view_fresh_max` | `512` | long，`<=0`=不限 | view stat 缓存条目上限；新 key 达上限时整表清空，防 worker 常驻增长 |
 | `gene.use_library` | `0` | bool | 启用 library 自动加载回退 |

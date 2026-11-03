@@ -210,6 +210,11 @@ $rest->use('user')->call('Ping', 'pong', $params);
 | getPath($withoutLang = false) | 当前请求路径；`true` 时去除语言前缀 |
 | getRouterUri() | 当前路由模式 URI（:m/:c/:a 已替换） |
 | scope($num = 0) | 管理视图变量作用域版本号（多层模板嵌套隔离） |
+| static e($v) / js($v) / safeUrl($url) | 上下文转义：HTML 正文与属性（ENT_QUOTES\|ENT_SUBSTITUTE）/ `<script>` 内 JSON 字面量 / href 协议白名单（非 http/https/mailto/tel/相对 → `#`） |
+| static clean($html) / setPurifier(callable) | 富文本经净化器输出；未注册净化器时转义 |
+| static compileAll() | 部署时预编译全部模板，配合 `gene.view_compile_check_mtime=0` |
+
+模板语法：`{$v}`、`{$a.b}`、`{$a.b.c}` 均经 `View::e()` 转义；`{!! expr !!}` 为显式原样输出；`{:expr}` 在 `gene.view_autoescape=1` 时转义、否则原样。原生 PHP 模板输出用户数据须写 `<?= \Gene\View::e($x) ?>`。`$view->x` 未命中 DI 时回落读取 `assign()` 变量。
 
 ---
 

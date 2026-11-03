@@ -29,6 +29,8 @@
 #include "ext/pcre/php_pcre.h"
 #include "ext/standard/php_filestat.h"
 #include "ext/standard/php_string.h"
+#include "ext/standard/html.h"
+#include "ext/json/php_json.h"
 
 #include "../gene.h"
 #include "../mvc/view.h"
@@ -605,22 +607,26 @@ static int parser_templates(php_stream **stream, char *compile_path) {
 			"/\\{for\\s+(.+?)\\}/is", "/\\{\\/for\\}/i",
 			"/\\{\\:\\s?(.+?)\\}/is", "/\\{\\~\\s?(.+?)\\}/is",
 			"/\\{contains\\}/",
-			"/\\{containsExt\\}/"
+			"/\\{containsExt\\}/",
+			"/\\{!!\\s?(.+?)\\s?!!\\}/is"
 		};
-		static const char *replace_raw[PARSER_NUMS] = {
+		const char *replace_raw[PARSER_NUMS] = {
 			"\\1", "{\\1}",
 			"<?php gene_view::template('\\1')?>", "``if \\1``", "``else``",
 			"``/if``", "<?php if(\\1) { ?>", "<?php } elseif(\\1) { ?>",
 			"<?php } else { ?>", "<?php } ?>", "{{if \\1}}", "{{else}}",
 			"{{/if}}", "<?php if(is_array(\\1)) { foreach(\\1 as \\2) { ?>",
 			"<?php if(is_array(\\1)) { foreach(\\1 as \\2 => \\3) { ?>",
-			"<?php } } ?>", "<?php echo htmlspecialchars(\\1, ENT_COMPAT);?>",
-			"<?php echo htmlspecialchars(\\1, ENT_COMPAT);?>",
-			"<?php echo \\1;?>", "<?php \\1?>", "<?php echo \\1[\'\\2\']; ?>",
-			"<?php echo \\1[\'\\2\'][\'\\3\']; ?>", "<?php for(\\1) { ?>",
-			"<?php } ?>", "<?php echo \\1; ?>", "<?php \\1; ?>",
+			"<?php } } ?>", "<?php echo \\\\Gene\\\\View::e(\\1);?>",
+			"<?php echo \\\\Gene\\\\View::e(\\1);?>",
+			"<?php echo \\1;?>", "<?php \\1?>", "<?php echo \\\\Gene\\\\View::e(\\1[\'\\2\']); ?>",
+			"<?php echo \\\\Gene\\\\View::e(\\1[\'\\2\'][\'\\3\']); ?>", "<?php for(\\1) { ?>",
+			"<?php } ?>",
+			GENE_G(view_autoescape) ? "<?php echo \\\\Gene\\\\View::e(\\1); ?>" : "<?php echo \\1; ?>",
+			"<?php \\1; ?>",
 			"<?php require $this::contains()?>",
-			"<?php require $this::containsExt()?>"
+			"<?php require $this::containsExt()?>",
+			"<?php echo \\1; ?>"
 		};
 		for (i = 0; i < PARSER_NUMS; i++) {
 			/* gene_interned_str_persistent() sets the static slot only when the
@@ -1017,6 +1023,10 @@ PHP_METHOD(gene_view, __get)
 		if (pzval) {
 			RETURN_ZVAL(pzval, 1, 0);
 		}
+		pzval = gene_view_get_vars();
+		if (pzval && (pzval = zend_hash_find(Z_ARRVAL_P(pzval), name)) != NULL) {
+			RETURN_COPY_DEREF(pzval);
+		}
 		RETURN_NULL();
 	}
 	RETURN_NULL();
@@ -1045,6 +1055,10 @@ PHP_METHOD(gene_view, __isset)
 		zend_string *class_name = gene_get_class_name_fast();
 		if (!class_name) { RETURN_FALSE; }
 		pzval = gene_di_get_class(class_name, name);
+		if (!pzval) {
+			pzval = gene_view_get_vars();
+			pzval = pzval ? zend_hash_find(Z_ARRVAL_P(pzval), name) : NULL;
+		}
 		if (pzval) {
 			ZVAL_DEREF(pzval);
 			RETURN_BOOL(Z_TYPE_P(pzval) != IS_NULL);
@@ -1054,10 +1068,199 @@ PHP_METHOD(gene_view, __isset)
 }
 /* }}} */
 
+/* HTML body / attribute escaping shared by templates and Response helpers:
+ * ENT_QUOTES | ENT_SUBSTITUTE, UTF-8. null/false/arrays render as "". */
+zend_string *gene_view_escape(zval *value)
+{
+	zend_string *str, *res;
+	ZVAL_DEREF(value);
+	switch (Z_TYPE_P(value)) {
+	case IS_NULL: case IS_FALSE: case IS_ARRAY: case IS_UNDEF:
+		return ZSTR_EMPTY_ALLOC();
+	case IS_LONG: case IS_DOUBLE: case IS_TRUE:
+		return zval_get_string(value);
+	default:
+		break;
+	}
+	str = zval_try_get_string(value);
+	if (!str) {
+		return ZSTR_EMPTY_ALLOC();
+	}
+	res = php_escape_html_entities_ex((unsigned char *) ZSTR_VAL(str), ZSTR_LEN(str), 0, ENT_QUOTES | ENT_SUBSTITUTE, "UTF-8", 1, 1);
+	zend_string_release(str);
+	return res;
+}
+
+/* JSON literal safe inside <script> and inline handlers. */
+zend_string *gene_view_js(zval *value)
+{
+	smart_str buf = {0};
+	php_json_encode(&buf, value, PHP_JSON_HEX_TAG | PHP_JSON_HEX_AMP | PHP_JSON_HEX_APOS | PHP_JSON_HEX_QUOT | PHP_JSON_PARTIAL_OUTPUT_ON_ERROR);
+	smart_str_0(&buf);
+	return buf.s ? buf.s : zend_string_init("null", 4, 0);
+}
+
+/* 1 when the URL is relative or uses http/https/mailto/tel. Browsers drop
+ * whitespace and control bytes inside a scheme, so those are skipped. */
+int gene_view_url_allowed(const char *url, size_t len)
+{
+	static const char *schemes[] = {"http", "https", "mailto", "tel"};
+	char scheme[16];
+	size_t i, n = 0, k;
+	for (i = 0; i < len; i++) {
+		unsigned char c = (unsigned char) url[i];
+		if (c <= 0x20) continue;
+		if (c == ':') break;
+		if (c == '/' || c == '?' || c == '#') return 1;
+		if (n >= sizeof(scheme) - 1) return 0;
+		scheme[n++] = (char) tolower(c);
+	}
+	if (i == len) return 1;
+	scheme[n] = '\0';
+	for (k = 0; k < sizeof(schemes) / sizeof(schemes[0]); k++) {
+		if (strcmp(scheme, schemes[k]) == 0) return 1;
+	}
+	return 0;
+}
+
+PHP_METHOD(gene_view, e)
+{
+	zval *value;
+	ZEND_PARSE_PARAMETERS_START(1, 1)
+		Z_PARAM_ZVAL(value)
+	ZEND_PARSE_PARAMETERS_END();
+	RETURN_STR(gene_view_escape(value));
+}
+
+PHP_METHOD(gene_view, js)
+{
+	zval *value;
+	ZEND_PARSE_PARAMETERS_START(1, 1)
+		Z_PARAM_ZVAL(value)
+	ZEND_PARSE_PARAMETERS_END();
+	RETURN_STR(gene_view_js(value));
+}
+
+PHP_METHOD(gene_view, safeUrl)
+{
+	zend_string *url;
+	zval tmp;
+	ZEND_PARSE_PARAMETERS_START(1, 1)
+		Z_PARAM_STR(url)
+	ZEND_PARSE_PARAMETERS_END();
+	if (!gene_view_url_allowed(ZSTR_VAL(url), ZSTR_LEN(url))) {
+		RETURN_STRINGL("#", 1);
+	}
+	ZVAL_STR(&tmp, url);
+	RETURN_STR(gene_view_escape(&tmp));
+}
+
+PHP_METHOD(gene_view, setPurifier)
+{
+	zval *callable;
+	ZEND_PARSE_PARAMETERS_START(1, 1)
+		Z_PARAM_ZVAL(callable)
+	ZEND_PARSE_PARAMETERS_END();
+	if (Z_TYPE_P(callable) != IS_NULL && !zend_is_callable(callable, 0, NULL)) {
+		zend_argument_type_error(1, "must be a valid callback or null");
+		RETURN_THROWS();
+	}
+	zend_update_static_property(gene_view_ce, ZEND_STRL("purifier"), callable);
+}
+
+/* Rich-text output: passes through the registered purifier; without one the
+ * input is escaped, so untrusted HTML never renders raw by accident. */
+PHP_METHOD(gene_view, clean)
+{
+	zval *html, *purifier, ret;
+	ZEND_PARSE_PARAMETERS_START(1, 1)
+		Z_PARAM_ZVAL(html)
+	ZEND_PARSE_PARAMETERS_END();
+	purifier = zend_read_static_property(gene_view_ce, ZEND_STRL("purifier"), 1);
+	if (purifier && Z_TYPE_P(purifier) != IS_NULL) {
+		if (call_user_function(NULL, NULL, purifier, &ret, 1, html) == SUCCESS && !EG(exception)) {
+			RETVAL_STR(zval_get_string(&ret));
+			zval_ptr_dtor(&ret);
+			return;
+		}
+		RETURN_THROWS();
+	}
+	RETURN_STR(gene_view_escape(html));
+}
+
+static zend_long gene_view_compile_dir(const char *root, const char *rel, int depth)
+{
+	char dir[MAXPATHLEN], child[MAXPATHLEN];
+	php_stream *ds;
+	int is_dir;
+	php_stream_dirent ent;
+	zend_long n = 0;
+	size_t ext_len = GENE_G(app_ext_len);
+	if (depth > 16) return 0;
+	snprintf(dir, sizeof(dir), rel[0] ? "%s/%s" : "%s", root, rel);
+	ds = php_stream_opendir(dir, 0, NULL);
+	if (!ds) return 0;
+	while (php_stream_readdir(ds, &ent)) {
+		size_t len = strlen(ent.d_name);
+		if (ent.d_name[0] == '.') continue;
+		snprintf(child, sizeof(child), rel[0] ? "%s/%s" : "%s%s", rel[0] ? rel : "", ent.d_name);
+		{
+			char full[MAXPATHLEN];
+			php_stream_statbuf ssb;
+			snprintf(full, sizeof(full), "%s/%s", root, child);
+			is_dir = php_stream_stat_path_ex(full, PHP_STREAM_URL_STAT_QUIET, &ssb, NULL) == 0 &&
+				(ssb.sb.st_mode & S_IFMT) == S_IFDIR;
+		}
+		if (is_dir) {
+			n += gene_view_compile_dir(root, child, depth + 1);
+		} else if (len > ext_len && strcmp(ent.d_name + len - ext_len, GENE_G(app_ext)) == 0) {
+			zval ret;
+			child[strlen(child) - ext_len] = '\0';
+			ZVAL_UNDEF(&ret);
+			gene_view_contains_ext(child, 1, &ret);
+			if (Z_TYPE(ret) != IS_FALSE && Z_TYPE(ret) != IS_UNDEF) n++;
+			zval_ptr_dtor(&ret);
+		}
+	}
+	php_stream_closedir(ds);
+	return n;
+}
+
+/* Compiles every template under the view directory ahead of traffic (deploy
+ * step); pair with gene.view_compile_check_mtime=0 in production. Returns the
+ * number of templates compiled or verified fresh. */
+PHP_METHOD(gene_view, compileAll)
+{
+	char root[MAXPATHLEN];
+	char *base_path;
+	ZEND_PARSE_PARAMETERS_NONE();
+	if (!GENE_G(app_view)) {
+		GENE_G(app_view) = estrndup(GENE_VIEW_VIEW, GENE_VIEW_VIEW_LEN);
+		GENE_G(app_view_len) = GENE_VIEW_VIEW_LEN;
+	}
+	if (!GENE_G(app_ext)) {
+		GENE_G(app_ext) = estrndup(GENE_VIEW_EXT, GENE_VIEW_EXT_LEN);
+		GENE_G(app_ext_len) = GENE_VIEW_EXT_LEN;
+	}
+	base_path = gene_view_app_base_path();
+	snprintf(root, sizeof(root), "%s/%s", base_path ? base_path : "app", GENE_G(app_view));
+	RETURN_LONG(gene_view_compile_dir(root, "", 0));
+}
+
+ZEND_BEGIN_ARG_INFO_EX(gene_view_arg_value, 0, 0, 1)
+	ZEND_ARG_INFO(0, value)
+ZEND_END_ARG_INFO()
+
 /*
  * {{{ gene_view_methods
  */
 const zend_function_entry gene_view_methods[] = {
+	PHP_ME(gene_view, e, gene_view_arg_value, ZEND_ACC_PUBLIC | ZEND_ACC_STATIC)
+	PHP_ME(gene_view, js, gene_view_arg_value, ZEND_ACC_PUBLIC | ZEND_ACC_STATIC)
+	PHP_ME(gene_view, safeUrl, gene_view_arg_value, ZEND_ACC_PUBLIC | ZEND_ACC_STATIC)
+	PHP_ME(gene_view, clean, gene_view_arg_value, ZEND_ACC_PUBLIC | ZEND_ACC_STATIC)
+	PHP_ME(gene_view, setPurifier, gene_view_arg_value, ZEND_ACC_PUBLIC | ZEND_ACC_STATIC)
+	PHP_ME(gene_view, compileAll, gene_view_void_arginfo, ZEND_ACC_PUBLIC | ZEND_ACC_STATIC)
 	PHP_ME(gene_view, __construct, gene_view_construct_arginfo, ZEND_ACC_PUBLIC)
 	PHP_ME(gene_view, display, gene_view_arg_display, ZEND_ACC_PUBLIC)
 	PHP_ME(gene_view, displayExt, gene_view_arg_display_ext, ZEND_ACC_PUBLIC)
@@ -1091,6 +1294,7 @@ GENE_MINIT_FUNCTION(view) {
 
 	zend_declare_property_null(gene_view_ce, GENE_VIEW_VARS, strlen(GENE_VIEW_VARS), ZEND_ACC_PROTECTED | ZEND_ACC_STATIC);
 	zend_declare_property_long(gene_view_ce, GENE_VIEW_VERSION_NO, strlen(GENE_VIEW_VERSION_NO), 0, ZEND_ACC_PROTECTED | ZEND_ACC_STATIC);
+	zend_declare_property_null(gene_view_ce, ZEND_STRL("purifier"), ZEND_ACC_PROTECTED | ZEND_ACC_STATIC);
 	return SUCCESS; // @suppress("Symbol is not resolved")
 }
 /* }}} */

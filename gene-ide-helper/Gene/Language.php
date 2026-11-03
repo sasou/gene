@@ -38,6 +38,16 @@ class Language
      * @param string|null $lang 语言代码
      * @return static
      */
+    /**
+     * Pick from $supported by Accept-Language q (header defaults to the request's
+     * accept-language; exact tag, then primary subtag), fall back to the first entry,
+     * and switch this instance to it.
+     * @param array $supported
+     * @param string|null $header
+     * @return string
+     */
+    public function negotiate(array $supported, $header = null) {}
+
     public function lang($lang = null)
     {
 
