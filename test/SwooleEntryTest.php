@@ -11,6 +11,7 @@
 use Gene\Application;
 use Gene\Request;
 use Gene\Response;
+use Gene\View;
 
 class FakeSwooleRequest
 {
@@ -472,13 +473,15 @@ class SwooleEntryTest
 
         /* alert() emits a bare <script> fragment — under Swoole there is no
          * default_charset fallback, so the helper must declare UTF-8 itself
-         * or zh-locale browsers mojibake the text (regression: 2FA 弹框乱码). */
+         * or zh-locale browsers mojibake the text (regression: 2FA 弹框乱码).
+         * Text/URL embed as View::js() literals (\uXXXX + \/ escaped,
+         * </script>-safe); assert the escaped form, not the raw text. */
         $resp = new FakeSwooleResponse();
         $this->app->handleSwoole($this->swooleRequest('/alert'), $resp);
         if ($resp->endCount === 1
             && ($resp->headers['Content-Type'] ?? '') === 'text/html; charset=UTF-8'
-            && strpos($resp->body, 'alert("验证成功，设备已绑定")') !== false
-            && strpos($resp->body, 'window.location.href="/admin.html"') !== false) {
+            && strpos($resp->body, 'alert(' . View::js('验证成功，设备已绑定') . ');') !== false
+            && strpos($resp->body, 'window.location.href=' . View::js('/admin.html') . ';') !== false) {
             echo "✓ alert() declares text/html; charset=UTF-8, body intact\n";
         } else {
             echo "✗ alert charset/body failed: " . json_encode([$resp->headers, $resp->body]) . "\n";
@@ -489,7 +492,7 @@ class SwooleEntryTest
         $this->app->handleSwoole($this->swooleRequest('/redirjs'), $resp);
         if ($resp->endCount === 1
             && ($resp->headers['Content-Type'] ?? '') === 'text/html; charset=UTF-8'
-            && strpos($resp->body, 'window.location.href="/to"') !== false) {
+            && strpos($resp->body, 'window.location.href=' . View::js('/to') . ';') !== false) {
             echo "✓ redirectJs() declares text/html; charset=UTF-8\n";
         } else {
             echo "✗ redirectJs charset failed: " . json_encode([$resp->headers, $resp->body]) . "\n";
