@@ -1,5 +1,56 @@
 # Gene Framework Changelog
 
+## [6.2.8]
+
+> 本版落地 `plan/framework-review-2026-11.closed.md` 里程碑 A/B：建成模板转义体系（`View::e/js/safeUrl/clean` + `{!! !!}` 原样语法 + `gene.view_autoescape`），并从 API 层收口开放重定向与排序字段注入（`gene.redirect_hosts`、四驱动 `orderBy()` 白名单）；同步收敛可信代理内网判定、Webscan 派发直连与目录白名单数组、用户空间类 `__isset` 等实测问题。PHP 8.1.30 / 8.2.33 NTS x64 双版本零告警编译通过。
+
+### ⚠️ 行为变更
+
+- **模板输出默认转义**：`{$v}`、`{$a.b}`、`{$a.b.c}` 统一编译为 `\Gene\View::e()`（ENT_QUOTES|ENT_SUBSTITUTE，UTF-8，null/false/array 输出空串，顺带消除 PHP 8.1 向 `htmlspecialchars` 传 null 的弃用告警）——此前 `{$a.b}` 点语法是不经转义的原样 `echo`。原样输出改用新增的 `{!! expr !!}`；`{:expr}` 仍原样，除非开启 `gene.view_autoescape=1`。**旧编译缓存在模板 mtime 变化前不会重编，升级后需清空 `Cache/Views` 或执行 `View::compileAll()`**。
+- **直连 `Gene\Db\Mysql` 默认原生预处理**：`ATTR_EMULATE_PREPARES=false` 与 Pool 对齐（用户 `options[20]` 显式值优先）；mysqlnd 原生预处理下整型/浮点列返回 PHP 原生类型而非字符串。DSN 缺 `charset=` 时进程内记录一次诊断。
+
+### ✨ 新增
+
+- **`Gene\View` 转义助手族**：`View::e()`（HTML 正文与属性）；`View::js()`（JSON_HEX_TAG|AMP|APOS|QUOT，可安全内联进 `<script>`）；`View::safeUrl()`（http/https/mailto/tel 与相对路径白名单，跳过空白与控制字符防 `java\tscript:` 混淆）；`View::clean($html)` + `View::setPurifier(callable)`（未注册净化器时按转义处理，失败即安全）；`View::compileAll()`（部署期递归预编译模板目录，返回编译/校验数）。
+- **两项新 INI**：`gene.view_autoescape`（PHP_INI_SYSTEM，默认 0；置 1 时 `{:expr}` 也经 `View::e()` 转义）、`gene.redirect_hosts`（逗号分隔主机白名单，支持 `*.example.com`；非空时 `redirect()`/`redirectJs()`/`alert()` 对绝对、协议相对、`/\host`、`user@host` 形式校验主机，未列出改跳 `/` 并写日志）。
+- **`orderBy($col, $dir='ASC', ?array $allow=null)`**：四驱动（Mysql/Sqlite/Pgsql/Mssql）与 `Orm\Query` 统一的用户排序入口——`$allow` 支持列表或「别名=>列」映射，列必须命中白名单、方向仅 ASC/DESC，违规抛 `ValueError`；无 `$allow` 时列须为纯标识符/点路径；构造共用 `gene_db_order_by_build()`。`order()` 保留给表达式，不应再接收用户输入。
+- **`sql()` 开发期插值提示**：`gene.run_environment=0` 下，SQL 片段含单引号字面量且无绑定值时经 `gene_log_diag()` 仅写日志提醒改用 `?` 占位（不触发用户错误处理器、不改语句）。
+- **`Language::negotiate(array $supported, ?string $header=null)`**：按 Accept-Language q 值挑取支持语言（精确匹配→主子标签匹配），回落首项并切换实例语言；header 缺省取当前请求 `accept-language`（FPM/Swoole 同一 HEADER 袋）。
+- **`Monitor::security()`**：安全相关 INI 快照自检（view_autoescape/redirect_hosts/trusted_proxies/jsonp/run_environment/display_errors/expose_php/session cookie 标志），每项返回 value、recommended、ok（`null` 表示依部署而定）。
+- **ORM `Model::$incrementing`**：类级声明 `protected static $incrementing = false;`（默认 true）后 `fill()` 带主键恒按新行处理，适配 UUID/自然主键，免去每次 `fill($d, false)`；`find($id, true)` 水合不受影响。
+- **`__isset` 魔术方法**：Controller/View/Model/Service/Hook/Application 补齐 `isset($this->x)`/`empty($this->x)`，与 `__get` 的「类限定键 + DI 回落」语义对齐——此前 `isset()` 对所有魔术属性静默返回 false，仅 dim-isset 形式可用。
+- **`View::__get/__isset` assign 回落**：DI 未命中时回落读取当前作用域的 assign 变量（DI 优先），`$this->view->x` 可读回视图变量。
+
+### 🛡️ 安全（可信代理与 Webscan）
+
+- **内网判定口径统一**：`Request::isInternal()` 与 `restGuard(['internal'=>true])` 共用 `gene_request_ip_is_internal()`——直连对端非 `trustProxies` 可信代理时只看 TCP 对端（XFF 永不采信）；对端为可信代理时改判解析后的客户端 IP，修复同机反代下公网请求被误判为内网的鉴权旁路。
+- **`requestId(['trust'=>true])`**：已配置可信代理表时仅采信可信对端传入的关联 ID，直连客户端的值替换为随机 ID；未配置可信代理表时保持旧行为。
+- **Webscan 派发直连**：`Application::webscan()` 新增第 9 个参数 `fail_closed`（默认 1）；派发路径直调 `gene_webscan_scan()` 扫描核心，不再每请求实例化 `Gene\Webscan`（省去 ctor 与 8 次属性读取），`Webscan::check()` 与派发路径共用同一扫描核心；`policy_hash_equals` 改 C 层常数时间比较。
+- **Webscan 目录白名单支持数组并与查询串解耦**：`webscan_white_directory` 接受 `string|array`，按前导路径段匹配——修复 Apache `index.php?/` 重写把路径灌进 `QUERY_STRING` 导致 `white_url` 空值「仅空查询」语义永不命中、后台白名单静默失效的问题。
+- **`Response::alert()/redirectJs()` 防逃逸**：文本与 URL 经 `gene_view_js()` JSON 编码输出，`</script>` 不再可逃逸；URL 协议白名单外改跳 `/`，并与 `redirect()` 共用 `gene.redirect_hosts` 主机白名单；输出前声明 `text/html; charset=UTF-8`，修复 Swoole 无 `default_charset` 兜底时中文片段乱码。
+
+### 🐞 修复
+
+- ORM 中已弃用的 `zend_atol` 替换为 `ZEND_STRTOL`，消除 PHP 8.3+ 编译告警。
+
+### ✅ 测试
+
+- 新增 `test/ViewEscapeTest.php`（46 项：单引号属性、非 UTF-8、`{$a.b}` 转义、`</script>` 逃逸、`javascript:` URL、redirect_hosts 主机白名单等）；新增 `test/SecurityPolicyTest.php`（派发级 restGuard 内网门禁/requestId trust/webscan 直连与 fail_closed）；`MvcTest`/`DiTest`/`HookTest`/`ApplicationTest`/`WebscanTest`/`SwooleEntryTest`/`SecurityTest` 相应扩充。
+- 全量 TestRunner（PHP 8.2）1172 项仅 1 项环境性失败（子进程重复加载 pdo_sqlite 告警，与本次改动无关）；未执行 Swoole/FPM 线上验收（需 Linux 环境）。
+
+### 🔧 修改文件一览
+
+- `src/mvc/view.c`/`view.h`、`src/http/response.c` — 模板转义编译规则、`View::e/js/safeUrl/clean/setPurifier/compileAll`、alert/redirectJs 编码与 redirect_hosts
+- `src/db/pdo.{c,h}` + `src/db/{mysql,sqlite,pgsql,mssql}.c` — `gene_db_order_by_build`、四驱动 `orderBy`、直连 Mysql 原生预处理与 charset 诊断、`sql()` 字面量提示
+- `src/orm/{model,query}.c` — `$incrementing`、`Query::orderBy`、`ZEND_STRTOL`
+- `src/tool/{language,monitor}.c` — `Language::negotiate`、`Monitor::security`
+- `src/http/{ip.c,ip.h,webscan.c,webscan.h,policy.c}`、`src/app/application.c` — 内网判定收敛、webscan 派发直连与第 9 参 fail_closed、requestId trust
+- `src/mvc/{controller,model,view,hook}.c`、`src/service/service.c`、`src/di/di.c` — `__isset` 与 View assign 回落
+- `src/gene.{c,h}` — `gene.view_autoescape`/`gene.redirect_hosts` 两项 INI、版本号 6.2.8
+- `test/` — `ViewEscapeTest`、`SecurityPolicyTest`（新增）及既有套件扩充
+- `gene-ide-helper/Gene/` — `View`/`Language`/`Monitor`/`Orm\Model`/`Orm\Query`/四驱动/`Application`/`Request`/`Webscan` 同步
+- 文档：`plan/framework-review-2026-11.closed.md`、`docs/CONFIGURATION.md`、`AGENTS.md`、`gene-ai-helper`、`README*.md`
+
 ## [6.2.7]
 
 > 本版为安全基线版：应用侧重复实现的安全原语全部框架化（S1–S12，方案与验证记录见 `plan/security-baseline.closed.md`），并修复 `Gene\Webscan` 白名单/SQL 注释混淆绕过及实存验证中暴露的多处缺陷。PHP 8.1.30 / 8.2.35 NTS x64 双版本编译通过，真实 Memcached/Redis 原子路径与 `php -S` FPM curl 端到端验收全过。
