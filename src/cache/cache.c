@@ -23,6 +23,7 @@
 #include "main/SAPI.h"
 #include "Zend/zend_API.h"
 #include "zend_exceptions.h"
+#include "zend_interfaces.h"
 #include "zend_smart_str.h" /* for smart_str */
 
 #include "ext/standard/md5.h"
@@ -858,7 +859,7 @@ static zend_long gene_cache_coroutine_id(void)
 		return -1;
 	}
 	ZVAL_UNDEF(&ret);
-	zend_call_method(NULL, ce, NULL, ZEND_STRL("getcid"), &ret, 0, NULL, NULL);
+	zend_call_method_with_0_params(NULL, ce, NULL, "getcid", &ret);
 	if (Z_TYPE(ret) == IS_LONG) {
 		cid = Z_LVAL(ret);
 	}
@@ -902,7 +903,7 @@ static int gene_cache_flight_wait(gene_cache_flight *f, zval *retval)
 		return 0;
 	}
 	ZVAL_LONG(&cap, 1);
-	zend_call_method(Z_OBJ(chan), ce, NULL, ZEND_STRL("__construct"), NULL, 1, &cap, NULL);
+	zend_call_method_with_1_params(Z_OBJ(chan), ce, NULL, "__construct", NULL, &cap);
 	if (EG(exception)) {
 		zend_clear_exception();
 		zval_ptr_dtor(&chan);
@@ -912,7 +913,7 @@ static int gene_cache_flight_wait(gene_cache_flight *f, zval *retval)
 	add_next_index_zval(&f->waiters, &chan);
 	ZVAL_DOUBLE(&timeout, (double)GENE_G(cache_fill_wait_ms) / 1000.0);
 	ZVAL_UNDEF(&got);
-	zend_call_method(Z_OBJ(chan), ce, NULL, ZEND_STRL("pop"), &got, 1, &timeout, NULL);
+	zend_call_method_with_1_params(Z_OBJ(chan), ce, NULL, "pop", &got, &timeout);
 	if (EG(exception)) {
 		zend_clear_exception();
 	} else if (Z_TYPE(got) == IS_ARRAY) {
@@ -949,7 +950,7 @@ static void gene_cache_flight_notify(gene_cache_flight *f, zval *data, int ok)
 	ZEND_HASH_FOREACH_VAL(Z_ARRVAL(f->waiters), chan) {
 		if (Z_TYPE_P(chan) != IS_OBJECT) continue;
 		ZVAL_UNDEF(&ret);
-		zend_call_method(Z_OBJ_P(chan), ce, NULL, ZEND_STRL("push"), &ret, 1, &payload, NULL);
+		zend_call_method_with_1_params(Z_OBJ_P(chan), ce, NULL, "push", &ret, &payload);
 		zval_ptr_dtor(&ret);
 		if (EG(exception)) {
 			zend_clear_exception();
