@@ -57,6 +57,24 @@ $all = Request::header();
 check("header() without name returns whole bag", is_array($all) && ($all['x-regression-hdr'] ?? null) === 'regv');
 check("non HTTP_/CONTENT_ server keys excluded", !isset($all['request_method']) && !isset($all['request_uri']));
 
+// Materialized bag must hold its own references: dropping it (re-init) must
+// not free values still owned by the server bag.
+$srv = ['HTTP_X_REF_HDR' => str_repeat('r', 8) . mt_rand()];
+$req->init(null, null, null, $srv);
+$v1 = Request::header('X-Ref-Hdr');
+$all = Request::header();
+$req->init(null, null, null, $srv);
+check("by-name probe without bag", $v1 === $srv['HTTP_X_REF_HDR']);
+check("server value intact after bag drop", Request::server('HTTP_X_REF_HDR') === $srv['HTTP_X_REF_HDR']);
+check("bag value intact", ($all['x-ref-hdr'] ?? null) === $srv['HTTP_X_REF_HDR']);
+
+// Swoole-shaped header bag: underscored names never reach the server view.
+$req->init(null, null, null, ['request_uri' => '/'], null, null, null,
+    ['x-forwarded-for' => '1.1.1.1', 'x_forwarded_for' => '6.6.6.6', 'authorization' => 'Bearer tok']);
+$view = Request::server();
+check("underscored header dropped from server view", ($view['HTTP_X_FORWARDED_FOR'] ?? null) === '1.1.1.1');
+check("bearer direct probe", Request::bearer() === 'tok');
+
 // An explicit init() header bag replaces the materialized one.
 $req->init(null, null, null, null, null, null, null, ['x-init-hdr' => 'initv']);
 check("init() header bag is authoritative", Request::header('x-init-hdr') === 'initv');

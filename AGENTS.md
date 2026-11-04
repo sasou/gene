@@ -173,6 +173,7 @@ D:\wampServer-php8.1_x64_nts\bin\php.exe -n -d extension_dir=D:\wampServer-php8.
 ### Request
 
 - `Request::header()` 的 HEADER bag（`request_attr` 索引 `GENE_REQUEST_ATTR_HEADER=7`）：`init()`/`initSwoole()` 显式注入优先；未注入时惰性从 server bag（或真实 `$_SERVER`）物化——`HTTP_*` 去前缀、`_`→`-`、小写（与 Swoole/PSR 同形），`CONTENT_TYPE`/`CONTENT_LENGTH` 一并映射。物化结果为请求级快照，后续改写 `$_SERVER` 不回灌。CLI 下 userland 写 `$_SERVER` 会触发数组分离、C 层仍见旧数组，回归须用 `init()` 注入 server bag 或预置环境变量（回归：`RequestHeaderTest.php`）。
+- `Request::server()` FPM/Swoole 同形（`GENE_REQUEST_ATTR_SERVER_VIEW=9`）：注入式请求按名查 `HTTP_FOO`/`CONTENT_*` miss 时回落 header 袋（`HTTP_X`→`x`，`CONTENT_TYPE`→`content-type`）；无参整袋读返回惰性视图——CGI 键大写 + header 折叠 `HTTP_*`/`CONTENT_*`，re-init 失效重建。FPM 未走 `init()` 的请求依旧直通 `$_SERVER`。**`$_SERVER` 超全局在 Swoole 下不做镜像写回**（worker 内跨请求泄漏风险），跨运行时的统一读法只有 `Request::server()/header()`，不要直读 `$_SERVER['HTTP_*']`。回归：`SwooleEntryTest::testInitSwooleBags/testInitSwooleReinit`。
 
 ### Security policy / IP
 

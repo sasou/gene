@@ -252,7 +252,7 @@ class SwooleEntryTest
             ['c' => '3'],
             ['request_method' => 'put', 'request_uri' => '/echo?x=1', 'content_type' => 'application/json'],
             ['f' => ['name' => 'a.txt', 'size' => 3]],
-            ['x-h' => 'hv'],
+            ['x-h' => 'hv', 'user-agent' => 'TestUA/1.0', 'x-requested-with' => 'XMLHttpRequest'],
             '{"j":1}'
         );
         $ok = Request::initSwoole($req)
@@ -271,6 +271,24 @@ class SwooleEntryTest
             echo "✓ initSwoole populates get/post/cookie/server/files/header/request/raw\n";
         } else {
             echo "✗ initSwoole bag population failed\n";
+        }
+        /* FPM parity: server('HTTP_*')/CONTENT_* by-name lookups fall through
+         * to the header bag on injected requests; whole-bag server() returns
+         * an FPM-shaped view (CGI keys uppercased + HTTP_* folded). */
+        $srv = Request::server();
+        if (Request::server('HTTP_USER_AGENT') === 'TestUA/1.0'
+            && Request::server('HTTP_X_REQUESTED_WITH') === 'XMLHttpRequest'
+            && Request::isAjax()
+            && is_array($srv)
+            && ($srv['HTTP_USER_AGENT'] ?? null) === 'TestUA/1.0'
+            && ($srv['REQUEST_METHOD'] ?? null) === 'put'
+            && ($srv['REQUEST_URI'] ?? null) === '/echo?x=1'
+            && ($srv['CONTENT_TYPE'] ?? null) === 'application/json') {
+            echo "✓ server bag parity: HTTP_* names resolve, whole-bag view is FPM-shaped\n";
+        } else {
+            echo "✗ server bag parity failed: " . json_encode([
+                Request::server('HTTP_USER_AGENT'), Request::isAjax(),
+                $srv['HTTP_USER_AGENT'] ?? null, $srv['REQUEST_METHOD'] ?? null]) . "\n";
         }
         $j = Request::json();
         if (is_array($j) && ($j['j'] ?? null) === 1) {
@@ -326,13 +344,26 @@ class SwooleEntryTest
         Request::init([], [], [], [], null, [], null, [], '{"old":true}');
         Request::json();
         Request::initSwoole(new FakeSwooleRequest(['n' => '1'], [], [],
-            ['request_method' => 'get', 'request_uri' => '/echo'], [], [], '{"new":2}'));
+            ['request_method' => 'get', 'request_uri' => '/echo'], [],
+            ['user-agent' => 'UA-first'], '{"new":2}'));
         $j = Request::json();
         if (($j['new'] ?? null) === 2 && Request::rawContent() === '{"new":2}'
             && Request::get('n') === '1' && !isset($j['old'])) {
             echo "✓ re-init replaces raw body and drops stale JSON cache\n";
         } else {
             echo "✗ stale raw/JSON leaked across re-init\n";
+        }
+        /* materialize the server view, then re-init: stale view must be rebuilt */
+        Request::server();
+        Request::initSwoole(new FakeSwooleRequest([], [], [],
+            ['request_method' => 'get', 'request_uri' => '/echo'], [],
+            ['user-agent' => 'UA-second'], ''));
+        $srv2 = Request::server();
+        if (Request::server('HTTP_USER_AGENT') === 'UA-second'
+            && ($srv2['HTTP_USER_AGENT'] ?? null) === 'UA-second') {
+            echo "✓ re-init invalidates cached server view\n";
+        } else {
+            echo "✗ stale server view leaked across re-init\n";
         }
         Application::cleanup();
         echo "\n";

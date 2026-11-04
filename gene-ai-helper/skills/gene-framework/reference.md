@@ -101,7 +101,7 @@
 | post($key, $default = null) | 获取 POST 参数 |
 | cookie($key, $default = null) | 获取 Cookie |
 | files($key, $default = null) | 获取上传文件 |
-| server($key, $default = null) | 获取 $_SERVER |
+| server($key, $default = null) | 获取 $_SERVER；FPM/Swoole 同形——注入式请求 `HTTP_*`/`CONTENT_*` miss 回落 header 袋，无参整袋返回 FPM 形态视图（CGI 键大写 + header 折叠 `HTTP_*`/`CONTENT_*`）；`$_SERVER` 超全局在 Swoole 下不写回 |
 | env($key, $default = null) | 获取环境变量 |
 | params($key = null) | 获取路由路径参数 |
 | isAjax() | 是否 AJAX 请求 |

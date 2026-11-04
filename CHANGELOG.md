@@ -1,5 +1,22 @@
 # Gene Framework Changelog
 
+## [Unreleased]
+
+### 🐞 修复
+
+- **Swoole 下 `Request::server('HTTP_*')`/`CONTENT_TYPE`/`CONTENT_LENGTH` 统一回落 header 袋**：`init()`/`initSwoole()` 注入的 server 袋为 miss 时，`HTTP_FOO` 按 `foo`、`CONTENT_*` 按 `content-*` 回查 header 袋（仅 miss 路径一次栈内转换 + 一次哈希探测）。修复 Swoole 下 `server('HTTP_USER_AGENT')`、`isAjax()`（`HTTP_X_REQUESTED_WITH`）、`HTTP_AUTHORIZATION` 恒取空的问题；FPM 走 `$_SERVER` 原路径不受影响。
+- **`Request::server()` 整袋返回 FPM 形态视图**：注入式请求（`bags_inited`）首次无参调用时惰性物化视图缓存于 `request_attr[9]`——CGI 键大写化（`remote_addr`→`REMOTE_ADDR`），header 袋折叠为 `HTTP_*`（`content-type`/`content-length` 映射 `CONTENT_TYPE`/`CONTENT_LENGTH`，与 `$_SERVER` 同形）；原始注入袋仍占 `TRACK_VARS_SERVER` 槽位供按名零分配查询。`init()`/`initSwoole()` 重初始化即失效重建。修复 webscan referer/UA/XFF 维度扫描在 Swoole 下空转、以及 `server()` 迭代看不到请求头的差异。
+
+### ✅ 测试
+
+- `SwooleEntryTest` 扩充：`server('HTTP_USER_AGENT')`/`HTTP_X_REQUESTED_WITH`/`isAjax()` 命中 header 袋、整袋视图形态（`HTTP_*`、`REQUEST_METHOD` 大写、`CONTENT_TYPE` 折叠）、re-init 后视图重建。
+
+### 🔧 修改文件一览
+
+- `src/http/request.c` — `getVal()` 整袋视图钩子与按名 header 回落、`gene_request_server_header_fallback()`/`gene_request_materialize_server_view()`、`init_bags` 视图失效
+- `src/http/request.h` — `GENE_REQUEST_ATTR_SERVER_VIEW=9`
+- `test/SwooleEntryTest.php` — 上述断言
+
 ## [6.2.8]
 
 > 本版落地 `plan/framework-review-2026-11.closed.md` 里程碑 A/B：建成模板转义体系（`View::e/js/safeUrl/clean` + `{!! !!}` 原样语法 + `gene.view_autoescape`），并从 API 层收口开放重定向与排序字段注入（`gene.redirect_hosts`、四驱动 `orderBy()` 白名单）；同步收敛可信代理内网判定、Webscan 派发直连与目录白名单数组、用户空间类 `__isset` 等实测问题。PHP 8.1.30 / 8.2.33 NTS x64 双版本零告警编译通过。
