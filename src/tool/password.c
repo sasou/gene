@@ -132,11 +132,20 @@ static int gene_password_hash_call(zend_string *pwd, zval *opts, zval *retval) {
 				}
 			} ZEND_HASH_FOREACH_END();
 		}
+		int rc;
 		ZVAL_ARR(&params[2], Z_ARR(fwd));
-		return password_call(ZEND_STRL("password_hash"), 3, params, retval);
+		rc = password_call(ZEND_STRL("password_hash"), 3, params, retval);
+		zval_ptr_dtor(&params[1]);
+		zval_ptr_dtor(&params[2]);
+		return rc;
 	}
-	ZVAL_NULL(&params[2]);
-	return password_call(ZEND_STRL("password_hash"), 2, params, retval);
+	{
+		int rc;
+		ZVAL_NULL(&params[2]);
+		rc = password_call(ZEND_STRL("password_hash"), 2, params, retval);
+		zval_ptr_dtor(&params[1]);
+		return rc;
+	}
 }
 
 /* {{{ shared helpers */
