@@ -166,7 +166,7 @@ STD_PHP_INI_ENTRY("gene.ctx_pool_prewarm", "0", PHP_INI_SYSTEM, OnUpdateLong, ct
 STD_PHP_INI_BOOLEAN("gene.swoole_getcid_capi", "1", PHP_INI_SYSTEM, OnUpdateBool, swoole_getcid_capi, zend_gene_globals, gene_globals) // @suppress("Symbol is not resolved")
 STD_PHP_INI_ENTRY("gene.cache_max_items", "0", PHP_INI_SYSTEM, OnUpdateLong, cache_max_items, zend_gene_globals, gene_globals) // @suppress("Symbol is not resolved")
 STD_PHP_INI_ENTRY("gene.cache_reserve", "4096", PHP_INI_SYSTEM, OnUpdateLong, cache_reserve, zend_gene_globals, gene_globals) // @suppress("Symbol is not resolved")
-STD_PHP_INI_BOOLEAN("gene.route_precompile", "0", PHP_INI_SYSTEM, OnUpdateBool, route_precompile, zend_gene_globals, gene_globals) // @suppress("Symbol is not resolved")
+STD_PHP_INI_BOOLEAN("gene.route_precompile", "1", PHP_INI_SYSTEM, OnUpdateBool, route_precompile, zend_gene_globals, gene_globals) // @suppress("Symbol is not resolved")
 STD_PHP_INI_ENTRY("gene.closure_src_cache_max", "1024", PHP_INI_SYSTEM, OnUpdateLong, closure_src_cache_max, zend_gene_globals, gene_globals) // @suppress("Symbol is not resolved")
 STD_PHP_INI_BOOLEAN("gene.swoole_auto_cleanup", "0", PHP_INI_SYSTEM, OnUpdateBool, swoole_auto_cleanup, zend_gene_globals, gene_globals) // @suppress("Symbol is not resolved")
 STD_PHP_INI_ENTRY("gene.cache_easy_ttl", "0", PHP_INI_SYSTEM, OnUpdateLong, cache_easy_ttl, zend_gene_globals, gene_globals) // @suppress("Symbol is not resolved")
@@ -182,6 +182,10 @@ STD_PHP_INI_BOOLEAN("gene.trusted_proto", "1", PHP_INI_SYSTEM, OnUpdateBool, tru
 STD_PHP_INI_BOOLEAN("gene.jsonp", "1", PHP_INI_SYSTEM, OnUpdateBool, jsonp_enabled, zend_gene_globals, gene_globals) // @suppress("Symbol is not resolved")
 STD_PHP_INI_BOOLEAN("gene.view_autoescape", "0", PHP_INI_SYSTEM, OnUpdateBool, view_autoescape, zend_gene_globals, gene_globals) // @suppress("Symbol is not resolved")
 STD_PHP_INI_ENTRY("gene.redirect_hosts", "", PHP_INI_SYSTEM, OnUpdateString, redirect_hosts, zend_gene_globals, gene_globals) // @suppress("Symbol is not resolved")
+STD_PHP_INI_BOOLEAN("gene.route_eval_compile", "0", PHP_INI_SYSTEM, OnUpdateBool, route_eval_compile, zend_gene_globals, gene_globals) // @suppress("Symbol is not resolved")
+STD_PHP_INI_BOOLEAN("gene.memory_business_zero_copy", "0", PHP_INI_SYSTEM, OnUpdateBool, memory_business_zero_copy, zend_gene_globals, gene_globals) // @suppress("Symbol is not resolved")
+STD_PHP_INI_ENTRY("gene.cache_fill_wait_ms", "0", PHP_INI_SYSTEM, OnUpdateLong, cache_fill_wait_ms, zend_gene_globals, gene_globals) // @suppress("Symbol is not resolved")
+STD_PHP_INI_BOOLEAN("gene.http_keepalive", "0", PHP_INI_SYSTEM, OnUpdateBool, http_keepalive, zend_gene_globals, gene_globals) // @suppress("Symbol is not resolved")
 PHP_INI_END();
 /* }}} */
 
@@ -1391,6 +1395,29 @@ static void php_gene_init_globals() {
 	GENE_G(trust_sig) = NULL;
 	GENE_G(trust_xfp_warned) = 0;
 	GENE_G(password_dummy) = NULL;
+	/* [GENE_PERF:2026-11-04 V3] Counters and lazily-built V3 state. The INI
+	 * switches (route_eval_compile / memory_business_zero_copy /
+	 * cache_fill_wait_ms / http_keepalive) come from php.ini — not zeroed. */
+	GENE_G(route_eval_calls) = 0;
+	GENE_G(route_eval_bytes) = 0;
+	GENE_G(route_eval_compiled) = 0;
+	GENE_G(route_error_eval_calls) = 0;
+	GENE_G(route_dispatch_direct) = 0;
+	GENE_G(route_dispatch_closure) = 0;
+	GENE_G(memory_business_copy_calls) = 0;
+	GENE_G(memory_business_copy_bytes) = 0;
+	GENE_G(memory_business_borrow_calls) = 0;
+	GENE_G(validate_regex_calls) = 0;
+	GENE_G(http_php_calls) = 0;
+	GENE_G(cache_fill_calls) = 0;
+	GENE_G(cache_fill_concurrent_max) = 0;
+	GENE_G(cache_fill_coalesced) = 0;
+	GENE_G(memory_business_borrowed) = 0;
+	GENE_G(memory_business_retired) = NULL;
+	GENE_G(memory_business_retired_items) = 0;
+	GENE_G(cache_inflight) = NULL;
+	memset(GENE_G(cache_method_ce), 0, sizeof(GENE_G(cache_method_ce)));
+	memset(GENE_G(cache_method_fn), 0, sizeof(GENE_G(cache_method_fn)));
 	gene_memory_init();
 }
 /* }}} */
@@ -1417,6 +1444,14 @@ static void php_gene_close_request_globals() {
 		FREE_HASHTABLE(GENE_G(view_fresh));
 		GENE_G(view_fresh) = NULL;
 	}
+	if (GENE_G(cache_inflight)) {
+		zend_hash_destroy(GENE_G(cache_inflight));
+		FREE_HASHTABLE(GENE_G(cache_inflight));
+		GENE_G(cache_inflight) = NULL;
+	}
+	/* Slots may point at user classes freed with this request. */
+	memset(GENE_G(cache_method_ce), 0, sizeof(GENE_G(cache_method_ce)));
+	memset(GENE_G(cache_method_fn), 0, sizeof(GENE_G(cache_method_fn)));
 	gene_request_context_destroy(&GENE_G(default_ctx));
 	if (GENE_G(app_root)) {
 		efree(GENE_G(app_root));
@@ -1623,6 +1658,10 @@ PHP_MSHUTDOWN_FUNCTION(gene) {
 		pefree(GENE_G(cache_expiry), 1);
 		GENE_G(cache_expiry) = NULL;
 	}
+	/* Nothing can borrow after the last request: free retired values and make
+	 * the business dtor free directly during the table teardown below. */
+	GENE_G(memory_business_borrowed) = 0;
+	gene_memory_business_retired_drain();
 	if (GENE_G(business_cache)) {
 		gene_hash_destroy(GENE_G(business_cache));
 		GENE_G(business_cache) = NULL;
@@ -1642,6 +1681,7 @@ PHP_MSHUTDOWN_FUNCTION(gene) {
 	/* [GENE_PERF:2026-06-19 P6] Free the persistent FPM closure-source cache
 	 * (NTS-only; never allocated under ZTS). Keeps valgrind/ASAN clean. */
 	gene_closure_src_cache_destroy();
+	gene_route_prog_cache_destroy();
 	/* [GENE_SEC:2026-11-01 S1] Free the pemalloc'd trusted-proxy table. */
 	gene_trust_destroy();
 	if (GENE_G(password_dummy)) {
@@ -1668,6 +1708,11 @@ PHP_MSHUTDOWN_FUNCTION(gene) {
 		zend_hash_destroy(GENE_G(view_fresh));
 		FREE_HASHTABLE(GENE_G(view_fresh));
 		GENE_G(view_fresh) = NULL;
+	}
+	if (GENE_G(cache_inflight)) {
+		zend_hash_destroy(GENE_G(cache_inflight));
+		FREE_HASHTABLE(GENE_G(cache_inflight));
+		GENE_G(cache_inflight) = NULL;
 	}
 	gene_rwlock_destroy(&GENE_G(cache_lock));
 	gene_rwlock_destroy(&GENE_G(business_cache_lock));
@@ -1720,6 +1765,12 @@ PHP_RINIT_FUNCTION(gene) {
 	 * alias freed SHM. Zero them per request — 4x24 bytes. Swoole workers
 	 * skip RINIT but also cannot restart opcache mid-process. */
 	gene_cache_call_reset();
+	/* [GENE_PERF:2026-11-04 V3-3.3] The previous request's heap is gone, so
+	 * nothing can still borrow a retired business value. RINIT rather than
+	 * RSHUTDOWN: modules shut down after gene (session write, destructors in
+	 * other extensions) may still read borrowed values. */
+	GENE_G(memory_business_borrowed) = 0;
+	gene_memory_business_retired_drain();
 	return SUCCESS; // @suppress("Symbol is not resolved")
 }
 /* }}} */
@@ -1823,6 +1874,7 @@ ZEND_GET_MODULE(gene)
 const zend_module_dep gene_deps[] = {
 	// Audit [2026-03-25] cannot add comma separation, window compilation fails
 	ZEND_MOD_REQUIRED("spl")
+	ZEND_MOD_REQUIRED("pcre")
 	/* [GENE_FIX:2026-08-19 P1-4] Transaction hygiene (request boundary) and
 	 * pool return both call PDO methods during RSHUTDOWN/destructors �� pin
 	 * the module shutdown order so pdo is still loaded when gene tears down. */

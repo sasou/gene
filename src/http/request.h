@@ -21,6 +21,11 @@ extern zend_class_entry *gene_request_ce;
 #define GENE_INVOKE_DEPTH_MAX 8
 #define GENE_REQUEST_ATTR_HEADER 7
 #define GENE_REQUEST_ATTR_RAW 8
+/* [GENE_FEATURE:2026-11-04] Lazily materialized FPM-shaped server view for
+ * whole-bag server() reads on injected (init/initSwoole) requests: CGI keys
+ * uppercased + headers folded to HTTP_* / CONTENT_* names. The raw injected
+ * bag at TRACK_VARS_SERVER stays untouched for by-name lookups. */
+#define GENE_REQUEST_ATTR_SERVER_VIEW 9
 
 zval * request_query(zend_ulong type, char * name, size_t len);
 void gene_merge_query_into_get(const char *qs, size_t qs_len);

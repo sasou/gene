@@ -431,10 +431,9 @@ zend_ulong route_pc_generation;
  * drained in gene_router_pc_destroy(). */
 void *route_pc_retired;
 zend_ulong route_pc_retired_count;
-/* [GENE_PERF:2026-06-19 P3] Opt-in kill-switch for the precompiled dispatch
- * cache above. Default 0 (off) — the proven get_router_info_slow() path runs
- * unchanged until an operator enables gene.route_precompile=1 after validating
- * on Linux (phpize+make+ASAN + full route regression). */
+/* [GENE_PERF:2026-06-19 P3] Kill-switch for the precompiled dispatch cache
+ * above. Default 1 since 2026-11-04 (V3-3.2); gene.route_precompile=0 falls
+ * back to the get_router_info_slow() path. */
 zend_bool route_precompile;
 /* [GENE_MEM:2026-07-12] FPM closure-source cache capacity. Values <= 0
  * disable the cache so a dynamic routing workload cannot retain source
@@ -565,6 +564,47 @@ uint32_t trust_hdr_n;
 zend_string *trust_sig;
 zend_bool trust_xfp_warned;
 zend_string *password_dummy;
+/* [GENE_PERF:2026-11-04 V3-2] Process-level hot-path counters exported by
+ * Memory::stats(). Plain increments (approximate under ZTS by design). */
+zend_ulong route_eval_calls;
+zend_ulong route_eval_bytes;
+zend_ulong route_eval_compiled;
+zend_ulong route_error_eval_calls;
+zend_ulong route_dispatch_direct;
+zend_ulong route_dispatch_closure;
+zend_ulong memory_business_copy_calls;
+zend_ulong memory_business_copy_bytes;
+zend_ulong memory_business_borrow_calls;
+zend_ulong validate_regex_calls;
+zend_ulong http_php_calls;
+zend_ulong cache_fill_calls;
+zend_ulong cache_fill_concurrent_max;
+zend_ulong cache_fill_coalesced;
+/* [GENE_PERF:2026-11-04 V3-3.1] gene.route_eval_compile (php.ini): route
+ * programs that would go through zend_eval_stringl are written once to
+ * {app_root}/Cache/Router/<hash>.php and included, so opcache caches them. */
+zend_bool route_eval_compile;
+/* [GENE_PERF:2026-11-04 V3-3.3] gene.memory_business_zero_copy (php.ini,
+ * NTS FPM/CLI only): business-table reads borrow the immutable persistent
+ * value; overwritten/deleted values borrowed this request are retired and
+ * freed at the next RINIT. */
+zend_bool memory_business_zero_copy;
+zend_bool memory_business_borrowed;
+void *memory_business_retired;
+zend_ulong memory_business_retired_items;
+/* [GENE_PERF:2026-11-04 V3-3.5] gene.cache_fill_wait_ms (php.ini, Swoole):
+ * >0 coalesces concurrent cache fills of one key in a worker. cache_inflight
+ * is the request-allocator key => flight table. */
+zend_long cache_fill_wait_ms;
+HashTable *cache_inflight;
+/* [GENE_PERF:2026-11-04 V3-3.6] Request-scoped single-slot method caches for
+ * cache backends (get/set/incr/delete), keyed by class entry. */
+zend_class_entry *cache_method_ce[4];
+zend_function *cache_method_fn[4];
+/* [GENE_PERF:2026-11-04 V3-3.7] gene.http_keepalive (php.ini): share DNS/TLS
+ * session/connection cache across requests via curl_share_init_persistent()
+ * (PHP >= 8.5; no-op otherwise). */
+zend_bool http_keepalive;
 ZEND_END_MODULE_GLOBALS (gene)
  
  extern ZEND_DECLARE_MODULE_GLOBALS (gene);
@@ -605,6 +645,7 @@ void gene_request_context_pool_drain(void);
  * contexts actually added (bounded by ctx_pool_max). */
 zend_long gene_request_context_pool_prewarm(zend_long count);
 zend_long gene_closure_src_cache_items(void);
+zend_long gene_route_prog_cache_items(void);
 zend_long gene_closure_src_cache_bytes(void);
 
 /* [GENE_PERF:2026-09-20 V3-2.6] di_class_keys counts '_'-containing keys

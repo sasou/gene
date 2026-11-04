@@ -38,6 +38,15 @@
  #include "../mvc/hook.h"
  #include "../mvc/controller.h"
  #include "zend_smart_str.h"
+ #include "Zend/zend_extensions.h"
+
+#ifdef PHP_WIN32
+#include <process.h>
+#define gene_router_getpid _getpid
+#else
+#include <unistd.h>
+#define gene_router_getpid getpid
+#endif
  
  zend_class_entry *gene_router_ce;
  
@@ -421,6 +430,7 @@ static int gene_router_dispatch_direct(const char *class_method, zval *retval) {
 	 char *class_name, *action;
 	 zval classObject;
 	 gene_request_context *ctx = gene_request_ctx();
+	 GENE_G(route_dispatch_direct)++;
 
 	 ZVAL_NULL(retval);
 
@@ -739,6 +749,7 @@ static void gene_fn_cache_store(zval *closure, zval *fid_zv) {
 	 zend_class_entry *called_scope = NULL;
 	 zval *params_zv;
 	 ZVAL_NULL(retval);
+	 GENE_G(route_dispatch_closure)++;
 	 if (UNEXPECTED(!Z_OBJ_HANDLER_P(closure, get_closure)
 		 || Z_OBJ_HANDLER_P(closure, get_closure)(Z_OBJ_P(closure), &called_scope, &func, &this_obj, 0) != SUCCESS)) {
 		 return 0;
@@ -751,6 +762,247 @@ static void gene_fn_cache_store(zval *closure, zval *fid_zv) {
 	 return 1;
  }
  /* }}} */
+
+/* {{{ [GENE_PERF:2026-11-04 V3-3.1] Route program execution.
+ *
+ * Every route program that cannot be dispatched directly or through fn_cache
+ * (FPM closure routes, whose router file is not re-executed within its
+ * validity window, string hooks, error handlers) used to be compiled from
+ * scratch by zend_eval_stringl on each request; eval'd code never reaches
+ * opcache. With gene.route_eval_compile=1 and opcache active the program is
+ * written once to {app_root}/Cache/Router/<hash>_<len>.php as "<?php\n" +
+ * program + "\n" and executed through zend_compile_file + zend_execute, the
+ * same top-code path eval uses, so variable scope (the caller's symbol
+ * table), return/exception propagation and bailout swallowing are unchanged.
+ * Differences: __FILE__/__DIR__ name the cache file, and the code runs with
+ * no class scope (eval inherited Gene\Application's).
+ *
+ * File names are content-addressed and the content is verified once per
+ * process before first use, so a stale or colliding file is never executed.
+ * Any failure (no opcache, unwritable directory, mismatch, compile error)
+ * falls back to zend_eval_stringl. Process-wide table: NTS only. */
+#define GENE_ROUTE_PROG_HDR "<?php\n"
+#define GENE_ROUTE_PROG_STAT_TTL 2
+
+#ifndef ZTS
+typedef struct _gene_route_prog_node {
+	zend_string *path;
+	zend_long checked;
+} gene_route_prog_node;
+
+static HashTable *gene_route_prog_files = NULL;
+
+static void gene_route_prog_node_dtor(zval *zv) {
+	gene_route_prog_node *node = (gene_route_prog_node *)Z_PTR_P(zv);
+	if (node) {
+		zend_string_release_ex(node->path, 1);
+		pefree(node, 1);
+	}
+}
+
+static int gene_route_opcache_active(void) {
+	if (!zend_get_extension("Zend OPcache") || !INI_BOOL("opcache.enable")) {
+		return 0;
+	}
+	if (strcmp(sapi_module.name, "cli") == 0 || strcmp(sapi_module.name, "phpdbg") == 0) {
+		return INI_BOOL("opcache.enable_cli") ? 1 : 0;
+	}
+	return 1;
+}
+
+/* 1 = file holds exactly this program, 0 = different content, -1 = unreadable. */
+static int gene_route_prog_file_matches(const char *path, const char *prog, size_t len) {
+	php_stream *stream;
+	zend_string *content;
+	size_t hdr_len = sizeof(GENE_ROUTE_PROG_HDR) - 1;
+	int ok = 0;
+
+	stream = php_stream_open_wrapper((char *)path, "rb", 0, NULL);
+	if (!stream) {
+		return -1;
+	}
+	content = php_stream_copy_to_mem(stream, PHP_STREAM_COPY_ALL, 0);
+	php_stream_close(stream);
+	if (content) {
+		ok = ZSTR_LEN(content) == hdr_len + len + 1
+			&& memcmp(ZSTR_VAL(content), GENE_ROUTE_PROG_HDR, hdr_len) == 0
+			&& memcmp(ZSTR_VAL(content) + hdr_len, prog, len) == 0
+			&& ZSTR_VAL(content)[hdr_len + len] == '\n';
+		zend_string_release(content);
+	}
+	return ok;
+}
+
+static int gene_route_prog_write(const char *dir, const char *path, const char *prog, size_t len) {
+	static unsigned int seq = 0;
+	char tmp[MAXPATHLEN];
+	php_stream *stream;
+	php_stream_statbuf ssb;
+	int ok = 0;
+	int tmp_n;
+
+	if (php_stream_stat_path((char *)dir, &ssb) != 0
+			&& !php_stream_mkdir((char *)dir, 0755, PHP_STREAM_MKDIR_RECURSIVE, NULL)) {
+		return 0;
+	}
+	tmp_n = snprintf(tmp, sizeof(tmp), "%s.%ld.%u.tmp", path, (long)gene_router_getpid(), ++seq);
+	if (tmp_n <= 0 || (size_t)tmp_n >= sizeof(tmp)) {
+		return 0;
+	}
+	stream = php_stream_open_wrapper(tmp, "wb", 0, NULL);
+	if (!stream) {
+		return 0;
+	}
+	ok = php_stream_write(stream, GENE_ROUTE_PROG_HDR, sizeof(GENE_ROUTE_PROG_HDR) - 1) == (ssize_t)(sizeof(GENE_ROUTE_PROG_HDR) - 1)
+		&& php_stream_write(stream, prog, len) == (ssize_t)len
+		&& php_stream_write(stream, "\n", 1) == 1;
+	php_stream_close(stream);
+	if (ok && VCWD_RENAME(tmp, path) != 0) {
+		ok = 0;
+	}
+	if (!ok) {
+		VCWD_UNLINK(tmp);
+	}
+	return ok;
+}
+
+/* Resolve (and on first use, create + verify) the cache file of a program.
+ * A file with different content (corruption or a hash collision) is never
+ * overwritten: opcache may still serve the old script under that name, so
+ * the program stays on eval instead. */
+static zend_string *gene_route_prog_path(const char *prog, size_t len) {
+	gene_route_prog_node *node;
+	char dir[MAXPATHLEN], path[MAXPATHLEN];
+	int dir_n, path_n, match;
+	zend_long now = (zend_long)time(NULL);
+	zend_long cap = GENE_G(closure_src_cache_max);
+
+	if (gene_route_prog_files) {
+		node = (gene_route_prog_node *)zend_hash_str_find_ptr(gene_route_prog_files, prog, len);
+		if (node) {
+			zend_stat_t sb;
+			if (now - node->checked < GENE_ROUTE_PROG_STAT_TTL) {
+				return node->path;
+			}
+			if (VCWD_STAT(ZSTR_VAL(node->path), &sb) == 0) {
+				node->checked = now;
+				return node->path;
+			}
+			zend_hash_str_del(gene_route_prog_files, prog, len);
+		}
+	}
+	if (cap <= 0 || !GENE_G(app_root) || !GENE_G(app_root)[0]) {
+		return NULL;
+	}
+	dir_n = snprintf(dir, sizeof(dir), "%s/Cache/Router", GENE_G(app_root));
+	if (dir_n <= 0 || (size_t)dir_n >= sizeof(dir)) {
+		return NULL;
+	}
+	path_n = snprintf(path, sizeof(path), "%s/%016" PRIx64 "_%zx.php", dir,
+		(uint64_t)zend_hash_func(prog, len), len);
+	if (path_n <= 0 || (size_t)path_n >= sizeof(path)) {
+		return NULL;
+	}
+	{
+		int old_reporting = EG(error_reporting);
+		EG(error_reporting) = 0;
+		match = gene_route_prog_file_matches(path, prog, len);
+		if (match < 0 && gene_route_prog_write(dir, path, prog, len)) {
+			match = gene_route_prog_file_matches(path, prog, len);
+		}
+		EG(error_reporting) = old_reporting;
+	}
+	if (match != 1) {
+		return NULL;
+	}
+	if (!gene_route_prog_files) {
+		PALLOC_HASHTABLE(gene_route_prog_files);
+		zend_hash_init(gene_route_prog_files, 16, NULL, gene_route_prog_node_dtor, 1);
+	}
+	if ((zend_long)zend_hash_num_elements(gene_route_prog_files) >= cap) {
+		zend_hash_clean(gene_route_prog_files);
+	}
+	node = (gene_route_prog_node *)pemalloc(sizeof(gene_route_prog_node), 1);
+	node->path = zend_string_init(path, (size_t)path_n, 1);
+	node->checked = now;
+	zend_hash_str_update_ptr(gene_route_prog_files, prog, len, node);
+	return node->path;
+}
+
+static int gene_route_prog_exec_compiled(const char *prog, size_t len) {
+	zend_string *path;
+	zend_file_handle file_handle;
+	zend_op_array *op_array;
+	zval result;
+
+	if (!gene_route_opcache_active()) {
+		return 0;
+	}
+	path = gene_route_prog_path(prog, len);
+	if (!path) {
+		return 0;
+	}
+	/* ZEND_INCLUDE: a file deleted under us must fail soft (warning + NULL),
+	 * not bail out. Not registered in included_files, like eval. */
+	zend_stream_init_filename_ex(&file_handle, path);
+	op_array = zend_compile_file(&file_handle, ZEND_INCLUDE);
+	zend_destroy_file_handle(&file_handle);
+	if (!op_array) {
+		if (EG(exception)) {
+			/* ParseError from a corrupted file: let eval report the program. */
+			zend_clear_exception();
+		}
+		zend_hash_str_del(gene_route_prog_files, prog, len);
+		return 0;
+	}
+	ZVAL_UNDEF(&result);
+	zend_try {
+		zend_execute(op_array, &result);
+	} zend_catch {
+	} zend_end_try();
+	destroy_op_array(op_array);
+	efree_size(op_array, sizeof(zend_op_array));
+	zval_ptr_dtor(&result);
+	return 1;
+}
+#endif
+
+void gene_route_prog_cache_destroy(void) {
+#ifndef ZTS
+	if (gene_route_prog_files) {
+		zend_hash_destroy(gene_route_prog_files);
+		pefree(gene_route_prog_files, 1);
+		gene_route_prog_files = NULL;
+	}
+#endif
+}
+
+zend_long gene_route_prog_cache_items(void) {
+#ifndef ZTS
+	return gene_route_prog_files ? (zend_long)zend_hash_num_elements(gene_route_prog_files) : 0;
+#else
+	return 0;
+#endif
+}
+
+static void gene_router_eval(const char *prog, size_t len, const char *name) {
+	if (!prog || len == 0) {
+		return;
+	}
+#ifndef ZTS
+	if (GENE_G(route_eval_compile) && gene_route_prog_exec_compiled(prog, len)) {
+		GENE_G(route_eval_compiled)++;
+		return;
+	}
+#endif
+	GENE_G(route_eval_calls)++;
+	GENE_G(route_eval_bytes) += len;
+	zend_try {
+		zend_eval_stringl((char *)prog, len, NULL, (char *)name);
+	} zend_catch {
+	} zend_end_try();
+}
+/* }}} */
  
  /* {{{ P3 �� precompiled route dispatch descriptor + cache.
   *
@@ -783,8 +1035,8 @@ static void gene_fn_cache_store(zval *closure, zval *fid_zv) {
   *    their keys are, and the lookup happens at execute time.
   *    Only eval_str is owned (a persistent copy of the concatenated eval
   *    program) and is freed with the descriptor.
-  *  - Opt-in: gated behind gene.route_precompile (default off) so the proven
-  *    slow path is the only code that runs until an operator validates this.
+  *  - Gated by gene.route_precompile (default on since 2026-11-04 V3-3.2);
+  *    =0 restores the slow path.
   */
  enum { GENE_PC_DIRECT = 0, GENE_PC_CLOSURE = 1, GENE_PC_EVAL = 2 };
 
@@ -1127,12 +1379,7 @@ static void gene_fn_cache_store(zval *closure, zval *fid_zv) {
 	 zval *route_cl = NULL, *before_cl = NULL, *after_cl = NULL, *hook_cl = NULL;
 
 	 if (pc->kind == GENE_PC_EVAL) {
-		 if (pc->eval_str && pc->eval_len > 0) {
-			 zend_try {
-				 zend_eval_stringl(pc->eval_str, pc->eval_len, NULL, "");
-			 } zend_catch {
-			 } zend_end_try();
-		 }
+		 gene_router_eval(pc->eval_str, pc->eval_len, "");
 		 return 1;
 	 }
 
@@ -1491,10 +1738,7 @@ static void gene_fn_cache_store(zval *closure, zval *fid_zv) {
  
 		 if (buf.s && ZSTR_LEN(buf.s) > 0) {
 			 smart_str_0(&buf);
-			 zend_try {
-				 zend_eval_stringl(ZSTR_VAL(buf.s), ZSTR_LEN(buf.s), NULL, "");
-			 } zend_catch {
-			 } zend_end_try();
+			 gene_router_eval(ZSTR_VAL(buf.s), ZSTR_LEN(buf.s), "");
 		 }
 		 smart_str_free(&buf);
 	 }
@@ -1633,10 +1877,8 @@ static void gene_fn_cache_store(zval *closure, zval *fid_zv) {
 			 size = Z_STRLEN_P(error);
 			 run = estrndup(Z_STRVAL_P(error), size);
 
-			 zend_try {
-				 zend_eval_stringl(run, size, NULL, errorName);
-			 } zend_catch {
-			 } zend_end_try();
+			 GENE_G(route_error_eval_calls)++;
+			 gene_router_eval(run, size, errorName);
 
 			 efree(run);
 			 if (hsrc_heap) efree(hsrc_key);
@@ -1751,10 +1993,8 @@ static void gene_fn_cache_store(zval *closure, zval *fid_zv) {
 	  * this control flow cannot deref/efree a NULL/uninitialized pointer.
 	  * [V3-5] eval fallback is the uncommon path vs. direct/closure dispatch. */
 	 if (UNEXPECTED(run)) {
-		 zend_try {
-			 zend_eval_stringl(run, size, NULL, "");
-		 } zend_catch {
-		 } zend_end_try();
+		 GENE_G(route_error_eval_calls)++;
+		 gene_router_eval(run, size, "");
 		 efree(run);
 	 }
 	 if (hsrc_heap) efree(hsrc_key);
@@ -3800,7 +4040,7 @@ PHP_METHOD(gene_router, __call) {
 			 zval *closure = zend_hash_find(GENE_G(fn_cache), Z_STR_P(value));
 			 proceed = closure ? gene_router_exec_closure_hook(closure, NULL, 1) : 0;
 		 } else if ((value = zend_hash_str_find(Z_ARRVAL_P(descriptor), ZEND_STRL("eval"))) && Z_TYPE_P(value) == IS_STRING) {
-			 zend_try { zend_eval_stringl(Z_STRVAL_P(value), Z_STRLEN_P(value), NULL, ""); } zend_catch { } zend_end_try();
+			 gene_router_eval(Z_STRVAL_P(value), Z_STRLEN_P(value), "");
 			 proceed = !gene_app_stopped() && !gene_request_ctx()->response_ended;
 		 }
 		 if (!proceed || gene_app_stopped() || gene_request_ctx()->response_ended) RETURN_FALSE;

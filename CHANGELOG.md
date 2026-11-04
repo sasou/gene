@@ -1,5 +1,44 @@
 # Gene Framework Changelog
 
+## [Unreleased]
+
+### ⚡ 性能（plan/Performance-tuning-V3.closed.md）
+
+- **`gene.route_precompile` 默认改为 `1`**（仅 Swoole 生效，`0` 回退慢路径）。
+- **FPM 闭包路由免 eval（`gene.route_eval_compile`，默认 0）**：闭包路由、闭包/字符串钩子、错误处理器的派发程序按内容哈希写入 `{app_root}/Cache/Router/<hash>_<len>.php`（tmp + rename 原子落盘，首次使用校验内容），经 `zend_compile_file` + `zend_execute` 走 opcache，与 eval 同一顶层执行路径（调用方符号表、return、异常与 bailout 吞没语义不变）。opcache 未启用、目录不可写、文件内容不符时回退 eval；不符的文件不覆盖（opcache 可能仍持有旧脚本）。本地 FastCGI worker 闭包路由 `run()` 中位数 −24%。差异：`__FILE__` 指向缓存文件、不继承 `Gene\Application` 类作用域。
+- **业务缓存零拷贝（`gene.memory_business_zero_copy`，默认 0，仅 NTS FPM/CLI）**：`processCached*` 命中时借用持久化 interned 字符串 / 不可变数组，免深拷贝；本请求内被覆盖、删除或 `clean()` 的旧值进入退休队列，下一请求 RINIT 释放。Swoole 下不启用（用户态可把借用值放入静态变量跨请求持有）。`processCachedVersion*` 命中时去掉第二次深拷贝。
+- **Validate 直连 PCRE**：`rule_match()` 字符串入参直接调用 `php_pcre_match_impl`（与 `preg_match` 同一编译缓存与返回值，含非法正则 false+warning）；`rule_mobile()`/`rule_date()` 改为手写匹配器（与原正则 2 万条模糊输入逐条一致，含 `$` 允许末尾单个换行、非 ASCII 字节回退 PCRE）。Webscan 同样直连 PCRE，PCRE 错误仍按 fail-closed 计命中。
+- **回源计数与 single-flight（`gene.cache_fill_wait_ms`，默认 0，仅 Swoole 协程）**：所有回源点统计 `cache_fill_calls`，单 key 回源统计同 key 并发峰值 `cache_fill_concurrent_max`；`>0` 时 `cached`/`localCached`/`processCached` 同 worker 同 key 的后到协程通过 `Swoole\Coroutine\Channel` 等待首个协程结果（超时、首个协程异常或结果含对象时自行回源），复用者不再重复写缓存。带版本方法只计数不合并（等待者可能读到更新的版本号）。
+- **函数查找缓存**：`Gene\Http` curl 调用按名字指针缓存内部函数（NTS、非 Swoole）；`Gene\Cache` 钩子 get/set/incr/delete 按方法槽缓存 `(ce, fn)`，请求结束清空。
+- **`gene.http_keepalive`（默认 0）**：PHP ≥ 8.5 时 curl 句柄挂载 `curl_share_init_persistent([DNS, SSL_SESSION, CONNECT])`，跨请求复用连接；低版本空操作。
+- **新增可观测计数**（`Memory::stats()`，`Monitor::reset()` 清零）：`route_eval_calls/bytes/compiled/files`、`route_error_eval_calls`、`route_dispatch_direct/closure`、`memory_business_copy_calls/copy_bytes/borrow_calls/retired_items`、`validate_regex_calls`、`http_php_calls`、`cache_fill_calls/concurrent_max/coalesced/inflight`。
+- 扩展声明依赖 `pcre`（`ZEND_MOD_REQUIRED`）。
+
+### 🐞 修复
+
+- **Swoole 下 `Request::server('HTTP_*')`/`CONTENT_TYPE`/`CONTENT_LENGTH` 统一回落 header 袋**：`init()`/`initSwoole()` 注入的 server 袋为 miss 时，`HTTP_FOO` 按 `foo`、`CONTENT_*` 按 `content-*` 回查 header 袋（仅 miss 路径一次栈内转换 + 一次哈希探测）。修复 Swoole 下 `server('HTTP_USER_AGENT')`、`isAjax()`（`HTTP_X_REQUESTED_WITH`）、`HTTP_AUTHORIZATION` 恒取空的问题；FPM 走 `$_SERVER` 原路径不受影响。
+- **`Request::server()` 整袋返回 FPM 形态视图**：注入式请求（`bags_inited`）首次无参调用时惰性物化视图缓存于 `request_attr[9]`——CGI 键大写化（`remote_addr`→`REMOTE_ADDR`），header 袋折叠为 `HTTP_*`（`content-type`/`content-length` 映射 `CONTENT_TYPE`/`CONTENT_LENGTH`，与 `$_SERVER` 同形）；原始注入袋仍占 `TRACK_VARS_SERVER` 槽位供按名零分配查询。`init()`/`initSwoole()` 重初始化即失效重建。修复 webscan referer/UA/XFF 维度扫描在 Swoole 下空转、以及 `server()` 迭代看不到请求头的差异。
+
+### ✅ 测试
+
+- `SwooleEntryTest` 扩充：`server('HTTP_USER_AGENT')`/`HTTP_X_REQUESTED_WITH`/`isAjax()` 命中 header 袋、整袋视图形态（`HTTP_*`、`REQUEST_METHOD` 大写、`CONTENT_TYPE` 折叠）、re-init 后视图重建。
+- 新增 `PerfV3Test`（49 项）：INI 默认值与计数字段、Validate 与 `preg_match` 2 万条模糊等价、零拷贝借用/退休/COW、`php-cgi -T` 下 `route_eval_compile` 开关输出一致及三种回退；夹具 `test/fixtures/perfv3`。
+- 新增 `tools/acceptance/fcgi_v3_verify.php`：自起 `php-cgi -b` FastCGI worker（FPM 等价生命周期），`route_eval_compile × memory_business_zero_copy` 四格矩阵跑夹具与 demo，要求 `RESULT-DIGEST` 一致。
+
+### 🔧 修改文件一览
+
+- `src/http/request.c` — `getVal()` 整袋视图钩子与按名 header 回落、`gene_request_server_header_fallback()`/`gene_request_materialize_server_view()`、`init_bags` 视图失效
+- `src/http/request.h` — `GENE_REQUEST_ATTR_SERVER_VIEW=9`
+- `test/SwooleEntryTest.php` — 上述断言
+- `src/gene.c` / `src/gene.h` — V3 INI 与计数全局量、`cache_inflight`/方法槽请求级清理、退休队列 RINIT/MSHUTDOWN 回收
+- `src/router/router.c` / `router.h` — 路由程序编译执行（`gene_router_eval`）与派发计数
+- `src/cache/memory.c` / `memory.h` — 业务表借用、退休队列、拷贝计数与 stats 字段
+- `src/cache/cache.c` — `gene_cache_fill()` single-flight、钩子方法槽缓存、版本命中去二次拷贝
+- `src/http/validate.c` / `validate.h` / `webscan.c` — `gene_pcre_match()`、手写 mobile/date 匹配器
+- `src/http/http.c` — 函数指针缓存、持久化 curl share
+- `src/tool/monitor.c` — `reset()` 清零新计数
+- `docs/CONFIGURATION.md` — 新 INI 与 `route_precompile` 默认值
+
 ## [6.2.8]
 
 > 本版落地 `plan/framework-review-2026-11.closed.md` 里程碑 A/B：建成模板转义体系（`View::e/js/safeUrl/clean` + `{!! !!}` 原样语法 + `gene.view_autoescape`），并从 API 层收口开放重定向与排序字段注入（`gene.redirect_hosts`、四驱动 `orderBy()` 白名单）；同步收敛可信代理内网判定、Webscan 派发直连与目录白名单数组、用户空间类 `__isset` 等实测问题。PHP 8.1.30 / 8.2.33 NTS x64 双版本零告警编译通过。

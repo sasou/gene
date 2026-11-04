@@ -35,6 +35,8 @@
 
 extern zend_class_entry *gene_validate_ce;
 
+int gene_pcre_match(zend_string *regex, zend_string *subject, zval *retval);
+
 
 GENE_MINIT_FUNCTION(validate);
 

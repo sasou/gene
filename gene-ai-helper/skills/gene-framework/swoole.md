@@ -322,6 +322,8 @@ Swoole 无 PHP 超全局。推荐 **`Request::initSwoole($request)`**（`handleS
 // ENV 不注入。缺失/非数组属性按空数组处理，rawContent() 缺失抛可捕获 Error。
 ```
 
+> Swoole 的 `$request->server` 不含请求头（header 在独立袋）。框架已做 FPM 同形兼容：`Request::server('HTTP_X')`/`CONTENT_TYPE` 按名查询回落 header 袋，`Request::server()` 无参整袋返回惰性物化的 FPM 形态视图（CGI 键大写 + `HTTP_*` 折叠）。`$_SERVER` 超全局不做写回（worker 跨请求泄漏风险）——统一用 `Request::server()`/`header()`，勿直读 `$_SERVER['HTTP_*']`。
+
 低层九参数 `init` 仍可用于非标准来源（如自建协议网关）：
 
 ```php

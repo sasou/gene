@@ -38,6 +38,7 @@ Related verification assets outside this directory:
 | `RestInvokeTest.php` | `Gene\Invoke` local dispatch and `Gene\Rest` immutable proxy semantics |
 | `SwooleEntryTest.php` | `Request::initSwoole` / `Application::handleSwoole` / `bootstrap()` / `pools()` lifecycle via duck-typed Swoole doubles — ext-swoole not required |
 | `DemoLoadTest.php` | Demo smoke: `GENE_DEMO_LOCAL=1` child process — `init_sqlite.php` idempotent init + `cli.php /healthz` full dispatch (sqlite + `Ext\LocalStore`, no external services) |
+| `PerfV3Test.php` | Performance V3: INI defaults + stats counters; `rule_mobile`/`rule_date`/`rule_match` vs `preg_match` (20k fuzz); business-table zero copy (borrow/retire/COW); route programs under `php-cgi -T` (FPM-like worker, fixture `fixtures/perfv3`): `route_eval_compile` on/off identical output, opcache-off / unwritable dir / tampered file fall back to eval. Compiled-path checks SKIP without php-cgi or loadable opcache |
 
 ### MVC Layer
 
