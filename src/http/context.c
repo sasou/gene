@@ -1,4 +1,4 @@
-/*
+﻿/*
  +----------------------------------------------------------------------+
  | gene                                                                 |
  +----------------------------------------------------------------------+
@@ -103,14 +103,16 @@ PHP_METHOD(gene_context, has) {
 		&& zend_symtable_exists(Z_ARRVAL(ctx->cold->user_bag), key));
 }
 
-/* {{{ proto static array Gene\Context::all() */
+/* {{{ proto static array Gene\Context::all()
+ * 返回快照副本：调用方持有期间 bag 原表继续被 set 写入，
+ * 直接共享 zval 会违反写时复制（debug 构建 HT_ASSERT_RC1 abort）。 */
 PHP_METHOD(gene_context, all) {
 	gene_request_context *ctx = gene_request_ctx();
 	if (!ctx || !ctx->cold || Z_TYPE(ctx->cold->user_bag) != IS_ARRAY) {
 		array_init(return_value);
 		return;
 	}
-	RETURN_ZVAL(&ctx->cold->user_bag, 1, 0);
+	RETURN_ARR(zend_array_dup(Z_ARRVAL(ctx->cold->user_bag)));
 }
 /* }}} */
 
