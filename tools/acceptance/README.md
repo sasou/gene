@@ -28,6 +28,10 @@ Swoole profile 会执行 `gene.swoole_getcid_capi` 与
   `php tools/acceptance/verify_5_6_6.php`；`php -d gene.cache_max_items=10 tools/acceptance/verify_5_6_6.php` 复验淘汰行为。
 - `verify_5_6_6_swoole.php`（仅 Linux + Swoole）：脚本自起 Swoole HTTP Server，注册闭包/MCA 直派/动态/带钩子/404 五类路由，`workerReady()` 后协程高并发自打流量逐条校验。四组 `capi × precompile` 开关矩阵要求输出 `ALL-PASS` 且 `RESULT-DIGEST` 完全一致。
   其中 404 用例注册 `->error(404, ...)`（整数事件名，注册为 `error:404`），期望响应体恰为 `R:404`；若返回 "Unknown Url" 警告即整数事件名未生效。
+- `fcgi_v3_verify.php`（Windows/Linux，无需 Web 服务器）：Performance V3 的 FPM 等价验收。自起 `php-cgi -b` FastCGI worker（与 FPM 子进程同一请求生命周期），`route_eval_compile × memory_business_zero_copy` 四格矩阵（opcache 开）跑 `test/fixtures/perfv3` 与 demo，要求 `ALL-PASS` 且 `RESULT-DIGEST` 一致，并输出服务端 `run()` 中位数与 eval/compiled 计数。
+  `php tools/acceptance/fcgi_v3_verify.php --args="<同 GENE_TEST_PHP_ARGS>" --requests=1500`
+- `swoole_v3_singleflight.php`（仅 Linux + Swoole）：`gene.cache_fill_wait_ms` 回源合并。`=0` 时 50 协程同 key 各自回源且并发峰值 50；`>0` 时只回源 1 次、合并 49 次，并校验抛异常/含对象结果不共享、`cachedVersion` 不合并、无残留 in-flight。
+  `php -d gene.runtime_type=2 -d gene.cache_fill_wait_ms=0 tools/acceptance/swoole_v3_singleflight.php`，再以 `=2000` 运行一次。
 - 两者已被 `config/*.example.json` 的 `functional_commands` / `swoole_verify_script` 引用，随 `run_acceptance.php` 一起执行；`linux_swoole_verify.sh` 的 `swoole-matrix` 阶段也直接驱动后者。
 
 ## ORM（Gene\Orm）

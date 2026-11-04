@@ -32,6 +32,7 @@ $testFiles = [
     'SecurityTest.php',
     'SecurityPolicyTest.php',
     'WebscanTest.php',
+    'PerfV3Test.php',
     'DemoLoadTest.php'
 ];
 
@@ -217,6 +218,7 @@ class TestRunner
             'SecurityTest.php',
             'SecurityPolicyTest.php',
             'WebscanTest.php',
+    'PerfV3Test.php',
             'DemoLoadTest.php'
         ];
         

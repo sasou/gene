@@ -249,7 +249,7 @@ int gene_request_snapshot_ctx(gene_request_context *ctx, zend_long *depth_out) {
 		return FAILURE;
 	}
 	if (Z_TYPE(ctx->request_attr) != IS_ARRAY) {
-		array_init_size(&ctx->request_attr, 9);
+		array_init_size(&ctx->request_attr, 10);
 	}
 	attr = &ctx->request_attr;
 	/* [GENE_PERF:2026-09-21 V3-2.3] Snapshot index list contains
@@ -299,7 +299,7 @@ int gene_request_restore_ctx(gene_request_context *ctx) {
 		return 0;
 	}
 	if (Z_TYPE(ctx->request_attr) != IS_ARRAY) {
-		array_init_size(&ctx->request_attr, 9);
+		array_init_size(&ctx->request_attr, 10);
 	}
 	for (i = 0; i < sizeof(gene_request_stack_idxs) / sizeof(gene_request_stack_idxs[0]); i++) {
 		gene_request_restore_index(Z_ARRVAL(ctx->request_attr), Z_ARRVAL_P(last), gene_request_stack_idxs[i]);
@@ -544,11 +544,160 @@ static zval *gene_request_materialize_headers(zval *attr) {
 				unsigned char c = (unsigned char) name[i];
 				lower[i] = (c == '_') ? '-' : ((c >= 'A' && c <= 'Z') ? (char)(c | 0x20) : (char)c);
 			}
+			Z_TRY_ADDREF_P(entry);
 			zend_hash_str_update(Z_ARRVAL(headers), lower, nl, entry);
 		} ZEND_HASH_FOREACH_END();
 	}
 	/* zend_hash_index_update takes ownership of headers — no dtor here. */
 	return zend_hash_index_update(Z_ARRVAL_P(attr), GENE_REQUEST_ATTR_HEADER, &headers);
+}
+
+/* [GENE_FEATURE:2026-11-04] FPM-style server name → header-bag name:
+ * "HTTP_X_FORWARDED_FOR" → "x-forwarded-for"; the prefixed pair
+ * CONTENT_TYPE/CONTENT_LENGTH (which carry no HTTP_ in $_SERVER) map back
+ * to "content-type"/"content-length". Lets injected Swoole-shaped requests
+ * answer the same by-name lookups FPM resolves out of $_SERVER — pure stack
+ * conversion plus one header probe, only on the miss path. */
+static zval *gene_request_server_header_fallback(const char *name, size_t len) {
+	char hname[256];
+	const char *src;
+	size_t i, nl;
+
+	if (len > 5 && memcmp(name, "HTTP_", 5) == 0) {
+		src = name + 5;
+		nl = len - 5;
+	} else if ((len == sizeof("CONTENT_TYPE") - 1 && memcmp(name, "CONTENT_TYPE", sizeof("CONTENT_TYPE") - 1) == 0)
+			|| (len == sizeof("CONTENT_LENGTH") - 1 && memcmp(name, "CONTENT_LENGTH", sizeof("CONTENT_LENGTH") - 1) == 0)) {
+		src = name;
+		nl = len;
+	} else {
+		return NULL;
+	}
+	if (nl == 0 || nl >= sizeof(hname)) {
+		return NULL;
+	}
+	for (i = 0; i < nl; i++) {
+		unsigned char c = (unsigned char) src[i];
+		hname[i] = (c == '_') ? '-' : ((c >= 'A' && c <= 'Z') ? (char) (c | 0x20) : (char) c);
+	}
+	return getVal(GENE_REQUEST_ATTR_HEADER, hname, nl);
+}
+
+/* [GENE_FEATURE:2026-11-04] Lazily materialize an FPM-shaped view of the
+ * injected server bag for whole-bag server() reads: CGI keys are uppercased
+ * and every header becomes HTTP_* (content-type/content-length map to
+ * CONTENT_TYPE/CONTENT_LENGTH — the $_SERVER convention). Built once per
+ * request and cached at GENE_REQUEST_ATTR_SERVER_VIEW; init() drops the
+ * slot so a re-init rebuilds from fresh bags. Whole-bag consumers (webscan
+ * header probes, server() iteration) see the same shape FPM's $_SERVER
+ * exposes; by-name lookups never touch this array. */
+static zval *gene_request_materialize_server_view(zval *attr, zval *server) {
+	zval view, *entry, *hdrs;
+	zend_string *key;
+	zend_ulong numkey;
+
+	array_init_size(&view,
+		(server && Z_TYPE_P(server) == IS_ARRAY ? zend_hash_num_elements(Z_ARRVAL_P(server)) : 0) + 16);
+	if (server && Z_TYPE_P(server) == IS_ARRAY) {
+		ZEND_HASH_FOREACH_KEY_VAL(Z_ARRVAL_P(server), numkey, key, entry) {
+			Z_TRY_ADDREF_P(entry);
+			if (!key) {
+				zend_hash_index_update(Z_ARRVAL(view), numkey, entry);
+				continue;
+			}
+			{
+				zend_string *ukey = zend_string_init(ZSTR_VAL(key), ZSTR_LEN(key), 0);
+				char *up = ZSTR_VAL(ukey);
+				size_t i;
+				for (i = 0; i < ZSTR_LEN(ukey); i++) {
+					unsigned char c = (unsigned char) up[i];
+					up[i] = (c >= 'a' && c <= 'z') ? (char) (c & 0xdf) : (char) c;
+				}
+				zend_hash_update(Z_ARRVAL(view), ukey, entry);
+				zend_string_release(ukey);
+			}
+		} ZEND_HASH_FOREACH_END();
+	}
+	hdrs = zend_hash_index_find(Z_ARRVAL_P(attr), GENE_REQUEST_ATTR_HEADER);
+	if (!hdrs || Z_TYPE_P(hdrs) != IS_ARRAY) {
+		hdrs = gene_request_materialize_headers(attr);
+	}
+	if (hdrs && Z_TYPE_P(hdrs) == IS_ARRAY) {
+		ZEND_HASH_FOREACH_STR_KEY_VAL(Z_ARRVAL_P(hdrs), key, entry) {
+			char hbuf[256];
+			const char *hn;
+			size_t i, nl;
+			if (!key) {
+				continue;
+			}
+			hn = ZSTR_VAL(key);
+			nl = ZSTR_LEN(key);
+			if (zend_string_equals_literal(key, "content-type")) {
+				hn = "CONTENT_TYPE";
+				nl = sizeof("CONTENT_TYPE") - 1;
+			} else if (zend_string_equals_literal(key, "content-length")) {
+				hn = "CONTENT_LENGTH";
+				nl = sizeof("CONTENT_LENGTH") - 1;
+			} else {
+				/* Underscored names would collide with their dashed twin
+				 * (x_forwarded_for vs x-forwarded-for → HTTP_X_FORWARDED_FOR);
+				 * drop them like nginx's underscores_in_headers off. */
+				if (nl == 0 || nl + 5 >= sizeof(hbuf) || memchr(hn, '_', nl)) {
+					continue;
+				}
+				memcpy(hbuf, "HTTP_", 5);
+				for (i = 0; i < nl; i++) {
+					unsigned char c = (unsigned char) hn[i];
+					hbuf[5 + i] = (c == '-') ? '_' : ((c >= 'a' && c <= 'z') ? (char) (c & 0xdf) : (char) c);
+				}
+				hn = hbuf;
+				nl += 5;
+			}
+			Z_TRY_ADDREF_P(entry);
+			zend_hash_str_update(Z_ARRVAL(view), hn, nl, entry);
+		} ZEND_HASH_FOREACH_END();
+	}
+	/* zend_hash_index_update takes ownership of view — no dtor here. */
+	return zend_hash_index_update(Z_ARRVAL_P(attr), GENE_REQUEST_ATTR_SERVER_VIEW, &view);
+}
+
+/* By-name header lookup with no header bag: probe the server bag directly
+ * ("x-foo" → "HTTP_X_FOO") instead of materializing the whole bag. */
+static zval *gene_request_header_probe_server(zval *attr, const char *name, size_t len) {
+	char sname[256];
+	const char *prefix = "HTTP_";
+	size_t plen = 5, i;
+	zval *server, *result;
+
+	server = zend_hash_index_find(Z_ARRVAL_P(attr), TRACK_VARS_SERVER);
+	if (!server || Z_TYPE_P(server) != IS_ARRAY) {
+		server = request_query(TRACK_VARS_SERVER, NULL, 0);
+	}
+	if (!server || Z_TYPE_P(server) != IS_ARRAY || len == 0) {
+		return NULL;
+	}
+	if ((len == sizeof("content-type") - 1 && strncasecmp(name, "content-type", len) == 0)
+			|| (len == sizeof("content-length") - 1 && strncasecmp(name, "content-length", len) == 0)) {
+		plen = 0;
+	}
+	if (len + plen >= sizeof(sname)) {
+		return NULL;
+	}
+	memcpy(sname, prefix, plen);
+	for (i = 0; i < len; i++) {
+		unsigned char c = (unsigned char) name[i];
+		sname[plen + i] = (c == '-') ? '_' : ((c >= 'a' && c <= 'z') ? (char) (c & 0xdf) : (char) c);
+	}
+	result = zend_hash_str_find(Z_ARRVAL_P(server), sname, plen + len);
+	if (result || !gene_request_ctx()->request_bags_inited) {
+		return result;
+	}
+	/* Injected Swoole-shaped server bags carry lowercase keys. */
+	for (i = 0; i < plen + len; i++) {
+		unsigned char c = (unsigned char) sname[i];
+		sname[i] = (c >= 'A' && c <= 'Z') ? (char) (c | 0x20) : (char) c;
+	}
+	return zend_hash_str_find(Z_ARRVAL_P(server), sname, plen + len);
 }
 
 zval *getVal(zend_ulong type, char *name, size_t len) {
@@ -565,6 +714,9 @@ zval *getVal(zend_ulong type, char *name, size_t len) {
 			if (type == TRACK_VARS_REQUEST && gene_request_ctx()->request_bags_inited) {
 				val = gene_request_materialize_request(attr);
 			} else if (type == GENE_REQUEST_ATTR_HEADER) {
+				if (name != NULL && len > 0) {
+					return gene_request_header_probe_server(attr, name, len);
+				}
 				val = gene_request_materialize_headers(attr);
 			} else {
 				/* [GENE_PERF:2026-04-24 v5.5.8] Slow path (first touch of this
@@ -579,6 +731,15 @@ zval *getVal(zend_ulong type, char *name, size_t len) {
 			}
 		}
 		if (len == 0 || name == NULL) {
+			/* [GENE_FEATURE:2026-11-04] Whole-bag server() on an injected
+			 * request returns the cached FPM-shaped view instead of the raw
+			 * Swoole-shaped bag; skipped for real FPM requests (bags never
+			 * inited → $_SERVER passes through untouched). */
+			if (type == TRACK_VARS_SERVER
+					&& gene_request_ctx()->request_bags_inited) {
+				zval *view = zend_hash_index_find(Z_ARRVAL_P(attr), GENE_REQUEST_ATTR_SERVER_VIEW);
+				return view ? view : gene_request_materialize_server_view(attr, val);
+			}
 			return val;
 		}
 		if (val && Z_TYPE_P(val) == IS_ARRAY) {
@@ -603,11 +764,27 @@ zval *getVal(zend_ulong type, char *name, size_t len) {
 					lower_name[i] = (c >= 'A' && c <= 'Z') ? (char)(c | 0x20) : (char)c;
 				}
 				lower_name[len] = '\0';
-				return zend_hash_str_find(Z_ARRVAL_P(val), lower_name, len);
+				result = zend_hash_str_find(Z_ARRVAL_P(val), lower_name, len);
+				if (result || type == GENE_REQUEST_ATTR_HEADER
+						|| !gene_request_ctx()->request_bags_inited) {
+					return result;
+				}
+				/* [GENE_FEATURE:2026-11-04] SERVER by-name miss on an injected
+				 * bag: HTTP_* / CONTENT_* names fall through to the header bag
+				 * so Swoole requests resolve the same names FPM finds in
+				 * $_SERVER. */
+				return gene_request_server_header_fallback(name, len);
 			}
 			return NULL;
 		}
 		return NULL;
+	}
+	/* Injected bags with no usable server array at all still honour the
+	 * HTTP_* / CONTENT_* → header fallthrough (e.g. init() without a server
+	 * arg on a SAPI lacking $_SERVER). */
+	if (type == TRACK_VARS_SERVER && name != NULL && len > 0
+			&& gene_request_ctx()->request_bags_inited) {
+		return gene_request_server_header_fallback(name, len);
 	}
 	return NULL;
 }
@@ -911,6 +1088,9 @@ static void gene_request_init_bags(zval *get, zval *post, zval *cookie, zval *se
 			 * explicit header arg rematerializes from the new server bag
 			 * (stale headers leaked across init() calls otherwise). */
 			zend_hash_index_del(Z_ARRVAL(ctx->request_attr), GENE_REQUEST_ATTR_HEADER);
+			/* The FPM-shaped server view derives from (server, header) —
+			 * drop it alongside so whole-bag reads rebuild from new bags. */
+			zend_hash_index_del(Z_ARRVAL(ctx->request_attr), GENE_REQUEST_ATTR_SERVER_VIEW);
 		}
 	}
 	if (raw_content && Z_TYPE_P(raw_content) == IS_STRING) {
@@ -1325,10 +1505,17 @@ PHP_METHOD(gene_request, scope) {
 /* }}} */
 
 static zend_string *gene_request_find_auth_header(void) {
-	zval *hdrs, *auth;
+	zval *hdrs, *auth, *attr;
 	zend_string *key;
 
-	hdrs = getVal(GENE_REQUEST_ATTR_HEADER, NULL, 0);
+	auth = getVal(GENE_REQUEST_ATTR_HEADER, ZEND_STRL("authorization"));
+	if (auth && Z_TYPE_P(auth) == IS_STRING && Z_STRLEN_P(auth) > 0) {
+		return Z_STR_P(auth);
+	}
+	/* Mixed-case keys only exist in a caller-supplied bag; never materialize. */
+	attr = gene_request_attr();
+	hdrs = Z_TYPE_P(attr) == IS_ARRAY
+		? zend_hash_index_find(Z_ARRVAL_P(attr), GENE_REQUEST_ATTR_HEADER) : NULL;
 	if (hdrs && Z_TYPE_P(hdrs) == IS_ARRAY) {
 		ZEND_HASH_FOREACH_STR_KEY_VAL(Z_ARRVAL_P(hdrs), key, auth) {
 			if (key && ZSTR_LEN(key) == sizeof("Authorization") - 1
