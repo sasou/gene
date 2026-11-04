@@ -124,6 +124,93 @@ static void gene_memory_zval_dtor(zval *zvalue) {
 }
 /* }}} */
 
+/* [GENE_PERF:2026-11-04 V3-3.3] Business-table zero copy (NTS FPM/CLI).
+ *
+ * Reads hand out the persistent value itself (interned permanent strings and
+ * IS_ARRAY_IMMUTABLE arrays, the same shape as the frozen framework table) and
+ * set memory_business_borrowed. While that flag is up, any business value that
+ * would be freed (overwrite, delete, LRU evict, TTL, clean) is parked on the
+ * retired list instead; RINIT drains it once the previous request heap — the
+ * only place a borrowed pointer can live under FPM — is gone.
+ *
+ * Swoole keeps the deep copy: a worker is one long request, and userland can
+ * stash a borrowed value in a static property or a long-lived object, so no
+ * request/coroutine boundary bounds the borrow. */
+typedef struct _gene_retired_vec {
+	uint32_t n;
+	uint32_t cap;
+	zval items[1];
+} gene_retired_vec;
+
+static zend_ulong *gene_memory_copy_bytes_acc = NULL;
+
+static void gene_memory_business_retire(zval *zv) {
+	gene_retired_vec *vec = (gene_retired_vec *)GENE_G(memory_business_retired);
+	if (!vec || vec->n == vec->cap) {
+		uint32_t cap = vec ? vec->cap * 2 : 16;
+		gene_retired_vec *grown = (gene_retired_vec *)perealloc(vec,
+			sizeof(gene_retired_vec) + sizeof(zval) * (cap - 1), 1);
+		if (!vec) {
+			grown->n = 0;
+		}
+		grown->cap = cap;
+		vec = grown;
+		GENE_G(memory_business_retired) = vec;
+	}
+	ZVAL_COPY_VALUE(&vec->items[vec->n], zv);
+	vec->n++;
+	GENE_G(memory_business_retired_items) = vec->n;
+}
+
+static void gene_memory_value_release(zval *zvalue, int business) {
+	if (business && GENE_G(memory_business_borrowed)
+			&& (Z_TYPE_P(zvalue) == IS_STRING || Z_TYPE_P(zvalue) == IS_ARRAY)) {
+		gene_memory_business_retire(zvalue);
+		return;
+	}
+	gene_memory_zval_dtor(zvalue);
+}
+
+static void gene_memory_business_zval_dtor(zval *zvalue) {
+	gene_memory_value_release(zvalue, 1);
+}
+
+/* Callers clear memory_business_borrowed first, so values released while
+ * the retired arrays are destroyed are freed directly. */
+void gene_memory_business_retired_drain(void) {
+	gene_retired_vec *vec = (gene_retired_vec *)GENE_G(memory_business_retired);
+	uint32_t i;
+	if (!vec) {
+		return;
+	}
+	GENE_G(memory_business_retired) = NULL;
+	for (i = 0; i < vec->n; i++) {
+		gene_memory_zval_dtor(&vec->items[i]);
+	}
+	pefree(vec, 1);
+	GENE_G(memory_business_retired_items) = 0;
+}
+
+static zend_always_inline int gene_memory_business_borrow(zval *dst, zval *source) {
+#ifndef ZTS
+	if (GENE_G(memory_business_zero_copy) && GENE_G(runtime_type) < 2) {
+		if (Z_TYPE_P(source) == IS_STRING && ZSTR_IS_INTERNED(Z_STR_P(source))) {
+			ZVAL_INTERNED_STR(dst, Z_STR_P(source));
+		} else if (Z_TYPE_P(source) == IS_ARRAY
+				&& (GC_FLAGS(Z_ARRVAL_P(source)) & IS_ARRAY_IMMUTABLE) != 0) {
+			ZVAL_ARR(dst, Z_ARRVAL_P(source));
+			Z_TYPE_INFO_P(dst) = IS_ARRAY;
+		} else {
+			return 0;
+		}
+		GENE_G(memory_business_borrowed) = 1;
+		GENE_G(memory_business_borrow_calls)++;
+		return 1;
+	}
+#endif
+	return 0;
+}
+
 static zval* gene_symtable_update(HashTable *ht, zend_string *key, zval *zv) /* {{{ */{
 	zend_ulong idx;
 	if (ZEND_HANDLE_NUMERIC(key, idx)) {
@@ -195,7 +282,7 @@ void gene_memory_init() {
 	}
 	if (!GENE_G(business_cache)) {
 		PALLOC_HASHTABLE(GENE_G(business_cache));
-		zend_hash_init(GENE_G(business_cache), 8, NULL, gene_memory_zval_dtor, 1);
+		zend_hash_init(GENE_G(business_cache), 8, NULL, gene_memory_business_zval_dtor, 1);
 	}
 	if (!GENE_G(cache_easy)) {
 		PALLOC_HASHTABLE(GENE_G(cache_easy));
@@ -371,15 +458,7 @@ static void * gene_memory_zval_edit_persistent(zval *dst, zval *source) {
 		break;
 	}
 	ZVAL_COPY_VALUE(dst, &newv);
-	switch (Z_TYPE_P(&old)) {
-	case IS_PTR:
-	case IS_STRING:
-		pefree(Z_PTR_P(&old), 1);
-		break;
-	case IS_ARRAY:
-		gene_hash_destroy(Z_ARRVAL_P(&old));
-		break;
-	}
+	gene_memory_value_release(&old, GENE_MEMORY_IS_BUSINESS());
 	return NULL;
 }
 /* }}} */
@@ -521,9 +600,15 @@ zval *gene_memory_zval_local_copy(zval *dst, zval *source) /* {{{ */
 	ZVAL_DEREF(source);
 	switch (Z_TYPE_P(source)) {
 	case IS_STRING:
+		if (gene_memory_copy_bytes_acc) {
+			*gene_memory_copy_bytes_acc += Z_STRLEN_P(source);
+		}
 		ZVAL_NEW_STR(dst, zend_string_init(Z_STRVAL_P(source), Z_STRLEN_P(source), 0));
 		break;
 	case IS_ARRAY:
+		if (gene_memory_copy_bytes_acc) {
+			*gene_memory_copy_bytes_acc += (zend_ulong)zend_hash_num_elements(Z_ARRVAL_P(source)) * sizeof(Bucket);
+		}
 		array_init_size(dst, zend_hash_num_elements(Z_ARRVAL_P(source)));
 		gene_memory_hash_copy_deep(Z_ARRVAL_P(dst), Z_ARRVAL_P(source));
 		break;
@@ -592,7 +677,7 @@ static int gene_memory_del_core(const char *keyString, size_t keyString_len) {
 		return 0;
 	}
 	stored_key = ((Bucket *)stored_val)->key;
-	gene_memory_zval_dtor(stored_val);
+	gene_memory_value_release(stored_val, GENE_MEMORY_IS_BUSINESS());
 	orig_dtor = GENE_MEMORY_TABLE()->pDestructor;
 	GENE_MEMORY_TABLE()->pDestructor = NULL;
 	zend_symtable_str_del(GENE_MEMORY_TABLE(), keyString, keyString_len);
@@ -961,7 +1046,12 @@ int gene_business_memory_get_copy(char *keyString, size_t keyString_len, zval *d
 	if (!gene_memory_expired_nolock(keyString, keyString_len)) {
 		zvalue = zend_symtable_str_find(GENE_MEMORY_TABLE(), keyString, keyString_len);
 		if (zvalue) {
-			gene_memory_zval_local_copy(dst, zvalue);
+			if (!gene_memory_business_borrow(dst, zvalue)) {
+				GENE_G(memory_business_copy_calls)++;
+				gene_memory_copy_bytes_acc = &GENE_G(memory_business_copy_bytes);
+				gene_memory_zval_local_copy(dst, zvalue);
+				gene_memory_copy_bytes_acc = NULL;
+			}
 			found = 1;
 		}
 	}
@@ -1969,7 +2059,14 @@ PHP_METHOD(gene_memory, clean) {
 	GENE_CACHE_LAYER_MEMORY_WRITE_ENTER();
 	GENE_CACHE_WRLOCK();
 	if (GENE_G(business_cache)) {
-		gene_hash_destroy(GENE_G(business_cache));
+		if (GENE_G(memory_business_borrowed)) {
+			/* Values handed out this request may still be borrowed. */
+			zval table;
+			ZVAL_ARR(&table, GENE_G(business_cache));
+			gene_memory_business_retire(&table);
+		} else {
+			gene_hash_destroy(GENE_G(business_cache));
+		}
 		GENE_G(business_cache) = NULL;
 	}
 	/* [GENE_FIX:2026-08-07] Wipe TTL bookkeeping together with the cache. */
@@ -2067,6 +2164,25 @@ PHP_METHOD(gene_memory, stats) {
 	add_assoc_long(return_value, "route_pc_retired", (zend_long)GENE_G(route_pc_retired_count));
 	add_assoc_long(return_value, "closure_src_cache_items", gene_closure_src_cache_items());
 	add_assoc_long(return_value, "closure_src_cache_flushes", (zend_long)GENE_G(closure_src_cache_flushes));
+	/* [GENE_PERF:2026-11-04 V3-2] Hot-path counters (process lifetime). */
+	add_assoc_long(return_value, "route_eval_calls", (zend_long)GENE_G(route_eval_calls));
+	add_assoc_long(return_value, "route_eval_bytes", (zend_long)GENE_G(route_eval_bytes));
+	add_assoc_long(return_value, "route_eval_compiled", (zend_long)GENE_G(route_eval_compiled));
+	add_assoc_long(return_value, "route_eval_files", gene_route_prog_cache_items());
+	add_assoc_long(return_value, "route_error_eval_calls", (zend_long)GENE_G(route_error_eval_calls));
+	add_assoc_long(return_value, "route_dispatch_direct", (zend_long)GENE_G(route_dispatch_direct));
+	add_assoc_long(return_value, "route_dispatch_closure", (zend_long)GENE_G(route_dispatch_closure));
+	add_assoc_long(return_value, "memory_business_copy_calls", (zend_long)GENE_G(memory_business_copy_calls));
+	add_assoc_long(return_value, "memory_business_copy_bytes", (zend_long)GENE_G(memory_business_copy_bytes));
+	add_assoc_long(return_value, "memory_business_borrow_calls", (zend_long)GENE_G(memory_business_borrow_calls));
+	add_assoc_long(return_value, "memory_business_retired_items", (zend_long)GENE_G(memory_business_retired_items));
+	add_assoc_long(return_value, "validate_regex_calls", (zend_long)GENE_G(validate_regex_calls));
+	add_assoc_long(return_value, "http_php_calls", (zend_long)GENE_G(http_php_calls));
+	add_assoc_long(return_value, "cache_fill_calls", (zend_long)GENE_G(cache_fill_calls));
+	add_assoc_long(return_value, "cache_fill_concurrent_max", (zend_long)GENE_G(cache_fill_concurrent_max));
+	add_assoc_long(return_value, "cache_fill_coalesced", (zend_long)GENE_G(cache_fill_coalesced));
+	add_assoc_long(return_value, "cache_fill_inflight",
+		GENE_G(cache_inflight) ? (zend_long)zend_hash_num_elements(GENE_G(cache_inflight)) : 0);
 }
 /* }}} */
 

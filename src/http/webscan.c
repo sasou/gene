@@ -18,6 +18,7 @@
 #include "../gene.h"
 #include "../http/request.h"
 #include "../http/webscan.h"
+#include "../http/validate.h"
 
 zend_class_entry *gene_webscan_ce;
 
@@ -240,30 +241,20 @@ static void gene_webscan_flatten_normalized(zval *value, const char *path, size_
  * fail_closed is set. */
 static int gene_webscan_match_str(zend_string *regex, zend_string *subject, int fail_closed)
 {
-    zval retval, params[2];
+    zval retval;
     int matched = 0;
 
-    static zend_function *preg_fn = NULL;
-    if (UNEXPECTED(!preg_fn)) {
-        preg_fn = zend_hash_str_find_ptr(CG(function_table), ZEND_STRL("preg_match"));
-    }
-    if (UNEXPECTED(!preg_fn || !regex)) {
+    if (UNEXPECTED(!regex)) {
         return 0;
     }
-    ZVAL_STR(&params[0], regex);
-    ZVAL_STR_COPY(&params[1], subject);
-
     ZVAL_UNDEF(&retval);
-    zend_call_known_function(preg_fn, NULL, NULL, &retval, 2, params, NULL);
+    gene_pcre_match(regex, subject, &retval);
     if (Z_TYPE(retval) == IS_FALSE) {
         matched = fail_closed;
     } else {
         matched = zend_is_true(&retval);
     }
     zval_ptr_dtor(&retval);
-
-    zval_ptr_dtor(&params[1]);
-    /* params[0] holds an interned string reference — no dtor required. */
     return matched;
 }
 

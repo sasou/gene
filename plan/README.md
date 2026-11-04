@@ -19,7 +19,7 @@
 
 | 文件 | 说明 | 状态 |
 |------|------|------|
-| [Performance-tuning-V3.md](Performance-tuning-V3.md) | 极致并发优化 V3：先加可观测计数再按数据准入的残余热点（FPM 闭包路由 eval 消除、route_precompile 默认值验收、业务表借用计数零拷贝、Validate 直连 PCRE、回源防击穿、函数查找缓存、FPM curl 复用） | 候选 |
+| [Performance-tuning-V3.closed.md](Performance-tuning-V3.closed.md) | 极致并发优化 V3：可观测计数、FPM 闭包路由 eval 改 opcache 文件、route_precompile 默认开启、业务表零拷贝（FPM）、Validate 直连 PCRE、Swoole 回源 single-flight、函数查找缓存、PHP 8.5 持久 curl share | 关闭（2026-11-04 全部落地，见文内 §9；Linux/Swoole 由维护者验收） |
 | [framework-review-2026-11.closed.md](framework-review-2026-11.closed.md) | 综合评估与需求清单（视图转义、SQL 注入残留面、PDO 选项一致性、惰性写体验、典型业务应用使用反馈） | 关闭（2026-11-03 落地，见文内 §八） |
 | [security-baseline.closed.md](security-baseline.closed.md) | 安全基线框架化（可信 IP、CSRF、安全头、JSONP、REST 签名、Password、Throttle、会话加固、密钥环、TOTP、上传、方法守卫） | 关闭（2026-11-01 全部落地，见文内 §十八） |
 | [orm-v2.closed.md](orm-v2.closed.md) | Db ↔ ORM 对称性（Query ops、timestamps、批量写、行锁、IN） | 关闭（6.1.0 已落地） |

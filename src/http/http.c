@@ -252,10 +252,53 @@ static void gene_http_restore_state(gene_request_context *ctx, zval *saved_strea
 }
 
 /* {{{ gene_php_call */
+/* [GENE_PERF:2026-11-04 V3-3.6] Callers pass string literals, so the name
+ * pointer is a stable key. Only internal functions are cached (they live as
+ * long as the process); NTS and non-Swoole only, because Swoole runtime hooks
+ * may swap curl_* entries in the function table at runtime. */
+#ifndef ZTS
+#define GENE_HTTP_FN_SLOTS 32
+static struct { const char *name; zend_function *fn; } gene_http_fn_cache[GENE_HTTP_FN_SLOTS];
+#endif
+
+static zend_function *gene_http_find_fn(const char *name, size_t name_len) {
+	zend_function *fn;
+#ifndef ZTS
+	uint32_t i, slot = (uint32_t)(((uintptr_t)name >> 3) % GENE_HTTP_FN_SLOTS);
+	int cacheable = GENE_G(runtime_type) < 2;
+	if (cacheable) {
+		for (i = 0; i < GENE_HTTP_FN_SLOTS; i++) {
+			uint32_t s = (slot + i) % GENE_HTTP_FN_SLOTS;
+			if (gene_http_fn_cache[s].name == name) {
+				return gene_http_fn_cache[s].fn;
+			}
+			if (!gene_http_fn_cache[s].name) {
+				break;
+			}
+		}
+	}
+#endif
+	fn = zend_hash_str_find_ptr(CG(function_table), name, name_len);
+#ifndef ZTS
+	if (fn && cacheable && fn->type == ZEND_INTERNAL_FUNCTION) {
+		for (i = 0; i < GENE_HTTP_FN_SLOTS; i++) {
+			uint32_t s = (slot + i) % GENE_HTTP_FN_SLOTS;
+			if (!gene_http_fn_cache[s].name) {
+				gene_http_fn_cache[s].fn = fn;
+				gene_http_fn_cache[s].name = name;
+				break;
+			}
+		}
+	}
+#endif
+	return fn;
+}
+
 static int gene_http_php_call(const char *name, size_t name_len, uint32_t argc, zval *params, zval *retval) {
 	zend_function *fn;
 	ZVAL_UNDEF(retval);
-	fn = zend_hash_str_find_ptr(CG(function_table), name, name_len);
+	GENE_G(http_php_calls)++;
+	fn = gene_http_find_fn(name, name_len);
 	if (UNEXPECTED(!fn)) {
 		return FAILURE;
 	}
@@ -656,6 +699,46 @@ static void gene_http_build_curl_headers(zval *headers_in, zval *headers_out, co
 	}
 }
 
+/* [GENE_PERF:2026-11-04 V3-3.7] gene.http_keepalive=1 attaches a persistent
+ * curl share handle (PHP >= 8.5 curl_share_init_persistent) sharing DNS, TLS
+ * sessions and the connection pool across requests of this worker. A no-op
+ * when the function is missing; failures are swallowed so the request still
+ * goes out on a fresh connection. Must be re-applied after curl_reset(). */
+static int gene_http_fn_exists(const char *name, size_t len);
+
+static void gene_http_apply_share(zval *ch) {
+	zval opts, share, ret, params[3];
+	zend_long kinds[3];
+	int i;
+	if (!GENE_G(http_keepalive) || !gene_http_fn_exists(ZEND_STRL("curl_share_init_persistent"))) {
+		return;
+	}
+	kinds[0] = gene_http_const(ZEND_STRL("CURL_LOCK_DATA_DNS"));
+	kinds[1] = gene_http_const(ZEND_STRL("CURL_LOCK_DATA_SSL_SESSION"));
+	kinds[2] = gene_http_const(ZEND_STRL("CURL_LOCK_DATA_CONNECT"));
+	array_init(&opts);
+	for (i = 0; i < 3; i++) {
+		if (kinds[i]) add_next_index_long(&opts, kinds[i]);
+	}
+	if (gene_http_php_call("curl_share_init_persistent", sizeof("curl_share_init_persistent") - 1, 1, &opts, &share) != SUCCESS
+		|| Z_TYPE(share) != IS_OBJECT) {
+		zval_ptr_dtor(&opts);
+		zval_ptr_dtor(&share);
+		if (EG(exception)) zend_clear_exception();
+		return;
+	}
+	zval_ptr_dtor(&opts);
+	ZVAL_COPY_VALUE(&params[0], ch);
+	ZVAL_LONG(&params[1], gene_http_const(ZEND_STRL("CURLOPT_SHARE")));
+	ZVAL_COPY_VALUE(&params[2], &share);
+	if (Z_LVAL(params[1]) && gene_http_php_call("curl_setopt", sizeof("curl_setopt") - 1, 3, params, &ret) == SUCCESS) {
+		zval_ptr_dtor(&ret);
+	} else if (EG(exception)) {
+		zend_clear_exception();
+	}
+	zval_ptr_dtor(&share);
+}
+
 static int gene_http_ensure_curl(zval *ch_out) {
 	gene_request_context *ctx = gene_request_ctx();
 	zval ret;
@@ -666,6 +749,7 @@ static int gene_http_ensure_curl(zval *ch_out) {
 		} else if (EG(exception)) {
 			zend_clear_exception();
 		}
+		gene_http_apply_share(ch_out);
 		return SUCCESS;
 	}
 	if (gene_http_php_call("curl_init", sizeof("curl_init") - 1, 0, NULL, ch_out) != SUCCESS
@@ -678,6 +762,7 @@ static int gene_http_ensure_curl(zval *ch_out) {
 	if (ctx) {
 		ZVAL_COPY(&GENE_CTX_COLD(ctx)->http_curl, ch_out);
 	}
+	gene_http_apply_share(ch_out);
 	return SUCCESS;
 }
 
@@ -1711,6 +1796,7 @@ static int gene_http_multi_prepare_easy(zval *opts, gene_http_mslot *s) {
 		s->skip = 1;
 		return SUCCESS;
 	}
+	gene_http_apply_share(&s->ch);
 
 	ZVAL_STR(&zurlv, url);
 	gene_http_curl_setopt(&s->ch, ZEND_STRL("CURLOPT_URL"), &zurlv);

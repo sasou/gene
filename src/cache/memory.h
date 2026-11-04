@@ -111,6 +111,9 @@ zval * gene_memory_zval_local(zval *dst, zval *source);
 /* [GENE_FIX:2026-08-23 UAF-2] Request-scope deep copy (no borrowed persistent
  * pointers) for Gene\Cache business reads; see memory.c. */
 zval * gene_memory_zval_local_copy(zval *dst, zval *source);
+/* [GENE_PERF:2026-11-04 V3-3.3] Free business values retired while borrowed
+ * (gene.memory_business_zero_copy). Clear memory_business_borrowed first. */
+void gene_memory_business_retired_drain(void);
 /* [GENE_FIX:2026-08-23 UAF-1] Reserve headroom in GENE_G(cache) at the
  * workerReady() freeze boundary so post-freeze business inserts never trigger
  * a perealloc of the bucket array (which would invalidate every borrowed
