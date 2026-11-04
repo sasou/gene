@@ -1,7 +1,7 @@
 # Gene 扩展极致并发优化 —— V3（数据驱动的残余热点）
 
-> 版本：v1（2026-11-03）
-> 状态：**候选**（未实施）
+> 版本：v2（2026-11-04）
+> 状态：**关闭**（2026-11-04 按指示忽略 §0.1(3f) 准入门槛，§2–§3.7 全部以代码落地；结果与实施偏差见 §9，Linux/Swoole 验收由维护者手动完成）
 > 谱系：承接 [Performance-tuning-V1.closed.md](Performance-tuning-V1.closed.md)、[Performance-tuning-V2.closed.md](Performance-tuning-V2.closed.md)。V2 已落地的项（NTS 锁消除、请求装载零分配、路由/DI 分配削减、Db 属性槽位、冻结框架表零拷贝、ctx 冷热分离、Pool C 层 idle 栈、输出零拷贝、retired 回收）**本文不重复**。
 > 依据：对 `src/router/router.c`、`src/app/application.c`、`src/cache/{cache,memory,redis}.c`、`src/http/{http,validate,webscan}.c`、`src/gene.c` 的源码复核（2026-11-03）。
 
@@ -257,14 +257,16 @@ V1/V2 之后，热路径上“显而易见”的分配与哈希已基本清理�
 
 ## 6. 基线数据（阶段 0 完成后回填）
 
-| 场景 | `route_eval_calls`/请求 | `memory_business_copy_bytes`/请求 | `validate_regex_calls`/请求 | `cache_fill_concurrent_max` | 单请求 Ir | QPS（c=256） | P99 | 单 worker RSS |
+本轮按指示不以准入数据为前提，下表仅回填本地 Windows 可测的部分（PHP 8.2.35 NTS x64，`php-cgi -b` FastCGI worker = FPM 子进程同一请求生命周期，opcache 开，`tools/acceptance/fcgi_v3_verify.php`，每格 3000 次闭包路由请求）。callgrind Ir、wrk QPS/P99、RSS 与全部 Swoole 行需 Linux 环境，未测。
+
+| 场景 | `route_eval_calls`/请求 | `memory_business_copy_bytes`/请求 | `validate_regex_calls`/请求 | `cache_fill_concurrent_max` | 服务端 `run()` 中位数 / p90 | QPS（c=256） | P99 | 单 worker RSS |
 |------|------|------|------|------|------|------|------|------|
-| FPM R1 L0 | | | | – | | | | |
-| FPM R2 L0 | | | | – | | | | |
-| FPM R3 L3 | | | | – | | | | |
-| Swoole R1 L0 | | | | | | | | |
-| Swoole R2 L2(64KB) | | | | | | | | |
-| Swoole 热点 key 失效 | | | | | | | | |
+| FPM R1 L0（demo `Class@action`） | 0 | – | – | 1 | – | 未测 | 未测 | 未测 |
+| FPM R2/R3 L0，`route_eval_compile=0` | 1（另：闭包 404 每次 1 次 `route_error_eval_calls`） | – | – | 1 | 174.3µs / 348.5µs | 未测 | 未测 | 未测 |
+| FPM R2/R3 L0，`route_eval_compile=1` | 0（`route_eval_compiled`=1/请求，3 个缓存文件） | – | – | 1 | 131.8µs / 246.9µs（中位数 −24%） | 未测 | 未测 | 未测 |
+| FPM `processCached` 命中，`zero_copy=0/1` | – | 297 B/次 → 0（`borrow_calls`=1） | – | 1 | – | 未测 | 未测 | 未测 |
+| FPM `rule_mobile`/`rule_date` | – | – | 1 → 0（手写匹配器） | – | – | 未测 | 未测 | 未测 |
+| Swoole 全部场景 | 待维护者 Linux 验收 | | | | | | | |
 
 ---
 
@@ -293,6 +295,32 @@ V1/V2 之后，热路径上“显而易见”的分配与哈希已基本清理�
 3. 按 §0.3 统计口径完成 A/B 对照，结果回填 §6 并附归档（与 V2 一致，记录 `gene.so` SHA-256 和 `git rev-parse HEAD`——V2 遗留的 HEAD 指纹缺失问题在本文验收中必须解决）。
 4. 达到准入条件且验收通过的项，单独提交翻转默认值；未达到准入条件的项在文内记录数据和“不做”的结论。
 5. 所有项处理完毕（落地或基于数据否决）后，文件更名为 `Performance-tuning-V3.closed.md`，并更新 `plan/README.md` 索引。
+
+---
+
+## 9. 实施结果（2026-11-04 关闭）
+
+按维护者指示：忽略 §0.1(3f) 与各项“准入条件”，从代码层面全部落地；风险项以 INI 默认关闭提交，回归测试补齐，本地完成 FPM 等价真实验收，Linux/Swoole 由维护者手动验收。
+
+### 9.1 落地清单
+
+| 项 | INI（默认） | 实现要点 | 与原方案的偏差及理由 |
+|----|------------|----------|----------------------|
+| §2 可观测计数 | – | `Memory::stats()` 新增 `route_eval_calls/bytes/compiled/files`、`route_error_eval_calls`、`route_dispatch_direct/closure`、`memory_business_copy_calls/copy_bytes/borrow_calls/retired_items`、`validate_regex_calls`、`http_php_calls`、`cache_fill_calls/concurrent_max/coalesced/inflight`；`Monitor::reset()` 清零 | 计数一律放 `GENE_G`（NTS 即普通全局） |
+| §3.1 路由 eval 消除 | `gene.route_eval_compile`（0） | 5 处 `zend_eval_stringl` 统一经 `gene_router_eval()`；opcache 启用时把程序写为 `{app_root}/Cache/Router/<hash>_<len>.php`（`"<?php\n"` + 原程序文本，tmp+rename），首次使用逐字节校验，`zend_compile_file` + `zend_execute` 执行 | **不包成 `static function(){}`**：eval 程序（`GENE_ROUTER_CONTENT_*` 模板）依赖调用方符号表（`$gene_mp`/`$gene_h` 等）和顶层 `return` 短路，`zend_execute` 走的是与 eval 完全相同的顶层代码路径，作用域、return、异常、bailout 语义零变化，无需逐模板审计传参。**不删除旧文件**：多 FPM 进程共享目录，删除有竞态；内容寻址不会读到旧代码，进程内表按 `closure_src_cache_max` 封顶。**内容不符不覆盖**：opcache 共享内存可能仍持有该路径的旧脚本，改走 eval。仅 NTS（进程级表）。可观测变化：`__FILE__` 为缓存文件，且不再继承 `Gene\Application` 类作用域 |
+| §3.2 route_precompile 默认值 | `gene.route_precompile`（**1**） | 默认值翻转，`0` 回退慢路径；FPM 下本来不填充描述符，无影响 | 未做 H2 数据验收（按指示），Swoole 四格矩阵由维护者 Linux 验收 |
+| §3.3 业务表零拷贝 | `gene.memory_business_zero_copy`（0） | 命中时直接返回持久化 interned 字符串 / `IS_ARRAY_IMMUTABLE` 数组；本请求内覆盖、删除、`clean()` 的旧值进入退休队列，**下一请求 RINIT** 统一释放；`processCachedVersion*` 命中去掉第二次深拷贝（改 `ZVAL_COPY`，两种模式都生效） | **仅 NTS FPM/CLI，Swoole 不启用**：用户态可把借用值存进 `static`/对象属性跨请求持有，借用计数在“请求结束归还”时无法知道值是否仍被引用，Swoole 常驻下必然 UAF；FPM 每请求结束清空用户态所有引用，下一请求开始释放是可证明安全的边界。**不在 RSHUTDOWN 释放**：session 等扩展在 gene 之后关闭，仍可能触碰借用值 |
+| §3.4 PCRE 直连 | – | `gene_pcre_match()` = `pcre_get_compiled_regex_cache` + `php_pcre_match_impl`（8.4+ 新签名已适配），`rule_match` 字符串入参与 Webscan 使用；`rule_mobile`/`rule_date` 手写匹配器 | 手写匹配器遇 ≥0x80 字节回退 PCRE（`\d` 受 ctype locale 表影响）；非字符串入参保留原 `preg_match` 调用以保持类型转换/弃用告警语义 |
+| §3.5 回源防击穿 | `gene.cache_fill_wait_ms`（0） | worker 级 `cache_inflight`（引用计数节点），领头者 `zend_try` 包裹回源，结束先摘表再按等待者 `Channel(1)` 推送 `[data]`；等待者超时/领头异常/结果含对象时自行回源；复用者不重复写缓存 | **带版本方法只计数不合并**：等待者读到的版本号可能新于领头者，复用其结果会返回版本更新本应失效的数据。batch 方法只计 `cache_fill_calls` |
+| §3.6 查找缓存 | – | `gene_http_php_call` 按名字指针 32 槽缓存内部函数；`Gene\Cache` 钩子 get/set/incr/delete 单槽 `(ce, fn)`，请求结束清空 | http 缓存仅 NTS 且 `runtime_type<2`：Swoole runtime hook 可在运行期替换 `curl_*` 条目 |
+| §3.7 curl 复用 | `gene.http_keepalive`（0） | PHP ≥ 8.5 用 `curl_share_init_persistent([DNS, SSL_SESSION, CONNECT])` 挂到每个 easy 句柄（含 `curl_reset` 之后与 multi 每项）；低版本空操作 | **不缓存 easy 句柄**：持久 share 只共享 DNS/TLS 会话/连接，不携带任何请求级选项，从机制上排除认证头跨请求泄漏，无需另立安全测试；PHP < 8.5 无安全的跨请求持久化句柄 API，故不做 |
+
+### 9.2 验证
+
+- 构建：PHP 8.1.30 / 8.2.33 / 8.4.25 / 8.5.10 NTS x64 编译通过（覆盖 `php_pcre_match_impl` 两种签名）。
+- 回归：`test/TestRunner.php` 26 个文件全绿；新增 `test/PerfV3Test.php`（49 项，夹具 `test/fixtures/perfv3`）——INI 默认值与计数字段；`rule_mobile`/`rule_date` 与 `preg_match` 20031 条（含 2 万随机）逐条一致；`rule_match` 非法正则 false+warning、整型入参；零拷贝借用/退休/COW/`clean()`；`php-cgi -T` 下 `route_eval_compile` 0/1 四类路由输出一致、opcache 关/目录不可写/文件被篡改三种回退。
+- FPM 等价真实验收：`tools/acceptance/fcgi_v3_verify.php`，`route_eval_compile × memory_business_zero_copy` 四格，夹具 + demo（`/healthz`、404、首页）全部 ALL-PASS，`RESULT-DIGEST` 四格一致（`d567b475…`），数据见 §6。WampServer 的 Apache 以 CGI Action 方式每请求起新进程，无法体现 worker 常驻，故改用 `php-cgi -b`。
+- 维护者 Linux/Swoole 待办：`linux_swoole_verify.sh --all`（`route_precompile` 默认 1 下矩阵）；`tools/acceptance/swoole_v3_singleflight.php` 分别以 `gene.cache_fill_wait_ms=0` 与 `=2000` 运行；ASAN 下复跑 `PerfV3Test`。
 
 ---
 

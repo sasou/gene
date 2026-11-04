@@ -74,6 +74,10 @@ void gene_router_pc_invalidate(void);
  /* [GENE_PERF:2026-06-19 P6] Free the persistent FPM closure-source cache.
   * No-op when never allocated. Called from MSHUTDOWN. */
  void gene_closure_src_cache_destroy(void);
+/* [GENE_PERF:2026-11-04 V3-3.1] Program text -> compiled route file table
+ * (gene.route_eval_compile). NTS only; MSHUTDOWN frees it. */
+void gene_route_prog_cache_destroy(void);
+zend_long gene_route_prog_cache_items(void);
 
  GENE_MINIT_FUNCTION (router);
 

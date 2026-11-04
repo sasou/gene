@@ -23,6 +23,7 @@
 #include "main/SAPI.h"
 #include "Zend/zend_API.h"
 #include "zend_exceptions.h"
+#include "ext/pcre/php_pcre.h"
 
 
 #include "../gene.h"
@@ -210,8 +211,94 @@ void gene_vsprintf(char *msg, zval *args, zval *retval) /*{{{*/
 	zval_ptr_dtor(&strings);
 }/*}}}*/
 
+/* [GENE_PERF:2026-11-04 V3-3.4] preg_match($regex, $subject) without the
+ * userland call frame: same compiled-regex cache, same match routine, same
+ * return value (int 0/1, or false + warning on a bad pattern / PCRE error). */
+int gene_pcre_match(zend_string *regex, zend_string *subject, zval *retval) /*{{{*/
+{
+	pcre_cache_entry *pce = pcre_get_compiled_regex_cache(regex);
+	if (UNEXPECTED(!pce)) {
+		ZVAL_FALSE(retval);
+		return 0;
+	}
+	php_pcre_pce_incref(pce);
+#if PHP_VERSION_ID >= 80400
+	php_pcre_match_impl(pce, subject, retval, NULL, 0, 0, 0);
+#else
+	php_pcre_match_impl(pce, subject, retval, NULL, 0, 0, 0, 0);
+#endif
+	php_pcre_pce_decref(pce);
+	return 1;
+}/*}}}*/
+
+static zend_always_inline int gene_ascii_digit(unsigned char c) {
+	return c >= '0' && c <= '9';
+}
+
+/* Effective length for a pattern ending in a non-D "$": one trailing "\n"
+ * is allowed. */
+static zend_always_inline size_t gene_dollar_len(const char *s, size_t n) {
+	return (n > 0 && s[n - 1] == '\n') ? n - 1 : n;
+}
+
+static int gene_has_high_byte(const char *s, size_t n) {
+	size_t i;
+	for (i = 0; i < n; i++) {
+		if ((unsigned char)s[i] >= 0x80) return 1;
+	}
+	return 0;
+}
+
+/* GENE_VALIDATE_MOBILE in C. Returns 1/0, or -1 when the subject has a byte
+ * >= 0x80: PCRE's \d follows the ctype locale tables for those bytes, so
+ * that case is left to PCRE. */
+static int gene_match_mobile(const char *s, size_t n) {
+	size_t i;
+	unsigned char c;
+	if (gene_has_high_byte(s, n)) return -1;
+	n = gene_dollar_len(s, n);
+	if (n != 11 || s[0] != '1') return 0;
+	c = (unsigned char)s[2];
+	if (!gene_ascii_digit(c)) return 0;
+	switch (s[1]) {
+		case '3': case '8': break;
+		case '4': if (c == '2' || c == '3') return 0; break;
+		case '5': case '9': if (c == '4') return 0; break;
+		case '6': if (c != '2' && c != '5' && c != '6' && c != '7') return 0; break;
+		case '7': if (c == '9') return 0; break;
+		default: return 0;
+	}
+	for (i = 3; i < 11; i++) {
+		if (!gene_ascii_digit((unsigned char)s[i])) return 0;
+	}
+	return 1;
+}
+
+/* GENE_VALIDATE_DATE in C: \d{4}[/-]\d{1,2}[/-]\d{1,2}. Same -1 rule. */
+static int gene_match_date(const char *s, size_t n) {
+	size_t i = 0, k;
+	int part;
+	if (gene_has_high_byte(s, n)) return -1;
+	n = gene_dollar_len(s, n);
+	for (k = 0; k < 4; k++, i++) {
+		if (i >= n || !gene_ascii_digit((unsigned char)s[i])) return 0;
+	}
+	for (part = 0; part < 2; part++) {
+		if (i >= n || (s[i] != '/' && s[i] != '-')) return 0;
+		i++;
+		for (k = 0; i < n && gene_ascii_digit((unsigned char)s[i]); i++) k++;
+		if (k < 1 || k > 2) return 0;
+	}
+	return i == n;
+}
+
 void gene_preg_match(zval *regex, zval *val, zval *retval) /*{{{*/
 {
+	GENE_G(validate_regex_calls)++;
+	if (Z_TYPE_P(regex) == IS_STRING && Z_TYPE_P(val) == IS_STRING) {
+		gene_pcre_match(Z_STR_P(regex), Z_STR_P(val), retval);
+		return;
+	}
 	GENE_CG_FN_DECL(fn);
 	fn = GENE_CG_FN_LOOKUP(fn, "preg_match");
 	if (UNEXPECTED(!fn)) { ZVAL_LONG(retval, 0); return; }
@@ -245,6 +332,13 @@ void gene_in_array(zval *in, zval *array, zval *retval) /*{{{*/
 
 void gene_preg_match_str(char *regexStr, zval *val, zval *retval) /*{{{*/
 {
+	GENE_G(validate_regex_calls)++;
+	if (Z_TYPE_P(val) == IS_STRING) {
+		zend_string *re = zend_string_init(regexStr, strlen(regexStr), 0);
+		gene_pcre_match(re, Z_STR_P(val), retval);
+		zend_string_release(re);
+		return;
+	}
 	GENE_CG_FN_DECL(fn);
 	fn = GENE_CG_FN_LOOKUP(fn, "preg_match");
 	if (UNEXPECTED(!fn)) { ZVAL_LONG(retval, 0); return; }
@@ -1440,6 +1534,10 @@ PHP_METHOD(gene_validate, rule_mobile)
 		RETURN_FALSE;
 	}
 
+	if (Z_TYPE_P(val) == IS_STRING) {
+		int m = gene_match_mobile(Z_STRVAL_P(val), Z_STRLEN_P(val));
+		if (m >= 0) RETURN_BOOL(m);
+	}
 	zval retval;
 	gene_preg_match_str(GENE_VALIDATE_MOBILE, val, &retval);
 	if (Z_TYPE(retval) == IS_LONG && Z_LVAL(retval) > 0) {
@@ -1462,6 +1560,10 @@ PHP_METHOD(gene_validate, rule_date)
 		RETURN_FALSE;
 	}
 
+	if (Z_TYPE_P(val) == IS_STRING) {
+		int m = gene_match_date(Z_STRVAL_P(val), Z_STRLEN_P(val));
+		if (m >= 0) RETURN_BOOL(m);
+	}
 	zval retval;
 	gene_preg_match_str(GENE_VALIDATE_DATE, val, &retval);
 	if (Z_TYPE(retval) == IS_LONG && Z_LVAL(retval) > 0) {

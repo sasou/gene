@@ -312,6 +312,20 @@ PHP_METHOD(gene_monitor, reset) {
 	GENE_G(ctx_pool_miss) = 0;
 	GENE_G(closure_src_cache_flushes) = 0;
 	GENE_G(cache_easy_expired) = 0;
+	GENE_G(route_eval_calls) = 0;
+	GENE_G(route_eval_bytes) = 0;
+	GENE_G(route_eval_compiled) = 0;
+	GENE_G(route_error_eval_calls) = 0;
+	GENE_G(route_dispatch_direct) = 0;
+	GENE_G(route_dispatch_closure) = 0;
+	GENE_G(memory_business_copy_calls) = 0;
+	GENE_G(memory_business_copy_bytes) = 0;
+	GENE_G(memory_business_borrow_calls) = 0;
+	GENE_G(validate_regex_calls) = 0;
+	GENE_G(http_php_calls) = 0;
+	GENE_G(cache_fill_calls) = 0;
+	GENE_G(cache_fill_concurrent_max) = 0;
+	GENE_G(cache_fill_coalesced) = 0;
 	RETURN_TRUE;
 }
 /* }}} */

@@ -26,7 +26,11 @@
 | `gene.swoole_getcid_capi` | `1` | bool | 用 Swoole C-API 直接取协程 id（更快） |
 | `gene.cache_max_items` | `0` | long | 业务缓存分区上限（0=不限，>0 启用 LRU 淘汰） |
 | `gene.cache_reserve` | `4096` | long | 进程缓存哈希表桶预留容量；Swoole `workerReady()` 冻结前按此值预扩展。必须大于 `cache_max_items`；`<=` 时自动矫正为 `max_items + max(64, max_items/4)` 并记 warning |
-| `gene.route_precompile` | `0` | bool | 路由预编译派发缓存（仅 Swoole，opt-in） |
+| `gene.route_precompile` | `1` | bool | 路由预编译派发缓存（仅 Swoole；2026-11-04 起默认开启，`0` 回退慢路径） |
+| `gene.route_eval_compile` | `0` | bool | FPM/CLI（NTS）下把闭包路由、闭包/字符串钩子与错误处理器的派发程序写入 `{app_root}/Cache/Router/` 并经 opcache 执行，替代每请求 `eval`；需 opcache 已启用，否则、目录不可写或文件内容不符时自动回退 `eval`。代价：程序内 `__FILE__`/`__DIR__` 指向缓存文件，且不再继承 `Gene\Application` 类作用域（`self::`/`static::` 不可用） |
+| `gene.memory_business_zero_copy` | `0` | bool | FPM/CLI（NTS）下业务缓存（`processCached*` 等）命中时借用持久化不可变值，免深拷贝；被覆盖/删除/清空的旧值延迟到下一请求开始再释放。Swoole 下不生效 |
+| `gene.cache_fill_wait_ms` | `0` | 毫秒 | Swoole 协程内同 worker 同 key 回源合并（single-flight）：`>0` 时后到协程最多等待该时长复用首个协程的回源结果，超时或首个协程异常则自行回源。仅 `cached`/`localCached`/`processCached`；带版本的方法只计数不合并。FPM 不生效 |
+| `gene.http_keepalive` | `0` | bool | `Gene\Http` curl 后端挂载持久化 share 句柄（DNS / TLS 会话 / 连接池跨请求复用）；仅 PHP ≥ 8.5（`curl_share_init_persistent`），低版本为空操作 |
 | `gene.closure_src_cache_max` | `1024` | long | FPM 闭包源码缓存容量；`<=0` 关闭缓存 |
 | `gene.swoole_auto_cleanup` | `0` | bool | 协程 ctx 随协程结束自动归还（仅 Swoole，opt-in） |
 | `gene.cache_easy_ttl` | `0` | long | cache_easy 文件表 TTL 兜底秒数（0=禁用，惰性过期） |
@@ -51,6 +55,12 @@ gene.view_compile_check_mtime=0  ; 生产关闭 mtime 校验；开发期改 1
 
 > FPM 下连接池不生效（每请求新建 PDO），`co_contexts_*` / `ctx_pool_*` /
 > `route_precompile` 等 Swoole 专属项无需设置。
+>
+> 使用闭包路由 / 闭包钩子且已启用 opcache 的项目，可在压测确认后开启
+> `gene.route_eval_compile=1`（应用根目录下 `Cache/Router` 需可写）；业务缓存
+> 读多的项目可开启 `gene.memory_business_zero_copy=1`。效果用
+> `Gene\Memory::stats()` 的 `route_eval_calls` / `route_eval_compiled`、
+> `memory_business_copy_*` / `memory_business_borrow_calls` 观察。
 
 ### 场景二：Swoole / 协程（生产，推荐）
 
@@ -67,8 +77,9 @@ gene.ctx_pool_prewarm=512        ; 冷启动预热满，首波流量零 emalloc
 gene.co_contexts_max=16384       ; 协程上下文软上限
 
 ; —— 性能增强（opt-in，建议压测验证后开启） ——
-gene.route_precompile=1          ; 路由预编译派发，消除每请求 hash 查找
+; gene.route_precompile 默认已开启，路由预编译派发，消除每请求 hash 查找
 gene.cache_max_items=10000       ; 业务缓存 LRU 上限，防长跑内存膨胀
+; gene.cache_fill_wait_ms=200    ; 热点 key 回源合并（先看 cache_fill_concurrent_max 再开）
 
 ; —— 模板 ——
 gene.view_compile=1
@@ -94,7 +105,7 @@ $server->on('WorkerStart', function () {
   显式设到 `4096~16384`，避免频繁 sweep；不要设过小以免误淘汰长寿协程。
 - **`cache_max_items=0`**：兼容保留的**无界**默认，长跑可能抬高 RSS。**代码不改默认**；
   生产先用 `Gene\Monitor::stats()` 回采业务缓存分区水位，再显式设 LRU 上限（如 `10000`）。
-  `route_precompile` 为 Swoole opt-in，建议压测后再开。
+  `route_precompile` 自 2026-11-04 起默认开启，异常时置 `0` 回退。
 - **`run_environment`**：仅 `0`（dev）记录 SQL history/benchmark；默认 `1`（test）已关闭。
   生产设 `2`。
 - **`view_compile_check_mtime`**：默认 `1`（改模板即时生效，对开发友好），

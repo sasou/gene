@@ -442,10 +442,28 @@ ZEND_BEGIN_ARG_INFO_EX(gene_cache_versionbatch_arginfo, 0, 0, 2)
 ZEND_END_ARG_INFO()
 
 
+/* [GENE_PERF:2026-11-04 V3-3.6] One (ce -> fn) slot per hook method
+ * (get/set/incr/delete). Slots are request-scoped: close_request_globals()
+ * clears them, so a user function pointer never outlives its class. */
+static zend_always_inline zend_function *gene_cache_hook_fn(int slot, zval *object, zend_string *method)
+{
+	zend_class_entry *ce = Z_OBJCE_P(object);
+	zend_function *fn;
+	if (EXPECTED(GENE_G(cache_method_ce)[slot] == ce)) {
+		return GENE_G(cache_method_fn)[slot];
+	}
+	fn = zend_hash_find_ptr(&ce->function_table, method);
+	if (fn) {
+		GENE_G(cache_method_ce)[slot] = ce;
+		GENE_G(cache_method_fn)[slot] = fn;
+	}
+	return fn;
+}
+
 void gene_cache_get(zval *object, zval *key, zval *retval) /*{{{*/
 {
 	zend_string *method = gene_cache_method_get_name();
-	zend_function *fn = zend_hash_find_ptr(&Z_OBJCE_P(object)->function_table, method);
+	zend_function *fn = gene_cache_hook_fn(0, object, method);
 	zval params[] = { *key };
 	if (EXPECTED(fn)) {
 		zend_call_known_function(fn, Z_OBJ_P(object), Z_OBJCE_P(object), retval, 1, params, NULL);
@@ -460,7 +478,7 @@ void gene_cache_get(zval *object, zval *key, zval *retval) /*{{{*/
 void gene_cache_set(zval *object, zval *key, zval *value, zval *ttl, zval *retval) /*{{{*/
 {
 	zend_string *method = gene_cache_method_set_name();
-	zend_function *fn = zend_hash_find_ptr(&Z_OBJCE_P(object)->function_table, method);
+	zend_function *fn = gene_cache_hook_fn(1, object, method);
 	zval params[] = { *key, *value, *ttl };
 	if (EXPECTED(fn)) {
 		zend_call_known_function(fn, Z_OBJ_P(object), Z_OBJCE_P(object), retval, 3, params, NULL);
@@ -475,7 +493,7 @@ void gene_cache_set(zval *object, zval *key, zval *value, zval *ttl, zval *retva
 void gene_cache_incr(zval *object, zval *key, zval *val, zval *retval) /*{{{*/
 {
 	zend_string *method = gene_cache_method_incr_name();
-	zend_function *fn = zend_hash_find_ptr(&Z_OBJCE_P(object)->function_table, method);
+	zend_function *fn = gene_cache_hook_fn(2, object, method);
 	zval params[] = { *key, *val };
 	if (EXPECTED(fn)) {
 		zend_call_known_function(fn, Z_OBJ_P(object), Z_OBJCE_P(object), retval, 2, params, NULL);
@@ -490,7 +508,7 @@ void gene_cache_incr(zval *object, zval *key, zval *val, zval *retval) /*{{{*/
 void gene_cache_del(zval *object, zval *key, zval *retval) /*{{{*/
 {
 	zend_string *method = gene_cache_method_delete_name();
-	zend_function *fn = zend_hash_find_ptr(&Z_OBJCE_P(object)->function_table, method);
+	zend_function *fn = gene_cache_hook_fn(3, object, method);
 	zval params[] = { *key };
 	if (EXPECTED(fn)) {
 		zend_call_known_function(fn, Z_OBJ_P(object), Z_OBJCE_P(object), retval, 1, params, NULL);
@@ -792,6 +810,229 @@ done:
 		zval_ptr_dtor(&tmp_class);
 	}
 }/*}}}*/
+
+/* {{{ [GENE_PERF:2026-11-04 V3-3.5] Cache-miss fill with per-worker
+ * single-flight.
+ *
+ * Every single-key miss goes through gene_cache_fill(). In a Swoole worker
+ * (runtime_type >= 2, inside a coroutine) concurrent fills of one key are
+ * tracked in GENE_G(cache_inflight) so cache_fill_concurrent_max reports the
+ * stampede width. With gene.cache_fill_wait_ms > 0 a second coroutine missing
+ * the same key parks on a Swoole\Coroutine\Channel instead of calling the
+ * backend; the leader hands it a copy of the result. A waiter that times out,
+ * or whose leader threw or produced objects (they would be shared by
+ * reference across coroutines), fills by itself -- the fallback is always
+ * the pre-V3 behaviour. Never active in FPM/CLI: one request per process.
+ *
+ * Version-keyed caches (allow_wait = 0) are only tracked, never coalesced:
+ * a waiter may have read a newer version than the leader, and handing it the
+ * leader's result would serve data the version bump was meant to invalidate. */
+#define GENE_CACHE_FILL_SELF   0
+#define GENE_CACHE_FILL_SHARED 1
+
+typedef struct {
+	uint32_t refs;
+	uint32_t fillers;
+	zval waiters;
+} gene_cache_flight;
+
+static void gene_cache_flight_release(gene_cache_flight *f)
+{
+	if (--f->refs == 0) {
+		zval_ptr_dtor(&f->waiters);
+		efree(f);
+	}
+}
+
+static void gene_cache_flight_zv_dtor(zval *zv)
+{
+	gene_cache_flight_release((gene_cache_flight *)Z_PTR_P(zv));
+}
+
+static zend_long gene_cache_coroutine_id(void)
+{
+	zend_class_entry *ce = zend_hash_str_find_ptr(CG(class_table), ZEND_STRL("swoole\\coroutine"));
+	zval ret;
+	zend_long cid = -1;
+	if (!ce) {
+		return -1;
+	}
+	ZVAL_UNDEF(&ret);
+	zend_call_method(NULL, ce, NULL, ZEND_STRL("getcid"), &ret, 0, NULL, NULL);
+	if (Z_TYPE(ret) == IS_LONG) {
+		cid = Z_LVAL(ret);
+	}
+	zval_ptr_dtor(&ret);
+	if (EG(exception)) {
+		zend_clear_exception();
+		cid = -1;
+	}
+	return cid;
+}
+
+static int gene_cache_fill_shareable(zval *data)
+{
+	zval *item;
+	if (Z_TYPE_P(data) == IS_OBJECT || Z_TYPE_P(data) == IS_RESOURCE || Z_TYPE_P(data) == IS_REFERENCE) {
+		return 0;
+	}
+	if (Z_TYPE_P(data) != IS_ARRAY) {
+		return 1;
+	}
+	ZEND_HASH_FOREACH_VAL(Z_ARRVAL_P(data), item) {
+		ZVAL_DEREF(item);
+		if (!gene_cache_fill_shareable(item)) {
+			return 0;
+		}
+	} ZEND_HASH_FOREACH_END();
+	return 1;
+}
+
+/* Parks on a fresh Channel(1). Returns 1 with retval set when the leader
+ * delivered a value, 0 on timeout / failure. */
+static int gene_cache_flight_wait(gene_cache_flight *f, zval *retval)
+{
+	zend_class_entry *ce = zend_hash_str_find_ptr(CG(class_table), ZEND_STRL("swoole\\coroutine\\channel"));
+	zval chan, cap, timeout, got;
+	int ok = 0;
+	if (!ce) {
+		return 0;
+	}
+	if (object_init_ex(&chan, ce) != SUCCESS) {
+		return 0;
+	}
+	ZVAL_LONG(&cap, 1);
+	zend_call_method(Z_OBJ(chan), ce, NULL, ZEND_STRL("__construct"), NULL, 1, &cap, NULL);
+	if (EG(exception)) {
+		zend_clear_exception();
+		zval_ptr_dtor(&chan);
+		return 0;
+	}
+	Z_ADDREF(chan);
+	add_next_index_zval(&f->waiters, &chan);
+	ZVAL_DOUBLE(&timeout, (double)GENE_G(cache_fill_wait_ms) / 1000.0);
+	ZVAL_UNDEF(&got);
+	zend_call_method(Z_OBJ(chan), ce, NULL, ZEND_STRL("pop"), &got, 1, &timeout, NULL);
+	if (EG(exception)) {
+		zend_clear_exception();
+	} else if (Z_TYPE(got) == IS_ARRAY) {
+		zval *v = zend_hash_index_find(Z_ARRVAL(got), 0);
+		if (v) {
+			ZVAL_COPY(retval, v);
+			ok = 1;
+		}
+	}
+	zval_ptr_dtor(&got);
+	zval_ptr_dtor(&chan);
+	return ok;
+}
+
+static void gene_cache_flight_notify(gene_cache_flight *f, zval *data, int ok)
+{
+	zend_class_entry *ce = zend_hash_str_find_ptr(CG(class_table), ZEND_STRL("swoole\\coroutine\\channel"));
+	zend_object *saved_ex = NULL;
+	zval payload, *chan, ret;
+	if (!ce || Z_TYPE(f->waiters) != IS_ARRAY || zend_hash_num_elements(Z_ARRVAL(f->waiters)) == 0) {
+		return;
+	}
+	if (EG(exception)) {
+		saved_ex = EG(exception);
+		EG(exception) = NULL;
+	}
+	if (ok) {
+		array_init_size(&payload, 1);
+		Z_TRY_ADDREF_P(data);
+		add_next_index_zval(&payload, data);
+	} else {
+		ZVAL_FALSE(&payload);
+	}
+	ZEND_HASH_FOREACH_VAL(Z_ARRVAL(f->waiters), chan) {
+		if (Z_TYPE_P(chan) != IS_OBJECT) continue;
+		ZVAL_UNDEF(&ret);
+		zend_call_method(Z_OBJ_P(chan), ce, NULL, ZEND_STRL("push"), &ret, 1, &payload, NULL);
+		zval_ptr_dtor(&ret);
+		if (EG(exception)) {
+			zend_clear_exception();
+		}
+	} ZEND_HASH_FOREACH_END();
+	zval_ptr_dtor(&payload);
+	if (saved_ex) {
+		EG(exception) = saved_ex;
+	}
+}
+
+static zend_always_inline void gene_cache_fill_track(gene_cache_flight *f)
+{
+	f->fillers++;
+	if (f->fillers > GENE_G(cache_fill_concurrent_max)) {
+		GENE_G(cache_fill_concurrent_max) = f->fillers;
+	}
+}
+
+/* Returns GENE_CACHE_FILL_SHARED when retval came from another coroutine's
+ * fill (already stored by it), GENE_CACHE_FILL_SELF otherwise. Exceptions
+ * propagate exactly as from gene_cache_call(). */
+static int gene_cache_fill(zval *key, zval *object, zval *args, zval *retval, int allow_wait) /*{{{*/
+{
+	gene_cache_flight *f = NULL;
+	int leader = 0;
+
+	GENE_G(cache_fill_calls)++;
+	if (GENE_G(runtime_type) < 2 || !key || Z_TYPE_P(key) != IS_STRING || gene_cache_coroutine_id() <= 0) {
+		if (GENE_G(cache_fill_concurrent_max) == 0) {
+			GENE_G(cache_fill_concurrent_max) = 1;
+		}
+		gene_cache_call(object, args, retval);
+		return GENE_CACHE_FILL_SELF;
+	}
+
+	if (!GENE_G(cache_inflight)) {
+		ALLOC_HASHTABLE(GENE_G(cache_inflight));
+		zend_hash_init(GENE_G(cache_inflight), 8, NULL, gene_cache_flight_zv_dtor, 0);
+	}
+	f = zend_hash_find_ptr(GENE_G(cache_inflight), Z_STR_P(key));
+	if (f) {
+		f->refs++;
+		if (allow_wait && GENE_G(cache_fill_wait_ms) > 0 && gene_cache_flight_wait(f, retval)) {
+			GENE_G(cache_fill_coalesced)++;
+			gene_cache_flight_release(f);
+			return GENE_CACHE_FILL_SHARED;
+		}
+	} else {
+		f = ecalloc(1, sizeof(gene_cache_flight));
+		f->refs = 2; /* table + leader */
+		array_init(&f->waiters);
+		zend_hash_add_new_ptr(GENE_G(cache_inflight), Z_STR_P(key), f);
+		leader = 1;
+	}
+
+	gene_cache_fill_track(f);
+	zend_try {
+		gene_cache_call(object, args, retval);
+	} zend_catch {
+		f->fillers--;
+		if (leader) {
+			if (GENE_G(cache_inflight) && zend_hash_find_ptr(GENE_G(cache_inflight), Z_STR_P(key)) == f) {
+				zend_hash_del(GENE_G(cache_inflight), Z_STR_P(key));
+			}
+			gene_cache_flight_notify(f, NULL, 0);
+		}
+		gene_cache_flight_release(f);
+		zend_bailout();
+	} zend_end_try();
+	f->fillers--;
+
+	if (leader) {
+		int ok = !EG(exception) && gene_cache_fill_shareable(retval);
+		if (GENE_G(cache_inflight) && zend_hash_find_ptr(GENE_G(cache_inflight), Z_STR_P(key)) == f) {
+			zend_hash_del(GENE_G(cache_inflight), Z_STR_P(key));
+		}
+		gene_cache_flight_notify(f, retval, ok);
+	}
+	gene_cache_flight_release(f);
+	return GENE_CACHE_FILL_SELF;
+}/*}}}*/
+/* }}} */
 
 /* hash_mode: 0=MD5 (default), 1=fast FNV-1a, 2=xxHash64, 3=FarmHash64, 4=MurmurHash3, 5=TurboHash32 */
 void makeKey(zval *versionSign, zend_string *id, zval *element, zval *retval, int hash_mode) {
@@ -1120,14 +1361,14 @@ PHP_METHOD(gene_cache, cached)
 	}
 	if (Z_TYPE(ret) == IS_FALSE) {
 		zval data;
-		gene_cache_call(obj, args, &data);
+		int filled = gene_cache_fill(&key, obj, args, &data, 1);
 		if (EG(exception)) {
 			zval_ptr_dtor(&data);
 			zval_ptr_dtor(&key);
 			zval_ptr_dtor(&ret);
 			RETURN_NULL();
 		}
-		hook = gene_di_get(Z_STR_P(hookName));
+		hook = filled == GENE_CACHE_FILL_SELF ? gene_di_get(Z_STR_P(hookName)) : NULL;
 		if (hook) {
 			hook_cache_set(hook, &key, &data, ttl);
 		}
@@ -1173,14 +1414,18 @@ PHP_METHOD(gene_cache, localCached)
 	gene_apcu_fetch(&key, &ret);
 	if (Z_TYPE(ret) == IS_FALSE) {
 		zval data;
-		gene_cache_call(obj, args, &data);
+		int filled = gene_cache_fill(&key, obj, args, &data, 1);
 		if (EG(exception)) {
 			zval_ptr_dtor(&data);
 			zval_ptr_dtor(&key);
 			zval_ptr_dtor(&ret);
 			RETURN_NULL();
 		}
-		gene_apcu_store(&key, &data, ttl, &ret);
+		zval_ptr_dtor(&ret);
+		ZVAL_TRUE(&ret);
+		if (filled == GENE_CACHE_FILL_SELF) {
+			gene_apcu_store(&key, &data, ttl, &ret);
+		}
 		zval_ptr_dtor(&key);
 		zval_ptr_dtor(&ret);
 		RETURN_ZVAL(&data, 1, 1);
@@ -1308,7 +1553,7 @@ PHP_METHOD(gene_cache, cachedVersion)
 			 * cacheData below would crash. */
 			if (cacheData == NULL || cacheVersion == NULL || checkVersion(cacheVersion, &cur_version, mode) == 0) {
 				zval data_new,cur_data;
-				gene_cache_call(obj, args, &cur_data);
+				gene_cache_fill(&key, obj, args, &cur_data, 0);
 				if (EG(exception)) {
 					zval_ptr_dtor(&cur_data);
 					zval_ptr_dtor(&cur_version);
@@ -1338,7 +1583,7 @@ PHP_METHOD(gene_cache, cachedVersion)
 			RETURN_ZVAL(&saved_data, 0, 1);
 		} else {
 			zval data_new,cur_data,cur_version;
-			gene_cache_call(obj, args, &cur_data);
+			gene_cache_fill(&key, obj, args, &cur_data, 0);
 			if (EG(exception)) {
 				zval_ptr_dtor(&cur_data);
 				zval_ptr_dtor(&cache_key);
@@ -1363,7 +1608,7 @@ PHP_METHOD(gene_cache, cachedVersion)
 	{
 		zval data_new, cur_data, cur_version;
 		array_init(&cur_version);
-		gene_cache_call(obj, args, &cur_data);
+		gene_cache_fill(&key, obj, args, &cur_data, 0);
 		if (EG(exception)) {
 			zval_ptr_dtor(&cur_data);
 			zval_ptr_dtor(&cur_version);
@@ -1444,7 +1689,7 @@ PHP_METHOD(gene_cache, localCachedVersion)
 		/* [GENE_FIX:2026-08-23 P2-2] Half-written entry (no data) => miss. */
 		if (cacheData == NULL || cacheVersion == NULL || checkVersion(cacheVersion, &cur_version, mode) == 0) {
 			zval data_new,cur_data;
-			gene_cache_call(obj, args, &cur_data);
+			gene_cache_fill(&key, obj, args, &cur_data, 0);
 			if (EG(exception)) {
 				zval_ptr_dtor(&cur_data);
 				zval_ptr_dtor(&cur_version);
@@ -1473,7 +1718,7 @@ PHP_METHOD(gene_cache, localCachedVersion)
 		RETURN_ZVAL(&saved_data, 0, 1);
 	} else {
 		zval data_new,cur_data;
-		gene_cache_call(obj, args, &cur_data);
+		gene_cache_fill(&key, obj, args, &cur_data, 0);
 		if (EG(exception)) {
 			zval_ptr_dtor(&cur_data);
 			zval_ptr_dtor(&cur_version);
@@ -1602,7 +1847,10 @@ PHP_METHOD(gene_cache, processCached)
 		return;
 	}
 	zval data;
-	gene_cache_call(obj, args, &data);
+	if (gene_cache_fill(&key, obj, args, &data, 1) == GENE_CACHE_FILL_SHARED) {
+		zval_ptr_dtor(&key);
+		RETURN_ZVAL(&data, 1, 1);
+	}
 	if (EG(exception)) {
 		zval_ptr_dtor(&data);
 		zval_ptr_dtor(&key);
@@ -1700,11 +1948,10 @@ PHP_METHOD(gene_cache, processCachedVersion)
 		zval *cacheVersion = zend_hash_str_find(Z_ARRVAL_P(cached_val), ZEND_STRL("version"));
 		/* [GENE_FIX:2026-08-23 P2-2] A half-written entry (version present,
 		 * data missing — e.g. produced by a write that bailed out mid-copy)
-		 * must fall through to the recompute branch; gene_memory_zval_local_copy
-		 * on a NULL cacheData would dereference NULL. */
+		 * must fall through to the recompute branch. */
 		if (cacheData == NULL || cacheVersion == NULL || checkVersion(cacheVersion, &cur_version, mode) == 0) {
 			zval data_new, cur_data;
-			gene_cache_call(obj, args, &cur_data);
+			gene_cache_fill(&key, obj, args, &cur_data, 0);
 			if (EG(exception)) {
 				zval_ptr_dtor(&cur_data);
 				zval_ptr_dtor(&cached_local);
@@ -1724,8 +1971,10 @@ PHP_METHOD(gene_cache, processCachedVersion)
 			zval_ptr_dtor(&key);
 			RETURN_ZVAL(&cur_data, 1, 1);
 		}
-		/* [GENE_FIX:2026-08-23 UAF-2] Deep copy, see processCached. */
-		gene_memory_zval_local_copy(return_value, cacheData);
+		/* [GENE_FIX:2026-08-23 UAF-2] cached_local is already a request-owned
+		 * copy (or a borrowed immutable value, V3-3.3), so the child can be
+		 * shared by refcount instead of copied a second time. */
+		ZVAL_COPY(return_value, cacheData);
 		zval_ptr_dtor(&cached_local);
 		zval_ptr_dtor(&key);
 		zval_ptr_dtor(&cache_key);
@@ -1737,7 +1986,7 @@ PHP_METHOD(gene_cache, processCachedVersion)
 	}
 
 	zval data_new, cur_data;
-	gene_cache_call(obj, args, &cur_data);
+	gene_cache_fill(&key, obj, args, &cur_data, 0);
 	if (EG(exception)) {
 		zval_ptr_dtor(&cur_data);
 		zval_ptr_dtor(&cur_version);
@@ -1849,6 +2098,7 @@ PHP_METHOD(gene_cache, cachedBatch)
 			add_next_index_zval(return_value, cached);
 		} else {
 			zval data;
+			GENE_G(cache_fill_calls)++;
 			gene_cache_call(&objs[i], &args_arr[i], &data);
 			if (EG(exception)) {
 				zval_ptr_dtor(&data);
@@ -1955,6 +2205,7 @@ PHP_METHOD(gene_cache, localCachedBatch)
 			add_next_index_zval(return_value, cached);
 		} else {
 			zval data, ret;
+			GENE_G(cache_fill_calls)++;
 			gene_cache_call(&objs[i], &args_arr[i], &data);
 			if (EG(exception)) {
 				zval_ptr_dtor(&data);
@@ -2043,6 +2294,7 @@ PHP_METHOD(gene_cache, processCachedBatch)
 			add_next_index_zval(return_value, &local_val);
 		} else {
 			zval data;
+			GENE_G(cache_fill_calls)++;
 			gene_cache_call(&objs[i], &args_arr[i], &data);
 			if (EG(exception)) {
 				zval_ptr_dtor(&data);
@@ -2185,6 +2437,7 @@ PHP_METHOD(gene_cache, cachedVersionBatch)
 			}
 		}
 		zval cur_data, data_new;
+		GENE_G(cache_fill_calls)++;
 		gene_cache_call(&objs[i], &args_arr[i], &cur_data);
 		if (EG(exception)) {
 			zval_ptr_dtor(&cur_data);
@@ -2324,6 +2577,7 @@ PHP_METHOD(gene_cache, localCachedVersionBatch)
 			}
 		}
 		zval cur_data, data_new;
+		GENE_G(cache_fill_calls)++;
 		gene_cache_call(&objs[i], &args_arr[i], &cur_data);
 		if (EG(exception)) {
 			zval_ptr_dtor(&cur_data);
@@ -2440,12 +2694,12 @@ PHP_METHOD(gene_cache, processCachedVersionBatch)
 		if (cached_val && Z_TYPE_P(cached_val) == IS_ARRAY) {
 			zval *cacheData = zend_hash_str_find(Z_ARRVAL_P(cached_val), ZEND_STRL("data"));
 			zval *cacheVersion = zend_hash_str_find(Z_ARRVAL_P(cached_val), ZEND_STRL("version"));
-			/* [GENE_FIX:2026-08-23 P2-2] Half-written entry (no data) => miss;
-			 * gene_memory_zval_local_copy on NULL would dereference NULL. */
+			/* [GENE_FIX:2026-08-23 P2-2] Half-written entry (no data) => miss. */
 			if (cacheData && cacheVersion && checkVersion(cacheVersion, &cur_version, mode)) {
 				zval local_val;
-				/* [GENE_FIX:2026-08-23 UAF-2] Deep copy, see processCached. */
-				gene_memory_zval_local_copy(&local_val, cacheData);
+				/* [GENE_FIX:2026-08-23 UAF-2] cached_local is request-owned or
+				 * borrowed-immutable; see processCachedVersion. */
+				ZVAL_COPY(&local_val, cacheData);
 				add_next_index_zval(return_value, &local_val);
 				zval_ptr_dtor(&cached_local);
 				zval_ptr_dtor(&data_keys[i]);
@@ -2456,6 +2710,7 @@ PHP_METHOD(gene_cache, processCachedVersionBatch)
 			zval_ptr_dtor(&cached_local);
 		}
 		zval cur_data, data_new;
+		GENE_G(cache_fill_calls)++;
 		gene_cache_call(&objs[i], &args_arr[i], &cur_data);
 		if (EG(exception)) {
 			zval_ptr_dtor(&cur_data);
