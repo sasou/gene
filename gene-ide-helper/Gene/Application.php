@@ -114,8 +114,14 @@ class Application
 
     /**
      * webscan
-     * 
-     * @param int|null $webscan_switch
+     *
+     * 也支持单数组配置形式：`webscan(['white_dir' => ['admin','im'],
+     *   'white_url' => [...], 'mode' => 'block'|'log', 'on_fail' => callable,
+     *   'get'/'post'/'cookie'/'referer'/'fail_closed' => bool])`
+     * `mode='log'` 只记录诊断日志不拦截（灰度用）；未配置 on_fail 回调时
+     * XHR/JSON 客户端得到 {"code":4000,"msg":"Illegal access"}。
+     *
+     * @param int|array|null $webscan_switch 开关，或直接传入上述配置数组
      * @param string|array|null $webscan_white_directory 目录白名单：与查询串无关的前导路径段（可传数组放行多个子树）
      * @param callable|null $callback
      * @param array|null $webscan_white_url
@@ -233,6 +239,30 @@ class Application
      * @return static
      */
     public function readonly(array $config = null) {
+
+    }
+
+    /**
+     * throttle
+     * Pre-dispatch fixed-window rate limit per client IP (post-trustProxies
+     * resolution). Evaluated last in the policy chain, after restGuard/csrf/
+     * readonly — requests already denied cost no store round trip.
+     * Config:
+     *   'store'        => DI component exposing rateLimit($key,$max,$window)
+     *                     (Gene\Cache\Redis for cluster-wide counters,
+     *                      Gene\Memory per-process),
+     *   'rules'        => ['/admin/login.action' => ['limit' => 10, 'window' => 60,
+     *                      'methods' => ['POST']]] — first matching rule wins,
+     *                      path globs also match the lang-stripped path,
+     *   'prefix'       => key prefix (default 'gene:thr:'),
+     *   'on_fail_msg'  => deny message (default 'Too Many Requests'),
+     *   'on_fail_code' => deny HTTP status (default 429, Retry-After emitted),
+     *   'fail_closed'  => bool, store outage fails closed (default false = open)
+     *
+     * @param array|null $config null → disable
+     * @return static
+     */
+    public function throttle(array $config = null) {
 
     }
 
@@ -610,6 +640,18 @@ class Application
      * @return mixed
      */
     public function __set($name, $value) {
+
+    }
+
+    /**
+     * __isset
+     * isset()/empty() support for magic properties, aligned with __get
+     * (class-qualified key + DI component fallback).
+     *
+     * @param mixed $name name
+     * @return bool
+     */
+    public function __isset($name) {
 
     }
 

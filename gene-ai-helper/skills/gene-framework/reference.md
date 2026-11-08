@@ -37,6 +37,7 @@
 | error($msg, $code = 4000) | 构建失败响应数组 `[code, msg]` |
 | data($data, $count = -1, $msg = null, $code = 2000) | 构建带数据的响应数组 `[code, msg, data, count]` |
 | json($data, $callback = null, $code = 256) | JSON 编码并直接输出，支持 JSONP |
+| `isset($this->x)` / `empty($this->x)` | `__isset` 魔术方法（6.2.8+）：与 `__get` 同一解析（类限定键 + DI 组件回落）；Model/Service/Hook/View/Application/Di 同语义 |
 
 ---
 
@@ -56,9 +57,15 @@
 | exception($type, $callback = null) | 注册异常处理回调，返回 $this |
 | run($method = null, $uri = null) | 启动路由分发；FPM 无参读 $_SERVER；Swoole 无参读 Request 上下文 |
 | requestId($config = null) | 显式启用 request-id 策略；支持 `header`、`bytes`、`trust`、`max_length`，写入 `Context['request_id']` 和响应头；传 null 关闭 |
+| trustProxies($config = null) | 声明可信反向代理：`['proxies' => 'ip[/len]' 或 CIDR 数组, 'headers' => 转发头名(默认 x-forwarded-for), 'proto' => bool]`；按签名幂等，Swoole 每请求可重复调用；`null` 时由 `gene.trusted_proxies` INI 编译。此后 `Request::ip()/isInternal()/isSecure()` 与 restGuard/throttle 均按解析后的真实客户端判定 |
+| csrf($config = null) | CSRF/同源策略，在 run() 派发前集中执行；无参启用安全缺省（仅非安全方法）。配置：`methods`、`session`（同步令牌所在组件）、`origins`、`allow_same_site`、`except`、`scopes`（按路径 glob 覆盖子树，首命中生效，`false` 关闭该子树）；令牌另可从 JSON 体 `_token` 读取。restGuard 放行的服务端 REST 调用自动跳过 csrf |
+| restGuard($config = null) | 内部 REST 鉴权（默认前缀 `/rest/`）：`internal` 内网门禁、`secret` HMAC/shared 签名 + 时间戳 + nonce 一次性防重放（`nonce` 指定存储组件）；路径按去语言前缀后匹配。预注册组钩子 `@rest`；`Gene\Rest`/`Gene\Http` 出站自动加签 |
+| secureHeaders($config = null) | 安全响应头（CSP/frame/referrer/nosniff），无参启用缺省并移除 `X-Powered-By`（FPM/Apache SAPI）；HSTS 仅在 `Request::isSecure()` 为真时下发；CSP 中 `{nonce}` 逐请求替换（配 `Response::cspNonce()`）；嵌套 `run()` 不重复执行 |
+| readonly($config) | 动态路由 GET 只读白名单：`['/admin' => ['user' => ['lists','run'], '*' => []]]`，未列出的 c/a 非 GET 405（按去语言前缀后路径匹配，fail closed）；动作名支持 glob（`list*`、`get?`），控制器值为 `true` 放行全部动作。预注册组钩子 `@readonly` |
+| throttle($config = null) | 派发前固定窗口限流（策略链最后执行）：`['store' => 含 rateLimit 的组件名(Gene\Cache\Redis 集群/Gene\Memory 进程级), 'rules' => ['/path' => ['limit'=>n,'window'=>秒,'methods'=>[...]]], 'prefix' => 'gene:thr:', 'on_fail_msg', 'on_fail_code' => 429(带 Retry-After), 'fail_closed' => false]`；首命中规则生效，存储故障默认放行 |
 | stop() | 标记当前请求停止后续动作与 after 钩子（实例方法，每请求） |
 | isStopped() | 当前请求是否已 `stop()` |
-| webscan(...) | 内置 Web 扫描防护（开关、白名单目录/URL、GET/POST/Cookie/Referer） |
+| webscan(...) | 内置 Web 扫描防护。位置参数 `($switch, $white_dir, $callback, $white_url, $get, $post, $cookie, $referer, $fail_closed)`；`$white_dir` 可 `string|array`（前导路径段、与查询串解耦）。也支持单数组：`['white_dir'=>[...],'white_url'=>[...],'mode'=>'block'|'log','on_fail'=>callable,'get'/'post'/'cookie'/'referer'/'fail_closed'=>bool]`；`mode='log'` 仅记日志不拦截 |
 | waitWorkerReady() | Swoole：阻塞直到 workerStart 调用 workerReady()（`handleSwoole` 已内建） |
 | workerReady() | Swoole：标记 Worker 就绪，冻结进程级框架缓存（路由/配置表），预热请求上下文池；`Gene\Memory` 用户态写入走业务分区，此后仍可用 |
 | bootstrap($appRoot, $confDir, $options = []) | 应用装载收口：autoload + `load(router)` + `load(config)`（文件名支持 `{env}` 展开为 getEnvironmentName()）+ `setMode(mode ?? 1, debug, ex_callback, error_callback)`；debug = `options['debug']` ?? (env ∈ `debug_envs`)，即 exception_type，为 0 时不注册异常处理器（`setMode(1,1)` 恒开语义 = `'debug' => 1` 或 `['dev','test','gray']`）；`ex_callback`/`error_callback` 透传 setMode 第 3/4 参（非 callable 抛 ValueError）；FPM/Swoole 通用 |
@@ -107,7 +114,11 @@
 | isAjax() | 是否 AJAX 请求 |
 | getMethod() | 获取请求方法 |
 | isGet(), isPost(), isPut(), isHead(), isOptions(), isDelete(), isCli() | 请求方法判断 |
-| isSecure() | 当前请求是否走 HTTPS/TLS |
+| isSecure() | 当前请求是否走 HTTPS/TLS；`X-Forwarded-Proto` 仅对 trustProxies 可信直连代理生效 |
+| directIp() | TCP 层对端地址（仅 REMOTE_ADDR，永不采信客户端头）；内网门禁的权威值 |
+| ip() | 按可信代理表解析后的客户端 IP（取 XFF 链最右不可信项）；未配置代理或对端不可信时等同 directIp() |
+| ips() | 转发链 `[client, ..., direct]`（审计用）；对端不可信或无转发头时为空数组 |
+| isInternal($ip = null) | 内网判定（RFC1918/loopback/link-local/CGNAT/ULA）。无参：对端非可信代理时判 TCP 对端（XFF 永不采信）；对端为可信代理时改判解析后客户端 IP。传参则纯字面量判定 |
 | header($key, $default = null) | 获取 HTTP 请求头 |
 | rawContent() | 获取原始 HTTP 请求体；Swoole 来自 `Request::init()` 的 `$rawContent`，FPM/CLI 按需读 `php://input` 并缓存。`getContent()` 为别名 |
 | clear() | 清除请求数据缓存 |
@@ -115,6 +126,7 @@
 | initSwoole($request) | **Swoole 推荐**：从 `$request->get/post/cookie/server/files/header` 提取并注入，RAW 取一次 `$request->rawContent()` 方法调用；缺失/非数组属性按 `[]` 处理，REQUEST 自动合并 GET+POST，ENV 不注入；`rawContent()` 缺失抛可捕获 Error |
 | json() | 解析 rawContent 为 JSON 对象/数组；空 body → `null`；非法 JSON / JSON `null` / 标量抛异常。禁止直接读 `php://input` |
 | bearer() | 从 header/server 读 `Authorization`；仅接受大小写不敏感的 `Bearer` scheme + SP/HTAB，非 Bearer、裸 token 或空 token 返回 `null` |
+| sealedCookie($name) | 读取 `Response::sealedCookie()` 写入的密封 Cookie；密文内含过期时间，篡改/错上下文/过期一律返回 `null` |
 | snapshot() | 压入 get/post/files/request/header/raw 快照，返回新深度；上限 8 |
 | restore() | 弹出快照；栈空返回 false |
 | scope($get, $post, $files = null, $request = null) | 只改入参袋；`$request===null` 时合并 get+post。业务互调应走 `Invoke`/`Rest`，不要 `init` 整包覆盖 |
@@ -182,6 +194,8 @@ $rest->use('user')->call('Ping', 'pong', $params);
 | sendFile($file, $offset = 0, $length = 0) | 发送本地文件下载（Swoole 走内核 sendfile，FPM 按 8KB 分块流式）；仅接受本地普通文件（拒绝 http://、php:// 等流包装器），`$file` 不要直接拼接用户输入；响应头需先用 `header()` 设置 |
 | header($key, $value) | 设置自定义响应头 |
 | cookie($name, $value = null, $expires = null, $path = null, $domain = null, $secure = null, $httponly = null, $samesite = null) | 设置 Cookie（samesite: "Lax"/"Strict"/"None"，设为 "None" 时通常需同时 secure=true） |
+| sealedCookie($name, $value, $expires = null, $path = null, $domain = null, $secure = null, $httponly = null, $samesite = null) | 防篡改 Cookie：AES-256-GCM 按 Crypto keyring 密封，AAD 绑定 `cookie.<name>`；过期时间写入密文内部，浏览器过期后仍发送也被 `Request::sealedCookie()` 拒绝。需先 `Crypto::keyring()`，未配置抛异常 |
+| cspNonce() | 返回本请求稳定的 CSP nonce；同时写进 `secureHeaders` CSP 的 `{nonce}` 占位与内联 `<script>`/`<style>` 标签 |
 | url($path) | 带当前语言前缀的 URL |
 | end($data = null) | 结束响应（Swoole `$response->end` / FPM `php_write`） |
 | write($chunk) | 分块写出且不结束响应。FPM: `php_write`+flush；Swoole: `$response->write` |
@@ -240,7 +254,6 @@ $rest->use('user')->call('Ping', 'pong', $params);
 | dispatch($class, $action, $params) | 直接实例化类并调用方法，支持 :c/:a 替换 |
 | dispatchHooks($key) | 执行扩展内部缓存的编译 Hook 链；通常由 Router 内部调用，业务应使用 `hook()` / `through()` 声明 |
 | params($name = null) | 获取路由路径参数 |
-| getRouterUri() | 获取当前匹配到的路由注册键（路由模式串） |
 | getLang() | 获取当前语言 |
 | getTree(), getEvent(), getConf() | 获取路由树/事件/配置（用于调试） |
 | delTree(), delEvent(), delConf() | 清除路由树/事件/配置缓存 |
@@ -276,6 +289,9 @@ $title = $this->language->login_title; // 读取键值
 |------|------|
 | __construct($dir, $defaultLang = 'en') | 构造，设置默认目录与语言 |
 | lang($lang = null) | 设置当前语言代码（如 zh/en/ru），返回 $this |
+| negotiate(array $supported, $header = null) | 按 Accept-Language q 值挑取支持语言（精确标签→主子标签），回落首项并把实例切到该语言；`$header` 缺省取当前请求 accept-language（FPM/Swoole 同一 HEADER 袋） |
+| get($name) | 直接读键，等价 `__get` 但跳过魔术方法分发（模板内大量调用更高效） |
+| getAll() | 返回当前 dir+lang 的完整语言数组；Controller 层取一次传入模板可替代 N 次 `->key` |
 | __call($name, $args) | `$language->web('zh')` → 设置目录=web、语言=zh，返回 $this |
 | __get($name) | 读取当前目录/语言文件的键值，文件不存在返回空字符串 |
 
@@ -308,6 +324,7 @@ $title = $this->language->login_title; // 读取键值
 | has($name) | 判断容器中是否存在指定 key |
 | set($name, $value) | 向容器注册对象或值 |
 | del($name) | 从容器删除指定 key |
+| `$di->key` / `isset($di->key)` | `__set/__get/__isset` 魔术访问，等价 `set/get/has` 语义（6.2.8+） |
 
 ---
 
@@ -357,6 +374,7 @@ $title = $this->language->login_title; // 读取键值
 | $timestamps | true 时 create/save/updateBy/toggle/createMany 自动填充时间列；payload 已含该列则不覆盖 |
 | $createdAt / $updatedAt | 时间列名，默认 `created_at`/`updated_at`；设为 `null`/`''` 则该列不写（6.1.0+） |
 | $timestampFormat | `'datetime'`（Y-m-d H:i:s，默认）或 `'unix'`（int 秒）（6.1.0+） |
+| $incrementing | 默认 `true`；置 `false`（UUID/自然主键表）后 `fill()` 带主键恒按新行处理，免每次 `fill($d, false)`；`find($id, true)` 水合不受影响（6.2.8+） |
 | $versionScanLimit | `updateBy` 非主键 where 的预读行数上限，默认 1000；超限发 E_WARNING 并跳过 versionKeys 失效（6.2.5+）。预读 SELECT 与 UPDATE 在事务外非原子：严格失效语义请把非主键批量更新放进 `transaction()` 内执行 |
 
 | 方法 | 说明 |
@@ -452,6 +470,8 @@ User::query()
 | init($data) | 重置所有状态并设置验证数据，返回 $this |
 | name($field) | 设置当前字段（支持逗号分隔多字段），返回 $this |
 | skipOnEmpty() | 空值时跳过后续验证规则，返回 $this |
+| bail() | 任一字段首条规则失败即停止该字段的后续规则，返回 $this |
+| sometimes($field, callable $callback) | 条件守卫：`$callback($data): bool` 返回 false 时跳过 `$field` 的全部规则，返回 $this |
 | filter($method, $args = null) | 对字段值应用过滤函数，返回 $this |
 | extend($rule, $fn) | 静态（5.6.8+）：注册全局自定义规则，分派先于内置表；回调 `fn($value, ...$args): bool`，false 判失败；FPM 请求级 / Swoole worker 级注册表 |
 | addValidator($name, $callback, $msg) | 注册自定义验证器闭包，返回 $this |
@@ -513,7 +533,14 @@ $this->websession->destroy();       // 全部清除并重新生成 SessionId
 | cookie($name, $value, $time) | 直接设置 Cookie（使用 Session 的 path/domain 配置），返回 $this |
 | getSessionId() | 获取当前 SessionId（不含前缀），返回 string\|null |
 | setSessionId($cookie) | 手动设置 SessionId（Swoole 场景），返回 $this |
+| regenerateId($deleteOld = true) | 重新生成 SessionId 并保留数据（会话固定攻击防护，登录/提权后应调用）；默认删除存储驱动中的旧 id 记录使被固定 id 无法恢复，新 id 立即经 Cookie 下发；尚未建立 id 返回 false |
 | setLifeTime($time) | 设置 Cookie 生存时长（秒），返回 bool |
+| clear() | 清空全部会话数据（保留 SessionId），返回 $this |
+| all() | 返回全部会话数据数组 |
+| `$session->key` 读写 / `isset` / `unset` | `__get/__set/__isset/__unset` 魔术访问，等价 `get/set/has/del` |
+| __destruct | 请求关闭时把脏数据刷回存储驱动（Cookie 在 get/set/save 生命周期内已即时下发，析构不再触碰） |
+
+加固配置键（构造数组）：`idle`（空闲超时秒）、`absolute`（绝对超时秒）、`bind`（指纹绑定 `'ua'`/`'ip'`/`'device'`，字符串或数组）——`ua`+`ip` 时 UA 与可信客户端 IP 的哈希指纹写入 `_bind`，load 校验不一致即销毁记录；`secure` 另支持 `'auto'`（按 `Request::isSecure()` 判定）。 |
 
 ---
 
@@ -593,6 +620,7 @@ $stats = \Gene\Monitor::stats();
 | 方法 | 说明 |
 |------|------|
 | stats() | 静态；返回上示聚合数组 |
+| security() | 静态；安全相关 INI 快照自检（view_autoescape/redirect_hosts/trusted_proxies/jsonp/run_environment/display_errors/expose_php/session cookie 标志），每项返回 `{value, recommended, ok}`（`ok=null` 表示依部署而定） |
 | reset() | 静态；重置累计监控计数器 |
 | prometheus() | 静态；导出 Prometheus 文本格式指标 |
 
@@ -635,12 +663,15 @@ $list = $this->db
 | where($where, $fields = null) | 设置 WHERE 条件，返回 $this |
 | in($in, $fields = null) | 设置 IN 条件（含 `in(?)` 占位符），返回 $this |
 | join($table, $on, $type = 'INNER') | JOIN：$on 为 leftColumn=>rightColumn 关联数组；type 支持 INNER/LEFT/RIGHT/CROSS/FULL（6.1.0+） |
+| joinOn($table, array $predicates, $type = 'INNER') | 结构化 ON（与 `Orm\Query::joinOn` 同一构造器）：每项严格 `left/op` 加且仅加 `column` 或 `value`，值始终绑定（6.2.x+） |
+| increment($table, $column, $amount = 1) / decrement(...) | 原子加减 UPDATE 构建（`col = col ± ?`，值绑定）；`$amount` 须为有限 int/float（6.2.x+） |
 | leftJoin($table, $on) / rightJoin($table, $on) | LEFT/RIGHT JOIN 简写（6.1.0+） |
 | union($query, $all = false) | UNION / UNION ALL；$query 可为 SQL 字符串或构建器对象（6.1.0+） |
 | reset() | 重置构建器状态（sql/join/where/group/having/union/order/limit/data），便于复用同一实例（6.1.0+） |
 | sql($sql, $fields = null) | 设置原始 SQL，返回 $this |
 | limit($num, $offset = null) | 单参时 `$num` 为返回行数，生成 `LIMIT $num`；双参时 `$num` 为偏移量、`$offset` 为返回行数，生成 `LIMIT $num, $offset`，返回 $this |
 | order($order), group($group), having($having) | ORDER BY / GROUP BY / HAVING，返回 $this |
+| orderBy($column, $direction = 'ASC', $allow = null) | **用户排序字段唯一入口**：列须命中 `$allow`（列表或 别名=>列 映射），无 `$allow` 时须为纯标识符/点路径，方向仅 ASC/DESC，违规抛 `ValueError`；`order()` 留给表达式，禁止再接用户输入（6.2.8+） |
 | lockForUpdate() | SELECT ... FOR UPDATE（MySQL/Pgsql）；Sqlite no-op+E_NOTICE；Mssql 抛异常；须在事务内（6.1.0+） |
 | sharedLock() | SELECT ... LOCK IN SHARE MODE（MySQL）/ FOR SHARE（Pgsql）；Sqlite no-op+E_NOTICE；Mssql 抛异常；须在事务内（6.1.0+） |
 | execute() | 执行 SQL，返回 PDOStatement |
@@ -969,9 +1000,70 @@ $sig = \Gene\Crypto::hmacSign($canonical, $secret);
 | hmacCheck($data, $sig, $secret) | 恒定时间比较，失败返回 false 不抛 |
 | tsSkew($unix, $maxSkew = 1800) | `|now-unix| <= maxSkew` |
 | randomId($prefix = '', $bytes = 16) | `prefix + bin2hex(random_bytes)` |
-| encrypt / decrypt($data, $key) | AES-256-GCM；`$key` 必须 32 字节 |
+| encrypt / decrypt($data, $key) | AES-256-GCM；`$key` 必须 32 字节；线格式 `base64url(iv[12] + tag[16] + ct)` |
+| keyring(array $keys, $active = null) | 注册进程密钥环（`kid => 32字节密钥`），`$active` 选定密封 kid（缺省最后一项）；bootstrap 时从 env/config 调一次，支撑 seal/unseal/sealedCookie/signRequest |
+| derive($ctx, $len = 32) | 从 active 密钥按 HKDF+上下文派生 `$len` 字节（1..255） |
+| seal($plain, $ctx = null) / unseal($cipher, $ctx = null) | keyring 下 AES-256-GCM 密封；线格式 `"g1.<kid>.<base64url>"`，`$ctx` 作 AAD——错上下文/篡改/未知 kid 解密返回 `null` 而非异常 |
+| signRequest($method, $path, $opts = null) | REST 签名头：`['ts','nonce','sign']`，覆盖 method+path(?query)+ts+nonce+sha256(body)；`$opts`：`secret`(必)、`body`、`ts`、`nonce` |
+| totpSecret($bytes = 20) | 随机 base32 TOTP 密钥（RFC 4648 无填充，10..64 字节） |
+| totp($secret, $ts = 0, $step = 30, $digits = 6) | 生成 TOTP 码（RFC 6238），`$ts=0` 取当前时间，返回零填充数字串 |
+| totpVerify($secret, $code, $window = 1, $step = 30, $digits = 6, $opts = null) | 校验 TOTP；`$opts['used']` 传存储对象（Memory/Redis 形）时通过的码在窗口内打一次性标记，同码重放拒绝、相邻步新码放行 |
+| randomCode($len = 6, $alphabet = null) | CSPRNG 随机码（默认数字字母表，无偏拒绝采样），CAPTCHA/2FA 用，替代 `rand()` |
 
-限流：单 worker 用 `Memory::rateLimit`；多 worker / Swoole 用 `Redis::rateLimit`（Lua）。
+限流：单 worker 用 `Memory::rateLimit`；多 worker / Swoole 用 `Redis::rateLimit`（Lua）；失败计数语义用 `Gene\Throttle`。
+
+---
+
+## Gene\Ip
+
+IP 字面量 / CIDR 工具，与可信代理解析、内网门禁共用同一解析核心。解析严格（IPv4-mapped IPv6 内部表示），畸形输入返回 false 而非宽松匹配。
+
+| 方法 | 说明 |
+|------|------|
+| isValid($ip) | 严格字面量校验（`"1.2.3.4"`、`"2001:db8::1"`、`"::ffff:10.0.0.1"`）；重复 `::`、尾随垃圾、坏内嵌 v4、前导零均拒绝 |
+| inCidr($ip, $cidrs) | 命中单个或一组 CIDR；v4 前缀映射到 v4-mapped v6 空间，`"::ffff:10.1.2.3"` 仍匹配 `"10.0.0.0/8"`；非法 CIDR 项 E_WARNING 且不匹配 |
+| isInternal($ip) | 内网判定：RFC1918、loopback、link-local、CGNAT、ULA fc00::/7、fe80::/10、::1 |
+
+---
+
+## Gene\Csrf
+
+同步令牌 CSRF 助手，以 `session` DI 组件为后端。集中策略（Fetch Metadata + Origin/Referer + token）由 `Application::csrf()` 执行；本类是手动面（生成/校验/表单字段），`token()` 等按当前路径解析 csrf 的 `scopes` 配置。
+
+| 方法 | 说明 |
+|------|------|
+| token() | 会话级令牌（首次创建后稳定）；经 `field()` 渲染进表单或读出用于 `X-CSRF-Token` 头 |
+| check($token = null) | 与会话令牌常数时间比较；`$token` 缺省读 `X-CSRF-Token` 头再读 `$_POST['_token']`/JSON 体；只读——失败不创建不轮换 |
+| field() | 输出隐藏表单域 `<input type="hidden" name="_token" value="...">` |
+
+---
+
+## Gene\Password
+
+统一口令 API：封装 `password_hash/verify` 与应用旧格式 `md5(salt . sha1(salt . pwd))`，带透明升级（needs_rehash）与 dummy 抗时序路径。
+
+| 方法 | 说明 |
+|------|------|
+| hash($password, $opts = null) | 生成哈希；`$opts['algo']` 支持 `bcrypt`/`argon2i`/`argon2id`/`default`，其余键透传 PHP options |
+| verify($password, $hash, $opts = null) | 校验 `$` 前缀现代哈希（配 `opts.salt`/`opts.legacy` 也可过旧格式）；返回 `{ok, needs_rehash, hash?}`——`ok && needs_rehash` 时把 `hash` 落库完成透明升级 |
+| verifyLegacy($password, $hash, $salt = null) | 仅旧格式 `md5($salt.sha1($salt.$pwd))` 常数时间比较；`$salt` 缺省 `''` |
+| verifyAny($password, $hash, $opts = null) | 自动识别：`$` 前缀→现代，32-hex→旧格式（`opts.salt`；`opts.legacy` callable 可覆盖旧方案）；返回 `{ok, algo, needs_rehash, hash?}` |
+| needsRehash($hash, $opts = null) | 是否应按当前默认 algo/options 重哈希（任何非 password_hash 格式含旧格式恒 true） |
+| dummy($password) | 与真实 PASSWORD_DEFAULT verify 同耗时的恒 false 校验——用户不存在时调用，消除"用户存在性"时序探测 |
+
+---
+
+## Gene\Throttle
+
+基于缓存存储的原子失败计数/限流（固定窗口「计失败、成功清零」语义），替代并发下竞态的读-改-写计数器。键统一 `gene:thr:` 前缀；存储按 `Gene\Memory`（写锁内 TTL 递增）→ `Gene\Cache\Redis`（Lua `INCR`+`EXPIRE`）→ 通用 add/set(nx,ex) 降级链分派。存储故障 `hit()` 返回 -1、`attempt()` 放行。
+
+| 方法 | 说明 |
+|------|------|
+| hit($store, $key, $ttl = 3600) | 原子 +1；`$ttl` 在窗口开启时附着；返回新计数，存储拒绝返回 -1 |
+| tooMany($store, $key, $max) | 只读闸门：count >= max 即 true，不消耗配额。模式：`if (tooMany) reject; ...; $ok ? clear() : hit()` |
+| attempt($store, $key, $max, $ttl = 3600) | 原子 hit+判断：新计数在 `$max` 内返回 true；存储不可用放行（true） |
+| count($store, $key) / remaining($store, $key, $max) | 当前计数（无键 0）/ 剩余配额（floor 0） |
+| clear($store, $key) | 删除计数器（成功路径调用，结束失败窗口） |
 
 ---
 
@@ -981,8 +1073,8 @@ $sig = \Gene\Crypto::hmacSign($canonical, $secret);
 
 | 方法 | 说明 |
 |------|------|
-| __construct($switch = 1, $whiteDirectory = null, $whiteUrl = null, $get = 1, $post = 1, $cookie = 1, $referer = 1) | 配置开关、目录/URL 白名单及扫描来源 |
-| check() | 扫描当前请求；检测到攻击特征返回 `true`，否则返回 `false` |
+| __construct($switch = 1, $whiteDirectory = null, $whiteUrl = null, $get = 1, $post = 1, $cookie = 1, $referer = 1, $failClosed = 1) | 配置开关、目录/URL 白名单（目录白名单可 `string|array`，按前导路径段匹配、与查询串解耦）及扫描来源；`$failClosed=1`（默认）时 PCRE 回溯/JIT 超限按命中拦截 |
+| check() | 扫描当前请求；检测到攻击特征返回 `true`，否则返回 `false`。GET 开关同时覆盖路径、POST 开关同时覆盖 JSON 体、Referer 开关同时覆盖 UA 与 XFF |
 
 ---
 

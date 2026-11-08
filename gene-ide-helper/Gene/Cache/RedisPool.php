@@ -124,6 +124,11 @@ final class RedisPool
      */
     public function __destruct() {}
 
+    /**
+     * __clone（private：连接池禁止克隆）
+     */
+    private function __clone() {}
+
     // -------------------------------------------------------------------------
 
     /**

@@ -181,6 +181,18 @@ class View
     }
 
     /**
+     * __isset
+     * isset()/empty() support for magic properties, aligned with __get
+     * (class-qualified key + DI component fallback, then assign() variables).
+     *
+     * @param mixed $name name
+     * @return bool
+     */
+    public function __isset($name) {
+
+    }
+
+    /**
      * render
      * Render a template and return the output as a string without sending
      * it to the response. Variables assigned via assign() are available.

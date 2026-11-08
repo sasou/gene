@@ -38,6 +38,13 @@ class Session
     public function __construct(array $config) {}
 
     /**
+     * __destruct
+     * 请求关闭阶段把脏数据刷回存储驱动（不再触碰 Cookie——
+     * Cookie 在 get/set/save 生命周期内已即时下发）。
+     */
+    public function __destruct() {}
+
+    /**
      * load
      * 从存储驱动中加载 Session 数据
      *
