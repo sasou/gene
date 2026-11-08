@@ -577,8 +577,8 @@ class OrmTest
             // [GENE_FIX:2026-09-23] v1 connector-carrying fragments —
             // in(" and id in(?)") is the documented Db API contract
             // (demo Group::delAll). Query used to splice it verbatim:
-            // "WHERE ... AND and ..." / "WHERE and ..." (MariaDB 1064,
-            // legacy app Purview::lists). The connector must be stripped and
+            // "WHERE ... AND and ..." / "WHERE and ..." (MariaDB 1064 when
+            // connectors are embedded in raw fragments). The connector must be stripped and
             // re-emitted by the Query layer.
             $rows = OrmTestQUser::query()
                 ->where('name != ?', 'u9')
