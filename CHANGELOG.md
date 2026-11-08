@@ -26,6 +26,8 @@
 
 ### 🐞 修复
 
+- **`gene_interned_str_persistent()` 请求期泄漏**（30 处 `GENE_INTERNED_STR` 等站点共用）：请求期 `zend_string_init_interned(..., 1)` 拿不到永久串时 slot 不缓存，每次重建——FPM/php-cgi 下 malloc 串进了无析构的请求期 interned 表，每请求每站点泄漏一份；开启 opcache 的 CLI/Swoole 长请求里 opcache 运行期处理器在 shm 未命中时返回普通引用计数串，每次调用泄漏一份。webscan 三条规则正则受影响最大（FPM 开启时约 3KB/请求，即 1 万请求约 30MB/worker）。NTS 下请求期改为每站点自持一份进程级常驻 interned 串（整个进程只分配一次、永不释放，不会悬垂）；ZTS 保持请求期分配。复现与回归：`audit/repro/perfv3_leak_probe.php`。
+- **`gene.cache_max_items` 默认改为 `10000`、`gene.cache_reserve` 默认改为 `12800`**：原默认 `0` 业务缓存分区无界（10 万个互异 `processCached` 键约 +97MB/worker）。LRU 只淘汰 `Gene\Cache` 写入与 `rateLimit`/`lock` 键，框架元数据与 `Memory::set` 不受影响；需旧行为显式设 `0`。
 - **Swoole 下 `Request::server('HTTP_*')`/`CONTENT_TYPE`/`CONTENT_LENGTH` 统一回落 header 袋**：`init()`/`initSwoole()` 注入的 server 袋为 miss 时，`HTTP_FOO` 按 `foo`、`CONTENT_*` 按 `content-*` 回查 header 袋（仅 miss 路径一次栈内转换 + 一次哈希探测）。修复 Swoole 下 `server('HTTP_USER_AGENT')`、`isAjax()`（`HTTP_X_REQUESTED_WITH`）、`HTTP_AUTHORIZATION` 恒取空的问题；FPM 走 `$_SERVER` 原路径不受影响。
 - **`Request::server()` 整袋返回 FPM 形态视图**：注入式请求（`bags_inited`）首次无参调用时惰性物化视图缓存于 `request_attr[9]`——CGI 键大写化（`remote_addr`→`REMOTE_ADDR`），header 袋折叠为 `HTTP_*`（`content-type`/`content-length` 映射 `CONTENT_TYPE`/`CONTENT_LENGTH`，与 `$_SERVER` 同形）；原始注入袋仍占 `TRACK_VARS_SERVER` 槽位供按名零分配查询。`init()`/`initSwoole()` 重初始化即失效重建。修复 webscan referer/UA/XFF 维度扫描在 Swoole 下空转、以及 `server()` 迭代看不到请求头的差异。
 

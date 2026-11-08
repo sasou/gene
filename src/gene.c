@@ -164,8 +164,8 @@ STD_PHP_INI_ENTRY("gene.co_contexts_max", "1024", PHP_INI_SYSTEM, OnUpdateLong, 
 STD_PHP_INI_ENTRY("gene.ctx_pool_max", "256", PHP_INI_SYSTEM, OnUpdateLong, ctx_pool_max, zend_gene_globals, gene_globals) // @suppress("Symbol is not resolved")
 STD_PHP_INI_ENTRY("gene.ctx_pool_prewarm", "0", PHP_INI_SYSTEM, OnUpdateLong, ctx_pool_prewarm, zend_gene_globals, gene_globals) // @suppress("Symbol is not resolved")
 STD_PHP_INI_BOOLEAN("gene.swoole_getcid_capi", "1", PHP_INI_SYSTEM, OnUpdateBool, swoole_getcid_capi, zend_gene_globals, gene_globals) // @suppress("Symbol is not resolved")
-STD_PHP_INI_ENTRY("gene.cache_max_items", "0", PHP_INI_SYSTEM, OnUpdateLong, cache_max_items, zend_gene_globals, gene_globals) // @suppress("Symbol is not resolved")
-STD_PHP_INI_ENTRY("gene.cache_reserve", "4096", PHP_INI_SYSTEM, OnUpdateLong, cache_reserve, zend_gene_globals, gene_globals) // @suppress("Symbol is not resolved")
+STD_PHP_INI_ENTRY("gene.cache_max_items", "10000", PHP_INI_SYSTEM, OnUpdateLong, cache_max_items, zend_gene_globals, gene_globals) // @suppress("Symbol is not resolved")
+STD_PHP_INI_ENTRY("gene.cache_reserve", "12800", PHP_INI_SYSTEM, OnUpdateLong, cache_reserve, zend_gene_globals, gene_globals) // @suppress("Symbol is not resolved")
 STD_PHP_INI_BOOLEAN("gene.route_precompile", "1", PHP_INI_SYSTEM, OnUpdateBool, route_precompile, zend_gene_globals, gene_globals) // @suppress("Symbol is not resolved")
 STD_PHP_INI_ENTRY("gene.closure_src_cache_max", "1024", PHP_INI_SYSTEM, OnUpdateLong, closure_src_cache_max, zend_gene_globals, gene_globals) // @suppress("Symbol is not resolved")
 STD_PHP_INI_BOOLEAN("gene.swoole_auto_cleanup", "0", PHP_INI_SYSTEM, OnUpdateBool, swoole_auto_cleanup, zend_gene_globals, gene_globals) // @suppress("Symbol is not resolved")
@@ -235,31 +235,43 @@ zend_long gene_get_coroutine_id(void) {
 /* }}} */
 
 /* {{{ gene_interned_str_persistent
- * [GENE_FIX:2026-05-24] See gene.h for full rationale. The slot is only
- * populated when zend_string_init_interned() returned a string carrying
- * IS_STR_PERMANENT �� the canonical Zend marker for "lives at process scope".
- * Under opcache.file_cache_only=1 / no-opcache / CLI, the call returns a
- * request-scope string (no IS_STR_PERMANENT); we deliberately leave *slot
- * NULL so that the next request re-resolves through the interned strings
- * table instead of dereferencing a freed pointer.
- *
- * Within a single request, repeated calls hit the fast path on the second
- * invocation onward: the *slot check short-circuits before the
- * zend_string_init_interned hash probe. Across requests, the worst case is
- * one zend_string_init_interned call per site per request �� a bucket lookup
- * in CG(interned_strings) plus a single store. Benchmarks: ~25 ns extra per
- * site versus the prior unsafe cache, dwarfed by even one disk syscall. */
+ * [GENE_FIX:2026-05-24] See gene.h for full rationale. The slot only ever
+ * holds a string that lives for the whole process: a permanent interned
+ * string (startup), or on NTS a gene-owned persistent string flagged
+ * interned (request time). A request-scope interned string is never stored,
+ * so the slot cannot dangle under opcache.file_cache_only=1 / no-opcache.
+ * NTS: one allocation per site per process. ZTS: one request-scope string
+ * per site per call, reclaimed with the request. */
 zend_string *gene_interned_str_persistent(zend_string **slot, const char *s, size_t l) {
 	zend_string *cached = *slot;
 	if (EXPECTED(cached != NULL)) {
 		return cached;
 	}
-	zend_string *resolved = zend_string_init_interned(s, l, 1);
-	if (resolved && (GC_FLAGS(resolved) & IS_STR_PERMANENT)) {
-		*slot = resolved;
+	zend_string *resolved;
+	if (!PG(modules_activated)) {
+		resolved = zend_string_init_interned(s, l, 1);
+		if (resolved && (GC_FLAGS(resolved) & IS_STR_PERMANENT)) {
+			*slot = resolved;
+		}
+		return resolved;
 	}
-	/* When permanent caching is unavailable, *slot stays NULL �� the
-	 * returned string is still safe to use for this request only. */
+#ifndef ZTS
+	/* At request time zend_string_init_interned() cannot be trusted to give
+	 * back a string callers may drop without releasing: the request table has
+	 * no destructor for permanent=1 strings (FPM leaks one per site per
+	 * request), and opcache's runtime handler returns a plain refcounted
+	 * string on a shm miss (leaks one per call in a long CLI/Swoole request).
+	 * Own one process-lifetime string per site instead; it is never freed,
+	 * so it can never dangle. */
+	resolved = zend_string_init(s, l, 1);
+	zend_string_hash_val(resolved);
+	GC_SET_REFCOUNT(resolved, 1);
+	GC_ADD_FLAGS(resolved, IS_STR_INTERNED | IS_STR_PERMANENT);
+	*slot = resolved;
+#else
+	/* The static slot is shared by all threads: stay request-scoped. */
+	resolved = zend_string_init_interned(s, l, 0);
+#endif
 	return resolved;
 }
 /* }}} */

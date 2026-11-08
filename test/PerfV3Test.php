@@ -228,8 +228,8 @@ if (!is_file($cgi)) {
 } else {
     $probeFile = temp_script('echo function_exists("opcache_get_status") ? "Y" : "N";');
     $hasOpcache = false;
-    foreach (['opcache', 'php_opcache.dll'] as $so) {
-        $opcache = "-d zend_extension=$so -d opcache.enable=1";
+    foreach (['', 'opcache', 'php_opcache.dll'] as $so) {
+        $opcache = ($so === '' ? '' : "-d zend_extension=$so ") . '-d opcache.enable=1';
         [$probe] = run_cmd(escapeshellarg($cgi) . " -q $args $opcache " . escapeshellarg($probeFile),
             ['SCRIPT_FILENAME' => $probeFile, 'REDIRECT_STATUS' => '200', 'REQUEST_METHOD' => 'GET']);
         if (substr(trim((string)$probe), -1) === 'Y') {
@@ -286,7 +286,7 @@ if (!is_file($cgi)) {
         check("compiled route files written (3 programs)", count($files) === 3, implode(',', array_map('basename', $files)));
         check("no temp files left behind", !(glob($routerDir . DIRECTORY_SEPARATOR . '*.tmp') ?: []));
 
-        [$bn, $sn] = $serve('/c/7', '-d gene.route_eval_compile=1');
+        [$bn, $sn] = $serve('/c/7', '-d gene.route_eval_compile=1 -d opcache.enable=0');
         check("compile=1 without opcache falls back to eval", $bn[2] === $uris['/c/7'] && ($sn[2]['eval'] ?? 0) === 2 && ($sn[2]['compiled'] ?? -1) === 0, json_encode($sn));
 
         foreach ($files as $f) {
