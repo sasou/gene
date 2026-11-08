@@ -18,6 +18,7 @@
 #include "../gene.h"
 #include "../http/request.h"
 #include "../http/webscan.h"
+#include "../http/policy.h"
 #include "../http/validate.h"
 
 zend_class_entry *gene_webscan_ce;
@@ -391,19 +392,28 @@ static int gene_webscan_is_white(zval *server, zend_string *path, zval *white_di
         return 0;
     }
 
-    if (white_dir) {
-        if (Z_TYPE_P(white_dir) == IS_STRING && Z_STRLEN_P(white_dir) > 0) {
-            if (gene_webscan_white_dir_hit(p, plen, Z_STRVAL_P(white_dir), Z_STRLEN_P(white_dir))) {
-                return 1;
-            }
-        } else if (Z_TYPE_P(white_dir) == IS_ARRAY) {
-            zval *dv;
-            ZEND_HASH_FOREACH_VAL(Z_ARRVAL_P(white_dir), dv) {
-                if (Z_TYPE_P(dv) == IS_STRING
-                    && gene_webscan_white_dir_hit(p, plen, Z_STRVAL_P(dv), Z_STRLEN_P(dv))) {
+    if (white_dir && (Z_TYPE_P(white_dir) == IS_ARRAY
+            || (Z_TYPE_P(white_dir) == IS_STRING && Z_STRLEN_P(white_dir) > 0))) {
+        /* "/zh/admin/x" is the same route as "/admin/x" once router->lang()
+         * strips the segment, so the directory list applies to both */
+        size_t skip = gene_policy_lang_skip(p, plen);
+        int pass;
+        for (pass = 0; pass < (skip && skip < plen ? 2 : 1); pass++) {
+            const char *pp = pass ? p + skip : p;
+            size_t ppl = pass ? plen - skip : plen;
+            if (Z_TYPE_P(white_dir) == IS_STRING) {
+                if (gene_webscan_white_dir_hit(pp, ppl, Z_STRVAL_P(white_dir), Z_STRLEN_P(white_dir))) {
                     return 1;
                 }
-            } ZEND_HASH_FOREACH_END();
+            } else {
+                zval *dv;
+                ZEND_HASH_FOREACH_VAL(Z_ARRVAL_P(white_dir), dv) {
+                    if (Z_TYPE_P(dv) == IS_STRING
+                        && gene_webscan_white_dir_hit(pp, ppl, Z_STRVAL_P(dv), Z_STRLEN_P(dv))) {
+                        return 1;
+                    }
+                } ZEND_HASH_FOREACH_END();
+            }
         }
     }
 

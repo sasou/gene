@@ -2,6 +2,16 @@
 
 ## [Unreleased]
 
+### 🔒 安全策略（http/policy.c）
+
+- **策略匹配自动识别多语言前缀**：已注册 `router->lang()` 时，`restGuard.prefixes`（含缺省 `/rest/`）、`csrf.except`、`readonly` 前缀键、`throttle.rules`、`webscan` 白名单目录同时按原始路径与去语言前缀路径匹配；`/zh/admin/x` 与 `/admin/x` 同口径，配置无需再逐语言枚举（旧写法继续生效）。修复 `/zh/admin/*` 后台提交被 webscan 误拦、`/zh/admin/login.action` 未命中 csrf 豁免。
+- **`csrf(['scopes' => ['/admin/*' => [...], '/hook/*' => false]])`**：按路径 glob 覆盖基础配置（首个命中生效，`false` 关闭该子树）；`Gene\Csrf::token/check/field` 按当前路径使用同一作用域。前后台同入口时可把同步令牌限定在后台，不再在钩子里手写 `Csrf::check()`。令牌另可从 JSON 请求体 `_token` 读取。
+- **`readonly` 动作支持 glob**（`'list*'`、`'get?'`），控制器值为 `true` 表示放行全部动作。
+- **新增 `Application::throttle()`**：派发前按客户端 IP（trustProxies 解析后）固定窗口限流，`store` 为任意提供 `rateLimit($key,$max,$window)` 的组件（`Gene\Cache\Redis` 集群共享 / `Gene\Memory` 进程级），规则 `['/admin/login.action' => ['limit'=>10,'window'=>60,'methods'=>['POST']]]`；超限 429 + `Retry-After`，存储故障默认放行（`fail_closed` 可改）。在策略链末尾执行，其它策略已拒绝的请求不产生存储往返。
+- **`webscan()` 支持数组配置**：`['white_dir'=>[...],'white_url'=>[...],'mode'=>'block|log','on_fail'=>callable,'get'/'post'/'cookie'/'referer'/'fail_closed'=>bool]`；`mode=log` 仅记录诊断日志不拦截，便于灰度；未配置回调时 XHR/JSON 客户端得到 `{"code":4000,"msg":"Illegal access"}`。位置参数写法保持兼容。
+- **`secureHeaders()` 缺省移除 `X-Powered-By`**（FPM/Apache SAPI；显式 `remove` 时按配置）。
+- 未配置任何请求策略时跳过语言前缀探测，零额外开销。回归：`SecurityPolicyTest`。
+
 ### ⚡ 性能（plan/Performance-tuning-V3.closed.md）
 
 - **`gene.route_precompile` 默认改为 `1`**（仅 Swoole 生效，`0` 回退慢路径）。
