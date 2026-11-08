@@ -116,6 +116,17 @@ class Di
     }
 
     /**
+     * __isset
+     * isset()/empty() support for registry keys — same lookup as get().
+     *
+     * @param mixed $name name
+     * @return bool
+     */
+    public function __isset($name) {
+
+    }
+
+    /**
      * alias
      * Register a service alias. Subsequent instance($name) calls resolve
      * the alias to its target service before the registry lookup.

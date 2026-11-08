@@ -29,6 +29,12 @@ class Pool
     }
 
     /**
+     * __clone（private：连接池禁止克隆）
+     */
+    private function __clone() {
+    }
+
+    /**
      * 创建命名连接池并注册到全局注册表
      *
      * 自动从持久化配置缓存中读取数据库连接信息（dsn, username, password, options），

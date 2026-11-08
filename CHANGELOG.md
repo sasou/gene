@@ -117,7 +117,7 @@
 - **S5 内部 REST 鉴权**：`Application::restGuard([...])` + 组钩子 `@rest`；`internal` 内网判定 + `secret` 签名（`hmac`/`shared` 双模式）；`Gene\Rest`/`Gene\Http` 出站自动加签，签名覆盖 method/path/query/时间戳/nonce/body 哈希；nonce 仅在验签通过后原子一次性消费，消除"反代下 REMOTE_ADDR 恒内网"的鉴权旁路。
 - **S6 `Gene\Password`**：`hash/verify/needsRehash` + `legacy` 旧格式迁移，`md5($salt.sha1($salt.$password))` 等历史散列校验通过后可透明升级 bcrypt；校验恒走 dummy 哈希抗时序探测。
 - **S7 `Gene\Throttle`**：`hit/tooMany(只读)/attempt/remaining/clear`；Memory 写锁 + TTL 感知递增、Redis Lua `INCR`+首写 `EXPIRE`、通用存储 `incr→add→set(nx,ex)` 原子降级链；键统一 `gene:thr:` 前缀。
-- **S8 会话加固**：指纹 `_gene_fp`（UA + 可信客户端 IP 哈希）写进 session，`load()` 校验不一致按 `on_mismatch` 处理并可用 `Session::compromised()` 探测；cookie secure/httponly/samesite 安全默认值、空闲/绝对超时、idle touch 间隔限制持久化写。
+- **S8 会话加固**：指纹 `_bind`（UA + 可信客户端 IP 的 sha1，`bind` 位掩码启用）写进 session，`load()` 校验不一致即销毁记录并重发新会话 id；cookie secure/httponly/samesite 安全默认值、空闲/绝对超时、idle touch 间隔限制持久化写。
 - **S9 密钥环与密封**：`Crypto` kid 前缀 + 多版本轮换 + HKDF；`seal/unseal`（AES-256-GCM）；`Response::sealedCookie`/`Request::sealedCookie` 过期时间写入密文载荷、服务端校验，篡改/过期/畸形即拒。
 - **S10 TOTP 与安全随机码**：`Crypto::totpSecret/totpUri/totp/totpVerify`（RFC 6238）+ `randomCode`（CSPRNG，替代 `rand()`）；`totpVerify` 支持 `used` 存储打一次性标记，键为 HMAC 指纹+时间片、不含明文密钥，同码重放拒绝、相邻步新码放行。
 - **S11 上传校验参考实现**：`demo/application/Ext/UploadCheck.php`（大小/扩展名白名单/MIME 嗅探链）。

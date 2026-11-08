@@ -84,6 +84,23 @@ $router->hook('cors', 'Hooks\Cors@handle')           // OPTIONS 短路；Origin 
     ->group('/admin')->through(['cors', 'adminAuth']);
 ```
 
+### 入口安全策略链（推荐收口到一个共用处）
+
+6.2.7+ 起框架内置派发前策略，在 `$app->run()` 前链式配置一次即可（FPM/Swoole 各入口共用同一闭包），**不要再手写 PHP 中间件重造**：
+
+```php
+$app->trustProxies(['proxies' => '127.0.0.1/32', 'proto' => true]) // 先声明，Request::ip/isInternal/isSecure 才可信
+    ->requestId([...])
+    ->webscan(['white_dir' => ['admin']])                          // 数组形式；mode='log' 灰度
+    ->secureHeaders()                                              // nosniff/frame/referrer/CSP，缺省去 X-Powered-By
+    ->restGuard(['internal' => true])                              // /rest/* 内网门禁（或 secret 签名）
+    ->csrf(['session' => 'adminsession', 'scopes' => ['/admin/*' => ['token' => true]]])
+    ->readonly(['/admin' => ['user' => ['lists'], '*' => []]])     // 动态路由 GET 只读白名单
+    ->throttle(['store' => 'redis', 'rules' => ['/admin/login.action' => ['limit' => 10, 'window' => 60, 'methods' => ['POST']]]]);
+```
+
+配套类：`Gene\Csrf`（令牌）、`Gene\Ip`（CIDR）、`Gene\Password`（哈希+旧格式迁移）、`Gene\Throttle`（失败计数）、`Monitor::security()`（INI 自检）、`Response::sealedCookie/cspNonce`；路径规则均按去语言前缀后匹配。详见 reference.md 各节。
+
 中止派发用 `return false`、`Hook::abort()` 或 `Hook::respond($payload)`；`Response::isEnded()` 可查询是否已结束。不要再新增 PHP `Hooks\RequestId`（demo 旧钩子仅兼容）。
 
 ## 路由（`config/router.ini.php`）

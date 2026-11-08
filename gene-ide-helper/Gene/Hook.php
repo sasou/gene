@@ -452,4 +452,16 @@ class Hook
 
     }
 
+    /**
+     * __isset
+     * DI property isset check, aligned with __get
+     * (class-qualified key + DI component fallback).
+     *
+     * @param string $name property name
+     * @return bool
+     */
+    public function __isset($name) {
+
+    }
+
 }

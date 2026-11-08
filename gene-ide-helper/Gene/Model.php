@@ -58,6 +58,18 @@ class Model
     }
 
     /**
+     * __isset
+     * isset()/empty() support for magic properties, aligned with __get
+     * (class-qualified key + DI component fallback).
+     *
+     * @param mixed $name name
+     * @return bool
+     */
+    public function __isset($name) {
+
+    }
+
+    /**
      * success
      *
      * @param string $msg msg

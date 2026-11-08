@@ -191,16 +191,6 @@ class Router
     }
 
     /**
-     * getRouterUri
-     * 获取当前匹配到的路由注册键（路由模式串）
-     *
-     * @return string|null
-     */
-    public function getRouterUri() {
-
-    }
-
-    /**
      * readFile
      * 
      * @param mixed $file file

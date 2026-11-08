@@ -19,6 +19,13 @@ namespace Gene\Orm;
 final class Query
 {
     /**
+     * __destruct
+     * 析构时 reset 共享的 DI Db 句柄（与终端方法执行后的 reset 构成双保险），
+     * 避免链式状态跨请求/跨 Query 污染。
+     */
+    public function __destruct() {}
+
+    /**
      * where — 四种形式：
      *  - where(['col' => $v, ...])        关联数组（走 Db makeWhere，标识符加引号）
      *  - where('name != ?', $bind)        原始片段 + 绑定（$bind 可为标量/数组）
