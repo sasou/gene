@@ -908,8 +908,12 @@ static int gene_policy_readonly_run(zval *cfg, const gene_policy_req *req) {
 			continue;
 		}
 		rest = path + klen + 1;
-		seg = memchr(rest, '/', (size_t)(rest_end - rest));
-		if (!seg) {
+		/* {c}/{a} boundary is the first '/' OR '.': dispatch maps '.'->'/'
+		 * (router.c replaceAll) so "user.del" dispatches exactly like
+		 * "user/del" — splitting on '/' alone let GET mutations through as
+		 * "/admin/user.del" without hitting the guard. */
+		for (seg = rest; seg < rest_end && *seg != '/' && *seg != '.'; seg++);
+		if (seg >= rest_end) {
 			continue; /* single segment: no {c}/{a} pair */
 		}
 		clen = (size_t)(seg - rest);
@@ -917,6 +921,11 @@ static int gene_policy_readonly_run(zval *cfg, const gene_policy_req *req) {
 		for (a_end = p2; a_end < rest_end && *a_end != '/' && *a_end != '.'; a_end++);
 		alen = (size_t)(a_end - p2);
 		if (clen == 0 || alen == 0) {
+			continue;
+		}
+		/* literal page suffixes ("name.html"/"name.json") resolve to :c@run
+		 * or an explicit literal route, not a dynamic {c}/{a} action. */
+		if (alen == 4 && (strncasecmp(p2, "html", 4) == 0 || strncasecmp(p2, "json", 4) == 0)) {
 			continue;
 		}
 		al = gene_policy_readonly_find(ent, rest, clen);
@@ -1013,7 +1022,10 @@ void gene_policy_headers_apply(void) {
 			zend_string_release(out);
 		}
 	}
-	/* header removals (FPM SAPI only; Swoole responses have no preset headers) */
+	/* header removals (FPM/Apache SAPI only; Swoole responses have no preset
+	 * headers). DELETE takes the bare header name — PHP's header_remove()
+	 * passes "Name" without a colon, and apache2handler rejects a colon with
+	 * "Header to delete may not contain colon". */
 	v = zend_hash_str_find(Z_ARRVAL_P(cfg), ZEND_STRL("remove"));
 	if (v && Z_TYPE_P(v) == IS_ARRAY && GENE_G(runtime_type) < 2) {
 		zval *item;
@@ -1022,11 +1034,11 @@ void gene_policy_headers_apply(void) {
 				sapi_header_line ctr = {0};
 				char buf[256];
 				size_t kl = Z_STRLEN_P(item);
-				if (kl + 1 < sizeof(buf)) {
+				if (kl < sizeof(buf)) {
 					memcpy(buf, Z_STRVAL_P(item), kl);
-					buf[kl] = ':';
+					buf[kl] = '\0';
 					ctr.line = buf;
-					ctr.line_len = kl + 1;
+					ctr.line_len = kl;
 					ctr.response_code = 0;
 					sapi_header_op(SAPI_HEADER_DELETE, &ctr);
 				}
