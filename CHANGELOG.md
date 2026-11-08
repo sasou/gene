@@ -2,6 +2,8 @@
 
 ## [Unreleased]
 
+## [6.2.9]
+
 ### 🔒 安全策略（http/policy.c）
 
 - **策略匹配自动识别多语言前缀**：已注册 `router->lang()` 时，`restGuard.prefixes`（含缺省 `/rest/`）、`csrf.except`、`readonly` 前缀键、`throttle.rules`、`webscan` 白名单目录同时按原始路径与去语言前缀路径匹配；`/zh/admin/x` 与 `/admin/x` 同口径，配置无需再逐语言枚举（旧写法继续生效）。修复 `/zh/admin/*` 后台提交被 webscan 误拦、`/zh/admin/login.action` 未命中 csrf 豁免。
@@ -42,7 +44,7 @@
 - `src/http/request.c` — `getVal()` 整袋视图钩子与按名 header 回落、`gene_request_server_header_fallback()`/`gene_request_materialize_server_view()`、`init_bags` 视图失效
 - `src/http/request.h` — `GENE_REQUEST_ATTR_SERVER_VIEW=9`
 - `test/SwooleEntryTest.php` — 上述断言
-- `src/gene.c` / `src/gene.h` — V3 INI 与计数全局量、`cache_inflight`/方法槽请求级清理、退休队列 RINIT/MSHUTDOWN 回收
+- `src/gene.c` / `src/gene.h` — V3 INI 与计数全局量、`cache_inflight`/方法槽请求级清理、退休队列 RINIT/MSHUTDOWN 回收、版本号 6.2.9
 - `src/router/router.c` / `router.h` — 路由程序编译执行（`gene_router_eval`）与派发计数
 - `src/cache/memory.c` / `memory.h` — 业务表借用、退休队列、拷贝计数与 stats 字段
 - `src/cache/cache.c` — `gene_cache_fill()` single-flight、钩子方法槽缓存、版本命中去二次拷贝
