@@ -26,12 +26,19 @@
 #include "../http/ip.h"
 #include "../http/policy.h"
 #include "../app/application.h"
+#include "../router/router.h"
 #include "../di/di.h"
 #include "../cache/memory.h"
 #include "../cache/redis.h"
 #include "../exception/exception.h"
 
 extern zend_class_entry *gene_application_ce;
+
+/* UTF-8 bytes spelled out: MSVC encodes narrow literals in the build
+ * machine's ANSI code page (GBK on zh-CN), which corrupted JSON output. */
+#define GENE_MSG_BAD_ORIGIN "\xe9\x9d\x9e\xe6\xb3\x95\xe8\xaf\xb7\xe6\xb1\x82\xe6\x9d\xa5\xe6\xba\x90" /* 非法请求来源 */
+#define GENE_MSG_UNAUTHORIZED "\xe8\xae\xbf\xe9\x97\xae\xe6\x9c\xaa\xe6\x8e\x88\xe6\x9d\x83" /* 访问未授权 */
+#define GENE_MSG_TOO_MANY "\xe8\xaf\xb7\xe6\xb1\x82\xe8\xbf\x87\xe4\xba\x8e\xe9\xa2\x91\xe7\xb9\x81" /* 请求过于频繁 */
 
 zend_class_entry *gene_csrf_ce;
 
@@ -41,7 +48,68 @@ typedef struct {
 	size_t mlen;
 	const char *path;
 	size_t plen;
+	/* path with a router->lang() prefix removed ("/zh/admin/x" -> "/admin/x");
+	 * equals path when no registered language prefix is present */
+	const char *spath;
+	size_t splen;
 } gene_policy_req;
+
+/* {{{ language prefix awareness
+ * Policies run before routing strips the language segment, so every path
+ * pattern used to need one copy per language. The registered list lives in
+ * the persistent router conf ("<app_key>:cf" => langs = ",zh,en,"). */
+static zval *gene_policy_langs(void) {
+	char key[256];
+	const char *s = NULL;
+	size_t sl = 0;
+	zval *v;
+	if (GENE_G(app_key)) {
+		s = GENE_G(app_key);
+		sl = GENE_G(app_key_len);
+	} else if (GENE_G(app_root)) {
+		s = GENE_G(app_root);
+		sl = GENE_G(app_root_len);
+	}
+	if (sl + 4 > sizeof(key)) {
+		return NULL;
+	}
+	if (sl) {
+		memcpy(key, s, sl);
+	}
+	memcpy(key + sl, GENE_ROUTER_ROUTER_CONF, sizeof(GENE_ROUTER_ROUTER_CONF) - 1);
+	sl += sizeof(GENE_ROUTER_ROUTER_CONF) - 1;
+	key[sl] = '\0';
+	v = gene_memory_get_by_config(key, sl, GENE_ROUTER_LANGS);
+	return (v && Z_TYPE_P(v) == IS_STRING && Z_STRLEN_P(v) > 2) ? v : NULL;
+}
+
+size_t gene_policy_lang_skip(const char *path, size_t plen) {
+	const char *seg, *end;
+	size_t seglen;
+	char buf[40];
+	zval *langs;
+	if (plen < 2 || path[0] != '/') {
+		return 0;
+	}
+	seg = path + 1;
+	end = memchr(seg, '/', plen - 1);
+	seglen = end ? (size_t)(end - seg) : plen - 1;
+	if (seglen == 0 || seglen + 3 > sizeof(buf)) {
+		return 0;
+	}
+	langs = gene_policy_langs();
+	if (!langs) {
+		return 0;
+	}
+	buf[0] = ',';
+	memcpy(buf + 1, seg, seglen);
+	buf[seglen + 1] = ',';
+	if (!php_memnstr(Z_STRVAL_P(langs), buf, seglen + 2, Z_STRVAL_P(langs) + Z_STRLEN_P(langs))) {
+		return 0;
+	}
+	return seglen + 1;
+}
+/* }}} */
 
 /* Request headers through the HEADER bag (lowercase dash names): Swoole
  * fills it from $request->header, FPM materializes it from HTTP_* — reading
@@ -266,6 +334,11 @@ static int gene_policy_excepted(zval *cfg, const char *path, size_t plen) {
 	}
 	return 0;
 }
+
+static int gene_policy_excepted_req(zval *cfg, const gene_policy_req *req) {
+	return gene_policy_excepted(cfg, req->path, req->plen)
+		|| (req->spath != req->path && gene_policy_excepted(cfg, req->spath, req->splen));
+}
 /* }}} */
 
 /* {{{ CSRF token via session component */
@@ -464,11 +537,81 @@ static zend_bool gene_csrf_origin_allowed(zval *cfg, zval *origin) {
 	return 0;
 }
 
+/* {{{ csrf scopes: 'scopes' => ['/admin/*' => [overrides], '/hook/*' => false]
+ * First matching glob (raw or language-stripped path) wins; its keys
+ * override the base config, false disables csrf for that subtree. Returns
+ * NULL for "disabled", the base cfg when no scope matches, or tmp (caller
+ * must zval_ptr_dtor) holding the merged config. */
+static zval *gene_csrf_scope(zval *cfg, const char *p, size_t pl, const char *sp, size_t spl, zval *tmp) {
+	zval *scopes = zend_hash_str_find(Z_ARRVAL_P(cfg), ZEND_STRL("scopes"));
+	zend_string *k;
+	zval *v;
+	ZVAL_UNDEF(tmp);
+	if (!scopes || Z_TYPE_P(scopes) != IS_ARRAY) {
+		return cfg;
+	}
+	ZEND_HASH_FOREACH_STR_KEY_VAL(Z_ARRVAL_P(scopes), k, v) {
+		if (!k) {
+			continue;
+		}
+		if (!gene_path_glob(ZSTR_VAL(k), ZSTR_LEN(k), p, pl)
+			&& !(sp != p && gene_path_glob(ZSTR_VAL(k), ZSTR_LEN(k), sp, spl))) {
+			continue;
+		}
+		if (Z_TYPE_P(v) == IS_FALSE || Z_TYPE_P(v) == IS_NULL) {
+			return NULL;
+		}
+		if (Z_TYPE_P(v) != IS_ARRAY) {
+			return cfg;
+		}
+		ZVAL_ARR(tmp, zend_array_dup(Z_ARRVAL_P(cfg)));
+		zend_hash_str_del(Z_ARRVAL_P(tmp), ZEND_STRL("scopes"));
+		zend_hash_merge(Z_ARRVAL_P(tmp), Z_ARRVAL_P(v), zval_add_ref, 1);
+		return tmp;
+	} ZEND_HASH_FOREACH_END();
+	return cfg;
+}
+
+/* Effective csrf config for the request being dispatched (Gene\Csrf helpers
+ * called from controllers/views must agree with the dispatch-time check). */
+static zval *gene_csrf_current_cfg(zval *cfg, zval *tmp) {
+	gene_request_context *ctx = gene_request_ctx();
+	const char *p = ctx->path;
+	size_t pl = ctx->path_len, skip;
+	ZVAL_UNDEF(tmp);
+	if (!cfg || !p || !pl) {
+		return cfg;
+	}
+	skip = gene_policy_lang_skip(p, pl);
+	if (skip) {
+		return gene_csrf_scope(cfg, p, pl, skip < pl ? p + skip : "/", skip < pl ? pl - skip : 1, tmp);
+	}
+	return gene_csrf_scope(cfg, p, pl, p, pl, tmp);
+}
+/* }}} */
+
+static int gene_policy_csrf_eval(zval *cfg, const gene_policy_req *req);
+
 static int gene_policy_csrf_run(zval *cfg, const gene_policy_req *req) {
+	zval tmp;
+	int r;
+	if (!gene_csrf_method_in(cfg, req->method, req->mlen)) {
+		return 0;
+	}
+	cfg = gene_csrf_scope(cfg, req->path, req->plen, req->spath, req->splen, &tmp);
+	if (!cfg) {
+		return 0;
+	}
+	r = gene_policy_csrf_eval(cfg, req);
+	if (!Z_ISUNDEF(tmp)) {
+		zval_ptr_dtor(&tmp);
+	}
+	return r;
+}
+
+static int gene_policy_csrf_eval(zval *cfg, const gene_policy_req *req) {
 	const char *method = req->method;
 	size_t mlen = req->mlen;
-	const char *path = req->path;
-	size_t plen = req->plen;
 	zval *fetch, *origin = NULL, *host;
 	zend_string *fail_msg;
 	zend_long fail_code;
@@ -476,7 +619,7 @@ static int gene_policy_csrf_run(zval *cfg, const gene_policy_req *req) {
 	if (!gene_csrf_method_in(cfg, method, mlen)) {
 		return 0;
 	}
-	if (gene_policy_excepted(cfg, path, plen)) {
+	if (gene_policy_excepted_req(cfg, req)) {
 		return 0;
 	}
 	/* precedence: on_fail_msg/on_fail_code keys, then on_fail{msg,code}, 403 */
@@ -501,12 +644,12 @@ static int gene_policy_csrf_run(zval *cfg, const gene_policy_req *req) {
 		fetch = policy_header(ZEND_STRL("sec-fetch-site"));
 		if (fetch) {
 			if (zend_string_equals_literal_ci(Z_STR_P(fetch), "cross-site")) {
-				gene_policy_deny(fail_msg ? ZSTR_VAL(fail_msg) : "非法请求来源", fail_code);
+				gene_policy_deny(fail_msg ? ZSTR_VAL(fail_msg) : GENE_MSG_BAD_ORIGIN, fail_code);
 				return 1;
 			}
 			if (zend_string_equals_literal_ci(Z_STR_P(fetch), "same-site")
 				&& !gene_policy_cfg_bool(cfg, ZEND_STRL("allow_same_site"), 0)) {
-				gene_policy_deny(fail_msg ? ZSTR_VAL(fail_msg) : "非法请求来源", fail_code);
+				gene_policy_deny(fail_msg ? ZSTR_VAL(fail_msg) : GENE_MSG_BAD_ORIGIN, fail_code);
 				return 1;
 			}
 		}
@@ -521,11 +664,11 @@ static int gene_policy_csrf_run(zval *cfg, const gene_policy_req *req) {
 	if (gene_policy_cfg_bool(cfg, ZEND_STRL("origin"), 1)) {
 		if (origin) {
 			if (!gene_csrf_same_origin(origin, host) && !gene_csrf_origin_allowed(cfg, origin)) {
-				gene_policy_deny(fail_msg ? ZSTR_VAL(fail_msg) : "非法请求来源", fail_code);
+				gene_policy_deny(fail_msg ? ZSTR_VAL(fail_msg) : GENE_MSG_BAD_ORIGIN, fail_code);
 				return 1;
 			}
 		} else if (gene_policy_cfg_bool(cfg, ZEND_STRL("require_origin"), 0)) {
-			gene_policy_deny(fail_msg ? ZSTR_VAL(fail_msg) : "非法请求来源", fail_code);
+			gene_policy_deny(fail_msg ? ZSTR_VAL(fail_msg) : GENE_MSG_BAD_ORIGIN, fail_code);
 			return 1;
 		}
 	}
@@ -535,11 +678,22 @@ static int gene_policy_csrf_run(zval *cfg, const gene_policy_req *req) {
 		/* header or POST field only — a token in the query string leaks via
 		 * Referer/access logs */
 		zval *given = policy_header(ZEND_STRL("x-csrf-token"));
+		zval decoded;
+		zend_bool ok;
+		ZVAL_UNDEF(&decoded);
 		if (!given) {
 			given = getVal(TRACK_VARS_POST, ZEND_STRL("_token"));
 		}
-		if (!gene_csrf_check_token(cfg, (given && Z_TYPE_P(given) == IS_STRING) ? Z_STR_P(given) : NULL)) {
-			gene_policy_deny(fail_msg ? ZSTR_VAL(fail_msg) : "非法请求来源", fail_code);
+		if ((!given || Z_TYPE_P(given) != IS_STRING) && gene_request_json_content_type()
+			&& gene_request_json_peek(&decoded) == SUCCESS && Z_TYPE(decoded) == IS_ARRAY) {
+			given = zend_hash_str_find(Z_ARRVAL(decoded), ZEND_STRL("_token"));
+		}
+		ok = gene_csrf_check_token(cfg, (given && Z_TYPE_P(given) == IS_STRING) ? Z_STR_P(given) : NULL);
+		if (!Z_ISUNDEF(decoded)) {
+			zval_ptr_dtor(&decoded);
+		}
+		if (!ok) {
+			gene_policy_deny(fail_msg ? ZSTR_VAL(fail_msg) : GENE_MSG_BAD_ORIGIN, fail_code);
 			return 1;
 		}
 	}
@@ -717,19 +871,24 @@ static int gene_policy_rest_run(zval *cfg, const gene_policy_req *req) {
 	if (prefixes && Z_TYPE_P(prefixes) == IS_ARRAY) {
 		zval *p;
 		ZEND_HASH_FOREACH_VAL(Z_ARRVAL_P(prefixes), p) {
-			if (Z_TYPE_P(p) == IS_STRING && Z_STRLEN_P(p) <= plen
-				&& strncasecmp(Z_STRVAL_P(p), path, Z_STRLEN_P(p)) == 0) {
+			if (Z_TYPE_P(p) != IS_STRING) {
+				continue;
+			}
+			if ((Z_STRLEN_P(p) <= plen && strncasecmp(Z_STRVAL_P(p), path, Z_STRLEN_P(p)) == 0)
+				|| (req->spath != path && Z_STRLEN_P(p) <= req->splen
+					&& strncasecmp(Z_STRVAL_P(p), req->spath, Z_STRLEN_P(p)) == 0)) {
 				hit = 1;
 				break;
 			}
 		} ZEND_HASH_FOREACH_END();
 	} else {
-		hit = (plen >= 6 && strncasecmp(path, "/rest/", 6) == 0);
+		hit = (plen >= 6 && strncasecmp(path, "/rest/", 6) == 0)
+			|| (req->splen >= 6 && strncasecmp(req->spath, "/rest/", 6) == 0);
 	}
 	if (!hit) {
 		return 0;
 	}
-	if (gene_policy_excepted(cfg, path, plen)) {
+	if (gene_policy_excepted_req(cfg, req)) {
 		return 0;
 	}
 	/* inner local invoke bypass (Invoke::local sets Di 'inner') */
@@ -756,7 +915,7 @@ static int gene_policy_rest_run(zval *cfg, const gene_policy_req *req) {
 	/* internal-only gate: TCP peer, or the trustProxies-resolved client when
 	 * the peer is a trusted proxy (XFF from untrusted peers is never read) */
 	if (gene_policy_cfg_bool(cfg, ZEND_STRL("internal"), 1) && !gene_request_ip_is_internal()) {
-		gene_policy_deny(fail_msg ? ZSTR_VAL(fail_msg) : "访问未授权", fail_code);
+		gene_policy_deny(fail_msg ? ZSTR_VAL(fail_msg) : GENE_MSG_UNAUTHORIZED, fail_code);
 		return 1;
 	}
 
@@ -769,7 +928,7 @@ static int gene_policy_rest_run(zval *cfg, const gene_policy_req *req) {
 				zval *given = getVal(GENE_REQUEST_ATTR_HEADER, ZEND_STRL("x-rest-secret"));
 				if (!given || Z_TYPE_P(given) != IS_STRING
 					|| !policy_hash_equals(secret, Z_STR_P(given))) {
-					gene_policy_deny(fail_msg ? ZSTR_VAL(fail_msg) : "访问未授权", fail_code);
+					gene_policy_deny(fail_msg ? ZSTR_VAL(fail_msg) : GENE_MSG_UNAUTHORIZED, fail_code);
 					return 1;
 				}
 			} else {
@@ -782,7 +941,7 @@ static int gene_policy_rest_run(zval *cfg, const gene_policy_req *req) {
 				if (!ts_v || Z_TYPE_P(ts_v) != IS_STRING
 					|| !nonce_v || Z_TYPE_P(nonce_v) != IS_STRING || Z_STRLEN_P(nonce_v) > 128
 					|| !sign_v || Z_TYPE_P(sign_v) != IS_STRING) {
-					gene_policy_deny(fail_msg ? ZSTR_VAL(fail_msg) : "访问未授权", fail_code);
+					gene_policy_deny(fail_msg ? ZSTR_VAL(fail_msg) : GENE_MSG_UNAUTHORIZED, fail_code);
 					return 1;
 				}
 				{
@@ -796,7 +955,7 @@ static int gene_policy_rest_run(zval *cfg, const gene_policy_req *req) {
 					}
 					ts = ts_ok ? ZEND_STRTOL(tp, NULL, 10) : 0;
 					if (!ts_ok || Z_STRLEN_P(nonce_v) < 8) {
-						gene_policy_deny(fail_msg ? ZSTR_VAL(fail_msg) : "访问未授权", fail_code);
+						gene_policy_deny(fail_msg ? ZSTR_VAL(fail_msg) : GENE_MSG_UNAUTHORIZED, fail_code);
 						return 1;
 					}
 				}
@@ -804,7 +963,7 @@ static int gene_policy_rest_run(zval *cfg, const gene_policy_req *req) {
 					zend_long diff = (zend_long)time(NULL) - ts;
 					if (diff < 0) diff = -diff;
 					if (diff > skew) {
-						gene_policy_deny(fail_msg ? ZSTR_VAL(fail_msg) : "访问未授权", fail_code);
+						gene_policy_deny(fail_msg ? ZSTR_VAL(fail_msg) : GENE_MSG_UNAUTHORIZED, fail_code);
 						return 1;
 					}
 				}
@@ -831,7 +990,7 @@ static int gene_policy_rest_run(zval *cfg, const gene_policy_req *req) {
 					zend_string_release(body);
 					if (!expect || !policy_hash_equals(expect, Z_STR_P(sign_v))) {
 						if (expect) zend_string_release(expect);
-						gene_policy_deny(fail_msg ? ZSTR_VAL(fail_msg) : "访问未授权", fail_code);
+						gene_policy_deny(fail_msg ? ZSTR_VAL(fail_msg) : GENE_MSG_UNAUTHORIZED, fail_code);
 						return 1;
 					}
 					zend_string_release(expect);
@@ -846,7 +1005,7 @@ static int gene_policy_rest_run(zval *cfg, const gene_policy_req *req) {
 						smart_str_0(&k);
 						if (k.s && !gene_policy_nonce_check(comp, k.s, skew * 2)) {
 							smart_str_free(&k);
-							gene_policy_deny(fail_msg ? ZSTR_VAL(fail_msg) : "访问未授权", fail_code);
+							gene_policy_deny(fail_msg ? ZSTR_VAL(fail_msg) : GENE_MSG_UNAUTHORIZED, fail_code);
 							return 1;
 						}
 						smart_str_free(&k);
@@ -881,14 +1040,11 @@ static zval *gene_policy_readonly_find(zval *ent, const char *c, size_t clen) {
 	return star;
 }
 
-static int gene_policy_readonly_run(zval *cfg, const gene_policy_req *req) {
-	const char *path = req->path;
-	size_t plen = req->plen;
+static int gene_policy_readonly_path(zval *cfg, const char *path, size_t plen) {
 	zend_string *key;
 	zval *ent;
 
-	if (plen == 0 || !((req->mlen == 3 && strncasecmp(req->method, "GET", 3) == 0)
-			|| (req->mlen == 4 && strncasecmp(req->method, "HEAD", 4) == 0))) {
+	if (plen == 0) {
 		return 0;
 	}
 	/* config shape: { "/admin": { "user": ["lists","edit"], "*": ["run"] }, ... } */
@@ -908,8 +1064,12 @@ static int gene_policy_readonly_run(zval *cfg, const gene_policy_req *req) {
 			continue;
 		}
 		rest = path + klen + 1;
-		seg = memchr(rest, '/', (size_t)(rest_end - rest));
-		if (!seg) {
+		/* {c}/{a} boundary is the first '/' OR '.': dispatch maps '.'->'/'
+		 * (router.c replaceAll) so "user.del" dispatches exactly like
+		 * "user/del" — splitting on '/' alone let GET mutations through as
+		 * "/admin/user.del" without hitting the guard. */
+		for (seg = rest; seg < rest_end && *seg != '/' && *seg != '.'; seg++);
+		if (seg >= rest_end) {
 			continue; /* single segment: no {c}/{a} pair */
 		}
 		clen = (size_t)(seg - rest);
@@ -919,13 +1079,27 @@ static int gene_policy_readonly_run(zval *cfg, const gene_policy_req *req) {
 		if (clen == 0 || alen == 0) {
 			continue;
 		}
+		/* literal page suffixes ("name.html"/"name.json") resolve to :c@run
+		 * or an explicit literal route, not a dynamic {c}/{a} action. */
+		if (alen == 4 && (strncasecmp(p2, "html", 4) == 0 || strncasecmp(p2, "json", 4) == 0)) {
+			continue;
+		}
 		al = gene_policy_readonly_find(ent, rest, clen);
 		if (al && Z_TYPE_P(al) == IS_ARRAY) {
 			zval *a;
 			int allowed = 0;
 			ZEND_HASH_FOREACH_VAL(Z_ARRVAL_P(al), a) {
-				if (Z_TYPE_P(a) == IS_STRING && Z_STRLEN_P(a) == alen
-					&& strncasecmp(Z_STRVAL_P(a), p2, alen) == 0) {
+				if (Z_TYPE_P(a) != IS_STRING) {
+					continue;
+				}
+				/* "list*" / "get?" style patterns: glob is case-insensitive
+				 * like the exact compare */
+				if (memchr(Z_STRVAL_P(a), '*', Z_STRLEN_P(a)) || memchr(Z_STRVAL_P(a), '?', Z_STRLEN_P(a))) {
+					if (gene_path_glob(Z_STRVAL_P(a), Z_STRLEN_P(a), p2, alen)) {
+						allowed = 1;
+						break;
+					}
+				} else if (Z_STRLEN_P(a) == alen && strncasecmp(Z_STRVAL_P(a), p2, alen) == 0) {
 					allowed = 1;
 					break;
 				}
@@ -937,6 +1111,17 @@ static int gene_policy_readonly_run(zval *cfg, const gene_policy_req *req) {
 		}
 	} ZEND_HASH_FOREACH_END();
 	return 0;
+}
+
+static int gene_policy_readonly_run(zval *cfg, const gene_policy_req *req) {
+	if (req->mlen == 0 || !((req->mlen == 3 && strncasecmp(req->method, "GET", 3) == 0)
+			|| (req->mlen == 4 && strncasecmp(req->method, "HEAD", 4) == 0))) {
+		return 0;
+	}
+	if (gene_policy_readonly_path(cfg, req->path, req->plen)) {
+		return 1;
+	}
+	return req->spath != req->path && gene_policy_readonly_path(cfg, req->spath, req->splen);
 }
 /* }}} */
 
@@ -1013,8 +1198,18 @@ void gene_policy_headers_apply(void) {
 			zend_string_release(out);
 		}
 	}
-	/* header removals (FPM SAPI only; Swoole responses have no preset headers) */
+	/* header removals (FPM/Apache SAPI only; Swoole responses have no preset
+	 * headers). DELETE takes the bare header name — PHP's header_remove()
+	 * passes "Name" without a colon, and apache2handler rejects a colon with
+	 * "Header to delete may not contain colon". */
 	v = zend_hash_str_find(Z_ARRVAL_P(cfg), ZEND_STRL("remove"));
+	if (!v && GENE_G(runtime_type) < 2) {
+		/* default: drop the PHP version banner */
+		sapi_header_line ctr = {0};
+		ctr.line = "X-Powered-By";
+		ctr.line_len = sizeof("X-Powered-By") - 1;
+		sapi_header_op(SAPI_HEADER_DELETE, &ctr);
+	}
 	if (v && Z_TYPE_P(v) == IS_ARRAY && GENE_G(runtime_type) < 2) {
 		zval *item;
 		ZEND_HASH_FOREACH_VAL(Z_ARRVAL_P(v), item) {
@@ -1022,11 +1217,11 @@ void gene_policy_headers_apply(void) {
 				sapi_header_line ctr = {0};
 				char buf[256];
 				size_t kl = Z_STRLEN_P(item);
-				if (kl + 1 < sizeof(buf)) {
+				if (kl < sizeof(buf)) {
 					memcpy(buf, Z_STRVAL_P(item), kl);
-					buf[kl] = ':';
+					buf[kl] = '\0';
 					ctr.line = buf;
-					ctr.line_len = kl + 1;
+					ctr.line_len = kl;
 					ctr.response_code = 0;
 					sapi_header_op(SAPI_HEADER_DELETE, &ctr);
 				}
@@ -1036,15 +1231,138 @@ void gene_policy_headers_apply(void) {
 }
 /* }}} */
 
+/* {{{ throttle: pre-dispatch fixed-window rate limit per client IP
+ * ['store' => 'redis', 'rules' => ['/admin/login.action' => ['limit' => 10,
+ *   'window' => 60, 'methods' => ['POST']]], 'prefix' => 'gene:thr:',
+ *   'on_fail_msg' => ..., 'on_fail_code' => 429, 'fail_closed' => false]
+ * The store is any DI component exposing rateLimit($key, $max, $window)
+ * (Gene\Cache\Redis for cluster-wide counters, Gene\Memory per process).
+ * First matching rule wins. A store error is fail-open unless fail_closed. */
+static zend_bool gene_throttle_method_ok(zval *rule, const char *m, size_t ml) {
+	zval *ms = zend_hash_str_find(Z_ARRVAL_P(rule), ZEND_STRL("methods")), *x;
+	if (!ms || Z_TYPE_P(ms) != IS_ARRAY) {
+		return 1;
+	}
+	ZEND_HASH_FOREACH_VAL(Z_ARRVAL_P(ms), x) {
+		if (Z_TYPE_P(x) == IS_STRING && Z_STRLEN_P(x) == ml && strncasecmp(Z_STRVAL_P(x), m, ml) == 0) {
+			return 1;
+		}
+	} ZEND_HASH_FOREACH_END();
+	return 0;
+}
+
+static int gene_policy_throttle_run(zval *cfg, const gene_policy_req *req) {
+	zval *rules = zend_hash_str_find(Z_ARRVAL_P(cfg), ZEND_STRL("rules")), *rule, *store;
+	zend_string *pat, *comp, *prefix, *ip, *fail_msg;
+	zend_long limit, window;
+	smart_str key = {0};
+	zval params[3], ret;
+	int r;
+
+	if (!rules || Z_TYPE_P(rules) != IS_ARRAY) {
+		return 0;
+	}
+	ZEND_HASH_FOREACH_STR_KEY_VAL(Z_ARRVAL_P(rules), pat, rule) {
+		if (!pat || Z_TYPE_P(rule) != IS_ARRAY) {
+			continue;
+		}
+		if ((gene_path_glob(ZSTR_VAL(pat), ZSTR_LEN(pat), req->path, req->plen)
+				|| (req->spath != req->path && gene_path_glob(ZSTR_VAL(pat), ZSTR_LEN(pat), req->spath, req->splen)))
+			&& gene_throttle_method_ok(rule, req->method, req->mlen)) {
+			goto matched;
+		}
+	} ZEND_HASH_FOREACH_END();
+	return 0;
+
+matched:
+	limit = gene_policy_cfg_long(rule, ZEND_STRL("limit"), 0);
+	window = gene_policy_cfg_long(rule, ZEND_STRL("window"), 60);
+	if (limit < 1 || window < 1) {
+		return 0;
+	}
+	comp = gene_policy_cfg_str(cfg, ZEND_STRL("store"));
+	if (!comp) {
+		gene_log_diag(E_WARNING, "Gene throttle: 'store' component not configured");
+		return 0;
+	}
+	store = gene_di_get(comp);
+	if (!store || Z_TYPE_P(store) != IS_OBJECT) {
+		gene_log_diag(E_WARNING, "Gene throttle: store '%s' is not a registered component", ZSTR_VAL(comp));
+		return 0;
+	}
+	prefix = gene_policy_cfg_str(cfg, ZEND_STRL("prefix"));
+	ip = gene_request_client_ip();
+	if (prefix) {
+		smart_str_append(&key, prefix);
+	} else {
+		smart_str_appends(&key, "gene:thr:");
+	}
+	smart_str_append(&key, pat);
+	smart_str_appendc(&key, ':');
+	if (ip) {
+		smart_str_append(&key, ip);
+		zend_string_release(ip);
+	}
+	smart_str_0(&key);
+
+	ZVAL_STR(&params[0], key.s);
+	ZVAL_LONG(&params[1], limit);
+	ZVAL_LONG(&params[2], window);
+	if (gene_store_call(store, ZEND_STRL("ratelimit"), 3, params, &ret) != SUCCESS || Z_TYPE(ret) == IS_NULL
+			|| Z_ISUNDEF(ret)) {
+		r = gene_policy_cfg_bool(cfg, ZEND_STRL("fail_closed"), 0) ? -1 : 0;
+		if (!r) {
+			gene_log_diag(E_WARNING, "Gene throttle: store '%s' unavailable, limit skipped", ZSTR_VAL(comp));
+		}
+	} else {
+		r = zend_is_true(&ret) ? 0 : -1;
+	}
+	if (!Z_ISUNDEF(ret)) {
+		zval_ptr_dtor(&ret);
+	}
+	smart_str_free(&key);
+	if (r == 0) {
+		return 0;
+	}
+	{
+		char ra[24];
+		int n = snprintf(ra, sizeof(ra), ZEND_LONG_FMT, window);
+		gene_response_set_header_ex(ZEND_STRL("Retry-After"), ra, (size_t)n);
+	}
+	fail_msg = gene_policy_cfg_str(cfg, ZEND_STRL("on_fail_msg"));
+	gene_policy_deny(fail_msg ? ZSTR_VAL(fail_msg) : GENE_MSG_TOO_MANY, gene_policy_cfg_long(cfg, ZEND_STRL("on_fail_code"), 429));
+	return 1;
+}
+/* }}} */
+
 int gene_policy_check(const char *method, size_t mlen, const char *path, size_t plen) {
 	gene_policy_req req;
 	zval *cfg;
 	int rest;
+	size_t skip;
 
+	if (!gene_policy_cfg(ZEND_STRL(GENE_APPLICATION_REST_CONFIG))
+		&& !gene_policy_cfg(ZEND_STRL(GENE_APPLICATION_CSRF_CONFIG))
+		&& !gene_policy_cfg(ZEND_STRL(GENE_APPLICATION_READONLY_CONFIG))
+		&& !gene_policy_cfg(ZEND_STRL(GENE_APPLICATION_THROTTLE_CONFIG))) {
+		return 0;
+	}
 	req.method = (method && mlen) ? method : "GET";
 	req.mlen = (method && mlen) ? mlen : 3;
 	req.path = (path && plen) ? path : "/";
 	req.plen = (path && plen) ? plen : 1;
+	req.spath = req.path;
+	req.splen = req.plen;
+	skip = gene_policy_lang_skip(req.path, req.plen);
+	if (skip) {
+		if (skip < req.plen) {
+			req.spath = req.path + skip;
+			req.splen = req.plen - skip;
+		} else {
+			req.spath = "/";
+			req.splen = 1;
+		}
+	}
 
 	/* restGuard first: an admitted server-to-server REST call (2) carries no
 	 * browser Origin and is authenticated by the guard, so csrf skips it */
@@ -1061,33 +1379,49 @@ int gene_policy_check(const char *method, size_t mlen, const char *path, size_t 
 	if (cfg && gene_policy_readonly_run(cfg, &req)) {
 		return 1;
 	}
+	/* last: the only policy that may cost a network round trip */
+	cfg = gene_policy_cfg(ZEND_STRL(GENE_APPLICATION_THROTTLE_CONFIG));
+	if (cfg && gene_policy_throttle_run(cfg, &req)) {
+		return 1;
+	}
 	return 0;
 }
 /* }}} */
 
 /* {{{ Gene\Csrf class */
+/* Effective config for the Gene\Csrf helpers: explicit $cfg wins; otherwise
+ * the application csrf() config resolved against the current path's scope
+ * (a scope that disables csrf still names the session via the base). */
+static zval *gene_csrf_helper_cfg(zval *given, zval *tmp, zval *empty) {
+	zval *cfg, *eff;
+	ZVAL_UNDEF(tmp);
+	ZVAL_UNDEF(empty);
+	if (given) {
+		return given;
+	}
+	cfg = gene_policy_cfg(ZEND_STRL(GENE_APPLICATION_CSRF_CONFIG));
+	if (!cfg) {
+		array_init(empty);
+		return empty;
+	}
+	eff = gene_csrf_current_cfg(cfg, tmp);
+	return eff ? eff : cfg;
+}
+
+static void gene_csrf_helper_release(zval *tmp, zval *empty) {
+	if (!Z_ISUNDEF_P(tmp)) zval_ptr_dtor(tmp);
+	if (!Z_ISUNDEF_P(empty)) zval_ptr_dtor(empty);
+}
+
 /* {{{ proto static string Gene\Csrf::token([array $cfg]) */
 PHP_METHOD(gene_csrf, token) {
-	zval *cfg = NULL;
+	zval *cfg = NULL, tmp, empty;
 	zend_string *tok;
 	if (zend_parse_parameters(ZEND_NUM_ARGS(), "|a!", &cfg) == FAILURE) {
 		return;
 	}
-	if (!cfg) {
-		cfg = gene_policy_cfg(ZEND_STRL(GENE_APPLICATION_CSRF_CONFIG));
-		if (!cfg) {
-			zval empty;
-			array_init(&empty);
-			tok = gene_csrf_session_token(&empty);
-			zval_ptr_dtor(&empty);
-			if (!tok) {
-				zend_throw_exception_ex(NULL, 0, "Gene\\Csrf: session component unavailable");
-				RETURN_THROWS();
-			}
-			RETURN_STR(tok);
-		}
-	}
-	tok = gene_csrf_session_token(cfg);
+	tok = gene_csrf_session_token(gene_csrf_helper_cfg(cfg, &tmp, &empty));
+	gene_csrf_helper_release(&tmp, &empty);
 	if (!tok) {
 		zend_throw_exception_ex(NULL, 0, "Gene\\Csrf: session component unavailable");
 		RETURN_THROWS();
@@ -1099,12 +1433,10 @@ PHP_METHOD(gene_csrf, token) {
 /* {{{ proto static bool Gene\Csrf::check([string $given [, array $cfg]]) */
 PHP_METHOD(gene_csrf, check) {
 	zend_string *given = NULL;
-	zval *cfg = NULL;
+	zval *cfg = NULL, tmp, empty;
+	zend_bool ok;
 	if (zend_parse_parameters(ZEND_NUM_ARGS(), "|S!a!", &given, &cfg) == FAILURE) {
 		return;
-	}
-	if (!cfg) {
-		cfg = gene_policy_cfg(ZEND_STRL(GENE_APPLICATION_CSRF_CONFIG));
 	}
 	if (!given) {
 		zval *g = getVal(GENE_REQUEST_ATTR_HEADER, ZEND_STRL("x-csrf-token"));
@@ -1115,36 +1447,21 @@ PHP_METHOD(gene_csrf, check) {
 			given = Z_STR_P(g);
 		}
 	}
-	if (!cfg) {
-		zval empty;
-		zend_bool ok;
-		array_init(&empty);
-		ok = gene_csrf_check_token(&empty, given);
-		zval_ptr_dtor(&empty);
-		RETURN_BOOL(ok);
-	}
-	RETURN_BOOL(gene_csrf_check_token(cfg, given));
+	ok = gene_csrf_check_token(gene_csrf_helper_cfg(cfg, &tmp, &empty), given);
+	gene_csrf_helper_release(&tmp, &empty);
+	RETURN_BOOL(ok);
 }
 /* }}} */
 
 /* {{{ proto static string Gene\Csrf::field([array $cfg]) — <input> for views */
 PHP_METHOD(gene_csrf, field) {
-	zval *cfg = NULL;
+	zval *cfg = NULL, tmp, empty;
 	zend_string *tok;
 	if (zend_parse_parameters(ZEND_NUM_ARGS(), "|a!", &cfg) == FAILURE) {
 		return;
 	}
-	if (!cfg) {
-		cfg = gene_policy_cfg(ZEND_STRL(GENE_APPLICATION_CSRF_CONFIG));
-	}
-	if (!cfg) {
-		zval empty;
-		array_init(&empty);
-		tok = gene_csrf_session_token(&empty);
-		zval_ptr_dtor(&empty);
-	} else {
-		tok = gene_csrf_session_token(cfg);
-	}
+	tok = gene_csrf_session_token(gene_csrf_helper_cfg(cfg, &tmp, &empty));
+	gene_csrf_helper_release(&tmp, &empty);
 	if (!tok) {
 		RETURN_EMPTY_STRING();
 	}
@@ -1162,7 +1479,6 @@ PHP_METHOD(gene_csrf, field) {
 	}
 }
 /* }}} */
-
 ZEND_BEGIN_ARG_INFO_EX(gene_csrf_cfg_arginfo, 0, 0, 0)
 	ZEND_ARG_INFO(0, cfg)
 ZEND_END_ARG_INFO()

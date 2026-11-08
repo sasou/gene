@@ -468,6 +468,13 @@ static int gene_application_webscan_check()
 		}
 		blocked = gene_webscan_scan(zend_hash_index_find(ht, 1), zend_hash_index_find(ht, 2),
 			GENE_WS_FLAG(3, 1), GENE_WS_FLAG(4, 1), GENE_WS_FLAG(5, 1), GENE_WS_FLAG(6, 1), GENE_WS_FLAG(7, 1));
+		if (blocked && GENE_WS_FLAG(8, 0)) {
+			/* detect-only rollout: record, never block */
+			gene_request_context *c = gene_request_ctx();
+			gene_log_diag(E_NOTICE, "Gene webscan(log): suspicious request %.*s",
+				(int)(c->path_len > 512 ? 512 : c->path_len), c->path ? c->path : "");
+			blocked = 0;
+		}
 #undef GENE_WS_FLAG
 	}
 
@@ -486,7 +493,16 @@ static int gene_application_webscan_check()
 				zval_ptr_dtor(&cb_ret);
 			}
 		} else {
-			PHPWRITE("Illegal access", sizeof("Illegal access") - 1);
+			/* default: JSON for XHR / JSON clients, plain text otherwise */
+			zval *xrw = getVal(GENE_REQUEST_ATTR_HEADER, ZEND_STRL("x-requested-with"));
+			zval *acc = getVal(GENE_REQUEST_ATTR_HEADER, ZEND_STRL("accept"));
+			if ((xrw && Z_TYPE_P(xrw) == IS_STRING && zend_string_equals_literal_ci(Z_STR_P(xrw), "XMLHttpRequest"))
+				|| (acc && Z_TYPE_P(acc) == IS_STRING && strstr(Z_STRVAL_P(acc), "application/json"))) {
+				gene_response_set_header_ex(ZEND_STRL("Content-Type"), ZEND_STRL("application/json; charset=UTF-8"));
+				PHPWRITE("{\"code\":4000,\"msg\":\"Illegal access\"}", sizeof("{\"code\":4000,\"msg\":\"Illegal access\"}") - 1);
+			} else {
+				PHPWRITE("Illegal access", sizeof("Illegal access") - 1);
+			}
 		}
 	}
 
@@ -1311,11 +1327,13 @@ PHP_METHOD(gene_application, setView) {
  */
 PHP_METHOD(gene_application, webscan) {
     zval *callback = NULL, *webscan_white_url = NULL, *webscan_white_dir = NULL, *self = getThis();
+    zval *first = NULL;
     zend_long webscan_switch = 1, webscan_get = 1, webscan_post = 1, webscan_cookie = 1, webscan_referer = 1, webscan_fail_closed = 1;
+    zend_long webscan_log = 0;
     zval config, enabled, null_val;
 
-    if (zend_parse_parameters(ZEND_NUM_ARGS(), "|lzzalllll",
-        &webscan_switch,
+    if (zend_parse_parameters(ZEND_NUM_ARGS(), "|zzzalllll",
+        &first,
         &webscan_white_dir,
         &callback,
         &webscan_white_url,
@@ -1325,6 +1343,37 @@ PHP_METHOD(gene_application, webscan) {
         &webscan_referer,
         &webscan_fail_closed) == FAILURE) {
         return;
+    }
+    /* array form: webscan(['white_dir'=>[...], 'white_url'=>[...], 'mode'=>'block|log',
+     * 'on_fail'=>callable, 'get'/'post'/'cookie'/'referer'/'fail_closed'=>bool, 'enable'=>bool]) */
+    if (first && Z_TYPE_P(first) == IS_ARRAY) {
+        HashTable *h = Z_ARRVAL_P(first);
+        zval *v;
+        if (ZEND_NUM_ARGS() > 1) {
+            zend_argument_count_error("Gene\\Application::webscan(): array config takes no further arguments");
+            RETURN_THROWS();
+        }
+        webscan_white_dir = zend_hash_str_find(h, ZEND_STRL("white_dir"));
+        webscan_white_url = zend_hash_str_find(h, ZEND_STRL("white_url"));
+        if (webscan_white_url && Z_TYPE_P(webscan_white_url) != IS_ARRAY) {
+            webscan_white_url = NULL;
+        }
+        callback = zend_hash_str_find(h, ZEND_STRL("on_fail"));
+        if ((v = zend_hash_str_find(h, ZEND_STRL("enable")))) webscan_switch = zend_is_true(v);
+        if ((v = zend_hash_str_find(h, ZEND_STRL("get")))) webscan_get = zend_is_true(v);
+        if ((v = zend_hash_str_find(h, ZEND_STRL("post")))) webscan_post = zend_is_true(v);
+        if ((v = zend_hash_str_find(h, ZEND_STRL("cookie")))) webscan_cookie = zend_is_true(v);
+        if ((v = zend_hash_str_find(h, ZEND_STRL("referer")))) webscan_referer = zend_is_true(v);
+        if ((v = zend_hash_str_find(h, ZEND_STRL("fail_closed")))) webscan_fail_closed = zend_is_true(v);
+        if ((v = zend_hash_str_find(h, ZEND_STRL("mode"))) && Z_TYPE_P(v) == IS_STRING) {
+            webscan_log = zend_string_equals_literal_ci(Z_STR_P(v), "log");
+        }
+    } else if (first) {
+        webscan_switch = zval_get_long(first);
+    }
+    if (callback && Z_TYPE_P(callback) != IS_NULL && !zend_is_callable(callback, 0, NULL)) {
+        zend_type_error("Gene\\Application::webscan(): on_fail must be callable");
+        RETURN_THROWS();
     }
     /* white directory: string for one subtree, array for several */
     if (webscan_white_dir && Z_TYPE_P(webscan_white_dir) != IS_STRING && Z_TYPE_P(webscan_white_dir) != IS_ARRAY) {
@@ -1357,6 +1406,7 @@ PHP_METHOD(gene_application, webscan) {
     add_index_long(&config, 5, webscan_cookie);
     add_index_long(&config, 6, webscan_referer);
     add_index_long(&config, 7, webscan_fail_closed);
+    add_index_long(&config, 8, webscan_log);
     zend_update_static_property(gene_application_ce, ZEND_STRL(GENE_APPLICATION_WEBSCAN_CONFIG), &config);
     zval_ptr_dtor(&config);
 
@@ -1571,6 +1621,13 @@ PHP_METHOD(gene_application, secureHeaders) {
 PHP_METHOD(gene_application, readonly) {
 	gene_application_policy_setter(INTERNAL_FUNCTION_PARAM_PASSTHRU,
 		ZEND_STRL(GENE_APPLICATION_READONLY_CONFIG));
+}
+/* }}} */
+
+/* {{{ proto public gene_application::throttle(?array $config) */
+PHP_METHOD(gene_application, throttle) {
+	gene_application_policy_setter(INTERNAL_FUNCTION_PARAM_PASSTHRU,
+		ZEND_STRL(GENE_APPLICATION_THROTTLE_CONFIG));
 }
 /* }}} */
 
@@ -2550,6 +2607,7 @@ const zend_function_entry gene_application_methods[] = {
 	PHP_ME(gene_application, restGuard, gene_application_cfg_arginfo, ZEND_ACC_PUBLIC)
 	PHP_ME(gene_application, secureHeaders, gene_application_cfg_arginfo, ZEND_ACC_PUBLIC)
 	PHP_ME(gene_application, readonly, gene_application_cfg_arginfo, ZEND_ACC_PUBLIC)
+	PHP_ME(gene_application, throttle, gene_application_cfg_arginfo, ZEND_ACC_PUBLIC)
 	PHP_ME(gene_application, stop, gene_application_stop, ZEND_ACC_PUBLIC)
 	PHP_ME(gene_application, isStopped, gene_application_is_stopped, ZEND_ACC_PUBLIC|ZEND_ACC_STATIC)
 	PHP_ME(gene_application, workerReady, gene_application_get_method, ZEND_ACC_PUBLIC|ZEND_ACC_STATIC)
@@ -2605,6 +2663,7 @@ GENE_MINIT_FUNCTION(application) {
 	zend_declare_property_bool(gene_application_ce, ZEND_STRL(GENE_APPLICATION_REST_CONFIG), 0, ZEND_ACC_PROTECTED | ZEND_ACC_STATIC);
 	zend_declare_property_bool(gene_application_ce, ZEND_STRL(GENE_APPLICATION_HEADERS_CONFIG), 0, ZEND_ACC_PROTECTED | ZEND_ACC_STATIC);
 	zend_declare_property_bool(gene_application_ce, ZEND_STRL(GENE_APPLICATION_READONLY_CONFIG), 0, ZEND_ACC_PROTECTED | ZEND_ACC_STATIC);
+	zend_declare_property_bool(gene_application_ce, ZEND_STRL(GENE_APPLICATION_THROTTLE_CONFIG), 0, ZEND_ACC_PROTECTED | ZEND_ACC_STATIC);
 
 	return SUCCESS; // @suppress("Symbol is not resolved")
 }

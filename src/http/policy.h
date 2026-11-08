@@ -18,6 +18,7 @@
 #define GENE_APPLICATION_REST_CONFIG "restGuardConfig"
 #define GENE_APPLICATION_HEADERS_CONFIG "secureHeadersConfig"
 #define GENE_APPLICATION_READONLY_CONFIG "readonlyConfig"
+#define GENE_APPLICATION_THROTTLE_CONFIG "throttleConfig"
 
 extern zend_class_entry *gene_csrf_ce;
 
@@ -31,6 +32,10 @@ int gene_policy_check(const char *method, size_t mlen, const char *path, size_t 
 
 /* JSONP callback whitelist validator (strict app variant). */
 int gene_jsonp_valid(const char *s, size_t n);
+
+/* Length of a leading router->lang() segment ("/zh" in "/zh/admin/x"), 0 when
+ * the first segment is not a registered language. */
+size_t gene_policy_lang_skip(const char *path, size_t plen);
 
 /* Simple case-insensitive glob: '*' any run, '?' single char. */
 int gene_path_glob(const char *pat, size_t plen, const char *s, size_t slen);

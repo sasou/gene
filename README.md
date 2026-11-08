@@ -5,7 +5,7 @@
   <p>面向高并发 API、企业级 Web 应用与 Swoole 常驻服务的高性能全栈框架</p>
 
 [![PHP](https://img.shields.io/badge/PHP-8.0--8.5-777BB4?style=for-the-badge&logo=php&logoColor=white)](https://www.php.net/)
-[![Release](https://img.shields.io/badge/Release-6.2.8-2563EB?style=for-the-badge&logo=github&logoColor=white)](https://github.com/sasou/php-gene/releases)
+[![Release](https://img.shields.io/badge/Release-6.2.9-2563EB?style=for-the-badge&logo=github&logoColor=white)](https://github.com/sasou/php-gene/releases)
 [![Swoole](https://img.shields.io/badge/Swoole-Ready-16A34A?style=for-the-badge)](https://www.swoole.com/)
 [![License](https://img.shields.io/badge/License-PHP_3.01-0F766E?style=for-the-badge)](http://www.php.net/license/3_01.txt)
 
@@ -191,7 +191,7 @@ class Home extends \Gene\Controller
     {
         return \Gene\Http\Response::json([
             'framework' => 'Gene',
-            'version' => '6.2.8',
+            'version' => '6.2.9',
         ]);
     }
 }

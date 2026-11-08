@@ -24,8 +24,8 @@
 | `gene.ctx_pool_max` | `256` | long | ctx 结构体池容量 |
 | `gene.ctx_pool_prewarm` | `0` | long | RINIT 自动预热数量（仅 Swoole） |
 | `gene.swoole_getcid_capi` | `1` | bool | 用 Swoole C-API 直接取协程 id（更快） |
-| `gene.cache_max_items` | `0` | long | 业务缓存分区上限（0=不限，>0 启用 LRU 淘汰） |
-| `gene.cache_reserve` | `4096` | long | 进程缓存哈希表桶预留容量；Swoole `workerReady()` 冻结前按此值预扩展。必须大于 `cache_max_items`；`<=` 时自动矫正为 `max_items + max(64, max_items/4)` 并记 warning |
+| `gene.cache_max_items` | `10000` | long | 业务缓存分区上限（`>0` 启用 LRU 淘汰，`0`=不限）；只淘汰 `Gene\Cache` 写入与 `rateLimit`/`lock` 键，框架元数据与 `Memory::set` 永不淘汰 |
+| `gene.cache_reserve` | `12800` | long | 进程缓存哈希表桶预留容量；Swoole `workerReady()` 冻结前按此值预扩展。必须大于 `cache_max_items`；`<=` 时自动矫正为 `max_items + max(64, max_items/4)` 并记 warning |
 | `gene.route_precompile` | `1` | bool | 路由预编译派发缓存（仅 Swoole；2026-11-04 起默认开启，`0` 回退慢路径） |
 | `gene.route_eval_compile` | `0` | bool | FPM/CLI（NTS）下把闭包路由、闭包/字符串钩子与错误处理器的派发程序写入 `{app_root}/Cache/Router/` 并经 opcache 执行，替代每请求 `eval`；需 opcache 已启用，否则、目录不可写或文件内容不符时自动回退 `eval`。代价：程序内 `__FILE__`/`__DIR__` 指向缓存文件，且不再继承 `Gene\Application` 类作用域（`self::`/`static::` 不可用） |
 | `gene.memory_business_zero_copy` | `0` | bool | FPM/CLI（NTS）下业务缓存（`processCached*` 等）命中时借用持久化不可变值，免深拷贝；被覆盖/删除/清空的旧值延迟到下一请求开始再释放。Swoole 下不生效 |
@@ -78,7 +78,7 @@ gene.co_contexts_max=16384       ; 协程上下文软上限
 
 ; —— 性能增强（opt-in，建议压测验证后开启） ——
 ; gene.route_precompile 默认已开启，路由预编译派发，消除每请求 hash 查找
-gene.cache_max_items=10000       ; 业务缓存 LRU 上限，防长跑内存膨胀
+; gene.cache_max_items=10000     ; 业务缓存 LRU 上限（默认即 10000），按 Monitor 水位调整
 ; gene.cache_fill_wait_ms=200    ; 热点 key 回源合并（先看 cache_fill_concurrent_max 再开）
 
 ; —— 模板 ——
@@ -103,16 +103,17 @@ $server->on('WorkerStart', function () {
   prewarm，prewarm 项为可选增强）。
 - **`co_contexts_max`**：默认 `1024` 对高并发 Swoole 偏小。按「单 worker 峰值协程 + 余量」
   显式设到 `4096~16384`，避免频繁 sweep；不要设过小以免误淘汰长寿协程。
-- **`cache_max_items=0`**：兼容保留的**无界**默认，长跑可能抬高 RSS。**代码不改默认**；
-  生产先用 `Gene\Monitor::stats()` 回采业务缓存分区水位，再显式设 LRU 上限（如 `10000`）。
+- **`cache_max_items`**：自 2026-11-08 起默认 `10000`（此前 `0` 无界，10 万个互异键约
+  +97MB/worker）。用 `Gene\Monitor::stats()` 回采业务缓存分区水位，热 key 多于上限时调大；
+  需要旧的无界行为显式设 `0`。
   `route_precompile` 自 2026-11-04 起默认开启，异常时置 `0` 回退。
 - **`run_environment`**：仅 `0`（dev）记录 SQL history/benchmark；默认 `1`（test）已关闭。
   生产设 `2`。
 - **`view_compile_check_mtime`**：默认 `1`（改模板即时生效，对开发友好），
   生产环境建议显式设 `0`（性能最优）。
 - **`cache_reserve`**：Swoole 下与 `cache_max_items` 联动。启用 LRU（`cache_max_items>0`）
-  时务必让 `cache_reserve > cache_max_items`（如 `cache_max_items=10000` 配
-  `cache_reserve=12500`），否则 `workerReady()` 会自动向上矫正并告警；
+  时务必让 `cache_reserve > cache_max_items`（默认 `10000` / `12800`；调大上限时同步调大，
+  建议 `>= max_items × 1.25`），否则 `workerReady()` 会自动向上矫正并告警；
   `Memory` 与 `Gene\Cache` 在冻结后共享这部分余量，高频新增 key 的业务可适当调大。
 
 ## 新增 API（2026-08-07 审计补全批次）
