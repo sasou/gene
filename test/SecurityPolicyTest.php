@@ -153,6 +153,20 @@ check("csrf scope: /admin/* same Origin admitted", $v === ['save']);
 check("csrf scope: false disables csrf for subtree", $v === ['save']);
 $app->csrf(null);
 
+/* ---------- csrf: port check vs TLS-offload chain ---------- */
+$tls = ['host' => 'a.test', 'origin' => 'https://a.test'];
+$app->csrf([]);
+[$v] = dispatch($app, 'POST', '/save', ['REMOTE_ADDR' => '8.8.8.8'], $tls);
+check("csrf port: https Origin vs plain-http Host denied by default", $v === []);
+$app->csrf(['port' => false]);
+[$v] = dispatch($app, 'POST', '/save', ['REMOTE_ADDR' => '8.8.8.8'], $tls);
+check("csrf port=false: https Origin admitted on host match", $v === ['save']);
+[$v] = dispatch($app, 'POST', '/save', ['REMOTE_ADDR' => '8.8.8.8'], ['host' => 'a.test:81', 'origin' => 'https://a.test:8443']);
+check("csrf port=false: explicit ports ignored", $v === ['save']);
+[$v] = dispatch($app, 'POST', '/save', ['REMOTE_ADDR' => '8.8.8.8'], ['host' => 'a.test', 'origin' => 'https://evil.test']);
+check("csrf port=false: foreign host still denied", $v === []);
+$app->csrf(null);
+
 /* ---------- readonly: globs, true, language prefix ---------- */
 $app->readonly(['/admin' => ['user' => ['list*', 'edit'], 'log' => true, '*' => []]]);
 [$v] = dispatch($app, 'GET', '/admin/user/listAll', ['REMOTE_ADDR' => '8.8.8.8']);

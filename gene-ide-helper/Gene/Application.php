@@ -194,6 +194,10 @@ class Application
      * Config: 'methods' => array, 'session' => component name,
      *         'origins' => array extra allowed origins, plus Fetch-Metadata
      *         and Origin/Referer enforcement per plan S2.
+     *         'port' => bool, compare Origin port with Host (default true);
+     *                   false = host-only match for multi-hop proxy chains
+     *                   (CDN 443 → gateway 80 → container 81) — cross-host
+     *                   Origins are still denied.
      *
      * @param array|null $config null → apply defaults
      * @return static

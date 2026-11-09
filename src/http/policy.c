@@ -464,8 +464,11 @@ static zend_bool gene_csrf_method_in(zval *cfg, const char *method, size_t mlen)
 
 /* Origin/Referer host (+effective port) must match Host. Ports normalized to
  * scheme defaults (https:443/http:80); a Host without a port takes the current
- * request scheme's default so an explicit non-default Origin port cannot slip. */
-static zend_bool gene_csrf_same_origin(zval *origin_zv, zval *host_zv) {
+ * request scheme's default so an explicit non-default Origin port cannot slip.
+ * check_port=0 ('port' => false) compares host only — for multi-hop proxy
+ * chains (CDN:443 → gateway:80 → container:81) where neither Host nor the
+ * forwarded scheme reliably reflects the browser-visible port. */
+static zend_bool gene_csrf_same_origin(zval *origin_zv, zval *host_zv, zend_bool check_port) {
 	const char *o, *h;
 	size_t olen, hlen;
 	php_url *u;
@@ -509,7 +512,7 @@ static zend_bool gene_csrf_same_origin(zval *origin_zv, zval *host_zv) {
 		}
 	}
 	ok = (ohost_len == hlen) && (strncasecmp(ohost, h, hlen) == 0);
-	if (ok) {
+	if (ok && check_port) {
 		/* Host without an explicit port takes the request-scheme default —
 		 * otherwise "Host: example.com" would wrongly match
 		 * "Origin: https://example.com:8443". */
@@ -663,7 +666,8 @@ static int gene_policy_csrf_eval(zval *cfg, const gene_policy_req *req) {
 	}
 	if (gene_policy_cfg_bool(cfg, ZEND_STRL("origin"), 1)) {
 		if (origin) {
-			if (!gene_csrf_same_origin(origin, host) && !gene_csrf_origin_allowed(cfg, origin)) {
+			if (!gene_csrf_same_origin(origin, host, gene_policy_cfg_bool(cfg, ZEND_STRL("port"), 1))
+				&& !gene_csrf_origin_allowed(cfg, origin)) {
 				gene_policy_deny(fail_msg ? ZSTR_VAL(fail_msg) : GENE_MSG_BAD_ORIGIN, fail_code);
 				return 1;
 			}
