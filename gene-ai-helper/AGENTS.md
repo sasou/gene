@@ -112,7 +112,7 @@ return User::query()->where(['status' => 1])->order('user_id DESC')->limit($star
 return $this->db->select('sys_user', 'user_id, user_name')
     ->where(['status' => 1])
     ->order('user_id DESC')
-    ->limit($start, $count)  // 偏移量, 行数
+    ->limit($start, $count)  // 仅 MySQL：偏移量, 行数。Sqlite/Pgsql/Mssql 双参是（行数, 偏移）
     ->all();
 ```
 

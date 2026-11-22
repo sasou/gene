@@ -19,6 +19,11 @@ namespace Gene\Orm;
 final class Query
 {
     /**
+     * 构造为 private，由 Model::query() 创建。
+     */
+    private function __construct() {}
+
+    /**
      * __destruct
      * 析构时 reset 共享的 DI Db 句柄（与终端方法执行后的 reset 构成双保险），
      * 避免链式状态跨请求/跨 Query 污染。

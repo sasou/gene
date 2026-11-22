@@ -3,43 +3,42 @@ namespace Gene;
 
 /**
  * Exception
- * 
+ *
+ * Extends \Exception. Only the methods below are declared by the extension;
+ * message/code/trace come from the parent.
+ *
  * @author  sasou<admin@php-gene.com>
  * @version  5.4.3
  */
- 
-class Exception
-{
-    protected $file;
-    protected $line;
-    protected $message;
-    protected $code;
-    protected $previous;
 
+class Exception extends \Exception
+{
     /**
      * setErrorHandler
-     * 
+     * $error_type omitted keeps the handler's default error mask.
+     *
      * @param mixed $callback callback
      * @param mixed $error_type error_type
-     * @return mixed
+     * @return bool
      */
-    public static function setErrorHandler($callback, $error_type) {
+    public static function setErrorHandler($callback, $error_type = null) {
 
     }
 
     /**
      * setExceptionHandler
-     * 
+     * No callback registers the built-in HTML handler.
+     *
      * @param mixed $callback callback
-     * @return mixed
+     * @return bool
      */
-    public static function setExceptionHandler($callback) {
+    public static function setExceptionHandler($callback = null) {
 
     }
 
     /**
      * doException
-     * 
+     *
      * @param mixed $ex ex
      * @return mixed
      */
@@ -49,7 +48,7 @@ class Exception
 
     /**
      * doError
-     * 
+     *
      * @param mixed $code code
      * @param mixed $msg msg
      * @param mixed $file file
@@ -57,109 +56,7 @@ class Exception
      * @param mixed $params params
      * @return mixed
      */
-    public static function doError($code, $msg, $file, $line, $params) {
-
-    }
-
-    /**
-     * __clone
-     * 
-     * @return mixed
-     */
-    private function __clone() {
-
-    }
-
-    /**
-     * __construct
-     * 
-     * @param mixed $message message
-     * @param mixed $code code
-     * @param mixed $previous previous
-     * @return mixed
-     */
-    public function __construct($message, $code, $previous) {
-
-    }
-
-    /**
-     * __wakeup
-     * 
-     * @return mixed
-     */
-    public function __wakeup() {
-
-    }
-
-    /**
-     * getMessage
-     * 
-     * @return mixed
-     */
-    public function getMessage() {
-
-    }
-
-    /**
-     * getCode
-     * 
-     * @return mixed
-     */
-    public function getCode() {
-
-    }
-
-    /**
-     * getFile
-     * 
-     * @return mixed
-     */
-    public function getFile() {
-
-    }
-
-    /**
-     * getLine
-     * 
-     * @return mixed
-     */
-    public function getLine() {
-
-    }
-
-    /**
-     * getTrace
-     * 
-     * @return mixed
-     */
-    public function getTrace() {
-
-    }
-
-    /**
-     * getPrevious
-     * 
-     * @return mixed
-     */
-    public function getPrevious() {
-
-    }
-
-    /**
-     * getTraceAsString
-     * 
-     * @return mixed
-     */
-    public function getTraceAsString() {
-
-    }
-
-    /**
-     * __toString
-     * 
-     * @return mixed
-     */
-    public function __toString() {
+    public static function doError($code, $msg, $file = null, $line = null, $params = null) {
 
     }
 

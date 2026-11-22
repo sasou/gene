@@ -5,7 +5,7 @@ namespace Gene;
  * Service
  * 
  * @property \Gene\Db\Mysql $db
- * @property \Gene\Cache\Memcache $memcache
+ * @property \Gene\Cache\Memcached $memcache
  * @property \Gene\Cache\Redis $redis
  * @property \Gene\Cache\Cache $cache
  * @property \Gene\Rest $rest
@@ -67,8 +67,8 @@ class Application
     /**
      * setMode
      * 
-     * @param int|null $error_type 错误处理类型：0=内置HTML，1=自定义
-     * @param int|null $exception_type 异常处理类型：0=内置HTML，1=自定义
+     * @param int|null $error_type 大于 0 才注册错误处理器：不传回调用内置 HTML，传入回调则自定义；0 或不传表示不注册
+     * @param int|null $exception_type 大于 0 才注册异常处理器，语义与 $error_type 相同
      * @param callable|null $ex_callback 自定义异常处理回调
      * @param callable|null $error_callback 自定义错误处理回调
      * @return static
@@ -96,7 +96,7 @@ class Application
      * @param mixed $error_type error_type
      * @return mixed
      */
-    public function error($type, $callback, $error_type = null) {
+    public function error($type, $callback = null, $error_type = null) {
 
     }
 

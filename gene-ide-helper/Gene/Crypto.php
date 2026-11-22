@@ -160,10 +160,11 @@ class Crypto
     /**
      * CSPRNG code of $len chars over $alphabet (default digits),
      * unbiased rejection sampling. CAPTCHA/2FA codes.
+     * $len is required: the engine arginfo rejects a zero-argument call.
      *
      * @param int $len 1..128
-     * @param string|null $alphabet 2..256 chars
+     * @param string|null $alphabet 2..256 chars; null uses the digit alphabet
      * @return string
      */
-    public static function randomCode($len = 6, $alphabet = null) {}
+    public static function randomCode($len, $alphabet = null) {}
 }

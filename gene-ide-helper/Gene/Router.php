@@ -17,14 +17,16 @@ namespace Gene;
 class Router
 {
     public $safe;
-    public $prefix;
+    /** Current group prefix. Maintained by group()/prefix(); the property name is group. */
+    public $group;
 
     /**
      * __construct
-     * 
+     *
+     * @param string|null $safe route-tree namespace
      * @return mixed
      */
-    public function __construct() {
+    public function __construct($safe = null) {
 
     }
 

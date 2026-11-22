@@ -115,10 +115,11 @@ class Memcached
 
     /**
      * __construct
-     * 
+     *
+     * @param array $config servers / persistent / options / serializer / ttl
      * @return mixed
      */
-    public function __construct() {
+    public function __construct($config) {
 
     }
 

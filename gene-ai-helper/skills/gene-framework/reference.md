@@ -51,7 +51,7 @@
 | getInstance($safe = null) | 获取/创建单例实例 |
 | autoload($app_root = null, $auto_function = null) | 设置应用根目录及自定义自动加载函数，返回 $this |
 | load($file, $path = null, $validity = null) | 加载配置/路由文件，`$path` 默认用 APP_ROOT，`$validity` 为文件变更检测间隔（秒），返回 $this |
-| setMode($error_type = null, $exception_type = null, $ex_callback = null, $error_callback = null) | 设置错误（1=内置HTML）与异常处理器，返回 $this |
+| setMode($error_type = null, $exception_type = null, $ex_callback = null, $error_callback = null) | `$error_type` / `$exception_type` 大于 0 才注册处理器：不传回调时用内置 HTML，传入回调则自定义；0 或不传表示不注册。返回 $this |
 | setView($view = null, $tpl_ext = null) | 设置视图目录名与模板后缀，返回 $this |
 | error($type, $callback = null, $error_type = null) | 注册错误处理回调，返回 $this |
 | exception($type, $callback = null) | 注册异常处理回调，返回 $this |
@@ -218,7 +218,7 @@ $rest->use('user')->call('Ping', 'pong', $params);
 | displayExt($file, $parent_file = null, $isCompile = false) | 扩展渲染（编译模板引擎） |
 | contains() | 返回子视图文件路径 |
 | containsExt() | 返回子视图编译文件路径 |
-| render($template, $vars = []) | 渲染模板并返回字符串（不输出）；`assign()` 的变量与 `$vars` 均可用 |
+| render($file, $parent_file = null) | 与 `display()` 相同的模板解析，输出捕获为字符串且不清理 `assign()`；第二参是 layout 模板名，不是变量数组 |
 | clearAssign() | 清除所有已赋值的视图变量 |
 | url($path) | 带语言前缀的 URL |
 | getPath($withoutLang = false) | 当前请求路径；`true` 时去除语言前缀 |
@@ -234,7 +234,7 @@ $rest->use('user')->call('Ping', 'pong', $params);
 
 ## Router
 
-路由配置与调度。含 `$safe`、`$prefix` 属性。
+路由配置与调度。公开属性是 `$safe` 与 `$group`（当前分组前缀，由 `group()` / `prefix()` 维护）。
 
 | 方法 | 说明 |
 |------|------|
@@ -319,7 +319,7 @@ $title = $this->language->login_title; // 读取键值
 |------|------|
 | getInstance() | 获取容器单例 |
 | instance($class, $params = []) | 显式实例化一个类（走工厂加载 + 构造参数转发），不写入容器注册表——每次调用产生新对象，适用于瞬态/值对象；类不存在返回 `null` |
-| alias($alias, $target) | 注册服务别名；后续 `instance($alias)` 先解析别名到目标服务再查注册表 |
+| alias($name, $alias) | 静态。把 `$alias` 登记为服务 `$name` 的另一查找名；`get()` / `has()` / `instance()` 解析（最多 8 跳，环路视为未命中），不实例化 |
 | get($name) | 获取已注册对象（优先内存，再读 config 自动创建） |
 | has($name) | 判断容器中是否存在指定 key |
 | set($name, $value) | 向容器注册对象或值 |
@@ -669,7 +669,7 @@ $list = $this->db
 | union($query, $all = false) | UNION / UNION ALL；$query 可为 SQL 字符串或构建器对象（6.1.0+） |
 | reset() | 重置构建器状态（sql/join/where/group/having/union/order/limit/data），便于复用同一实例（6.1.0+） |
 | sql($sql, $fields = null) | 设置原始 SQL，返回 $this |
-| limit($num, $offset = null) | 单参时 `$num` 为返回行数，生成 `LIMIT $num`；双参时 `$num` 为偏移量、`$offset` 为返回行数，生成 `LIMIT $num, $offset`，返回 $this |
+| limit($num, $offset = null) | 单参时 `$num` 为返回行数，生成 `LIMIT $num`；双参时 `$num` 为偏移量、`$offset` 为返回行数，生成 `LIMIT $num, $offset`，返回 $this。Sqlite/Pgsql/Mssql 双参顺序相反（行数, 偏移），见各驱动小节 |
 | order($order), group($group), having($having) | ORDER BY / GROUP BY / HAVING，返回 $this |
 | orderBy($column, $direction = 'ASC', $allow = null) | **用户排序字段唯一入口**：列须命中 `$allow`（列表或 别名=>列 映射），无 `$allow` 时须为纯标识符/点路径，方向仅 ASC/DESC，违规抛 `ValueError`；`order()` 留给表达式，禁止再接用户输入（6.2.8+） |
 | lockForUpdate() | SELECT ... FOR UPDATE（MySQL/Pgsql）；Sqlite no-op+E_NOTICE；Mssql 抛异常；须在事务内（6.1.0+） |
@@ -693,7 +693,7 @@ $list = $this->db
 ## Gene\Db\Sqlite
 
 SQLite 数据库。API 与 Mysql 一致，差异如下：
-- `limit($num, $offset)` 生成 `LIMIT $offset OFFSET $num`
+- `limit($num, $offset)` 生成 `LIMIT $num OFFSET $offset`（`$num` 为返回行数，`$offset` 为偏移量；与 MySQL 双参「偏移, 行数」相反）
 - `insertIgnore` 走 `INSERT OR IGNORE`（6.1.0+）；`upsert` 抛异常（用 `sql()` + ON CONFLICT）
 - `lockForUpdate`/`sharedLock`：no-op + E_NOTICE（SQLite 写锁为整库级，6.1.0+）
 - `attach($path, $schema)` / `detach($schema)`：附加/分离外部 SQLite 数据库文件
@@ -703,7 +703,7 @@ SQLite 数据库。API 与 Mysql 一致，差异如下：
 ## Gene\Db\Pgsql
 
 PostgreSQL 数据库。API 与 Mysql 一致，差异如下：
-- `limit($num, $offset)` 生成 `LIMIT $offset OFFSET $num`
+- `limit($num, $offset)` 生成 `LIMIT $num OFFSET $offset`（`$num` 为返回行数，`$offset` 为偏移量；与 MySQL 双参「偏移, 行数」相反）
 - `insertIgnore`/`upsert` 抛异常（用 `sql()` + ON CONFLICT DO NOTHING/UPDATE，6.1.0+）
 - `lockForUpdate` → `FOR UPDATE`；`sharedLock` → `FOR SHARE`（6.1.0+）
 
@@ -712,7 +712,7 @@ PostgreSQL 数据库。API 与 Mysql 一致，差异如下：
 ## Gene\Db\Mssql
 
 MS SQL Server 数据库。API 与 Mysql 一致，差异如下：
-- 表名使用方括号包裹；`limit($num, $offset)` 生成 `OFFSET $num ROWS FETCH NEXT $offset ROWS ONLY`
+- 表名使用方括号包裹；`limit($num)` 生成 `OFFSET 0 ROWS FETCH NEXT $num ROWS ONLY`，`limit($num, $offset)` 生成 `OFFSET $offset ROWS FETCH NEXT $num ROWS ONLY`（`$num` 为返回行数，`$offset` 为偏移量）
 - `insertIgnore`/`upsert` 抛异常（用 `sql()` + MERGE/IF NOT EXISTS，6.1.0+）
 - `lockForUpdate`/`sharedLock` 抛异常（WITH (UPDLOCK)/HOLDLOCK 是表提示，需写在 FROM 处，6.1.0+）
 
@@ -1008,7 +1008,7 @@ $sig = \Gene\Crypto::hmacSign($canonical, $secret);
 | totpSecret($bytes = 20) | 随机 base32 TOTP 密钥（RFC 4648 无填充，10..64 字节） |
 | totp($secret, $ts = 0, $step = 30, $digits = 6) | 生成 TOTP 码（RFC 6238），`$ts=0` 取当前时间，返回零填充数字串 |
 | totpVerify($secret, $code, $window = 1, $step = 30, $digits = 6, $opts = null) | 校验 TOTP；`$opts['used']` 传存储对象（Memory/Redis 形）时通过的码在窗口内打一次性标记，同码重放拒绝、相邻步新码放行 |
-| randomCode($len = 6, $alphabet = null) | CSPRNG 随机码（默认数字字母表，无偏拒绝采样），CAPTCHA/2FA 用，替代 `rand()` |
+| randomCode($len, $alphabet = null) | CSPRNG 随机码，`$len` 必填（1..128），`$alphabet` 缺省为数字表，无偏拒绝采样。CAPTCHA/2FA 用，替代 `rand()` |
 
 限流：单 worker 用 `Memory::rateLimit`；多 worker / Swoole 用 `Redis::rateLimit`（Lua）；失败计数语义用 `Gene\Throttle`。
 
@@ -1032,9 +1032,9 @@ IP 字面量 / CIDR 工具，与可信代理解析、内网门禁共用同一解
 
 | 方法 | 说明 |
 |------|------|
-| token() | 会话级令牌（首次创建后稳定）；经 `field()` 渲染进表单或读出用于 `X-CSRF-Token` 头 |
-| check($token = null) | 与会话令牌常数时间比较；`$token` 缺省读 `X-CSRF-Token` 头再读 `$_POST['_token']`/JSON 体；只读——失败不创建不轮换 |
-| field() | 输出隐藏表单域 `<input type="hidden" name="_token" value="...">` |
+| token($cfg = null) | 会话级令牌（首次创建后稳定）；经 `field()` 渲染进表单或读出用于 `X-CSRF-Token` 头。`$cfg` 可覆盖当前路径的 csrf 作用域 |
+| check($token = null, $cfg = null) | 与会话令牌常数时间比较；`$token` 缺省读 `X-CSRF-Token` 头再读 `$_POST['_token']`/JSON 体；只读——失败不创建不轮换。`$cfg` 同上 |
+| field($cfg = null) | 输出隐藏表单域 `<input type="hidden" name="_token" value="...">`。`$cfg` 同上 |
 
 ---
 

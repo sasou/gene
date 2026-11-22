@@ -194,14 +194,16 @@ class View
 
     /**
      * render
-     * Render a template and return the output as a string without sending
-     * it to the response. Variables assigned via assign() are available.
+     * Same template resolution as display(), but the output is captured and
+     * returned as a string. Does not clear assigned variables, so one assign
+     * set can feed several renders. The second argument is the layout
+     * template, not a variable bag.
      *
-     * @param string $template template file path relative to view root
-     * @param array $vars optional extra variables for this render only
-     * @return string rendered template output
+     * @param string $file template path relative to the view root
+     * @param string|null $parent_file layout template; $file is nested into it
+     * @return string|false rendered output, or false if the output buffer fails to start
      */
-    public function render(string $template, array $vars = []) {
+    public function render($file, $parent_file = null) {
 
     }
 
@@ -209,7 +211,7 @@ class View
      * clearAssign
      * Clear all previously assigned view variables.
      *
-     * @return $this
+     * @return bool
      */
     public function clearAssign() {
 

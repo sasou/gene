@@ -98,7 +98,7 @@ class Response
      * @param mixed $value value
      * @return mixed
      */
-    public static function header($key, $value = null) {
+    public static function header($key, $value) {
 
     }
 

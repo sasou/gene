@@ -128,14 +128,15 @@ class Di
 
     /**
      * alias
-     * Register a service alias. Subsequent instance($name) calls resolve
-     * the alias to its target service before the registry lookup.
+     * Register $alias as another lookup name for the service $name.
+     * get(), has() and instance() resolve it (up to 8 hops; a cycle misses).
+     * Does not instantiate anything.
      *
-     * @param string $alias alias name
-     * @param string $target target service name
-     * @return $this
+     * @param string $name registered or lazily loadable service name
+     * @param string $alias alternate lookup name
+     * @return bool
      */
-    public function alias(string $alias, string $target) {
+    public static function alias(string $name, string $alias) {
 
     }
 

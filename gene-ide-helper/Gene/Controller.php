@@ -260,12 +260,13 @@ class Controller
 
     /**
      * assign
-     * 
+     * Static. Writes a view variable into the same store as View::assign().
+     *
      * @param mixed $name
      * @param mixed $value
-     * @return mixed
+     * @return null
      */
-    public function assign($name, $value) {
+    public static function assign($name, $value) {
 
     }
 

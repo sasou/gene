@@ -124,7 +124,7 @@ $server->on('WorkerStart', function () {
 
 | 类 | 方法 | 说明 |
 |----|------|------|
-| `Gene\Di` | `alias($alias, $target)` | 服务别名，`instance($alias)` 解析到目标服务 |
+| `Gene\Di` | `alias($name, $alias)` | 静态。`$alias` 是服务 `$name` 的另一查找名，`get()` / `has()` / `instance()` 解析 |
 | `Gene\Request` | `isSecure()` | 判断当前请求是否 HTTPS/TLS |
 | `Gene\Memory` | `mget(array $keys)` | 批量获取缓存值 |
 | `Gene\Memory` | `mset(array $items, int $ttl)` | 批量设置缓存值 |
@@ -135,7 +135,7 @@ $server->on('WorkerStart', function () {
 
 | 类 | 方法 | 说明 |
 |----|------|------|
-| `Gene\View` | `render($template, array $vars)` | 渲染模板返回字符串 |
+| `Gene\View` | `render($file, $parent_file = null)` | 渲染模板并返回字符串；第二参是 layout，不是变量数组 |
 | `Gene\View` | `clearAssign()` | 清除所有已赋值变量 |
 | `Gene\Response` | `getStatusCode()` | 获取当前 HTTP 状态码 |
 | `Gene\Response` | `isSent()` | 判断响应是否已发送 |

@@ -5,7 +5,7 @@ namespace Gene\Db;
  * Service
  * 
  * @property \Gene\Db\Mysql $mydb
- * @property \Gene\Cache\Memcache $memcache
+ * @property \Gene\Cache\Memcached $memcache
  * @property \Gene\Cache\Redis $redis
  * @property \Gene\Cache\Cache $cache
  * @property \Gene\Rest $rest
@@ -77,7 +77,7 @@ class Mysql
      * @param mixed $fields fields
      * @return mixed
      */
-    public function insert($table, $fields) {
+    public function insert($table, $fields = null) {
 
     }
 
@@ -88,7 +88,7 @@ class Mysql
      * @param mixed $fields fields
      * @return mixed
      */
-    public function batchInsert($table, $fields) {
+    public function batchInsert($table, $fields = null) {
 
     }
 
@@ -100,7 +100,7 @@ class Mysql
      * @param array $fields
      * @return static
      */
-    public function insertIgnore($table, $fields) {
+    public function insertIgnore($table, $fields = null) {
 
     }
 
@@ -113,7 +113,7 @@ class Mysql
      * @param array $updateCols 冲突时要更新的列名（非空，否则抛异常）
      * @return static
      */
-    public function upsert($table, $fields, $updateCols) {
+    public function upsert($table, $fields = null, $updateCols = null) {
 
     }
 
@@ -124,7 +124,7 @@ class Mysql
      * @param mixed $fields fields
      * @return mixed
      */
-    public function update($table, $fields) {
+    public function update($table, $fields = null) {
 
     }
 

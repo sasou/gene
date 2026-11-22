@@ -5,7 +5,7 @@ namespace Gene\Db;
  * Service
  * 
  * @property \Gene\Db\Pgsql $pgdb
- * @property \Gene\Cache\Memcache $memcache
+ * @property \Gene\Cache\Memcached $memcache
  * @property \Gene\Cache\Redis $redis
  * @property \Gene\Cache\Cache $cache
  * @property \Gene\Rest $rest
@@ -55,7 +55,7 @@ class Pgsql
      * @param mixed $fields fields
      * @return mixed
      */
-    public function select($table, $fields) {
+    public function select($table, $fields = null) {
 
     }
 
@@ -66,7 +66,7 @@ class Pgsql
      * @param mixed $fields fields
      * @return mixed
      */
-    public function count($table, $fields) {
+    public function count($table, $fields = null) {
 
     }
 
@@ -77,7 +77,7 @@ class Pgsql
      * @param mixed $fields fields
      * @return mixed
      */
-    public function insert($table, $fields) {
+    public function insert($table, $fields = null) {
 
     }
 
@@ -88,7 +88,7 @@ class Pgsql
      * @param mixed $fields fields
      * @return mixed
      */
-    public function batchInsert($table, $fields) {
+    public function batchInsert($table, $fields = null) {
 
     }
 
@@ -99,7 +99,7 @@ class Pgsql
      * @param mixed $fields fields
      * @return mixed
      */
-    public function update($table, $fields) {
+    public function update($table, $fields = null) {
 
     }
 
@@ -209,14 +209,14 @@ class Pgsql
      * @param mixed $fields fields
      * @return mixed
      */
-    public function sql($sql, $fields) {
+    public function sql($sql, $fields = null) {
 
     }
 
     /**
      * limit
      *
-     * PostgreSQL 语法：LIMIT offset OFFSET num
+     * PostgreSQL：单参 `LIMIT $num`；双参 `LIMIT $num OFFSET $offset`（$num 为返回行数，$offset 为偏移量，与 MySQL 双参顺序相反）
      *
      * @param int $num 返回行数
      * @param int|null $offset 偏移量
@@ -234,7 +234,7 @@ class Pgsql
      * @param array $fields
      * @return static
      */
-    public function insertIgnore($table, $fields) {
+    public function insertIgnore($table, $fields = null) {
 
     }
 

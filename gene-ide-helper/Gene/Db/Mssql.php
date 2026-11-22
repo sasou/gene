@@ -5,7 +5,7 @@ namespace Gene\Db;
  * Service
  * 
  * @property \Gene\Db\Mssql $msdb
- * @property \Gene\Cache\Memcache $memcache
+ * @property \Gene\Cache\Memcached $memcache
  * @property \Gene\Cache\Redis $redis
  * @property \Gene\Cache\Cache $cache
  * @property \Gene\Rest $rest
@@ -55,7 +55,7 @@ class Mssql
      * @param mixed $fields fields
      * @return mixed
      */
-    public function select($table, $fields) {
+    public function select($table, $fields = null) {
 
     }
 
@@ -66,7 +66,7 @@ class Mssql
      * @param mixed $fields fields
      * @return mixed
      */
-    public function count($table, $fields) {
+    public function count($table, $fields = null) {
 
     }
 
@@ -77,7 +77,7 @@ class Mssql
      * @param mixed $fields fields
      * @return mixed
      */
-    public function insert($table, $fields) {
+    public function insert($table, $fields = null) {
 
     }
 
@@ -88,7 +88,7 @@ class Mssql
      * @param mixed $fields fields
      * @return mixed
      */
-    public function batchInsert($table, $fields) {
+    public function batchInsert($table, $fields = null) {
 
     }
 
@@ -99,7 +99,7 @@ class Mssql
      * @param mixed $fields fields
      * @return mixed
      */
-    public function update($table, $fields) {
+    public function update($table, $fields = null) {
 
     }
 
@@ -209,17 +209,17 @@ class Mssql
      * @param mixed $fields fields
      * @return mixed
      */
-    public function sql($sql, $fields) {
+    public function sql($sql, $fields = null) {
 
     }
 
     /**
      * limit
      *
-     * SQL Server 语法：OFFSET num ROWS FETCH NEXT offset ROWS ONLY
+     * SQL Server：单参 `OFFSET 0 ROWS FETCH NEXT $num ROWS ONLY`；双参 `OFFSET $offset ROWS FETCH NEXT $num ROWS ONLY`（$num 为返回行数，$offset 为偏移量，与 MySQL 双参顺序相反）
      *
-     * @param int $num OFFSET 行数
-     * @param int|null $offset FETCH NEXT 行数
+     * @param int $num 返回行数
+     * @param int|null $offset 偏移量
      * @return static
      */
     public function limit($num, $offset = null) {
@@ -234,7 +234,7 @@ class Mssql
      * @param array $fields
      * @return static
      */
-    public function insertIgnore($table, $fields) {
+    public function insertIgnore($table, $fields = null) {
 
     }
 
